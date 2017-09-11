@@ -29,15 +29,15 @@ Request <- R6::R6Class("Request",
             self$method = method
             self$params = params
         },
-        to_json = function(x) {
+        to_json = function() {
             payload = list()
-            payload$jsonrpc = jsonlite::unbox(self$jsonrpc)
-            payload$id = jsonlite::unbox(self$id)
+            payload$jsonrpc = self$jsonrpc
+            payload$id = self$id
             payload$method = jsonlite::unbox(self$method)
             if (!is.null(self$params)) {
                 payload$params = self$params
             }
-            jsonlite::toJSON(payload)
+            jsonlite::toJSON(payload, auto_unbox=TRUE)
         }
     )
 )
@@ -52,14 +52,40 @@ Notification <- R6::R6Class("Notification",
             self$method = method
             self$params = params
         },
-        to_json = function(x) {
+        to_json = function() {
             payload = list()
             payload$jsonrpc = jsonlite::unbox(self$jsonrpc)
             payload$method = jsonlite::unbox(self$method)
             if (!is.null(self$params)) {
                 payload$params = self$params
             }
-            jsonlite::toJSON(payload)
+            jsonlite::toJSON(payload, auto_unbox=TRUE)
+        }
+    )
+)
+
+
+Response <- R6::R6Class("Response",
+    inherit = Message,
+    public = list(
+        id = NULL,
+        result = NULL,
+        error = NULL,
+        initialize = function(id, result=NULL, error=NULL) {
+            self$result = result
+            self$error = error
+        },
+        to_json = function() {
+            payload = list()
+            payload$jsonrpc = self$jsonrpc
+            payload$id = self$id
+            if (!is.null(self$result)) {
+                payload$result = self$result
+            }
+            if (!is.null(self$error)) {
+                payload$error = self$error
+            }
+            jsonlite::toJSON(payload, auto_unbox=TRUE)
         }
     )
 )
