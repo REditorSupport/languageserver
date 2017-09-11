@@ -1,0 +1,17 @@
+Package: languageserver
+Type: Package
+Title: An implementation of the Language Server Protocol for R
+Version: 0.1.0
+Date: 2017-09-10
+Author: Randy Lai
+Maintainer: Randy Lai <randy.cs.lai@gmail.com>
+Description: An implementation of the Language Server Protocol for R
+License: MIT
+Imports:
+    formatR,
+    lintr,
+    jsonlite,
+    R6
+Encoding: UTF-8
+LazyData: true
+RoxygenNote: 6.0.1
