@@ -6,6 +6,7 @@
 LanguageServer <- R6::R6Class("LanguageServer",
     public = list(
         logger = NULL,
+        stdout = NULL,
         will_exit = NULL,
 
         processId = NULL,
@@ -13,8 +14,17 @@ LanguageServer <- R6::R6Class("LanguageServer",
         initializationOptions = NULL,
         capabilities = NULL,
 
-        initialize = function() {
+        initialize = function(stdout) {
             self$logger <- logging$get_logger()
+            if (stdout == "stdout"){
+                self$stdout <- stdout()
+            } else {
+                self$stdout <- stdout
+            }
+        },
+
+        deliver = function(message) {
+            cat(message$format(), file = self$stdout)
         },
 
         handle_raw = function(data) {

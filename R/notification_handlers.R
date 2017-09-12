@@ -6,6 +6,10 @@ on_exit <- function(self, params) {
     self$will_exit <- TRUE
 }
 
+cancelRequest <- function(self, params) {
+
+}
+
 workspacedidChangeConfiguration <- function(self, params) {
 
 }

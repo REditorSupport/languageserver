@@ -3,10 +3,9 @@ Message <- R6::R6Class("Message",
         jsonrpc = 2,
         to_json = function() {
         },
-        deliver = function() {
-            data <- self$to_json()
-            buffer <- paste0("Content-Length: ", nchar(data, type = "bytes"), "\r\n\r\n", data)
-            cat(buffer, file = stdout())
+        format = function() {
+            json <- self$to_json()
+            paste0("Content-Length: ", nchar(json, type = "bytes"), "\r\n\r\n", json)
         }
     )
 )

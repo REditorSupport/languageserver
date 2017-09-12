@@ -5,7 +5,7 @@ on_initialize <- function(self, id, params) {
     self$rootUri <- params$rootUri
     self$initializationOptions <- params$initializationOptions
     self$capabilities <- params$capabilities
-    Response$new(id = id, result = list(capabilities = ServerCapabilities))$deliver()
+    self$deliver(Response$new(id = id, result = list(capabilities = ServerCapabilities)))
 }
 
 on_shutdown <- function(self, id, params) {
