@@ -2,9 +2,9 @@
 server <- function(debug=FALSE){
     logging$set_logger(debug)
     logger <- logging$get_logger()
-    langserver = languageserver()
+    langserver <- LanguageServer$new()
     con <- file("stdin")
-    open(con, blocking=TRUE)
+    open(con, blocking = TRUE)
     while (TRUE) {
         ret <- try({
             header <- readLines(con, n = 1)
@@ -20,7 +20,7 @@ server <- function(debug=FALSE){
             data <- readChar(con, as.numeric(matches[2]), useBytes = TRUE)
             langserver$handle_raw(data)
         })
-        if(inherits(ret, "error") || isTRUE(langserver$will_exit)) {
+        if (inherits(ret, "error") || isTRUE(langserver$will_exit)) {
             logger$error("exiting")
             break
         }
