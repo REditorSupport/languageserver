@@ -11,6 +11,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
 
         processId = NULL,
         rootUri = NULL,
+        rootPath = NULL,
         initializationOptions = NULL,
         capabilities = NULL,
 

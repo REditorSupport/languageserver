@@ -6,5 +6,6 @@ request_handlers <- list(
 notification_handlers <- list(
     initialized = on_initialized,
     exit = on_exit,
-    `textDocument/didOpen` = textDocumentdidOpen
+    `textDocument/didOpen` = textDocumentdidOpen,
+    `textDocument/didSave` = textDocumentdidSave
 )

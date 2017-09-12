@@ -1,3 +1,7 @@
+parse_uri <- function(uri) {
+    stringr::str_sub(uri, start = 8)
+}
+
 str_empty <- function(s) {
     stringr::str_length(stringr::str_trim(s)) == 0
 }
