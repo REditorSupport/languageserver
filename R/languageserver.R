@@ -7,6 +7,7 @@ languageserver <- function() {
     LanguageServer <- R6::R6Class("LanguageServer",
         public = list(
             logger = NULL,
+            will_exit = NULL,
             initialize = function() {
                 self$logger = logging$get_logger()
             },
@@ -44,7 +45,8 @@ languageserver <- function() {
                 }
             },
             notification_handlers = list(
-                initialized = on_initialized
+                initialized = on_initialized,
+                exit = on_exit
             ),
             handle_notification = function(notification) {
                 method <- notification$method

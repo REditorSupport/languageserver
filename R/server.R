@@ -20,7 +20,7 @@ server <- function(debug=FALSE){
             data <- readChar(con, as.numeric(matches[2]), useBytes = TRUE)
             langserver$handle_raw(data)
         })
-        if(inherits(ret, "error")) {
+        if(inherits(ret, "error") || isTRUE(langserver$will_exit)) {
             logger$error("exiting")
             break
         }
