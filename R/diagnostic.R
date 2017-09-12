@@ -39,11 +39,11 @@ diagnose_file <- function(path) {
     diagnostics
 }
 
-publishDiagnostics <- function(self, uri) {
+publish_diagnostics <- function(self, uri) {
     path <- parse_uri(uri)
     diagnostics <- diagnose_file(path)
     self$deliver(Notification$new(
-        method = "textDocument/publishDiagnostics",
+        method = "textDocument/publish_diagnostics",
         params = list(
             uri = uri,
             diagnostics = diagnostics
