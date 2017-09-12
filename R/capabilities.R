@@ -7,7 +7,7 @@ TextDocumentSyncKind.Full <- 1
 TextDocumentSyncKind.Incremental <- 2
 
 TextDocumentSyncOptions <- list(
-    openClose = FALSE,
+    openClose = TRUE,
     change = TextDocumentSyncKind.Full,
     willSave = FALSE,
     willSaveWaitUntil = FALSE,
@@ -41,9 +41,9 @@ ExecuteCommandOptions <- list(
 )
 
 ServerCapabilities <- list(
-    # textDocumentSync = TextDocumentSyncOptions,
+    textDocumentSync = TextDocumentSyncOptions,
     # hoverProvider = FALSE,
-    completionProvider = CompletionOptions,
+    completionProvider = CompletionOptions
     # signatureHelpProvider = SignatureHelpOptions,
     # definitionProvider = FALSE,
     # referencesProvider = FALSE
