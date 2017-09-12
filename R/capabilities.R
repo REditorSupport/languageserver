@@ -1,21 +1,14 @@
-ParseError = -32700;
-InvalidRequest = -32600;
-MethodNotFound = -32601;
-InvalidParams = -32602;
-InternalError = -32603;
-serverErrorStart = -32099;
-serverErrorEnd = -32000;
-ServerNotInitialized = -32002;
-UnknownErrorCode = -32001;
-RequestCancelled = -32800;
-
 SaveOptions <- list(
     includeText = 0
 )
 
+TextDocumentSyncKind.None <- 0
+TextDocumentSyncKind.Full <- 1
+TextDocumentSyncKind.Incremental <- 2
+
 TextDocumentSyncOptions <- list(
     openClose = FALSE,
-    change = 0,
+    change = TextDocumentSyncKind.Full,
     willSave = FALSE,
     willSaveWaitUntil = FALSE,
     save = SaveOptions
@@ -50,10 +43,10 @@ ExecuteCommandOptions <- list(
 ServerCapabilities <- list(
     # textDocumentSync = TextDocumentSyncOptions,
     # hoverProvider = FALSE,
-    # completionProvider = CompletionOptions,
+    completionProvider = CompletionOptions,
     # signatureHelpProvider = SignatureHelpOptions,
-    definitionProvider = FALSE,
-    referencesProvider = FALSE
+    # definitionProvider = FALSE,
+    # referencesProvider = FALSE
     # documentHighlightProvider = FALSE,
     # documentSymbolProvider = FALSE,
     # workspaceSymbolProvider = FALSE,
