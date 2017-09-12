@@ -1,9 +1,17 @@
 result_range <- function(result) {
     line <- result$line_number - 1
-    list(
-        start = list(line = line, character = result$ranges[[1]][1] - 1),
-        end = list(line = line, character = result$ranges[[1]][2])
-    )
+    column <- result$column_number - 1
+    if (is.null(result$ranges)) {
+        list(
+            start = list(line = line, character = column),
+            end = list(line = line, character = column + 1)
+        )
+    } else {
+        list(
+            start = list(line = line, character = result$ranges[[1]][1] - 1),
+            end = list(line = line, character = result$ranges[[1]][2])
+        )
+    }
 }
 
 result_severity <- function(result) {
