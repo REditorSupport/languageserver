@@ -1,5 +1,5 @@
 #' @export
-server <- function(debug=FALSE, stdin="stdin", stdout="stdout"){
+run <- function(debug=FALSE, stdin="stdin", stdout="stdout"){
     logging$set_logger(debug)
     logger <- logging$get_logger()
     langserver <- LanguageServer$new(stdout = stdout)

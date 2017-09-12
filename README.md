@@ -1,9 +1,9 @@
 # languageserver: An implementation of the Language Server Protocol for R
 
-`languageserver::server()` reads and writes from STDIN/STDOT following Microsoft's [Language Server Protocol](https://github.com/Microsoft/language-server-protocol/blob/master/protocol.md).
+`languageserver::run()` reads and writes from STDIN/STDOT following Microsoft's [Language Server Protocol](https://github.com/Microsoft/language-server-protocol/blob/master/protocol.md).
 
 ```r
-R --quiet --slave -e 'languageserver::server()'
+R --quiet --slave -e 'languageserver::run()'
 ```
 
 ## Language Clients
