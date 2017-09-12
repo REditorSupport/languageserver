@@ -1,19 +1,12 @@
-ParseError = -32700;
-InvalidRequest = -32600;
-MethodNotFound = -32601;
-InvalidParams = -32602;
-InternalError = -32603;
-serverErrorStart = -32099;
-serverErrorEnd = -32000;
-ServerNotInitialized = -32002;
-UnknownErrorCode = -32001;
-RequestCancelled = -32800;
-
-
 Message <- R6::R6Class("Message",
     public = list(
         jsonrpc = 2,
-        to_json = function(x) {}
+        to_json = function() {},
+        deliver = function() {
+            data = self$to_json()
+            buffer = paste0("Content-Length: ", nchar(data, type = "bytes"), "\r\n\r\n", data)
+            cat(buffer, file = stdout())
+        }
     )
 )
 
@@ -72,6 +65,7 @@ Response <- R6::R6Class("Response",
         result = NULL,
         error = NULL,
         initialize = function(id, result=NULL, error=NULL) {
+            self$id = id
             self$result = result
             self$error = error
         },

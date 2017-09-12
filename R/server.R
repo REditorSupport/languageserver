@@ -2,7 +2,7 @@
 server <- function(debug=FALSE){
     logging$set_logger(debug)
     logger <- logging$get_logger()
-    languageserver = LanguageServer$new()
+    langserver = languageserver()
     con <- file("stdin")
     open(con, blocking=TRUE)
     while (TRUE) {
@@ -18,7 +18,7 @@ server <- function(debug=FALSE){
             if (!str_empty(empty_line)) stop("Unexpected non-empty line")
 
             data <- readChar(con, as.numeric(matches[2]), useBytes = TRUE)
-            languageserver$handle_raw(data)
+            langserver$handle_raw(data)
         })
         if(inherits(ret, "error")) {
             logger$error("exiting")

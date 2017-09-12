@@ -5,7 +5,15 @@ str_empty <- function(s) {
 log_write <- function(...){
     dots <- list(...)
     str <- sapply(
-        dots, function(x) if (length(x) > 1) jsonlite::toJSON(x, auto_unbox = TRUE) else x)
+        dots, function(x) {
+            tryCatch({
+            if (length(x) > 1)
+                jsonlite::toJSON(x, auto_unbox = TRUE)
+            else
+                x
+            },
+            error = function(e) x)
+        })
     cat(paste0(paste(str, collapse = ""), "\n"), file = stderr())
 }
 
