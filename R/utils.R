@@ -24,7 +24,7 @@ log_write <- function(...){
 Logger <- R6::R6Class("Logger",
     public = list(
         debug = NULL,
-        initialize = function(debug) {
+        set_mode = function(debug) {
             self$debug <- debug
         },
         error = function(...){
@@ -38,17 +38,4 @@ Logger <- R6::R6Class("Logger",
     )
 )
 
-Logging <- R6::R6Class("Logging",
-    public = list(
-        logger = NULL,
-        set_logger = function(debug) {
-            self$logger <- Logger$new(debug)
-            self$logger
-        },
-        get_logger = function() {
-            self$logger
-        }
-    )
-)
-
-logging <- Logging$new()
+logger <- Logger$new()

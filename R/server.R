@@ -1,21 +1,23 @@
 #' @export
-run <- function(debug=FALSE, stdin="stdin", stdout="stdout"){
-    logging$set_logger(debug)
-    logger <- logging$get_logger()
+run <- function(debug = FALSE, stdin = "stdin", stdout = "stdout") {
+    logger$set_mode(debug = debug)
     langserver <- LanguageServer$new(stdout = stdout)
     con <- file(stdin)
     open(con, blocking = TRUE)
     while (TRUE) {
         ret <- try({
             header <- readLines(con, n = 1)
-            if (str_empty(header)) next
+            if (str_empty(header))
+                next
             logger$info("received: ", header)
 
             matches <- stringr::str_match(header[1], "Content-Length: ([0-9]+)")
-            if (is.na(matches[2])) stop("Unexpected input: ", header)
+            if (is.na(matches[2]))
+                stop("Unexpected input: ", header)
 
             empty_line <- readLines(con, n = 1)
-            if (!str_empty(empty_line)) stop("Unexpected non-empty line")
+            if (!str_empty(empty_line))
+                stop("Unexpected non-empty line")
 
             data <- readChar(con, as.numeric(matches[2]), useBytes = TRUE)
             langserver$handle_raw(data)

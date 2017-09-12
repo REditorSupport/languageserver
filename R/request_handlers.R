@@ -1,6 +1,5 @@
 on_initialize <- function(self, id, params) {
-    self$logger$info("initializing")
-    self$logger$info("initialization config: ", params)
+    logger$info("initialization config: ", params)
     self$processId <- params$processId
     self$rootUri <- params$rootUri
     self$rootPath <- parse_uri(self$rootUri)

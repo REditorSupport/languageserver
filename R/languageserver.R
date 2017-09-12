@@ -16,7 +16,6 @@ LanguageServer <- R6::R6Class("LanguageServer",
         capabilities = NULL,
 
         initialize = function(stdout) {
-            self$logger <- logging$get_logger()
             if (stdout == "stdout"){
                 self$stdout <- stdout()
             } else {
@@ -32,18 +31,18 @@ LanguageServer <- R6::R6Class("LanguageServer",
             tryCatch({
                 payload <- jsonlite::fromJSON(data)
                 pl_names <- names(payload)
-                self$logger$info("payload: ", data)
+                logger$info("payload: ", data)
 
                 if ("id" %in% pl_names && "method" %in% pl_names) {
                     self$handle_request(payload)
                 } else if ("method" %in% pl_names) {
                     self$handle_notification(payload)
                 } else {
-                    self$logger$error("not request or notification")
+                    logger$error("not request or notification")
                 }
             },
             error = function(e){
-                self$logger$error("error handling json: ", e)
+                logger$error("error handling json: ", e)
             })
         },
 
@@ -52,11 +51,11 @@ LanguageServer <- R6::R6Class("LanguageServer",
             method <- request$method
             params <- request$params
             if (method %in% names(request_handlers)) {
-                self$logger$info("handling request: ", method)
+                logger$info("handling request: ", method)
                 dispatch <- request_handlers[[method]]
                 dispatch(self, id, params)
             } else {
-                self$logger$error("unknown request: ", method)
+                logger$error("unknown request: ", method)
             }
         },
 
@@ -64,11 +63,11 @@ LanguageServer <- R6::R6Class("LanguageServer",
             method <- notification$method
             params <- notification$params
             if (method %in% names(notification_handlers)) {
-                self$logger$info("handling notification: ", method)
+                logger$info("handling notification: ", method)
                 dispatch <- notification_handlers[[method]]
                 dispatch(self, params)
             } else {
-                self$logger$error("unknown notification: ", method)
+                logger$error("unknown notification: ", method)
             }
         }
     )
