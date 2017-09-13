@@ -39,6 +39,13 @@ diagnose_file <- function(path) {
     diagnostics
 }
 
+diagnose_text <- function(text) {
+    temp_file <- tempfile(fileext = ".R")
+    write(text, file = temp_file)
+    diagnostics <- diagnose_file(temp_file)
+    file.remove(temp_file)
+}
+
 publish_diagnostics <- function(self, uri) {
     path <- parse_uri(uri)
     diagnostics <- diagnose_file(path)

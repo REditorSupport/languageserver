@@ -41,9 +41,9 @@ ExecuteCommandOptions <- list(
 )
 
 ServerCapabilities <- list(
-    textDocumentSync = TextDocumentSyncOptions,
+    textDocumentSync = TextDocumentSyncOptions
     # hoverProvider = FALSE,
-    completionProvider = CompletionOptions
+    # completionProvider = CompletionOptions,
     # signatureHelpProvider = SignatureHelpOptions,
     # definitionProvider = FALSE,
     # referencesProvider = FALSE
