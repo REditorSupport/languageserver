@@ -2,11 +2,11 @@
 run <- function(debug = FALSE, stdin = "stdin", stdout = "stdout") {
     logger$set_mode(debug = debug)
     langserver <- LanguageServer$new(stdout = stdout)
-    con <- file(stdin)
-    open(con, blocking = TRUE)
+    content <- file(stdin)
+    open(content, blocking = TRUE)
     while (TRUE) {
         ret <- try({
-            header <- readLines(con, n = 1)
+            header <- readLines(content, n = 1)
             if (str_empty(header))
                 next
             logger$info("received: ", header)
@@ -15,11 +15,11 @@ run <- function(debug = FALSE, stdin = "stdin", stdout = "stdout") {
             if (is.na(matches[2]))
                 stop("Unexpected input: ", header)
 
-            empty_line <- readLines(con, n = 1)
+            empty_line <- readLines(content, n = 1)
             if (!str_empty(empty_line))
                 stop("Unexpected non-empty line")
 
-            data <- readChar(con, as.numeric(matches[2]), useBytes = TRUE)
+            data <- readChar(content, as.numeric(matches[2]), useBytes = TRUE)
             langserver$handle_raw(data)
         })
         if (inherits(ret, "error") || isTRUE(langserver$will_exit)) {
@@ -27,5 +27,5 @@ run <- function(debug = FALSE, stdin = "stdin", stdout = "stdout") {
             break
         }
     }
-    close(con)
+    close(content)
 }
