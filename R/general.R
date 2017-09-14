@@ -1,4 +1,3 @@
-# Request
 on_initialize <- function(self, id, params) {
     logger$info("initialization config: ", params)
     self$processId <- params$processId
