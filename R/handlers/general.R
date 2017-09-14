@@ -20,12 +20,12 @@ on_shutdown <- function(self, id, params) {
 
 }
 
-# Request
+# Notification
 on_exit <- function(self, params) {
     self$will_exit <- TRUE
 }
 
-# Request
+# Notification
 cancel_request <- function(self, params) {
 
 }
