@@ -8,6 +8,8 @@ LanguageServer <- R6::R6Class("LanguageServer",
         logger = NULL,
         stdout = NULL,
         will_exit = NULL,
+        request_handlers = NULL,
+        notification_handlers = NULL,
 
         processId = NULL,
         rootUri = NULL,
@@ -21,6 +23,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             } else {
                 self$stdout <- stdout
             }
+            self$registering_handlers()
         },
 
         deliver = function(message) {
@@ -50,9 +53,9 @@ LanguageServer <- R6::R6Class("LanguageServer",
             id <- request$id
             method <- request$method
             params <- request$params
-            if (method %in% names(request_handlers)) {
+            if (method %in% names(self$request_handlers)) {
                 logger$info("handling request: ", method)
-                dispatch <- request_handlers[[method]]
+                dispatch <- self$request_handlers[[method]]
                 dispatch(self, id, params)
             } else {
                 logger$error("unknown request: ", method)
@@ -62,13 +65,26 @@ LanguageServer <- R6::R6Class("LanguageServer",
         handle_notification = function(notification) {
             method <- notification$method
             params <- notification$params
-            if (method %in% names(notification_handlers)) {
+            if (method %in% names(self$notification_handlers)) {
                 logger$info("handling notification: ", method)
-                dispatch <- notification_handlers[[method]]
+                dispatch <- self$notification_handlers[[method]]
                 dispatch(self, params)
             } else {
                 logger$error("unknown notification: ", method)
             }
+        },
+
+        registering_handlers = function() {
+            self$request_handlers <- list(
+                initialize = on_initialize
+            )
+
+            self$notification_handlers <- list(
+                initialized = on_initialized,
+                exit = on_exit,
+                `textDocument/didOpen` = text_document_did_open,
+                `textDocument/didSave` = text_document_did_save
+            )
         }
     )
 )
