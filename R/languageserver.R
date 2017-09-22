@@ -83,6 +83,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 initialized = on_initialized,
                 exit = on_exit,
                 `textDocument/didOpen` = text_document_did_open,
+                `textDocument/didChange` = text_document_did_change,
                 `textDocument/didSave` = text_document_did_save
             )
         }

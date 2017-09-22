@@ -44,11 +44,16 @@ diagnose_text <- function(text) {
     write(text, file = temp_file)
     diagnostics <- diagnose_file(temp_file)
     file.remove(temp_file)
+    diagnostics
 }
 
-publish_diagnostics <- function(self, uri) {
-    path <- parse_uri(uri)
-    diagnostics <- diagnose_file(path)
+publish_diagnostics <- function(self, uri, text=NULL) {
+    if (is.null(text)) {
+        path <- parse_uri(uri)
+        diagnostics <- diagnose_file(path)
+    } else {
+        diagnostics <- diagnose_text(text)
+    }
     self$deliver(Notification$new(
         method = "textDocument/publishDiagnostics",
         params = list(

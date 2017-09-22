@@ -6,7 +6,10 @@ text_document_did_open <- function(self, params) {
 
 # Notification
 text_document_did_change <- function(self, params) {
-
+    textDocument <- params$textDocument
+    contentChanges <- params$contentChanges
+    text <- contentChanges$text
+    publish_diagnostics(self, textDocument$uri, text)
 }
 
 # Notification
