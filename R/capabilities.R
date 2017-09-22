@@ -2,13 +2,15 @@ SaveOptions <- list(
     includeText = FALSE
 )
 
-TextDocumentSyncKind.None <- 0
-TextDocumentSyncKind.Full <- 1
-TextDocumentSyncKind.Incremental <- 2
+TextDocumentSyncKind <- list(
+    None = 0,
+    Full = 1,
+    Incremental = 2
+)
 
 TextDocumentSyncOptions <- list(
     openClose = TRUE,
-    change = TextDocumentSyncKind.Full,
+    change = TextDocumentSyncKind$Full,
     willSave = FALSE,
     willSaveWaitUntil = FALSE,
     save = SaveOptions
