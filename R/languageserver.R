@@ -3,6 +3,27 @@
 "_PACKAGE"
 
 
+DocumentCache <- R6::R6Class("DocumentCache",
+    public = list(
+        get = function(uri) {
+            if (uri %in% names(private$cache)) {
+                private$cache[[uri]]
+            } else {
+                logger$error(uri, "not found")
+                stop("file no found.")
+            }
+        },
+
+        set = function(uri, text, multiline = FALSE) {
+            private$cache[[uri]] <- text
+        }
+    ),
+    private = list(
+        cache = list()
+    )
+)
+
+
 LanguageServer <- R6::R6Class("LanguageServer",
     public = list(
         logger = NULL,
@@ -10,6 +31,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
         will_exit = NULL,
         request_handlers = NULL,
         notification_handlers = NULL,
+        document_cache = DocumentCache$new(),
 
         processId = NULL,
         rootUri = NULL,
@@ -35,18 +57,17 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 payload <- jsonlite::fromJSON(data)
                 pl_names <- names(payload)
                 logger$info("payload: ", data)
-
-                if ("id" %in% pl_names && "method" %in% pl_names) {
-                    self$handle_request(payload)
-                } else if ("method" %in% pl_names) {
-                    self$handle_notification(payload)
-                } else {
-                    logger$error("not request or notification")
-                }
             },
             error = function(e){
                 logger$error("error handling json: ", e)
             })
+            if ("id" %in% pl_names && "method" %in% pl_names) {
+                self$handle_request(payload)
+            } else if ("method" %in% pl_names) {
+                self$handle_notification(payload)
+            } else {
+                logger$error("not request or notification")
+            }
         },
 
         handle_request = function(request) {
@@ -55,10 +76,17 @@ LanguageServer <- R6::R6Class("LanguageServer",
             params <- request$params
             if (method %in% names(self$request_handlers)) {
                 logger$info("handling request: ", method)
-                dispatch <- self$request_handlers[[method]]
-                dispatch(self, id, params)
+                tryCatch({
+                    dispatch <- self$request_handlers[[method]]
+                    dispatch(self, id, params)
+                },
+                error = function(e) {
+                    logger$error("internal error: ", e)
+                    self$deliver(ResponseError$new(id, "InternalError", str(e)))
+                })
             } else {
                 logger$error("unknown request: ", method)
+                self$deliver(ResponseError$new(id, "MethodNotFound"))
             }
         },
 
@@ -76,7 +104,8 @@ LanguageServer <- R6::R6Class("LanguageServer",
 
         registering_handlers = function() {
             self$request_handlers <- list(
-                initialize = on_initialize
+                initialize = on_initialize,
+                `textDocument/completion` =  text_document_completion
             )
 
             self$notification_handlers <- list(

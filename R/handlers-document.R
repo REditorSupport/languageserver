@@ -1,7 +1,9 @@
 # Notification
 text_document_did_open <- function(self, params) {
     textDocument <- params$textDocument
-    publish_diagnostics(self, textDocument$uri)
+    uri <- textDocument$uri
+    self$document_cache$set(uri, readLines(parse_uri(uri)))
+    publish_diagnostics(self, uri)
 }
 
 # Notification
@@ -9,7 +11,9 @@ text_document_did_change <- function(self, params) {
     textDocument <- params$textDocument
     contentChanges <- params$contentChanges
     text <- contentChanges$text
-    publish_diagnostics(self, textDocument$uri, text)
+    uri <- textDocument$uri
+    self$document_cache$set(uri, stringr::str_split(text, "\n")[[1]])
+    publish_diagnostics(self, uri, text)
 }
 
 # Notification
@@ -20,7 +24,9 @@ text_document_will_save <- function(self, params) {
 # Notification
 text_document_did_save <- function(self, params) {
     textDocument <- params$textDocument
-    publish_diagnostics(self, textDocument$uri)
+    uri <- textDocument$uri
+    self$document_cache$set(uri, readLines(parse_uri(uri)))
+    publish_diagnostics(self, uri)
 }
 
 # Notification
@@ -35,7 +41,8 @@ text_document_will_save_wait_until <- function(self, id, params) {
 
 # Request
 text_document_completion  <- function(self, id, params) {
-
+    textDocument <- params$textDocument
+    response_completion(self, id, textDocument$uri, params$position)
 }
 
 # Request
