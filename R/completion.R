@@ -19,25 +19,30 @@ CompletionItemKind <- list(
     Reference = 18
 )
 
-
 response_completion <- function(self, id, uri, position) {
     path <- parse_uri(uri)
-    lineno <- position$line
+    lineno <- position$line + 1
+    character <- position$character
     lines <- self$document_cache$get(uri)
-    logger$info("lineno: ", lineno)
-    logger$info("length(lines): ", length(lines))
+    logger$info("position: ", position)
 
     if (lineno < length(lines)) {
-        line <- lines[[lineno + 1]]
+        line <- lines[[lineno]]
     } else {
         line <- ""
     }
+    logger$info("line: ", line)
+
+    if (nchar(line) > character) {
+        line <- stringr::str_sub(line, end = character)
+    }
+
     logger$info("completing: ", line)
     utils:::.assignLinebuffer(line)
-    utils:::.assignEnd(position$character + 1)
-    utils:::.guessTokenFromLine()
+    utils:::.assignEnd(nchar(line))
+    token <- utils:::.guessTokenFromLine()
+    # token <- utils:::.guessTokenFromLine(update = FALSE)
     utils:::.completeToken()
-    token <- utils:::.guessTokenFromLine(update = FALSE)
     logger$info("token: ", token)
     comps <- utils:::.retrieveCompletions()
 
