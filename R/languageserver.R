@@ -27,6 +27,7 @@ Documents <- R6::R6Class("Documents",
 LanguageServer <- R6::R6Class("LanguageServer",
     public = list(
         logger = NULL,
+        stdin = NULL,
         stdout = NULL,
         will_exit = NULL,
         request_handlers = NULL,
@@ -39,7 +40,8 @@ LanguageServer <- R6::R6Class("LanguageServer",
         initializationOptions = NULL,
         capabilities = NULL,
 
-        initialize = function(stdout) {
+        initialize = function(stdin, stdout) {
+            self$stdin <- stdin
             if (stdout == "stdout"){
                 self$stdout <- stdout()
             } else {
@@ -115,6 +117,47 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 `textDocument/didChange` = text_document_did_change,
                 `textDocument/didSave` = text_document_did_save
             )
+        },
+
+        eventloop = function() {
+            content <- file(self$stdin)
+            open(content, blocking = TRUE)
+            while (TRUE) {
+                ret <- try({
+                    header <- readLines(content, n = 1)
+                    if (str_empty(header))
+                        next
+                    logger$info("received: ", header)
+
+                    matches <- stringr::str_match(header[1], "Content-Length: ([0-9]+)")
+                    if (is.na(matches[2]))
+                        stop("Unexpected input: ", header)
+
+                    empty_line <- readLines(content, n = 1)
+                    if (!str_empty(empty_line))
+                        stop("Unexpected non-empty line")
+
+                    data <- readChar(content, as.numeric(matches[2]), useBytes = TRUE)
+                    self$handle_raw(data)
+                })
+                if (inherits(ret, "error") || isTRUE(self$will_exit)) {
+                    logger$error("exiting")
+                    break
+                }
+            }
+            close(content)
+        },
+
+        run = function() {
+            self$eventloop()
         }
     )
 )
+
+
+#' @export
+run <- function(debug = FALSE, stdin = "stdin", stdout = "stdout") {
+    logger$set_mode(debug = debug)
+    langserver <- LanguageServer$new(stdin = stdin, stdout = stdout)
+    langserver$run()
+}

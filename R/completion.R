@@ -19,7 +19,7 @@ CompletionItemKind <- list(
     Reference = 18
 )
 
-completion_replay <- function(id, document, position) {
+completion_reply <- function(id, document, position) {
     lineno <- position$line + 1
     character <- position$character
     logger$info("position: ", position)
