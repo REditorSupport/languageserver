@@ -26,7 +26,6 @@ Documents <- R6::R6Class("Documents",
 
 LanguageServer <- R6::R6Class("LanguageServer",
     public = list(
-        logger = NULL,
         stdin = NULL,
         stdout = NULL,
         will_exit = NULL,
