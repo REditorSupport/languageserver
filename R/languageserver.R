@@ -87,7 +87,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 })
             } else {
                 logger$error("unknown request: ", method)
-                self$deliver(ResponseError$new(id, "MethodNotFound"))
+                self$deliver(ResponseError$new(id, "MethodNotFound", "unknown request"))
             }
         },
 
@@ -100,6 +100,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 dispatch(self, params)
             } else {
                 logger$error("unknown notification: ", method)
+                self$deliver(ResponseError$new(id, "MethodNotFound", "unknown notification"))
             }
         },
 
@@ -139,8 +140,12 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     data <- readChar(content, as.numeric(matches[2]), useBytes = TRUE)
                     self$handle_raw(data)
                 })
-                if (inherits(ret, "error") || isTRUE(self$will_exit)) {
+                if (inherits(ret, "error")) {
                     logger$error("exiting")
+                    break
+                }
+                if (isTRUE(self$will_exit)) {
+                    logger$info("exiting")
                     break
                 }
             }
