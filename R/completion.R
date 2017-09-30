@@ -19,15 +19,13 @@ CompletionItemKind <- list(
     Reference = 18
 )
 
-response_completion <- function(self, id, uri, position) {
-    path <- parse_uri(uri)
+completion_replay <- function(id, document, position) {
     lineno <- position$line + 1
     character <- position$character
-    lines <- self$document_cache$get(uri)
     logger$info("position: ", position)
 
-    if (lineno < length(lines)) {
-        line <- lines[[lineno]]
+    if (lineno < length(document)) {
+        line <- document[[lineno]]
     } else {
         line <- ""
     }
@@ -53,11 +51,11 @@ response_completion <- function(self, id, uri, position) {
 
     logger$info("completions: ", completions)
 
-    self$deliver(Response$new(
+    Response$new(
         id,
         result = list(
             isIncomplete = TRUE,
             items = completions
         )
-    ))
+    )
 }

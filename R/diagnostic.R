@@ -47,18 +47,18 @@ diagnose_text <- function(text) {
     diagnostics
 }
 
-publish_diagnostics <- function(self, uri, text=NULL) {
+diagnostic_reply <- function(uri, text=NULL) {
     if (is.null(text)) {
         path <- parse_uri(uri)
         diagnostics <- diagnose_file(path)
     } else {
         diagnostics <- diagnose_text(text)
     }
-    self$deliver(Notification$new(
+    Notification$new(
         method = "textDocument/publishDiagnostics",
         params = list(
             uri = uri,
             diagnostics = diagnostics
         )
-    ))
+    )
 }

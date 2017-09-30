@@ -3,7 +3,7 @@
 "_PACKAGE"
 
 
-DocumentCache <- R6::R6Class("DocumentCache",
+Documents <- R6::R6Class("Documents",
     public = list(
         get = function(uri) {
             if (uri %in% names(private$cache)) {
@@ -31,7 +31,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
         will_exit = NULL,
         request_handlers = NULL,
         notification_handlers = NULL,
-        document_cache = DocumentCache$new(),
+        documents = Documents$new(),
 
         processId = NULL,
         rootUri = NULL,
