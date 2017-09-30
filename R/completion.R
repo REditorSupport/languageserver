@@ -24,7 +24,7 @@ completion_reply <- function(id, document, position) {
     character <- position$character
     logger$info("position: ", position)
 
-    if (lineno < length(document)) {
+    if (lineno <= length(document)) {
         line <- document[[lineno]]
     } else {
         line <- ""
