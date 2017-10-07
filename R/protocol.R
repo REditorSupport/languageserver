@@ -6,7 +6,7 @@ Message <- R6::R6Class("Message",
         format = function() {
             json <- self$to_json()
             paste0("Content-Length: ", nchar(json, type = "bytes"),
-                　　"\r\n\r\n", json)
+                   "\r\n\r\n", json)
         }
     )
 )
