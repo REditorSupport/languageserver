@@ -57,7 +57,8 @@ text_document_hover  <- function(self, id, params) {
 
 # Request
 text_document_signature_help  <- function(self, id, params) {
-
+    textDocument <- params$textDocument
+    self$deliver(signature_reply(id, self$documents$get(textDocument$uri), params$position))
 }
 
 # Request

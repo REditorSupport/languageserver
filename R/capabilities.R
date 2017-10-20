@@ -22,7 +22,7 @@ CompletionOptions <- list(
 )
 
 SignatureHelpOptions <- list(
-    triggerCharacters = NULL
+    triggerCharacters = c("(", ",")
 )
 
 CodeLensOptions <- list(
@@ -45,8 +45,8 @@ ExecuteCommandOptions <- list(
 ServerCapabilities <- list(
     textDocumentSync = TextDocumentSyncOptions,
     # hoverProvider = FALSE,
-    completionProvider = CompletionOptions
-    # signatureHelpProvider = SignatureHelpOptions,
+    completionProvider = CompletionOptions,
+    signatureHelpProvider = SignatureHelpOptions
     # definitionProvider = FALSE,
     # referencesProvider = FALSE
     # documentHighlightProvider = FALSE,

@@ -6,6 +6,15 @@ str_empty <- function(s) {
     stringr::str_length(stringr::str_trim(s)) == 0
 }
 
+document_line <- function(document, lineno) {
+    if (lineno <= length(document)) {
+        line <- document[[lineno]]
+    } else {
+        line <- ""
+    }
+    line
+}
+
 log_write <- function(...){
     dots <- list(...)
     str <- sapply(

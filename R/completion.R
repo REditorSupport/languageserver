@@ -20,17 +20,8 @@ CompletionItemKind <- list(
 )
 
 completion_reply <- function(id, document, position) {
-    lineno <- position$line + 1
+    line <- document_line(document, position$line + 1)
     character <- position$character
-    logger$info("position: ", position)
-
-    if (lineno <= length(document)) {
-        line <- document[[lineno]]
-    } else {
-        line <- ""
-    }
-    logger$info("line: ", line)
-
     if (nchar(line) > character) {
         line <- stringr::str_sub(line, end = character)
     }

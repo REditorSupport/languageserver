@@ -107,7 +107,8 @@ LanguageServer <- R6::R6Class("LanguageServer",
         registering_handlers = function() {
             self$request_handlers <- list(
                 initialize = on_initialize,
-                `textDocument/completion` =  text_document_completion
+                `textDocument/completion` =  text_document_completion,
+                `textDocument/signatureHelp` = text_document_signature_help
             )
 
             self$notification_handlers <- list(
