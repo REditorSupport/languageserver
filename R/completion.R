@@ -1,3 +1,6 @@
+# TODO: group the completions into different catagories according to
+# https://github.com/wch/r-source/blob/trunk/src/library/utils/R/completion.R
+
 CompletionItemKind <- list(
     Text = 1,
     Method = 2,
