@@ -141,7 +141,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     data <- readChar(content, as.numeric(matches[2]), useBytes = TRUE)
                     self$handle_raw(data)
                 })
-                if (inherits(ret, "error")) {
+                if (inherits(ret, "try-error")) {
                     logger$error("exiting")
                     break
                 }
