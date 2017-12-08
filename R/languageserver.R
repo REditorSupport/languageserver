@@ -87,7 +87,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 })
             } else {
                 logger$error("unknown request: ", method)
-                self$deliver(ResponseErrorMessage$new(id, "MethodNotFound", "unknown request"))
+                self$deliver(ResponseErrorMessage$new(id, MethodNotFound, "unknown request"))
             }
         },
 
@@ -100,7 +100,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 dispatch(self, params)
             } else {
                 logger$error("unknown notification: ", method)
-                self$deliver(ResponseErrorMessage$new(NULL, "MethodNotFound", "unknown notification"))
+                self$deliver(ResponseErrorMessage$new(NULL, MethodNotFound, "unknown notification"))
             }
         },
 
