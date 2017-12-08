@@ -22,28 +22,32 @@ CompletionItemKind <- list(
     Reference = 18
 )
 
-find_token <- function(line) {
+.CompletionEnv <- new.env()
+
+guess_token <- function(line, end) {
     utils:::.assignLinebuffer(line)
-    utils:::.assignEnd(nchar(line))
+    utils:::.assignEnd(end)
     token <- utils:::.guessTokenFromLine()
     logger$info("token: ", token)
     token
 }
 
 default_completion <- function(token) {
-    logger$info("completing: ", token)
     # token <- utils:::.guessTokenFromLine(update = FALSE)
+
+    completions <- list()
+
+    logger$info("completing: ", token)
     utils:::.completeToken()
     comps <- utils:::.retrieveCompletions()
     comps <- stringr::str_replace(comps, "=", " = ")
     comps <- stringr::str_replace(comps, "<-", " <- ")
 
-    logger$info("comps: ", comps)
-
-    completions <- list()
     for (i in seq_along(comps)) {
         completions[[i]] <- list(label = comps[i])
     }
+
+    logger$info("comps: ", comps)
 
     completions
 }
@@ -80,12 +84,7 @@ package_completion <- function(token) {
 completion_reply <- function(id, document, position) {
     load_packaages(document)
     line <- document_line(document, position$line + 1)
-    character <- position$character
-    if (nchar(line) > character) {
-        line <- stringr::str_sub(line, end = character)
-    }
-
-    token <- find_token(line)
+    token <- guess_token(line, position$character)
 
     providers <- c(
         default_completion,
