@@ -100,7 +100,7 @@ ErrorCodes <- list(
 )
 
 
-ResponseError <- R6::R6Class(
+ResponseErrorMessage <- R6::R6Class(
     "Response",
     inherit = Response,
     public = list(

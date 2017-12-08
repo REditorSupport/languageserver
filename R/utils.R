@@ -15,7 +15,7 @@ document_line <- function(document, lineno) {
     line
 }
 
-log_write <- function(...){
+log_write <- function(..., file = stderr()){
     dots <- list(...)
     str <- sapply(
         dots, function(x) {
@@ -27,7 +27,7 @@ log_write <- function(...){
             },
             error = function(e) x)
         })
-    cat(paste0(paste(str, collapse = ""), "\n"), file = stderr())
+    cat(paste0(paste(str, collapse = ""), "\n"), file = file)
 }
 
 Logger <- R6::R6Class("Logger",
