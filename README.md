@@ -15,7 +15,7 @@ R --quiet --slave -e 'languageserver::run()'
 
 - [LSP](https://github.com/tomv564/LSP) is a universal Sublime Text client
 ```js
-"lintr": {
+"rlangsvr": {
     "command": [
         "R",
         "--quiet",
