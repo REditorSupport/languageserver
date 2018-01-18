@@ -40,8 +40,8 @@ default_completion <- function(token) {
     logger$info("completing: ", token)
     utils:::.completeToken()
     comps <- utils:::.retrieveCompletions()
-    comps <- stringr::str_replace(comps, "=", " = ")
-    comps <- stringr::str_replace(comps, "<-", " <- ")
+    comps <- sub("=", " = ", comps)
+    comps <- sub("<-", " <- ", comps)
 
     for (i in seq_along(comps)) {
         completions[[i]] <- list(label = comps[i])

@@ -1,9 +1,9 @@
 parse_uri <- function(uri) {
-    stringr::str_sub(uri, start = 8)
+    substr(uri, 8, nchar(uri))
 }
 
 str_empty <- function(s) {
-    stringr::str_length(stringr::str_trim(s)) == 0
+    trimws(s) == ""
 }
 
 document_line <- function(document, lineno) {
