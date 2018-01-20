@@ -83,11 +83,12 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 },
                 error = function(e) {
                     logger$error("internal error: ", e)
-                    self$deliver(ResponseErrorMessage$new(id, "InternalError", str(e)))
+                    self$deliver(ResponseErrorMessage$new(id, "InternalError", to_string(e)))
                 })
             } else {
                 logger$error("unknown request: ", method)
-                self$deliver(ResponseErrorMessage$new(id, "MethodNotFound", "unknown request"))
+                self$deliver(ResponseErrorMessage$new(
+                    id, "MethodNotFound", paste0("unknown request ", method)))
             }
         },
 
@@ -100,7 +101,8 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 dispatch(self, params)
             } else {
                 logger$error("unknown notification: ", method)
-                self$deliver(ResponseErrorMessage$new(NULL, "MethodNotFound", "unknown notification"))
+                self$deliver(ResponseErrorMessage$new(
+                    NULL, "MethodNotFound", paste0("unknown notification ", method)))
             }
         },
 

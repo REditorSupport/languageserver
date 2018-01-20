@@ -1,9 +1,29 @@
+str_extract_match <- function(pattern, s) {
+    m <- regexpr(pattern, s, perl = TRUE)
+    regmatches(s, m)
+}
+
 parse_uri <- function(uri) {
     substr(uri, 8, nchar(uri))
 }
 
 str_empty <- function(s) {
     trimws(s) == ""
+}
+
+to_string <- function(...) {
+    dots <- list(...)
+    str <- sapply(
+        dots, function(x) {
+            tryCatch({
+            if (length(x) > 1)
+                jsonlite::toJSON(x, auto_unbox = TRUE)
+            else
+                x
+            },
+            error = function(e) x)
+        })
+    paste0(paste(str, collapse = ""), "\n")
 }
 
 document_line <- function(document, lineno) {
@@ -16,18 +36,7 @@ document_line <- function(document, lineno) {
 }
 
 log_write <- function(..., file = stderr()){
-    dots <- list(...)
-    str <- sapply(
-        dots, function(x) {
-            tryCatch({
-            if (length(x) > 1)
-                jsonlite::toJSON(x, auto_unbox = TRUE)
-            else
-                x
-            },
-            error = function(e) x)
-        })
-    cat(paste0(paste(str, collapse = ""), "\n"), file = file)
+    cat(to_string(...), file = file)
 }
 
 Logger <- R6::R6Class("Logger",
