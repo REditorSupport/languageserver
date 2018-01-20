@@ -3,12 +3,21 @@ str_extract_match <- function(pattern, s) {
     regmatches(s, m)
 }
 
+str_empty <- function(s) {
+    trimws(s) == ""
+}
+
 parse_uri <- function(uri) {
     substr(uri, 8, nchar(uri))
 }
 
-str_empty <- function(s) {
-    trimws(s) == ""
+document_line <- function(document, lineno) {
+    if (lineno <= length(document)) {
+        line <- document[[lineno]]
+    } else {
+        line <- ""
+    }
+    line
 }
 
 to_string <- function(...) {
@@ -24,15 +33,6 @@ to_string <- function(...) {
             error = function(e) x)
         })
     paste0(paste(str, collapse = ""), "\n")
-}
-
-document_line <- function(document, lineno) {
-    if (lineno <= length(document)) {
-        line <- document[[lineno]]
-    } else {
-        line <- ""
-    }
-    line
 }
 
 log_write <- function(..., file = stderr()){
