@@ -47,7 +47,7 @@ default_completion <- function(token) {
         completions[[i]] <- list(label = comps[i])
     }
 
-    logger$info("comps: ", comps)
+    # logger$info("comps: ", comps)
 
     completions
 }
@@ -59,7 +59,7 @@ load_packaages <- function(document) {
             logger$info("load package: ", result[[j]][1, 2])
 
             tryCatch({
-                suppressPackageStartupMessages(library(result[[j]][1, 2], character = TRUE))
+                suppressMessages(library(result[[j]][1, 2], character = TRUE))
                 },
                 error = function(e) NULL)
         }
@@ -100,8 +100,7 @@ completion_reply <- function(id, document, position) {
         }
     }
 
-    logger$info("completions: ", completions)
-
+    # logger$info("completions: ", completions)
 
     Response$new(
         id,

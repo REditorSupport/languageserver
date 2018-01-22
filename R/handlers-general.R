@@ -2,7 +2,7 @@ on_initialize <- function(self, id, params) {
     logger$info("initialization config: ", params)
     self$processId <- params$processId
     self$rootUri <- params$rootUri
-    self$rootPath <- parse_uri(self$rootUri)
+    self$rootPath <- path_from_uri(self$rootUri)
     self$initializationOptions <- params$initializationOptions
     self$capabilities <- params$capabilities
     self$deliver(Response$new(id = id, result = list(capabilities = ServerCapabilities)))

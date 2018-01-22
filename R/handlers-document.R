@@ -2,7 +2,7 @@
 text_document_did_open <- function(self, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
-    self$documents$set(uri, readLines(parse_uri(uri)))
+    self$documents$set(uri, readLines(path_from_uri(uri)))
     self$deliver(diagnostic_reply(uri))
 }
 
@@ -25,7 +25,7 @@ text_document_will_save <- function(self, params) {
 text_document_did_save <- function(self, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
-    self$documents$set(uri, readLines(parse_uri(uri)))
+    self$documents$set(uri, readLines(path_from_uri(uri)))
     self$deliver(diagnostic_reply(uri))
 }
 

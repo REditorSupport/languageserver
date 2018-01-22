@@ -49,7 +49,7 @@ diagnose_text <- function(text) {
 
 diagnostic_reply <- function(uri, text=NULL) {
     if (is.null(text)) {
-        path <- parse_uri(uri)
+        path <- path_from_uri(uri)
         diagnostics <- diagnose_file(path)
     } else {
         diagnostics <- diagnose_text(text)

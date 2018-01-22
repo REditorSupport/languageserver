@@ -1,19 +1,14 @@
-str_extract_match <- function(pattern, s) {
-    m <- regexpr(pattern, s, perl = TRUE)
-    regmatches(s, m)
-}
-
 str_empty <- function(s) {
     trimws(s) == ""
 }
 
-parse_uri <- function(uri) {
+path_from_uri <- function(uri) {
     substr(uri, 8, nchar(uri))
 }
 
 document_line <- function(document, lineno) {
     if (lineno <= length(document)) {
-        line <- document[[lineno]]
+        line <- document[lineno]
     } else {
         line <- ""
     }

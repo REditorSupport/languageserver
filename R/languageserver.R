@@ -1,3 +1,4 @@
+#' @useDynLib languageserver
 #' @details
 #' An implementation of the Language Server Protocol for R
 "_PACKAGE"
@@ -46,7 +47,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             } else {
                 self$stdout <- stdout
             }
-            self$registering_handlers()
+            self$register_handlers()
         },
 
         deliver = function(message) {
@@ -106,7 +107,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             }
         },
 
-        registering_handlers = function() {
+        register_handlers = function() {
             self$request_handlers <- list(
                 initialize = on_initialize,
                 `textDocument/completion` =  text_document_completion,
