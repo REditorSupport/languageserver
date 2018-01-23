@@ -27,6 +27,10 @@ SEXP document_backward_search(SEXP document, SEXP _row, SEXP _col, SEXP _char) {
         ds = STRING_ELT(document, i);
         d = Rf_translateCharUTF8(ds);
         maxj = strlen(d);
+
+        // first search forward with quotation awareness
+        // until the `col` character (only for the last line)
+        // or until a comment sign
         j = 0;
         k = 0;
         while (j < maxj) {
@@ -60,6 +64,7 @@ SEXP document_backward_search(SEXP document, SEXP _row, SEXP _col, SEXP _char) {
             k++;
         }
 
+        // then search backward until an unbalanced "(" with quotation awareness
         in_dquote = 0;
         in_squote = 0;
         while (j >= 0) {
@@ -98,6 +103,7 @@ SEXP document_backward_search(SEXP document, SEXP _row, SEXP _col, SEXP _char) {
             k--;
         }
         if (found) break;
+        // if nothing was found, continue to the previous line
     }
 
     loc = PROTECT(Rf_allocVector(INTSXP, 2));
