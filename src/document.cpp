@@ -31,19 +31,43 @@ SEXP document_backward_search(SEXP document, SEXP _row, SEXP _col, SEXP _char) {
         k = 0;
         while (j < maxj) {
             dj = d[j];
-            if (dj < 0x80 || 0xbf < dj) {
-                if (i == row && k == col) break;
-                k++;
+            if (0x80 <= dj && dj <= 0xbf) {
+                j++;
+                continue;
+            }
+            if (i == row && k == col) break;
+
+            if (!in_squote && dj == '"') {
+                if (in_dquote) {
+                    if (j == 0 || d[j - 1] != '\\') {
+                        in_dquote = 0;
+                    }
+                } else {
+                    in_dquote = 1;
+                }
+            } else if (!in_dquote && dj == '\'') {
+                if (in_squote) {
+                    if (j == 0 || d[j - 1] != '\\') {
+                        in_squote = 0;
+                    }
+                } else {
+                    in_squote = 1;
+                }
+            } else if (!in_dquote && !in_squote && nparen == 0 && dj == '#') {
+                break;
             }
             j++;
+            k++;
         }
+
+        in_dquote = 0;
+        in_squote = 0;
         while (j >= 0) {
             dj = d[j];
             if (0x80 <= dj && dj <= 0xbf) {
                 j--;
                 continue;
             }
-            // TODO: handle comments
             if (!in_squote && dj == '"') {
                 if (in_dquote) {
                     if (j == 0 || d[j - 1] != '\\') {
