@@ -44,20 +44,31 @@ SEXP document_backward_search(SEXP document, SEXP _row, SEXP _col, SEXP _char) {
                 continue;
             }
             // TODO: handle comments
-            // TODO: handle escaped quotes within quotes
-            if (!in_dquote && !in_squote) {
+            if (!in_squote && dj == '"') {
+                if (in_dquote) {
+                    if (j == 0 || d[j - 1] != '\\') {
+                        in_dquote = 0;
+                    }
+                } else {
+                    in_dquote = 1;
+                }
+            } else if (!in_dquote && dj == '\'') {
+                if (in_squote) {
+                    if (j == 0 || d[j - 1] != '\\') {
+                        in_squote = 0;
+                    }
+                } else {
+                    in_squote = 1;
+                }
+            } else if (!in_dquote && !in_squote) {
                 if (nparen == 0 && dj == c) {
                     found = 1;
                     break;
                 } else if (dj == '(') {
-                    nparen ++;
+                    nparen++;
                 } else if (dj == ')') {
-                    nparen --;
+                    nparen--;
                 }
-            } else if (!in_squote && dj == '"') {
-                in_dquote = 1 - in_dquote;
-            } else if (!in_dquote && dj == '\'') {
-                in_squote = 1 - in_squote;
             }
             j--;
             k--;
