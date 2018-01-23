@@ -1,8 +1,7 @@
 get_signature <- function(fn) {
     sig <- utils::capture.output(print(base::args(fn)))
     sig <- sig[1:length(sig) - 1]
-    sig <- paste(gsub("^\\s+", "", sig), collapse = "")
-    trimws(gsub("function ", fn, sig))
+    paste(gsub("^\\s+", "", sig), collapse = "")
 }
 
 signature_reply <- function(id, document, position) {
@@ -10,7 +9,6 @@ signature_reply <- function(id, document, position) {
     activeSignature <- -1
     line <- position$line
     character <- position$character
-
     if (character > 0) {
         loc <- .Call(
             "document_backward_search", PACKAGE = "languageserver",
@@ -25,12 +23,17 @@ signature_reply <- function(id, document, position) {
         trim_line <- trimws(substr(line, 1, loc[2] + 1))
         logger$info("trim_line: ", trim_line)
 
-        func_name <- stringr::str_extract(
+        matches <- stringr::str_match(
             trim_line,
-            "([a-zA-Z][a-zA-Z0-9]+::)?[a-zA-Z0-9.][a-zA-Z0-9_.]+(?=\\($)")
-        logger$info("func_name: ", func_name)
+            "(?:([a-zA-Z][a-zA-Z0-9]+)::)?([a-zA-Z0-9.][a-zA-Z0-9_.]+)\\(")
+        logger$info("func_name: ", matches)
         try({
-            sig <- get_signature(func_name)
+            if (is.na(matches[2])) {
+                obj <- get(matches[3], envir = .GlobalEnv)
+            } else {
+                obj <- get(matches[3], envir = asNamespace(matches[2]))
+            }
+            sig <- trimws(gsub("function ", matches[3], get_signature(obj)))
             SignatureInformation <- list(list(label = sig))
             activeSignature <- 0
         }, silent = TRUE)
