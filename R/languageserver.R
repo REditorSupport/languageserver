@@ -3,7 +3,6 @@
 #' An implementation of the Language Server Protocol for R
 "_PACKAGE"
 
-
 Documents <- R6::R6Class("Documents",
     public = list(
         get = function(uri) {

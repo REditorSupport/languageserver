@@ -7,4 +7,5 @@
 
 SEXP document_backward_search(SEXP document, SEXP _row, SEXP _col, SEXP _char);
 
+
 #endif
