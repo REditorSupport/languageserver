@@ -40,9 +40,9 @@ let g:LanguageClient_serverCommands = {
     \ 'r': ['R', '--quiet', '--slave', '-e', 'languageserver::run()'],
     \ }
 ```
+
+- [atom-ide-r](https://github.com/REditorSupport/atom-ide-r) addes LSP support to Atom.
+
 - [lsp-mode](https://github.com/emacs-lsp/lsp-mode) is a universal Emacs client for the Language Server Protocol
 
-Atom and VSCode do not have universal clients, but they have extensive supports for LSP:
-- [Atom](https://github.com/atom/atom-languageclient)
-- [VSCode](https://code.visualstudio.com/docs/extensionAPI/language-support)
-
+- [VSCode](https://code.visualstudio.com/docs/extensionAPI/language-support) does not have universal clients, but they have extensive supports for LSP.
