@@ -17,7 +17,8 @@ on_initialized <- function(self, params) {
 
 # Request
 on_shutdown <- function(self, id, params) {
-
+    self$will_exit <- TRUE
+    self$deliver(Response$new(id = id, result = list()))
 }
 
 # Notification

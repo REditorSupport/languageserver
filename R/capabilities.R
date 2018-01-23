@@ -17,8 +17,7 @@ TextDocumentSyncOptions <- list(
 )
 
 CompletionOptions <- list(
-    resolveProvider = TRUE,
-    triggerCharacters = NULL
+    resolveProvider = FALSE
 )
 
 SignatureHelpOptions <- list(
