@@ -60,8 +60,8 @@ SEXP document_backward_search(SEXP document, SEXP _row, SEXP _col, SEXP _char) {
                 } else {
                     in_squote = 1;
                 }
-            } else if (c == "(" && !in_dquote && !in_squote) {
-                if (nparen == 0 && dj == "(") {
+            } else if (c == '(' && !in_dquote && !in_squote) {
+                if (nparen == 0 && dj == '(') {
                     found = 1;
                     break;
                 } else if (dj == '(') {
