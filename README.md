@@ -41,7 +41,7 @@ let g:LanguageClient_serverCommands = {
     \ }
 ```
 
-- [atom-ide-r](https://github.com/REditorSupport/atom-ide-r) addes LSP support to Atom.
+- [atom-ide-r](https://github.com/REditorSupport/atom-ide-r) adds LSP support to Atom.
 
 - [lsp-mode](https://github.com/emacs-lsp/lsp-mode) is a universal Emacs client for the Language Server Protocol
 
