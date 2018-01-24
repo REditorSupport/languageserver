@@ -60,7 +60,7 @@ process_diagnostic_queue <- function(){
             function(f, remove) {
                 d <- tryCatch({
                     languageserver:::diagnose_file(f)
-                }, error = function(e) list())
+                }, error = function(e) NULL)
                 if (remove) file.remove(f)
                 d
             },
@@ -76,6 +76,7 @@ process_diagnostic_notifications <- function(self) {
         rm(list = uri, envir = diagnostic_processes)
         logger$info("process_diagnostic: ", uri)
         diagnostics <- dprocess$get_result()
+        if (is.null(diagnostics)) next
         self$deliver(Notification$new(
             method = "textDocument/publishDiagnostics",
             params = list(
