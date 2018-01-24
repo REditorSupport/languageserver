@@ -58,7 +58,9 @@ process_diagnostic_queue <- function(){
         }
         dprocess <- callr::r_bg(
             function(f, remove) {
-                d <- languageserver:::diagnose_file(f)
+                d <- tryCatch({
+                    languageserver:::diagnose_file(f)
+                }, error = function(e) list())
                 if (remove) file.remove(f)
                 d
             },
@@ -71,6 +73,7 @@ process_diagnostic_notifications <- function(self) {
     for (uri in names(diagnostic_processes)) {
         dprocess <- diagnostic_processes[[uri]]
         if (dprocess$is_alive()) next
+        rm(list = uri, envir = diagnostic_processes)
         logger$info("process_diagnostic: ", uri)
         diagnostics <- dprocess$get_result()
         self$deliver(Notification$new(
@@ -80,7 +83,6 @@ process_diagnostic_notifications <- function(self) {
                 diagnostics = diagnostics
             )
         ))
-        rm(list = uri, envir = diagnostic_processes)
     }
 }
 
