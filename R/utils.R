@@ -13,16 +13,20 @@ document_line <- function(document, lineno) {
 
 to_string <- function(...) {
     dots <- list(...)
-    str <- sapply(
-        dots, function(x) {
-            tryCatch({
-            if (length(x) > 1)
-                jsonlite::toJSON(x, auto_unbox = TRUE)
-            else
-                x
-            },
-            error = function(e) x)
-        })
+    if (length(str) > 0) {
+        str <- sapply(
+            dots, function(x) {
+                tryCatch({
+                if (length(x) > 1)
+                    jsonlite::toJSON(x, auto_unbox = TRUE)
+                else
+                    x
+                },
+                error = function(e) x)
+            })
+    } else {
+        str <- ""
+    }
     paste0(paste(str, collapse = ""), "\n")
 }
 

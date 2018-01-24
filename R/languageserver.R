@@ -3,27 +3,6 @@
 #' An implementation of the Language Server Protocol for R
 "_PACKAGE"
 
-Documents <- R6::R6Class("Documents",
-    public = list(
-        get = function(uri) {
-            if (uri %in% names(private$cache)) {
-                private$cache[[uri]]
-            } else {
-                logger$error(uri, "not found")
-                stop("file no found.")
-            }
-        },
-
-        set = function(uri, text, multiline = FALSE) {
-            private$cache[[uri]] <- text
-        }
-    ),
-    private = list(
-        cache = list()
-    )
-)
-
-
 LanguageServer <- R6::R6Class("LanguageServer",
     public = list(
         stdin = NULL,
@@ -31,7 +10,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
         will_exit = NULL,
         request_handlers = NULL,
         notification_handlers = NULL,
-        documents = Documents$new(),
+        documents = new.env(),
 
         processId = NULL,
         rootUri = NULL,
@@ -124,15 +103,19 @@ LanguageServer <- R6::R6Class("LanguageServer",
             )
         },
 
+        process_event = function() {
+            process_diagnostic_events(self)
+        },
+
         eventloop = function() {
             content <- file(self$stdin)
             open(content, blocking = FALSE)
             while (TRUE) {
                 ret <- try({
+                    self$process_event()
                     header <- readLines(content, n = 1)
                     if (length(header) == 0 || nchar(header) == 0) {
-                        Sys.sleep(0.1)
-                        # TODO: process events
+                        Sys.sleep(1)
                         next
                     }
                     logger$info("received: ", header)
