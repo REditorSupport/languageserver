@@ -1,8 +1,8 @@
 # languageserver: An implementation of the Language Server Protocol for R
 
-Install `languageserver` from github
+Install development versions of `callr` and `languageserver`
 ```
-devtools::install_github("REditorSupport/languageserver")
+devtools::install_github(c("r-lib/callr", "REditorSupport/languageserver"))
 ```
 
 and configure your editor to run 

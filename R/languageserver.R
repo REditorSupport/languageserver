@@ -111,6 +111,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 initialize = on_initialize,
                 shutdown = on_shutdown,
                 `textDocument/completion` =  text_document_completion,
+                `textDocument/hover` = text_document_hover,
                 `textDocument/signatureHelp` = text_document_signature_help
             )
 
@@ -125,12 +126,15 @@ LanguageServer <- R6::R6Class("LanguageServer",
 
         eventloop = function() {
             content <- file(self$stdin)
-            open(content, blocking = TRUE)
+            open(content, blocking = FALSE)
             while (TRUE) {
                 ret <- try({
                     header <- readLines(content, n = 1)
-                    if (str_empty(header))
+                    if (length(header) == 0 || nchar(header) == 0) {
+                        Sys.sleep(0.1)
+                        # TODO: process events
                         next
+                    }
                     logger$info("received: ", header)
 
                     matches <- stringr::str_match(header[1], "Content-Length: ([0-9]+)")
@@ -138,10 +142,17 @@ LanguageServer <- R6::R6Class("LanguageServer",
                         stop("Unexpected input: ", header)
 
                     empty_line <- readLines(content, n = 1)
-                    if (!str_empty(empty_line))
+                    while (length(empty_line) == 0) {
+                        empty_line <- readLines(content, n = 1)
+                    }
+                    if (nchar(empty_line) > 0)
                         stop("Unexpected non-empty line")
-
-                    data <- readChar(content, as.numeric(matches[2]), useBytes = TRUE)
+                    nbytes <- as.numeric(matches[2])
+                    data <- ""
+                    while (nbytes > 0) {
+                        data <- paste0(data, readChar(content, nbytes, useBytes = TRUE))
+                        nbytes <- nbytes - nchar(data, type = "bytes")
+                    }
                     self$handle_raw(data)
                 })
                 if (inherits(ret, "try-error")) {

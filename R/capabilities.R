@@ -43,7 +43,7 @@ ExecuteCommandOptions <- list(
 
 ServerCapabilities <- list(
     textDocumentSync = TextDocumentSyncOptions,
-    # hoverProvider = FALSE,
+    hoverProvider = FALSE,
     completionProvider = CompletionOptions,
     signatureHelpProvider = SignatureHelpOptions
     # definitionProvider = FALSE,

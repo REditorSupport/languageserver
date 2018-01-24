@@ -3,7 +3,7 @@ text_document_did_open <- function(self, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
     self$documents$set(uri, readLines(path_from_uri(uri)))
-    self$deliver(diagnostic_reply(uri))
+    diagnostic_add_queue(self, uri)
 }
 
 # Notification
@@ -13,7 +13,7 @@ text_document_did_change <- function(self, params) {
     text <- contentChanges$text
     uri <- textDocument$uri
     self$documents$set(uri, stringr::str_split(text, "\n")[[1]])
-    self$deliver(diagnostic_reply(uri, text))
+    diagnostic_add_queue(self, uri, text)
 }
 
 # Notification
@@ -26,7 +26,7 @@ text_document_did_save <- function(self, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
     self$documents$set(uri, readLines(path_from_uri(uri)))
-    self$deliver(diagnostic_reply(uri))
+    diagnostic_add_queue(self, uri)
 }
 
 # Notification
@@ -52,7 +52,8 @@ completio_item_resolve  <- function(self, id, params) {
 
 # Request
 text_document_hover  <- function(self, id, params) {
-
+    textDocument <- params$textDocument
+    self$deliver(hover_reply(id, self$documents$get(textDocument$uri), params$position))
 }
 
 # Request

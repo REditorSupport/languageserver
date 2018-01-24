@@ -1,4 +1,4 @@
-result_range <- function(result) {
+diagnostic_range <- function(result) {
     line <- result$line_number - 1
     column <- result$column_number - 1
     if (is.null(result$ranges)) {
@@ -14,7 +14,7 @@ result_range <- function(result) {
     }
 }
 
-result_severity <- function(result) {
+diagnostic_severity <- function(result) {
     if (result$type == "error") {
         severity <- 1
     } else {
@@ -24,17 +24,17 @@ result_severity <- function(result) {
 }
 
 
-lint_to_diagnostic <- function(result) {
+dianostic_from_lint <- function(result) {
     list(
-        range = result_range(result),
-        severity = result_severity(result),
+        range = diagnostic_range(result),
+        severity = diagnostic_severity(result),
         source = result$type,
         message = result$message
     )
 }
 
 diagnose_file <- function(path) {
-    diagnostics <- lapply(lintr::lint(path), lint_to_diagnostic)
+    diagnostics <- lapply(lintr::lint(path), dianostic_from_lint)
     names(diagnostics) <- NULL
     diagnostics
 }
@@ -61,4 +61,8 @@ diagnostic_reply <- function(uri, text=NULL) {
             diagnostics = diagnostics
         )
     )
+}
+
+diagnostic_add_queue <- function(self, uri, text=NULL) {
+    self$deliver(diagnostic_reply(uri, text))
 }

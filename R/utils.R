@@ -1,7 +1,3 @@
-str_empty <- function(s) {
-    trimws(s) == ""
-}
-
 path_from_uri <- function(uri) {
     substr(uri, 8, nchar(uri))
 }
