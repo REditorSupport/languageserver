@@ -76,8 +76,13 @@ LanguageServer <- R6::R6Class("LanguageServer",
             params <- notification$params
             if (method %in% names(self$notification_handlers)) {
                 logger$info("handling notification: ", method)
-                dispatch <- self$notification_handlers[[method]]
-                dispatch(self, params)
+                tryCatch({
+                    dispatch <- self$notification_handlers[[method]]
+                    dispatch(self, params)
+                },
+                error = function(e) {
+                    logger$error("internal error: ", e)
+                })
             } else {
                 logger$error("unknown notification: ", method)
                 self$deliver(ResponseErrorMessage$new(
@@ -127,14 +132,19 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     empty_line <- readLines(content, n = 1)
                     while (length(empty_line) == 0) {
                         empty_line <- readLines(content, n = 1)
+                        Sys.sleep(0.05)
                     }
                     if (nchar(empty_line) > 0)
                         stop("Unexpected non-empty line")
                     nbytes <- as.numeric(matches[2])
                     data <- ""
                     while (nbytes > 0) {
-                        data <- paste0(data, readChar(content, nbytes, useBytes = TRUE))
-                        nbytes <- nbytes - nchar(data, type = "bytes")
+                        newdata <- readChar(content, nbytes, useBytes = TRUE)
+                        if (length(newdata) > 0) {
+                            nbytes <- nbytes - nchar(newdata, type = "bytes")
+                            data <- paste0(data, newdata)
+                        }
+                        Sys.sleep(0.05)
                     }
                     self$handle_raw(data)
                 })
