@@ -104,7 +104,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
         },
 
         process_event = function() {
-            process_diagnostic_events(self)
+            process_diagnostics(self)
         },
 
         eventloop = function() {
@@ -115,7 +115,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     self$process_event()
                     header <- readLines(content, n = 1)
                     if (length(header) == 0 || nchar(header) == 0) {
-                        Sys.sleep(1)
+                        Sys.sleep(0.1)
                         next
                     }
                     logger$info("received: ", header)

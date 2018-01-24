@@ -39,31 +39,39 @@ diagnose_file <- function(path) {
     diagnostics
 }
 
+diagnostic_queue <- new.env()
+diagnostic_processes <- new.env()
+
 diagnostic_queue_add <- function(self, uri, text=NULL) {
-    rm(list = uri, envir = diagnostic_process_queue)
-    if (is.null(text)) {
-        lintfile <- path_from_uri(uri)
-    } else {
-        lintfile <- tempfile(fileext = ".R")
-        write(text, file = lintfile)
-    }
-    dprocess <- callr::r_bg(
-        function(f, remove) {
-            d <- languageserver:::diagnose_file(f)
-            if (remove) file.remove(f)
-            d
-        },
-        list(f = lintfile, remove = !is.null(text)))
-    diagnostic_process_queue[[uri]] <- dprocess
+    diagnostic_queue[[uri]] <- text
 }
 
-diagnostic_process_queue <- new.env()
+process_diagnostic_queue <- function(){
+    for (uri in names(diagnostic_queue)) {
+        text <- diagnostic_queue[[uri]]
+        rm(list = uri, envir = diagnostic_queue)
+        if (is.null(text)) {
+            lintfile <- path_from_uri(uri)
+        } else {
+            lintfile <- tempfile(fileext = ".R")
+            write(text, file = lintfile)
+        }
+        dprocess <- callr::r_bg(
+            function(f, remove) {
+                d <- languageserver:::diagnose_file(f)
+                if (remove) file.remove(f)
+                d
+            },
+            list(f = lintfile, remove = !is.null(text)))
+        diagnostic_processes[[uri]] <- dprocess
+    }
+}
 
-process_diagnostic_events <- function(self)  {
-    for (uri in names(diagnostic_process_queue)) {
-        logger$info("process_diagnostic: ", uri)
-        dprocess <- diagnostic_process_queue[[uri]]
+process_diagnostic_notifications <- function(self) {
+    for (uri in names(diagnostic_processes)) {
+        dprocess <- diagnostic_processes[[uri]]
         if (dprocess$is_alive()) next
+        logger$info("process_diagnostic: ", uri)
         diagnostics <- dprocess$get_result()
         self$deliver(Notification$new(
             method = "textDocument/publishDiagnostics",
@@ -72,6 +80,11 @@ process_diagnostic_events <- function(self)  {
                 diagnostics = diagnostics
             )
         ))
-        rm(list = uri, envir = diagnostic_process_queue)
+        rm(list = uri, envir = diagnostic_processes)
     }
+}
+
+process_diagnostics <- function(self)  {
+    process_diagnostic_queue()
+    process_diagnostic_notifications(self)
 }
