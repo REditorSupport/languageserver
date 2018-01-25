@@ -85,8 +85,6 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 })
             } else {
                 logger$error("unknown notification: ", method)
-                self$deliver(ResponseErrorMessage$new(
-                    NULL, "MethodNotFound", paste0("unknown notification ", method)))
             }
         },
 
@@ -104,7 +102,8 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 exit = on_exit,
                 `textDocument/didOpen` = text_document_did_open,
                 `textDocument/didChange` = text_document_did_change,
-                `textDocument/didSave` = text_document_did_save
+                `textDocument/didSave` = text_document_did_save,
+                `textDocument/didClose` = text_document_did_close
             )
         },
 

@@ -25,13 +25,13 @@ text_document_will_save <- function(self, params) {
 text_document_did_save <- function(self, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
-    self$documents[[uri]] = readLines(path_from_uri(uri))
+    self$documents[[uri]] <- readLines(path_from_uri(uri))
     diagnostic_queue_add(self, uri)
 }
 
 # Notification
 text_document_did_close <- function(self, params) {
-
+    rm(list = uri, envir = self$documents)
 }
 
 # Request

@@ -113,3 +113,10 @@ ResponseErrorMessage <- R6::R6Class(
         }
     )
 )
+
+MessageType <- list(
+    Error = 1,
+    Warning = 2,
+    Info = 3,
+    Log = 4
+)
