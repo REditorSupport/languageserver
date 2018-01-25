@@ -2,7 +2,7 @@
 text_document_did_open <- function(self, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
-    self$documents[[uri]] = readLines(path_from_uri(uri))
+    self$documents[[uri]] <- readLines(path_from_uri(uri))
     diagnostic_queue_add(self, uri)
 }
 
@@ -12,7 +12,7 @@ text_document_did_change <- function(self, params) {
     contentChanges <- params$contentChanges
     text <- contentChanges$text
     uri <- textDocument$uri
-    self$documents[[uri]] = stringr::str_split(text, "\n")[[1]]
+    self$documents[[uri]] <- stringr::str_split(text, "\n")[[1]]
     diagnostic_queue_add(self, uri, text)
 }
 

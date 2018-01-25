@@ -32,6 +32,7 @@ to_string <- function(...) {
 
 log_write <- function(..., file = stderr()){
     cat(to_string(...), file = file)
+    cat(to_string(...), file = "/tmp/rls")
 }
 
 Logger <- R6::R6Class("Logger",
