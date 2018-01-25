@@ -17,3 +17,4 @@ Encoding: UTF-8
 LazyData: true
 NeedsCompilation: yes
 ByteCompile: yes
+Remotes: r-lib/callr
