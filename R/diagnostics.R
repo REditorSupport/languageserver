@@ -23,7 +23,6 @@ diagnostic_severity <- function(result) {
     severity
 }
 
-
 dianostic_from_lint <- function(result) {
     list(
         range = diagnostic_range(result),
@@ -39,24 +38,20 @@ diagnose_file <- function(path) {
     diagnostics
 }
 
-diagnostic_queue <- new.env()
-diagnostic_processes <- new.env()
+diagnostic_queue = MutableQueue$new()
 
-diagnostic_queue_add <- function(self, uri, text=NULL) {
-    diagnostic_queue[[uri]] <- text
-}
-
-process_diagnostic_queue <- function(){
-    for (uri in names(diagnostic_queue)) {
-        text <- diagnostic_queue[[uri]]
-        rm(list = uri, envir = diagnostic_queue)
+process_diagnostic_queue <- function(self){
+    for (i in seq_len(diagnostic_queue$size())) {
+        dq <- diagnostic_queue$get()
+        uri <- dq$id
+        text <- dq$x
         if (is.null(text)) {
             lintfile <- path_from_uri(uri)
         } else {
             lintfile <- tempfile(fileext = ".R")
             write(text, file = lintfile)
         }
-        dprocess <- callr::r_bg(
+        p <- callr::r_bg(
             function(f, remove) {
                 d <- tryCatch({
                     languageserver:::diagnose_file(f)
@@ -65,29 +60,21 @@ process_diagnostic_queue <- function(){
                 d
             },
             list(f = lintfile, remove = !is.null(text)))
-        diagnostic_processes[[uri]] <- dprocess
-    }
-}
-
-process_diagnostic_notifications <- function(self) {
-    for (uri in names(diagnostic_processes)) {
-        dprocess <- diagnostic_processes[[uri]]
-        if (dprocess$is_alive()) next
-        rm(list = uri, envir = diagnostic_processes)
-        logger$info("process_diagnostic: ", uri)
-        diagnostics <- dprocess$get_result()
-        if (is.null(diagnostics)) next
-        self$deliver(Notification$new(
-            method = "textDocument/publishDiagnostics",
-            params = list(
-                uri = uri,
-                diagnostics = diagnostics
+        self$coroutine_queue$put(
+            list(
+                process = p,
+                callback = function(diagnostics) {
+                    self$deliver(
+                        Notification$new(
+                            method = "textDocument/publishDiagnostics",
+                            params = list(
+                                uri = uri,
+                                diagnostics = diagnostics
+                            )
+                        )
+                    )
+                }
             )
-        ))
+        )
     }
-}
-
-process_diagnostics <- function(self)  {
-    process_diagnostic_queue()
-    process_diagnostic_notifications(self)
 }

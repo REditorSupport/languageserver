@@ -1,8 +1,5 @@
 #define R_NO_REMAP
-#include <R.h>
-#include <Rinternals.h>
-
-#include "languageserver.h"
+#include "document.h"
 
 SEXP document_backward_search(SEXP document, SEXP _row, SEXP _col, SEXP _char) {
     int row = Rf_asInteger(_row);

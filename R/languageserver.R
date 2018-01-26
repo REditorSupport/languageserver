@@ -18,6 +18,9 @@ LanguageServer <- R6::R6Class("LanguageServer",
         initializationOptions = NULL,
         capabilities = NULL,
 
+        coroutine_queue = Queue$new(),
+        reply_queue = Queue$new(),
+
         initialize = function(stdin, stdout) {
             self$stdin <- stdin
             if (stdout == "stdout"){
@@ -108,7 +111,29 @@ LanguageServer <- R6::R6Class("LanguageServer",
         },
 
         process_event = function() {
-            process_diagnostics(self)
+            process_diagnostic_queue(self)
+            self$process_coroutine_queue()
+            self$process_reply_queue()
+        },
+
+        process_coroutine_queue = function() {
+            for (i in seq_len(self$coroutine_queue$size())) {
+                coroutine <- self$coroutine_queue$get()
+                p <- coroutine$process
+                if (p$is_alive()) {
+                    self$coroutine_queue$put(coroutine)
+                } else {
+                    coroutine$callback(p$get_result())
+                }
+            }
+        },
+
+        process_reply_queue = function() {
+            while (TRUE) {
+                notification <- self$reply_queue$get()
+                if (is.null(notification)) break
+                self$deliver(notification)
+            }
         },
 
         eventloop = function() {

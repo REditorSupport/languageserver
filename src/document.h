@@ -1,5 +1,5 @@
-#ifndef _LANGSERVER_H_
-#define _LANGSERVER_H_ 1
+#ifndef _DOCUMENT_H_
+#define _DOCUMENT_H_ 1
 
 #define R_NO_REMAP
 #include <R.h>
