@@ -16,6 +16,7 @@ SEXP document_backward_search(SEXP document, SEXP _row, SEXP _col, SEXP _char) {
     int nparen = 0;
     int in_dquote = 0;
     int in_squote = 0;
+    k = 0;
 
     for (i = row; i>=0; i--) {
         ds = STRING_ELT(document, i);
