@@ -8,8 +8,8 @@ Maintainer: Randy Lai <randy.cs.lai@gmail.com>
 Description: An implementation of the Language Server Protocol for R
 License: MIT
 Imports:
-    styler,
     lintr,
+    callr,
     jsonlite,
     R6,
     stringr
@@ -17,4 +17,4 @@ Encoding: UTF-8
 LazyData: true
 NeedsCompilation: yes
 ByteCompile: yes
-Remotes: r-lib/callr
+Remotes: r-lib/callr, jimhester/lintr

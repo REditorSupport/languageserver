@@ -2,7 +2,7 @@
 
 Install development version of `languageserver`
 ```
-remotes::install_github("REditorSupport/languageserver")
+source("https://install-github.me/REditorSupport/languageserver")
 ```
 
 and configure your editor to run 
