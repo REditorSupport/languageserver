@@ -1,7 +1,6 @@
 get_signature <- function(fn) {
-    sig <- utils::capture.output(print(base::args(fn)))
-    sig <- sig[1:length(sig) - 1]
-    paste(gsub("^\\s+", "", sig), collapse = "")
+    sig <- capture.output(str(fn))
+    paste(trimws(sig, which = "left"), collapse = "")
 }
 
 signature_reply <- function(id, document, position) {
@@ -25,7 +24,7 @@ signature_reply <- function(id, document, position) {
 
         matches <- stringr::str_match(
             trim_line,
-            "(?:([a-zA-Z][a-zA-Z0-9]+)::)?([a-zA-Z0-9.][a-zA-Z0-9_.]+)\\(")
+            "(?:([a-zA-Z][a-zA-Z0-9]+)::)?([a-zA-Z0-9.][a-zA-Z0-9_.]+)\\($")
         logger$info("func_name: ", matches)
         try({
             if (is.na(matches[2])) {
