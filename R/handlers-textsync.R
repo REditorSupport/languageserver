@@ -31,6 +31,8 @@ text_document_did_save <- function(self, params) {
 
 # Notification
 text_document_did_close <- function(self, params) {
+    textDocument <- params$textDocument
+    uri <- textDocument$uri
     rm(list = uri, envir = self$documents)
 }
 
