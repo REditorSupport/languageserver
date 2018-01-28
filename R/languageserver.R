@@ -138,18 +138,18 @@ LanguageServer <- R6::R6Class("LanguageServer",
 
         eventloop = function() {
             content <- file(self$stdin)
-            open(content, blocking = FALSE)
+            open(content)
             while (TRUE) {
                 ret <- try({
                     self$process_event()
-                    header <- readLines(content, n = 1)
-                    if (length(header) == 0 || nchar(header) == 0) {
+                    if (!stdin_available()) {
                         Sys.sleep(0.1)
                         next
                     }
+                    header <- readLines(content, n = 1)
                     logger$info("received: ", header)
 
-                    matches <- stringr::str_match(header[1], "Content-Length: ([0-9]+)")
+                    matches <- stringr::str_match(header, "Content-Length: ([0-9]+)")
                     if (is.na(matches[2]))
                         stop("Unexpected input: ", header)
 

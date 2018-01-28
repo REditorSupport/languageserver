@@ -1,3 +1,7 @@
+stdin_available <- function() {
+    .Call("stdin_available", PACKAGE = "languageserver")
+}
+
 path_from_uri <- function(uri) {
     substr(uri, 8, nchar(uri))
 }
