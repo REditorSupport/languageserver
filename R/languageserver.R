@@ -3,7 +3,11 @@
 #' An implementation of the Language Server Protocol for R
 "_PACKAGE"
 
+
 LanguageServer <- R6::R6Class("LanguageServer",
+    private = list(
+        last_process_diagnostic_queue_time = Sys.time()
+    ),
     public = list(
         stdin = NULL,
         stdout = NULL,
@@ -110,8 +114,11 @@ LanguageServer <- R6::R6Class("LanguageServer",
             )
         },
 
-        process_event = function() {
-            process_diagnostic_queue(self)
+        process_events = function() {
+            if (Sys.time() - private$last_process_diagnostic_queue_time > 0.5) {
+                process_diagnostic_queue(self)
+                private$last_process_diagnostic_queue_time <- Sys.time()
+            }
             self$process_coroutine_queue()
             self$process_reply_queue()
         },
@@ -141,7 +148,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             open(content)
             while (TRUE) {
                 ret <- try({
-                    self$process_event()
+                    self$process_events()
                     if (!stdin_available()) {
                         Sys.sleep(0.1)
                         next
