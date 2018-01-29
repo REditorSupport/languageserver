@@ -15,27 +15,7 @@ These editors are supported by installing the corresponding package.
 
 - Atom: [atom-ide-r](https://github.com/REditorSupport/atom-ide-r)
 
-- Sublime Text: [LSP](https://github.com/tomv564/LSP) with settings
-```js
-"rlangsvr": {
-    "command": [
-        "R",
-        "--quiet",
-        "--slave",
-        "-e",
-        "languageserver::run()"
-    ],
-    "enabled": true,
-    "languageId": "r",
-    "scopes": [
-        "source.r"
-    ],
-    "syntaxes": [
-        "Packages/R/R.sublime-syntax",
-        "Packages/R-Box/syntax/R Extended.sublime-syntax"
-    ]
-}
-```
+- Sublime Text: [LSP](https://github.com/tomv564/LSP)
 
 - Vim/NeoVim: [LanguageClient-neovim](https://github.com/autozimu/LanguageClient-neovim) with settings
 ```vim
