@@ -10,8 +10,6 @@ SEXP pairlist_cdr(SEXP x);
 
 SEXP pairlist_last(SEXP x);
 
-SEXP pairlist_push(SEXP x, SEXP value);
-
 SEXP pairlist_append(SEXP x, SEXP value);
 
 SEXP pairlist_update(SEXP x, SEXP value);

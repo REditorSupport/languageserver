@@ -29,13 +29,6 @@ SEXP pairlist_last(SEXP x) {
   return x;
 }
 
-// add an item at the current position of x
-SEXP pairlist_push(SEXP x, SEXP value) {
-  if (!Rf_isList(x))
-    Rf_error("x must be a pairlist");
-  return Rf_cons(value, x);
-}
-
 
 // append an item at the end of the pairlist
 SEXP pairlist_append(SEXP x, SEXP value) {
