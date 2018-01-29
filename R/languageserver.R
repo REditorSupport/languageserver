@@ -37,7 +37,6 @@ LanguageServer <- R6::R6Class("LanguageServer",
 
         deliver = function(message) {
             cat(message$format(), file = self$stdout)
-            flush(self$stdout)
         },
 
         handle_raw = function(data) {
@@ -147,15 +146,24 @@ LanguageServer <- R6::R6Class("LanguageServer",
 
         eventloop = function() {
             con <- file(self$stdin)
-            open(con)
+            if (.Platform$OS.type == "windows") {
+                # Windows doesn't non-blocking read stdin
+                open(con)
+            } else {
+                open(con, blocking = FALSE)
+            }
             while (TRUE) {
                 ret <- try({
                     self$process_events()
-                    if (!stdin_available()) {
+                    if (.Platform$OS.type == "windows" && stdin_is_empty()) {
                         Sys.sleep(0.1)
                         next
                     }
                     header <- readLines(con, n = 1)
+                    if (length(header) == 0 || nchar(header) == 0) {
+                        Sys.sleep(0.1)
+                        next
+                    }
                     logger$info("received: ", header)
 
                     matches <- stringr::str_match(header, "Content-Length: ([0-9]+)")

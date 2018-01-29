@@ -1,5 +1,5 @@
-stdin_available <- function() {
-    .Call("stdin_available", PACKAGE = "languageserver")
+stdin_is_empty <- function() {
+    .Call("stdin_is_empty", PACKAGE = "languageserver")
 }
 
 path_from_uri <- function(uri) {
