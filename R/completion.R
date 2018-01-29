@@ -100,7 +100,7 @@ completion_reply <- function(id, document, position) {
         }
     }
 
-    # logger$info("completions: ", completions)
+    logger$info("completions: ", length(completions))
 
     Response$new(
         id,

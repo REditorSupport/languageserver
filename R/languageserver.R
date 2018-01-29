@@ -37,6 +37,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
 
         deliver = function(message) {
             cat(message$format(), file = self$stdout)
+            flush(self$stdout)
         },
 
         handle_raw = function(data) {
@@ -121,6 +122,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             }
             self$process_coroutine_queue()
             self$process_reply_queue()
+            flush(self$stdout)
         },
 
         process_coroutine_queue = function() {
@@ -144,8 +146,8 @@ LanguageServer <- R6::R6Class("LanguageServer",
         },
 
         eventloop = function() {
-            content <- file(self$stdin)
-            open(content)
+            con <- file(self$stdin)
+            open(con)
             while (TRUE) {
                 ret <- try({
                     self$process_events()
@@ -153,16 +155,16 @@ LanguageServer <- R6::R6Class("LanguageServer",
                         Sys.sleep(0.1)
                         next
                     }
-                    header <- readLines(content, n = 1)
+                    header <- readLines(con, n = 1)
                     logger$info("received: ", header)
 
                     matches <- stringr::str_match(header, "Content-Length: ([0-9]+)")
                     if (is.na(matches[2]))
                         stop("Unexpected input: ", header)
 
-                    empty_line <- readLines(content, n = 1)
+                    empty_line <- readLines(con, n = 1)
                     while (length(empty_line) == 0) {
-                        empty_line <- readLines(content, n = 1)
+                        empty_line <- readLines(con, n = 1)
                         Sys.sleep(0.05)
                     }
                     if (nchar(empty_line) > 0)
@@ -170,7 +172,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     nbytes <- as.numeric(matches[2])
                     data <- ""
                     while (nbytes > 0) {
-                        newdata <- readChar(content, nbytes, useBytes = TRUE)
+                        newdata <- readChar(con, nbytes, useBytes = TRUE)
                         if (length(newdata) > 0) {
                             nbytes <- nbytes - nchar(newdata, type = "bytes")
                             data <- paste0(data, newdata)
@@ -189,7 +191,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     break
                 }
             }
-            close(content)
+            close(con)
         },
 
         run = function() {
