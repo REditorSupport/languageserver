@@ -15,6 +15,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
         request_handlers = NULL,
         notification_handlers = NULL,
         documents = new.env(),
+        workspace = Workspace$new(),
 
         processId = NULL,
         rootUri = NULL,

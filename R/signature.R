@@ -1,9 +1,4 @@
-get_signature <- function(fn) {
-    sig <- capture.output(str(fn))
-    paste(trimws(sig, which = "left"), collapse = "")
-}
-
-signature_reply <- function(id, document, position) {
+signature_reply <- function(id, workspace, document, position) {
     SignatureInformation <- list()
     activeSignature <- -1
     line <- position$line
@@ -28,11 +23,11 @@ signature_reply <- function(id, document, position) {
         logger$info("func_name: ", matches)
         try({
             if (is.na(matches[2])) {
-                obj <- get(matches[3], envir = .GlobalEnv)
+                sig <- workspace$get_signature(matches[3])
             } else {
-                obj <- get(matches[3], envir = asNamespace(matches[2]))
+                sig <- workspace$get_signature(matches[3], mathches[2])
             }
-            sig <- trimws(gsub("function ", matches[3], get_signature(obj)))
+            sig <- trimws(gsub("function ", matches[3], sig))
             SignatureInformation <- list(list(label = sig))
             activeSignature <- 0
         }, silent = TRUE)
