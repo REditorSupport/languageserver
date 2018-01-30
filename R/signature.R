@@ -21,16 +21,16 @@ signature_reply <- function(id, workspace, document, position) {
             trim_line,
             "(?:([a-zA-Z][a-zA-Z0-9]+)::)?([a-zA-Z0-9.][a-zA-Z0-9_.]+)\\($")
         logger$info("func_name: ", matches)
-        try({
-            if (is.na(matches[2])) {
-                sig <- workspace$get_signature(matches[3])
-            } else {
-                sig <- workspace$get_signature(matches[3], mathches[2])
-            }
+        if (is.na(matches[2])) {
+            sig <- workspace$get_signature(matches[3])
+        } else {
+            sig <- workspace$get_signature(matches[3], matches[2])
+        }
+        if (!is.null(sig)) {
             sig <- trimws(gsub("function ", matches[3], sig))
             SignatureInformation <- list(list(label = sig))
             activeSignature <- 0
-        }, silent = TRUE)
+        }
     }
     Response$new(
         id,

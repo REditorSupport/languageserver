@@ -2,7 +2,8 @@
 # Request
 text_document_completion  <- function(self, id, params) {
     textDocument <- params$textDocument
-    self$deliver(completion_reply(id, self$documents[[textDocument$uri]], params$position))
+    self$deliver(completion_reply(
+        id, self$workspace, self$documents[[textDocument$uri]], params$position))
 }
 
 # Request
@@ -13,7 +14,8 @@ completio_item_resolve  <- function(self, id, params) {
 # Request
 text_document_hover  <- function(self, id, params) {
     textDocument <- params$textDocument
-    self$deliver(hover_reply(id, self$documents[[textDocument$uri]], params$position))
+    self$deliver(hover_reply(
+        id, self$workspace, self$documents[[textDocument$uri]], params$position))
 }
 
 # Request

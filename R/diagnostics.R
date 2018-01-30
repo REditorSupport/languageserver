@@ -38,9 +38,8 @@ diagnose_file <- function(path) {
     diagnostics
 }
 
-diagnostic_queue <- MutableQueue$new()
-
 process_diagnostic_queue <- function(self){
+    diagnostic_queue <- self$diagnostic_queue
     for (i in seq_len(diagnostic_queue$size())) {
         dq <- diagnostic_queue$get()
         uri <- dq$id

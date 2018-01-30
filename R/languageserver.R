@@ -15,7 +15,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
         request_handlers = NULL,
         notification_handlers = NULL,
         documents = new.env(),
-        workspace = Workspace$new(),
+        workspace = NULL,
 
         processId = NULL,
         rootUri = NULL,
@@ -23,8 +23,9 @@ LanguageServer <- R6::R6Class("LanguageServer",
         initializationOptions = NULL,
         capabilities = NULL,
 
-        coroutine_queue = Queue$new(),
-        reply_queue = Queue$new(),
+        diagnostic_queue = NULL,
+        coroutine_queue = NULL,
+        reply_queue = NULL,
 
         initialize = function(stdin, stdout) {
             self$stdin <- stdin
@@ -34,6 +35,11 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 self$stdout <- stdout
             }
             self$register_handlers()
+
+            self$workspace <- Workspace$new()
+            self$diagnostic_queue <- MutableQueue$new()
+            self$coroutine_queue <- Queue$new()
+            self$reply_queue <- Queue$new()
         },
 
         deliver = function(message) {

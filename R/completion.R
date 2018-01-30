@@ -52,20 +52,6 @@ default_completion <- function(token) {
     completions
 }
 
-load_packaages <- function(document) {
-    result <- stringr::str_match_all(document, "^(?:library|require)\\(['\"]?(.*?)['\"]?\\)")
-    for (j in seq_along(result)) {
-        if (nrow(result[[j]]) >= 1) {
-            logger$info("load package: ", result[[j]][1, 2])
-
-            tryCatch({
-                suppressMessages(library(result[[j]][1, 2], character = TRUE))
-                },
-                error = function(e) NULL)
-        }
-    }
-}
-
 package_completion <- function(token) {
     installed_packages <- rownames(installed.packages())
     completions <- list()
@@ -81,8 +67,7 @@ package_completion <- function(token) {
     completions
 }
 
-completion_reply <- function(id, document, position) {
-    load_packaages(document)
+completion_reply <- function(id, workspace, document, position) {
     line <- document_line(document, position$line + 1)
     token <- guess_token(line, position$character)
 

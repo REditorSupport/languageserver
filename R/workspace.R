@@ -51,45 +51,68 @@ Workspace <- R6::R6Class("Workspace",
         },
 
         load_package = function(pkgname) {
-            self$loaded_packages <- append(self$loaded_packages, pkgname)
-            self$namespaces[[pkgname]] <- Namespace$new(pkgname)
+            if (!(pkgname %in% self$loaded_packages)) {
+                ns <- try(self$get_namespace(pkgname), silent = TRUE)
+                logger$info("ns: ", ns)
+                if (!inherits(ns, "try-error")) {
+                    self$loaded_packages <- append(self$loaded_packages, pkgname)
+                    logger$info("loaded_packages: ", self$loaded_packages)
+
+                }
+            }
         },
 
-        get_namespace = function(nsname) {
-            if (nsname %in% names(self$namespaces)) {
-                self$namespaces[[nsname]]
+        get_namespace = function(pkgname) {
+            if (pkgname %in% names(self$namespaces)) {
+                self$namespaces[[pkgname]]
             } else {
-                self$load_package(nsname)
-                self$namespaces[[nsname]]
+                self$namespaces[[pkgname]] <- Namespace$new(pkgname)
+                self$namespaces[[pkgname]]
             }
         },
 
         get_signature = function(fname, pkgname = NULL) {
             if (is.null(pkgname)){
-                for (nsnames in rev(names(self$namespaces))) {
-                    ns <- self$get_namespace(nsnames)
+                for (ns in rev(self$loaded_packages)) {
+                    ns <- self$get_namespace(ns)
                     if (ns$exists(fname)) {
                         return(ns$get_signature(fname))
                     }
                 }
             } else {
-                ns <- self$get_namespace(pkgname)
-                ns$get_signature(fname)
+                tryCatch({
+                        ns <- self$get_namespace(pkgname)
+                        ns$get_signature(fname)
+                    },
+                    error = function(e) NULL)
             }
         },
 
         get_formals = function(fname, pkgname = NULL) {
             if (is.null(pkgname)){
-                for (nsnames in rev(names(self$namespaces))) {
-                    ns <- self$get_namespace(nsnames)
+                for (ns in rev(self$loaded_packages)) {
+                    ns <- self$get_namespace(ns)
                     if (ns$exists(fname)) {
                         return(ns$get_formals(fname))
                     }
                 }
             } else {
-                ns <- self$get_namespace(pkgname)
-                ns$get_formals(fname)
+                tryCatch({
+                        ns <- self$get_namespace(pkgname)
+                        ns$get_formals(fname)
+                    },
+                    error = function(e) NULL)
             }
         }
     )
 )
+
+workspace_sync <- function(workspace, document) {
+    result <- stringr::str_match_all(document, "^(?:library|require)\\(['\"]?(.*?)['\"]?\\)")
+    for (j in seq_along(result)) {
+        if (nrow(result[[j]]) >= 1) {
+            logger$info("load package: ", result[[j]][1, 2])
+            workspace$load_package(result[[j]][1, 2])
+        }
+    }
+}

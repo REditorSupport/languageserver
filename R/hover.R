@@ -1,4 +1,4 @@
-hover_reply <- function(id, document, position) {
+hover_reply <- function(id, workspace, document, position) {
     contents <- NULL
     line <- position$line
     character <- position$character
