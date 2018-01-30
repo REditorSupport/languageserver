@@ -2,9 +2,16 @@ stdin_is_empty <- function() {
     .Call("stdin_is_empty", PACKAGE = "languageserver")
 }
 
-path_from_uri <- function(uri) {
-    substr(uri, 8, nchar(uri))
+if (.Platform$OS.type == "windows") {
+    path_from_uri <- function(uri) {
+        URLdecode(substr(uri, 9, nchar(uri)))
+    }
+} else {
+    path_from_uri <- function(uri) {
+        URLdecode(substr(uri, 8, nchar(uri)))
+    }
 }
+
 
 document_line <- function(document, lineno) {
     if (lineno <= length(document)) {
