@@ -107,12 +107,69 @@ Workspace <- R6::R6Class("Workspace",
     )
 )
 
-workspace_sync <- function(workspace, document) {
-    result <- stringr::str_match_all(document, "^(?:library|require)\\(['\"]?(.*?)['\"]?\\)")
-    for (j in seq_along(result)) {
-        if (nrow(result[[j]]) >= 1) {
-            logger$info("load package: ", result[[j]][1, 2])
-            workspace$load_package(result[[j]][1, 2])
+workspace_sync <- function(uri, document) {
+    use_temp_file <- !is.null(document)
+    packages <- character(0)
+
+    if (use_temp_file) {
+        lintfile <- tempfile(fileext = ".R")
+        write(document, file = lintfile)
+    } else {
+        lintfile <- languageserver:::path_from_uri(uri)
+        document <- readLines(lintfile)
+
+        # only check for packages when opening and saving files, i.e., when document is NULL
+        # TODO: check DESCRIPTION of an R Package
+
+        result <- stringr::str_match_all(document, "^(?:library|require)\\(['\"]?(.*?)['\"]?\\)")
+        for (j in seq_along(result)) {
+            if (nrow(result[[j]]) >= 1) {
+                packages <- append(packages, result[[j]][1, 2])
+            }
         }
+
+    }
+
+    diagnostics <- tryCatch({
+        languageserver:::diagnose_file(lintfile)
+    }, error = function(e) NULL)
+
+    if (use_temp_file) file.remove(lintfile)
+
+    list(packages = packages, diagnostics = diagnostics)
+}
+
+process_sync_queue <- function(self){
+    sync_queue <- self$sync_queue
+    for (i in seq_len(sync_queue$size())) {
+        dq <- sync_queue$get()
+        uri <- dq$id
+        document <- dq$x
+
+        self$coroutine_queue$put(
+            list(
+                process = callr::r_bg(
+                    workspace_sync,
+                    list(uri = uri, document = document)
+                ),
+                callback = function(result) {
+                    diagnostics <- result$diagnostics
+                    if (!is.null(diagnostics)) {
+                        self$deliver(
+                            Notification$new(
+                                method = "textDocument/publishDiagnostics",
+                                params = list(
+                                    uri = uri,
+                                    diagnostics = diagnostics
+                                )
+                            )
+                        )
+                    }
+                    for (package in result$packages) {
+                        self$workspace$load_package(package)
+                    }
+                }
+            )
+        )
     }
 }

@@ -6,7 +6,7 @@
 
 LanguageServer <- R6::R6Class("LanguageServer",
     private = list(
-        last_process_diagnostic_queue_time = Sys.time()
+        last_process_sync_queue_time = Sys.time()
     ),
     public = list(
         stdin = NULL,
@@ -23,7 +23,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
         initializationOptions = NULL,
         capabilities = NULL,
 
-        diagnostic_queue = NULL,
+        sync_queue = NULL,
         coroutine_queue = NULL,
         reply_queue = NULL,
 
@@ -37,7 +37,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$register_handlers()
 
             self$workspace <- Workspace$new()
-            self$diagnostic_queue <- MutableQueue$new()
+            self$sync_queue <- MutableQueue$new()
             self$coroutine_queue <- Queue$new()
             self$reply_queue <- Queue$new()
         },
@@ -122,13 +122,12 @@ LanguageServer <- R6::R6Class("LanguageServer",
         },
 
         process_events = function() {
-            if (Sys.time() - private$last_process_diagnostic_queue_time > 0.5) {
-                process_diagnostic_queue(self)
-                private$last_process_diagnostic_queue_time <- Sys.time()
+            if (Sys.time() - private$last_process_sync_queue_time > 0.5) {
+                process_sync_queue(self)
+                private$last_process_sync_queue_time <- Sys.time()
             }
             self$process_coroutine_queue()
             self$process_reply_queue()
-            flush(self$stdout)
         },
 
         process_coroutine_queue = function() {
