@@ -9,8 +9,9 @@ LanguageServer <- R6::R6Class("LanguageServer",
         last_process_sync_queue_time = Sys.time()
     ),
     public = list(
-        stdin = NULL,
-        stdout = NULL,
+        tcp = FALSE,
+        inputcon = NULL,
+        outputcon = NULL,
         will_exit = NULL,
         request_handlers = NULL,
         notification_handlers = NULL,
@@ -27,13 +28,27 @@ LanguageServer <- R6::R6Class("LanguageServer",
         coroutine_queue = NULL,
         reply_queue = NULL,
 
-        initialize = function(stdin, stdout) {
-            self$stdin <- stdin
-            if (stdout == "stdout"){
-                self$stdout <- stdout()
+        initialize = function(host, port) {
+            if (is.null(port)) {
+                logger$info("connection type: stdio")
+                outputcon <- stdout()
+                inputcon <- file("stdin")
+                if (.Platform$OS.type == "windows") {
+                    # Windows doesn't non-blocking read stdin
+                    open(inputcon)
+                } else {
+                    open(inputcon, blocking = FALSE)
+                }
             } else {
-                self$stdout <- stdout
+                self$tcp <- TRUE
+                logger$info("connection type: tcp at ", port)
+                inputcon <- socketConnection(host = host, port = port, open = "r+")
+                logger$info("connected")
+                outputcon <- inputcon
             }
+
+            self$inputcon <- inputcon
+            self$outputcon <- outputcon
             self$register_handlers()
 
             self$workspace <- Workspace$new()
@@ -42,8 +57,12 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$reply_queue <- Queue$new()
         },
 
+        finalize = function() {
+            close(self$inputcon)
+        },
+
         deliver = function(message) {
-            cat(message$format(), file = self$stdout)
+            cat(message$format(), file = self$outputcon)
         },
 
         handle_raw = function(data) {
@@ -151,19 +170,21 @@ LanguageServer <- R6::R6Class("LanguageServer",
         },
 
         eventloop = function() {
-            con <- file(self$stdin)
-            if (.Platform$OS.type == "windows") {
-                # Windows doesn't non-blocking read stdin
-                open(con)
-            } else {
-                open(con, blocking = FALSE)
-            }
+            tcp <- self$tcp
+            con <- self$inputcon
             while (TRUE) {
                 ret <- try({
                     self$process_events()
-                    if (.Platform$OS.type == "windows" && stdin_is_empty()) {
-                        Sys.sleep(0.1)
-                        next
+                    if (tcp) {
+                        if (!socketSelect(list(con), timeout = 0)) {
+                            Sys.sleep(0.1)
+                            next
+                        }
+                    } else {
+                        if (.Platform$OS.type == "windows" && stdin_is_empty()) {
+                            Sys.sleep(0.1)
+                            next
+                        }
                     }
                     header <- readLines(con, n = 1)
                     if (length(header) == 0 || nchar(header) == 0) {
@@ -205,7 +226,6 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     break
                 }
             }
-            close(con)
         },
 
         run = function() {
@@ -216,8 +236,8 @@ LanguageServer <- R6::R6Class("LanguageServer",
 
 
 #' @export
-run <- function(debug = FALSE, stdin = "stdin", stdout = "stdout") {
+run <- function(debug = FALSE, host = "localhost", port = NULL) {
     logger$set_mode(debug = debug)
-    langserver <- LanguageServer$new(stdin = stdin, stdout = stdout)
+    langserver <- LanguageServer$new(host, port)
     langserver$run()
 }
