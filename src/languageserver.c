@@ -7,7 +7,7 @@
 #include <windows.h>
 
 char* buf = NULL;
-int bufsize = 3;
+int bufsize = 1024;
 int bufpos = 0;
 
 SEXP stdin_read_char(SEXP _n) {
