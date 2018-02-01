@@ -29,8 +29,10 @@ SEXP stdin_read_char(SEXP _n) {
             buf[bytes_read] = '\0';
             return Rf_mkString(buf);
         }
+        return Rf_allocVector(STRSXP, 0);
+    } else {
+        Rf_error("stdin connection close");
     }
-    return Rf_allocVector(STRSXP, 0);
 }
 
 
@@ -67,8 +69,10 @@ SEXP stdin_read_line() {
                 }
             }
         }
+        return Rf_allocVector(STRSXP, 0);
+    } else {
+        Rf_error("stdin connection close");
     }
-    return Rf_allocVector(STRSXP, 0);   
 }
 
 #endif
