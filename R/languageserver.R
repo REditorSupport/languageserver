@@ -180,13 +180,8 @@ LanguageServer <- R6::R6Class("LanguageServer",
                             Sys.sleep(0.1)
                             next
                         }
-                    } else {
-                        if (.Platform$OS.type == "windows" && stdin_is_empty()) {
-                            Sys.sleep(0.1)
-                            next
-                        }
                     }
-                    header <- readLines(con, n = 1)
+                    header <- read_line(con)
                     if (length(header) == 0 || nchar(header) == 0) {
                         Sys.sleep(0.1)
                         next
@@ -197,9 +192,9 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     if (is.na(matches[2]))
                         stop("Unexpected input: ", header)
 
-                    empty_line <- readLines(con, n = 1)
+                    empty_line <- read_line(con)
                     while (length(empty_line) == 0) {
-                        empty_line <- readLines(con, n = 1)
+                        empty_line <- read_line(con)
                         Sys.sleep(0.05)
                     }
                     if (nchar(empty_line) > 0)
@@ -207,7 +202,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     nbytes <- as.numeric(matches[2])
                     data <- ""
                     while (nbytes > 0) {
-                        newdata <- readChar(con, nbytes, useBytes = TRUE)
+                        newdata <- read_char(con, nbytes)
                         if (length(newdata) > 0) {
                             nbytes <- nbytes - nchar(newdata, type = "bytes")
                             data <- paste0(data, newdata)

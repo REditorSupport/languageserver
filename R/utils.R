@@ -1,6 +1,20 @@
-stdin_is_empty <- function() {
-    .Call("stdin_is_empty", PACKAGE = "languageserver")
+read_char <- function(con, n) {
+    if (.Platform$OS.type == "windows" && "file" %in% class(con)) {
+        .Call("stdin_read_char", PACKAGE = "languageserver", n)
+    } else {
+        readChar(con, n, useBytes = TRUE)
+    }
 }
+
+
+read_line <- function(con) {
+    if (.Platform$OS.type == "windows" && "file" %in% class(con)) {
+        .Call("stdin_read_line", PACKAGE = "languageserver")
+    } else {
+        readLines(con, n = 1)
+    }
+}
+
 
 if (.Platform$OS.type == "windows") {
     path_from_uri <- function(uri) {

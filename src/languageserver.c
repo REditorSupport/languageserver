@@ -2,17 +2,73 @@
 #include "pairlist.h"
 
 #if defined(_WIN32) || defined(_WIN64)
+
+#include <string.h>
 #include <windows.h>
 
-SEXP stdin_is_empty() {
+char* buf = NULL;
+int bufsize = 3;
+int bufpos = 0;
 
+SEXP stdin_read_char(SEXP _n) {
+    int n = Rf_asInteger(_n);
     HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
-    DWORD rd;
+    DWORD bytes_avail, bytes_read;
 
-    if (PeekNamedPipe(h, NULL, 0, NULL, &rd, NULL)) {
-        return Rf_ScalarLogical(rd == 0);
+    if (buf == NULL) {
+        buf = (char*) malloc((bufsize + 1) * sizeof(char));
     }
-    return Rf_ScalarLogical(1);
+    while (bufsize < n) {
+        bufsize = bufsize * 2;
+        buf = (char*) realloc(buf, (bufsize + 1) * sizeof(char));
+    }
+
+    if (PeekNamedPipe(h, NULL, 0, NULL, &bytes_avail, NULL)) {
+        if (bytes_avail > 0) {
+            ReadFile(h, buf, n, &bytes_read, NULL);
+            buf[bytes_read] = '\0';
+            return Rf_mkString(buf);
+        }
+    }
+    return Rf_allocVector(STRSXP, 0);
+}
+
+
+SEXP stdin_read_line() {
+    HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
+    DWORD bytes_avail, bytes_read;
+    char c;
+
+    if (buf == NULL) {
+        buf = (char*) malloc((bufsize + 1) * sizeof(char));
+    }
+
+    if (PeekNamedPipe(h, NULL, 0, NULL, &bytes_avail, NULL)) {
+        if (bytes_avail > 0) {
+            while (bytes_avail > bufpos) {
+                ReadFile(h, &c, 1, &bytes_read, NULL);
+                if (bytes_read == 1) {
+                    buf[bufpos] = c;
+                    if (c == '\n') {
+                        buf[bufpos] = '\0';
+                        if (bufpos > 0 && buf[bufpos - 1] == '\r') {
+                            buf[bufpos - 1] = '\0';
+                        }
+                        bufpos = 0;
+                        return Rf_mkString(buf);
+                    }
+                    bufpos++;
+                    if (bufpos >= bufsize) {
+                        bufsize = bufsize * 2;
+                        buf = realloc(buf, (bufsize + 1) * sizeof(char));
+                    }
+                } else {
+                    Rf_error("unexpected error");
+                }
+            }
+        }
+    }
+    return Rf_allocVector(STRSXP, 0);   
 }
 
 #endif
@@ -25,7 +81,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"pairlist_append", (DL_FUNC) &pairlist_append, 2},
     {"pairlist_update", (DL_FUNC) &pairlist_update, 2},
 #if defined(_WIN32) || defined(_WIN64)
-    {"stdin_is_empty", (DL_FUNC) &stdin_is_empty, 0},
+    {"stdin_read_char", (DL_FUNC) &stdin_read_char, 1},
+    {"stdin_read_line", (DL_FUNC) &stdin_read_line},
 #endif
     {NULL, NULL, 0}
 };
