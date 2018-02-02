@@ -183,6 +183,11 @@ LanguageServer <- R6::R6Class("LanguageServer",
                         private$ping_time <- Sys.time()
                     }
 
+                    if (isTRUE(self$will_exit)) {
+                        logger$info("exiting")
+                        break
+                    }
+
                     self$process_events()
 
                     if (tcp) {
@@ -225,10 +230,6 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     logger$error(ret)
                     logger$error(as.list(traceback()))
                     logger$error("exiting")
-                    break
-                }
-                if (isTRUE(self$will_exit)) {
-                    logger$info("exiting")
                     break
                 }
             }
