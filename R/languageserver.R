@@ -213,6 +213,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 })
                 if (inherits(ret, "try-error")) {
                     logger$error(ret)
+                    logger$error(as.list(traceback()))
                     logger$error("exiting")
                     break
                 }
