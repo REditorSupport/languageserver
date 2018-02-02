@@ -209,7 +209,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     }
                     if (nchar(empty_line) > 0)
                         stop("Unexpected non-empty line")
-                    nbytes <- as.numeric(matches[2])
+                    nbytes <- as.integer(matches[2])
                     data <- ""
                     while (nbytes > 0) {
                         newdata <- read_char(con, nbytes)
