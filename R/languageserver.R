@@ -6,7 +6,8 @@
 
 LanguageServer <- R6::R6Class("LanguageServer",
     private = list(
-        last_process_sync_queue_time = Sys.time()
+        last_process_sync_queue_time = Sys.time(),
+        ping_time = Sys.time()
     ),
     public = list(
         tcp = FALSE,
@@ -175,6 +176,12 @@ LanguageServer <- R6::R6Class("LanguageServer",
             while (TRUE) {
                 ret <- try({
                     if (!isOpen(con)) break
+
+                    if (Sys.time() - private$ping_time > 10) {
+                        # trigger SIGPIPE if the server becomes orphan
+                        cat("\n", file = stderr())
+                        private$ping_time <- Sys.time()
+                    }
 
                     self$process_events()
 
