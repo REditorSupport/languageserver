@@ -22,36 +22,6 @@ CompletionItemKind <- list(
     Reference = 18
 )
 
-.CompletionEnv <- new.env()
-
-guess_token <- function(line, end) {
-    utils:::.assignLinebuffer(line)
-    utils:::.assignEnd(end)
-    token <- utils:::.guessTokenFromLine()
-    logger$info("token: ", token)
-    token
-}
-
-default_completion <- function(token) {
-    # token <- utils:::.guessTokenFromLine(update = FALSE)
-
-    completions <- list()
-
-    logger$info("completing: ", token)
-    utils:::.completeToken()
-    comps <- utils:::.retrieveCompletions()
-    comps <- sub("=", " = ", comps)
-    comps <- sub("<-", " <- ", comps)
-
-    for (i in seq_along(comps)) {
-        completions[[i]] <- list(label = comps[i])
-    }
-
-    # logger$info("comps: ", comps)
-
-    completions
-}
-
 package_completion <- function(token) {
     installed_packages <- rownames(installed.packages())
     completions <- list()
@@ -59,7 +29,7 @@ package_completion <- function(token) {
     for (package in installed_packages) {
         if (startsWith(package, token)) {
             completions <- append(completions, list(list(
-                label = paste0(package, "::"),
+                label = package,
                 kind = CompletionItemKind$Module
             )))
         }
@@ -67,23 +37,74 @@ package_completion <- function(token) {
     completions
 }
 
-completion_reply <- function(id, workspace, document, position) {
-    line <- document_line(document, position$line + 1)
-    token <- guess_token(line, position$character)
+arg_completion <- function(workspace, funct, package = NULL) {
+    list()
+}
 
-    providers <- c(
-        default_completion,
-        package_completion
-    )
-
+workspace_complection <- function(workspace, full_token) {
     completions <- list()
 
-    for (provider in providers) {
-        provider_completion <- provider(token)
-        if (length(provider_completion) > 0) {
-            completions <- append(completions, provider_completion)
+    matches <- stringr::str_match(
+        full_token, "(?:([a-zA-Z][a-zA-Z0-9]+)(:::?))?([a-zA-Z0-9_.]*)$")
+
+    pkgname <- matches[2]
+    exported_only <- matches[3] == "::"
+    token <- matches[4]
+
+    if (is.na(pkgname)) {
+        packages <- workspace$loaded_packages
+    } else {
+        packages <- c(pkgname)
+    }
+
+    if (is.na(pkgname) || exported_only) {
+        for (nsname in packages) {
+            ns <- workspace$get_namespace(nsname)
+            for (object in ns$functs) {
+                if (startsWith(object, token)) {
+                    completions <- append(completions, list(list(
+                        label = object,
+                        kind = CompletionItemKind$Function,
+                        detail = paste0("{", nsname, "}")
+                    )))
+                }
+            }
+            for (object in ns$nonfuncts) {
+                if (startsWith(object, token)) {
+                    completions <- append(completions, list(list(
+                        label = object,
+                        kind = CompletionItemKind$Field,
+                        detail = paste0("{", nsname, "}")
+                    )))
+                }
+            }
+        }
+    } else {
+        ns <- workspace$get_namespace(pkgname)
+        for (object in ns$unexports) {
+            if (startsWith(object, token)) {
+                completions <- append(completions, list(list(
+                    label = object,
+                    detail = paste0("{", pkgname, "}")
+                )))
+            }
         }
     }
+
+    completions
+}
+
+completion_reply <- function(id, workspace, document, position) {
+    line <- position$line
+    character <- position$character
+
+    token <- detect_token(document, line, character)
+    closure <- detect_closure(document, line, character)
+
+    completions <- c(
+        workspace_complection(workspace, token),
+        package_completion(token)
+    )
 
     logger$info("completions: ", length(completions))
 

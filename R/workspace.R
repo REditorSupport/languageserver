@@ -4,13 +4,19 @@ Namespace <- R6::R6Class("Namespace",
         objects = NULL,
         exports = NULL,
         unexports = NULL,
+        functs = NULL,
+        nonfuncts = NULL,
 
         initialize = function(pkgname) {
             self$package_name <- pkgname
             ns <- asNamespace(pkgname)
-            self$objects <- objects(ns)
-            self$exports <- getNamespaceExports(ns)
+            self$objects <- sanitize_names(objects(ns))
+            self$exports <- sanitize_names(getNamespaceExports(ns))
             self$unexports <- setdiff(self$objects, self$exports)
+            isf <- sapply(self$exports, function(x) {
+                        is.function(get(x, envir = ns))})
+            self$functs <- self$exports[isf]
+            self$nonfuncts <- setdiff(self$exports, self$functs)
         },
 
         exists = function(objname) {
@@ -20,7 +26,7 @@ Namespace <- R6::R6Class("Namespace",
         get_signature = function(fname) {
             pkgname <- self$package_name
             ns <- asNamespace(pkgname)
-            fn <- get(fname, envir = ns, inherits = FALSE)
+            fn <- get(fname, envir = ns)
             sig <- capture.output(str(fn))
             paste(trimws(sig, which = "left"), collapse = "")
         },
@@ -28,7 +34,7 @@ Namespace <- R6::R6Class("Namespace",
         get_formals = function(fname) {
             pkgname <- self$package_name
             ns <- asNamespace(pkgname)
-            fn <- get(fname, envir = ns, inherits = FALSE)
+            fn <- get(fname, envir = ns)
             formals(fn)
         },
 
@@ -41,7 +47,6 @@ Namespace <- R6::R6Class("Namespace",
 Workspace <- R6::R6Class("Workspace",
     public = list(
         loaded_packages = c("base", "stats", "methods", "utils", "graphics", "grDevices"),
-        functs = list(),
         namespaces = list(),
 
         initialize = function() {
@@ -57,7 +62,6 @@ Workspace <- R6::R6Class("Workspace",
                 if (!inherits(ns, "try-error")) {
                     self$loaded_packages <- append(self$loaded_packages, pkgname)
                     logger$info("loaded_packages: ", self$loaded_packages)
-
                 }
             }
         },

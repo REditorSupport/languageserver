@@ -15,6 +15,10 @@ read_line <- function(con) {
     }
 }
 
+sanitize_names <- function(objects) {
+    objects[stringr::str_detect(objects, "^(?:[a-zA-Z.][a-zA-Z0-9_.]*)?$")]
+}
+
 
 if (.Platform$OS.type == "windows") {
     path_from_uri <- function(uri) {
