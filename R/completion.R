@@ -99,12 +99,18 @@ completion_reply <- function(id, workspace, document, position) {
     character <- position$character
 
     token <- detect_token(document, line, character)
-    closure <- detect_closure(document, line, character)
 
-    completions <- c(
-        workspace_complection(workspace, token),
-        package_completion(token)
-    )
+    if (nchar(token) > 0) {
+        closure <- detect_closure(document, line, character)
+
+        completions <- c(
+            workspace_complection(workspace, token),
+            package_completion(token)
+        )
+
+    } else {
+        completions <- list()
+    }
 
     logger$info("completions: ", length(completions))
 
