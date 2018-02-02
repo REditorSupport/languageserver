@@ -174,7 +174,10 @@ LanguageServer <- R6::R6Class("LanguageServer",
             con <- self$inputcon
             while (TRUE) {
                 ret <- try({
+                    if (!isOpen(con)) break
+
                     self$process_events()
+
                     if (tcp) {
                         if (!socketSelect(list(con), timeout = 0)) {
                             Sys.sleep(0.1)
