@@ -37,8 +37,19 @@ package_completion <- function(token) {
     completions
 }
 
-arg_completion <- function(workspace, funct, package = NULL) {
-    list()
+arg_completion <- function(workspace, token, closure) {
+    completions <- list()
+
+    args <- workspace$get_formals(closure$funct, closure$package)
+    for (arg in names(args)) {
+        if (startsWith(arg, token)) {
+            completions <- append(completions, list(list(
+                label = arg,
+                kind = CompletionItemKind$Variable
+            )))
+        }
+    }
+    completions
 }
 
 workspace_complection <- function(workspace, full_token) {
@@ -99,17 +110,23 @@ completion_reply <- function(id, workspace, document, position) {
     character <- position$character
 
     token <- detect_token(document, line, character)
+    logger$info("token: ", token)
+    closure <- detect_closure(document, line, character)
+    logger$info("closure: ", closure)
+
+    completions <- list()
 
     if (nchar(token) > 0) {
-        closure <- detect_closure(document, line, character)
-
         completions <- c(
-            workspace_complection(workspace, token),
-            package_completion(token)
-        )
+            completions,
+            package_completion(token),
+            workspace_complection(workspace, token))
+    }
 
-    } else {
-        completions <- list()
+    if (length(closure) > 0) {
+        completions <- c(
+            completions,
+            arg_completion(workspace, token, closure))
     }
 
     logger$info("completions: ", length(completions))

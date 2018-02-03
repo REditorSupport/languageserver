@@ -105,7 +105,7 @@ Workspace <- R6::R6Class("Workspace",
                         ns <- self$get_namespace(pkgname)
                         ns$get_formals(fname)
                     },
-                    error = function(e) NULL)
+                    error = function(e) list())
             }
         }
     )
