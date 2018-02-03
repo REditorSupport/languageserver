@@ -34,3 +34,17 @@ detect_token <- function(document, line, character) {
         token
     }
 }
+
+detect_hover <- function(document, line, character) {
+    content <- document_line(document, line + 1)
+    first <- stringr::str_match(
+        substr(content, 1, character),
+        "(?:([a-zA-Z][a-zA-Z0-9]+):::?)?([a-zA-Z.][a-zA-Z0-9_.]*)$")[1]
+    second <- stringr::str_match(
+        substr(content, character + 1, nchar(content)),
+        "^[a-zA-Z0-9_.]+\\b")[1]
+
+    if (is.na(first)) first <- ""
+    if (is.na(second)) second <- ""
+    paste0(first, second)
+}

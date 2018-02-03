@@ -1,19 +1,23 @@
 hover_reply <- function(id, workspace, document, position) {
-    contents <- NULL
     line <- position$line
     character <- position$character
 
-    logger$info("line: ", line)
-    logger$info("character: ", character)
+    hover <- detect_hover(document, line, character)
 
-    if (is.null(contents)) {
-        Response$new(id, result = NULL)
-    } else {
-        Response$new(
-            id,
-            result = list(
-                contents = contents
-            )
+    logger$info("hover: ", hover)
+
+    matches <- stringr::str_match(
+        hover, "(?:([a-zA-Z][a-zA-Z0-9]+)(:::?))?([a-zA-Z0-9_.]*)$")
+
+    contents <- tryCatch(
+        get_help(matches[4], matches[3]),
+        error = function(e) NULL)
+
+
+    Response$new(
+        id,
+        result = list(
+            contents = contents
         )
-    }
+    )
 }
