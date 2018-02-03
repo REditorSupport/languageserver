@@ -244,6 +244,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
 
 #' @export
 run <- function(debug = FALSE, host = "localhost", port = NULL) {
+    tools::Rd2txt_options(underline_titles = FALSE)
     logger$set_mode(debug = debug)
     langserver <- LanguageServer$new(host, port)
     langserver$run()

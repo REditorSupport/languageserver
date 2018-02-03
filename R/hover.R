@@ -10,14 +10,15 @@ hover_reply <- function(id, workspace, document, position) {
         hover, "(?:([a-zA-Z][a-zA-Z0-9]+)(:::?))?([a-zA-Z0-9_.]*)$")
 
     contents <- tryCatch(
-        get_help(matches[4], matches[3]),
+        get_help(matches[4], matches[2]),
         error = function(e) NULL)
 
-
-    Response$new(
-        id,
-        result = list(
-            contents = contents
+    if (!is.null(contents)) {
+        Response$new(
+            id,
+            result = list(
+                contents = contents
+            )
         )
-    )
+    }
 }

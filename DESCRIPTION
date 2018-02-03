@@ -8,11 +8,13 @@ Maintainer: Randy Lai <randy.cs.lai@gmail.com>
 Description: An implementation of the Language Server Protocol for R
 License: MIT
 Imports:
+    tools,
     lintr,
     callr,
     jsonlite,
     R6,
-    stringr
+    stringr,
+    repr
 Encoding: UTF-8
 LazyData: true
 NeedsCompilation: yes
