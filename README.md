@@ -31,7 +31,7 @@ let g:LanguageClient_serverCommands = {
 `languageserver` is still under active development, the following services have been implemented:
 
 - [x] textDocumentSync (diagnostics)
-- [ ] hoverProvider
+- [x] hoverProvider
 - [x] completionProvider
 - [x] signatureHelpProvider
 - [ ] definitionProvider
