@@ -63,7 +63,9 @@ LanguageServer <- R6::R6Class("LanguageServer",
         },
 
         deliver = function(message) {
-            cat(message$format(), file = self$outputcon)
+            if (!is.null(message)) {
+                cat(message$format(), file = self$outputcon)
+            }
         },
 
         handle_raw = function(data) {
