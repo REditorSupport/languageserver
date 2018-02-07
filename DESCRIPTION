@@ -10,7 +10,7 @@ License: MIT
 Imports:
     tools,
     lintr,
-    callr,
+    callr (>= 2.0.1),
     jsonlite,
     R6,
     stringr,
