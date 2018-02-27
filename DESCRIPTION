@@ -5,7 +5,7 @@ Version: 0.1.0
 Date: 2017-09-10
 Author: Randy Lai
 Maintainer: Randy Lai <randy.cs.lai@gmail.com>
-Description: An implementation of the Language Server Protocol for R. The Language Server protocol is used by a client to integrate features like auto complete. See https://microsoft.github.io/language-server-protocol/specification for details.
+Description: An implementation of the Language Server Protocol for R. The Language Server protocol is used by a client to integrate features like auto complete. See <https://microsoft.github.io/language-server-protocol> for details.
 URL: https://github.com/REditorSupport/languageserver
 License: MIT + file LICENSE
 Imports:
