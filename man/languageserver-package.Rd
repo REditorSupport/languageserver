@@ -4,10 +4,17 @@
 \name{languageserver-package}
 \alias{languageserver}
 \alias{languageserver-package}
-\title{languageserver: An implementation of the Language Server Protocol for R}
+\title{languageserver: An Implementation of the Language Server Protocol for R}
 \description{
-An implementation of the Language Server Protocol for R. The Language Server protocol is used by a client to integrate features like auto complete. See https://github.com/Microsoft/language-server-protocol/blob/master/protocol.md for details.
+An implementation of the Language Server Protocol for R. The Language Server protocol is used by a client to integrate features like auto complete. See https://microsoft.github.io/language-server-protocol/specification for details.
 }
 \details{
 An implementation of the Language Server Protocol for R
+}
+\seealso{
+Useful links:
+\itemize{
+  \item \url{https://github.com/REditorSupport/languageserver}
+}
+
 }

@@ -1,6 +1,6 @@
 Package: languageserver
 Type: Package
-Title: An implementation of the Language Server Protocol for R
+Title: An Implementation of the Language Server Protocol for R
 Version: 0.1.0
 Date: 2017-09-10
 Author: Randy Lai
