@@ -234,6 +234,14 @@ LanguageServer <- R6::R6Class("LanguageServer",
 #' @param debug set \code{TRUE} to show debug information in stderr
 #' @param host the hostname used to create the tcp server, not used when \code{port} is \code{NULL}
 #' @param port the port used to create the tcp server. If \code{NULL}, use stdio instead.
+#' @example
+#' \dontrun{
+#' # to use stdio
+#' languageserver::run()
+#'
+#' # to use tcp server
+#' languageserver::run(port = )
+#' }
 #' @export
 run <- function(debug = FALSE, host = "localhost", port = NULL) {
     tools::Rd2txt_options(underline_titles = FALSE)
