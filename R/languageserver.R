@@ -162,7 +162,9 @@ LanguageServer <- R6::R6Class("LanguageServer",
             con <- self$inputcon
             while (TRUE) {
                 ret <- try({
-                    if (!isOpen(con)) break
+                    if (!isOpen(con)) {
+                        self$will_exit <- TRUE
+                    }
 
                     if (.Platform$OS.type == "unix" && getppid() == 1) {
                         # exit if the current process becomes orphan
