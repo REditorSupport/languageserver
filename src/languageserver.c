@@ -98,8 +98,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"stdin_read_line", (DL_FUNC) &stdin_read_line},
 #else
     {"do_getppid", (DL_FUNC) &do_getppid},
-    {NULL, NULL, 0}
 #endif
+    {NULL, NULL, 0}
 };
 
 void R_init_languageserver(DllInfo *dll) {
