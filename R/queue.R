@@ -7,14 +7,14 @@ Queue <- R6::R6Class("Queue",
         last = NULL
     ),
     public = list(
-        put = function(x) {
+        put = function(item) {
             if (is.null(private$q)) {
-                private$q <- private$last <- as.pairlist(list(x))
+                private$q <- private$last <- as.pairlist(list(item))
             } else {
                 private$last <- .Call(
-                    "pairlist_append", PACKAGE = "languageserver", private$last, x)
+                    "pairlist_append", PACKAGE = "languageserver", private$last, item)
             }
-            invisible(x)
+            invisible(item)
         },
         get = function() {
             v <- .Call("pairlist_car", PACKAGE = "languageserver", private$q)
@@ -29,13 +29,16 @@ Queue <- R6::R6Class("Queue",
 NamedQueue <- R6::R6Class("NamedQueue",
     inherit = Queue,
     public = list(
-        put = function(id, x) {
+        put = function(id, item) {
             updated <- FALSE
             cur <- private$q
             for (i in seq_len(length(private$q))) {
                 v <- .Call("pairlist_car", PACKAGE = "languageserver", cur)
                 if (v$id == id) {
-                    .Call("pairlist_update", PACKAGE = "languageserver", cur, list(id = id, x = x))
+                    .Call("pairlist_setcar",
+                        PACKAGE = "languageserver",
+                        cur,
+                        list(id = id, item = item))
                     updated <- TRUE
                     break
                 } else {
@@ -43,9 +46,45 @@ NamedQueue <- R6::R6Class("NamedQueue",
                 }
             }
             if (!updated) {
-                super$put(list(id = id, x = x))
+                super$put(list(id = id, item = item))
             }
-            invisible(x)
+            invisible(item)
+        },
+        get = function(id = NULL) {
+            if (is.null(id)) {
+                super$get()
+            } else {
+                cur <- private$q
+                v <- .Call("pairlist_car", PACKAGE = "languageserver", cur)
+                d <- .Call("pairlist_cdr", PACKAGE = "languageserver", cur)
+                if (v$id == id) {
+                    private$q <- d
+                    return(v)
+                } else {
+                    while (!is.null(d)) {
+                        v <- .Call("pairlist_car", PACKAGE = "languageserver", d)
+                        dd <- .Call("pairlist_cdr", PACKAGE = "languageserver", d)
+                        if (v$id == id) {
+                            .Call("pairlist_setcdr", PACKAGE = "languageserver", cur, dd)
+                            return(v)
+                        }
+                        cur <- d
+                        d <- dd
+                    }
+                }
+                stop("id not found")
+            }
+        },
+        has = function(id) {
+            cur <- private$q
+            while (!is.null(cur)) {
+                v <- .Call("pairlist_car", PACKAGE = "languageserver", cur)
+                if (v$id == id) {
+                    return(TRUE)
+                }
+                cur <- .Call("pairlist_cdr", PACKAGE = "languageserver", cur)
+            }
+            return(FALSE)
         }
     )
 )

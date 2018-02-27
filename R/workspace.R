@@ -145,35 +145,25 @@ workspace_sync <- function(uri, document) {
 
 process_sync_input_queue <- function(self) {
     sync_input_queue <- self$sync_input_queue
-    for (i in seq_len(sync_input_queue$size())) {
-        q <- sync_input_queue$get()
-        uri <- q$id
-        document <- q$x
+    sync_output_queue <- self$sync_output_queue
 
-        self$sync_output_queue$put(
+    for (i in seq_len(sync_input_queue$size())) {
+        qinput <- sync_input_queue$get()
+        uri <- qinput$id
+        document <- qinput$item
+
+        if (sync_output_queue$has(uri)) {
+            qoutput <- sync_output_queue$get(uri)
+            process <- qoutput$item
+            if (process$is_alive()) {
+                process$kill()
+            }
+        }
+        sync_output_queue$put(
             uri,
-            list(
-                process = callr::r_bg(
-                    workspace_sync,
-                    list(uri = uri, document = document)
-                ),
-                callback = function(result) {
-                    diagnostics <- result$diagnostics
-                    if (!is.null(diagnostics)) {
-                        self$deliver(
-                            Notification$new(
-                                method = "textDocument/publishDiagnostics",
-                                params = list(
-                                    uri = uri,
-                                    diagnostics = diagnostics
-                                )
-                            )
-                        )
-                    }
-                    for (package in result$packages) {
-                        self$workspace$load_package(package)
-                    }
-                }
+            callr::r_bg(
+                workspace_sync,
+                list(uri = uri, document = document)
             )
         )
     }
@@ -183,14 +173,28 @@ process_sync_output_queue <- function(self) {
     for (i in seq_len(self$sync_output_queue$size())) {
         q <- self$sync_output_queue$get()
         uri <- q$id
-        content <- q$x
+        p <- q$item
 
-        p <- content$process
         if (!is.null(p)) {
             if (p$is_alive()) {
-                self$sync_output_queue$put(uri, content)
+                self$sync_output_queue$put(uri, p)
             } else {
-                content$callback(p$get_result())
+                result <- p$get_result()
+                diagnostics <- result$diagnostics
+                if (!is.null(diagnostics)) {
+                    self$deliver(
+                        Notification$new(
+                            method = "textDocument/publishDiagnostics",
+                            params = list(
+                                uri = uri,
+                                diagnostics = diagnostics
+                            )
+                        )
+                    )
+                }
+                for (package in result$packages) {
+                    self$workspace$load_package(package)
+                }
             }
         }
     }

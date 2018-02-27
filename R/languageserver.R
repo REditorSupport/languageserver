@@ -50,7 +50,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$reply_queue <- Queue$new()
 
             self$process_sync_input_queue <- leisurize(
-                function() process_sync_input_queue(self), 0.5)
+                function() process_sync_input_queue(self), 0.3)
             self$process_sync_output_queue <- (function() process_sync_output_queue(self))
         },
 

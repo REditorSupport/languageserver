@@ -44,11 +44,20 @@ SEXP pairlist_append(SEXP x, SEXP value) {
   return CDR(x);
 }
 
-
 // update the current item
-SEXP pairlist_update(SEXP x, SEXP value) {
+SEXP pairlist_setcar(SEXP x, SEXP value) {
   if (!Rf_isList(x))
     Rf_error("x must be a pairlist");
   SETCAR(x, value);
+  return x;
+}
+
+// link current item to a different item
+SEXP pairlist_setcdr(SEXP x, SEXP y) {
+  if (!Rf_isList(x))
+    Rf_error("x must be a pairlist");
+  if (!Rf_isList(y))
+    Rf_error("y must be a pairlist");
+  SETCDR(x, y);
   return x;
 }

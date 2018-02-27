@@ -12,6 +12,8 @@ SEXP pairlist_last(SEXP x);
 
 SEXP pairlist_append(SEXP x, SEXP value);
 
-SEXP pairlist_update(SEXP x, SEXP value);
+SEXP pairlist_setcar(SEXP x, SEXP value);
+
+SEXP pairlist_setcdr(SEXP x, SEXP y);
 
 #endif

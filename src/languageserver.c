@@ -92,7 +92,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"pairlist_cdr", (DL_FUNC) &pairlist_cdr, 1},
     {"pairlist_last", (DL_FUNC) &pairlist_last, 1},
     {"pairlist_append", (DL_FUNC) &pairlist_append, 2},
-    {"pairlist_update", (DL_FUNC) &pairlist_update, 2},
+    {"pairlist_setcar", (DL_FUNC) &pairlist_setcar, 2},
+    {"pairlist_setcdr", (DL_FUNC) &pairlist_setcdr, 2},
 #if defined(_WIN32) || defined(_WIN64)
     {"stdin_read_char", (DL_FUNC) &stdin_read_char, 1},
     {"stdin_read_line", (DL_FUNC) &stdin_read_line},
