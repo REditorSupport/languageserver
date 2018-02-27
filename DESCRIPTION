@@ -16,6 +16,8 @@ Imports:
     R6,
     stringr,
     repr
+Suggests:
+    testthat
 Encoding: UTF-8
 LazyData: true
 NeedsCompilation: yes
