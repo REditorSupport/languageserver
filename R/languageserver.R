@@ -34,12 +34,8 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 logger$info("connection type: stdio")
                 outputcon <- stdout()
                 inputcon <- file("stdin")
-                if (.Platform$OS.type == "windows") {
-                    # Windows doesn't non-blocking read stdin
-                    open(inputcon)
-                } else {
-                    open(inputcon, blocking = FALSE)
-                }
+                # note: windows doesn't non-blocking read stdin
+                open(inputcon, blocking = FALSE)
             } else {
                 self$tcp <- TRUE
                 logger$info("connection type: tcp at ", port)
@@ -179,10 +175,9 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 ret <- try({
                     if (!isOpen(con)) break
 
-                    if (Sys.time() - private$ping_time > 10) {
-                        # trigger SIGPIPE if the server becomes orphan
-                        cat("\n", file = stderr())
-                        private$ping_time <- Sys.time()
+                    if (.Platform$OS.type == "unix" && getppid() == 1) {
+                        # exit if the current process becomes orphan
+                        self$will_exit <- TRUE
                     }
 
                     if (isTRUE(self$will_exit)) {

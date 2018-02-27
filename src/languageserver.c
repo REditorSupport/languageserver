@@ -75,6 +75,15 @@ SEXP stdin_read_line() {
     }
 }
 
+#else
+
+#include <unistd.h> /* for getgpid */
+
+SEXP do_getppid() {
+    int ppid;
+    ppid = (int) getppid();
+    return Rf_ScalarInteger(ppid);
+}
 #endif
 
 static const R_CallMethodDef CallEntries[] = {
@@ -87,8 +96,10 @@ static const R_CallMethodDef CallEntries[] = {
 #if defined(_WIN32) || defined(_WIN64)
     {"stdin_read_char", (DL_FUNC) &stdin_read_char, 1},
     {"stdin_read_line", (DL_FUNC) &stdin_read_line},
-#endif
+#else
+    {"do_getppid", (DL_FUNC) &do_getppid},
     {NULL, NULL, 0}
+#endif
 };
 
 void R_init_languageserver(DllInfo *dll) {

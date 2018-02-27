@@ -15,6 +15,10 @@ read_line <- function(con) {
     }
 }
 
+getppid <- function() {
+    .Call("do_getppid", PACKAGE = "languageserver")
+}
+
 sanitize_names <- function(objects) {
     objects[stringr::str_detect(objects, "^(?:[a-zA-Z.][a-zA-Z0-9_.]*)?$")]
 }
@@ -60,8 +64,8 @@ to_string <- function(...) {
 }
 
 log_write <- function(..., file = stderr()){
-    cat(to_string(...), file = file)
     # cat(to_string(...), file = "/tmp/rls")
+    cat(to_string(...), file = file)
 }
 
 Logger <- R6::R6Class("Logger",
