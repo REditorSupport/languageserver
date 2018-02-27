@@ -143,14 +143,15 @@ workspace_sync <- function(uri, document) {
     list(packages = packages, diagnostics = diagnostics)
 }
 
-process_sync_queue <- function(self){
-    sync_queue <- self$sync_queue
-    for (i in seq_len(sync_queue$size())) {
-        dq <- sync_queue$get()
-        uri <- dq$id
-        document <- dq$x
+process_sync_input_queue <- function(self) {
+    sync_input_queue <- self$sync_input_queue
+    for (i in seq_len(sync_input_queue$size())) {
+        q <- sync_input_queue$get()
+        uri <- q$id
+        document <- q$x
 
-        self$coroutine_queue$put(
+        self$sync_output_queue$put(
+            uri,
             list(
                 process = callr::r_bg(
                     workspace_sync,
@@ -175,5 +176,22 @@ process_sync_queue <- function(self){
                 }
             )
         )
+    }
+}
+
+process_sync_output_queue <- function(self) {
+    for (i in seq_len(self$sync_output_queue$size())) {
+        q <- self$sync_output_queue$get()
+        uri <- q$id
+        content <- q$x
+
+        p <- content$process
+        if (!is.null(p)) {
+            if (p$is_alive()) {
+                self$sync_output_queue$put(uri, content)
+            } else {
+                content$callback(p$get_result())
+            }
+        }
     }
 }

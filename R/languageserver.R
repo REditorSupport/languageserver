@@ -21,8 +21,8 @@ LanguageServer <- R6::R6Class("LanguageServer",
         initializationOptions = NULL,
         capabilities = NULL,
 
-        sync_queue = NULL,
-        coroutine_queue = NULL,
+        sync_input_queue = NULL,
+        sync_output_queue = NULL,
         reply_queue = NULL,
 
         initialize = function(host, port) {
@@ -45,11 +45,13 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$register_handlers()
 
             self$workspace <- Workspace$new()
-            self$sync_queue <- NamedQueue$new()
-            self$coroutine_queue <- Queue$new()
+            self$sync_input_queue <- NamedQueue$new()
+            self$sync_output_queue <- NamedQueue$new()
             self$reply_queue <- Queue$new()
 
-            self$process_sync_queue <- leisurize(function() process_sync_queue(self), 0.5)
+            self$process_sync_input_queue <- leisurize(
+                function() process_sync_input_queue(self), 0.5)
+            self$process_sync_output_queue <- (function() process_sync_output_queue(self))
         },
 
         finalize = function() {
@@ -138,24 +140,14 @@ LanguageServer <- R6::R6Class("LanguageServer",
         },
 
         process_events = function() {
-            self$process_sync_queue()
-            self$process_coroutine_queue()
+            self$process_sync_input_queue()
+            self$process_sync_output_queue()
             self$process_reply_queue()
         },
 
-        process_sync_queue = NULL,
+        process_sync_input_queue = NULL,
 
-        process_coroutine_queue = function() {
-            for (i in seq_len(self$coroutine_queue$size())) {
-                coroutine <- self$coroutine_queue$get()
-                p <- coroutine$process
-                if (p$is_alive()) {
-                    self$coroutine_queue$put(coroutine)
-                } else {
-                    coroutine$callback(p$get_result())
-                }
-            }
-        },
+        process_sync_output_queue = NULL,
 
         process_reply_queue = function() {
             while (TRUE) {
