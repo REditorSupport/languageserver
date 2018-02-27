@@ -161,9 +161,11 @@ process_sync_input_queue <- function(self) {
         if (sync_output_queue$has(uri)) {
             qoutput <- sync_output_queue$get(uri)
             process <- qoutput$item
-            if (process$is_alive()) {
-                process$kill()
-            }
+            try({
+                if (process$is_alive()) {
+                    process$kill()
+                }
+            })
         }
         sync_output_queue$put(
             uri,
