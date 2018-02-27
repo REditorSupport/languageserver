@@ -23,7 +23,7 @@ CompletionItemKind <- list(
 )
 
 package_completion <- function(token) {
-    installed_packages <- rownames(installed.packages())
+    installed_packages <- rownames(utils::installed.packages())
     completions <- list()
 
     for (package in installed_packages) {

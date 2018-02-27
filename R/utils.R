@@ -36,11 +36,11 @@ sanitize_names <- function(objects) {
 
 if (.Platform$OS.type == "windows") {
     path_from_uri <- function(uri) {
-        URLdecode(substr(uri, 9, nchar(uri)))
+        utils::URLdecode(substr(uri, 9, nchar(uri)))
     }
 } else {
     path_from_uri <- function(uri) {
-        URLdecode(substr(uri, 8, nchar(uri)))
+        utils::URLdecode(substr(uri, 8, nchar(uri)))
     }
 }
 

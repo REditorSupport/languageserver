@@ -111,6 +111,12 @@ Workspace <- R6::R6Class("Workspace",
     )
 )
 
+#' Determine workspace information for a given file
+#'
+#' internal use only
+#' @param uri the file path
+#' @param document the content of the file
+#' @export
 workspace_sync <- function(uri, document) {
     use_temp_file <- !is.null(document)
     packages <- character(0)
@@ -119,7 +125,7 @@ workspace_sync <- function(uri, document) {
         lintfile <- tempfile(fileext = ".R")
         write(document, file = lintfile)
     } else {
-        lintfile <- languageserver:::path_from_uri(uri)
+        lintfile <- path_from_uri(uri)
         document <- readLines(lintfile)
 
         # only check for packages when opening and saving files, i.e., when document is NULL
@@ -135,7 +141,7 @@ workspace_sync <- function(uri, document) {
     }
 
     diagnostics <- tryCatch({
-        languageserver:::diagnose_file(lintfile)
+        diagnose_file(lintfile)
     }, error = function(e) NULL)
 
     if (use_temp_file) file.remove(lintfile)
@@ -162,7 +168,9 @@ process_sync_input_queue <- function(self) {
         sync_output_queue$put(
             uri,
             callr::r_bg(
-                workspace_sync,
+                function(uri, document) {
+                    languageserver::workspace_sync(uri, document)
+                },
                 list(uri = uri, document = document)
             )
         )
