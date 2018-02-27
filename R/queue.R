@@ -26,7 +26,7 @@ Queue <- R6::R6Class("Queue",
     )
 )
 
-MutableQueue <- R6::R6Class("MutableQueue",
+NamedQueue <- R6::R6Class("NamedQueue",
     inherit = Queue,
     public = list(
         put = function(id, x) {

@@ -5,10 +5,6 @@
 
 
 LanguageServer <- R6::R6Class("LanguageServer",
-    private = list(
-        last_process_sync_queue_time = Sys.time(),
-        ping_time = Sys.time()
-    ),
     public = list(
         tcp = FALSE,
         inputcon = NULL,
@@ -49,9 +45,11 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$register_handlers()
 
             self$workspace <- Workspace$new()
-            self$sync_queue <- MutableQueue$new()
+            self$sync_queue <- NamedQueue$new()
             self$coroutine_queue <- Queue$new()
             self$reply_queue <- Queue$new()
+
+            self$process_sync_queue <- leisurize(function() process_sync_queue(self), 0.5)
         },
 
         finalize = function() {
@@ -140,13 +138,12 @@ LanguageServer <- R6::R6Class("LanguageServer",
         },
 
         process_events = function() {
-            if (Sys.time() - private$last_process_sync_queue_time > 0.5) {
-                process_sync_queue(self)
-                private$last_process_sync_queue_time <- Sys.time()
-            }
+            self$process_sync_queue()
             self$process_coroutine_queue()
             self$process_reply_queue()
         },
+
+        process_sync_queue = NULL,
 
         process_coroutine_queue = function() {
             for (i in seq_len(self$coroutine_queue$size())) {

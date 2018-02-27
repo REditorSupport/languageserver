@@ -19,6 +19,16 @@ getppid <- function() {
     .Call("do_getppid", PACKAGE = "languageserver")
 }
 
+leisurize <- function(fun, t = 1) {
+    last_execuation_time <- 0
+    function(...) {
+        if (Sys.time() - last_execuation_time > t) {
+            last_execuation_time <<- Sys.time()
+            fun(...)
+        }
+    }
+}
+
 sanitize_names <- function(objects) {
     objects[stringr::str_detect(objects, "^(?:[a-zA-Z.][a-zA-Z0-9_.]*)?$")]
 }
