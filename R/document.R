@@ -1,8 +1,6 @@
 detect_closure <- function(document, line, character) {
     if (character > 0 && !is.null(document)) {
-        loc <- .Call(
-            "document_backward_search", PACKAGE = "languageserver",
-            document, line, character - 1, "(")
+        loc <- document_backward_search(document, line, character, "(")
     } else {
         loc <- c(-1, -1)
     }

@@ -1,9 +1,20 @@
 #include "document.h"
 
-SEXP document_backward_search(SEXP document, SEXP _row, SEXP _col, SEXP _char) {
+static int is_empty(const char *s) {
+    while (*s != '\0') {
+        if (!isspace((unsigned char)*s))
+            return 0;
+        s++;
+    }
+    return 1;
+}
+
+SEXP document_backward_search(SEXP document, SEXP _row, SEXP _col, SEXP _char, SEXP _skip_el) {
     int row = Rf_asInteger(_row);
     int col = Rf_asInteger(_col);
     char c = CHAR(Rf_asChar(_char))[0];
+    int skip = Rf_asInteger(_skip_el);
+
     SEXP loc;
 
     int i, j, k;
@@ -20,6 +31,12 @@ SEXP document_backward_search(SEXP document, SEXP _row, SEXP _col, SEXP _char) {
     for (i = row; i>=0; i--) {
         ds = STRING_ELT(document, i);
         d = Rf_translateCharUTF8(ds);
+        if (skip && i < row && is_empty(d)) {
+            // skip empty row when search backward
+            i = -1;
+            j = -1;
+            break;
+        }
         maxj = strlen(d);
 
         // first search forward with quotation awareness

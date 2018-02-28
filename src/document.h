@@ -5,6 +5,6 @@
 #include <R.h>
 #include <Rinternals.h>
 
-SEXP document_backward_search(SEXP document, SEXP _row, SEXP _col, SEXP _char);
+SEXP document_backward_search(SEXP document, SEXP _row, SEXP _col, SEXP _char, SEXP _skip_el);
 
 #endif

@@ -19,6 +19,11 @@ getppid <- function() {
     .Call("do_getppid", PACKAGE = "languageserver")
 }
 
+document_backward_search <- function(document, line, character, char, skip_empty_line = TRUE) {
+    .Call("document_backward_search", PACKAGE = "languageserver",
+        document, line, character - 1, char, skip_empty_line)
+}
+
 leisurize <- function(fun, t = 1) {
     last_execuation_time <- 0
     function(...) {
