@@ -22,6 +22,6 @@ Run the R language server
 languageserver::run()
 
 # to use tcp server
-languageserver::run(port = )
+languageserver::run(port = 8888)
 }
 }

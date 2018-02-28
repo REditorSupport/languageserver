@@ -240,7 +240,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
 #' languageserver::run()
 #'
 #' # to use tcp server
-#' languageserver::run(port = )
+#' languageserver::run(port = 8888)
 #' }
 #' @export
 run <- function(debug = FALSE, host = "localhost", port = NULL) {
