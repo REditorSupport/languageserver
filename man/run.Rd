@@ -16,3 +16,12 @@ run(debug = FALSE, host = "localhost", port = NULL)
 \description{
 Run the R language server
 }
+\examples{
+\dontrun{
+# to use stdio
+languageserver::run()
+
+# to use tcp server
+languageserver::run(port = )
+}
+}
