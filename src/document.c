@@ -1,3 +1,4 @@
+#include <ctype.h>
 #include "document.h"
 
 static int is_empty(const char *s) {
