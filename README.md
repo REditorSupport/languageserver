@@ -4,6 +4,11 @@
 
 `languageserver` is an implement of the Microsoft's [Language Server Protocol](https://microsoft.github.io/language-server-protocol) for the language of R.
 
+It is released on CRAN and can be easily installed by
+```
+install.packages("languageserver")
+```
+
 The development version of `languageserver` could be installed by running the following in R
 ```
 source("https://install-github.me/REditorSupport/languageserver")
