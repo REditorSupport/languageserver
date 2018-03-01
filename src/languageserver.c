@@ -77,7 +77,7 @@ SEXP stdin_read_line() {
 
 #else
 
-#include <unistd.h> /* for getgpid */
+#include <unistd.h> /* for getppid */
 
 SEXP do_getppid() {
     int ppid;
