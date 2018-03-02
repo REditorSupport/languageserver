@@ -8,6 +8,8 @@ Maintainer: Randy Lai <randy.cs.lai@gmail.com>
 Description: An implementation of the Language Server Protocol for R. The Language Server protocol is used by an editor client to integrate features like auto completion. See <https://microsoft.github.io/language-server-protocol> for details.
 URL: https://github.com/REditorSupport/languageserver
 License: MIT + file LICENSE
+Depends:
+    R (>= 3.4.0)
 Imports:
     tools,
     lintr,
