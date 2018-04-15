@@ -17,8 +17,10 @@ diagnostic_range <- function(result) {
 diagnostic_severity <- function(result) {
     if (result$type == "error") {
         severity <- 1
-    } else {
+    } else if (result$type == "warning") {
         severity <- 2
+    } else if (result$type == "style") {
+        severity <- 3
     }
     severity
 }
@@ -27,7 +29,7 @@ dianostic_from_lint <- function(result) {
     list(
         range = diagnostic_range(result),
         severity = diagnostic_severity(result),
-        source = result$type,
+        source = "lintr",
         message = result$message
     )
 }
