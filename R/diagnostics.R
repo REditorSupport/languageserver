@@ -21,11 +21,13 @@ diagnostic_severity <- function(result) {
         severity <- 2
     } else if (result$type == "style") {
         severity <- 3
+    } else {
+        severity <- 3
     }
     severity
 }
 
-dianostic_from_lint <- function(result) {
+diagnostic_from_lint <- function(result) {
     list(
         range = diagnostic_range(result),
         severity = diagnostic_severity(result),
@@ -35,7 +37,7 @@ dianostic_from_lint <- function(result) {
 }
 
 diagnose_file <- function(path) {
-    diagnostics <- lapply(lintr::lint(path), dianostic_from_lint)
+    diagnostics <- lapply(lintr::lint(path), diagnostic_from_lint)
     names(diagnostics) <- NULL
     diagnostics
 }
