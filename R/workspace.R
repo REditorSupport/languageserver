@@ -115,20 +115,16 @@ Workspace <- R6::R6Class("Workspace",
 #'
 #' internal use only
 #' @param uri the file path
-#' @param document the content of the file
+#' @param lintfile the actual file to lint
 #' @export
-workspace_sync <- function(uri, document) {
-    use_temp_file <- !is.null(document)
+workspace_sync <- function(uri, lintfile) {
     packages <- character(0)
 
-    if (use_temp_file) {
-        lintfile <- tempfile(fileext = ".R")
-        write(document, file = lintfile)
-    } else {
+    if (is.null(lintfile)) {
         lintfile <- path_from_uri(uri)
         document <- readLines(lintfile)
 
-        # only check for packages when opening and saving files, i.e., when document is NULL
+        # only check for packages when opening and saving files, i.e., when lintfile is NULL
         # TODO: check DESCRIPTION of an R Package
 
         result <- stringr::str_match_all(document, "^(?:library|require)\\(['\"]?(.*?)['\"]?\\)")
@@ -144,8 +140,6 @@ workspace_sync <- function(uri, document) {
         diagnose_file(lintfile)
     }, error = function(e) NULL)
 
-    if (use_temp_file) file.remove(lintfile)
-
     list(packages = packages, diagnostics = diagnostics)
 }
 
@@ -160,20 +154,35 @@ process_sync_input_queue <- function(self) {
 
         if (sync_output_queue$has(uri)) {
             qoutput <- sync_output_queue$get(uri)
-            process <- qoutput$item
+            process <- qoutput$item$process
+            lintfile <- qoutput$item$lintfile
             try({
                 if (process$is_alive()) {
                     process$kill()
                 }
             })
+            if (!is.null(lintfile) && file.exists(lintfile)) {
+                file.remove(lintfile)
+            }
         }
+
+        if (is.null(document)) {
+            lintfile <- NULL
+        } else {
+            lintfile <- tempfile(fileext = ".R")
+            write(document, file = lintfile)
+        }
+
         sync_output_queue$put(
             uri,
-            callr::r_bg(
-                function(uri, document) {
-                    languageserver::workspace_sync(uri, document)
-                },
-                list(uri = uri, document = document)
+            list(
+                process = callr::r_bg(
+                    function(uri, lintfile) {
+                        languageserver::workspace_sync(uri, lintfile)
+                    },
+                    list(uri = uri, lintfile = lintfile)
+                ),
+                lintfile = lintfile
             )
         )
     }
@@ -183,11 +192,12 @@ process_sync_output_queue <- function(self) {
     for (i in seq_len(self$sync_output_queue$size())) {
         q <- self$sync_output_queue$get()
         uri <- q$id
-        p <- q$item
+        p <- q$item$process
+        lintfile <- q$item$lintfile
 
         if (!is.null(p)) {
             if (p$is_alive()) {
-                self$sync_output_queue$put(uri, p)
+                self$sync_output_queue$put(uri, q$item)
             } else {
                 result <- p$get_result()
                 diagnostics <- result$diagnostics
@@ -204,6 +214,9 @@ process_sync_output_queue <- function(self) {
                 }
                 for (package in result$packages) {
                     self$workspace$load_package(package)
+                }
+                if (!is.null(lintfile) && file.exists(lintfile)) {
+                    file.remove(lintfile)
                 }
             }
         }
