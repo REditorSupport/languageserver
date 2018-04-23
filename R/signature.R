@@ -15,7 +15,7 @@ signature_reply <- function(id, workspace, document, position) {
             sig <- workspace$get_signature(closure$funct, closure$package)
         }
 
-        logger$info("sig:", workspace$get_signature("file.path"))
+        logger$info("sig: ", sig)
         if (!is.null(sig)) {
             sig <- trimws(gsub("function ", closure$funct, sig))
             SignatureInformation <- list(list(label = sig))
