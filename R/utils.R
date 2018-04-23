@@ -86,11 +86,9 @@ log_write <- function(..., file = stderr()){
 Logger <- R6::R6Class("Logger",
     public = list(
         debug_mode = function() {
-            if (debug) {
-                self$info <- function(...) {
-                            log_write(...)
-                        }
-            }
+            self$info <- function(...) {
+                        log_write(...)
+                    }
         },
         error = function(...) {
             log_write(...)
