@@ -13,6 +13,7 @@ Depends:
 Imports:
     tools,
     lintr,
+    styler,
     callr (>= 2.0.1),
     jsonlite,
     R6,

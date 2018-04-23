@@ -46,7 +46,7 @@ ServerCapabilities <- list(
     textDocumentSync = TextDocumentSyncOptions,
     hoverProvider = TRUE,
     completionProvider = CompletionOptions,
-    signatureHelpProvider = SignatureHelpOptions
+    signatureHelpProvider = SignatureHelpOptions,
     # definitionProvider = FALSE,
     # referencesProvider = FALSE
     # documentHighlightProvider = FALSE,
@@ -54,8 +54,8 @@ ServerCapabilities <- list(
     # workspaceSymbolProvider = FALSE,
     # codeActionProvider = FALSE,
     # codeLensProvider = CodeLensOptions,
-    # documentFormattingProvider = FALSE,
-    # documentRangeFormattingProvider = FALSE,
+    documentFormattingProvider = TRUE,
+    documentRangeFormattingProvider = TRUE
     # documentOnTypeFormattingProvider = DocumentOnTypeFormattingOptions,
     # renameProvider = FALSE,
     # documentLinkProvider = DocumentLinkOptions,

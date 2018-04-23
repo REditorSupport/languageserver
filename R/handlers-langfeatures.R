@@ -72,12 +72,17 @@ document_link_resolve  <- function(self, id, params) {
 
 # Request
 text_document_formatting  <- function(self, id, params) {
-
+    textDocument <- params$textDocument
+    options <- params$options
+    self$deliver(formatting_reply(id, self$documents[[textDocument$uri]], options))
 }
 
 # Request
 text_document_range_formatting  <- function(self, id, params) {
-
+    textDocument <- params$textDocument
+    range <- params$range
+    options <- params$options
+    self$deliver(range_formatting_reply(id, self$documents[[textDocument$uri]], range, options))
 }
 
 # Request

@@ -126,7 +126,9 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 shutdown = on_shutdown,
                 `textDocument/completion` =  text_document_completion,
                 `textDocument/hover` = text_document_hover,
-                `textDocument/signatureHelp` = text_document_signature_help
+                `textDocument/signatureHelp` = text_document_signature_help,
+                `textDocument/formatting` = text_document_formatting,
+                `textDocument/rangeFormatting` = text_document_range_formatting
             )
 
             self$notification_handlers <- list(
