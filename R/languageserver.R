@@ -15,6 +15,8 @@ LanguageServer <- R6::R6Class("LanguageServer",
         documents = new.env(),
         workspace = NULL,
 
+        run_lintr = TRUE,
+
         processId = NULL,
         rootUri = NULL,
         rootPath = NULL,
@@ -137,7 +139,8 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 `textDocument/didOpen` = text_document_did_open,
                 `textDocument/didChange` = text_document_did_change,
                 `textDocument/didSave` = text_document_did_save,
-                `textDocument/didClose` = text_document_did_close
+                `textDocument/didClose` = text_document_did_close,
+                `workspace/didChangeConfiguration` = workspace_did_change_configuration
             )
         },
 

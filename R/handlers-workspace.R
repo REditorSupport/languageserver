@@ -1,6 +1,12 @@
 # Notification
 workspace_did_change_configuration <- function(self, params) {
-
+    settings <- params$settings
+    if (!is.null(settings$debug)) {
+        logger$debug_mode()
+    }
+    if (!is.null(settings$diagnostics) && !isTRUE(settings$diagnostics)) {
+        self$run_lintr <- FALSE
+    }
 }
 
 workspace_did_change_watched_files <- function(self, params){

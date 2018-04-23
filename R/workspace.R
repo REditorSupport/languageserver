@@ -120,8 +120,9 @@ Workspace <- R6::R6Class("Workspace",
 #' internal use only
 #' @param uri the file path
 #' @param lintfile the actual file to lint
+#' @param run_lintr set \code{FALSE} to disable lintr diagnostics
 #' @export
-workspace_sync <- function(uri, lintfile) {
+workspace_sync <- function(uri, lintfile = NULL, run_lintr = TRUE) {
     packages <- character(0)
 
     if (is.null(lintfile)) {
@@ -140,9 +141,13 @@ workspace_sync <- function(uri, lintfile) {
 
     }
 
-    diagnostics <- tryCatch({
-        diagnose_file(lintfile)
-    }, error = function(e) NULL)
+    if (run_lintr) {
+        diagnostics <- tryCatch({
+            diagnose_file(lintfile)
+        }, error = function(e) NULL)
+    } else {
+        diagnostics <- NULL
+    }
 
     list(packages = packages, diagnostics = diagnostics)
 }
@@ -175,9 +180,9 @@ process_sync_input_dict <- function(self) {
             list(
                 process = callr::r_bg(
                     function(uri, lintfile) {
-                        languageserver::workspace_sync(uri, lintfile)
+                        languageserver::workspace_sync(uri, lintfile, run_lintr)
                     },
-                    list(uri = uri, lintfile = lintfile)
+                    list(uri = uri, lintfile = lintfile, run_lintr = self$run_lintr)
                 ),
                 lintfile = lintfile
             )
