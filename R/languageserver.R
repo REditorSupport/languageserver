@@ -177,11 +177,9 @@ LanguageServer <- R6::R6Class("LanguageServer",
 
                     self$process_events()
 
-                    if (tcp) {
-                        if (!socketSelect(list(con), timeout = 0)) {
-                            Sys.sleep(0.1)
-                            next
-                        }
+                    if (tcp && !socketSelect(list(con), timeout = 0)) {
+                        Sys.sleep(0.1)
+                        next
                     }
                     header <- read_line(con)
                     if (length(header) == 0 || nchar(header) == 0) {
@@ -197,7 +195,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     empty_line <- read_line(con)
                     while (length(empty_line) == 0) {
                         empty_line <- read_line(con)
-                        Sys.sleep(0.05)
+                        Sys.sleep(0.01)
                     }
                     if (nchar(empty_line) > 0)
                         stop("Unexpected non-empty line")
@@ -209,7 +207,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                             nbytes <- nbytes - nchar(newdata, type = "bytes")
                             data <- paste0(data, newdata)
                         }
-                        Sys.sleep(0.05)
+                        Sys.sleep(0.01)
                     }
                     self$handle_raw(data)
                 })
