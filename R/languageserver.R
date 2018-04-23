@@ -21,8 +21,8 @@ LanguageServer <- R6::R6Class("LanguageServer",
         initializationOptions = NULL,
         capabilities = NULL,
 
-        sync_input_queue = NULL,
-        sync_output_queue = NULL,
+        sync_input_dict = NULL,
+        sync_output_dict = NULL,
         reply_queue = NULL,
 
         initialize = function(host, port) {
@@ -45,13 +45,13 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$register_handlers()
 
             self$workspace <- Workspace$new()
-            self$sync_input_queue <- NamedQueue$new()
-            self$sync_output_queue <- NamedQueue$new()
-            self$reply_queue <- Queue$new()
+            self$sync_input_dict <- OrderedDictL$new()
+            self$sync_output_dict <- OrderedDictL$new()
+            self$reply_queue <- QueueL$new()
 
-            self$process_sync_input_queue <- leisurize(
-                function() process_sync_input_queue(self), 0.3)
-            self$process_sync_output_queue <- (function() process_sync_output_queue(self))
+            self$process_sync_input_dict <- leisurize(
+                function() process_sync_input_dict(self), 0.3)
+            self$process_sync_output_dict <- (function() process_sync_output_dict(self))
         },
 
         finalize = function() {
@@ -140,19 +140,18 @@ LanguageServer <- R6::R6Class("LanguageServer",
         },
 
         process_events = function() {
-            self$process_sync_input_queue()
-            self$process_sync_output_queue()
+            self$process_sync_input_dict()
+            self$process_sync_output_dict()
             self$process_reply_queue()
         },
 
-        process_sync_input_queue = NULL,
+        process_sync_input_dict = NULL,
 
-        process_sync_output_queue = NULL,
+        process_sync_output_dict = NULL,
 
         process_reply_queue = function() {
-            while (TRUE) {
-                notification <- self$reply_queue$get()
-                if (is.null(notification)) break
+            while (self$reply_queue$size() > 0) {
+                notification <- self$reply_queue$pop()
                 self$deliver(notification)
             }
         },

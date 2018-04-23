@@ -143,29 +143,22 @@ workspace_sync <- function(uri, lintfile) {
     list(packages = packages, diagnostics = diagnostics)
 }
 
-process_sync_input_queue <- function(self) {
-    sync_input_queue <- self$sync_input_queue
-    sync_output_queue <- self$sync_output_queue
+process_sync_input_dict <- function(self) {
+    sync_input_dict <- self$sync_input_dict
+    sync_output_dict <- self$sync_output_dict
 
-    for (i in seq_len(sync_input_queue$size())) {
-        qinput <- sync_input_queue$get()
-        uri <- qinput$id
-        document <- qinput$item
-
-        if (sync_output_queue$has(uri)) {
-            qoutput <- sync_output_queue$get(uri)
-            process <- qoutput$item$process
-            lintfile <- qoutput$item$lintfile
-            try({
-                if (process$is_alive()) {
-                    process$kill()
-                }
-            })
+    for (uri in sync_input_dict$keys()) {
+        if (sync_output_dict$has(uri)) {
+            item <- sync_output_dict$pop(uri)
+            process <- item$process
+            if (process$is_alive()) try(process$kill())
+            lintfile <- item$lintfile
             if (!is.null(lintfile) && file.exists(lintfile)) {
                 file.remove(lintfile)
             }
         }
 
+        document <- sync_input_dict$pop(uri)
         if (is.null(document)) {
             lintfile <- NULL
         } else {
@@ -173,7 +166,7 @@ process_sync_input_queue <- function(self) {
             write(document, file = lintfile)
         }
 
-        sync_output_queue$put(
+        sync_output_dict$set(
             uri,
             list(
                 process = callr::r_bg(
@@ -188,36 +181,34 @@ process_sync_input_queue <- function(self) {
     }
 }
 
-process_sync_output_queue <- function(self) {
-    for (i in seq_len(self$sync_output_queue$size())) {
-        q <- self$sync_output_queue$get()
-        uri <- q$id
-        p <- q$item$process
-        lintfile <- q$item$lintfile
+process_sync_output_dict <- function(self) {
+    for (uri in self$sync_output_dict$keys()) {
+        item <- self$sync_output_dict$get(uri)
+        process <- item$process
 
-        if (!is.null(p)) {
-            if (p$is_alive()) {
-                self$sync_output_queue$put(uri, q$item)
-            } else {
-                result <- p$get_result()
-                diagnostics <- result$diagnostics
-                if (!is.null(diagnostics)) {
-                    self$deliver(
-                        Notification$new(
-                            method = "textDocument/publishDiagnostics",
-                            params = list(
-                                uri = uri,
-                                diagnostics = diagnostics
-                            )
+        if (!is.null(process) && !process$is_alive()) {
+            result <- process$get_result()
+            diagnostics <- result$diagnostics
+            if (!is.null(diagnostics)) {
+                self$deliver(
+                    Notification$new(
+                        method = "textDocument/publishDiagnostics",
+                        params = list(
+                            uri = uri,
+                            diagnostics = diagnostics
                         )
                     )
-                }
-                for (package in result$packages) {
-                    self$workspace$load_package(package)
-                }
-                if (!is.null(lintfile) && file.exists(lintfile)) {
-                    file.remove(lintfile)
-                }
+                )
+            }
+            for (package in result$packages) {
+                self$workspace$load_package(package)
+            }
+
+            # cleanup
+            self$sync_output_dict$remove(uri)
+            lintfile <- item$lintfile
+            if (!is.null(lintfile) && file.exists(lintfile)) {
+                file.remove(lintfile)
             }
         }
     }
