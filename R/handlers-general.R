@@ -5,6 +5,7 @@ on_initialize <- function(self, id, params) {
     self$rootPath <- path_from_uri(self$rootUri)
     self$initializationOptions <- params$initializationOptions
     self$capabilities <- params$capabilities
+    configure_server(self)
     self$deliver(Response$new(id = id, result = list(capabilities = ServerCapabilities)))
 }
 
@@ -17,13 +18,13 @@ on_initialized <- function(self, params) {
 
 # Request
 on_shutdown <- function(self, id, params) {
-    self$will_exit <- TRUE
+    self$exit_flag <- TRUE
     self$deliver(Response$new(id = id, result = list()))
 }
 
 # Notification
 on_exit <- function(self, params) {
-    self$will_exit <- TRUE
+    self$exit_flag <- TRUE
 }
 
 # Notification
