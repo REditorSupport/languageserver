@@ -5,7 +5,6 @@ on_initialize <- function(self, id, params) {
     self$rootPath <- path_from_uri(self$rootUri)
     self$initializationOptions <- params$initializationOptions
     self$capabilities <- params$capabilities
-    configure_server(self)
     self$deliver(Response$new(id = id, result = list(capabilities = ServerCapabilities)))
 }
 

@@ -179,7 +179,7 @@ process_sync_input_dict <- function(self) {
             uri,
             list(
                 process = callr::r_bg(
-                    function(uri, lintfile) {
+                    function(uri, lintfile, run_lintr) {
                         languageserver::workspace_sync(uri, lintfile, run_lintr)
                     },
                     list(uri = uri, lintfile = lintfile, run_lintr = self$run_lintr)
