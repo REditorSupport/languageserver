@@ -2,8 +2,9 @@
 text_document_did_open <- function(self, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
-    self$documents[[uri]] <- readLines(path_from_uri(uri), warn = FALSE)
-    self$sync_input_dict$set(uri, NULL)
+    doc <- readLines(path_from_uri(uri), warn = FALSE)
+    self$documents[[uri]] <- doc
+    self$sync_input_dict$set(uri, doc)
 }
 
 # Notification

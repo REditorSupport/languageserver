@@ -182,7 +182,8 @@ process_sync_input_dict <- function(self) {
                     function(uri, lintfile, run_lintr) {
                         languageserver::workspace_sync(uri, lintfile, run_lintr)
                     },
-                    list(uri = uri, lintfile = lintfile, run_lintr = self$run_lintr)
+                    list(uri = uri, lintfile = lintfile, run_lintr = self$run_lintr),
+                    system_profile = TRUE, user_profile = TRUE
                 ),
                 lintfile = lintfile
             )
