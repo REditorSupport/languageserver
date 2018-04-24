@@ -37,7 +37,10 @@ diagnostic_from_lint <- function(result) {
 }
 
 diagnose_file <- function(path) {
-    diagnostics <- lapply(lintr::lint(path), diagnostic_from_lint)
+    if (!is.null(lintr:::find_config(path))) {
+        linters <- getOption("languageserver.default_linters", NULL)
+    }
+    diagnostics <- lapply(lintr::lint(path, linters = linters), diagnostic_from_lint)
     names(diagnostics) <- NULL
     diagnostics
 }
