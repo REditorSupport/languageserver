@@ -68,6 +68,8 @@ find_config <- function (filename) {
 diagnose_file <- function(path) {
     if (is.null(find_config(path))) {
         linters <- getOption("languageserver.default_linters", NULL)
+    } else {
+        linters <- NULL
     }
     diagnostics <- lapply(lintr::lint(path, linters = linters), diagnostic_from_lint)
     names(diagnostics) <- NULL
