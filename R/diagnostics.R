@@ -36,8 +36,37 @@ diagnostic_from_lint <- function(result) {
     )
 }
 
+# copy lintr:::find_config to here since CRAN doesn't like :::
+find_config <- function (filename) {
+    if (is.null(filename)) {
+        return(NULL)
+    }
+    linter_file <- getOption("lintr.linter_file")
+    path <- if (is_directory(filename)) {
+        filename
+    }
+    else {
+        dirname(filename)
+    }
+    linter_config <- file.path(path, linter_file)
+    if (isTRUE(file.exists(linter_config))) {
+        return(linter_config)
+    }
+    project <- find_package(path)
+    linter_config <- file.path(project, linter_file)
+    if (isTRUE(file.exists(linter_config))) {
+        return(linter_config)
+    }
+    home_dir <- Sys.getenv("HOME", unset = "~")
+    linter_config <- file.path(home_dir, linter_file)
+    if (isTRUE(file.exists(linter_config))) {
+        return(linter_config)
+    }
+    NULL
+}
+
 diagnose_file <- function(path) {
-    if (!is.null(lintr:::find_config(path))) {
+    if (!is.null(find_config(path))) {
         linters <- getOption("languageserver.default_linters", NULL)
     }
     diagnostics <- lapply(lintr::lint(path, linters = linters), diagnostic_from_lint)

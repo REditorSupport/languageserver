@@ -4,12 +4,14 @@
 \alias{workspace_sync}
 \title{Determine workspace information for a given file}
 \usage{
-workspace_sync(uri, document)
+workspace_sync(uri, lintfile = NULL, run_lintr = TRUE)
 }
 \arguments{
 \item{uri}{the file path}
 
-\item{document}{the content of the file}
+\item{lintfile}{the actual file to lint}
+
+\item{run_lintr}{set \code{FALSE} to disable lintr diagnostics}
 }
 \description{
 internal use only
