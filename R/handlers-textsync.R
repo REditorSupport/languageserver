@@ -2,7 +2,7 @@
 text_document_did_open <- function(self, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
-    self$documents[[uri]] <- readLines(path_from_uri(uri))
+    self$documents[[uri]] <- readLines(path_from_uri(uri), warn = FALSE)
     self$sync_input_dict$set(uri, NULL)
 }
 
@@ -12,8 +12,11 @@ text_document_did_change <- function(self, params) {
     contentChanges <- params$contentChanges
     text <- contentChanges$text
     uri <- textDocument$uri
-    self$documents[[uri]] <- stringr::str_split(text, "\n")[[1]]
-    self$sync_input_dict$set(uri, self$documents[[uri]])
+    doc <- stringr::str_split(text, "\n")[[1]]
+    # remove last empty line
+    if (nchar(doc[[length(doc)]]) == 0) doc <- doc[-length(doc)]
+    self$documents[[uri]] <- doc
+    self$sync_input_dict$set(uri, doc)
 }
 
 # Notification
@@ -25,7 +28,7 @@ text_document_will_save <- function(self, params) {
 text_document_did_save <- function(self, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
-    self$documents[[uri]] <- readLines(path_from_uri(uri))
+    self$documents[[uri]] <- readLines(path_from_uri(uri), warn = FALSE)
     self$sync_input_dict$set(uri, NULL)
 }
 

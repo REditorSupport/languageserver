@@ -127,7 +127,7 @@ workspace_sync <- function(uri, lintfile = NULL, run_lintr = TRUE) {
 
     if (is.null(lintfile)) {
         lintfile <- path_from_uri(uri)
-        document <- readLines(lintfile)
+        document <- readLines(lintfile, warn = FALSE)
 
         # only check for packages when opening and saving files, i.e., when lintfile is NULL
         # TODO: check DESCRIPTION of an R Package
