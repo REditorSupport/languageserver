@@ -10,7 +10,7 @@ text_document_did_open <- function(self, params) {
 text_document_did_change <- function(self, params) {
     textDocument <- params$textDocument
     contentChanges <- params$contentChanges
-    text <- contentChanges$text
+    text <- contentChanges[[1]]$text
     uri <- textDocument$uri
     doc <- stringr::str_split(text, "\n")[[1]]
     # remove last empty line

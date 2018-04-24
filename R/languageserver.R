@@ -68,7 +68,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
 
         handle_raw = function(data) {
             tryCatch({
-                payload <- jsonlite::fromJSON(data)
+                payload <- jsonlite::fromJSON(data, simplifyVector = FALSE)
                 pl_names <- names(payload)
                 logger$info("received payload.")
             },
