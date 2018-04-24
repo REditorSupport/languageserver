@@ -2,8 +2,9 @@
 # Request
 text_document_completion  <- function(self, id, params) {
     textDocument <- params$textDocument
+    uri <- textDocument$uri
     self$deliver(completion_reply(
-        id, self$workspace, self$documents[[textDocument$uri]], params$position))
+        id, uri, self$workspace, self$documents[[uri]], params$position))
 }
 
 # Request
@@ -14,15 +15,17 @@ completio_item_resolve  <- function(self, id, params) {
 # Request
 text_document_hover  <- function(self, id, params) {
     textDocument <- params$textDocument
+    uri <- textDocument$uri
     self$deliver(hover_reply(
-        id, self$workspace, self$documents[[textDocument$uri]], params$position))
+        id, uri, self$workspace, self$documents[[uri]], params$position))
 }
 
 # Request
 text_document_signature_help  <- function(self, id, params) {
     textDocument <- params$textDocument
+    uri <- textDocument$uri
     self$deliver(signature_reply(
-        id, self$workspace, self$documents[[textDocument$uri]], params$position))
+        id, uri, self$workspace, self$documents[[uri]], params$position))
 }
 
 # Request
@@ -73,16 +76,18 @@ document_link_resolve  <- function(self, id, params) {
 # Request
 text_document_formatting  <- function(self, id, params) {
     textDocument <- params$textDocument
+    uri <- textDocument$uri
     options <- params$options
-    self$deliver(formatting_reply(id, self$documents[[textDocument$uri]], options))
+    self$deliver(formatting_reply(id, uri, self$documents[[uri]], options))
 }
 
 # Request
 text_document_range_formatting  <- function(self, id, params) {
     textDocument <- params$textDocument
+    uri <- textDocument$uri
     range <- params$range
     options <- params$options
-    self$deliver(range_formatting_reply(id, self$documents[[textDocument$uri]], range, options))
+    self$deliver(range_formatting_reply(id, uri, self$documents[[uri]], range, options))
 }
 
 # Request

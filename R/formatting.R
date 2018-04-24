@@ -4,7 +4,7 @@ stylize <- function(document, options) {
     paste(newTextList, collapse = "\n")
 }
 
-formatting_reply <- function(id, document, options) {
+formatting_reply <- function(id, uri, document, options) {
     newText <- stylize(document, options)
     ndoc <- length(document)
     range <- list(
@@ -16,7 +16,7 @@ formatting_reply <- function(id, document, options) {
     Response$new(id, TextEditList)
 }
 
-range_formatting_reply <- function(id, document, range, options) {
+range_formatting_reply <- function(id, uri, document, range, options) {
     line1 <- range$start$line
     line2 <- if (range$end$character == 0) range$end$line - 1 else range$end$line
     selection <- document[(line1:line2) + 1]

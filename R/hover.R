@@ -1,6 +1,16 @@
-hover_reply <- function(id, workspace, document, position) {
+hover_reply <- function(id, uri, workspace, document, position) {
     line <- position$line
     character <- position$character
+
+    if (!check_scope(uri, document, line)) {
+        Response$new(
+            id,
+            result = list(
+                contents = NULL
+            )
+        )
+        return(invisible(NULL))
+    }
 
     hover <- detect_hover(document, line, character)
 

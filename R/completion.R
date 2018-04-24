@@ -105,9 +105,19 @@ workspace_complection <- function(workspace, full_token) {
     completions
 }
 
-completion_reply <- function(id, workspace, document, position) {
+completion_reply <- function(id, uri, workspace, document, position) {
     line <- position$line
     character <- position$character
+
+    if (!check_scope(uri, document, line)) {
+        Response$new(
+            id,
+            result = list(
+                items = NULL
+            )
+        )
+        return(invisible(NULL))
+    }
 
     token <- detect_token(document, line, character)
     logger$info("token: ", token)

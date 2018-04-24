@@ -1,9 +1,25 @@
-is_directory <- function (filename) {
+is_rmarkdown <- function(uri) {
+    filename <- path_from_uri(uri)
+    endsWith(tolower(filename), "rmd") || endsWith(tolower(filename), "rmarkdown")
+}
+
+check_scope <- function(uri, document, line) {
+    if (is_rmarkdown(uri)) {
+        results <- stringr::str_locate_all(document, "^```(\\{r.*\\})?")
+        index <- sapply(results, function(x) x[2] > 3) * 2 - 1
+        index[is.na(index)] <- 0
+        !identical(cumsum(index)[line + 1], 0)
+    } else {
+        TRUE
+    }
+}
+
+is_directory <- function(filename) {
     is_dir <- file.info(filename)$isdir
     !is.na(is_dir) && is_dir
 }
 
-find_package <- function (path = getwd()) {
+find_package <- function(path = getwd()) {
     start_path <- getwd()
     on.exit(setwd(start_path))
     if (!file.exists(path)) {
@@ -107,16 +123,18 @@ log_write <- function(..., file = stderr()){
 }
 
 Logger <- R6::R6Class("Logger",
+    private = list(
+        debug = FALSE
+    ),
     public = list(
         debug_mode = function() {
-            self$info <- function(...) {
-                        log_write(...)
-                    }
+            private$debug <- TRUE
         },
         error = function(...) {
             log_write(...)
         },
         info = function(...) {
+            if (private$debug) log_write(...)
         }
     )
 )
