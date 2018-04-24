@@ -18,7 +18,7 @@ formatting_reply <- function(id, document, options) {
 
 range_formatting_reply <- function(id, document, range, options) {
     line1 <- range$start$line
-    line2 <- range$end$line
+    line2 <- if (range$end$character == 0) range$end$line - 1 else range$end$line
     selection <- document[(line1:line2) + 1]
     newText <- stylize(selection, options)
     range <- list(
