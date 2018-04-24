@@ -2,4 +2,5 @@
 
 export(run)
 export(workspace_sync)
+import(R6)
 useDynLib(languageserver)

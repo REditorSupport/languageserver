@@ -1,4 +1,5 @@
 #' @useDynLib languageserver
+#' @import R6
 #' @details
 #' An implementation of the Language Server Protocol for R
 "_PACKAGE"
