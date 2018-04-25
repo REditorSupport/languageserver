@@ -58,17 +58,17 @@ workspace_complection <- function(workspace, full_token) {
     matches <- stringr::str_match(
         full_token, "(?:([a-zA-Z][a-zA-Z0-9]+)(:::?))?([a-zA-Z0-9_.]*)$")
 
-    pkgname <- matches[2]
+    pkg <- matches[2]
     exported_only <- matches[3] == "::"
     token <- matches[4]
 
-    if (is.na(pkgname)) {
+    if (is.na(pkg)) {
         packages <- workspace$loaded_packages
     } else {
-        packages <- c(pkgname)
+        packages <- c(pkg)
     }
 
-    if (is.na(pkgname) || exported_only) {
+    if (is.na(pkg) || exported_only) {
         for (nsname in packages) {
             ns <- workspace$get_namespace(nsname)
             for (object in ns$functs) {
@@ -91,12 +91,12 @@ workspace_complection <- function(workspace, full_token) {
             }
         }
     } else {
-        ns <- workspace$get_namespace(pkgname)
+        ns <- workspace$get_namespace(pkg)
         for (object in ns$unexports) {
             if (startsWith(object, token)) {
                 completions <- append(completions, list(list(
                     label = object,
-                    detail = paste0("{", pkgname, "}")
+                    detail = paste0("{", pkg, "}")
                 )))
             }
         }

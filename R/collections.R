@@ -3,7 +3,7 @@
 QueueL <- R6::R6Class("QueueL",
     cloneable = FALSE,
     private = list(
-        q = NULL,
+        q = list(),
         n = 0
     ),
     public = list(

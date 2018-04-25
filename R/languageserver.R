@@ -157,8 +157,8 @@ LanguageServer <- R6::R6Class("LanguageServer",
 
         process_reply_queue = function() {
             while (self$reply_queue$size() > 0) {
-                notification <- self$reply_queue$pop()
-                self$deliver(notification)
+                reply <- self$reply_queue$pop()
+                self$deliver(reply)
             }
         },
 

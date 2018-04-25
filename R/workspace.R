@@ -20,13 +20,13 @@ Namespace <- R6::R6Class("Namespace",
         },
 
         exists = function(objname) {
-            objname %in% self$objects
+            objname %in% self$exports
         },
 
-        get_signature = function(fname) {
+        get_signature = function(funct) {
             pkgname <- self$package_name
             ns <- asNamespace(pkgname)
-            fn <- get(fname, envir = ns)
+            fn <- get(funct, envir = ns)
             if (is.primitive(fn)) {
                 NULL
             } else {
@@ -35,10 +35,10 @@ Namespace <- R6::R6Class("Namespace",
             }
         },
 
-        get_formals = function(fname) {
+        get_formals = function(funct) {
             pkgname <- self$package_name
             ns <- asNamespace(pkgname)
-            fn <- get(fname, envir = ns)
+            fn <- get(funct, envir = ns)
             formals(fn)
         },
 
@@ -70,46 +70,73 @@ Workspace <- R6::R6Class("Workspace",
             }
         },
 
-        get_namespace = function(pkgname) {
-            if (pkgname %in% names(self$namespaces)) {
-                self$namespaces[[pkgname]]
+        guess_package = function(object) {
+            logger$info("loaded_packages:", self$loaded_packages)
+
+            for (pkg in rev(self$loaded_packages)) {
+                ns <- self$get_namespace(pkg)
+                if (ns$exists(object)) {
+                    return(pkg)
+                }
+            }
+            NULL
+        },
+
+        get_namespace = function(pkg) {
+            if (pkg %in% names(self$namespaces)) {
+                self$namespaces[[pkg]]
             } else {
-                self$namespaces[[pkgname]] <- Namespace$new(pkgname)
-                self$namespaces[[pkgname]]
+                self$namespaces[[pkg]] <- Namespace$new(pkg)
+                self$namespaces[[pkg]]
             }
         },
 
-        get_signature = function(fname, pkgname = NULL) {
-            if (is.null(pkgname)){
-                for (ns in rev(self$loaded_packages)) {
-                    ns <- self$get_namespace(ns)
-                    if (ns$exists(fname)) {
-                        return(ns$get_signature(fname))
-                    }
-                }
+        get_signature = function(funct, pkg = NULL) {
+            if (is.null(pkg)) {
+                pkg <- self$guess_package(funct)
+            }
+            if (is.null(pkg)) {
+                NULL
             } else {
                 tryCatch({
-                        ns <- self$get_namespace(pkgname)
-                        ns$get_signature(fname)
+                    ns <- self$get_namespace(pkg)
+                    ns$get_signature(funct)
                     },
-                    error = function(e) NULL)
+                    error = function(e) NULL
+                )
+            }
+
+        },
+
+        get_formals = function(funct, pkg = NULL) {
+            if (is.null(pkg)) {
+                pkg <- self$guess_package(funct)
+            }
+            if (is.null(pkg)) {
+                NULL
+            } else {
+                tryCatch({
+                        ns <- self$get_namespace(pkg)
+                        ns$get_formals(funct)
+                    },
+                    error = function(e) list()
+                )
             }
         },
 
-        get_formals = function(fname, pkgname = NULL) {
-            if (is.null(pkgname)){
-                for (ns in rev(self$loaded_packages)) {
-                    ns <- self$get_namespace(ns)
-                    if (ns$exists(fname)) {
-                        return(ns$get_formals(fname))
-                    }
-                }
+        get_help = function(topic, pkg = NULL) {
+            if (is.null(pkg) || is.na(pkg)) {
+                pkg <- self$guess_package(topic)
+            }
+            if (is.null(pkg)) {
+                hfile <- utils::help((topic))
             } else {
-                tryCatch({
-                        ns <- self$get_namespace(pkgname)
-                        ns$get_formals(fname)
-                    },
-                    error = function(e) list())
+                hfile <- utils::help((topic), (pkg))
+            }
+            if (length(hfile) > 0) {
+                repr::repr_text(hfile)
+            } else {
+                NULL
             }
         }
     )
@@ -119,17 +146,20 @@ Workspace <- R6::R6Class("Workspace",
 #'
 #' internal use only
 #' @param uri the file path
-#' @param lintfile the actual file to lint
 #' @param run_lintr set \code{FALSE} to disable lintr diagnostics
+#' @param parse_file set \code{FALSE} to disable lintr diagnostics
+#' @param temp_file the actual file to lint
 #' @export
-workspace_sync <- function(uri, lintfile = NULL, run_lintr = TRUE) {
+workspace_sync <- function(uri, run_lintr = TRUE, parse_file = FALSE, temp_file = NULL) {
     packages <- character(0)
 
-    if (is.null(lintfile)) {
-        lintfile <- path_from_uri(uri)
-        document <- readLines(lintfile, warn = FALSE)
+    if (parse_file) {
+        if (is.null(temp_file)) {
+            temp_file <- path_from_uri(uri)
+        }
+        document <- readLines(temp_file, warn = FALSE)
 
-        # only check for packages when opening and saving files, i.e., when lintfile is NULL
+        # only check for packages when saving files, i.e., when temp_file is NULL
         # TODO: check DESCRIPTION of an R Package
 
         result <- stringr::str_match_all(document, "^(?:library|require)\\(['\"]?(.*?)['\"]?\\)")
@@ -142,9 +172,7 @@ workspace_sync <- function(uri, lintfile = NULL, run_lintr = TRUE) {
     }
 
     if (run_lintr) {
-        diagnostics <- tryCatch({
-            diagnose_file(lintfile)
-        }, error = function(e) NULL)
+        diagnostics <- tryCatch(diagnose_file(temp_file), error = function(e) NULL)
     } else {
         diagnostics <- NULL
     }
@@ -161,31 +189,35 @@ process_sync_input_dict <- function(self) {
             item <- sync_output_dict$pop(uri)
             process <- item$process
             if (process$is_alive()) try(process$kill())
-            lintfile <- item$lintfile
-            if (!is.null(lintfile) && file.exists(lintfile)) {
-                file.remove(lintfile)
+            temp_file <- item$temp_file
+            if (!is.null(temp_file) && file.exists(temp_file)) {
+                file.remove(temp_file)
             }
         }
 
         document <- sync_input_dict$pop(uri)
-        if (is.null(document)) {
-            lintfile <- NULL
+        if (isTRUE(document)) {
+            parse_file <- TRUE
+            temp_file <- NULL
         } else {
-            lintfile <- tempfile(fileext = ".R")
-            write(document, file = lintfile)
+            parse_file <- FALSE
+            temp_file <- tempfile(fileext = ".R")
+            write(document, file = temp_file)
         }
 
         sync_output_dict$set(
             uri,
             list(
                 process = callr::r_bg(
-                    function(uri, lintfile, run_lintr) {
-                        languageserver::workspace_sync(uri, lintfile, run_lintr)
-                    },
-                    list(uri = uri, lintfile = lintfile, run_lintr = self$run_lintr),
+                    function(...) languageserver::workspace_sync(...),
+                    list(
+                        uri = uri,
+                        run_lintr = self$run_lintr,
+                        parse_file = parse_file,
+                        temp_file = temp_file),
                     system_profile = TRUE, user_profile = TRUE
                 ),
-                lintfile = lintfile
+                temp_file = temp_file
             )
         )
     }
@@ -211,14 +243,15 @@ process_sync_output_dict <- function(self) {
                 )
             }
             for (package in result$packages) {
+                logger$info("load package:", package)
                 self$workspace$load_package(package)
             }
 
             # cleanup
             self$sync_output_dict$remove(uri)
-            lintfile <- item$lintfile
-            if (!is.null(lintfile) && file.exists(lintfile)) {
-                file.remove(lintfile)
+            temp_file <- item$temp_file
+            if (!is.null(temp_file) && file.exists(temp_file)) {
+                file.remove(temp_file)
             }
         }
     }

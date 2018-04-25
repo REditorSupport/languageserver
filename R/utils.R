@@ -5,10 +5,7 @@ is_rmarkdown <- function(uri) {
 
 check_scope <- function(uri, document, line) {
     if (is_rmarkdown(uri)) {
-        results <- stringr::str_locate_all(document, "^```(\\{r.*\\})?")
-        index <- sapply(results, function(x) x[2] > 3) * 2 - 1
-        index[is.na(index)] <- 0
-        !identical(cumsum(index)[line + 1], 0)
+        !identical(sum(sapply(document[1:(line + 1)], function(x) startsWith(x, "```"))) %% 2, 0)
     } else {
         TRUE
     }

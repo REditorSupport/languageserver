@@ -4,7 +4,7 @@ text_document_did_open <- function(self, params) {
     uri <- textDocument$uri
     doc <- readLines(path_from_uri(uri), warn = FALSE)
     self$documents[[uri]] <- doc
-    self$sync_input_dict$set(uri, doc)
+    self$sync_input_dict$set(uri, TRUE)
 }
 
 # Notification
@@ -29,8 +29,9 @@ text_document_will_save <- function(self, params) {
 text_document_did_save <- function(self, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
+    logger$info("did save:", uri)
     self$documents[[uri]] <- readLines(path_from_uri(uri), warn = FALSE)
-    self$sync_input_dict$set(uri, NULL)
+    self$sync_input_dict$set(uri, TRUE)
 }
 
 # Notification
