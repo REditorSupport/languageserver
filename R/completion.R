@@ -110,13 +110,7 @@ completion_reply <- function(id, uri, workspace, document, position) {
     character <- position$character
 
     if (!check_scope(uri, document, line)) {
-        Response$new(
-            id,
-            result = list(
-                items = NULL
-            )
-        )
-        return(invisible(NULL))
+        return(Response$new(id))
     }
 
     token <- detect_token(document, line, character)

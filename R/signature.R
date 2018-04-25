@@ -3,14 +3,7 @@ signature_reply <- function(id, uri, workspace, document, position) {
     character <- position$character
 
     if (!check_scope(uri, document, line)) {
-        Response$new(
-            id,
-            result = list(
-                signatures = NULL,
-                activeSignature = 0
-            )
-        )
-        return(invisible(NULL))
+        return(Response$new(id, list(signatures = NULL)))
     }
 
     closure <- detect_closure(document, line, character)
