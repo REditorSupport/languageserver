@@ -11,14 +11,14 @@ License: MIT + file LICENSE
 Depends:
     R (>= 3.4.0)
 Imports:
-    tools,
-    lintr,
-    styler,
     callr (>= 2.0.1),
     jsonlite,
+    lintr,
     R6,
+    repr,
     stringr,
-    repr
+    styler,
+    tools
 Suggests:
     testthat
 Encoding: UTF-8
