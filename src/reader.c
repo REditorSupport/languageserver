@@ -77,16 +77,71 @@ SEXP stdin_read_line() {
 
 #else
 
+#include <unistd.h>
+#include <fcntl.h>
+
 char* buf = NULL;
 int bufsize = 1024;
 int bufpos = 0;
 
 SEXP stdin_read_char(SEXP _n) {
-    return R_NilValue;
+    int n = Rf_asInteger(_n);
+    int bytes_read = 0;
+
+    if (buf == NULL) {
+        buf = (char*) malloc((bufsize + 1) * sizeof(char));
+    }
+
+    while (bufsize < n) {
+        bufsize = bufsize * 2;
+        buf = (char*) realloc(buf, (bufsize + 1) * sizeof(char));
+    }
+
+    int flags = fcntl(0, F_GETFL, 0);
+    if (fcntl(0, F_SETFL, flags | O_NONBLOCK)) {
+        Rf_error("unexpected error");
+    }
+
+    bytes_read = read(0, buf, n);
+    buf[bytes_read] = '\0';
+
+    if (bytes_read == 0) {
+        return Rf_allocVector(STRSXP, 0);
+    } else {
+        return Rf_mkString(buf);
+    }
 }
 
 SEXP stdin_read_line() {
-    return R_NilValue;
+    char c;
+
+    if (buf == NULL) {
+        buf = (char*) malloc((bufsize + 1) * sizeof(char));
+    }
+
+    int flags = fcntl(0, F_GETFL, 0);
+    if (fcntl(0, F_SETFL, flags | O_NONBLOCK)) {
+        Rf_error("unexpected error");
+    }
+
+    while (read(0, &c, 1) == 1) {
+        buf[bufpos] = c;
+        if (c == '\n') {
+            buf[bufpos] = '\0';
+            if (bufpos > 0 && buf[bufpos - 1] == '\r') {
+                buf[bufpos - 1] = '\0';
+            }
+            bufpos = 0;
+            return Rf_mkString(buf);
+        }
+        bufpos++;
+        if (bufpos >= bufsize) {
+            bufsize = bufsize * 2;
+            buf = realloc(buf, (bufsize + 1) * sizeof(char));
+        }
+    }
+
+    return Rf_allocVector(STRSXP, 0);
 }
 
 #endif
