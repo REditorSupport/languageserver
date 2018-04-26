@@ -97,11 +97,6 @@ SEXP stdin_read_char(SEXP _n) {
         buf = (char*) realloc(buf, (bufsize + 1) * sizeof(char));
     }
 
-    int flags = fcntl(0, F_GETFL, 0);
-    if (fcntl(0, F_SETFL, flags | O_NONBLOCK)) {
-        Rf_error("unexpected error");
-    }
-
     bytes_read = read(0, buf, n);
     buf[bytes_read] = '\0';
 
@@ -117,11 +112,6 @@ SEXP stdin_read_line() {
 
     if (buf == NULL) {
         buf = (char*) malloc((bufsize + 1) * sizeof(char));
-    }
-
-    int flags = fcntl(0, F_GETFL, 0);
-    if (fcntl(0, F_SETFL, flags | O_NONBLOCK)) {
-        Rf_error("unexpected error");
     }
 
     while (read(0, &c, 1) == 1) {
