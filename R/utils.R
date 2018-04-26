@@ -34,21 +34,13 @@ find_package <- function(path = getwd()) {
     normalizePath(prev_path)
 }
 
-read_char <- function(con, n) {
-    if (.Platform$OS.type == "windows" && "file" %in% class(con)) {
-        .Call("stdin_read_char", PACKAGE = "languageserver", n)
-    } else {
-        readChar(con, n, useBytes = TRUE)
-    }
+stdin_read_char <- function(n) {
+    .Call("stdin_read_char", PACKAGE = "languageserver", n)
 }
 
 
-read_line <- function(con) {
-    if (.Platform$OS.type == "windows" && "file" %in% class(con)) {
-        .Call("stdin_read_line", PACKAGE = "languageserver")
-    } else {
-        readLines(con, n = 1)
-    }
+stdin_read_line <- function() {
+    .Call("stdin_read_line", PACKAGE = "languageserver")
 }
 
 getppid <- function() {
