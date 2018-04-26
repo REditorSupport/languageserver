@@ -26,7 +26,9 @@ Request <- R6::R6Class("Request",
         to_json = function() {
             payload <- list()
             payload$jsonrpc <- self$jsonrpc
-            payload$id <- self$id
+            if (!is.null(self$id)) {
+                payload$id <- self$id
+            }
             payload$method <- jsonlite::unbox(self$method)
             if (!is.null(self$params)) {
                 payload$params <- self$params
@@ -72,10 +74,14 @@ Response <- R6::R6Class("Response",
         },
         to_json = function() {
             payload <- list(
-                jsonrpc = self$jsonrpc,
-                id = self$id,
-                result = self$result
+                jsonrpc = self$jsonrpc
             )
+            if (!is.null(self$id)) {
+                payload$id <- self$id
+            }
+            if (!is.null(self$result)) {
+                payload <- append(payload, list(result = self$result))
+            }
             if (!is.null(self$error)) {
                 payload$error <- self$error
             }
