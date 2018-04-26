@@ -1,16 +1,3 @@
-is_rmarkdown <- function(uri) {
-    filename <- path_from_uri(uri)
-    endsWith(tolower(filename), "rmd") || endsWith(tolower(filename), "rmarkdown")
-}
-
-check_scope <- function(uri, document, line) {
-    if (is_rmarkdown(uri)) {
-        !identical(sum(sapply(document[1:(line + 1)], function(x) startsWith(x, "```"))) %% 2, 0)
-    } else {
-        TRUE
-    }
-}
-
 is_directory <- function(filename) {
     is_dir <- file.info(filename)$isdir
     !is.na(is_dir) && is_dir
@@ -38,18 +25,12 @@ stdin_read_char <- function(n) {
     .Call("stdin_read_char", PACKAGE = "languageserver", n)
 }
 
-
 stdin_read_line <- function() {
     .Call("stdin_read_line", PACKAGE = "languageserver")
 }
 
 getppid <- function() {
     .Call("do_getppid", PACKAGE = "languageserver")
-}
-
-document_backward_search <- function(document, line, character, char, skip_empty_line = TRUE) {
-    .Call("document_backward_search", PACKAGE = "languageserver",
-        document, line, character - 1, char, skip_empty_line)
 }
 
 leisurize <- function(fun, t = 1) {
@@ -64,27 +45,6 @@ leisurize <- function(fun, t = 1) {
 
 sanitize_names <- function(objects) {
     objects[stringr::str_detect(objects, "^(?:[a-zA-Z.][a-zA-Z0-9_.]*)?$")]
-}
-
-
-if (.Platform$OS.type == "windows") {
-    path_from_uri <- function(uri) {
-        utils::URLdecode(substr(uri, 9, nchar(uri)))
-    }
-} else {
-    path_from_uri <- function(uri) {
-        utils::URLdecode(substr(uri, 8, nchar(uri)))
-    }
-}
-
-
-document_line <- function(document, lineno) {
-    if (lineno <= length(document)) {
-        line <- document[lineno]
-    } else {
-        line <- ""
-    }
-    line
 }
 
 to_string <- function(...) {

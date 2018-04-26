@@ -1,3 +1,40 @@
+if (.Platform$OS.type == "windows") {
+    path_from_uri <- function(uri) {
+        utils::URLdecode(substr(uri, 9, nchar(uri)))
+    }
+} else {
+    path_from_uri <- function(uri) {
+        utils::URLdecode(substr(uri, 8, nchar(uri)))
+    }
+}
+
+is_rmarkdown <- function(uri) {
+    filename <- path_from_uri(uri)
+    endsWith(tolower(filename), "rmd") || endsWith(tolower(filename), "rmarkdown")
+}
+
+check_scope <- function(uri, document, line) {
+    if (is_rmarkdown(uri)) {
+        !identical(sum(sapply(document[1:(line + 1)], function(x) startsWith(x, "```"))) %% 2, 0)
+    } else {
+        TRUE
+    }
+}
+
+document_backward_search <- function(document, line, character, char, skip_empty_line = TRUE) {
+    .Call("document_backward_search", PACKAGE = "languageserver",
+        document, line, character - 1, char, skip_empty_line)
+}
+
+document_line <- function(document, lineno) {
+    if (lineno <= length(document)) {
+        line <- document[lineno]
+    } else {
+        line <- ""
+    }
+    line
+}
+
 detect_closure <- function(document, line, character) {
     if (character > 0 && !is.null(document)) {
         loc <- document_backward_search(document, line, character, "(")
