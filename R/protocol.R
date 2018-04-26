@@ -1,6 +1,6 @@
 Message <- R6::R6Class("Message",
     public = list(
-        jsonrpc = 2,
+        jsonrpc = "2.0",
         to_json = function() {
         },
         format = function() {
