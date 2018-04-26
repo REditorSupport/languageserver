@@ -64,6 +64,11 @@ LanguageServer <- R6::R6Class("LanguageServer",
         deliver = function(message) {
             if (!is.null(message)) {
                 cat(message$format(), file = self$outputcon)
+                if ("Notification" %in% class(message)) {
+                    logger$info("deliver method: ", message$method)
+                } else {
+                    logger$info("deliver id: ", message$id)
+                }
             }
         },
 

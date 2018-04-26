@@ -18,18 +18,17 @@ Request <- R6::R6Class("Request",
         id = NULL,
         method = NULL,
         params = NULL,
-        initialize = function(id, method, params=NULL) {
+        initialize = function(id, method, params = NULL) {
             self$id <- id
             self$method <- method
             self$params <- params
         },
         to_json = function() {
-            payload <- list()
-            payload$jsonrpc <- self$jsonrpc
-            if (!is.null(self$id)) {
-                payload$id <- self$id
-            }
-            payload$method <- jsonlite::unbox(self$method)
+            payload <- list(
+                jsonrpc = self$jsonrpc,
+                id = self$id,
+                method = jsonlite::unbox(self$method)
+            )
             if (!is.null(self$params)) {
                 payload$params <- self$params
             }
@@ -44,14 +43,15 @@ Notification <- R6::R6Class("Notification",
     public = list(
         method = NULL,
         params = NULL,
-        initialize = function(method, params=NULL) {
+        initialize = function(method, params = NULL) {
             self$method <- method
             self$params <- params
         },
         to_json = function() {
-            payload <- list()
-            payload$jsonrpc <- jsonlite::unbox(self$jsonrpc)
-            payload$method <- jsonlite::unbox(self$method)
+            payload <- list(
+                jsonrpc = self$jsonrpc,
+                method = jsonlite::unbox(self$method)
+            )
             if (!is.null(self$params)) {
                 payload$params <- self$params
             }
@@ -67,21 +67,17 @@ Response <- R6::R6Class("Response",
         id = NULL,
         result = NULL,
         error = NULL,
-        initialize = function(id, result=NULL, error=NULL) {
+        initialize = function(id = NULL, result = NULL, error = NULL) {
             self$id <- id
             self$result <- result
             self$error <- error
         },
         to_json = function() {
             payload <- list(
-                jsonrpc = self$jsonrpc
+                jsonrpc = self$jsonrpc,
+                id = self$id,
+                result = self$result
             )
-            if (!is.null(self$id)) {
-                payload$id <- self$id
-            }
-            if (!is.null(self$result)) {
-                payload <- append(payload, list(result = self$result))
-            }
             if (!is.null(self$error)) {
                 payload$error <- self$error
             }
