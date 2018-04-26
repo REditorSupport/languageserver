@@ -18,11 +18,11 @@ TextDocumentSyncOptions <- list(
 
 CompletionOptions <- list(
     resolveProvider = FALSE,
-    triggerCharacters = c(".")
+    triggerCharacters = list(".")
 )
 
 SignatureHelpOptions <- list(
-    triggerCharacters = c("(", ",")
+    triggerCharacters = list("(", ",")
 )
 
 CodeLensOptions <- list(
