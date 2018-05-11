@@ -32,7 +32,13 @@ let g:LanguageClient_serverCommands = {
     \ }
 ```
 
-- EMacs: [lsp-mode](https://github.com/emacs-lsp/lsp-mode) (untested)
+- EMacs: [lsp-mode](https://github.com/emacs-lsp/lsp-mode) with settings
+```elisp
+(lsp-define-stdio-client lsp-R "R"
+                         (lambda () default-directory)
+			 '("R" "--quiet" "--slave" "-e" "languageserver::run()"))
+(add-hook 'R-mode-hook #'lsp-R-enable)
+```
 
 ## Services Implemented
 
