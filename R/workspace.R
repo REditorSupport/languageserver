@@ -135,7 +135,7 @@ Workspace <- R6::R6Class("Workspace",
                 hfile <- utils::help((topic), (pkg))
             }
             if (length(hfile) > 0) {
-                iconv(repr::repr_text(hfile), to = "ASCII", sub = "")
+                enc2utf8(repr::repr_text(hfile))
             } else {
                 NULL
             }

@@ -277,6 +277,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
 #' @export
 run <- function(debug = FALSE, host = "localhost", port = NULL) {
     tools::Rd2txt_options(underline_titles = FALSE)
+    tools::Rd2txt_options(itemBullet = "* ")
     if (debug) logger$debug_mode()
     langserver <- LanguageServer$new(host, port)
     langserver$run()
