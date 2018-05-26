@@ -32,12 +32,14 @@ package_completion <- function(token) {
 }
 
 arg_completion <- function(workspace, token, closure) {
-    args <- workspace$get_formals(closure$funct, closure$package)
-    token_args <- names(args)[startsWith(names(args), token)]
-    completions <- lapply(token_args, function(arg) {
-        list(label = arg, kind = CompletionItemKind$Variable)
-    })
-    completions
+    args <- names(workspace$get_formals(closure$funct, closure$package))
+    if (is.character(args)) {
+        token_args <- args[startsWith(args, token)]
+        completions <- lapply(token_args, function(arg) {
+            list(label = arg, kind = CompletionItemKind$Variable)
+        })
+        completions
+    }
 }
 
 workspace_completion <- function(workspace, full_token) {
