@@ -105,7 +105,7 @@ completion_reply <- function(id, uri, workspace, document, position) {
 
     completions <- list()
 
-    if (nchar(token) > 0) {
+    if (nzchar(token)) {
         completions <- c(
             completions,
             package_completion(token),
