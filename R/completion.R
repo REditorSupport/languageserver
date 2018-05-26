@@ -40,7 +40,7 @@ arg_completion <- function(workspace, token, closure) {
     completions
 }
 
-workspace_complection <- function(workspace, full_token) {
+workspace_completion <- function(workspace, full_token) {
     completions <- list()
 
     matches <- stringr::str_match(
@@ -112,7 +112,7 @@ completion_reply <- function(id, uri, workspace, document, position) {
         completions <- c(
             completions,
             package_completion(token),
-            workspace_complection(workspace, token))
+            workspace_completion(workspace, token))
     }
 
     if (length(closure) > 0) {
