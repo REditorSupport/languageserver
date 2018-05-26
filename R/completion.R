@@ -24,31 +24,19 @@ CompletionItemKind <- list(
 
 package_completion <- function(token) {
     installed_packages <- rownames(utils::installed.packages())
-    completions <- list()
-
-    for (package in installed_packages) {
-        if (startsWith(package, token)) {
-            completions <- append(completions, list(list(
-                label = package,
-                kind = CompletionItemKind$Module
-            )))
-        }
-    }
+    token_packages <- installed_packages[startsWith(installed_packages, token)]
+    completions <- lapply(token_packages, function(package) {
+        list(label = package, kind = CompletionItemKind$Module)
+    })
     completions
 }
 
 arg_completion <- function(workspace, token, closure) {
-    completions <- list()
-
     args <- workspace$get_formals(closure$funct, closure$package)
-    for (arg in names(args)) {
-        if (startsWith(arg, token)) {
-            completions <- append(completions, list(list(
-                label = arg,
-                kind = CompletionItemKind$Variable
-            )))
-        }
-    }
+    token_args <- names(args)[startsWith(names(args), token)]
+    completions <- lapply(token_args, function(arg) {
+        list(label = arg, kind = CompletionItemKind$Variable)
+    })
     completions
 }
 
