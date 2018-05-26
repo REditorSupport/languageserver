@@ -59,35 +59,30 @@ workspace_completion <- function(workspace, full_token) {
     if (is.na(pkg) || exported_only) {
         for (nsname in packages) {
             ns <- workspace$get_namespace(nsname)
-            for (object in ns$functs) {
-                if (startsWith(object, token)) {
-                    completions <- append(completions, list(list(
-                        label = object,
-                        kind = CompletionItemKind$Function,
-                        detail = paste0("{", nsname, "}")
-                    )))
-                }
-            }
-            for (object in ns$nonfuncts) {
-                if (startsWith(object, token)) {
-                    completions <- append(completions, list(list(
-                        label = object,
-                        kind = CompletionItemKind$Field,
-                        detail = paste0("{", nsname, "}")
-                    )))
-                }
-            }
+            functs <- ns$functs[startsWith(ns$functs, token)]
+            functs_completions <- lapply(functs, function(object) {
+                list(label = object,
+                     kind = CompletionItemKind$Function,
+                     detail = paste0("{", nsname, "}"))
+            })
+            nonfuncts <- ns$nonfuncts[startsWith(ns$nonfuncts, token)]
+            nonfuncts_completions <- lapply(nonfuncts, function(object) {
+                list(label = object,
+                     kind = CompletionItemKind$Field,
+                     detail = paste0("{", nsname, "}"))
+            })
+            completions <- c(completions,
+                functs_completions,
+                nonfuncts_completions)
         }
     } else {
         ns <- workspace$get_namespace(pkg)
-        for (object in ns$unexports) {
-            if (startsWith(object, token)) {
-                completions <- append(completions, list(list(
-                    label = object,
-                    detail = paste0("{", pkg, "}")
-                )))
-            }
-        }
+        unexports <- ns$unexports[startsWith(ns$unexports, token)]
+        unexports_completion <- lapply(unexports, function(object) {
+            list(label = object,
+                 detail = paste0("{", pkg, "}"))
+        })
+        completions <- c(completions, unexports_completion)
     }
 
     completions
