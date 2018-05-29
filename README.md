@@ -65,14 +65,20 @@ let g:LanguageClient_serverCommands = {
 
 ## Diagnostics settings
 
-User can specify the default linters in `.Rprofile`. Please note that this setting
-is ignored if a `.lintr` file is found.
+User can specify the default linters in `.Rprofile`. For example,
 
 ```r
-options(languageserver.default_linters = lintr::with_defaults(
-    line_length_linter = lintr::line_length_linter(100),
-    object_length_linter = NULL,
-    object_name_linter = NULL,
-    commented_code_linter = NULL
-))
+setHook(
+    packageEvent("languageserver", "onLoad"),
+    function(...) {
+        options(languageserver.default_linters = lintr::with_defaults(
+            line_length_linter = lintr::line_length_linter(100),
+            object_usage_linter = NULL,
+            object_length_linter = NULL,
+            object_name_linter = NULL,
+            commented_code_linter = NULL
+        ))
+    }
+)
 ```
+Please note that this setting is ignored if a `.lintr` file is found.
