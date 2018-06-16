@@ -1,10 +1,18 @@
 if (.Platform$OS.type == "windows") {
     path_from_uri <- function(uri) {
-        utils::URLdecode(substr(uri, 9, nchar(uri)))
+        if (is.null(uri)) {
+            NULL
+        } else {
+            utils::URLdecode(substr(uri, 9, nchar(uri)))
+        }
     }
 } else {
     path_from_uri <- function(uri) {
-        utils::URLdecode(substr(uri, 8, nchar(uri)))
+        if (is.null(uri)) {
+            NULL
+        } else {
+            utils::URLdecode(substr(uri, 8, nchar(uri)))
+        }
     }
 }
 
