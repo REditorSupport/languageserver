@@ -8,7 +8,7 @@ text_document_completion  <- function(self, id, params) {
 }
 
 # Request
-completio_item_resolve  <- function(self, id, params) {
+completion_item_resolve  <- function(self, id, params) {
 
 }
 
