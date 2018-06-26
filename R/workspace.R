@@ -169,7 +169,6 @@ workspace_sync <- function(uri, run_lintr = TRUE, parse_file = FALSE, temp_file 
                 packages <- append(packages, result[[j]][1, 2])
             }
         }
-
     }
 
     if (run_lintr) {

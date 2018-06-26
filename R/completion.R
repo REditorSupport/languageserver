@@ -105,7 +105,31 @@ completion_reply <- function(id, uri, workspace, document, position) {
 
     completions <- list()
 
+    expr <- attr(document, "expr")
+
     if (nzchar(token)) {
+        if (length(expr)) {
+            variables <- character()
+            closures <- character()
+            for (e in expr) {
+                if (length(e) == 3L &&
+                        (e[[1L]] == "<-" || e[[1L]] == "=") &&
+                        is.symbol(e[[2L]]) &&
+                        startsWith(symbol <- as.character(e[[2L]]), token)) {
+                    if (is.call(e[[3L]]) && e[[3L]][[1L]] == "function") {
+                        closures <- union(closures, symbol)
+                    } else {
+                        variables <- union(variables, symbol)
+                    }
+                }
+            }
+            completions <- c(completions, lapply(variables, function(symbol) {
+                list(label = symbol, kind = CompletionItemKind$Variable)
+            }))
+            completions <- c(completions, lapply(closures, function(symbol) {
+                list(label = symbol, kind = CompletionItemKind$Function)
+            }))
+        }
         completions <- c(
             completions,
             package_completion(token),
@@ -113,6 +137,23 @@ completion_reply <- function(id, uri, workspace, document, position) {
     }
 
     if (length(closure) > 0) {
+        if (length(expr)) {
+            closure_args <- NULL
+            for (e in expr) {
+                if (length(e) == 3L &&
+                        (e[[1L]] == "<-" || e[[1L]] == "=") &&
+                        is.symbol(e[[2L]]) &&
+                        e[[2L]] == closure &&
+                        is.call(e[[3L]]) &&
+                        e[[3L]][[1L]] == "function") {
+                    closure_args <- names(e[[3L]][[2L]])
+                    break
+                }
+            }
+            completions <- c(completions, lapply(closure_args, function(symbol) {
+                list(label = symbol, kind = CompletionItemKind$Variable)
+            }))
+        }
         completions <- c(
             completions,
             arg_completion(workspace, token, closure))
