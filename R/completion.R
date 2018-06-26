@@ -151,7 +151,7 @@ completion_reply <- function(id, uri, workspace, document, position) {
                 }
             }
             completions <- c(completions, lapply(closure_args, function(symbol) {
-                list(label = symbol, kind = CompletionItemKind$Variable)
+                list(label = symbol, kind = CompletionItemKind$Variable, detail = basename(uri))
             }))
         }
         completions <- c(
