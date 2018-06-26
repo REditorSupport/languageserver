@@ -14,11 +14,13 @@ text_document_did_open <- function(self, params) {
 text_document_did_change <- function(self, params) {
     textDocument <- params$textDocument
     contentChanges <- params$contentChanges
-    text <- contentChanges[[1]]$text
+    text <- contentChanges[[1L]]$text
     uri <- textDocument$uri
     doc <- stringr::str_split(text, "\r\n|\n")[[1]]
     # remove last empty line
-    if (nchar(doc[[length(doc)]]) == 0) doc <- doc[-length(doc)]
+    if (!nzchar(doc[[length(doc)]])) {
+        doc <- doc[-length(doc)]
+    }
     expr <- tryCatch(parse(text = doc, keep.source = FALSE), error = function(e) NULL)
     attr(doc, "expr") <- expr
     self$documents[[uri]] <- doc
