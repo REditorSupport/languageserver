@@ -113,6 +113,7 @@ completion_reply <- function(id, uri, workspace, document, position) {
             closures <- character()
             for (e in expr) {
                 if (length(e) == 3L &&
+                        is.symbol(e[[1L]]) &&
                         (e[[1L]] == "<-" || e[[1L]] == "=") &&
                         is.symbol(e[[2L]]) &&
                         startsWith(symbol <- as.character(e[[2L]]), token)) {
@@ -141,6 +142,7 @@ completion_reply <- function(id, uri, workspace, document, position) {
             closure_args <- NULL
             for (e in expr) {
                 if (length(e) == 3L &&
+                        is.symbol(e[[1L]]) &&
                         (e[[1L]] == "<-" || e[[1L]] == "=") &&
                         is.symbol(e[[2L]]) &&
                         e[[2L]] == closure &&
