@@ -17,7 +17,7 @@ Imports:
     R6,
     repr,
     stringr,
-    styler,
+    styler (>= 1.0.2),
     tools
 Suggests:
     testthat
