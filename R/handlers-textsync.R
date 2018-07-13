@@ -13,7 +13,7 @@ text_document_did_change <- function(self, params) {
     contentChanges <- params$contentChanges
     text <- contentChanges[[1]]$text
     uri <- textDocument$uri
-    doc <- stringr::str_split(text, "\n")[[1]]
+    doc <- stringr::str_split(text, "\r\n|\n")[[1]]
     # remove last empty line
     if (nchar(doc[[length(doc)]]) == 0) doc <- doc[-length(doc)]
     self$documents[[uri]] <- doc
