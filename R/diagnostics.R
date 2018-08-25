@@ -57,11 +57,11 @@ find_config <- function (filename) {
     if (isTRUE(file.exists(linter_config))) {
         return(linter_config)
     }
-    home_dir <- Sys.getenv("HOME", unset = "~")
-    linter_config <- file.path(home_dir, linter_file)
-    if (isTRUE(file.exists(linter_config))) {
-        return(linter_config)
-    }
+    # home_dir <- Sys.getenv("HOME", unset = "~")
+    # linter_config <- file.path(home_dir, linter_file)
+    # if (isTRUE(file.exists(linter_config))) {
+    #     return(linter_config)
+    # }
     NULL
 }
 
