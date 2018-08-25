@@ -32,7 +32,7 @@ Namespace <- R6::R6Class("Namespace",
             } else {
                 sig <- capture.output(print(args(fn)))
                 sig <- sig[1:length(sig) - 1]
-                trimws(sig, which = "left")
+                paste0(trimws(sig, which = "left"), collapse = "\n\t")
             }
         },
 
