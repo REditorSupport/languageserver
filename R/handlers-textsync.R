@@ -1,11 +1,32 @@
+parse_document <- function(path) {
+    expr <- tryCatch(parse(path, keep.source = FALSE), error = function(e) NULL)
+    if (length(expr)) {
+        variables <- character()
+        closures <- character()
+        for (e in expr) {
+            if (length(e) == 3L &&
+                    is.symbol(e[[1L]]) &&
+                    (e[[1L]] == "<-" || e[[1L]] == "=") &&
+                    is.symbol(e[[2L]])) {
+                symbol <- as.character(e[[2L]])
+                if (is.call(e[[3L]]) && e[[3L]][[1L]] == "function") {
+                    closures <- union(closures, symbol)
+                } else {
+                    variables <- union(variables, symbol)
+                }
+            }
+        }
+        list(expr = expr, variables = variables, closures = closures)
+    }
+}
+
 # Notification
 text_document_did_open <- function(self, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
     path <- path_from_uri(uri)
     doc <- readLines(path, warn = FALSE)
-    expr <- tryCatch(parse(path, keep.source = FALSE), error = function(e) NULL)
-    attr(doc, "expr") <- expr
+    attr(doc, "expr") <- parse_document(path)
     self$documents[[uri]] <- doc
     self$sync_input_dict$set(uri, TRUE)
 }
@@ -38,8 +59,7 @@ text_document_did_save <- function(self, params) {
     logger$info("did save:", uri)
     path <- path_from_uri(uri)
     doc <- readLines(path, warn = FALSE)
-    expr <- tryCatch(parse(path, keep.source = FALSE), error = function(e) NULL)
-    attr(doc, "expr") <- expr
+    attr(doc, "expr") <- parse_document(path)
     self$documents[[uri]] <- doc
     self$sync_input_dict$set(uri, TRUE)
 }

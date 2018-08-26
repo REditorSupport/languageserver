@@ -109,21 +109,8 @@ completion_reply <- function(id, uri, workspace, document, position) {
 
     if (nzchar(token)) {
         if (length(expr)) {
-            variables <- character()
-            closures <- character()
-            for (e in expr) {
-                if (length(e) == 3L &&
-                        is.symbol(e[[1L]]) &&
-                        (e[[1L]] == "<-" || e[[1L]] == "=") &&
-                        is.symbol(e[[2L]]) &&
-                        startsWith(symbol <- as.character(e[[2L]]), token)) {
-                    if (is.call(e[[3L]]) && e[[3L]][[1L]] == "function") {
-                        closures <- union(closures, symbol)
-                    } else {
-                        variables <- union(variables, symbol)
-                    }
-                }
-            }
+            variables <- expr$variables[startsWith(expr$variables, token)]
+            closures <- expr$closures[startsWith(expr$closures, token)]
             completions <- c(completions, lapply(variables, function(symbol) {
                 list(label = symbol, kind = CompletionItemKind$Variable, detail = basename(uri))
             }))
