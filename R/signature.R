@@ -21,7 +21,7 @@ signature_reply <- function(id, uri, workspace, document, position) {
 
         logger$info("sig: ", sig)
         if (!is.null(sig)) {
-            sig <- trimws(gsub("function ", closure$funct, sig))
+            sig <- trimws(gsub("function\\s*", closure$funct, sig))
             SignatureInformation <- list(list(label = sig))
             activeSignature <- 0
         }

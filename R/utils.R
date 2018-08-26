@@ -47,6 +47,11 @@ sanitize_names <- function(objects) {
     objects[stringr::str_detect(objects, "^(?:[a-zA-Z.][a-zA-Z0-9_.]*)?$")]
 }
 
+merge_list <- function(x, y) {
+  x[names(y)] <- y
+  x
+}
+
 to_string <- function(...) {
     dots <- list(...)
     if (length(str) > 0) {
