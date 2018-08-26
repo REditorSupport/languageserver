@@ -46,7 +46,7 @@ workspace_completion <- function(workspace, full_token) {
     completions <- list()
 
     matches <- stringr::str_match(
-        full_token, "(?:([a-zA-Z][a-zA-Z0-9]+)(:::?))?([a-zA-Z0-9_.]*)$")
+        full_token, "(?:([a-zA-Z][a-zA-Z0-9.]+)(:::?))?([a-zA-Z0-9_.]*)$")
 
     pkg <- matches[2]
     exported_only <- matches[3] == "::"
