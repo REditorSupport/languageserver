@@ -129,7 +129,7 @@ completion_reply <- function(id, uri, workspace, document, position) {
     }
 
     if (length(closure)) {
-        closure_args <- names(expr$closures[[closure$funct]])
+        closure_args <- names(expr$closures[[closure$funct]]$formals)
         if (length(closure_args)) {
             closure_args <- closure_args[startsWith(closure_args, token)]
             completions <- c(completions, lapply(closure_args, function(symbol) {

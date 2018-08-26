@@ -10,7 +10,13 @@ parse_document <- function(path) {
                     is.symbol(e[[2L]])) {
                 symbol <- as.character(e[[2L]])
                 if (is.call(e[[3L]]) && e[[3L]][[1L]] == "function") {
-                    closures[[symbol]] <- e[[3L]][[2L]]
+                    func <- e[[3L]]
+                    formals <- func[[2L]]
+                    signature <- func
+                    signature[[3L]] <- quote(expr=)
+                    signature <- capture.output(print(signature))
+                    signature <- paste0(trimws(signature, which = "left"), collapse = "\n\t")
+                    closures[[symbol]] <- list(formals = formals, signature = signature)
                 } else {
                     variables <- union(variables, symbol)
                 }

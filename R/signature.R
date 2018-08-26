@@ -13,15 +13,21 @@ signature_reply <- function(id, uri, workspace, document, position) {
 
 
     if (!is.null(closure$funct)) {
-        if (is.null(closure$package)) {
-            sig <- workspace$get_signature(closure$funct)
+        expr <- attr(document, "expr")
+        doc_closure <- expr$closures[[closure$funct]]
+        if (is.null(doc_closure)) {
+            if (is.null(closure$package)) {
+                sig <- workspace$get_signature(closure$funct)
+            } else {
+                sig <- workspace$get_signature(closure$funct, closure$package)
+            }
         } else {
-            sig <- workspace$get_signature(closure$funct, closure$package)
+            sig <- doc_closure$signature
         }
 
         logger$info("sig: ", sig)
         if (!is.null(sig)) {
-            sig <- trimws(gsub("function ", closure$funct, sig))
+            sig <- trimws(gsub("^function\\s?", closure$funct, sig))
             SignatureInformation <- list(list(label = sig))
             activeSignature <- 0
         }
