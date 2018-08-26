@@ -148,7 +148,7 @@ Workspace <- R6::R6Class("Workspace",
 #' internal use only
 #' @param uri the file path
 #' @param run_lintr set \code{FALSE} to disable lintr diagnostics
-#' @param parse_file set \code{FALSE} to disable lintr diagnostics
+#' @param parse_file set \code{FALSE} to disable parsing file
 #' @param temp_file the actual file to lint
 #' @export
 workspace_sync <- function(uri, run_lintr = TRUE, parse_file = FALSE, temp_file = NULL) {
@@ -169,6 +169,7 @@ workspace_sync <- function(uri, run_lintr = TRUE, parse_file = FALSE, temp_file 
                 packages <- append(packages, result[[j]][1, 2])
             }
         }
+
     }
 
     if (run_lintr) {

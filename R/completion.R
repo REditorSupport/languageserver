@@ -105,37 +105,14 @@ completion_reply <- function(id, uri, workspace, document, position) {
 
     completions <- list()
 
-    expr <- attr(document, "expr")
-
     if (nzchar(token)) {
-        if (length(expr$closures)) {
-            variables <- expr$variables[startsWith(expr$variables, token)]
-            completions <- c(completions, lapply(variables, function(symbol) {
-                list(label = symbol, kind = CompletionItemKind$Variable, detail = basename(uri))
-            }))
-        }
-
-        if (length(expr$closures)) {
-            closure_names <- names(expr$closures)
-            closures <- closure_names[startsWith(closure_names, token)]
-            completions <- c(completions, lapply(closures, function(symbol) {
-                list(label = symbol, kind = CompletionItemKind$Function, detail = basename(uri))
-            }))
-        }
         completions <- c(
             completions,
             package_completion(token),
             workspace_completion(workspace, token))
     }
 
-    if (length(closure)) {
-        closure_args <- names(expr$closures[[closure$funct]]$formals)
-        if (length(closure_args)) {
-            closure_args <- closure_args[startsWith(closure_args, token)]
-            completions <- c(completions, lapply(closure_args, function(symbol) {
-                list(label = symbol, kind = CompletionItemKind$Variable, detail = basename(uri))
-            }))
-        }
+    if (length(closure) > 0) {
         completions <- c(
             completions,
             arg_completion(workspace, token, closure))
