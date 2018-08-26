@@ -21,8 +21,7 @@ text_document_did_change <- function(self, params) {
     if (!nzchar(doc[[length(doc)]])) {
         doc <- doc[-length(doc)]
     }
-    expr <- tryCatch(parse(text = doc, keep.source = FALSE), error = function(e) NULL)
-    attr(doc, "expr") <- expr
+    attr(doc, "expr") <- attr(self$documents[[uri]], "expr")
     self$documents[[uri]] <- doc
     self$sync_input_dict$set(uri, doc)
 }
