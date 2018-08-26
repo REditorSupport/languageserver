@@ -23,7 +23,7 @@ These editors are supported by installing the corresponding package.
 
 - Atom: [atom-ide-r](https://github.com/REditorSupport/atom-ide-r)
 
-- Sublime Text: [LSP](https://github.com/tomv564/LSP)
+- Sublime Text: [R-IDE](https://github.com/REditorSupport/sublime-ide-r)
 
 - Vim/NeoVim: [LanguageClient-neovim](https://github.com/autozimu/LanguageClient-neovim) with settings
 ```vim
