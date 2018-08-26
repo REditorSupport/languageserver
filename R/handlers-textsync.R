@@ -2,7 +2,7 @@ parse_document <- function(path) {
     expr <- tryCatch(parse(path, keep.source = FALSE), error = function(e) NULL)
     if (length(expr)) {
         variables <- character()
-        closures <- character()
+        closures <- list()
         for (e in expr) {
             if (length(e) == 3L &&
                     is.symbol(e[[1L]]) &&
@@ -10,7 +10,7 @@ parse_document <- function(path) {
                     is.symbol(e[[2L]])) {
                 symbol <- as.character(e[[2L]])
                 if (is.call(e[[3L]]) && e[[3L]][[1L]] == "function") {
-                    closures <- union(closures, symbol)
+                    closures[[symbol]] <- e[[3L]][[2L]]
                 } else {
                     variables <- union(variables, symbol)
                 }

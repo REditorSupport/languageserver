@@ -108,12 +108,16 @@ completion_reply <- function(id, uri, workspace, document, position) {
     expr <- attr(document, "expr")
 
     if (nzchar(token)) {
-        if (length(expr)) {
+        if (length(expr$closures)) {
             variables <- expr$variables[startsWith(expr$variables, token)]
-            closures <- expr$closures[startsWith(expr$closures, token)]
             completions <- c(completions, lapply(variables, function(symbol) {
                 list(label = symbol, kind = CompletionItemKind$Variable, detail = basename(uri))
             }))
+        }
+
+        if (length(expr$closures)) {
+            closure_names <- names(expr$closures)
+            closures <- closure_names[startsWith(closure_names, token)]
             completions <- c(completions, lapply(closures, function(symbol) {
                 list(label = symbol, kind = CompletionItemKind$Function, detail = basename(uri))
             }))
@@ -124,21 +128,10 @@ completion_reply <- function(id, uri, workspace, document, position) {
             workspace_completion(workspace, token))
     }
 
-    if (length(closure) > 0) {
-        if (length(expr)) {
-            closure_args <- NULL
-            for (e in expr) {
-                if (length(e) == 3L &&
-                        is.symbol(e[[1L]]) &&
-                        (e[[1L]] == "<-" || e[[1L]] == "=") &&
-                        is.symbol(e[[2L]]) &&
-                        e[[2L]] == closure &&
-                        is.call(e[[3L]]) &&
-                        e[[3L]][[1L]] == "function") {
-                    closure_args <- names(e[[3L]][[2L]])
-                    break
-                }
-            }
+    if (length(closure)) {
+        closure_args <- names(expr$closures[[closure$funct]])
+        if (length(closure_args)) {
+            closure_args <- closure_args[startsWith(closure_args, token)]
             completions <- c(completions, lapply(closure_args, function(symbol) {
                 list(label = symbol, kind = CompletionItemKind$Variable, detail = basename(uri))
             }))
