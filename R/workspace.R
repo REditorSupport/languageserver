@@ -99,7 +99,7 @@ Workspace <- R6::R6Class("Workspace",
 
         get_signature = function(funct, pkg = NULL) {
             if (is.null(pkg)) {
-                if (funct %in% names(self$global_env$signatures)) {
+                if (funct %in% self$global_env$functs) {
                     return(self$global_env$signatures[[funct]])
                 }
                 pkg <- self$guess_package(funct)
@@ -119,7 +119,7 @@ Workspace <- R6::R6Class("Workspace",
 
         get_formals = function(funct, pkg = NULL) {
             if (is.null(pkg)) {
-                if (funct %in% names(self$global_env$formals)) {
+                if (funct %in% self$global_env$functs) {
                     return(self$global_env$formals[[funct]])
                 }
                 pkg <- self$guess_package(funct)
