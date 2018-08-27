@@ -161,23 +161,26 @@ Workspace <- R6::R6Class("Workspace",
 #' Determine workspace information for a given file
 #'
 #' internal use only
-#' @param uri the file path
+#' @param uri the file uri
+#' @param temp_file the file to lint, determine from \code{uri} if \code{NULL}
 #' @param run_lintr set \code{FALSE} to disable lintr diagnostics
-#' @param parse_file set \code{FALSE} to disable parsing file
-#' @param temp_file the actual file to lint
+#' @param parse set \code{FALSE} to disable parsing file
 #' @export
-workspace_sync <- function(uri, run_lintr = TRUE, parse_file = FALSE, temp_file = NULL) {
+workspace_sync <- function(uri, temp_file = NULL, run_lintr = TRUE, parse = FALSE) {
     packages <- character(0)
     functs <- character()
     nonfuncts <- character()
     formals <- list()
     signatures <- list()
 
-    if (parse_file) {
-        if (is.null(temp_file)) {
-            temp_file <- path_from_uri(uri)
-        }
-        expr <- tryCatch(parse(temp_file, keep.source = FALSE), error = function(e) NULL)
+    if (is.null(temp_file)) {
+        path <- path_from_uri(uri)
+    } else {
+        path <- temp_file
+    }
+
+    if (parse) {
+        expr <- tryCatch(parse(path, keep.source = FALSE), error = function(e) NULL)
         if (length(expr)) {
             for (e in expr) {
                 if (length(e) == 3L &&
@@ -209,7 +212,7 @@ workspace_sync <- function(uri, run_lintr = TRUE, parse_file = FALSE, temp_file 
     }
 
     if (run_lintr) {
-        diagnostics <- tryCatch(diagnose_file(temp_file), error = function(e) NULL)
+        diagnostics <- tryCatch(diagnose_file(path), error = function(e) NULL)
     } else {
         diagnostics <- NULL
     }
@@ -224,9 +227,11 @@ process_sync_input_dict <- function(self) {
     sync_output_dict <- self$sync_output_dict
 
     for (uri in sync_input_dict$keys()) {
+        parse <- FALSE
         if (sync_output_dict$has(uri)) {
             item <- sync_output_dict$pop(uri)
             process <- item$process
+            parse <- item$parse
             if (process$is_alive()) try(process$kill())
             temp_file <- item$temp_file
             if (!is.null(temp_file) && file.exists(temp_file)) {
@@ -234,14 +239,14 @@ process_sync_input_dict <- function(self) {
             }
         }
 
-        document <- sync_input_dict$pop(uri)
-        if (isTRUE(document)) {
-            parse_file <- TRUE
+        item <- sync_input_dict$pop(uri)
+        parse <- parse || item$parse
+        doc <- item$document
+        if (is.null(doc)) {
             temp_file <- NULL
         } else {
-            parse_file <- FALSE
             temp_file <- tempfile(fileext = ".R")
-            write(document, file = temp_file)
+            write(item$document, file = temp_file)
         }
 
         sync_output_dict$set(
@@ -251,11 +256,13 @@ process_sync_input_dict <- function(self) {
                     function(...) languageserver::workspace_sync(...),
                     list(
                         uri = uri,
+                        temp_file = temp_file,
                         run_lintr = self$run_lintr,
-                        parse_file = parse_file,
-                        temp_file = temp_file),
+                        parse = parse
+                    ),
                     system_profile = TRUE, user_profile = TRUE
                 ),
+                parse = parse,
                 temp_file = temp_file
             )
         )
