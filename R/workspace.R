@@ -65,11 +65,20 @@ Workspace <- R6::R6Class("Workspace",
 
         load_package = function(pkgname) {
             if (!(pkgname %in% self$loaded_packages)) {
-                ns <- try(self$get_namespace(pkgname), silent = TRUE)
+                ns <- tryCatch(self$get_namespace(pkgname), error = function(e) NULL)
                 logger$info("ns: ", ns)
-                if (!inherits(ns, "try-error")) {
+                if (!is.null(ns)) {
                     self$loaded_packages <- append(self$loaded_packages, pkgname)
                     logger$info("loaded_packages: ", self$loaded_packages)
+                    deps <- tryCatch(desc::desc(package = pkgname)$get_deps(),
+                                     error = function(e) NULL)
+                    if (!is.null(deps)) {
+                        packages <- Filter(
+                            function(x) x != "R", deps$package[deps$type == "Depends"])
+                        for (pkg in packages) {
+                            self$load_package(pkg)
+                        }
+                    }
                 }
             }
         },
