@@ -263,7 +263,8 @@ LanguageServer <- R6::R6Class("LanguageServer",
 
 
 #' Run the R language server
-#' @param debug set \code{TRUE} to show debug information in stderr
+#' @param debug set \code{TRUE} to show debug information in stderr;
+#'              or it could be a character string specifying the log file
 #' @param host the hostname used to create the tcp server, not used when \code{port} is \code{NULL}
 #' @param port the port used to create the tcp server. If \code{NULL}, use stdio instead.
 #' @examples

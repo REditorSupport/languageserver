@@ -7,7 +7,8 @@
 run(debug = FALSE, host = "localhost", port = NULL)
 }
 \arguments{
-\item{debug}{set \code{TRUE} to show debug information in stderr}
+\item{debug}{set \code{TRUE} to show debug information in stderr;
+or it could be a character string specifying the log file}
 
 \item{host}{the hostname used to create the tcp server, not used when \code{port} is \code{NULL}}
 
