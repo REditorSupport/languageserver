@@ -16,8 +16,14 @@ text_document_did_change <- function(self, params) {
     doc <- stringr::str_split(text, "\r\n|\n")[[1]]
     # remove last empty line
     if (nchar(doc[[length(doc)]]) == 0) doc <- doc[-length(doc)]
-    self$documents[[uri]] <- doc
-    self$sync_input_dict$set(uri, doc)
+    if (uri %in% name(self$documents)) {
+        self$documents[[uri]] <- doc
+        self$sync_input_dict$set(uri, doc)
+    } else {
+        # trigger sync_input_dict for the first time
+        self$documents[[uri]] <- doc
+        self$sync_input_dict$set(uri, TRUE)
+    }
 }
 
 # Notification
