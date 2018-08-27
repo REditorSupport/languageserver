@@ -28,7 +28,7 @@ These editors are supported by installing the corresponding package.
 - Vim/NeoVim: [LanguageClient-neovim](https://github.com/autozimu/LanguageClient-neovim) with settings
 ```vim
 let g:LanguageClient_serverCommands = {
-    \ 'r': ['R', '--quiet', '--slave', '-e', 'languageserver::run()'],
+    \ 'r': ['R', '--slave', '-e', 'languageserver::run()'],
     \ }
 ```
 
@@ -36,7 +36,7 @@ let g:LanguageClient_serverCommands = {
 ```elisp
 (lsp-define-stdio-client lsp-R "R"
                          (lambda () default-directory)
-			 '("R" "--quiet" "--slave" "-e" "languageserver::run()"))
+			 '("R" "--slave" "-e" "languageserver::run()"))
 (add-hook 'R-mode-hook #'lsp-R-enable)
 ```
 
