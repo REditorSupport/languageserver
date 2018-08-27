@@ -82,17 +82,23 @@ log_write <- function(..., file = stderr()){
 
 Logger <- R6::R6Class("Logger",
     private = list(
-        debug = FALSE
+        debug = FALSE,
+        file = stderr()
     ),
     public = list(
-        debug_mode = function() {
-            private$debug <- TRUE
+        debug_mode = function(debug) {
+            if (isTRUE(debug) || is.character(debug)) {
+                private$debug <- TRUE
+                if (is.character(debug)) {
+                    private$file <- debug
+                }
+            }
         },
         error = function(...) {
-            log_write(...)
+            log_write(..., file = private$file)
         },
         info = function(...) {
-            if (private$debug) log_write(...)
+            if (private$debug) log_write(..., file = private$file)
         }
     )
 )

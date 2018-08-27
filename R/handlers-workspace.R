@@ -1,9 +1,9 @@
 # Notification
 workspace_did_change_configuration <- function(self, params) {
     settings <- params$settings
-    if (!is.null(settings$debug) && isTRUE(settings$debug)) {
-        logger$debug_mode()
-    }
+
+    logger$debug_mode(settings$debug)
+
     if (!is.null(settings$diagnostics) && !isTRUE(settings$diagnostics)) {
         self$run_lintr <- FALSE
     }
