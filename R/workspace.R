@@ -52,7 +52,10 @@ Workspace <- R6::R6Class("Workspace",
     public = list(
         loaded_packages = c("base", "stats", "methods", "utils", "graphics", "grDevices"),
         namespaces = list(),
-        global_env = list(),
+        global_env = list(nonfuncts = character(0),
+                          functs = character(0),
+                          signatures = list(),
+                          formals = list()),
 
         initialize = function() {
             for (pkgname in self$loaded_packages) {
