@@ -19,7 +19,8 @@ Imports:
     repr,
     stringr,
     styler (>= 1.0.2),
-    tools
+    tools,
+    utils
 Suggests:
     testthat
 Encoding: UTF-8

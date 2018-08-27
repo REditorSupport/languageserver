@@ -29,7 +29,7 @@ Namespace <- R6::R6Class("Namespace",
             if (is.primitive(fn)) {
                 NULL
             } else {
-                sig <- capture.output(print(args(fn)))
+                sig <- utils::capture.output(print(args(fn)))
                 sig <- sig[1:length(sig) - 1]
                 paste0(trimws(sig, which = "left"), collapse = "\n")
             }
@@ -195,7 +195,7 @@ workspace_sync <- function(uri, temp_file = NULL, run_lintr = TRUE, parse = FALS
                         formals[[symbol]] <- func[[2L]]
                         signature <- func
                         signature[[3L]] <- quote(expr =)
-                        signature <- capture.output(print(signature))
+                        signature <- utils::capture.output(print(signature))
                         signature <- paste0(trimws(signature, which = "left"), collapse = "\n")
                         signatures[[symbol]] <- signature
                     } else {
