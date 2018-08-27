@@ -52,9 +52,9 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$sync_output_dict <- collections::OrderedDictL$new()
             self$reply_queue <- collections::QueueL$new()
 
-            self$process_sync_input_dict <- leisurize(
-                function() process_sync_input_dict(self), 0.3)
-            self$process_sync_output_dict <- (function() process_sync_output_dict(self))
+            self$process_sync_input <- leisurize(
+                function() process_sync_input(self), 0.3)
+            self$process_sync_output <- (function() process_sync_output(self))
         },
 
         finalize = function() {
@@ -151,14 +151,25 @@ LanguageServer <- R6::R6Class("LanguageServer",
         },
 
         process_events = function() {
-            self$process_sync_input_dict()
-            self$process_sync_output_dict()
+            self$process_sync_input()
+            self$process_sync_output()
             self$process_reply_queue()
         },
 
-        process_sync_input_dict = NULL,
+        text_sync = function(uri, document = NULL, run_lintr = TRUE, parse = TRUE) {
+            if (self$sync_input_dict$has(uri)) {
+                # make sure we do not accidentially override list call with `parse = FALSE`
+                item <- self$sync_input_dict$pop(uri)
+                parse <- parse || item$parse
+                run_lintr <- run_lintr || item$run_lintr
+            }
+            self$sync_input_dict$set(
+                uri, list(document = document, run_lintr = run_lintr, parse = parse))
+        },
 
-        process_sync_output_dict = NULL,
+        process_sync_input = NULL,
+
+        process_sync_output = NULL,
 
         process_reply_queue = function() {
             while (self$reply_queue$size() > 0) {

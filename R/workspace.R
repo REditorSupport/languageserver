@@ -225,7 +225,7 @@ workspace_sync <- function(uri, temp_file = NULL, run_lintr = TRUE, parse = FALS
          diagnostics = diagnostics)
 }
 
-process_sync_input_dict <- function(self) {
+process_sync_input <- function(self) {
     sync_input_dict <- self$sync_input_dict
     sync_output_dict <- self$sync_output_dict
 
@@ -278,7 +278,7 @@ process_sync_input_dict <- function(self) {
     }
 }
 
-process_sync_output_dict <- function(self) {
+process_sync_output <- function(self) {
     for (uri in self$sync_output_dict$keys()) {
         item <- self$sync_output_dict$get(uri)
         process <- item$process
