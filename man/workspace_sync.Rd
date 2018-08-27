@@ -4,17 +4,17 @@
 \alias{workspace_sync}
 \title{Determine workspace information for a given file}
 \usage{
-workspace_sync(uri, run_lintr = TRUE, parse_file = FALSE,
-  temp_file = NULL)
+workspace_sync(uri, temp_file = NULL, run_lintr = TRUE,
+  parse = FALSE)
 }
 \arguments{
-\item{uri}{the file path}
+\item{uri}{the file uri}
+
+\item{temp_file}{the file to lint, determine from \code{uri} if \code{NULL}}
 
 \item{run_lintr}{set \code{FALSE} to disable lintr diagnostics}
 
-\item{parse_file}{set \code{FALSE} to disable lintr diagnostics}
-
-\item{temp_file}{the actual file to lint}
+\item{parse}{set \code{FALSE} to disable parsing file}
 }
 \description{
 internal use only

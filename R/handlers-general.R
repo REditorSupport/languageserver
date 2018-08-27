@@ -20,7 +20,7 @@ on_initialized <- function(self, params) {
             uri <- path_to_uri(file.path(source_dir, f))
             self$sync_input_dict$set(uri, list(document = NULL, run_lintr = FALSE, parse = TRUE))
         }
-        deps <- desc_get_deps()
+        deps <- desc::desc_get_deps()
         packages <- Filter(function(x) x != "R", deps$package[deps$type == "Depends"])
         for (package in packages) {
             logger$info("load package:", package)
