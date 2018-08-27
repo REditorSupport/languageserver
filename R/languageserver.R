@@ -48,9 +48,9 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$register_handlers()
 
             self$workspace <- Workspace$new()
-            self$sync_input_dict <- OrderedDictL$new()
-            self$sync_output_dict <- OrderedDictL$new()
-            self$reply_queue <- QueueL$new()
+            self$sync_input_dict <- collections::OrderedDictL$new()
+            self$sync_output_dict <- collections::OrderedDictL$new()
+            self$reply_queue <- collections::QueueL$new()
 
             self$process_sync_input_dict <- leisurize(
                 function() process_sync_input_dict(self), 0.3)

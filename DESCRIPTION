@@ -12,6 +12,7 @@ Depends:
     R (>= 3.4.0)
 Imports:
     callr (>= 2.0.1),
+    collections,
     desc,
     jsonlite,
     lintr,
