@@ -225,19 +225,19 @@ workspace_sync <- function(uri, temp_file = NULL, run_lintr = TRUE, parse = FALS
          diagnostics = diagnostics)
 }
 
-process_sync_input <- function(self) {
-    sync_input_dict <- self$sync_input_dict
-    sync_output_dict <- self$sync_output_dict
+process_sync_in <- function(self) {
+    sync_in <- self$sync_in
+    sync_out <- self$sync_out
 
-    uris <- sync_input_dict$keys()
+    uris <- sync_in$keys()
     # avoid heavy cpu usage
     if (length(uris) > 8) {
         uris <- uris[1:8]
     }
     for (uri in uris) {
         parse <- FALSE
-        if (sync_output_dict$has(uri)) {
-            item <- sync_output_dict$pop(uri)
+        if (sync_out$has(uri)) {
+            item <- sync_out$pop(uri)
             process <- item$process
             parse <- item$parse
             if (process$is_alive()) try(process$kill())
@@ -247,7 +247,7 @@ process_sync_input <- function(self) {
             }
         }
 
-        item <- sync_input_dict$pop(uri)
+        item <- sync_in$pop(uri)
         run_lintr <- item$run_lintr && self$run_lintr
         parse <- parse || item$parse
         doc <- item$document
@@ -258,7 +258,7 @@ process_sync_input <- function(self) {
             write(item$document, file = temp_file)
         }
 
-        sync_output_dict$set(
+        sync_out$set(
             uri,
             list(
                 process = callr::r_bg(
@@ -278,9 +278,9 @@ process_sync_input <- function(self) {
     }
 }
 
-process_sync_output <- function(self) {
-    for (uri in self$sync_output_dict$keys()) {
-        item <- self$sync_output_dict$get(uri)
+process_sync_out <- function(self) {
+    for (uri in self$sync_out$keys()) {
+        item <- self$sync_out$get(uri)
         process <- item$process
 
         if (!is.null(process) && !process$is_alive()) {
@@ -306,7 +306,7 @@ process_sync_output <- function(self) {
                 result$nonfunct, result$funct, result$signatures, result$formals)
 
             # cleanup
-            self$sync_output_dict$remove(uri)
+            self$sync_out$remove(uri)
             temp_file <- item$temp_file
             if (!is.null(temp_file) && file.exists(temp_file)) {
                 file.remove(temp_file)

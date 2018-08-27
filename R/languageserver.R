@@ -24,8 +24,8 @@ LanguageServer <- R6::R6Class("LanguageServer",
         initializationOptions = NULL,
         capabilities = NULL,
 
-        sync_input_dict = NULL,
-        sync_output_dict = NULL,
+        sync_in = NULL,
+        sync_out = NULL,
         reply_queue = NULL,
 
         initialize = function(host, port) {
@@ -48,13 +48,13 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$register_handlers()
 
             self$workspace <- Workspace$new()
-            self$sync_input_dict <- collections::OrderedDictL$new()
-            self$sync_output_dict <- collections::OrderedDictL$new()
+            self$sync_in <- collections::OrderedDictL$new()
+            self$sync_out <- collections::OrderedDictL$new()
             self$reply_queue <- collections::QueueL$new()
 
-            self$process_sync_input <- leisurize(
-                function() process_sync_input(self), 0.3)
-            self$process_sync_output <- (function() process_sync_output(self))
+            self$process_sync_in <- leisurize(
+                function() process_sync_in(self), 0.3)
+            self$process_sync_out <- (function() process_sync_out(self))
         },
 
         finalize = function() {
@@ -151,25 +151,25 @@ LanguageServer <- R6::R6Class("LanguageServer",
         },
 
         process_events = function() {
-            self$process_sync_input()
-            self$process_sync_output()
+            self$process_sync_in()
+            self$process_sync_out()
             self$process_reply_queue()
         },
 
         text_sync = function(uri, document = NULL, run_lintr = TRUE, parse = TRUE) {
-            if (self$sync_input_dict$has(uri)) {
+            if (self$sync_in$has(uri)) {
                 # make sure we do not accidentially override list call with `parse = FALSE`
-                item <- self$sync_input_dict$pop(uri)
+                item <- self$sync_in$pop(uri)
                 parse <- parse || item$parse
                 run_lintr <- run_lintr || item$run_lintr
             }
-            self$sync_input_dict$set(
+            self$sync_in$set(
                 uri, list(document = document, run_lintr = run_lintr, parse = parse))
         },
 
-        process_sync_input = NULL,
+        process_sync_in = NULL,
 
-        process_sync_output = NULL,
+        process_sync_out = NULL,
 
         process_reply_queue = function() {
             while (self$reply_queue$size() > 0) {

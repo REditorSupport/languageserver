@@ -18,7 +18,7 @@ on_initialized <- function(self, params) {
         for (f in files) {
             logger$info("load ", f)
             uri <- path_to_uri(file.path(source_dir, f))
-            self$sync_input_dict$set(uri, list(document = NULL, run_lintr = FALSE, parse = TRUE))
+            self$text_sync(uri, document = NULL, run_lintr = FALSE, parse = TRUE)
         }
         deps <- desc::desc_get_deps()
         packages <- Filter(function(x) x != "R", deps$package[deps$type == "Depends"])
