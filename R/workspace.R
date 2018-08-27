@@ -204,7 +204,7 @@ workspace_sync <- function(uri, temp_file = NULL, run_lintr = TRUE, parse = FALS
                 } else if (length(e) == 2L &&
                             is.symbol(e[[1L]]) &&
                             (e[[1L]] == "library" || e[[1L]] == "require")) {
-                    # TODO: check DESCRIPTION of an R Package
+
                     packages <- c(packages, as.character(e[[2L]]))
                 }
             }
