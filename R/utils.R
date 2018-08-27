@@ -21,6 +21,10 @@ find_package <- function(path = getwd()) {
     normalizePath(prev_path)
 }
 
+is_package <- function(rootUri) {
+    file.exists(file.path(path_from_uri(rootUri), "DESCRIPTION"))
+}
+
 stdin_read_char <- function(n) {
     .Call("stdin_read_char", PACKAGE = "languageserver", n)
 }

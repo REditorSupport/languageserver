@@ -37,15 +37,14 @@ diagnostic_from_lint <- function(result) {
 }
 
 # copy lintr:::find_config to here since CRAN doesn't like :::
-find_config <- function (filename) {
+find_config <- function(filename) {
     if (is.null(filename)) {
         return(NULL)
     }
     linter_file <- getOption("lintr.linter_file")
     path <- if (is_directory(filename)) {
         filename
-    }
-    else {
+    } else {
         dirname(filename)
     }
     linter_config <- file.path(path, linter_file)

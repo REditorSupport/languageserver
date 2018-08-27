@@ -226,7 +226,12 @@ process_sync_input_dict <- function(self) {
     sync_input_dict <- self$sync_input_dict
     sync_output_dict <- self$sync_output_dict
 
-    for (uri in sync_input_dict$keys()) {
+    uris <- sync_input_dict$keys()
+    # avoid heavy cpu usage
+    if (length(uris) > 8) {
+        uris <- uris[1:8]
+    }
+    for (uri in uris) {
         parse <- FALSE
         if (sync_output_dict$has(uri)) {
             item <- sync_output_dict$pop(uri)
@@ -240,6 +245,7 @@ process_sync_input_dict <- function(self) {
         }
 
         item <- sync_input_dict$pop(uri)
+        run_lintr <- item$run_lintr && self$run_lintr
         parse <- parse || item$parse
         doc <- item$document
         if (is.null(doc)) {
@@ -257,7 +263,7 @@ process_sync_input_dict <- function(self) {
                     list(
                         uri = uri,
                         temp_file = temp_file,
-                        run_lintr = self$run_lintr,
+                        run_lintr = run_lintr,
                         parse = parse
                     ),
                     system_profile = TRUE, user_profile = TRUE

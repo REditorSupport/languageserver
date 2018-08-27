@@ -6,12 +6,26 @@ if (.Platform$OS.type == "windows") {
             utils::URLdecode(substr(uri, 9, nchar(uri)))
         }
     }
+    path_to_uri <- function(path) {
+        if (is.null(path)) {
+            NULL
+        } else {
+            paste0("file:///", utils::URLencode(path))
+        }
+    }
 } else {
     path_from_uri <- function(uri) {
         if (is.null(uri)) {
             NULL
         } else {
             utils::URLdecode(substr(uri, 8, nchar(uri)))
+        }
+    }
+    path_to_uri <- function(path) {
+        if (is.null(path)) {
+            NULL
+        } else {
+            paste0("file://", utils::URLencode(path))
         }
     }
 }

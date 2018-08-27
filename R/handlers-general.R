@@ -10,7 +10,17 @@ on_initialize <- function(self, id, params) {
 
 # Notification
 on_initialized <- function(self, params) {
-    rootPath <- self$rootPath
+    logger$info("on_initialized")
+    if (is_package(self$rootUri)) {
+        logger$info("is package")
+
+        source_dir <- file.path(path_from_uri(self$rootUri), "R")
+        files <- list.files(source_dir)
+        for (f in files) {
+            uri <- path_to_uri(file.path(source_dir, f))
+            self$sync_input_dict$set(uri, list(document = NULL, run_lintr = FALSE, parse = TRUE))
+        }
+    }
     # TODO: result lint result of the package
     # lint_result <- lintr::lint_package(rootPath)
 }
