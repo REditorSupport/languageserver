@@ -152,14 +152,19 @@ Workspace <- R6::R6Class("Workspace",
             }
         },
 
-        load_to_global = function(nonfuncts, functs, signatures, formals) {
-            self$global_env$nonfuncts <- unique(c(self$global_env$nonfuncts, nonfuncts))
-            self$global_env$functs <- unique(c(self$global_env$functs, functs))
-            self$global_env$signatures <- merge_list(self$global_env$signatures, signatures)
-            self$global_env$formals <- merge_list(self$global_env$formals, formals)
+        load_to_global = function(parse_result) {
+            self$global_env$nonfuncts <- unique(
+                c(self$global_env$nonfuncts, parse_result$nonfuncts))
+            self$global_env$functs <- unique(
+                c(self$global_env$functs, parse_result$functs))
+            self$global_env$signatures <- merge_list(
+                self$global_env$signatures, parse_result$signatures)
+            self$global_env$formals <- merge_list(
+                self$global_env$formals, parse_result$formals)
         }
     )
 )
+
 
 #' Determine workspace information for a given file
 #'
@@ -170,12 +175,6 @@ Workspace <- R6::R6Class("Workspace",
 #' @param parse set \code{FALSE} to disable parsing file
 #' @export
 workspace_sync <- function(uri, temp_file = NULL, run_lintr = TRUE, parse = FALSE) {
-    packages <- character(0)
-    functs <- character()
-    nonfuncts <- character()
-    formals <- list()
-    signatures <- list()
-
     if (is.null(temp_file)) {
         path <- path_from_uri(uri)
     } else {
@@ -183,47 +182,9 @@ workspace_sync <- function(uri, temp_file = NULL, run_lintr = TRUE, parse = FALS
     }
 
     if (parse) {
-        expr <- tryCatch(parse(path, keep.source = FALSE), error = function(e) NULL)
-        if (length(expr)) {
-            for (e in expr) {
-                if (length(e) == 3L &&
-                        is.symbol(e[[1L]]) &&
-                        (e[[1L]] == "<-" || e[[1L]] == "=") &&
-                        is.symbol(e[[2L]])) {
-                    funct <- as.character(e[[2L]])
-                    objects <- c(objects, funct)
-                    if (is.call(e[[3L]]) && e[[3L]][[1L]] == "function") {
-                        functs <- c(functs, funct)
-                        func <- e[[3L]]
-                        formals[[funct]] <- func[[2L]]
-                        signature <- func
-                        signature <- utils::capture.output(print(signature[1:2]))
-                        signature <- paste0(trimws(signature, which = "left"), collapse = "\n")
-                        signature <- trimws(gsub("NULL\\s*$", "", signature))
-                        signatures[[funct]] <- signature
-                    } else {
-                        nonfuncts <- c(nonfuncts, funct)
-                    }
-                } else if (length(e) == 2L &&
-                            is.symbol(e[[1L]]) &&
-                            (e[[1L]] == "library" || e[[1L]] == "require")) {
-                    pkg <- as.character(e[[2L]])
-                    packages <- c(packages, pkg)
-                    deps <- tryCatch(
-                        callr::r(
-                            function(pkg) {
-                                library(pkg, character.only = TRUE); search() },
-                            list(pkg = pkg)),
-                        error = function(e) NULL)
-                    if (!is.null(deps)) {
-                        deps <- deps[startsWith(deps, "package:")]
-                        deps <- gsub("package:", "", deps)
-                        dpes <- deps[! deps %in% packages]
-                        packages <- c(packages, deps)
-                    }
-                }
-            }
-        }
+        parse_result <- tryCatch(parse_document(path), error = function(e) NULL)
+    } else {
+        parse_result <- NULL
     }
 
     if (run_lintr) {
@@ -232,10 +193,9 @@ workspace_sync <- function(uri, temp_file = NULL, run_lintr = TRUE, parse = FALS
         diagnostics <- NULL
     }
 
-    list(packages = packages,
-         nonfuncts = nonfuncts, functs = functs, signatures = signatures, formals = formals,
-         diagnostics = diagnostics)
+    list(parse_result = parse_result, diagnostics = diagnostics)
 }
+
 
 process_sync_in <- function(self) {
     sync_in <- self$sync_in
@@ -296,8 +256,8 @@ process_sync_out <- function(self) {
         process <- item$process
 
         if (!is.null(process) && !process$is_alive()) {
-            result <- process$get_result()
-            diagnostics <- result$diagnostics
+            process_result <- process$get_result()
+            diagnostics <- process_result$diagnostics
             if (!is.null(diagnostics)) {
                 self$deliver(
                     Notification$new(
@@ -309,13 +269,15 @@ process_sync_out <- function(self) {
                     )
                 )
             }
-            for (package in result$packages) {
-                logger$info("load package:", package)
-                self$workspace$load_package(package)
-            }
+            parse_result <- process_result$parse_result
+            if (!is.null(parse_result)) {
+                for (package in parse_result$packages) {
+                    logger$info("load package:", package)
+                    self$workspace$load_package(package)
+                }
 
-            self$workspace$load_to_global(
-                result$nonfunct, result$funct, result$signatures, result$formals)
+                self$workspace$load_to_global(parse_result)
+            }
 
             # cleanup
             self$sync_out$remove(uri)

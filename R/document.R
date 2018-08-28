@@ -105,3 +105,53 @@ detect_hover <- function(document, line, character) {
     if (is.na(second)) second <- ""
     paste0(first, second)
 }
+
+parse_document <- function(path) {
+    packages <- character()
+    nonfuncts <- character()
+    functs <- character()
+    formals <- list()
+    signatures <- list()
+    expr <- tryCatch(parse(path, keep.source = FALSE), error = function(e) NULL)
+    if (length(expr)) {
+        for (e in expr) {
+            if (length(e) == 3L &&
+                    is.symbol(e[[1L]]) &&
+                    (e[[1L]] == "<-" || e[[1L]] == "=") &&
+                    is.symbol(e[[2L]])) {
+                funct <- as.character(e[[2L]])
+                objects <- c(objects, funct)
+                if (is.call(e[[3L]]) && e[[3L]][[1L]] == "function") {
+                    functs <- c(functs, funct)
+                    func <- e[[3L]]
+                    formals[[funct]] <- func[[2L]]
+                    signature <- func
+                    signature <- utils::capture.output(print(signature[1:2]))
+                    signature <- paste0(trimws(signature, which = "left"), collapse = "\n")
+                    signature <- trimws(gsub("NULL\\s*$", "", signature))
+                    signatures[[funct]] <- signature
+                } else {
+                    nonfuncts <- c(nonfuncts, funct)
+                }
+            } else if (length(e) == 2L &&
+                        is.symbol(e[[1L]]) &&
+                        (e[[1L]] == "library" || e[[1L]] == "require")) {
+                pkg <- as.character(e[[2L]])
+                packages <- c(packages, pkg)
+                deps <- tryCatch(
+                    callr::r(
+                        function(pkg) {
+                            library(pkg, character.only = TRUE); search() },
+                        list(pkg = pkg)),
+                    error = function(e) NULL)
+                if (!is.null(deps)) {
+                    deps <- deps[startsWith(deps, "package:")]
+                    deps <- gsub("package:", "", deps)
+                    dpes <- deps[! deps %in% packages]
+                    packages <- c(packages, deps)
+                }
+            }
+        }
+    }
+    list(nonfuncts = nonfuncts, functs = functs, signatures = signatures, formals = formals)
+}
