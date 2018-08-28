@@ -70,15 +70,6 @@ Workspace <- R6::R6Class("Workspace",
                 if (!is.null(ns)) {
                     self$loaded_packages <- append(self$loaded_packages, pkgname)
                     logger$info("loaded_packages: ", self$loaded_packages)
-                    deps <- tryCatch(desc::desc(package = pkgname)$get_deps(),
-                                     error = function(e) NULL)
-                    if (!is.null(deps)) {
-                        packages <- Filter(
-                            function(x) x != "R", deps$package[deps$type == "Depends"])
-                        for (pkg in packages) {
-                            self$load_package(pkg)
-                        }
-                    }
                 }
             }
         },
@@ -199,25 +190,35 @@ workspace_sync <- function(uri, temp_file = NULL, run_lintr = TRUE, parse = FALS
                         is.symbol(e[[1L]]) &&
                         (e[[1L]] == "<-" || e[[1L]] == "=") &&
                         is.symbol(e[[2L]])) {
-                    symbol <- as.character(e[[2L]])
-                    objects <- c(objects, symbol)
+                    funct <- as.character(e[[2L]])
+                    objects <- c(objects, funct)
                     if (is.call(e[[3L]]) && e[[3L]][[1L]] == "function") {
-                        functs <- c(functs, symbol)
+                        functs <- c(functs, funct)
                         func <- e[[3L]]
-                        formals[[symbol]] <- func[[2L]]
+                        formals[[funct]] <- func[[2L]]
                         signature <- func
-                        signature[[3L]] <- quote(expr =)
-                        signature <- utils::capture.output(print(signature))
+                        signature <- utils::capture.output(print(signature[1:2]))
                         signature <- paste0(trimws(signature, which = "left"), collapse = "\n")
-                        signatures[[symbol]] <- signature
+                        signature <- trimws(gsub("NULL\\s*$", "", signature))
+                        signatures[[funct]] <- signature
                     } else {
-                        nonfuncts <- c(nonfuncts, symbol)
+                        nonfuncts <- c(nonfuncts, funct)
                     }
                 } else if (length(e) == 2L &&
                             is.symbol(e[[1L]]) &&
                             (e[[1L]] == "library" || e[[1L]] == "require")) {
-
-                    packages <- c(packages, as.character(e[[2L]]))
+                    pkg <- as.character(e[[2L]])
+                    packages <- c(packages, pkg)
+                    deps <- callr::r(
+                        function(pkg) {
+                            library(pkg, character.only = TRUE); search() },
+                        list(pkg = pkg))
+                    if (!is.null(deps)) {
+                        deps <- deps[startsWith(deps, "package:")]
+                        deps <- gsub("package:", "", deps)
+                        dpes <- deps[! deps %in% packages]
+                        packages <- c(packages, deps)
+                    }
                 }
             }
         }

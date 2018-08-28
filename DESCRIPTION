@@ -11,7 +11,7 @@ License: MIT + file LICENSE
 Depends:
     R (>= 3.4.0)
 Imports:
-    callr (>= 2.0.1),
+    callr (>= 3.0.0),
     collections,
     desc,
     jsonlite,
