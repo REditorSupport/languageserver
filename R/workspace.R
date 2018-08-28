@@ -209,10 +209,12 @@ workspace_sync <- function(uri, temp_file = NULL, run_lintr = TRUE, parse = FALS
                             (e[[1L]] == "library" || e[[1L]] == "require")) {
                     pkg <- as.character(e[[2L]])
                     packages <- c(packages, pkg)
-                    deps <- callr::r(
-                        function(pkg) {
-                            library(pkg, character.only = TRUE); search() },
-                        list(pkg = pkg))
+                    deps <- tryCatch(
+                        callr::r(
+                            function(pkg) {
+                                library(pkg, character.only = TRUE); search() },
+                            list(pkg = pkg)),
+                        error = function(e) NULL)
                     if (!is.null(deps)) {
                         deps <- deps[startsWith(deps, "package:")]
                         deps <- gsub("package:", "", deps)
