@@ -153,5 +153,6 @@ parse_document <- function(path) {
             }
         }
     }
-    list(nonfuncts = nonfuncts, functs = functs, signatures = signatures, formals = formals)
+    list(packages = packages, nonfuncts = nonfuncts, functs = functs,
+         signatures = signatures, formals = formals)
 }
