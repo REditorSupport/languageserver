@@ -212,7 +212,7 @@ process_sync_in <- function(self) {
             item <- sync_out$pop(uri)
             process <- item$process
             parse <- item$parse
-            if (process$is_alive()) try(process$kill())
+            if (process$is_alive()) try(process$kill(), silent = TRUE)
             temp_file <- item$temp_file
             if (!is.null(temp_file) && file.exists(temp_file)) {
                 file.remove(temp_file)

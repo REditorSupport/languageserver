@@ -23,6 +23,7 @@ Imports:
     tools,
     utils
 Suggests:
+    processx,
     testthat
 Encoding: UTF-8
 LazyData: true

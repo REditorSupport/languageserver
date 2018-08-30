@@ -22,7 +22,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
         rootUri = NULL,
         rootPath = NULL,
         initializationOptions = NULL,
-        capabilities = NULL,
+        ClientCapabilities = NULL,
 
         sync_in = NULL,
         sync_out = NULL,
@@ -64,23 +64,24 @@ LanguageServer <- R6::R6Class("LanguageServer",
         deliver = function(message) {
             if (!is.null(message)) {
                 cat(message$format(), file = self$outputcon)
-                if ("Notification" %in% class(message)) {
-                    logger$info("deliver method: ", message$method)
-                } else {
-                    logger$info("deliver id: ", message$id)
+                logger$info("deliver: ", class(message))
+                method <- message$method
+                if (!is.null(method)) {
+                    logger$info("method: ", method)
                 }
             }
         },
 
         handle_raw = function(data) {
-            tryCatch({
-                payload <- jsonlite::fromJSON(data, simplifyVector = FALSE)
-                pl_names <- names(payload)
-                logger$info("received payload.")
-            },
-            error = function(e){
-                logger$error("error handling json: ", e)
-            })
+            payload <- tryCatch(
+                jsonlite::fromJSON(data, simplifyVector = FALSE),
+                error = function(e) e)
+            if (inherits(payload, "error")) {
+                logger$error("error handling json: ", payload)
+                return(NULL)
+            }
+            pl_names <- names(payload)
+            logger$info("received payload.")
             if ("id" %in% pl_names && "method" %in% pl_names) {
                 self$handle_request(payload)
             } else if ("method" %in% pl_names) {
@@ -126,28 +127,6 @@ LanguageServer <- R6::R6Class("LanguageServer",
             } else {
                 logger$error("unknown notification: ", method)
             }
-        },
-
-        register_handlers = function() {
-            self$request_handlers <- list(
-                initialize = on_initialize,
-                shutdown = on_shutdown,
-                `textDocument/completion` =  text_document_completion,
-                `textDocument/hover` = text_document_hover,
-                `textDocument/signatureHelp` = text_document_signature_help,
-                `textDocument/formatting` = text_document_formatting,
-                `textDocument/rangeFormatting` = text_document_range_formatting
-            )
-
-            self$notification_handlers <- list(
-                initialized = on_initialized,
-                exit = on_exit,
-                `textDocument/didOpen` = text_document_did_open,
-                `textDocument/didChange` = text_document_did_change,
-                `textDocument/didSave` = text_document_did_save,
-                `textDocument/didClose` = text_document_did_close,
-                `workspace/didChangeConfiguration` = workspace_did_change_configuration
-            )
         },
 
         process_events = function() {
@@ -256,7 +235,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     }
                     data <- self$read_content(nbytes)
                     self$handle_raw(data)
-                })
+                }, silent = TRUE)
                 if (inherits(ret, "try-error")) {
                     logger$error(ret)
                     logger$error(as.list(traceback()))
@@ -271,6 +250,28 @@ LanguageServer <- R6::R6Class("LanguageServer",
         }
     )
 )
+
+LanguageServer$set("public", "register_handlers", function() {
+    self$request_handlers <- list(
+        initialize = on_initialize,
+        shutdown = on_shutdown,
+        `textDocument/completion` =  text_document_completion,
+        `textDocument/hover` = text_document_hover,
+        `textDocument/signatureHelp` = text_document_signature_help,
+        `textDocument/formatting` = text_document_formatting,
+        `textDocument/rangeFormatting` = text_document_range_formatting
+    )
+
+    self$notification_handlers <- list(
+        initialized = on_initialized,
+        exit = on_exit,
+        `textDocument/didOpen` = text_document_did_open,
+        `textDocument/didChange` = text_document_did_change,
+        `textDocument/didSave` = text_document_did_save,
+        `textDocument/didClose` = text_document_did_close,
+        `workspace/didChangeConfiguration` = workspace_did_change_configuration
+    )
+})
 
 
 #' Run the R language server
