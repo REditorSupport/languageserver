@@ -188,6 +188,29 @@ Workspace <- R6::R6Class("Workspace",
             }
         },
 
+        get_code = function(topic, pkg = NULL) {
+            if (is.null(pkg) || is.na(pkg)) {
+                logger$info("pkg guess !")
+                pkg <- self$guess_package(topic)
+            }
+            logger$info("pkg:", pkg)
+
+            if (is.null(pkg)) {
+                code <- utils::help((topic)) ## TODO
+            } else {
+                code <- utils::getFromNamespace(topic, pkg)
+            }
+            if (length(code) > 0) {
+                code <- repr::repr_text(code)
+                # reorganize the code
+                code <- stringr::str_split(code, "\n")[[1]]
+                code[1] <- paste(topic, "<-", code[1])
+                enc2utf8(code[!grepl("<bytecode|<environment", code)])
+            } else {
+                NULL
+            }
+        },
+
         load_to_global = function(parse_result) {
             self$global_env$nonfuncts <- unique(
                 c(self$global_env$nonfuncts, parse_result$nonfuncts))
