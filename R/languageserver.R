@@ -258,6 +258,7 @@ LanguageServer$set("public", "register_handlers", function() {
         initialize = on_initialize,
         shutdown = on_shutdown,
         `textDocument/completion` =  text_document_completion,
+        `textDocument/definition` = text_document_definition,
         `textDocument/hover` = text_document_hover,
         `textDocument/signatureHelp` = text_document_signature_help,
         `textDocument/formatting` = text_document_formatting,
@@ -293,7 +294,7 @@ LanguageServer$set("public", "register_handlers", function() {
 run <- function(debug = FALSE, host = "localhost", port = NULL) {
     tools::Rd2txt_options(underline_titles = FALSE)
     tools::Rd2txt_options(itemBullet = "* ")
-    logger$debug_mode(debug)
+    logger$debug_mode("~/tstest/debug")
     langserver <- LanguageServer$new(host, port)
     langserver$run()
 }
