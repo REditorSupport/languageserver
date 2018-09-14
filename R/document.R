@@ -30,13 +30,13 @@ if (.Platform$OS.type == "windows") {
     }
 }
 
-is_rmarkdown <- function(uri) {
-    filename <- path_from_uri(uri)
-    endsWith(tolower(filename), "rmd") || endsWith(tolower(filename), "rmarkdown")
+is_rmarkdown <- function(path) {
+    endsWith(tolower(path), "rmd") || endsWith(tolower(path), "rmarkdown")
 }
 
 check_scope <- function(uri, document, line) {
-    if (is_rmarkdown(uri)) {
+    filename <- path_from_uri(uri)
+    if (is_rmarkdown(filename)) {
         !identical(sum(sapply(document[1:(line + 1)], function(x) startsWith(x, "```"))) %% 2, 0)
     } else {
         TRUE
@@ -107,12 +107,27 @@ detect_hover <- function(document, line, character) {
 }
 
 parse_document <- function(path) {
+    temp_file <- NULL
+    if (is_rmarkdown(path)) {
+        temp_file <- tempfile(fileext = ".R")
+        path <- tryCatch({
+            knitr::purl(path, output = temp_file, quiet = TRUE)
+        }, error = function(e) path)
+    }
+    expr <- tryCatch(parse(path, keep.source = FALSE), error = function(e) NULL)
+    if (!is.null(temp_file) && file.exists(temp_file)) {
+        file.remove(temp_file)
+    }
+    parse_expr(expr)
+}
+
+
+parse_expr <- function(expr) {
     packages <- character()
     nonfuncts <- character()
     functs <- character()
     formals <- list()
     signatures <- list()
-    expr <- tryCatch(parse(path, keep.source = FALSE), error = function(e) NULL)
     if (length(expr)) {
         for (e in expr) {
             if (length(e) == 3L &&

@@ -183,12 +183,14 @@ workspace_sync <- function(uri, temp_file = NULL, run_lintr = TRUE, parse = FALS
 
     if (parse) {
         parse_result <- tryCatch(parse_document(path), error = function(e) NULL)
+        # parse_result <- parse_document(path)
     } else {
         parse_result <- NULL
     }
 
     if (run_lintr) {
         diagnostics <- tryCatch(diagnose_file(path), error = function(e) NULL)
+        # diagnostics <- diagnose_file(path)
     } else {
         diagnostics <- NULL
     }
@@ -223,10 +225,15 @@ process_sync_in <- function(self) {
         run_lintr <- item$run_lintr && self$run_lintr
         parse <- parse || item$parse
         doc <- item$document
+        path <- path_from_uri(uri)
         if (is.null(doc)) {
             temp_file <- NULL
         } else {
-            temp_file <- tempfile(fileext = ".R")
+            if (is_rmarkdown(path)) {
+                temp_file <- tempfile(fileext = ".Rmd")
+            } else {
+                temp_file <- tempfile(fileext = ".R")
+            }
             write(item$document, file = temp_file)
         }
 
