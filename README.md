@@ -15,6 +15,10 @@ The development version of `languageserver` could be installed by running the fo
 source("https://install-github.me/REditorSupport/languageserver")
 ```
 
+## Rmarkdown
+
+The R package [`knitr`](https://github.com/yihui/knitr) is required to enable languageserver for Rmarkdown files. `languageserver` doesn't specify `knitr` as a dependency however, users may need to install it manually.
+
 ## Language Clients
 
 These editors are supported by installing the corresponding package.
