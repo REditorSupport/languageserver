@@ -24,6 +24,7 @@ Imports:
     utils
 Suggests:
     processx,
+    knitr,
     testthat
 Encoding: UTF-8
 LazyData: true
