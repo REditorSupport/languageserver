@@ -1,4 +1,9 @@
 # Notification
+
+workspace_did_change_workspace_folders <- function(self, params) {
+
+}
+
 workspace_did_change_configuration <- function(self, params) {
     settings <- params$settings
 
