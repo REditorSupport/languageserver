@@ -6,7 +6,8 @@ hover_reply <- function(id, uri, workspace, document, position) {
         return(Response$new(id))
     }
 
-    hover <- detect_hover(document, line, character)
+    hover_result <- detect_hover(document, line, character)
+    hover <- hover_result$text
 
     logger$info("hover: ", hover)
 
@@ -20,10 +21,16 @@ hover_reply <- function(id, uri, workspace, document, position) {
     if (is.null(contents)) {
         Response$new(id)
     } else {
+        range <- list(
+            start = list(line = line, character = hover_result$begin),
+            end = list(line = line, character = hover_result$end)
+        )
+        logger$info("range", range)
         Response$new(
             id,
             result = list(
-                contents = contents
+                contents = contents,
+                range = range
             )
         )
     }

@@ -103,7 +103,9 @@ detect_hover <- function(document, line, character) {
 
     if (is.na(first)) first <- ""
     if (is.na(second)) second <- ""
-    paste0(first, second)
+    list(begin = character - nchar(first),
+         end = character + nchar(second),
+         text = paste0(first, second))
 }
 
 parse_document <- function(path) {
