@@ -85,4 +85,4 @@ setHook(
     }
 )
 ```
-Please note that this setting is ignored if a `.lintr` file is found.
+Please note that this setting is ignored if a `.lintr` file is found in the current directory or the home directory.
