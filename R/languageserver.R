@@ -294,7 +294,7 @@ LanguageServer$set("public", "register_handlers", function() {
 run <- function(debug = FALSE, host = "localhost", port = NULL) {
     tools::Rd2txt_options(underline_titles = FALSE)
     tools::Rd2txt_options(itemBullet = "* ")
-    logger$debug_mode("~/tstest/debug")
+    logger$debug_mode(debug)
     langserver <- LanguageServer$new(host, port)
     langserver$run()
 }

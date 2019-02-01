@@ -29,7 +29,7 @@ range <- function(start, end) {
     if (!inherits(start, "lsp_position") | !inherits(end, "lsp_position")) {
         stop("`range` requires 'lsp_position' parameters!")
     }
-    
+
     structure(
         list(
             start = start,
