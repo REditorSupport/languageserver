@@ -107,11 +107,14 @@ ErrorCodes <- list(
 )
 
 
+#' Response Error Message class
+#'
+#' Message sent as the result of a [Request] in case of an error.
 ResponseErrorMessage <- R6::R6Class(
     "Response",
     inherit = Response,
     public = list(
-        initialize = function(id, errortype, message=NULL) {
+        initialize = function(id, errortype, message = NULL) {
             self$id <- id
             self$error <- list(code = ErrorCodes[[errortype]])
             if (!is.null(message)) {
