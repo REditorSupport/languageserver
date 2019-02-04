@@ -1,3 +1,15 @@
+#' A data structure for package namespaces
+#' 
+#' A `Namespace` is initialized with a package name and builds the list of
+#' objects defined in the package namespace.
+#'
+#' @section Methods:
+#' + `exists(objname)`: returns true if `objname` can be found in the Namespace
+#' + `get_signature(funct)`: return the signature of `funct`
+#' + `get_formals(funct)`: return the [base::formals()] of `funct`
+
+#' @field objname a character, an object name
+#' @field funct a character, a function name
 Namespace <- R6::R6Class("Namespace",
     public = list(
         package_name = NULL,
@@ -48,6 +60,26 @@ Namespace <- R6::R6Class("Namespace",
     )
 )
 
+#' A data structure for a session workspace
+#' 
+#' A `Workspace` is initialized at the start of a session, when the language
+#' server is started. Its goal is to contain the `Namespace`s of the packages
+#' that are loaded during the session for quick reference.
+#'
+#' @section Methods:
+#' + `load_package(pkgname)`: add a new `Namespace` for `pkgname` if necessary
+#' and if possible
+#' + `guess_package(funct)`: returns the most recently loaded package in which
+#' `object` can be found
+#' + `get_namespace(pkgname)`:  return the [Namespace()] of `pkgname`
+#' + `get_signature(funct, pkgname = NULL)`: return the signature of `funct`
+#' + `get_formals(funct, pkgname = NULL)`: return the [base::formals()] of `funct`
+#' + `get_help(funct, pkgname = NULL)`: return the help text of `funct`
+#' + `load_to_global(parse_result)`:
+#' 
+#' @field pkgname a character, a package name
+#' @field funct a character, a function name
+#' @field parse_result ?
 Workspace <- R6::R6Class("Workspace",
     public = list(
         loaded_packages = c("base", "stats", "methods", "utils", "graphics", "grDevices"),
@@ -74,41 +106,41 @@ Workspace <- R6::R6Class("Workspace",
             }
         },
 
-        guess_package = function(object) {
+        guess_package = function(funct) {
             logger$info("loaded_packages:", self$loaded_packages)
 
-            for (pkg in rev(self$loaded_packages)) {
-                ns <- self$get_namespace(pkg)
-                if (ns$exists(object)) {
-                    return(pkg)
+            for (pkgname in rev(self$loaded_packages)) {
+                ns <- self$get_namespace(pkgname)
+                if (ns$exists(funct)) {
+                    return(pkgname)
                 }
             }
             NULL
         },
 
-        get_namespace = function(pkg) {
-            if (pkg == "_workspace_") {
+        get_namespace = function(pkgname) {
+            if (pkgname == "_workspace_") {
                 self$global_env
-            } else if (pkg %in% names(self$namespaces)) {
-                self$namespaces[[pkg]]
+            } else if (pkgname %in% names(self$namespaces)) {
+                self$namespaces[[pkgname]]
             } else {
-                self$namespaces[[pkg]] <- Namespace$new(pkg)
-                self$namespaces[[pkg]]
+                self$namespaces[[pkgname]] <- Namespace$new(pkgname)
+                self$namespaces[[pkgname]]
             }
         },
 
-        get_signature = function(funct, pkg = NULL) {
-            if (is.null(pkg)) {
+        get_signature = function(funct, pkgname = NULL) {
+            if (is.null(pkgname)) {
                 if (funct %in% self$global_env$functs) {
                     return(self$global_env$signatures[[funct]])
                 }
-                pkg <- self$guess_package(funct)
+                pkgname <- self$guess_package(funct)
             }
-            if (is.null(pkg)) {
+            if (is.null(pkgname)) {
                 NULL
             } else {
                 tryCatch({
-                    ns <- self$get_namespace(pkg)
+                    ns <- self$get_namespace(pkgname)
                     ns$get_signature(funct)
                     },
                     error = function(e) NULL
@@ -117,18 +149,18 @@ Workspace <- R6::R6Class("Workspace",
 
         },
 
-        get_formals = function(funct, pkg = NULL) {
-            if (is.null(pkg)) {
+        get_formals = function(funct, pkgname = NULL) {
+            if (is.null(pkgname)) {
                 if (funct %in% self$global_env$functs) {
                     return(self$global_env$formals[[funct]])
                 }
-                pkg <- self$guess_package(funct)
+                pkgname <- self$guess_package(funct)
             }
-            if (is.null(pkg)) {
+            if (is.null(pkgname)) {
                 NULL
             } else {
                 tryCatch({
-                        ns <- self$get_namespace(pkg)
+                        ns <- self$get_namespace(pkgname)
                         ns$get_formals(funct)
                     },
                     error = function(e) list()
@@ -136,14 +168,14 @@ Workspace <- R6::R6Class("Workspace",
             }
         },
 
-        get_help = function(topic, pkg = NULL) {
-            if (is.null(pkg) || is.na(pkg)) {
-                pkg <- self$guess_package(topic)
+        get_help = function(topic, pkgname = NULL) {
+            if (is.null(pkgname) || is.na(pkgname)) {
+                pkgname <- self$guess_package(topic)
             }
-            if (is.null(pkg)) {
-                hfile <- utils::help((topic))
+            if (is.null(pkgname)) {
+                hfile <- utils::help(topic)
             } else {
-                hfile <- utils::help((topic), (pkg))
+                hfile <- utils::help(topic, pkgname)
             }
             if (length(hfile) > 0) {
                 enc2utf8(repr::repr_text(hfile))
