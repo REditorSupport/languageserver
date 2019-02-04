@@ -9,13 +9,16 @@ definition_reply <- function(id, uri, workspace, document, position) {
     matches <- stringr::str_match(
         token, "(?:([a-zA-Z][a-zA-Z0-9.]+)(:::?))?([a-zA-Z0-9_.]*)$")
 
+    # check if the function can be found in the workspace
     code <- tryCatch(
         workspace$get_code(matches[4], matches[2]),
-        error = function(e) list())
+        error = function(e) NULL
+    )
 
     if (is.null(code)) {
         Response$new(id)
     } else {
+        # if the function exists in the workspace, write the code to a file
         logger$info("code: ", code)
         tmp <- file.path(tempdir(), paste0(matches[4], ".R"))
         logger$info("tmp:", tmp)
