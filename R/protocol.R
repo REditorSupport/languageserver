@@ -1,3 +1,4 @@
+#' base Message class
 Message <- R6::R6Class("Message",
     public = list(
         jsonrpc = "2.0",
@@ -11,7 +12,9 @@ Message <- R6::R6Class("Message",
     )
 )
 
-
+#' Request Message class
+#'
+#' Describe a request between the client and the server.
 Request <- R6::R6Class("Request",
     inherit = Message,
     public = list(
@@ -38,6 +41,7 @@ Request <- R6::R6Class("Request",
 )
 
 
+#' Notification Message class
 Notification <- R6::R6Class("Notification",
     inherit = Message,
     public = list(
@@ -60,7 +64,9 @@ Notification <- R6::R6Class("Notification",
     )
 )
 
-
+#' Response Message class
+#'
+#' Message sent as the result of a [Request]
 Response <- R6::R6Class("Response",
     inherit = Message,
     public = list(

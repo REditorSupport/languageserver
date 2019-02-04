@@ -22,6 +22,11 @@ CompletionItemKind <- list(
     Reference = 18
 )
 
+#' complete a package name
+#'
+#' @param token a character, the start of the package name to identify
+#'
+#' @return a list of candidates
 package_completion <- function(token) {
     installed_packages <- rownames(utils::installed.packages())
     token_packages <- installed_packages[startsWith(installed_packages, token)]
@@ -31,6 +36,13 @@ package_completion <- function(token) {
     completions
 }
 
+#' complete a function argument
+#'
+#' @param workspace a [Workspace] object
+#' @param token a character, the start of the argument to identify
+#' @param closure a closure object, the function for which `token` may be an argument
+#'
+#' @return a list of candidates
 arg_completion <- function(workspace, token, closure) {
     args <- names(workspace$get_formals(closure$funct, closure$package))
     if (is.character(args)) {
@@ -42,6 +54,18 @@ arg_completion <- function(workspace, token, closure) {
     }
 }
 
+#' complete any object in the workspace
+#'
+#' This function works by first checking if `full_token` is of the form
+#' `object`, `package::object` or `package:::object`. In the first two cases,
+#' it will look into all exported objects of loaded packages (or just `package`
+#' for the second case) and return any mathching objects. For the last case,
+#' it will look at the unexported objects of `package.`
+#'
+#' @param workspace a [Workspace] object
+#' @param full_token a character, the object to identify
+#'
+#' @return a list of candidates
 workspace_completion <- function(workspace, full_token) {
     completions <- list()
 
@@ -95,6 +119,9 @@ workspace_completion <- function(workspace, full_token) {
     completions
 }
 
+#' the response to a completion request
+#'
+#' @template reply-parameters
 completion_reply <- function(id, uri, workspace, document, position) {
     line <- position$line
     character <- position$character

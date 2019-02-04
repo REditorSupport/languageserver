@@ -1,5 +1,5 @@
 #' A data structure for package namespaces
-#' 
+#'
 #' A `Namespace` is initialized with a package name and builds the list of
 #' objects defined in the package namespace.
 #'
@@ -61,7 +61,7 @@ Namespace <- R6::R6Class("Namespace",
 )
 
 #' A data structure for a session workspace
-#' 
+#'
 #' A `Workspace` is initialized at the start of a session, when the language
 #' server is started. Its goal is to contain the `Namespace`s of the packages
 #' that are loaded during the session for quick reference.
@@ -71,12 +71,12 @@ Namespace <- R6::R6Class("Namespace",
 #' and if possible
 #' + `guess_package(funct)`: returns the most recently loaded package in which
 #' `object` can be found
-#' + `get_namespace(pkgname)`:  return the [Namespace()] of `pkgname`
+#' + `get_namespace(pkgname)`:  return the [Namespace] of `pkgname`
 #' + `get_signature(funct, pkgname = NULL)`: return the signature of `funct`
 #' + `get_formals(funct, pkgname = NULL)`: return the [base::formals()] of `funct`
 #' + `get_help(funct, pkgname = NULL)`: return the help text of `funct`
 #' + `load_to_global(parse_result)`:
-#' 
+#'
 #' @field pkgname a character, a package name
 #' @field funct a character, a function name
 #' @field parse_result ?

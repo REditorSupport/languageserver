@@ -30,11 +30,28 @@ if (.Platform$OS.type == "windows") {
     }
 }
 
+#' check if a file is an RMarkdown file
+#'
+#' @template uri
+#'
+#' @return a logical
 is_rmarkdown <- function(uri) {
     filename <- path_from_uri(uri)
     endsWith(tolower(filename), "rmd") || endsWith(tolower(filename), "rmarkdown")
 }
 
+#' check if a token is in a R code block in an Rmarkdown file
+#'
+#' In an RMarkdown document, tokens can be either inside an R code block or
+#' in the text. This function will return `FALSE` if the token is in the text
+#' and `TRUE` if it is in a code block. For R scripts, it will always return
+#' `TRUE`.
+#'
+#' @template uri
+#' @template document
+#' @param line a numeric, the line number
+#'
+#' @return a logical
 check_scope <- function(uri, document, line) {
     if (is_rmarkdown(uri)) {
         !identical(sum(sapply(document[1:(line + 1)], function(x) startsWith(x, "```"))) %% 2, 0)
@@ -43,11 +60,30 @@ check_scope <- function(uri, document, line) {
     }
 }
 
+#' search backwards in a document for a specific character
+#'
+#' @template document
+#' @param line a numeric, the line number
+#' @param character a numeric, the column number of the character
+#' @param char a single character
+#' @param skip_empty_line a logical
+#'
+#' @return a tuple of positive integers, the line and column position of the
+#' character if found, otherwise (-1, -1)
 document_backward_search <- function(document, line, character, char, skip_empty_line = TRUE) {
     .Call("document_backward_search", PACKAGE = "languageserver",
         document, line, character - 1, char, skip_empty_line)
 }
 
+#' get the contents of a line
+#'
+#' If the line number is higher than the number of lines in the document,
+#' an empty character is returned.
+#'
+#' @template document
+#' @param lineno a numeric, the line number
+#'
+#' @return a character
 document_line <- function(document, lineno) {
     if (lineno <= length(document)) {
         line <- document[lineno]
@@ -57,6 +93,9 @@ document_line <- function(document, lineno) {
     line
 }
 
+#' detect if the current position is inside a closure
+#'
+#' @template document
 detect_closure <- function(document, line, character) {
     if (character > 0 && !is.null(document)) {
         loc <- document_backward_search(document, line, character, "(")
