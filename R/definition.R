@@ -34,8 +34,4 @@ definition_reply <- function(id, uri, workspace, document, position) {
             )
         )
     }
-   
-    
- 
-
 }
