@@ -1,19 +1,29 @@
+#' diagnostics
+#'
+#' Diagnose problems in files after linting.
+#'
+#' @name diagnostics
+#' @param result the result from [lintr::lint()]
+NULL
+
+#' @rdname diagnostics
 diagnostic_range <- function(result) {
     line <- result$line_number - 1
     column <- result$column_number - 1
     if (is.null(result$ranges)) {
-        list(
+        range(
             start = list(line = line, character = column),
             end = list(line = line, character = column + 1)
         )
     } else {
-        list(
+        range(
             start = list(line = line, character = result$ranges[[1]][1] - 1),
             end = list(line = line, character = result$ranges[[1]][2])
         )
     }
 }
 
+#' @rdname diagnostics
 diagnostic_severity <- function(result) {
     if (result$type == "error") {
         severity <- 1
@@ -27,6 +37,7 @@ diagnostic_severity <- function(result) {
     severity
 }
 
+#' @rdname diagnostics
 diagnostic_from_lint <- function(result) {
     list(
         range = diagnostic_range(result),
@@ -36,7 +47,11 @@ diagnostic_from_lint <- function(result) {
     )
 }
 
-# copy lintr:::find_config to here since CRAN doesn't like :::
+#' find the lintr config file
+#'
+#' This is a copy of `lintr:::find_config` since CRAN doesn't like :::
+#'
+#' @keywords internal
 find_config <- function(filename) {
     if (is.null(filename)) {
         return(NULL)
@@ -64,6 +79,11 @@ find_config <- function(filename) {
     NULL
 }
 
+#' run diagnostic on a file
+#'
+#' Lint and diagnose problems in a file.
+#'
+#' @param path a character, the path to a file
 diagnose_file <- function(path) {
     if (is.null(find_config(path))) {
         linters <- getOption("languageserver.default_linters", NULL)
