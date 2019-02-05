@@ -1,8 +1,6 @@
 definition_reply <- function(id, uri, workspace, document, position) {
 
-    line <- position$line
-    character <- position$character
-    token <- detect_hover(document, line, character)
+    token <- detect_hover(document, position)
 
     logger$info("definition: ", token)
 
@@ -30,7 +28,7 @@ definition_reply <- function(id, uri, workspace, document, position) {
             id,
             result = list(
                 uri = paste0("file://", tmp),
-                range = list(
+                range = range(
                     start = list(line = 0, character = 0),
                     end = list(line = nlines, character = 0)
                 )
