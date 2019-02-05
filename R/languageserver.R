@@ -172,7 +172,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             if (self$tcp) {
                 readLines(self$inputcon, n = 1)
             } else {
-                .Call("stdin_read_line", PACKAGE = "languageserver")
+                stdin_read_line()
             }
         },
 
@@ -180,7 +180,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             if (self$tcp) {
                 readChar(self$inputcon, n)
             } else {
-                .Call("stdin_read_char", PACKAGE = "languageserver", n)
+                stdin_read_char(n)
             }
         },
 

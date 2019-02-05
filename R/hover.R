@@ -2,7 +2,7 @@ hover_reply <- function(id, uri, workspace, document, position) {
     line <- position$line
     character <- position$character
 
-    if (!check_scope(uri, document, line)) {
+    if (!check_scope(uri, document, position)) {
         return(Response$new(id))
     }
 

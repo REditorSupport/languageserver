@@ -4,14 +4,14 @@
 \alias{check_scope}
 \title{check if a token is in a R code block in an Rmarkdown file}
 \usage{
-check_scope(uri, document, line)
+check_scope(uri, document, position)
 }
 \arguments{
 \item{uri}{a character, the path to a file}
 
 \item{document}{a character, the contents of the document}
 
-\item{line}{a numeric, the line number}
+\item{position}{a \link{position} object}
 }
 \value{
 a logical

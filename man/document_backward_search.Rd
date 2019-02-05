@@ -4,15 +4,13 @@
 \alias{document_backward_search}
 \title{search backwards in a document for a specific character}
 \usage{
-document_backward_search(document, line, character, char,
+document_backward_search(document, position, char,
   skip_empty_line = TRUE)
 }
 \arguments{
 \item{document}{a character, the contents of the document}
 
-\item{line}{a numeric, the line number}
-
-\item{character}{a numeric, the column number of the character}
+\item{position}{a \link{position} object}
 
 \item{char}{a single character}
 

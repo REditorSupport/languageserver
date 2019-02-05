@@ -123,16 +123,14 @@ workspace_completion <- function(workspace, full_token) {
 #'
 #' @template reply-parameters
 completion_reply <- function(id, uri, workspace, document, position) {
-    line <- position$line
-    character <- position$character
 
-    if (!check_scope(uri, document, line)) {
+    if (!check_scope(uri, document, position)) {
         return(Response$new(id))
     }
 
-    token <- detect_token(document, line, character)
+    token <- detect_token(document, position)
     logger$info("token: ", token)
-    closure <- detect_closure(document, line, character)
+    closure <- detect_closure(document, position)
     logger$info("closure: ", closure)
 
     completions <- list()

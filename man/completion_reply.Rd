@@ -10,9 +10,6 @@ completion_reply(id, uri, workspace, document, position)
 \item{id}{a character, the id of the request,}
 
 \item{workspace}{a \link{Workspace} object, the current workspace}
-
-\item{position}{a list with \code{line} and \code{character} members, the position of
-the token in \code{document}}
 }
 \value{
 a \link{Response} object

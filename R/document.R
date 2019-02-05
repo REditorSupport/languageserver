@@ -49,11 +49,12 @@ is_rmarkdown <- function(uri) {
 #'
 #' @template uri
 #' @template document
-#' @param line a numeric, the line number
+#' @template position
 #'
 #' @return a logical
-check_scope <- function(uri, document, line) {
+check_scope <- function(uri, document, position) {
     if (is_rmarkdown(uri)) {
+        line <- position$line
         !identical(sum(sapply(document[1:(line + 1)], function(x) startsWith(x, "```"))) %% 2, 0)
     } else {
         TRUE
@@ -63,14 +64,15 @@ check_scope <- function(uri, document, line) {
 #' search backwards in a document for a specific character
 #'
 #' @template document
-#' @param line a numeric, the line number
-#' @param character a numeric, the column number of the character
+#' @template position
 #' @param char a single character
 #' @param skip_empty_line a logical
 #'
 #' @return a tuple of positive integers, the line and column position of the
 #' character if found, otherwise (-1, -1)
-document_backward_search <- function(document, line, character, char, skip_empty_line = TRUE) {
+document_backward_search <- function(document, position, char, skip_empty_line = TRUE) {
+    line      <- position$line
+    character <- position$character
     .Call("document_backward_search", PACKAGE = "languageserver",
         document, line, character - 1, char, skip_empty_line)
 }
@@ -96,9 +98,11 @@ document_line <- function(document, lineno) {
 #' detect if the current position is inside a closure
 #'
 #' @template document
-detect_closure <- function(document, line, character) {
-    if (character > 0 && !is.null(document)) {
-        loc <- document_backward_search(document, line, character, "(")
+#' @template position
+detect_closure <- function(document, position) {
+
+    if (position$character > 0 && !is.null(document)) {
+        loc <- document_backward_search(document, position, "(")
     } else {
         loc <- c(-1, -1)
     }
@@ -121,7 +125,14 @@ detect_closure <- function(document, line, character) {
     }
 }
 
-detect_token <- function(document, line, character) {
+#' detect if position contains a valid token
+#'
+#' @template document
+#' @template position
+detect_token <- function(document, position) {
+    line      <- position$line
+    character <- position$character
+
     content <- document_line(document, line + 1)
     token <- stringr::str_match(substr(content, 1, character), "\\b[a-zA-Z0-9_.:]+$")[1]
     if (is.na(token)) {
@@ -131,7 +142,14 @@ detect_token <- function(document, line, character) {
     }
 }
 
-detect_hover <- function(document, line, character) {
+#' detect the token at the current position
+#'
+#' @template document
+#' @template position
+detect_hover <- function(document, position) {
+    line      <- position$line
+    character <- position$character
+
     content <- document_line(document, line + 1)
     first <- stringr::str_match(
         substr(content, 1, character),
@@ -145,6 +163,13 @@ detect_hover <- function(document, line, character) {
     paste0(first, second)
 }
 
+
+#' parse a document
+#'
+#' Build the list of called packages, functions, variables, formals and
+#' signatures in the document in order to add them to the current [Workspace].
+#'
+#' @param path a character, the path to the document
 parse_document <- function(path) {
     packages <- character()
     nonfuncts <- character()

@@ -2,7 +2,6 @@
 #' @template uri
 #' @param workspace a [Workspace] object, the current workspace
 #' @template document
-#' @param position a list with `line` and `character` members, the position of
-#' the token in `document`
+#' @template position
 #'
 #' @return a [Response] object
