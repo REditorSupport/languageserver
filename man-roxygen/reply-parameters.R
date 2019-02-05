@@ -1,6 +1,6 @@
-#' @param id a character, the id of the request,
+#' @template id
 #' @template uri
-#' @param workspace a [Workspace] object, the current workspace
+#' @template workspace
 #' @template document
 #' @template position
 #'

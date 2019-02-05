@@ -1,33 +1,22 @@
-if (.Platform$OS.type == "windows") {
-    path_from_uri <- function(uri) {
-        if (is.null(uri)) {
-            NULL
-        } else {
-            utils::URLdecode(substr(uri, 9, nchar(uri)))
-        }
+#' paths and uris
+#'
+#' @param uri a character, the path to a file in URI format
+path_from_uri <- function(uri) {
+    if (is.null(uri)) {
+        return(NULL)
     }
-    path_to_uri <- function(path) {
-        if (is.null(path)) {
-            NULL
-        } else {
-            paste0("file:///", utils::URLencode(path))
-        }
+    start_char <- ifelse(.Platform$OS.type == "windows", 9, 8)
+    utils::URLdecode(substr(uri, start_char, nchar(uri)))
+}
+
+#' @param path a character, the path to a file
+#' @rdname path_from_uri
+path_to_uri <- function(path) {
+    if (is.null(path)) {
+        return(NULL)
     }
-} else {
-    path_from_uri <- function(uri) {
-        if (is.null(uri)) {
-            NULL
-        } else {
-            utils::URLdecode(substr(uri, 8, nchar(uri)))
-        }
-    }
-    path_to_uri <- function(path) {
-        if (is.null(path)) {
-            NULL
-        } else {
-            paste0("file://", utils::URLencode(path))
-        }
-    }
+    prefix <- ifelse(.Platform$OS.type == "windows", "file:///", "file://")
+    paste0(prefix, utils::URLencode(path))
 }
 
 #' check if a file is an RMarkdown file
@@ -74,7 +63,7 @@ document_backward_search <- function(document, position, char, skip_empty_line =
     line      <- position$line
     character <- position$character
     .Call("document_backward_search", PACKAGE = "languageserver",
-        document, line, character - 1, char, skip_empty_line)
+          document, line, character - 1, char, skip_empty_line)
 }
 
 #' get the contents of a line
@@ -180,9 +169,9 @@ parse_document <- function(path) {
     if (length(expr)) {
         for (e in expr) {
             if (length(e) == 3L &&
-                    is.symbol(e[[1L]]) &&
-                    (e[[1L]] == "<-" || e[[1L]] == "=") &&
-                    is.symbol(e[[2L]])) {
+                is.symbol(e[[1L]]) &&
+                (e[[1L]] == "<-" || e[[1L]] == "=") &&
+                is.symbol(e[[2L]])) {
                 funct <- as.character(e[[2L]])
                 objects <- c(objects, funct)
                 if (is.call(e[[3L]]) && e[[3L]][[1L]] == "function") {
@@ -198,8 +187,8 @@ parse_document <- function(path) {
                     nonfuncts <- c(nonfuncts, funct)
                 }
             } else if (length(e) == 2L &&
-                        is.symbol(e[[1L]]) &&
-                        (e[[1L]] == "library" || e[[1L]] == "require")) {
+                       is.symbol(e[[1L]]) &&
+                       (e[[1L]] == "library" || e[[1L]] == "require")) {
                 pkg <- as.character(e[[2L]])
                 packages <- c(packages, pkg)
                 deps <- tryCatch(

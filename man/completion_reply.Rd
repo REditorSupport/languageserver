@@ -6,11 +6,6 @@
 \usage{
 completion_reply(id, uri, workspace, document, position)
 }
-\arguments{
-\item{id}{a character, the id of the request,}
-
-\item{workspace}{a \link{Workspace} object, the current workspace}
-}
 \value{
 a \link{Response} object
 }

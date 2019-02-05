@@ -1,9 +1,22 @@
+#' edit code style
+#'
+#' This functions formats a document using [styler::style_text()] with the
+#' [styler::tidyverse_style()] style.
+#'
+#' @template document
+#' @param options a named list of options, with a `tabSize` parameter
 stylize <- function(document, options) {
     newTextList <- styler::style_text(
         document, transformers = styler::tidyverse_style(indent_by = options$tabSize))
     paste(newTextList, collapse = "\n")
 }
 
+#' format a document
+#'
+#' @template id
+#' @template uri
+#' @template document
+#' @param options a named list of options, with a `tabSize` parameter
 formatting_reply <- function(id, uri, document, options) {
     newText <- stylize(document, options)
     ndoc <- length(document)
@@ -16,6 +29,13 @@ formatting_reply <- function(id, uri, document, options) {
     Response$new(id, TextEditList)
 }
 
+#' format a part of a document
+#'
+#' @template id
+#' @template uri
+#' @template document
+#' @param range a [range], the part of the document to format
+#' @param options a named list of options, with a `tabSize` parameter
 range_formatting_reply <- function(id, uri, document, range, options) {
     line1 <- range$start$line
     line2 <- if (range$end$character == 0) range$end$line - 1 else range$end$line
