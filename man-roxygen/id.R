@@ -1,1 +1,1 @@
-#' @param id a character, the id of the request,
+#' @param id a numeric, the id of the process that started the server
