@@ -119,12 +119,11 @@ workspace_completion <- function(workspace, full_token) {
     completions
 }
 
-#' the response to a completion request
+#' the response to a textDocument/completion request
 #'
 #' @template reply-parameters
 #'
 #' @return a [Response] object
-#' @keywords internal
 completion_reply <- function(id, uri, workspace, document, position) {
 
     if (!check_scope(uri, document, position)) {

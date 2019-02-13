@@ -7,7 +7,7 @@
 #' + `exists(objname)`: returns true if `objname` can be found in the Namespace
 #' + `get_signature(funct)`: return the signature of `funct`
 #' + `get_formals(funct)`: return the [base::formals()] of `funct`
-
+#'
 #' @field objname a character, an object name
 #' @field funct a character, a function name
 Namespace <- R6::R6Class("Namespace",

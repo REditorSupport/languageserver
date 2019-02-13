@@ -1,3 +1,11 @@
+#' the response to a textDocument/signatureHelp Request
+#' 
+#' If the symbol at the current position is a function, return its arguments
+#' (as with [base::args()]).
+#'
+#' @template reply-parameters
+#'
+#' @return a [Response] object
 signature_reply <- function(id, uri, workspace, document, position) {
     line <- position$line
     character <- position$character
