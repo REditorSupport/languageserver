@@ -9,7 +9,7 @@ range_formatting_reply(id, uri, document, range, options)
 \arguments{
 \item{id}{a numeric, the id of the process that started the server}
 
-\item{uri}{a character, the path to a file}
+\item{uri}{a character, the path to a file as defined by \href{https://tools.ietf.org/html/rfc3986}{RFC 3986}}
 
 \item{document}{a character, the contents of the document}
 

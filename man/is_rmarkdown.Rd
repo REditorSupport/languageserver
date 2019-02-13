@@ -7,7 +7,7 @@
 is_rmarkdown(uri)
 }
 \arguments{
-\item{uri}{a character, the path to a file}
+\item{uri}{a character, the path to a file as defined by \href{https://tools.ietf.org/html/rfc3986}{RFC 3986}}
 }
 \value{
 a logical

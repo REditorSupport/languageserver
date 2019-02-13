@@ -8,7 +8,10 @@ completion_reply(id, uri, workspace, document, position)
 }
 \value{
 a \link{Response} object
+
+a \link{Response} object
 }
 \description{
 the response to a completion request
 }
+\keyword{internal}

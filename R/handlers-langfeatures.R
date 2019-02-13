@@ -1,5 +1,12 @@
-
-# Request
+#' textDocument/completion request handler
+#'
+#' Handler to the [textDocument/completion](https://microsoft.github.io/language-server-protocol/specification#textDocument_completion) [Request]
+#'
+#' @template self
+#' @template id
+#' @param params a [completion_params] object
+#'
+#' @keywords internal
 text_document_completion  <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
@@ -7,12 +14,28 @@ text_document_completion  <- function(self, id, params) {
         id, uri, self$workspace, self$documents[[uri]], params$position))
 }
 
-# Request
+#' completionItem/resolve request handler
+#'
+#' Handler to the [completionItem/resolve](https://microsoft.github.io/language-server-protocol/specification#completionItem_resolve) [Request]
+#'
+#' @template self
+#' @template id
+#' @param params a [completion_params] object
+#'
+#' @keywords internal
 completion_item_resolve  <- function(self, id, params) {
 
 }
 
-# Request
+#' textDocument/hover request handler
+#'
+#' Handler to the [textDocument/hover](https://microsoft.github.io/language-server-protocol/specification#textDocument_hover) [Request]
+#'
+#' @template self
+#' @template id
+#' @template tdpp
+#'
+#' @keywords internal
 text_document_hover  <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
@@ -20,7 +43,15 @@ text_document_hover  <- function(self, id, params) {
         id, uri, self$workspace, self$documents[[uri]], params$position))
 }
 
-# Request
+#' textDocument/signatureHelp request handler
+#'
+#' Handler to the [textDocument/signatureHelp](https://microsoft.github.io/language-server-protocol/specification#textDocument_signatureHelp) [Request]
+#'
+#' @template self
+#' @template id
+#' @template tdpp
+#'
+#' @keywords internal
 text_document_signature_help  <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
@@ -28,52 +59,137 @@ text_document_signature_help  <- function(self, id, params) {
         id, uri, self$workspace, self$documents[[uri]], params$position))
 }
 
-# Request
+#' textDocument/definition request handler
+#'
+#' Handler to the [textDocument/definition](https://microsoft.github.io/language-server-protocol/specification#textDocument_definition) [Request]
+#'
+#' @template self
+#' @template id
+#' @template tdpp
+#'
+#' @keywords internal
 text_document_definition  <- function(self, id, params) {
 
 }
 
-# Request
+#' textDocument/references request handler
+#'
+#' Handler to the [textDocument/references](https://microsoft.github.io/language-server-protocol/specification#textDocument_references) [Request]
+#'
+#' @template self
+#' @template id
+#' @param params a [reference_params] object
+#'
+#' @keywords internal
 text_document_references  <- function(self, id, params) {
 
 }
 
-# Request
+#' textDocument/documentHighlight request handler
+#'
+#' Handler to the [textDocument/documentHighlight](https://microsoft.github.io/language-server-protocol/specification#textDocument_documentHighlight) [Request]
+#'
+#' @template self
+#' @template id
+#' @template tdpp
+#'
+#' @keywords internal
 text_document_document_highlight  <- function(self, id, params) {
 
 }
 
-# Request
+#' textDocument/documentSymbol request handler
+#'
+#' Handler to the [textDocument/documentSymbol](https://microsoft.github.io/language-server-protocol/specification#textDocument_documentSymbol) [Request]
+#'
+#' @template self
+#' @template id
+#' @param params a [document_symbol_params] object
+#'
+#' @keywords internal
 text_document_document_symbol  <- function(self, id, params) {
 
 }
 
-# Request
+#' textDocument/codeAction request handler
+#'
+#' Handler to the [textDocument/codeAction](https://microsoft.github.io/language-server-protocol/specification#textDocument_codeAction) [Request]
+#'
+#' @template self
+#' @template id
+#' @param params a [code_action_params] object
+#'
+#' @keywords internal
 text_document_code_action  <- function(self, id, params) {
 
 }
 
-# Request
+#' textDocument/codeLens request handler
+#'
+#' Handler to the [textDocument/codeLens](https://microsoft.github.io/language-server-protocol/specification#textDocument_codeLens) [Request]
+#'
+#' @template self
+#' @template id
+#' @param params a [code_lens_params] object
+#'
+#' @return a list of CodeLens objects
+#'
+#' @keywords internal
 text_document_code_lens  <- function(self, id, params) {
 
 }
 
-# Request
+#' codeLens/resolve request handler
+#'
+#' Handler to the [codeLens/resolve](https://microsoft.github.io/language-server-protocol/specification#codeLens_resolve) [Request]
+#'
+#' @template self
+#' @template id
+#' @param params a CodeLens object
+#'
+#' @keywords internal
 code_lens_resolve  <- function(self, id, params) {
 
 }
 
-# Request
+
+#' textDocument/documentLink request handler
+#'
+#' Handler to the [textDocument/documentLink](https://microsoft.github.io/language-server-protocol/specification#textDocument_documentLink) [Request]
+#'
+#' @template self
+#' @template id
+#' @param params a [document_link_params] object
+#'
+#' @return a list of DocumentLink objects
+#'
+#' @keywords internal
 text_document_document_link  <- function(self, id, params) {
 
 }
 
-# Request
+#' documentLink/resolve request handler
+#'
+#' Handler to the [documentLink/resolve](https://microsoft.github.io/language-server-protocol/specification#documentLink_resolve) [Request]
+#'
+#' @template self
+#' @template id
+#' @param params a DocumentLink object
+#'
+#' @keywords internal
 document_link_resolve  <- function(self, id, params) {
 
 }
 
-# Request
+#' textDocument/formatting request handler
+#'
+#' Handler to the [textDocument/formatting](https://microsoft.github.io/language-server-protocol/specification#textDocument_formatting) [Request]
+#'
+#' @template self
+#' @template id
+#' @param params a [document_formatting_params] object
+#'
+#' @keywords internal
 text_document_formatting  <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
@@ -81,7 +197,15 @@ text_document_formatting  <- function(self, id, params) {
     self$deliver(formatting_reply(id, uri, self$documents[[uri]], options))
 }
 
-# Request
+#' textDocument/rangeFormatting request handler
+#'
+#' Handler to the [textDocument/rangeFormatting](https://microsoft.github.io/language-server-protocol/specification#textDocument_rangeFormatting) [Request]
+#'
+#' @template self
+#' @template id
+#' @param params a [document_range_formatting_params] object
+#'
+#' @keywords internal
 text_document_range_formatting  <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
@@ -90,12 +214,30 @@ text_document_range_formatting  <- function(self, id, params) {
     self$deliver(range_formatting_reply(id, uri, self$documents[[uri]], range, options))
 }
 
-# Request
+
+#' textDocument/onTypeFormatting request handler
+#'
+#' Handler to the [textDocument/onTypeFormatting](https://microsoft.github.io/language-server-protocol/specification#textDocument_onTypeFormatting) [Request]
+#'
+#' @template self
+#' @template id
+#' @param params a [document_on_type_formatting_params] object
+#'
+#' @keywords internal
 text_document_on_type_formatting  <- function(self, id, params) {
 
 }
 
-# Request
+
+#' textDocument/rename request handler
+#'
+#' Handler to the [textDocument/rename](https://microsoft.github.io/language-server-protocol/specification#textDocument_rename) [Request]
+#'
+#' @template self
+#' @template id
+#' @param params a [rename_params] object
+#'
+#' @keywords internal
 text_document_rename  <- function(self, id, params) {
 
 }
