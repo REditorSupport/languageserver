@@ -1,3 +1,8 @@
+# Notification
+workspace_did_change_workspace_folders <- function(self, params) {
+
+}
+
 #' workspace/didChangeConfiguration notification handler
 #'
 #' Handler to the [workspace/didChangeConfiguration](https://microsoft.github.io/language-server-protocol/specification#workspace_didChangeConfiguration) [Notification]

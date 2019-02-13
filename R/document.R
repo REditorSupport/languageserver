@@ -149,7 +149,9 @@ detect_hover <- function(document, position) {
 
     if (is.na(first)) first <- ""
     if (is.na(second)) second <- ""
-    paste0(first, second)
+    list(begin = character - nchar(first),
+         end = character + nchar(second),
+         text = paste0(first, second))
 }
 
 
@@ -160,12 +162,27 @@ detect_hover <- function(document, position) {
 #'
 #' @param path a character, the path to the document
 parse_document <- function(path) {
+    temp_file <- NULL
+    if (is_rmarkdown(path)) {
+        temp_file <- tempfile(fileext = ".R")
+        path <- tryCatch({
+            knitr::purl(path, output = temp_file, quiet = TRUE)
+        }, error = function(e) path)
+    }
+    expr <- tryCatch(parse(path, keep.source = FALSE), error = function(e) NULL)
+    if (!is.null(temp_file) && file.exists(temp_file)) {
+        file.remove(temp_file)
+    }
+    parse_expr(expr)
+}
+
+
+parse_expr <- function(expr) {
     packages <- character()
     nonfuncts <- character()
     functs <- character()
     formals <- list()
     signatures <- list()
-    expr <- tryCatch(parse(path, keep.source = FALSE), error = function(e) NULL)
     if (length(expr)) {
         for (e in expr) {
             if (length(e) == 3L &&

@@ -64,6 +64,8 @@ ServerCapabilities <- list(
     completionProvider = CompletionOptions,
     signatureHelpProvider = SignatureHelpOptions,
     # definitionProvider = FALSE,
+    # typeDefinitionProvider = FALSE,
+    # implementationProvider = FALSE,
     # referencesProvider = FALSE
     # documentHighlightProvider = FALSE,
     # documentSymbolProvider = FALSE,
@@ -75,5 +77,8 @@ ServerCapabilities <- list(
     # documentOnTypeFormattingProvider = DocumentOnTypeFormattingOptions,
     # renameProvider = FALSE,
     # documentLinkProvider = DocumentLinkOptions,
-    # executeCommandProvider = ExecuteCommandOptions
+    # colorProvider = FALSE,
+    # foldingRangeProvider = FALSE,
+    # executeCommandProvider = ExecuteCommandOptions,
+    # workspace = list()
 )

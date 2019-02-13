@@ -15,6 +15,10 @@ The development version of `languageserver` could be installed by running the fo
 source("https://install-github.me/REditorSupport/languageserver")
 ```
 
+## Rmarkdown
+
+The R package [`knitr`](https://github.com/yihui/knitr) is required to enable languageserver for Rmarkdown files. `languageserver` doesn't specify `knitr` as a dependency however, users may need to install it manually.
+
 ## Language Clients
 
 These editors are supported by installing the corresponding package.
@@ -63,22 +67,8 @@ let g:LanguageClient_serverCommands = {
 - [ ] executeCommandProvider
 
 
-## Diagnostics settings
+## FAQ
 
-User can specify the default linters in `.Rprofile`. For example,
+### Linters
 
-```r
-setHook(
-    packageEvent("languageserver", "onLoad"),
-    function(...) {
-        options(languageserver.default_linters = lintr::with_defaults(
-            line_length_linter = lintr::line_length_linter(100),
-            object_usage_linter = NULL,
-            object_length_linter = NULL,
-            object_name_linter = NULL,
-            commented_code_linter = NULL
-        ))
-    }
-)
-```
-Please note that this setting is ignored if a `.lintr` file is found.
+With [lintr](https://github.com/jimhester/lintr) 1.0.3, the linters can be specified by creating the `.lintr` file at the project or home directory. Details can be found at lintr documentation.
