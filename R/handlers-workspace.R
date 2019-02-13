@@ -1,4 +1,11 @@
-# Notification
+#' workspace/didChangeConfiguration notification handler
+#'
+#' Handler to the [workspace/didChangeConfiguration](https://microsoft.github.io/language-server-protocol/specification#workspace_didChangeConfiguration) [Notification]
+#'
+#' @template self
+#' @param params a [did_change_configuration_params]
+#'
+#' @keywords internal
 workspace_did_change_configuration <- function(self, params) {
     settings <- params$settings
 

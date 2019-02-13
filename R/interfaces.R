@@ -222,4 +222,84 @@ rename_params <- function(uri, position, new_name) {
 
 # Notification parameters -------------------------------------------------
 
+#' parameters for didOpen notifications
+#'
+#' @template uri
+did_open_text_document_params <- function(uri) {
+  structure(
+    list(
+      textDocument = uri
+    ),
+    class = "did_open_text_document_params"
+  )
+}
 
+#' parameters for didChange notifications
+#'
+#' @template uri
+#' @param changes a list of text_document_content_change_event
+did_change_text_document_params <- function(uri, changes) {
+  structure(
+    list(
+      textDocument   = uri,
+      contentChanges = changes
+    ),
+    class = "did_change_text_document_params"
+  )
+}
+
+#' parameters for willSave notifications
+#'
+#' @template uri
+#' @param reason an integer, see TextDocumentSaveReason
+will_save_text_document_params <- function(uri, reason) {
+  structure(
+    list(
+      textDocument   = uri,
+      reason         = reason
+    ),
+    class = "will_save_text_document_params"
+  )
+}
+
+TextDocumentSaveReason <- list(
+  Manual = 1,
+  AfterDelay = 2,
+  FocusOut = 3
+)
+
+#' parameters for didSave notifications
+#'
+#' @template uri
+#' @param text a character
+did_save_text_document_params <- function(uri, text) {
+  structure(
+    list(
+      textDocument   = uri,
+      text           = text
+    ),
+    class = "did_save_text_document_params"
+  )
+}
+
+#' parameters for didClose notifications
+#'
+#' @template uri
+did_close_text_document_params <- function(uri) {
+  structure(
+    list(
+      textDocument   = uri
+    ),
+    class = "did_close_text_document_params"
+  )
+}
+
+#' parameters for workspace/didChangeConfiguration notifications
+#'
+#' @param settings a named list
+did_change_configuration_params <- function(settings) {
+  structure(
+    settings,
+    class = "did_change_configuration_params"
+  )
+}
