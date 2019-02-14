@@ -18,7 +18,11 @@ that are loaded during the session for quick reference.
 \describe{
 \item{\code{pkgname}}{a character, a package name}
 
+\item{\code{object}}{a character, an object name}
+
 \item{\code{funct}}{a character, a function name}
+
+\item{\code{topic}}{a character, a help topic name}
 
 \item{\code{parse_result}}{?}
 }}
@@ -28,12 +32,12 @@ that are loaded during the session for quick reference.
 \itemize{
 \item \code{load_package(pkgname)}: add a new \code{Namespace} for \code{pkgname} if necessary
 and if possible
-\item \code{guess_package(funct)}: returns the most recently loaded package in which
+\item \code{guess_package(object)}: returns the most recently loaded package in which
 \code{object} can be found
 \item \code{get_namespace(pkgname)}:  return the \link{Namespace} of \code{pkgname}
 \item \code{get_signature(funct, pkgname = NULL)}: return the signature of \code{funct}
 \item \code{get_formals(funct, pkgname = NULL)}: return the \code{\link[base:formals]{base::formals()}} of \code{funct}
-\item \code{get_help(funct, pkgname = NULL)}: return the help text of \code{funct}
+\item \code{get_help(topic, pkgname = NULL)}: return the help text of \code{topic}
 \item \code{load_to_global(parse_result)}:
 }
 }

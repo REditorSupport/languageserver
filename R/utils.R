@@ -66,7 +66,7 @@ getppid <- function() {
     .Call("do_getppid", PACKAGE = "languageserver")
 }
 
-#' delay a function execution
+#' throttle a function execution
 #'
 #' Execute a function if the last execution time is older than a specified
 #' value.
@@ -75,7 +75,7 @@ getppid <- function() {
 #' @param t an integer, the threshold in seconds
 #'
 #' @keywords internal
-leisurize <- function(fun, t = 1) {
+throttle <- function(fun, t = 1) {
     last_execution_time <- 0
     function(...) {
         if (Sys.time() - last_execution_time > t) {
@@ -87,7 +87,7 @@ leisurize <- function(fun, t = 1) {
 
 #' sanitize package objects names
 #'
-#' Remove unwanted objects, _e.g._ objects whose name starts with `_` or `.`.
+#' Remove unwanted objects, _e.g._ `names<-`, `%>%`, etc.
 #'
 #' @param objects a character vector
 #'
@@ -107,9 +107,9 @@ merge_list <- function(x, y) {
 }
 
 #' transform any object to a string
-#' 
+#'
 #' @param ... anything
-#' 
+#'
 #' @keywords internal
 to_string <- function(...) {
     dots <- list(...)
@@ -131,9 +131,9 @@ to_string <- function(...) {
 }
 
 #' write to log
-#' 
+#'
 #' @param ... anything
-#' 
+#'
 #' @keywords internal
 log_write <- function(..., file = stderr()){
     # cat(to_string(...), file = "/tmp/rls")
@@ -141,7 +141,7 @@ log_write <- function(..., file = stderr()){
 }
 
 #' a basic logger class
-#' 
+#'
 #' @keywords internal
 Logger <- R6::R6Class("Logger",
     private = list(
@@ -167,6 +167,6 @@ Logger <- R6::R6Class("Logger",
 )
 
 #' create the logger
-#' 
+#'
 #' @keywords internal
 logger <- Logger$new()

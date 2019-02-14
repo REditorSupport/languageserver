@@ -10,6 +10,6 @@ sanitize_names(objects)
 \item{objects}{a character vector}
 }
 \description{
-Remove unwanted objects, \emph{e.g.} objects whose name starts with \code{_} or \code{.}.
+Remove unwanted objects, \emph{e.g.} \code{names<-}, \code{\%>\%}, etc.
 }
 \keyword{internal}

@@ -69,16 +69,18 @@ Namespace <- R6::R6Class("Namespace",
 #' @section Methods:
 #' + `load_package(pkgname)`: add a new `Namespace` for `pkgname` if necessary
 #' and if possible
-#' + `guess_package(funct)`: returns the most recently loaded package in which
+#' + `guess_package(object)`: returns the most recently loaded package in which
 #' `object` can be found
 #' + `get_namespace(pkgname)`:  return the [Namespace] of `pkgname`
 #' + `get_signature(funct, pkgname = NULL)`: return the signature of `funct`
 #' + `get_formals(funct, pkgname = NULL)`: return the [base::formals()] of `funct`
-#' + `get_help(funct, pkgname = NULL)`: return the help text of `funct`
+#' + `get_help(topic, pkgname = NULL)`: return the help text of `topic`
 #' + `load_to_global(parse_result)`:
 #'
 #' @field pkgname a character, a package name
+#' @field object a character, an object name
 #' @field funct a character, a function name
+#' @field topic a character, a help topic name
 #' @field parse_result ?
 Workspace <- R6::R6Class("Workspace",
     public = list(
@@ -106,12 +108,12 @@ Workspace <- R6::R6Class("Workspace",
             }
         },
 
-        guess_package = function(funct) {
+        guess_package = function(object) {
             logger$info("loaded_packages:", self$loaded_packages)
 
             for (pkgname in rev(self$loaded_packages)) {
                 ns <- self$get_namespace(pkgname)
-                if (ns$exists(funct)) {
+                if (ns$exists(object)) {
                     return(pkgname)
                 }
             }
