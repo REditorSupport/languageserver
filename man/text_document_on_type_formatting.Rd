@@ -14,4 +14,7 @@ text_document_on_type_formatting(self, id, params)
 \description{
 Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#textDocument_onTypeFormatting}{textDocument/onTypeFormatting} \link{Request}
 }
+\details{
+Not implemented yet.
+}
 \keyword{internal}

@@ -1,5 +1,5 @@
 #' the response to a textDocument/signatureHelp Request
-#' 
+#'
 #' If the symbol at the current position is a function, return its arguments
 #' (as with [base::args()]).
 #'
@@ -7,14 +7,12 @@
 #'
 #' @return a [Response] object
 signature_reply <- function(id, uri, workspace, document, position) {
-    line <- position$line
-    character <- position$character
 
     if (!check_scope(uri, document, position)) {
         return(Response$new(id, list(signatures = NULL)))
     }
 
-    closure <- detect_closure(document, line, character)
+    closure <- detect_closure(document, position)
 
     SignatureInformation <- list()
     activeSignature <- -1

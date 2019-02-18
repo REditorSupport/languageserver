@@ -63,6 +63,8 @@ text_document_signature_help  <- function(self, id, params) {
 #'
 #' Handler to the [textDocument/definition](https://microsoft.github.io/language-server-protocol/specification#textDocument_definition) [Request]
 #'
+#' Not implemented yet.
+#'
 #' @template self
 #' @template id
 #' @template tdpp
@@ -72,12 +74,32 @@ text_document_definition  <- function(self, id, params) {
 
 }
 
-# Request
+#' textDocument/typeDefinition request handler
+#'
+#' Handler to the [textDocument/typeDefinition](https://microsoft.github.io/language-server-protocol/specification#textDocument_typeDefinition) [Request]
+#'
+#' Not implemented yet.
+#'
+#' @template self
+#' @template id
+#' @template tdpp
+#'
+#' @keywords internal
 text_document_type_definition  <- function(self, id, params) {
 
 }
 
-# Request
+#' textDocument/implementation request handler
+#'
+#' Handler to the [textDocument/implementation](https://microsoft.github.io/language-server-protocol/specification#textDocument_implementation) [Request]
+#'
+#' Not implemented yet.
+#'
+#' @template self
+#' @template id
+#' @template tdpp
+#'
+#' @keywords internal
 text_document_implementation  <- function(self, id, params) {
 
 }
@@ -85,6 +107,8 @@ text_document_implementation  <- function(self, id, params) {
 #' textDocument/references request handler
 #'
 #' Handler to the [textDocument/references](https://microsoft.github.io/language-server-protocol/specification#textDocument_references) [Request]
+#'
+#' Not implemented yet.
 #'
 #' @template self
 #' @template id
@@ -99,6 +123,8 @@ text_document_references  <- function(self, id, params) {
 #'
 #' Handler to the [textDocument/documentHighlight](https://microsoft.github.io/language-server-protocol/specification#textDocument_documentHighlight) [Request]
 #'
+#' Not implemented yet.
+#'
 #' @template self
 #' @template id
 #' @template tdpp
@@ -111,6 +137,8 @@ text_document_document_highlight  <- function(self, id, params) {
 #' textDocument/documentSymbol request handler
 #'
 #' Handler to the [textDocument/documentSymbol](https://microsoft.github.io/language-server-protocol/specification#textDocument_documentSymbol) [Request]
+#'
+#' Not implemented yet.
 #'
 #' @template self
 #' @template id
@@ -125,6 +153,8 @@ text_document_document_symbol  <- function(self, id, params) {
 #'
 #' Handler to the [textDocument/codeAction](https://microsoft.github.io/language-server-protocol/specification#textDocument_codeAction) [Request]
 #'
+#' Not implemented yet.
+#'
 #' @template self
 #' @template id
 #' @param params a [code_action_params] object
@@ -137,6 +167,8 @@ text_document_code_action  <- function(self, id, params) {
 #' textDocument/codeLens request handler
 #'
 #' Handler to the [textDocument/codeLens](https://microsoft.github.io/language-server-protocol/specification#textDocument_codeLens) [Request]
+#'
+#' Not implemented yet.
 #'
 #' @template self
 #' @template id
@@ -153,6 +185,8 @@ text_document_code_lens  <- function(self, id, params) {
 #'
 #' Handler to the [codeLens/resolve](https://microsoft.github.io/language-server-protocol/specification#codeLens_resolve) [Request]
 #'
+#' Not implemented yet.
+#'
 #' @template self
 #' @template id
 #' @param params a CodeLens object
@@ -166,6 +200,8 @@ code_lens_resolve  <- function(self, id, params) {
 #' textDocument/documentLink request handler
 #'
 #' Handler to the [textDocument/documentLink](https://microsoft.github.io/language-server-protocol/specification#textDocument_documentLink) [Request]
+#'
+#' Not implemented yet.
 #'
 #' @template self
 #' @template id
@@ -182,6 +218,8 @@ text_document_document_link  <- function(self, id, params) {
 #'
 #' Handler to the [documentLink/resolve](https://microsoft.github.io/language-server-protocol/specification#documentLink_resolve) [Request]
 #'
+#' Not implemented yet.
+#'
 #' @template self
 #' @template id
 #' @param params a DocumentLink object
@@ -191,12 +229,32 @@ document_link_resolve  <- function(self, id, params) {
 
 }
 
-# Request
+#' textDocument/documentColor request handler
+#'
+#' Handler to the [textDocument/documentColor](https://microsoft.github.io/language-server-protocol/specification#textDocument_documentColor) [Request]
+#'
+#' Not implemented yet.
+#'
+#' @template self
+#' @template id
+#' @param params a document_color_params object
+#'
+#' @keywords internal
 text_document_document_color  <- function(self, id, params) {
 
 }
 
-# Request
+#' textDocument/colorPresentation request handler
+#'
+#' Handler to the [textDocument/colorPresentation](https://microsoft.github.io/language-server-protocol/specification#textDocument_colorPresentation) [Request]
+#'
+#' Not implemented yet.
+#'
+#' @template self
+#' @template id
+#' @param params a color_presentation_params object
+#'
+#' @keywords internal
 text_document_color_presentation  <- function(self, id, params) {
 
 }
@@ -239,6 +297,8 @@ text_document_range_formatting  <- function(self, id, params) {
 #'
 #' Handler to the [textDocument/onTypeFormatting](https://microsoft.github.io/language-server-protocol/specification#textDocument_onTypeFormatting) [Request]
 #'
+#' Not implemented yet.
+#'
 #' @template self
 #' @template id
 #' @param params a [document_on_type_formatting_params] object
@@ -253,6 +313,8 @@ text_document_on_type_formatting  <- function(self, id, params) {
 #'
 #' Handler to the [textDocument/rename](https://microsoft.github.io/language-server-protocol/specification#textDocument_rename) [Request]
 #'
+#' Not implemented yet.
+#'
 #' @template self
 #' @template id
 #' @param params a [rename_params] object
@@ -262,12 +324,32 @@ text_document_rename  <- function(self, id, params) {
 
 }
 
-# Request
+#' textDocument/prepareRename request handler
+#'
+#' Handler to the [textDocument/prepareRename](https://microsoft.github.io/language-server-protocol/specification#textDocument_prepareRename) [Request]
+#'
+#' Not implemented yet.
+#'
+#' @template self
+#' @template id
+#' @template tdpp
+#'
+#' @keywords internal
 text_document_prepare_rename  <- function(self, id, params) {
 
 }
 
-# Request
+#' textDocument/foldingRange request handler
+#'
+#' Handler to the [textDocument/foldingRange](https://microsoft.github.io/language-server-protocol/specification#textDocument_foldingRange) [Request]
+#'
+#' Not implemented yet.
+#'
+#' @template self
+#' @template id
+#' @param params a folding_range_params object
+#'
+#' @keywords internal
 text_document_folding_range  <- function(self, id, params) {
 
 }

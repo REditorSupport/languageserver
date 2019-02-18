@@ -24,7 +24,7 @@ range <- function(start, end) {
       start = start,
       end   = end
     ),
-    class = "range"
+    class = c("range", "list")
   )
 }
 

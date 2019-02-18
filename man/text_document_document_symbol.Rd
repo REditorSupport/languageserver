@@ -14,4 +14,7 @@ text_document_document_symbol(self, id, params)
 \description{
 Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#textDocument_documentSymbol}{textDocument/documentSymbol} \link{Request}
 }
+\details{
+Not implemented yet.
+}
 \keyword{internal}

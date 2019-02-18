@@ -7,6 +7,6 @@
 find_config(filename)
 }
 \description{
-This is a copy of \code{lintr:::find_config} since CRAN doesn't like :::
+This is a copy of \code{lintr:::find_config} since CRAN doesn't like :::.
 }
 \keyword{internal}

@@ -75,7 +75,7 @@ Response <- R6::R6Class("Response",
         error = NULL,
         initialize = function(id = NULL, result = NULL, error = NULL) {
             self$id <- id
-            self$result <- result
+            self$result <- unclass(result)
             self$error <- error
         },
         to_json = function() {
@@ -87,7 +87,7 @@ Response <- R6::R6Class("Response",
             if (!is.null(self$error)) {
                 payload$error <- self$error
             }
-            jsonlite::toJSON(payload, auto_unbox = TRUE)
+            jsonlite::toJSON(payload, auto_unbox = TRUE, force = TRUE)
         }
     )
 )

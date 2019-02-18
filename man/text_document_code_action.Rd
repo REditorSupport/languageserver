@@ -14,4 +14,7 @@ text_document_code_action(self, id, params)
 \description{
 Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#textDocument_codeAction}{textDocument/codeAction} \link{Request}
 }
+\details{
+Not implemented yet.
+}
 \keyword{internal}

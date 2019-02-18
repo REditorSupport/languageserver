@@ -33,8 +33,7 @@ is_rmarkdown <- function(uri) {
 #'
 #' In an RMarkdown document, tokens can be either inside an R code block or
 #' in the text. This function will return `FALSE` if the token is in the text
-#' and `TRUE` if it is in a code block. For R scripts, it will always return
-#' `TRUE`.
+#' and `TRUE` if it is in a code block. For R scripts, it always returns `TRUE`.
 #'
 #' @template uri
 #' @template document

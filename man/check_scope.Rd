@@ -19,6 +19,5 @@ a logical
 \description{
 In an RMarkdown document, tokens can be either inside an R code block or
 in the text. This function will return \code{FALSE} if the token is in the text
-and \code{TRUE} if it is in a code block. For R scripts, it will always return
-\code{TRUE}.
+and \code{TRUE} if it is in a code block. For R scripts, it always returns \code{TRUE}.
 }

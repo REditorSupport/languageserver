@@ -24,7 +24,7 @@ formatting_reply <- function(id, uri, document, options) {
         start = position(line = 0, character = 0),
         end = position(line = ndoc - 1, character = nchar(document[[ndoc]]))
     )
-    TextEdit <- text_edit(range = range, newText = newText)
+    TextEdit <- text_edit(range = range, new_text = newText)
     TextEditList <- list(TextEdit)
     Response$new(id, TextEditList)
 }
@@ -45,7 +45,7 @@ range_formatting_reply <- function(id, uri, document, range, options) {
         start = position(line = line1, character = 0),
         end = position(line = line2, character = nchar(document[[line2 + 1]]))
     )
-    TextEdit <- text_edit(range = range, newText = newText)
+    TextEdit <- text_edit(range = range, new_text = newText)
     TextEditList <- list(TextEdit)
     Response$new(id, TextEditList)
 }

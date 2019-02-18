@@ -17,4 +17,7 @@ a list of CodeLens objects
 \description{
 Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#textDocument_codeLens}{textDocument/codeLens} \link{Request}
 }
+\details{
+Not implemented yet.
+}
 \keyword{internal}

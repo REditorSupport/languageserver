@@ -7,7 +7,7 @@
 workspace_did_change_configuration(self, params)
 }
 \arguments{
-\item{params}{a \link{did_change_configuration_params}}
+\item{params}{a \link{did_change_configuration_params} object}
 }
 \description{
 Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#workspace_didChangeConfiguration}{workspace/didChangeConfiguration} \link{Notification}

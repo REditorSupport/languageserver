@@ -14,4 +14,7 @@ text_document_rename(self, id, params)
 \description{
 Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#textDocument_rename}{textDocument/rename} \link{Request}
 }
+\details{
+Not implemented yet.
+}
 \keyword{internal}

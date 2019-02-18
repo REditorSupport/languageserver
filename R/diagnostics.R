@@ -49,7 +49,7 @@ diagnostic_from_lint <- function(result) {
 
 #' find the lintr config file
 #'
-#' This is a copy of `lintr:::find_config` since CRAN doesn't like :::
+#' This is a copy of `lintr:::find_config` since CRAN doesn't like :::.
 #'
 #' @keywords internal
 find_config <- function(filename) {
