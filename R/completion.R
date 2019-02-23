@@ -127,7 +127,11 @@ workspace_completion <- function(workspace, full_token) {
 
 #' the response to a textDocument/completion request
 #'
-#' @template reply-parameters
+#' @template id
+#' @template uri
+#' @template workspace
+#' @template document
+#' @template position
 #'
 #' @return a [Response] object
 completion_reply <- function(id, uri, workspace, document, position) {
