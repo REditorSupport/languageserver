@@ -22,8 +22,9 @@ workspace_did_change_workspace_folder_params <- function(self, params) {
 #' @keywords internal
 workspace_did_change_configuration <- function(self, params) {
     settings <- params$settings
-    # vscode
-    settings <- tryCatch(settings$r$languageserver, error = function(e) settings)
+
+    # flatten vscode r-lsp settings
+    settings <- tryCatch(settings$r$lsp, error = function(e) settings)
 
     logger$debug_mode(settings$debug)
     logger$info(settings)
