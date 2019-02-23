@@ -6,8 +6,8 @@ workspace_did_change_workspace_folders <- function(self, params) {
 
 workspace_did_change_configuration <- function(self, params) {
     settings <- params$settings
-
     logger$debug_mode(settings$debug)
+    logger$info(settings)
 
     if (!is.null(settings$diagnostics) && !isTRUE(settings$diagnostics)) {
         self$run_lintr <- FALSE
