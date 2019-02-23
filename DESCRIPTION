@@ -31,4 +31,4 @@ LazyData: true
 Roxygen: list(markdown = TRUE)
 NeedsCompilation: yes
 ByteCompile: yes
-RoxygenNote: 6.1.0
+RoxygenNote: 6.1.1

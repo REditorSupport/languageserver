@@ -3,7 +3,11 @@
 #' If the symbol at the current position is a function, return its arguments
 #' (as with [base::args()]).
 #'
-#' @template reply-parameters
+#' @template id
+#' @template uri
+#' @template workspace
+#' @template document
+#' @template position
 #'
 #' @return a [Response] object
 signature_reply <- function(id, uri, workspace, document, position) {

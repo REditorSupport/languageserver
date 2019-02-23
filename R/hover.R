@@ -1,9 +1,13 @@
 #' the response to a textDocument/hover Request
-#' 
+#'
 #' When hovering on a symbol, if it is a function, return its help text
 #' if it exists in the current [Workspace].
 #'
-#' @template reply-parameters
+#' @template id
+#' @template uri
+#' @template workspace
+#' @template document
+#' @template position
 #'
 #' @return a [Response] object
 hover_reply <- function(id, uri, workspace, document, position) {

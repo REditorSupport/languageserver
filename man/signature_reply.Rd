@@ -19,8 +19,6 @@ signature_reply(id, uri, workspace, document, position)
 }
 \value{
 a \link{Response} object
-
-a \link{Response} object
 }
 \description{
 If the symbol at the current position is a function, return its arguments
