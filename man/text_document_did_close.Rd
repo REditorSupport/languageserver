@@ -7,6 +7,8 @@
 text_document_did_close(self, params)
 }
 \arguments{
+\item{self}{a \link{LanguageServer} object}
+
 \item{params}{a \link{did_close_text_document_params}}
 }
 \description{

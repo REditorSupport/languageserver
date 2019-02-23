@@ -7,6 +7,8 @@
 workspace_did_change_watched_files(self, params)
 }
 \arguments{
+\item{self}{a \link{LanguageServer} object}
+
 \item{params}{a did_change_watched_files_params object}
 }
 \description{

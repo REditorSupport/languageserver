@@ -6,13 +6,15 @@
 \usage{
 on_initialize(self, id, params)
 }
+\arguments{
+\item{self}{a \link{LanguageServer} object}
+
+\item{id}{a numeric, the id of the process that started the server}
+
+\item{params}{a named list, the \code{initialize} Request options
+
+@keywords internal}
+}
 \description{
 Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#initialize}{initialize} \link{Request}.
-}
-\details{
-@template self
-@template id
-@param params a named list, the \code{initialize} Request options
-
-@keywords internal
 }

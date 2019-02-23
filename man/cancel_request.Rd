@@ -7,9 +7,11 @@
 cancel_request(self, params)
 }
 \arguments{
+\item{self}{a \link{LanguageServer} object}
+
 \item{params}{unused here}
 }
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#cancelRequest}{cancelRequest} \link{Notificatio}
+Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#cancelRequest}{cancelRequest} \link{Notification}
 }
 \keyword{internal}

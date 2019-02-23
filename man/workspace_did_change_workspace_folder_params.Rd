@@ -7,6 +7,8 @@
 workspace_did_change_workspace_folder_params(self, params)
 }
 \arguments{
+\item{self}{a \link{LanguageServer} object}
+
 \item{params}{a did_change_workspace_folder_params object}
 }
 \description{

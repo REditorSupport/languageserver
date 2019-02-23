@@ -7,6 +7,8 @@
 text_document_document_color(self, id, params)
 }
 \arguments{
+\item{self}{a \link{LanguageServer} object}
+
 \item{id}{a numeric, the id of the process that started the server}
 
 \item{params}{a document_color_params object}

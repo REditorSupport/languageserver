@@ -7,6 +7,8 @@
 text_document_did_open(self, params)
 }
 \arguments{
+\item{self}{a \link{LanguageServer} object}
+
 \item{params}{a \link{did_open_text_document_params}}
 }
 \description{

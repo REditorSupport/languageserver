@@ -2,9 +2,9 @@
 #'
 #' Handler to the [initialize](https://microsoft.github.io/language-server-protocol/specification#initialize) [Request].
 #'
-#'  @template self
-#'  @template id
-#'  @param params a named list, the `initialize` Request options
+#' @template self
+#' @template id
+#' @param params a named list, the `initialize` Request options
 #'
 #'  @keywords internal
 on_initialize <- function(self, id, params) {
@@ -79,7 +79,7 @@ on_exit <- function(self, params) {
 
 #' cancel request notification handler
 #'
-#' Handler to the [cancelRequest](https://microsoft.github.io/language-server-protocol/specification#cancelRequest) [Notificatio]
+#' Handler to the [cancelRequest](https://microsoft.github.io/language-server-protocol/specification#cancelRequest) [Notification]
 #'
 #' @template self
 #' @param params unused here

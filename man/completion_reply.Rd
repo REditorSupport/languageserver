@@ -6,6 +6,17 @@
 \usage{
 completion_reply(id, uri, workspace, document, position)
 }
+\arguments{
+\item{id}{a numeric, the id of the process that started the server}
+
+\item{uri}{a character, the path to a file as defined by \href{https://tools.ietf.org/html/rfc3986}{RFC 3986}}
+
+\item{workspace}{a \link{Workspace} object, the current workspace}
+
+\item{document}{a character, the contents of the document}
+
+\item{position}{a \link{position} object}
+}
 \value{
 a \link{Response} object
 
