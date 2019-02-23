@@ -7,6 +7,8 @@
 text_document_completion(self, id, params)
 }
 \arguments{
+\item{self}{a \link{LanguageServer} object}
+
 \item{id}{a numeric, the id of the process that started the server}
 
 \item{params}{a \link{completion_params} object}

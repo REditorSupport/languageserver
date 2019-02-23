@@ -7,6 +7,8 @@
 workspace_symbol(self, id, params)
 }
 \arguments{
+\item{self}{a \link{LanguageServer} object}
+
 \item{params}{a workspace_symbol_params object}
 }
 \description{

@@ -7,6 +7,8 @@
 text_document_will_save_wait_until(self, id, params)
 }
 \arguments{
+\item{self}{a \link{LanguageServer} object}
+
 \item{id}{a numeric, the id of the process that started the server}
 
 \item{params}{a \link{will_save_text_document_params}}

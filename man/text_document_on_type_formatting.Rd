@@ -7,6 +7,8 @@
 text_document_on_type_formatting(self, id, params)
 }
 \arguments{
+\item{self}{a \link{LanguageServer} object}
+
 \item{id}{a numeric, the id of the process that started the server}
 
 \item{params}{a \link{document_on_type_formatting_params} object}

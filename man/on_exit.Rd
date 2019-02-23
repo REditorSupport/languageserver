@@ -7,6 +7,8 @@
 on_exit(self, params)
 }
 \arguments{
+\item{self}{a \link{LanguageServer} object}
+
 \item{params}{unused here}
 }
 \description{

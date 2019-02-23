@@ -7,6 +7,8 @@
 on_initialized(self, params)
 }
 \arguments{
+\item{self}{a \link{LanguageServer} object}
+
 \item{params}{a named list}
 }
 \description{

@@ -7,6 +7,8 @@
 workspace_did_change_configuration(self, params)
 }
 \arguments{
+\item{self}{a \link{LanguageServer} object}
+
 \item{params}{a \link{did_change_configuration_params} object}
 }
 \description{

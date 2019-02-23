@@ -7,6 +7,8 @@
 workspace_execute_command(self, id, params)
 }
 \arguments{
+\item{self}{a \link{LanguageServer} object}
+
 \item{params}{an execute_command_params object}
 }
 \description{

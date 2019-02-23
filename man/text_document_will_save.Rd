@@ -7,6 +7,8 @@
 text_document_will_save(self, params)
 }
 \arguments{
+\item{self}{a \link{LanguageServer} object}
+
 \item{params}{a \link{will_save_text_document_params}}
 }
 \description{

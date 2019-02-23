@@ -1,1 +1,1 @@
-#'  @param self a [LanguageServer] object
+#' @param self a [LanguageServer] object
