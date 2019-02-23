@@ -1,4 +1,11 @@
-# Notification
+#' textDocument/didOpen notification handler
+#'
+#' Handler to the [textDocument/didOpen](https://microsoft.github.io/language-server-protocol/specification#textDocument_didOpen) [Notification]
+#'
+#' @template self
+#' @param params a [did_open_text_document_params]
+#'
+#' @keywords internal
 text_document_did_open <- function(self, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
@@ -7,7 +14,14 @@ text_document_did_open <- function(self, params) {
     self$text_sync(uri, document = NULL, run_lintr = TRUE, parse = TRUE)
 }
 
-# Notification
+#' textDocument/didChange notification handler
+#'
+#' Handler to the [textDocument/didChange](https://microsoft.github.io/language-server-protocol/specification#textDocument_didChange) [Notification]
+#'
+#' @template self
+#' @param params a [did_change_text_document_params]
+#'
+#' @keywords internal
 text_document_did_change <- function(self, params) {
     textDocument <- params$textDocument
     contentChanges <- params$contentChanges
@@ -21,12 +35,26 @@ text_document_did_change <- function(self, params) {
     self$text_sync(uri, document = doc, run_lintr = TRUE, parse = FALSE)
 }
 
-# Notification
+#' textDocument/willSave notification handler
+#'
+#' Handler to the [textDocument/willSave](https://microsoft.github.io/language-server-protocol/specification#textDocument_willSave) [Notification]
+#'
+#' @template self
+#' @param params a [will_save_text_document_params]
+#'
+#' @keywords internal
 text_document_will_save <- function(self, params) {
 
 }
 
-# Notification
+#' textDocument/didSave notification handler
+#'
+#' Handler to the [textDocument/didSave](https://microsoft.github.io/language-server-protocol/specification#textDocument_didSave) [Notification]
+#'
+#' @template self
+#' @param params a [did_save_text_document_params]
+#'
+#' @keywords internal
 text_document_did_save <- function(self, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
@@ -35,14 +63,29 @@ text_document_did_save <- function(self, params) {
     self$text_sync(uri, document = NULL, run_lintr = TRUE, parse = TRUE)
 }
 
-# Notification
+#' textDocument/didClose notification handler
+#'
+#' Handler to the [textDocument/didClose](https://microsoft.github.io/language-server-protocol/specification#textDocument_didClose) [Notification]
+#'
+#' @template self
+#' @param params a [did_close_text_document_params]
+#'
+#' @keywords internal
 text_document_did_close <- function(self, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
     rm(list = uri, envir = self$documents)
 }
 
-# Request
+#' textDocument/willSaveWaitUntil notification handler
+#'
+#' Handler to the [textDocument/willSaveWaitUntil](https://microsoft.github.io/language-server-protocol/specification#textDocument_willSaveWaitUntil) [Request]
+#'
+#' @template self
+#' @template id
+#' @param params a [will_save_text_document_params]
+#'
+#' @keywords internal
 text_document_will_save_wait_until <- function(self, id, params) {
 
 }

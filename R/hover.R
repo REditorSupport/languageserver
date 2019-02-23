@@ -1,29 +1,36 @@
+#' the response to a textDocument/hover Request
+#' 
+#' When hovering on a symbol, if it is a function, return its help text
+#' if it exists in the current [Workspace].
+#'
+#' @template reply-parameters
+#'
+#' @return a [Response] object
 hover_reply <- function(id, uri, workspace, document, position) {
     line <- position$line
-    character <- position$character
 
-    if (!check_scope(uri, document, line)) {
+    if (!check_scope(uri, document, position)) {
         return(Response$new(id))
     }
 
-    hover_result <- detect_hover(document, line, character)
+    hover_result <- detect_hover(document, position)
     hover <- hover_result$text
 
     logger$info("hover: ", hover)
 
-    matches <- stringr::str_match(
-        hover, "(?:([a-zA-Z][a-zA-Z0-9.]+)(:::?))?([a-zA-Z0-9_.]*)$")
+    matches <- detect_function(hover)
 
     contents <- tryCatch(
-        workspace$get_help(matches[4], matches[2]),
-        error = function(e) list())
+        workspace$get_help(matches$funct, matches$package),
+        error = function(e) list()
+    )
 
     if (is.null(contents)) {
         Response$new(id)
     } else {
-        range <- list(
-            start = list(line = line, character = hover_result$begin),
-            end = list(line = line, character = hover_result$end)
+        range <- range(
+            start = position(line = line, character = hover_result$begin),
+            end   = position(line = line, character = hover_result$end)
         )
         logger$info("range", range)
         Response$new(
