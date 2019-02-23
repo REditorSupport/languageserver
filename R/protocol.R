@@ -1,3 +1,4 @@
+#' base Message class
 Message <- R6::R6Class("Message",
     public = list(
         jsonrpc = "2.0",
@@ -11,7 +12,9 @@ Message <- R6::R6Class("Message",
     )
 )
 
-
+#' Request Message class
+#'
+#' Describe a request between the client and the server.
 Request <- R6::R6Class("Request",
     inherit = Message,
     public = list(
@@ -38,6 +41,7 @@ Request <- R6::R6Class("Request",
 )
 
 
+#' Notification Message class
 Notification <- R6::R6Class("Notification",
     inherit = Message,
     public = list(
@@ -60,7 +64,9 @@ Notification <- R6::R6Class("Notification",
     )
 )
 
-
+#' Response Message class
+#'
+#' Message sent as the result of a [Request]
 Response <- R6::R6Class("Response",
     inherit = Message,
     public = list(
@@ -69,7 +75,7 @@ Response <- R6::R6Class("Response",
         error = NULL,
         initialize = function(id = NULL, result = NULL, error = NULL) {
             self$id <- id
-            self$result <- result
+            self$result <- unclass(result)
             self$error <- error
         },
         to_json = function() {
@@ -81,7 +87,7 @@ Response <- R6::R6Class("Response",
             if (!is.null(self$error)) {
                 payload$error <- self$error
             }
-            jsonlite::toJSON(payload, auto_unbox = TRUE)
+            jsonlite::toJSON(payload, auto_unbox = TRUE, force = TRUE)
         }
     )
 )
@@ -101,11 +107,14 @@ ErrorCodes <- list(
 )
 
 
+#' Response Error Message class
+#'
+#' Message sent as the result of a [Request] in case of an error.
 ResponseErrorMessage <- R6::R6Class(
     "Response",
     inherit = Response,
     public = list(
-        initialize = function(id, errortype, message=NULL) {
+        initialize = function(id, errortype, message = NULL) {
             self$id <- id
             self$error <- list(code = ErrorCodes[[errortype]])
             if (!is.null(message)) {

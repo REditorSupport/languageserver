@@ -29,6 +29,11 @@ CompletionItemKind <- list(
     TypeParameter = 25
 )
 
+#' complete a package name
+#'
+#' @param token a character, the start of the package name to identify
+#'
+#' @return a list of candidates
 package_completion <- function(token) {
     installed_packages <- rownames(utils::installed.packages())
     token_packages <- installed_packages[startsWith(installed_packages, token)]
@@ -38,6 +43,13 @@ package_completion <- function(token) {
     completions
 }
 
+#' complete a function argument
+#'
+#' @param workspace a [Workspace] object
+#' @param token a character, the start of the argument to identify
+#' @param closure a closure object, the function for which `token` may be an argument
+#'
+#' @return a list of candidates
 arg_completion <- function(workspace, token, closure) {
     args <- names(workspace$get_formals(closure$funct, closure$package))
     if (is.character(args)) {
@@ -49,15 +61,26 @@ arg_completion <- function(workspace, token, closure) {
     }
 }
 
+#' complete any object in the workspace
+#'
+#' This function works by first checking if `full_token` is of the form
+#' `object`, `package::object` or `package:::object`. In the first two cases,
+#' it will look into all exported objects of loaded packages (or just `package`
+#' for the second case) and return any mathching objects. For the last case,
+#' it will look at the unexported objects of `package.`
+#'
+#' @param workspace a [Workspace] object
+#' @param full_token a character, the object to identify
+#'
+#' @return a list of candidates
 workspace_completion <- function(workspace, full_token) {
     completions <- list()
 
-    matches <- stringr::str_match(
-        full_token, "(?:([a-zA-Z][a-zA-Z0-9.]+)(:::?))?([a-zA-Z0-9_.]*)$")
+    matches <- detect_function(full_token)
 
-    pkg <- matches[2]
-    exported_only <- matches[3] == "::"
-    token <- matches[4]
+    pkg <- matches$package
+    exported_only <- matches$accessor == "::"
+    token <- matches$funct
 
     if (is.na(pkg)) {
         packages <- workspace$loaded_packages
@@ -102,11 +125,14 @@ workspace_completion <- function(workspace, full_token) {
     completions
 }
 
+#' the response to a textDocument/completion request
+#'
+#' @template reply-parameters
+#'
+#' @return a [Response] object
 completion_reply <- function(id, uri, workspace, document, position) {
-    line <- position$line
-    character <- position$character
 
-    if (!check_scope(uri, document, line)) {
+    if (!check_scope(uri, document, position)) {
         return(Response$new(
             id,
             result = list(
@@ -115,9 +141,9 @@ completion_reply <- function(id, uri, workspace, document, position) {
             )))
     }
 
-    token <- detect_token(document, line, character)
+    token <- detect_token(document, position)
     logger$info("token: ", token)
-    closure <- detect_closure(document, line, character)
+    closure <- detect_closure(document, position)
     logger$info("closure: ", closure)
 
     completions <- list()

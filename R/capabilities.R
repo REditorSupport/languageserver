@@ -1,3 +1,19 @@
+#' Server capabilities
+#'
+#' List all supported capabilities of the language server, as defined in the
+#' [Language Server Protocol specification](https://microsoft.github.io/language-server-protocol/specification).
+#'
+#' Currently the capabilities are:
+#' + textDocumentSync,
+#' + hoverProvider,
+#' + completionProvider,
+#' + signatureHelpProvider,
+#' + documentFormattingProvider,
+#' + documentRangeFormattingProvider
+#' @name ServerCapabilities
+#' @export
+NULL
+
 SaveOptions <- list(
     includeText = FALSE
 )
