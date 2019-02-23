@@ -2,7 +2,8 @@ languageserver 0.2.6
   
   - fix a bug in completion items
   - lower bound lintr to 1.0.3
-
+  - fix a bug in desc_get_deps
+  - better support vscode settings
 
 languageserver 0.2.5
 
