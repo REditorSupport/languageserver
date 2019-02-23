@@ -13,14 +13,15 @@ on_initialized <- function(self, params) {
     logger$info("on_initialized")
     if (is_package(self$rootUri)) {
 
-        source_dir <- file.path(path_from_uri(self$rootUri), "R")
+        project_root <- path_from_uri(self$rootUri)
+        source_dir <- file.path(project_root, "R")
         files <- list.files(source_dir)
         for (f in files) {
             logger$info("load ", f)
             uri <- path_to_uri(file.path(source_dir, f))
             self$text_sync(uri, document = NULL, run_lintr = FALSE, parse = TRUE)
         }
-        deps <- tryCatch(desc::desc_get_deps(), error = function(e) NULL)
+        deps <- tryCatch(desc::desc_get_deps(project_root), error = function(e) NULL)
         if (!is.null(deps)) {
             packages <- Filter(function(x) x != "R", deps$package[deps$type == "Depends"])
             for (package in packages) {
