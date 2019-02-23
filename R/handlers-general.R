@@ -20,11 +20,13 @@ on_initialized <- function(self, params) {
             uri <- path_to_uri(file.path(source_dir, f))
             self$text_sync(uri, document = NULL, run_lintr = FALSE, parse = TRUE)
         }
-        deps <- desc::desc_get_deps()
-        packages <- Filter(function(x) x != "R", deps$package[deps$type == "Depends"])
-        for (package in packages) {
-            logger$info("load package:", package)
-            self$workspace$load_package(package)
+        deps <- tryCatch(desc::desc_get_deps(), error = function(e) NULL)
+        if (!is.null(deps)) {
+            packages <- Filter(function(x) x != "R", deps$package[deps$type == "Depends"])
+            for (package in packages) {
+                logger$info("load package:", package)
+                self$workspace$load_package(package)
+            }
         }
     }
     # TODO: result lint result of the package
