@@ -6,9 +6,9 @@ workspace_did_change_workspace_folders <- function(self, params) {
 
 workspace_did_change_configuration <- function(self, params) {
     settings <- params$settings
-    if ("lsp" %in% names(settings)) {
+    if ("languageserver" %in% names(settings)) {
         # vscode
-        settings <- settings$lsp
+        settings <- settings$languageserver
     }
     logger$debug_mode(settings$debug)
     logger$info(settings)
