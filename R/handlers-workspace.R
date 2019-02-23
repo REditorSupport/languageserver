@@ -22,10 +22,14 @@ workspace_did_change_workspace_folder_params <- function(self, params) {
 #' @keywords internal
 workspace_did_change_configuration <- function(self, params) {
     settings <- params$settings
+    # vscode
+    settings <- tryCatch(settings$r$languageserver, error = function(e) settings)
 
     logger$debug_mode(settings$debug)
+    logger$info(settings)
 
     if (!is.null(settings$diagnostics) && !isTRUE(settings$diagnostics)) {
+        logger$info("disable diagnostics")
         self$run_lintr <- FALSE
     }
 }

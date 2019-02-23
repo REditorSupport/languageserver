@@ -216,7 +216,7 @@ parse_expr <- function(expr) {
                 if (!is.null(deps)) {
                     deps <- deps[startsWith(deps, "package:")]
                     deps <- gsub("package:", "", deps)
-                    dpes <- deps[! deps %in% packages]
+                    deps <- deps[! deps %in% packages]
                     packages <- c(packages, deps)
                 }
             }
