@@ -12,5 +12,6 @@ position(line, character)
 \item{character}{an integer}
 }
 \description{
-a position in a text document
+Position in a text document expressed as zero-based line and zero-based
+character offset.
 }
