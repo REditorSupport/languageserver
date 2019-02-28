@@ -39,10 +39,11 @@ let g:LanguageClient_serverCommands = {
 
 - EMacs: [lsp-mode](https://github.com/emacs-lsp/lsp-mode) with settings
 ```elisp
-(lsp-define-stdio-client lsp-R "R"
-                         (lambda () default-directory)
-			 '("R" "--slave" "-e" "languageserver::run()"))
-(add-hook 'R-mode-hook #'lsp-R-enable)
+(lsp-register-client
+    (make-lsp-client :new-connection
+        (lsp-stdio-connection '("R" "--slave" "-e" "languageserver::run()"))
+        :major-modes '(ess-r-mode inferior-ess-r-mode)
+        :server-id 'lsp-R))
 ```
 
 ## Services Implemented
