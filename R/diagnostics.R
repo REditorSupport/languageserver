@@ -49,36 +49,11 @@ diagnostic_from_lint <- function(result) {
 
 #' find the lintr config file
 #'
-#' This is a copy of `lintr:::find_config` since CRAN doesn't like :::.
-#'
 #' @keywords internal
 find_config <- function(filename) {
-    if (is.null(filename)) {
-        return(NULL)
-    }
-    linter_file <- getOption("lintr.linter_file")
-    path <- if (is_directory(filename)) {
-        filename
-    } else {
-        dirname(filename)
-    }
-    linter_config <- file.path(path, linter_file)
-    if (isTRUE(file.exists(linter_config))) {
-        return(linter_config)
-    }
-    project <- find_package(path)
-    linter_config <- file.path(project, linter_file)
-    if (isTRUE(file.exists(linter_config))) {
-        return(linter_config)
-    }
-    # this version of find_config has not released
-
-    # home_dir <- Sys.getenv("HOME", unset = "~")
-    # linter_config <- file.path(home_dir, linter_file)
-    # if (isTRUE(file.exists(linter_config))) {
-    #     return(linter_config)
-    # }
-    NULL
+    # instead of calling `lintr:::find_config` directly
+    # since CRAN doesn't like :::.
+    asNamespace("lintr")$find_config(filename)
 }
 
 #' run diagnostic on a file
