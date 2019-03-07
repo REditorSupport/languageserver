@@ -73,4 +73,4 @@ let g:LanguageClient_serverCommands = {
 
 ### Linters
 
-With [lintr](https://github.com/jimhester/lintr) 1.0.3, the linters can be specified by creating the `.lintr` file at the project or home directory. Details can be found at lintr documentation.
+With [lintr](https://github.com/jimhester/lintr) master branch, the linters can be specified by creating the `.lintr` file at the project or home directory. Details can be found at lintr documentation.
