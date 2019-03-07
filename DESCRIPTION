@@ -1,7 +1,7 @@
 Package: languageserver
 Type: Package
 Title: Language Server Protocol
-Version: 0.2.7
+Version: 0.2.7.9999
 Date: 2019-3-7
 Author: Randy Lai
 Maintainer: Randy Lai <randy.cs.lai@gmail.com>
