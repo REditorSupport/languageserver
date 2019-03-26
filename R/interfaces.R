@@ -50,7 +50,7 @@ text_edit <- function(range, new_text) {
   structure(
     list(
       range    = range,
-      new_text = new_text
+      newText = new_text
     ),
     class = "text_edit"
   )
