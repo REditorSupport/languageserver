@@ -113,15 +113,21 @@ merge_list <- function(x, y) {
 #' @keywords internal
 to_string <- function(...) {
     dots <- list(...)
-    if (length(str) > 0) {
+    if (length(dots) > 0) {
         str <- sapply(
             dots, function(x) {
-                tryCatch(jsonlite::toJSON(x, auto_unbox = TRUE), error = function(e) x)
+                tryCatch({
+                if (length(x) > 1)
+                    jsonlite::toJSON(x, auto_unbox = TRUE)
+                else
+                    x
+                },
+                error = function(e) x)
             })
     } else {
         str <- ""
     }
-    paste0(paste(str, collapse = ""), "\n")
+    paste0(paste(str, collapse = " "), "\n")
 }
 
 #' write to log
