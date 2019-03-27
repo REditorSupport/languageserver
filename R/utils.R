@@ -116,13 +116,7 @@ to_string <- function(...) {
     if (length(str) > 0) {
         str <- sapply(
             dots, function(x) {
-                tryCatch({
-                if (length(x) > 1)
-                    jsonlite::toJSON(x, auto_unbox = TRUE)
-                else
-                    x
-                },
-                error = function(e) x)
+                tryCatch(jsonlite::toJSON(x, auto_unbox = TRUE), error = function(e) x)
             })
     } else {
         str <- ""
@@ -167,9 +161,9 @@ Logger <- R6::R6Class("Logger",
 )
 
 #' check if a character vector looks like a function
-#' 
+#'
 #' @param text a character vector
-#' 
+#'
 #' @keywords internal
 detect_function <- function(text) {
     matches <- stringr::str_match(text, "(?:([a-zA-Z][a-zA-Z0-9.]+)(:::?))?([a-zA-Z0-9_.]*)$")

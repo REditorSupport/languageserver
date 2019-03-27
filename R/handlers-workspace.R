@@ -24,8 +24,10 @@ workspace_did_change_configuration <- function(self, params) {
     settings <- params$settings
 
     # flatten vscode r-lsp settings
-    settings <- tryCatch(settings$r$lsp, error = function(e) settings)
+    vscode_setting <- tryCatch(settings$r$lsp, error = function(e) NULL)
+    settings <- if (is.null(vscode_setting)) settings else vscode_setting
 
+    logger$info("settings ", settings)
     logger$debug_mode(settings$debug)
     logger$info(settings)
 
