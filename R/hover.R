@@ -36,7 +36,6 @@ hover_reply <- function(id, uri, workspace, document, position) {
             start = position(line = line, character = hover_result$begin),
             end   = position(line = line, character = hover_result$end)
         )
-        logger$info("range", range)
         Response$new(
             id,
             result = list(

@@ -174,11 +174,13 @@ Workspace <- R6::R6Class("Workspace",
             if (is.null(pkgname) || is.na(pkgname)) {
                 pkgname <- self$guess_package(topic)
             }
+            # note: the parantheses are neccessary
             if (is.null(pkgname)) {
-                hfile <- utils::help(topic)
+                hfile <- utils::help((topic))
             } else {
-                hfile <- utils::help(topic, pkgname)
+                hfile <- utils::help((topic), (pkgname))
             }
+
             if (length(hfile) > 0) {
                 enc2utf8(repr::repr_text(hfile))
             } else {
