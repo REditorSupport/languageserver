@@ -4,3 +4,4 @@
 *.so
 .Rhistory
 .vscode
+^CRAN-RELEASE$
