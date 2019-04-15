@@ -17,7 +17,7 @@ style_file <- function(path, options) {
         transformers = styler::tidyverse_style(indent_by = options$tabSize)
     )
     contents <- readLines(temp_file, warn = FALSE)
-    unlink(temp_file)
+    file.remove(temp_file)
     paste(contents, collapse = "\n")
 }
 
