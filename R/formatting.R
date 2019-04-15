@@ -1,14 +1,18 @@
-#' edit code style
+#' style a file
 #'
 #' This functions formats a document using [styler::style_text()] with the
 #' [styler::tidyverse_style()] style.
 #'
-#' @template document
+#' @param path file path
 #' @param options a named list of options, with a `tabSize` parameter
-stylize <- function(document, options) {
-    newTextList <- styler::style_text(
-        document, transformers = styler::tidyverse_style(indent_by = options$tabSize))
-    paste(newTextList, collapse = "\n")
+style_file <- function(path, options) {
+    document <- readLines(path, warn = FALSE)
+    temp_file <- tempfile(fileext = ".R")
+    writeLines(document, temp_file)
+    styler::style_file(temp_file,
+        transformers = styler::tidyverse_style(indent_by = options$tabSize)
+    )
+    paste(readLines(temp_file, warn = FALSE), collapse = "\n")
 }
 
 #' format a document
@@ -18,7 +22,7 @@ stylize <- function(document, options) {
 #' @template document
 #' @param options a named list of options, with a `tabSize` parameter
 formatting_reply <- function(id, uri, document, options) {
-    newText <- stylize(document, options)
+    newText <- style_file(path_from_uri(uri), options)
     ndoc <- length(document)
     range <- range(
         start = position(line = 0, character = 0),
@@ -28,6 +32,22 @@ formatting_reply <- function(id, uri, document, options) {
     TextEditList <- list(TextEdit)
     Response$new(id, TextEditList)
 }
+
+#' edit code style
+#'
+#' This functions formats a list of text using [styler::style_text()] with the
+#' [styler::tidyverse_style()] style.
+#'
+#' @param text a list of text
+#' @param options a named list of options, with a `tabSize` parameter
+style_text <- function(text, options) {
+    newTextList <- styler::style_text(
+        text,
+        transformers = styler::tidyverse_style(indent_by = options$tabSize)
+    )
+    paste(newTextList, collapse = "\n")
+}
+
 
 #' format a part of a document
 #'
@@ -40,7 +60,7 @@ range_formatting_reply <- function(id, uri, document, range, options) {
     line1 <- range$start$line
     line2 <- if (range$end$character == 0) range$end$line - 1 else range$end$line
     selection <- document[(line1:line2) + 1]
-    newText <- stylize(selection, options)
+    newText <- style_text(selection, options)
     range <- range(
         start = position(line = line1, character = 0),
         end = position(line = line2, character = nchar(document[[line2 + 1]]))
