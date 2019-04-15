@@ -7,7 +7,11 @@
 #' @param options a named list of options, with a `tabSize` parameter
 style_file <- function(path, options) {
     document <- readLines(path, warn = FALSE)
-    temp_file <- tempfile(fileext = ".R")
+    if (is_rmarkdown(path)) {
+        temp_file <- tempfile(fileext = ".Rmd")
+    } else {
+        temp_file <- tempfile(fileext = ".R")
+    }
     writeLines(document, temp_file)
     styler::style_file(temp_file,
         transformers = styler::tidyverse_style(indent_by = options$tabSize)
