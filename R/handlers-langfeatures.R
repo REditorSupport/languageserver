@@ -63,8 +63,6 @@ text_document_signature_help  <- function(self, id, params) {
 #'
 #' Handler to the [textDocument/definition](https://microsoft.github.io/language-server-protocol/specification#textDocument_definition) [Request]
 #'
-#' Not implemented yet.
-#'
 #' @template self
 #' @template id
 #' @template tdpp

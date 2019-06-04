@@ -89,7 +89,8 @@ Workspace <- R6::R6Class("Workspace",
         global_env = list(nonfuncts = character(0),
                           functs = character(0),
                           signatures = list(),
-                          formals = list()),
+                          formals = list(),
+                          definitions = DefinitionCache$new()),
 
         initialize = function() {
             for (pkgname in self$loaded_packages) {
@@ -188,6 +189,10 @@ Workspace <- R6::R6Class("Workspace",
             }
         },
 
+        get_definition = function(topic) {
+            self$global_env$definitions$get(topic)
+        },
+
         get_code = function(topic, pkg = NULL) {
             if (is.null(pkg) || is.na(pkg)) {
                 logger$info("pkg guess !")
@@ -196,7 +201,7 @@ Workspace <- R6::R6Class("Workspace",
             logger$info("pkg:", pkg)
 
             if (is.null(pkg)) {
-                code <- utils::help((topic)) ## TODO
+                return(NULL)
             } else {
                 code <- utils::getFromNamespace(topic, pkg)
             }
@@ -211,7 +216,7 @@ Workspace <- R6::R6Class("Workspace",
             }
         },
 
-        load_to_global = function(parse_result) {
+        load_to_global = function(parse_result, uri) {
             self$global_env$nonfuncts <- unique(
                 c(self$global_env$nonfuncts, parse_result$nonfuncts))
             self$global_env$functs <- unique(
@@ -220,6 +225,7 @@ Workspace <- R6::R6Class("Workspace",
                 self$global_env$signatures, parse_result$signatures)
             self$global_env$formals <- merge_list(
                 self$global_env$formals, parse_result$formals)
+            self$global_env$definitions$update(uri, parse_result$definition_ranges)
         }
     )
 )
@@ -342,7 +348,7 @@ process_sync_out <- function(self) {
                     self$workspace$load_package(package)
                 }
 
-                self$workspace$load_to_global(parse_result)
+                self$workspace$load_to_global(parse_result, uri)
             }
 
             # cleanup

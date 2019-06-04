@@ -84,7 +84,7 @@ location <- function(uri, range) {
 
 print.location <- function(x, ...) {
   cat("<Location>\n")
-  print(x$document_uri, start_char = "\t")
+  print(x$uri, start_char = "\t")
   cat("\n")
   print(x$range, start_char = "\t")
 }

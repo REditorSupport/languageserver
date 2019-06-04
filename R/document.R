@@ -168,7 +168,7 @@ parse_document <- function(path) {
             knitr::purl(path, output = temp_file, quiet = TRUE)
         }, error = function(e) path)
     }
-    expr <- tryCatch(parse(path, keep.source = FALSE), error = function(e) NULL)
+    expr <- tryCatch(parse(path, keep.source = TRUE), error = function(e) NULL)
     if (!is.null(temp_file) && file.exists(temp_file)) {
         file.remove(temp_file)
     }
@@ -182,8 +182,10 @@ parse_expr <- function(expr) {
     functs <- character()
     formals <- list()
     signatures <- list()
+    definition_ranges <- list()
     if (length(expr)) {
-        for (e in expr) {
+        for (i in seq_along(expr)) {
+            e <- expr[[i]]
             if (length(e) == 3L &&
                 is.symbol(e[[1L]]) &&
                 (e[[1L]] == "<-" || e[[1L]] == "=") &&
@@ -199,6 +201,13 @@ parse_expr <- function(expr) {
                     signature <- paste0(trimws(signature, which = "left"), collapse = "\n")
                     signature <- trimws(gsub("NULL\\s*$", "", signature))
                     signatures[[funct]] <- signature
+                    first_line <- attr(expr, "srcref")[[i]][1]
+                    first_char <- attr(expr, "srcref")[[i]][5]
+                    last_line <- attr(expr, "srcref")[[i]][3]
+                    last_char <- attr(expr, "srcref")[[i]][6]
+                    definition_range <- range(position(first_line, first_char),
+                                        position(last_line, last_char))
+                    definition_ranges[[funct]] <- definition_range
                 } else {
                     nonfuncts <- c(nonfuncts, funct)
                 }
@@ -223,5 +232,5 @@ parse_expr <- function(expr) {
         }
     }
     list(packages = packages, nonfuncts = nonfuncts, functs = functs,
-         signatures = signatures, formals = formals)
+         signatures = signatures, formals = formals, definition_ranges = definition_ranges)
 }

@@ -9,7 +9,8 @@
 #' + completionProvider,
 #' + signatureHelpProvider,
 #' + documentFormattingProvider,
-#' + documentRangeFormattingProvider
+#' + documentRangeFormattingProvider,
+#' + definitionProvider
 #' @name ServerCapabilities
 #' @export
 NULL

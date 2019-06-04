@@ -15,6 +15,7 @@ Currently the capabilities are:
 \item completionProvider,
 \item signatureHelpProvider,
 \item documentFormattingProvider,
-\item documentRangeFormattingProvider
+\item documentRangeFormattingProvider,
+\item definitionProvider
 }
 }
