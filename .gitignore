@@ -5,3 +5,5 @@
 .Rhistory
 .vscode
 CRAN-RELEASE
+lib
+checks

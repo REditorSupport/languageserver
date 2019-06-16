@@ -4,3 +4,9 @@
 ^\.Rproj\.user$
 ^cran-comments\.md$
 man-roxygen
+Makefile
+docker_checker
+NEWS.md
+DEV.md
+lib
+checks
