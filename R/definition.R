@@ -71,8 +71,16 @@ find_definition_in_file <- function(workspace, funct) {
 #' If the function is not found in a file but is found in a loaded package,
 #' writes the function definition to a temporary file and returns that
 #' as the location.
-#' @return A `Response` with the `uri` and `range` of the function definition,
-#' or `NULL` if the function is not found.
+#' @template id
+#' @template uri
+#' @template workspace
+#' @template document
+#' @template position
+#'
+#' @return A `Response` with the `uri` and [range] of the function definition,
+#' or just the `id` if the function is not found.
+#'
+#' @keywords internal
 definition_reply <- function(id, uri, workspace, document, position) {
     token <- detect_hover(document, position)
 
