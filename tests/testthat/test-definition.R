@@ -1,5 +1,17 @@
 context("Test Definition")
 
+request_with_timeout <- function(f, client, timeout_seconds = 10,
+                                 condition = function(x) FALSE) {
+    start_time <- Sys.time()
+    f() # make request
+    data <- jsonlite::fromJSON(client$fetch(blocking = TRUE))
+    while(Sys.time() - start_time < timeout_seconds && (length(data$result) < 1 || condition(data))) {
+        f() # make request again
+        data <- jsonlite::fromJSON(client$fetch(blocking = TRUE))
+    }
+    data
+}
+
 test_that("DefinitionCache works", {
     dc <- DefinitionCache$new()
     range1 <- range(position(1, 2), position(3, 4))
@@ -30,10 +42,9 @@ test_that("Go to Definition works for functions in files", {
     client$fetch(blocking = TRUE)
     client$deliver(Notification$new("textDocument/didSave", list(textDocument = list(uri = path_to_uri(defn_file)))))
     client$deliver(Notification$new("textDocument/didSave", list(textDocument = list(uri = path_to_uri(query_file)))))
-    Sys.sleep(1) # delay to let languageserver process notifications
-    client$deliver(client$request("textDocument/definition", list(textDocument = list(uri = path_to_uri(query_file)),
-                             position = list(line = 0, character = 0))))
-    data <- jsonlite::fromJSON(client$fetch(blocking = TRUE))
+    data <- request_with_timeout(function() client$deliver(client$request("textDocument/definition",
+        list(textDocument = list(uri = path_to_uri(query_file)), position = list(line = 0, character = 0)))),
+        client)
     expect_equal(data$result$range$start, list(line = 0, character = 0))
     expect_equal(data$result$range$end, list(line = 2, character = 0))
     # move function into different file
@@ -41,10 +52,10 @@ test_that("Go to Definition works for functions in files", {
     writeLines(c("my_fn <- function(x) {", "  x + 1", "}"), defn2_file)
     client$deliver(Notification$new("textDocument/didSave", list(textDocument = list(uri = path_to_uri(defn_file)))))
     client$deliver(Notification$new("textDocument/didSave", list(textDocument = list(uri = path_to_uri(defn2_file)))))
-    Sys.sleep(1) # delay to let languageserver process notifications
-    client$deliver(client$request("textDocument/definition", list(textDocument = list(uri = path_to_uri(query_file)),
-                             position = list(line = 0, character = 0))))
-    data <- jsonlite::fromJSON(client$fetch(blocking = TRUE))
+    data <- request_with_timeout(function() client$deliver(client$request("textDocument/definition",
+        list(textDocument = list(uri = path_to_uri(query_file)), position = list(line = 0, character = 0)))),
+        client,
+        condition = function(x) x$result$uri == path_to_uri(defn_file))
     expect_equal(data$result$uri, path_to_uri(defn2_file))
     # clean up
     file.remove(defn_file)
@@ -63,10 +74,9 @@ test_that("Go to Definition works for functions in packages", {
     client$start()
     client$fetch(blocking = TRUE)
     client$deliver(Notification$new("textDocument/didSave", list(textDocument = list(uri = path_to_uri(query_file)))))
-    Sys.sleep(1) # delay to let languageserver process notifications
-    client$deliver(client$request("textDocument/definition", list(textDocument = list(uri = path_to_uri(query_file)),
-                             position = list(line = 0, character = 0))))
-    data <- jsonlite::fromJSON(client$fetch(blocking = TRUE))
+    data <- request_with_timeout(function() client$deliver(client$request("textDocument/definition",
+        list(textDocument = list(uri = path_to_uri(query_file)), position = list(line = 0, character = 0)))),
+        client)
     line <- readLines(path_from_uri(data$result$uri), n = 1)
     expect_true(startsWith(line, c("print <- function")))
     # clean up
@@ -84,10 +94,9 @@ test_that("Go to Definition works for missing functions", {
     client$start()
     client$fetch(blocking = TRUE)
     client$deliver(Notification$new("textDocument/didSave", list(textDocument = list(uri = path_to_uri(query_file)))))
-    Sys.sleep(1) # delay to let languageserver process notifications
-    client$deliver(client$request("textDocument/definition", list(textDocument = list(uri = path_to_uri(query_file)),
-                             position = list(line = 0, character = 0))))
-    data <- jsonlite::fromJSON(client$fetch(blocking = TRUE))
+    data <- request_with_timeout(function() client$deliver(client$request("textDocument/definition",
+        list(textDocument = list(uri = path_to_uri(query_file)), position = list(line = 0, character = 0)))),
+        client, timeout_seconds = 2) # will run full duration of timeout_seconds
     expect_equal(length(data$result), 0)
     # clean up
     file.remove(query_file)
@@ -111,9 +120,9 @@ test_that("Go to Definition works when package is specified", {
     client$deliver(Notification$new("textDocument/didSave", list(textDocument = list(uri = path_to_uri(defn_file)))))
     client$deliver(Notification$new("textDocument/didSave", list(textDocument = list(uri = path_to_uri(query_file)))))
     Sys.sleep(1) # delay to let languageserver process notifications
-    client$deliver(client$request("textDocument/definition", list(textDocument = list(uri = path_to_uri(query_file)),
-                             position = list(line = 0, character = 7))))
-    data <- jsonlite::fromJSON(client$fetch(blocking = TRUE))
+    data <- request_with_timeout(function() client$deliver(client$request("textDocument/definition",
+        list(textDocument = list(uri = path_to_uri(query_file)), position = list(line = 0, character = 7)))),
+        client)
     # should find base::print definition, not the one in defn_file.d
     expect_true(data$result$uri != path_to_uri(defn_file))
     # clean up
