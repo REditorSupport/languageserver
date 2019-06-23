@@ -54,7 +54,7 @@ let g:LanguageClient_serverCommands = {
 - [x] hoverProvider
 - [x] completionProvider
 - [x] signatureHelpProvider
-- [ ] definitionProvider
+- [x] definitionProvider
 - [ ] referencesProvider
 - [ ] documentHighlightProvider
 - [ ] documentSymbolProvider

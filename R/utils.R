@@ -180,7 +180,5 @@ detect_function <- function(text) {
     )
 }
 
-#' create the logger
-#'
-#' @keywords internal
+# create the logger
 logger <- Logger$new()

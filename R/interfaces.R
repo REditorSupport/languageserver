@@ -2,9 +2,17 @@
 
 #' a position in a text document
 #'
+#' Position in a text document expressed as zero-based line and zero-based
+#' character offset.
+#'
 #' @param line an integer
 #' @param character an integer
 position <- function(line, character) {
+
+  if (!is.numeric(line) | !is.numeric(character)) {
+    stop("`position` requires numeric arguments!")
+  }
+
   structure(
     list(
       line = line,
@@ -14,11 +22,23 @@ position <- function(line, character) {
   )
 }
 
+print.position <- function(x, start_char = "", ...) {
+  cat(start_char, "<Position> Line:", x$line, " | Character:", x$character)
+}
+
 #' a range in a text document
+#'
+#' A range in a text document expressed as start and end [position]s.
+#' A range is comparable to a selection in an editor.
 #'
 #' @param start a [position]
 #' @param end a [position]
 range <- function(start, end) {
+
+  if (!inherits(start, "position") | !inherits(end, "position")) {
+    stop("`range` requires 'position' parameters!")
+  }
+
   structure(
     list(
       start = start,
@@ -28,11 +48,30 @@ range <- function(start, end) {
   )
 }
 
+print.range <- function(x, start_char = "", ...) {
+  cat(start_char, "<Range>\n")
+  print(x$start, start_char = paste0(start_char, "\t"))
+  cat("\n")
+  print(x$end, start_char = paste0(start_char, "\t"))
+}
+
+
 #' a location inside a resource
+#'
+#' Represents a location inside a resource, such as a line inside a text file.
 #'
 #' @template uri
 #' @param range a [range]
 location <- function(uri, range) {
+
+  if (!inherits(range, "range")) {
+    stop("`location` requires a 'range' parameter!")
+  }
+
+  # if (!inherits(uri, "document_uri")) {
+  #   stop("`location` requires an 'document_uri' parameter!")
+  # }
+
   structure(
     list(
       uri   = uri,
@@ -40,6 +79,35 @@ location <- function(uri, range) {
     ),
     class = "location"
   )
+}
+
+
+print.location <- function(x, ...) {
+  cat("<Location>\n")
+  print(x$uri, start_char = "\t")
+  cat("\n")
+  print(x$range, start_char = "\t")
+}
+
+#' a document URI
+#'
+#' A Uniform Resource Identifier as defined by [RFC 3986](http://tools.ietf.org/html/rfc3986).
+#'
+#' @param uri a character
+document_uri  <- function(uri) {
+
+  if (!is.character(uri)) {
+    stop("`document_uri` requires a character parameter!")
+  }
+
+  structure(
+    uri,
+    class = "document_uri"
+  )
+}
+
+print.document_uri <- function(x, start_char = "", ...) {
+  cat(start_char, "<DocumentURI>", unclass(x))
 }
 
 #' a textual edit applicable to a text document

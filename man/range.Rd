@@ -12,5 +12,6 @@ range(start, end)
 \item{end}{a \link{position}}
 }
 \description{
-a range in a text document
+A range in a text document expressed as start and end \link{position}s.
+A range is comparable to a selection in an editor.
 }

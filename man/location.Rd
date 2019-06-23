@@ -12,5 +12,5 @@ location(uri, range)
 \item{range}{a \link{range}}
 }
 \description{
-a location inside a resource
+Represents a location inside a resource, such as a line inside a text file.
 }
