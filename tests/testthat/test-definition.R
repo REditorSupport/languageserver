@@ -28,6 +28,21 @@ test_that("DefinitionCache works", {
     expect_equal(dc$get("defn1")$uri, "uri2")
 })
 
+test_that("DefinitionCache works when multiple functions are removed", {
+    dc <- DefinitionCache$new()
+    range1 <- range(position(1, 2), position(3, 4))
+    range2 <- range(position(5, 6), position(7, 8))
+    ranges <- list(defn1 = range1, defn2 = range2)
+    dc$update("uri1", ranges)
+    expect_equal(dc$get("defn1")$uri, "uri1")
+    expect_equal(dc$get("defn2")$uri, "uri1")
+    # defn1, defn2 disappear from uri1
+    ranges_updated <- list()
+    dc$update("uri1", ranges_updated)
+    expect_null(dc$get("defn1"))
+    expect_null(dc$get("defn2"))
+})
+
 test_that("Go to Definition works for functions in files", {
     defn_file <- tempfile()
     defn2_file <- tempfile()

@@ -15,7 +15,7 @@ DefinitionCache <- R6::R6Class("DefinitionCache",
             functs <- names(ranges)
             removed_functs <- setdiff(private$uris[[uri]], functs)
             if(!is.null(removed_functs) && length(removed_functs) > 0) {
-                private$definitions[[removed_functs]] <- NULL
+                private$definitions[removed_functs] <- NULL
             }
             for(funct in functs) {
                 private$definitions[[funct]] <- location(uri, ranges[[funct]])
