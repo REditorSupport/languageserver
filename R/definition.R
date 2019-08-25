@@ -14,10 +14,10 @@ DefinitionCache <- R6::R6Class("DefinitionCache",
         update = function(uri, ranges) {
             functs <- names(ranges)
             removed_functs <- setdiff(private$uris[[uri]], functs)
-            if(!is.null(removed_functs) && length(removed_functs) > 0) {
+            if (!is.null(removed_functs) && length(removed_functs) > 0) {
                 private$definitions[removed_functs] <- NULL
             }
-            for(funct in functs) {
+            for (funct in functs) {
                 private$definitions[[funct]] <- location(uri, ranges[[funct]])
             }
             private$uris[[uri]] <- functs
@@ -53,7 +53,7 @@ find_definition_in_package <- function(workspace, funct, pkg) {
 
 find_definition_in_file <- function(workspace, funct) {
     definition <- workspace$get_definition(funct)
-    if(is.null(definition)) {
+    if (is.null(definition)) {
         NULL
     } else {
         list(
@@ -91,10 +91,10 @@ definition_reply <- function(id, uri, workspace, document, position) {
     pkg <- matches[2]
     funct <- matches[4]
 
-    if(is.na(pkg)) {
+    if (is.na(pkg)) {
         # look for in file first
         definition <- find_definition_in_file(workspace, funct)
-        result <- if(is.null(definition)) {
+        result <- if (is.null(definition)) {
             find_definition_in_package(workspace, funct, pkg)
         } else {
             definition
@@ -102,13 +102,13 @@ definition_reply <- function(id, uri, workspace, document, position) {
     } else {
         # look for in package first
         definition <- find_definition_in_package(workspace, funct, pkg)
-        result <- if(is.null(definition)) {
+        result <- if (is.null(definition)) {
             find_definition_in_file(workspace, funct)
         } else {
             definition
         }
     }
-    if(is.null(result)) {
+    if (is.null(result)) {
         Response$new(id)
     } else {
         Response$new(
