@@ -29,6 +29,7 @@ test_that("DefinitionCache works", {
 })
 
 test_that("DefinitionCache works when multiple functions are removed", {
+    skip_on_cran()
     dc <- DefinitionCache$new()
     range1 <- range(position(1, 2), position(3, 4))
     range2 <- range(position(5, 6), position(7, 8))
@@ -44,6 +45,7 @@ test_that("DefinitionCache works when multiple functions are removed", {
 })
 
 test_that("Go to Definition works for functions in files", {
+    skip_on_cran()
     defn_file <- tempfile()
     defn2_file <- tempfile()
     query_file <- tempfile()
@@ -80,6 +82,7 @@ test_that("Go to Definition works for functions in files", {
 })
 
 test_that("Go to Definition works for functions in packages", {
+    skip_on_cran()
     query_file <- tempfile()
     writeLines(c("print"), query_file)
     exec <- if (.Platform$OS.type == "windows") "Rterm" else "R"
@@ -100,6 +103,7 @@ test_that("Go to Definition works for functions in packages", {
 })
 
 test_that("Go to Definition works for missing functions", {
+    skip_on_cran()
     query_file <- tempfile()
     writeLines(c("_.nonexistent._.function"), query_file)
     exec <- if (.Platform$OS.type == "windows") "Rterm" else "R"
@@ -119,6 +123,7 @@ test_that("Go to Definition works for missing functions", {
 })
 
 test_that("Go to Definition works when package is specified", {
+    skip_on_cran()
     # When there is a user-defined function with the same name
     # as a package function, but the package is specified,
     # test that the package version is used.
