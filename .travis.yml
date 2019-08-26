@@ -4,3 +4,6 @@ cache: packages
 
 notifications:
     email: false
+
+env:
+  - NOT_CRAN=true
