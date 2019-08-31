@@ -51,21 +51,6 @@ find_definition_in_package <- function(workspace, funct, pkg) {
     }
 }
 
-find_definition_in_file <- function(workspace, funct) {
-    definition <- workspace$get_definition(funct)
-    if (is.null(definition)) {
-        NULL
-    } else {
-        list(
-            uri = definition$uri,
-            range = range(
-                start = position(line = definition$range$start$line - 1,
-                                 character = definition$range$start$character - 1),
-                end = position(line = definition$range$end$line - 1,
-                               character = definition$range$end$character - 1)))
-    }
-}
-
 #' Get the location of a specified function definition
 #'
 #' If the function is not found in a file but is found in a loaded package,
@@ -93,7 +78,7 @@ definition_reply <- function(id, uri, workspace, document, position) {
 
     if (is.na(pkg)) {
         # look for in file first
-        definition <- find_definition_in_file(workspace, funct)
+        definition <- workspace$get_definition(funct)
         result <- if (is.null(definition)) {
             find_definition_in_package(workspace, funct, pkg)
         } else {
@@ -103,7 +88,7 @@ definition_reply <- function(id, uri, workspace, document, position) {
         # look for in package first
         definition <- find_definition_in_package(workspace, funct, pkg)
         result <- if (is.null(definition)) {
-            find_definition_in_file(workspace, funct)
+            workspace$get_definition(funct)
         } else {
             definition
         }
