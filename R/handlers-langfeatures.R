@@ -139,15 +139,16 @@ text_document_document_highlight  <- function(self, id, params) {
 #'
 #' Handler to the [textDocument/documentSymbol](https://microsoft.github.io/language-server-protocol/specification#textDocument_documentSymbol) [Request]
 #'
-#' Not implemented yet.
-#'
 #' @template self
 #' @template id
 #' @param params a [document_symbol_params] object
 #'
 #' @keywords internal
 text_document_document_symbol  <- function(self, id, params) {
-
+    textDocument <- params$textDocument
+    uri <- textDocument$uri
+    self$deliver(document_symbol_reply(
+            id, uri, self$workspace))
 }
 
 #' textDocument/codeAction request handler

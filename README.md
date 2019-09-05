@@ -57,8 +57,8 @@ let g:LanguageClient_serverCommands = {
 - [x] definitionProvider
 - [ ] referencesProvider
 - [ ] documentHighlightProvider
-- [ ] documentSymbolProvider
-- [ ] workspaceSymbolProvider
+- [x] documentSymbolProvider
+- [x] workspaceSymbolProvider
 - [ ] codeActionProvider
 - [ ] codeLensProvider
 - [x] documentFormattingProvider

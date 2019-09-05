@@ -110,6 +110,20 @@ print.document_uri <- function(x, start_char = "", ...) {
   cat(start_char, "<DocumentURI>", unclass(x))
 }
 
+#' non-hierachical symbol information
+#'
+#' @param name a character
+#' @param kind an integer
+#' @param location a [location]
+symbol_information <- function(name, kind, location) {
+  structure(
+    list(
+      name = name, kind = kind,
+      location = location),
+    class = "symbol_information"
+  )
+}
+
 #' a textual edit applicable to a text document
 #'
 #' @param range a [range], the part of the document to replace

@@ -55,14 +55,13 @@ workspace_did_change_watched_files <- function(self, params){
 #'
 #' Handler to the [workspace/symbol](https://microsoft.github.io/language-server-protocol/specification#workspace_symbol) [Request].
 #'
-#' Not implemented yet.
-#'
 #' @template self
 #' @param params a workspace_symbol_params object
 #'
 #' @keywords internal
 workspace_symbol <- function(self, id, params) {
-
+    self$deliver(workspace_symbol_reply(
+            id, self$workspace, params$query))
 }
 
 #' workspace/executeCommand request handler

@@ -193,6 +193,14 @@ Workspace <- R6::R6Class("Workspace",
             self$global_env$definitions$get(topic)
         },
 
+        get_definitions_for_uri = function(uri) {
+            self$global_env$definitions$get_functs_for_uri(uri)
+        },
+
+        get_definitions_for_query = function(query) {
+            self$global_env$definitions$filter(query)
+        },
+
         get_code = function(topic, pkg = NULL) {
             if (is.null(pkg) || is.na(pkg)) {
                 logger$info("pkg guess !")

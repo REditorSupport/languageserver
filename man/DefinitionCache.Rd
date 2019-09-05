@@ -16,6 +16,8 @@ when functions are removed from files.
 
 \itemize{
 \item \code{get(funct)}: get the \code{location} of a definition, or \code{NULL} if it is not found
+\item \code{get_functs_for_uri(uri)}: get the \code{location}s of all the definitions in \code{uri}
+\item \code{filter(pattern)}: get the \code{location}s of all the definitions matching \code{pattern}
 \item \code{update(uri, ranges)}: create \code{locations} of functions in \code{uri} from \code{ranges}, and
 remove functions no longer in \code{uri}
 }

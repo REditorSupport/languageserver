@@ -1,17 +1,5 @@
 context("Test Definition")
 
-request_with_timeout <- function(f, client, timeout_seconds = 10,
-                                 condition = function(x) FALSE) {
-    start_time <- Sys.time()
-    f() # make request
-    data <- jsonlite::fromJSON(client$fetch(blocking = TRUE))
-    while(Sys.time() - start_time < timeout_seconds && (length(data$result) < 1 || condition(data))) {
-        f() # make request again
-        data <- jsonlite::fromJSON(client$fetch(blocking = TRUE))
-    }
-    data
-}
-
 test_that("DefinitionCache works", {
     dc <- DefinitionCache$new()
     range1 <- range(position(1, 2), position(3, 4))
@@ -42,6 +30,33 @@ test_that("DefinitionCache works when multiple functions are removed", {
     dc$update("uri1", ranges_updated)
     expect_null(dc$get("defn1"))
     expect_null(dc$get("defn2"))
+})
+
+test_that("DefinitionCache gets all definitions in document", {
+    dc <- DefinitionCache$new()
+    range1 <- range(position(1, 2), position(3, 4))
+    range2 <- range(position(5, 6), position(7, 8))
+    ranges <- list(defn1 = range1, defn2 = range2)
+    dc$update("uri1", ranges)
+    result <- dc$get_functs_for_uri("uri1")
+    expect_equal(names(result), c("defn1", "defn2"))
+})
+
+test_that("DefinitionCache filter works", {
+    dc <- DefinitionCache$new()
+    range1 <- range(position(1, 2), position(3, 4))
+    range2 <- range(position(5, 6), position(7, 8))
+    range3 <- range(position(9, 10), position(11, 12))
+    range4 <- range(position(13, 14), position(15, 16))
+    ranges1 <- list(abc = range1, acb = range2)
+    ranges2 <- list(adbc = range1, ac = range2)
+    dc$update("uri1", ranges1)
+    dc$update("uri2", ranges2)
+    result <- dc$filter("abc")
+    expect_true("abc" %in% names(result))
+    expect_true("adbc" %in% names(result))
+    expect_true(!("acb" %in% names(result)))
+    expect_true(!("ac" %in% names(result)))
 })
 
 test_that("Go to Definition works for functions in files", {
