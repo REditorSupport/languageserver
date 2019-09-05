@@ -66,7 +66,7 @@ LanguageClient <- R6::R6Class("LanguageClient",
             logger$info("received: ", header)
             matches <- stringr::str_match(header, "Content-Length: ([0-9]+)")
             if (is.na(matches[2]))
-                stop("Unexpected input: ", header)
+                stop(paste0("Unexpected input: ", header))
             as.integer(matches[2])
         },
 
