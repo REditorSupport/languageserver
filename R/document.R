@@ -201,10 +201,11 @@ parse_expr <- function(expr) {
                     signature <- paste0(trimws(signature, which = "left"), collapse = "\n")
                     signature <- trimws(gsub("NULL\\s*$", "", signature))
                     signatures[[funct]] <- signature
-                    first_line <- attr(expr, "srcref")[[i]][1]
-                    first_char <- attr(expr, "srcref")[[i]][5]
-                    last_line <- attr(expr, "srcref")[[i]][3]
-                    last_char <- attr(expr, "srcref")[[i]][6]
+                    # R is 1-indexed, language server is 0-indexed
+                    first_line <- attr(expr, "srcref")[[i]][1] - 1
+                    first_char <- attr(expr, "srcref")[[i]][5] - 1
+                    last_line <- attr(expr, "srcref")[[i]][3] - 1
+                    last_char <- attr(expr, "srcref")[[i]][6] - 1
                     definition_range <- range(position(first_line, first_char),
                                         position(last_line, last_char))
                     definition_ranges[[funct]] <- definition_range

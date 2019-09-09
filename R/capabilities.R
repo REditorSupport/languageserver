@@ -69,8 +69,8 @@ ServerCapabilities <- list(
     definitionProvider = TRUE,
     # referencesProvider = FALSE
     # documentHighlightProvider = FALSE,
-    # documentSymbolProvider = FALSE,
-    # workspaceSymbolProvider = FALSE,
+    documentSymbolProvider = TRUE,
+    workspaceSymbolProvider = TRUE,
     # codeActionProvider = FALSE,
     # codeLensProvider = CodeLensOptions,
     documentFormattingProvider = TRUE,

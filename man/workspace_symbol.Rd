@@ -14,7 +14,4 @@ workspace_symbol(self, id, params)
 \description{
 Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#workspace_symbol}{workspace/symbol} \link{Request}.
 }
-\details{
-Not implemented yet.
-}
 \keyword{internal}
