@@ -1,3 +1,11 @@
+languageserver 0.3.0
+
+  - added symbol definitions
+  - added document and workspace symbols
+
+  Contributors:
+   - Andrew Craig
+   
 languageserver 0.2.6
   
   - fix a bug in completion items
