@@ -1,6 +1,6 @@
 #' style a file
 #'
-#' This functions formats a document using [styler::style_text()] with the
+#' This functions formats a document using [styler::style_file()] with the
 #' [styler::tidyverse_style()] style.
 #'
 #' @param path file path
@@ -21,23 +21,6 @@ style_file <- function(path, options) {
     paste(contents, collapse = "\n")
 }
 
-#' format a document
-#'
-#' @template id
-#' @template uri
-#' @template document
-#' @param options a named list of options, with a `tabSize` parameter
-formatting_reply <- function(id, uri, document, options) {
-    newText <- style_file(path_from_uri(uri), options)
-    ndoc <- length(document)
-    range <- range(
-        start = position(line = 0, character = 0),
-        end = position(line = ndoc - 1, character = nchar(document[[ndoc]]))
-    )
-    TextEdit <- text_edit(range = range, new_text = newText)
-    TextEditList <- list(TextEdit)
-    Response$new(id, TextEditList)
-}
 
 #' edit code style
 #'
@@ -54,6 +37,25 @@ style_text <- function(text, options) {
     paste(newTextList, collapse = "\n")
 }
 
+
+#' format a document
+#'
+#' @template id
+#' @template uri
+#' @template document
+#' @param options a named list of options, with a `tabSize` parameter
+formatting_reply <- function(id, uri, document, options) {
+    # do not use `style_file` because the changes are not necessarily saved on disk.
+    newText <- style_text(document, options)
+    ndoc <- length(document)
+    range <- range(
+        start = position(line = 0, character = 0),
+        end = position(line = ndoc - 1, character = nchar(document[[ndoc]]))
+    )
+    TextEdit <- text_edit(range = range, new_text = newText)
+    TextEditList <- list(TextEdit)
+    Response$new(id, TextEditList)
+}
 
 #' format a part of a document
 #'
