@@ -35,7 +35,7 @@ Request <- R6::R6Class("Request",
             if (!is.null(self$params)) {
                 payload$params <- self$params
             }
-            jsonlite::toJSON(payload, auto_unbox = TRUE)
+            jsonlite::toJSON(payload, auto_unbox = TRUE, force = TRUE)
         }
     )
 )
@@ -59,7 +59,7 @@ Notification <- R6::R6Class("Notification",
             if (!is.null(self$params)) {
                 payload$params <- self$params
             }
-            jsonlite::toJSON(payload, auto_unbox = TRUE)
+            jsonlite::toJSON(payload, auto_unbox = TRUE, force = TRUE)
         }
     )
 )
