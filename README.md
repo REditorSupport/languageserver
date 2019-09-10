@@ -68,6 +68,24 @@ let g:LanguageClient_serverCommands = {
 - [ ] documentLinkProvider
 - [ ] executeCommandProvider
 
+## Settings
+
+`languageserver` exposes the following settings via `workspace/didChangeConfiguration`
+
+```js
+{
+    "r.lsp.debug": {
+      "type": "boolean",
+      "default": false,
+      "description": "Debug R Language Server"
+    },
+    "r.lsp.diagnostics": {
+      "type": "boolean",
+      "default": true,
+      "description": "Enable Diagnostics"
+    }
+}
+```
 
 ## FAQ
 
