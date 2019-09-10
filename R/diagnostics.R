@@ -12,13 +12,13 @@ diagnostic_range <- function(result) {
     column <- result$column_number - 1
     if (is.null(result$ranges)) {
         range(
-            start = list(line = line, character = column),
-            end = list(line = line, character = column + 1)
+            start = position(line = line, character = column),
+            end = position(line = line, character = column + 1)
         )
     } else {
         range(
-            start = list(line = line, character = result$ranges[[1]][1] - 1),
-            end = list(line = line, character = result$ranges[[1]][2])
+            start = position(line = line, character = result$ranges[[1]][1] - 1),
+            end = position(line = line, character = result$ranges[[1]][2])
         )
     }
 }
