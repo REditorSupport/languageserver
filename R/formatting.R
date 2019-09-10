@@ -28,7 +28,7 @@ style_file <- function(path, options) {
 #' @template document
 #' @param options a named list of options, with a `tabSize` parameter
 formatting_reply <- function(id, uri, document, options) {
-    newText <- style_file(path_from_uri(uri), options)
+    newText <- style_text(document, options)
     ndoc <- length(document)
     range <- range(
         start = position(line = 0, character = 0),
