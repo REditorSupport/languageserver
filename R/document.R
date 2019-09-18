@@ -240,22 +240,24 @@ parse_expr <- function(expr, env, level = 0L, srcref = attr(expr, "srcref")) {
             }
         } else if (f %in% c("library", "require") && length(e) == 2L) {
             pkg <- as.character(e[[2L]])
-            env$packages <- c(env$packages, pkg)
-            deps <- tryCatch(
-                callr::r(
-                    function(pkg) {
-                        library(pkg, character.only = TRUE)
-                        search()
-                    },
-                    list(pkg = pkg)
-                ),
-                error = function(e) NULL
-            )
-            if (!is.null(deps)) {
-                deps <- deps[startsWith(deps, "package:")]
-                deps <- gsub("package:", "", deps)
-                deps <- deps[!deps %in% env$packages]
-                env$packages <- c(env$packages, deps)
+            if (!(pkg %in% env$packages)) {
+                env$packages <- c(env$packages, pkg)
+                deps <- tryCatch(
+                    callr::r(
+                        function(pkg) {
+                            library(pkg, character.only = TRUE)
+                            search()
+                        },
+                        list(pkg = pkg)
+                    ),
+                    error = function(e) NULL
+                )
+                if (!is.null(deps)) {
+                    deps <- deps[startsWith(deps, "package:")]
+                    deps <- gsub("package:", "", deps)
+                    deps <- deps[!deps %in% env$packages]
+                    env$packages <- c(env$packages, deps)
+                }                
             }
         }
     }
