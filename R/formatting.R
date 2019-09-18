@@ -50,7 +50,8 @@ formatting_reply <- function(id, uri, document, options) {
     ndoc <- length(document)
     range <- range(
         start = position(line = 0, character = 0),
-        end = position(line = max(0, ndoc - 1), character = nchar(document[ndoc]))
+        end = if (ndoc) position(line = ndoc - 1, character = nchar(document[[ndoc]]))
+                else position(line = 0, character = 0)
     )
     TextEdit <- text_edit(range = range, new_text = newText)
     TextEditList <- list(TextEdit)
