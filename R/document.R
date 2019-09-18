@@ -189,7 +189,7 @@ parse_env <- function() {
 }
 
 parse_expr <- function(expr, env, level = 0L, srcref = attr(expr, "srcref")) {
-    if (length(expr) == 0L) return(env)
+    if (length(expr) == 0L || is.symbol(expr)) return(env)
     for (i in seq_along(expr)) {
         e <- expr[[i]]
         if (!is.call(e) || !is.symbol(e[[1L]])) next
