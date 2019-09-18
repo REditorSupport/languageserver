@@ -229,8 +229,8 @@ parse_expr <- function(expr, env, level = 0L, srcref = attr(expr, "srcref")) {
                 # R is 1-indexed, language server is 0-indexed
                 first_line <- cur_srcref[1] - 1
                 first_char <- cur_srcref[5] - 1
-                last_line <- cur_srcref[3]
-                last_char <- cur_srcref[6]
+                last_line <- cur_srcref[3] - 1
+                last_char <- cur_srcref[6] - 1
                 definition_range <- range(
                     position(first_line, first_char),
                     position(last_line, last_char)
