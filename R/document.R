@@ -172,66 +172,91 @@ parse_document <- function(path) {
     if (!is.null(temp_file) && file.exists(temp_file)) {
         file.remove(temp_file)
     }
-    parse_expr(expr)
+    env <- parse_env()
+    parse_expr(expr, env)
+    env
 }
 
+parse_env <- function() {
+    env <- new.env()
+    env$packages <- character()
+    env$nonfuncts <- character()
+    env$functs <- character()
+    env$formals <- list()
+    env$signatures <- list()
+    env$definition_ranges <- list()
+    env
+}
 
-parse_expr <- function(expr) {
-    packages <- character()
-    nonfuncts <- character()
-    functs <- character()
-    formals <- list()
-    signatures <- list()
-    definition_ranges <- list()
-    if (length(expr)) {
-        for (i in seq_along(expr)) {
-            e <- expr[[i]]
-            if (length(e) == 3L &&
-                is.symbol(e[[1L]]) &&
-                (e[[1L]] == "<-" || e[[1L]] == "=") &&
-                is.symbol(e[[2L]])) {
-                funct <- as.character(e[[2L]])
-                objects <- c(objects, funct)
-                if (is.call(e[[3L]]) && e[[3L]][[1L]] == "function") {
-                    functs <- c(functs, funct)
-                    func <- e[[3L]]
-                    formals[[funct]] <- func[[2L]]
-                    signature <- func
-                    signature <- utils::capture.output(print(signature[1:2]))
-                    signature <- paste0(trimws(signature, which = "left"), collapse = "\n")
-                    signature <- trimws(gsub("NULL\\s*$", "", signature))
-                    signatures[[funct]] <- signature
-                    # R is 1-indexed, language server is 0-indexed
-                    first_line <- attr(expr, "srcref")[[i]][1] - 1
-                    first_char <- attr(expr, "srcref")[[i]][5] - 1
-                    last_line <- attr(expr, "srcref")[[i]][3] - 1
-                    last_char <- attr(expr, "srcref")[[i]][6] - 1
-                    definition_range <- range(position(first_line, first_char),
-                                        position(last_line, last_char))
-                    definition_ranges[[funct]] <- definition_range
-                } else {
-                    nonfuncts <- c(nonfuncts, funct)
-                }
-            } else if (length(e) == 2L &&
-                       is.symbol(e[[1L]]) &&
-                       (e[[1L]] == "library" || e[[1L]] == "require")) {
-                pkg <- as.character(e[[2L]])
-                packages <- c(packages, pkg)
-                deps <- tryCatch(
-                    callr::r(
-                        function(pkg) {
-                            library(pkg, character.only = TRUE); search() },
-                        list(pkg = pkg)),
-                    error = function(e) NULL)
-                if (!is.null(deps)) {
-                    deps <- deps[startsWith(deps, "package:")]
-                    deps <- gsub("package:", "", deps)
-                    deps <- deps[! deps %in% packages]
-                    packages <- c(packages, deps)
-                }
+parse_expr <- function(expr, env) {
+    if (length(expr) == 0L) return(env)
+    for (i in seq_along(expr)) {
+        e <- expr[[i]]
+        if (!is.call(e) || !is.symbol(e[[1L]])) next
+        f <- as.character(e[[1L]])
+        if (f %in% c("{", "(")) {
+            Recall(e[-1L], env)
+        } else if (f == "if") {
+            Recall(e[[2L]], env)
+            Recall(e[[3L]], env)
+            if (length(e) == 4L) {
+                Recall(e[[4L]], env)
+            }
+        } else if (f == "for") {
+            if (is.symbol(e[[2L]])) {
+                env$nonfuncts <- c(env$nonfuncts, as.character(e[[2L]]))
+            }
+            Recall(e[[4L]], env)
+        } else if (f == "while") {
+            Recall(e[[2L]], env)
+            Recall(e[[3L]], env)
+        } else if (f == "repeat") {
+            Recall(e[[2L]], env)
+        } else if (f %in% c("<-", "=") && length(e) == 3L && is.symbol(e[[2L]])) {
+            funct <- as.character(e[[2L]])
+            env$objects <- c(env$objects, funct)
+            if (is.call(e[[3L]]) && e[[3L]][[1L]] == "function") {
+                env$functs <- c(env$functs, funct)
+                func <- e[[3L]]
+                env$formals[[funct]] <- func[[2L]]
+                signature <- func
+                signature <- utils::capture.output(print(signature[1:2]))
+                signature <- paste0(trimws(signature, which = "left"), collapse = "\n")
+                signature <- trimws(gsub("NULL\\s*$", "", signature))
+                env$signatures[[funct]] <- signature
+                # R is 1-indexed, language server is 0-indexed
+                first_line <- attr(expr, "srcref")[[i]][1] - 1
+                first_char <- attr(expr, "srcref")[[i]][5] - 1
+                last_line <- attr(expr, "srcref")[[i]][3] - 1
+                last_char <- attr(expr, "srcref")[[i]][6] - 1
+                definition_range <- range(
+                    position(first_line, first_char),
+                    position(last_line, last_char)
+                )
+                env$definition_ranges[[funct]] <- definition_range
+            } else {
+                env$nonfuncts <- c(env$nonfuncts, funct)
+            }
+        } else if (f %in% c("library", "require") && length(e) == 2L) {
+            pkg <- as.character(e[[2L]])
+            env$packages <- c(env$packages, pkg)
+            deps <- tryCatch(
+                callr::r(
+                    function(pkg) {
+                        library(pkg, character.only = TRUE)
+                        search()
+                    },
+                    list(pkg = pkg)
+                ),
+                error = function(e) NULL
+            )
+            if (!is.null(deps)) {
+                deps <- deps[startsWith(deps, "package:")]
+                deps <- gsub("package:", "", deps)
+                deps <- deps[!deps %in% env$packages]
+                env$packages <- c(env$packages, deps)
             }
         }
     }
-    list(packages = packages, nonfuncts = nonfuncts, functs = functs,
-         signatures = signatures, formals = formals, definition_ranges = definition_ranges)
+    env
 }
