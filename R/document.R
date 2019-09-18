@@ -174,6 +174,7 @@ parse_document <- function(path) {
     }
     env <- parse_env()
     parse_expr(expr, env)
+    env$packages <- resolve_package_dependencies(env$packages)
     env
 }
 
@@ -241,25 +242,33 @@ parse_expr <- function(expr, env, level = 0L, srcref = attr(expr, "srcref")) {
         } else if (f %in% c("library", "require") && length(e) == 2L) {
             pkg <- as.character(e[[2L]])
             if (!(pkg %in% env$packages)) {
-                env$packages <- c(env$packages, pkg)
-                deps <- tryCatch(
-                    callr::r(
-                        function(pkg) {
-                            library(pkg, character.only = TRUE)
-                            search()
-                        },
-                        list(pkg = pkg)
-                    ),
-                    error = function(e) NULL
-                )
-                if (!is.null(deps)) {
-                    deps <- deps[startsWith(deps, "package:")]
-                    deps <- gsub("package:", "", deps)
-                    deps <- deps[!deps %in% env$packages]
-                    env$packages <- c(env$packages, deps)
-                }                
+                env$packages <- c(env$packages, pkg)                
             }
         }
     }
     env
+}
+
+resolve_package_dependencies <- function(pkgs) {
+    if (length(pkgs)) {
+        deps <- tryCatch(
+            callr::r(
+                function(pkgs) {
+                    for (pkg in pkgs) {
+                        library(pkg, character.only = TRUE)
+                    }                
+                    search()
+                },
+                list(pkgs = pkgs)
+            ),
+            error = function(e) NULL
+        )
+        if (!is.null(deps)) {
+            deps <- deps[startsWith(deps, "package:")]
+            deps <- gsub("package:", "", deps)
+            deps <- deps[!deps %in% pkgs]
+            pkgs <- c(pkgs, deps)
+        }
+    }
+    pkgs
 }
