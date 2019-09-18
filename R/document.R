@@ -188,30 +188,31 @@ parse_env <- function() {
     env
 }
 
-parse_expr <- function(expr, env) {
+parse_expr <- function(expr, env, level = 0L, srcref = attr(expr, "srcref")) {
     if (length(expr) == 0L) return(env)
     for (i in seq_along(expr)) {
         e <- expr[[i]]
         if (!is.call(e) || !is.symbol(e[[1L]])) next
         f <- as.character(e[[1L]])
+        cur_srcref <- if (level == 0L) srcref[[i]] else srcref
         if (f %in% c("{", "(")) {
-            Recall(e[-1L], env)
+            Recall(e[-1L], env, level + 1L, cur_srcref)
         } else if (f == "if") {
-            Recall(e[[2L]], env)
-            Recall(e[[3L]], env)
+            Recall(e[[2L]], env, level + 1L, cur_srcref)
+            Recall(e[[3L]], env, level + 1L, cur_srcref)
             if (length(e) == 4L) {
-                Recall(e[[4L]], env)
+                Recall(e[[4L]], env, level + 1L, cur_srcref)
             }
         } else if (f == "for") {
             if (is.symbol(e[[2L]])) {
                 env$nonfuncts <- c(env$nonfuncts, as.character(e[[2L]]))
             }
-            Recall(e[[4L]], env)
+            Recall(e[[4L]], env, level + 1L, cur_srcref)
         } else if (f == "while") {
-            Recall(e[[2L]], env)
-            Recall(e[[3L]], env)
+            Recall(e[[2L]], env, level + 1L, cur_srcref)
+            Recall(e[[3L]], env, level + 1L, cur_srcref)
         } else if (f == "repeat") {
-            Recall(e[[2L]], env)
+            Recall(e[[2L]], env, level + 1L, cur_srcref)
         } else if (f %in% c("<-", "=") && length(e) == 3L && is.symbol(e[[2L]])) {
             funct <- as.character(e[[2L]])
             env$objects <- c(env$objects, funct)
@@ -225,10 +226,10 @@ parse_expr <- function(expr, env) {
                 signature <- trimws(gsub("NULL\\s*$", "", signature))
                 env$signatures[[funct]] <- signature
                 # R is 1-indexed, language server is 0-indexed
-                first_line <- attr(expr, "srcref")[[i]][1] - 1
-                first_char <- attr(expr, "srcref")[[i]][5] - 1
-                last_line <- attr(expr, "srcref")[[i]][3] - 1
-                last_char <- attr(expr, "srcref")[[i]][6] - 1
+                first_line <- cur_srcref[1] - 1
+                first_char <- cur_srcref[5] - 1
+                last_line <- cur_srcref[3] - 1
+                last_char <- cur_srcref[6] - 1
                 definition_range <- range(
                     position(first_line, first_char),
                     position(last_line, last_char)
