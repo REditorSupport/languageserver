@@ -255,8 +255,9 @@ resolve_package_dependencies <- function(pkgs) {
             callr::r(
                 function(pkgs) {
                     for (pkg in pkgs) {
-                        library(pkg, character.only = TRUE)
-                    }                
+                        tryCatch(library(pkg, character.only = TRUE), 
+                            error = function(e) NULL)
+                    }
                     search()
                 },
                 list(pkgs = pkgs)
