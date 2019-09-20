@@ -61,80 +61,68 @@ test_that("DefinitionCache filter works", {
 
 test_that("Go to Definition works for functions in files", {
     skip_on_cran()
-    defn_file <- tempfile()
-    defn2_file <- tempfile()
-    query_file <- tempfile()
+    client <- language_client()
+
+    withr::local_tempfile(c("defn_file", "defn2_file", "query_file"), fileext = ".R")
     writeLines(c("my_fn <- function(x) {", "  x + 1", "}"), defn_file)
     writeLines(c("my_fn"), query_file)
-    exec <- if (.Platform$OS.type == "windows") "Rterm" else "R"
-    bin <- file.path(R.home("bin"), exec)
-    client <- languageserver:::LanguageClient$new(
-        bin, c("--slave", "-e", "languageserver::run()"))
-    client$start()
-    client$fetch(blocking = TRUE)
-    client$deliver(Notification$new("textDocument/didSave", list(textDocument = list(uri = path_to_uri(defn_file)))))
-    client$deliver(Notification$new("textDocument/didSave", list(textDocument = list(uri = path_to_uri(query_file)))))
-    data <- request_with_timeout(function() client$deliver(client$request("textDocument/definition",
-        list(textDocument = list(uri = path_to_uri(query_file)), position = list(line = 0, character = 0)))),
-        client)
-    expect_equal(data$result$range$start, list(line = 0, character = 0))
-    expect_equal(data$result$range$end, list(line = 2, character = 0))
+
+    client %>% did_save(defn_file)
+    client %>% did_save(query_file)
+
+    result <- client %>% respond_definition(query_file, c(0, 0))
+
+    expect_equal(result$range$start, list(line = 0, character = 0))
+    expect_equal(result$range$end, list(line = 2, character = 0))
+
     # move function into different file
     writeLines("", defn_file)
     writeLines(c("my_fn <- function(x) {", "  x + 1", "}"), defn2_file)
-    client$deliver(Notification$new("textDocument/didSave", list(textDocument = list(uri = path_to_uri(defn_file)))))
-    client$deliver(Notification$new("textDocument/didSave", list(textDocument = list(uri = path_to_uri(defn2_file)))))
-    data <- request_with_timeout(function() client$deliver(client$request("textDocument/definition",
-        list(textDocument = list(uri = path_to_uri(query_file)), position = list(line = 0, character = 0)))),
-        client,
-        condition = function(x) x$result$uri == path_to_uri(defn_file))
-    expect_equal(data$result$uri, path_to_uri(defn2_file))
-    # clean up
-    file.remove(defn_file)
-    file.remove(defn2_file)
-    file.remove(query_file)
-    client$stop()
+    client %>% did_save(defn_file)
+    client %>% did_save(defn2_file)
+
+    result <- client %>% respond_definition(query_file, c(0, 0),
+        retry_when = function(result) {
+            length(result) == 0 || result$uri == path_to_uri(defn_file)
+        })
+
+    expect_equal(result$uri, path_to_uri(defn2_file))
 })
 
 test_that("Go to Definition works for functions in packages", {
     skip_on_cran()
-    query_file <- tempfile()
+    client <- language_client()
+
+    withr::local_tempfile(c("query_file"), fileext = ".R")
     writeLines(c("print"), query_file)
-    exec <- if (.Platform$OS.type == "windows") "Rterm" else "R"
-    bin <- file.path(R.home("bin"), exec)
-    client <- languageserver:::LanguageClient$new(
-        bin, c("--slave", "-e", "languageserver::run()"))
-    client$start()
-    client$fetch(blocking = TRUE)
-    client$deliver(Notification$new("textDocument/didSave", list(textDocument = list(uri = path_to_uri(query_file)))))
-    data <- request_with_timeout(function() client$deliver(client$request("textDocument/definition",
-        list(textDocument = list(uri = path_to_uri(query_file)), position = list(line = 0, character = 0)))),
-        client)
-    line <- readLines(path_from_uri(data$result$uri), n = 1)
-    expect_true(startsWith(line, c("print <- function")))
-    # clean up
-    file.remove(query_file)
-    client$stop()
+
+    client %>% did_save(query_file)
+
+    result <- client %>% respond_definition(query_file, c(0, 0))
+
+    expect_true(endsWith(result$uri, "print.R"))
 })
 
-test_that("Go to Definition works for missing functions", {
+test_that("Go to Definition works for in single file", {
     skip_on_cran()
-    query_file <- tempfile()
-    writeLines(c("_.nonexistent._.function"), query_file)
-    exec <- if (.Platform$OS.type == "windows") "Rterm" else "R"
-    bin <- file.path(R.home("bin"), exec)
-    client <- languageserver:::LanguageClient$new(
-        bin, c("--slave", "-e", "languageserver::run()"))
-    client$start()
-    client$fetch(blocking = TRUE)
-    client$deliver(Notification$new("textDocument/didSave", list(textDocument = list(uri = path_to_uri(query_file)))))
-    data <- request_with_timeout(function() client$deliver(client$request("textDocument/definition",
-        list(textDocument = list(uri = path_to_uri(query_file)), position = list(line = 0, character = 0)))),
-        client, timeout_seconds = 2) # will run full duration of timeout_seconds
-    expect_equal(length(data$result), 0)
-    # clean up
-    file.remove(query_file)
-    client$stop()
+    client <- language_client()
+
+    withr::local_tempfile(c("single_file"), fileext = ".R")
+    writeLines(
+        c("my_fn <- function(x) {x + 1}", "my_fn", ".nonexistent"),
+        single_file)
+
+    client %>% did_save(single_file)
+
+    # first query a known function to make sure the file is processed
+    result <- client %>% respond_definition(single_file, c(1, 0))
+
+    expect_equal(result$range$start, list(line = 0, character = 0))
+
+    # then query the missing function. The file is processed, don't need to retry
+    result <- client %>% respond_definition(single_file, c(2, 0), retry = FALSE)
+
+    expect_equal(length(result), 0)
 })
 
 test_that("Go to Definition works when package is specified", {
@@ -142,26 +130,25 @@ test_that("Go to Definition works when package is specified", {
     # When there is a user-defined function with the same name
     # as a package function, but the package is specified,
     # test that the package version is used.
-    defn_file <- tempfile()
-    query_file <- tempfile()
+
+    client <- language_client()
+
+    withr::local_tempfile(c("defn_file", "query_file"), fileext = ".R")
     writeLines(c("print <- function(x) {", "# Not base::print", "}"), defn_file)
-    writeLines(c("base::print"), query_file)
-    exec <- if (.Platform$OS.type == "windows") "Rterm" else "R"
-    bin <- file.path(R.home("bin"), exec)
-    client <- languageserver:::LanguageClient$new(
-        bin, c("--slave", "-e", "languageserver::run()"))
-    client$start()
-    client$fetch(blocking = TRUE)
-    client$deliver(Notification$new("textDocument/didSave", list(textDocument = list(uri = path_to_uri(defn_file)))))
-    client$deliver(Notification$new("textDocument/didSave", list(textDocument = list(uri = path_to_uri(query_file)))))
-    Sys.sleep(1) # delay to let languageserver process notifications
-    data <- request_with_timeout(function() client$deliver(client$request("textDocument/definition",
-        list(textDocument = list(uri = path_to_uri(query_file)), position = list(line = 0, character = 7)))),
-        client)
-    # should find base::print definition, not the one in defn_file.d
-    expect_true(data$result$uri != path_to_uri(defn_file))
-    # clean up
-    file.remove(defn_file)
-    file.remove(query_file)
-    client$stop()
+    writeLines(c("print", "base::print"), query_file)
+
+    client %>% did_save(defn_file)
+    client %>% did_save(query_file)
+
+    result <- client %>% respond_definition(query_file, c(0, 0),
+        retry_when = function(result) {
+            length(result) == 0 || !identical(result$uri, path_to_uri(defn_file))
+        })
+
+    expect_equal(result$uri, path_to_uri(defn_file))
+    expect_equal(result$range$start, list(line = 0, character = 0))
+
+    # The file is processed, don't need to retry
+    result <- client %>% respond_definition(query_file, c(1, 9))
+    expect_true(endsWith(result$uri, "print.R"))
 })

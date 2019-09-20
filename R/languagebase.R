@@ -6,6 +6,7 @@ LanguageBase <- R6::R6Class("LanguageBase",
         ticket = 0
     ),
     public = list(
+        catch_callback_error = TRUE,
         request_handlers = NULL,
         notification_handlers = NULL,
         request_callbacks = NULL,
@@ -37,6 +38,27 @@ LanguageBase <- R6::R6Class("LanguageBase",
                 id <- message$id
                 self$request_callbacks$set(as.character(id), callback)
             }
+        },
+
+        fetch = function(blocking = FALSE, timeout = Inf) {
+            start_time <- Sys.time()
+            nbytes <- self$read_header()
+            if (is.null(nbytes)) {
+                if (!blocking) {
+                    return(NULL)
+                } else {
+                    while (is.null(nbytes)) {
+                        if ((Sys.time() - start_time > timeout)) {
+                            return(NULL)
+                        }
+                        Sys.sleep(0.1)
+                        nbytes <- self$read_header()
+                    }
+                }
+            }
+
+            data <- self$read_content(nbytes)
+            data
         },
 
         handle_raw = function(data) {
@@ -111,10 +133,15 @@ LanguageBase <- R6::R6Class("LanguageBase",
             if ("error" %in% names(response)) {
                 logger$info("got an error: ", response$error)
             } else if (!is.null(callback)) {
-                tryCatch(
-                    callback(self, response$result),
-                    error = function(e) logger$info("callback error: ", e)
-                )
+                logger$info("calling callback")
+                if (self$catch_callback_error) {
+                    tryCatch(
+                        callback(self, response$result),
+                        error = function(e) logger$error("callback error: ", e)
+                    )
+                } else {
+                    callback(self, response$result)
+                }
             }
         }
     )

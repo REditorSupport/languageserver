@@ -15,6 +15,10 @@ LanguageClient <- R6::R6Class("LanguageClient",
             self$request_callbacks <- collections::Dict$new()
         },
 
+        finalize = function() {
+            self$stop()
+        },
+
         check_connection = function() {
             if (!self$process$is_alive())
                 stop("Server is dead.")
@@ -61,23 +65,6 @@ LanguageClient <- R6::R6Class("LanguageClient",
             data
         },
 
-        fetch = function(blocking = FALSE) {
-            nbytes <- self$read_header()
-            if (is.null(nbytes)) {
-                if (!blocking) {
-                    return(NULL)
-                } else {
-                    while (is.null(nbytes)) {
-                        Sys.sleep(0.1)
-                        nbytes <- self$read_header()
-                    }
-                }
-            }
-
-            data <- self$read_content(nbytes)
-            data
-        },
-
         welcome = function() {
             self$deliver(
                 self$request(
@@ -101,7 +88,7 @@ LanguageClient <- R6::R6Class("LanguageClient",
 
         stop = function() {
             self$process$kill()
-            self$request_callbacks <- NULL
+            self$request_callbacks$clear()
         },
 
         run = function() {

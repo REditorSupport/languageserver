@@ -176,12 +176,8 @@ LanguageServer <- R6::R6Class("LanguageServer",
 
                     self$process_events()
 
-                    nbytes <- self$read_header()
-                    if (is.null(nbytes)) {
-                        Sys.sleep(0.1)
-                        next
-                    }
-                    data <- self$read_content(nbytes)
+                    data <- self$fetch(blocking = FALSE)
+                    if (is.null(data)) next
                     self$handle_raw(data)
                 }, silent = TRUE)
                 if (inherits(ret, "try-error")) {

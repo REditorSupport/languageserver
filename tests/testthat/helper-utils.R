@@ -1,11 +1,80 @@
-request_with_timeout <- function(f, client, timeout_seconds = 10,
-                                 condition = function(x) FALSE) {
-    start_time <- Sys.time()
-    f() # make request
-    data <- jsonlite::fromJSON(client$fetch(blocking = TRUE), simplifyVector = FALSE)
-    while(Sys.time() - start_time < timeout_seconds && (length(data$result) < 1 || condition(data))) {
-        f() # make request again
-        data <- jsonlite::fromJSON(client$fetch(blocking = TRUE), simplifyVector = FALSE)
+suppressPackageStartupMessages({
+    library(magrittr)
+    library(purrr)
+})
+
+# a hack to make withr::defer_parent to work, see https://github.com/r-lib/withr/issues/123
+defer <- withr::defer
+
+language_client <- function() {
+    client <- LanguageClient$new(
+        file.path(R.home("bin"), "R"), c("--slave", "-e", "languageserver::run()"))
+
+    client$notification_handlers <- list(
+        `textDocument/publishDiagnostics` = function(...) {}
+    )
+
+    client$start()
+    client$catch_callback_error <- FALSE
+    # on_initialized response
+    data <- client$fetch(blocking = TRUE)
+    client$handle_raw(data)
+    withr::defer_parent(client$stop())
+    client
+}
+
+
+notify <- function(client, method, params) {
+    client$deliver(Notification$new(method, params))
+    invisible(client)
+}
+
+
+did_save <- function(client, path) {
+    notify(
+        client,
+        "textDocument/didSave",
+        list(textDocument = list(uri = path_to_uri(path))))
+    invisible(client)
+}
+
+
+respond <- function(client, method, params, timeout=5, retry=TRUE,
+                            retry_when = function(result) length(result) == 0) {
+    storage <- new.env()
+    cb <- function(self, result) {
+        storage$result <- result
     }
-    data
+
+    start_time <- Sys.time()
+    remaining <- timeout
+    client$deliver(client$request(method, params), callback = cb)
+    while (is.null(storage$result)) {
+        if (remaining < 0) {
+            stop("timeout when obtaining response")
+        }
+        data <- client$fetch(blocking = TRUE, timeout = remaining)
+        if (!is.null(data)) client$handle_raw(data)
+        remaining <- (start_time + timeout) - Sys.time()
+    }
+    result <- storage$result
+    if (retry && retry_when(result)) {
+        remaining <- (start_time + timeout) - Sys.time()
+        if (remaining < 0) {
+            stop("timeout when obtaining desired response")
+        }
+        return(Recall(client, method, params, remaining, retry, retry_when))
+    }
+    return(result)
+}
+
+respond_definition <- function(client, path, pos, ...) {
+    respond(
+        client,
+        "textDocument/definition",
+        list(
+            textDocument = list(uri = path_to_uri(path)),
+            position = list(line = pos[1], character = pos[2])),
+        ...
+    )
 }
