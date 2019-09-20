@@ -8,13 +8,13 @@
 #'
 #' Describe the language server and how it interacts with clients.
 LanguageServer <- R6::R6Class("LanguageServer",
+    inherit = LanguageBase,
     public = list(
         tcp = FALSE,
         inputcon = NULL,
         outputcon = NULL,
         exit_flag = NULL,
-        request_handlers = NULL,
-        notification_handlers = NULL,
+
         documents = new.env(),
         workspace = NULL,
 
@@ -48,6 +48,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$inputcon <- inputcon
             self$outputcon <- outputcon
             self$register_handlers()
+            self$request_callbacks <- collections::Dict$new()
 
             self$workspace <- Workspace$new()
             self$sync_in <- collections::OrderedDictL$new()
@@ -55,80 +56,14 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$reply_queue <- collections::QueueL$new()
 
             self$process_sync_in <- throttle(
-                function() process_sync_in(self), 0.3)
+                function() process_sync_in(self), 0.3
+            )
             self$process_sync_out <- (function() process_sync_out(self))
         },
 
         finalize = function() {
             close(self$inputcon)
-        },
-
-        deliver = function(message) {
-            if (!is.null(message)) {
-                cat(message$format(), file = self$outputcon)
-                logger$info("deliver: ", class(message))
-                method <- message$method
-                if (!is.null(method)) {
-                    logger$info("method: ", method)
-                }
-            }
-        },
-
-        handle_raw = function(data) {
-            payload <- tryCatch(
-                jsonlite::fromJSON(data, simplifyVector = FALSE),
-                error = function(e) e)
-            if (inherits(payload, "error")) {
-                logger$error("error handling json: ", payload)
-                return(NULL)
-            }
-            pl_names <- names(payload)
-            logger$info("received payload.")
-            if ("id" %in% pl_names && "method" %in% pl_names) {
-                self$handle_request(payload)
-            } else if ("method" %in% pl_names) {
-                self$handle_notification(payload)
-            } else {
-                logger$error("not request or notification")
-            }
-        },
-
-        handle_request = function(request) {
-            id <- request$id
-            method <- request$method
-            params <- request$params
-            if (method %in% names(self$request_handlers)) {
-                logger$info("handling request: ", method)
-                tryCatch({
-                    dispatch <- self$request_handlers[[method]]
-                    dispatch(self, id, params)
-                },
-                error = function(e) {
-                    logger$error("internal error: ", e)
-                    self$deliver(ResponseErrorMessage$new(id, "InternalError", to_string(e)))
-                })
-            } else {
-                logger$error("unknown request: ", method)
-                self$deliver(ResponseErrorMessage$new(
-                    id, "MethodNotFound", paste0("unknown request ", method)))
-            }
-        },
-
-        handle_notification = function(notification) {
-            method <- notification$method
-            params <- notification$params
-            if (method %in% names(self$notification_handlers)) {
-                logger$info("handling notification: ", method)
-                tryCatch({
-                    dispatch <- self$notification_handlers[[method]]
-                    dispatch(self, params)
-                },
-                error = function(e) {
-                    logger$error("internal error: ", e)
-                })
-            } else {
-                logger$error("unknown notification: ", method)
-            }
+            self$request_callbacks <- NULL
         },
 
         process_events = function() {
@@ -145,7 +80,8 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 run_lintr <- run_lintr || item$run_lintr
             }
             self$sync_in$set(
-                uri, list(document = document, run_lintr = run_lintr, parse = parse))
+                uri, list(document = document, run_lintr = run_lintr, parse = parse)
+            )
         },
 
         process_sync_in = NULL,
@@ -170,6 +106,10 @@ LanguageServer <- R6::R6Class("LanguageServer",
             }
         },
 
+        write_text = function(text) {
+            cat(text, file = self$outputcon)
+        },
+
         read_line = function() {
             if (self$tcp) {
                 readLines(self$inputcon, n = 1)
@@ -187,14 +127,19 @@ LanguageServer <- R6::R6Class("LanguageServer",
         },
 
         read_header = function() {
-            if (self$tcp && !socketSelect(list(self$inputcon), timeout = 0)) return(NULL)
+            if (self$tcp && !socketSelect(list(self$inputcon), timeout = 0)) {
+                  return(NULL)
+              }
             header <- self$read_line()
-            if (length(header) == 0 || nchar(header) == 0) return(NULL)
+            if (length(header) == 0 || nchar(header) == 0) {
+                  return(NULL)
+              }
 
             logger$info("received: ", header)
             matches <- stringr::str_match(header, "Content-Length: ([0-9]+)")
-            if (is.na(matches[2]))
-                stop(paste0("Unexpected input: ", header))
+            if (is.na(matches[2])) {
+                  stop(paste0("Unexpected input: ", header))
+              }
             as.integer(matches[2])
         },
 
@@ -204,8 +149,9 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 empty_line <- self$read_line()
                 Sys.sleep(0.01)
             }
-            if (nchar(empty_line) > 0)
-                stop("Unexpected non-empty line")
+            if (nchar(empty_line) > 0) {
+                  stop("Unexpected non-empty line")
+              }
             data <- ""
             while (nbytes > 0) {
                 newdata <- self$read_char(nbytes)
@@ -218,7 +164,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             data
         },
 
-        eventloop = function() {
+        run = function() {
             while (TRUE) {
                 ret <- try({
                     self$check_connection()
@@ -230,12 +176,8 @@ LanguageServer <- R6::R6Class("LanguageServer",
 
                     self$process_events()
 
-                    nbytes <- self$read_header()
-                    if (is.null(nbytes)) {
-                        Sys.sleep(0.1)
-                        next
-                    }
-                    data <- self$read_content(nbytes)
+                    data <- self$fetch(blocking = FALSE)
+                    if (is.null(data)) next
                     self$handle_raw(data)
                 }, silent = TRUE)
                 if (inherits(ret, "try-error")) {
@@ -245,10 +187,6 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     break
                 }
             }
-        },
-
-        run = function() {
-            self$eventloop()
         }
     )
 )
@@ -257,7 +195,7 @@ LanguageServer$set("public", "register_handlers", function() {
     self$request_handlers <- list(
         initialize = on_initialize,
         shutdown = on_shutdown,
-        `textDocument/completion` =  text_document_completion,
+        `textDocument/completion` = text_document_completion,
         `textDocument/definition` = text_document_definition,
         `textDocument/hover` = text_document_hover,
         `textDocument/signatureHelp` = text_document_signature_help,
