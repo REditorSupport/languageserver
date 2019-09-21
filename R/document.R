@@ -59,10 +59,12 @@ check_scope <- function(uri, document, position) {
 #' @return a tuple of positive integers, the line and column position of the
 #' character if found, otherwise (-1, -1)
 document_backward_search <- function(document, position, char, skip_empty_line = TRUE) {
-    line      <- position$line
+    line <- position$line
     character <- position$character
-    .Call("document_backward_search", PACKAGE = "languageserver",
-          document, line, character - 1, char, skip_empty_line)
+    .Call("document_backward_search",
+        PACKAGE = "languageserver",
+        document, line, character - 1, char, skip_empty_line
+    )
 }
 
 #' get the contents of a line
@@ -88,7 +90,6 @@ document_line <- function(document, lineno) {
 #' @template document
 #' @template position
 detect_closure <- function(document, position) {
-
     if (position$character > 0 && !is.null(document)) {
         loc <- document_backward_search(document, position, "(")
     } else {
@@ -101,7 +102,8 @@ detect_closure <- function(document, position) {
 
         closure <- stringr::str_match(
             trim_content,
-            "(?:([a-zA-Z][a-zA-Z0-9.]+):::?)?([a-zA-Z.][a-zA-Z0-9_.]*)\\($")
+            "(?:([a-zA-Z][a-zA-Z0-9.]+):::?)?([a-zA-Z.][a-zA-Z0-9_.]*)\\($"
+        )
 
         if (is.na(closure[2])) {
             list(funct = closure[3])
@@ -118,7 +120,7 @@ detect_closure <- function(document, position) {
 #' @template document
 #' @template position
 detect_token <- function(document, position) {
-    line      <- position$line
+    line <- position$line
     character <- position$character
 
     content <- document_line(document, line + 1)
@@ -135,22 +137,26 @@ detect_token <- function(document, position) {
 #' @template document
 #' @template position
 detect_hover <- function(document, position) {
-    line      <- position$line
+    line <- position$line
     character <- position$character
 
     content <- document_line(document, line + 1)
     first <- stringr::str_match(
         substr(content, 1, character),
-        "(?:([a-zA-Z][a-zA-Z0-9.]+):::?)?([a-zA-Z.][a-zA-Z0-9_.]*)$")[1]
+        "(?:([a-zA-Z][a-zA-Z0-9.]+):::?)?([a-zA-Z.][a-zA-Z0-9_.]*)$"
+    )[1]
     second <- stringr::str_match(
         substr(content, character + 1, nchar(content)),
-        "^[a-zA-Z0-9_.]+\\b")[1]
+        "^[a-zA-Z0-9_.]+\\b"
+    )[1]
 
     if (is.na(first)) first <- ""
     if (is.na(second)) second <- ""
-    list(begin = character - nchar(first),
-         end = character + nchar(second),
-         text = paste0(first, second))
+    list(
+        begin = character - nchar(first),
+        end = character + nchar(second),
+        text = paste0(first, second)
+    )
 }
 
 
@@ -190,7 +196,9 @@ parse_env <- function() {
 }
 
 parse_expr <- function(expr, env, level = 0L, srcref = attr(expr, "srcref")) {
-    if (length(expr) == 0L || is.symbol(expr)) return(env)
+    if (length(expr) == 0L || is.symbol(expr)) {
+          return(env)
+      }
     for (i in seq_along(expr)) {
         e <- expr[[i]]
         if (!is.call(e) || !is.symbol(e[[1L]])) next
@@ -259,7 +267,8 @@ resolve_package_dependencies <- function(pkgs) {
                             next
                         }
                         tryCatch(library(pkg, character.only = TRUE),
-                            error = function(e) NULL)
+                            error = function(e) NULL
+                        )
                     }
                     search()
                 },
