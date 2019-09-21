@@ -48,7 +48,7 @@ LanguageBase <- R6::R6Class("LanguageBase",
                     return(NULL)
                 } else {
                     while (is.null(nbytes)) {
-                        if ((Sys.time() - start_time > timeout)) {
+                        if (Sys.time() - start_time > timeout) {
                             return(NULL)
                         }
                         Sys.sleep(0.1)
