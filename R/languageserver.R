@@ -120,7 +120,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
 
         read_char = function(n) {
             if (self$tcp) {
-                readChar(self$inputcon, n, TRUE)
+                readChar(self$inputcon, n, useBytes = TRUE)
             } else {
                 stdin_read_char(n)
             }
