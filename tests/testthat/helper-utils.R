@@ -78,3 +78,27 @@ respond_definition <- function(client, path, pos, ...) {
         ...
     )
 }
+
+
+respond_formatting <- function(client, path, ...) {
+    respond(
+        client,
+        "textDocument/formatting",
+        list(
+            textDocument = list(uri = path_to_uri(path)),
+            options = list(tabSize = 4, insertSpaces = TRUE)),
+        ...
+    )
+}
+
+respond_range_formatting <- function(client, path, start_pos, end_pos, ...) {
+    respond(
+        client,
+        "textDocument/rangeFormatting",
+        list(
+            textDocument = list(uri = path_to_uri(path)),
+            range = range(position(start_pos[1], start_pos[2]), position(end_pos[1], end_pos[2])),
+            options = list(tabSize = 4, insertSpaces = TRUE)),
+        ...
+    )
+}
