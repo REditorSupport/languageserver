@@ -26,7 +26,7 @@ path_to_uri <- function(path) {
 #' @return a logical
 is_rmarkdown <- function(uri) {
     filename <- path_from_uri(uri)
-    endsWith(tolower(filename), "rmd") || endsWith(tolower(filename), "rmarkdown")
+    endsWith(tolower(filename), ".rmd") || endsWith(tolower(filename), ".rmarkdown")
 }
 
 #' check if a token is in a R code block in an Rmarkdown file
