@@ -106,6 +106,22 @@ merge_list <- function(x, y) {
   x
 }
 
+
+#' check if a character vector looks like a function
+#'
+#' @param text a character vector
+#'
+#' @keywords internal
+match_function <- function(text) {
+    matches <- stringr::str_match(text, "(?:([a-zA-Z][a-zA-Z0-9.]+)(:::?))?([a-zA-Z0-9_.]*)$")
+    list(
+        package  = matches[2],
+        accessor = matches[3],
+        funct    = matches[4]
+    )
+}
+
+
 #' transform any object to a string
 #'
 #' @param ... anything
@@ -166,19 +182,6 @@ Logger <- R6::R6Class("Logger",
     )
 )
 
-#' check if a character vector looks like a function
-#'
-#' @param text a character vector
-#'
-#' @keywords internal
-detect_function <- function(text) {
-    matches <- stringr::str_match(text, "(?:([a-zA-Z][a-zA-Z0-9.]+)(:::?))?([a-zA-Z0-9_.]*)$")
-    list(
-        package  = matches[2],
-        accessor = matches[3],
-        funct    = matches[4]
-    )
-}
 
 # create the logger
 logger <- Logger$new()

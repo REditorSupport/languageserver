@@ -76,7 +76,7 @@ arg_completion <- function(workspace, token, closure) {
 workspace_completion <- function(workspace, full_token) {
     completions <- list()
 
-    matches <- detect_function(full_token)
+    matches <- match_function(full_token)
 
     pkg <- matches$package
     exported_only <- matches$accessor == "::"

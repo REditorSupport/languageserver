@@ -22,7 +22,7 @@ hover_reply <- function(id, uri, workspace, document, position) {
 
     logger$info("hover: ", hover)
 
-    matches <- detect_function(hover)
+    matches <- match_function(hover)
 
     contents <- tryCatch(
         workspace$get_help(matches$funct, matches$package),
