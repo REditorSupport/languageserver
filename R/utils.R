@@ -1,3 +1,13 @@
+#' calculate character offset based on the protocol
+#'
+#' @param s a character / character vector
+#'
+#' @keywords internal
+ncodeunit <- function(s) {
+    sapply(iconv(s, to = "UTF-16BE", toRaw = TRUE), length) / 2
+}
+
+
 #' check if a filename is a directory
 #'
 #' @param filename a character
