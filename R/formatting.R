@@ -70,7 +70,7 @@ range_formatting_reply <- function(id, uri, document, range, options) {
     line1 <- range$start$line
     line2 <- if (range$end$character == 0) range$end$line - 1 else range$end$line
     selection <- document[(line1:line2) + 1]
-    indentation <- stringr::str_extract(selection[1], "^\\s+")
+    indentation <- stringr::str_extract(selection[1], "^\\s*")
     newText <- style_text(selection, options, indentation)
     range <- range(
         start = position(line = line1, character = 0),
