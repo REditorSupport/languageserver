@@ -10,12 +10,14 @@ List all supported capabilities of the language server, as defined in the
 \details{
 Currently the capabilities are:
 \itemize{
-\item textDocumentSync,
-\item hoverProvider,
-\item completionProvider,
-\item signatureHelpProvider,
-\item documentFormattingProvider,
-\item documentRangeFormattingProvider,
+\item textDocumentSync
+\item hoverProvider
+\item completionProvider
+\item signatureHelpProvider
 \item definitionProvider
+\item documentSymbolProvider
+\item workspaceSymbolProvider
+\item documentFormattingProvider
+\item documentRangeFormattingProvider
 }
 }

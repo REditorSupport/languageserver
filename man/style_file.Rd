@@ -12,6 +12,6 @@ style_file(path, options)
 \item{options}{a named list of options, with a \code{tabSize} parameter}
 }
 \description{
-This functions formats a document using \code{\link[styler:style_text]{styler::style_text()}} with the
+This functions formats a document using \code{\link[styler:style_file]{styler::style_file()}} with the
 \code{\link[styler:tidyverse_style]{styler::tidyverse_style()}} style.
 }

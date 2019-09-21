@@ -4,12 +4,14 @@
 \alias{style_text}
 \title{edit code style}
 \usage{
-style_text(text, options)
+style_text(text, options, indentation = "")
 }
 \arguments{
-\item{text}{a list of text}
+\item{text}{a vector of text}
 
 \item{options}{a named list of options, with a \code{tabSize} parameter}
+
+\item{indentation}{amount of whitespaces put at the begining of each line}
 }
 \description{
 This functions formats a list of text using \code{\link[styler:style_text]{styler::style_text()}} with the
