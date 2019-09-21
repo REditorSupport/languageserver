@@ -27,14 +27,14 @@ style_file <- function(path, options) {
 #' This functions formats a list of text using [styler::style_text()] with the
 #' [styler::tidyverse_style()] style.
 #'
-#' @param text a list of text
+#' @param text a vector of text
 #' @param options a named list of options, with a `tabSize` parameter
-style_text <- function(text, options) {
-    newTextList <- styler::style_text(
+style_text <- function(text, options, indentation = "") {
+    new_text <- styler::style_text(
         text,
         transformers = styler::tidyverse_style(indent_by = options$tabSize)
     )
-    paste(newTextList, collapse = "\n")
+    paste(indentation, new_text, sep = "", collapse = "\n")
 }
 
 
@@ -69,7 +69,8 @@ range_formatting_reply <- function(id, uri, document, range, options) {
     line1 <- range$start$line
     line2 <- if (range$end$character == 0) range$end$line - 1 else range$end$line
     selection <- document[(line1:line2) + 1]
-    newText <- style_text(selection, options)
+    indentation <- stringr::str_extract(selection[1], "^\\s+")
+    newText <- style_text(selection, options, indentation)
     range <- range(
         start = position(line = line1, character = 0),
         end = position(line = line2, character = nchar(document[[line2 + 1]]))
