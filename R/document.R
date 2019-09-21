@@ -242,7 +242,7 @@ parse_expr <- function(expr, env, level = 0L, srcref = attr(expr, "srcref")) {
         } else if (f %in% c("library", "require") && length(e) == 2L) {
             pkg <- as.character(e[[2L]])
             if (!(pkg %in% env$packages)) {
-                env$packages <- c(env$packages, pkg)                
+                env$packages <- c(env$packages, pkg)
             }
         }
     }
@@ -258,7 +258,7 @@ resolve_package_dependencies <- function(pkgs) {
                         if (paste0("package:", pkg) %in% search()) {
                             next
                         }
-                        tryCatch(library(pkg, character.only = TRUE), 
+                        tryCatch(library(pkg, character.only = TRUE),
                             error = function(e) NULL)
                     }
                     search()
