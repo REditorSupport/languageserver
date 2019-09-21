@@ -120,7 +120,7 @@ definition_reply <- function(id, uri, workspace, document, position) {
     funct <- matches[4]
 
     if (is.na(pkg)) {
-        # look for in file first
+        # look in file first
         definition <- workspace$get_definition(funct)
         result <- if (is.null(definition)) {
             find_definition_in_package(workspace, funct, pkg)
@@ -128,7 +128,7 @@ definition_reply <- function(id, uri, workspace, document, position) {
             definition
         }
     } else {
-        # look for in package first
+        # then look in package
         definition <- find_definition_in_package(workspace, funct, pkg)
         result <- if (is.null(definition)) {
             workspace$get_definition(funct)
