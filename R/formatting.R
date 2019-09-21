@@ -29,6 +29,7 @@ style_file <- function(path, options) {
 #'
 #' @param text a vector of text
 #' @param options a named list of options, with a `tabSize` parameter
+#' @param indentation amount of whitespaces put at the begining of each line
 style_text <- function(text, options, indentation = "") {
     new_text <- styler::style_text(
         text,
