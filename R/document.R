@@ -17,7 +17,7 @@ Document <- R6::R6Class(
         set = function(content) {
             # remove last empty line
             nline <- length(content)
-            if (nchar(content[nline]) == 0) {
+            if (!nzchar(content[nline])) {
                 content <- content[-nline]
                 nline <- nline - 1
             }

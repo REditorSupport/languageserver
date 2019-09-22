@@ -8,7 +8,7 @@
 to_string <- function(...) {
     dots <- list(...)
     if (length(dots) > 0) {
-        str <- sapply(
+        str <- vapply(
             dots, function(x) {
                 tryCatch({
                 if (length(x) > 1)
@@ -17,7 +17,7 @@ to_string <- function(...) {
                     x
                 },
                 error = function(e) x)
-            })
+            }, character(1))
     } else {
         str <- ""
     }

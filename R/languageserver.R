@@ -131,7 +131,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                   return(NULL)
               }
             header <- self$read_line()
-            if (length(header) == 0 || nchar(header) == 0) {
+            if (length(header) == 0 || !nzchar(header)) {
                   return(NULL)
               }
 
@@ -149,7 +149,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 empty_line <- self$read_line()
                 Sys.sleep(0.01)
             }
-            if (nchar(empty_line) > 0) {
+            if (nzchar(empty_line)) {
                   stop("Unexpected non-empty line")
               }
             data <- ""
