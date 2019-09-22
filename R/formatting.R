@@ -51,7 +51,7 @@ formatting_reply <- function(id, uri, document, options) {
     ndoc <- length(document)
     range <- range(
         start = position(line = 0, character = 0),
-        end = if (ndoc) position(line = ndoc - 1, character = nchar(document[[ndoc]]))
+        end = if (ndoc) position(line = ndoc - 1, character = ncodeunit(document[[ndoc]]))
                 else position(line = 0, character = 0)
     )
     TextEdit <- text_edit(range = range, new_text = newText)
@@ -74,7 +74,7 @@ range_formatting_reply <- function(id, uri, document, range, options) {
     newText <- style_text(selection, options, indentation)
     range <- range(
         start = position(line = line1, character = 0),
-        end = position(line = line2, character = nchar(document[[line2 + 1]]))
+        end = position(line = line2, character = ncodeunit(document[[line2 + 1]]))
     )
     TextEdit <- text_edit(range = range, new_text = newText)
     TextEditList <- list(TextEdit)
