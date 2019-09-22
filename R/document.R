@@ -1,53 +1,41 @@
-#' paths and uris
-#'
-#' @param uri a character, the path to a file in URI format
-path_from_uri <- function(uri) {
-    if (is.null(uri)) {
-        return(NULL)
-    }
-    start_char <- ifelse(.Platform$OS.type == "windows", 9, 8)
-    utils::URLdecode(substr(uri, start_char, nchar(uri)))
-}
+Document <- R6::R6Class(
+    "Document",
+    public = list(
+        uri = NULL,
+        nline = 0,
+        content = NULL,
+        is_rmarkdown = NULL,
 
-#' @param path a character, the path to a file
-#' @rdname path_from_uri
-path_to_uri <- function(path) {
-    if (is.null(path)) {
-        return(NULL)
-    }
-    prefix <- ifelse(.Platform$OS.type == "windows", "file:///", "file://")
-    paste0(prefix, utils::URLencode(path))
-}
+        initialize = function(uri, content = NULL) {
+            self$uri <- uri
+            self$is_rmarkdown <- is_rmarkdown(self$uri)
+            if (!is.null(content)) {
+                self$set(content)
+            }
+        },
 
-#' check if a file is an RMarkdown file
-#'
-#' @template uri
-#'
-#' @return a logical
-is_rmarkdown <- function(uri) {
-    filename <- path_from_uri(uri)
-    endsWith(tolower(filename), ".rmd") || endsWith(tolower(filename), ".rmarkdown")
-}
+        set = function(content) {
+            # remove last empty line
+            nline <- length(content)
+            if (nchar(content[nline]) == 0) {
+                content <- content[-nline]
+                nline <- nline - 1
+            }
+            self$nline <- nline
+            self$content <- content
+        },
 
-#' check if a token is in a R code block in an Rmarkdown file
-#'
-#' In an RMarkdown document, tokens can be either inside an R code block or
-#' in the text. This function will return `FALSE` if the token is in the text
-#' and `TRUE` if it is in a code block. For R scripts, it always returns `TRUE`.
-#'
-#' @template uri
-#' @template document
-#' @template position
-#'
-#' @return a logical
-check_scope <- function(uri, document, position) {
-    if (is_rmarkdown(uri)) {
-        line <- position$line
-        !identical(sum(sapply(document[1:(line + 1)], function(x) startsWith(x, "```"))) %% 2, 0)
-    } else {
-        TRUE
-    }
-}
+        line = function(lineno) {
+            if (lineno <= self$nline) {
+                line <- self$content[lineno]
+            } else {
+                line <- ""
+            }
+            line
+        }
+    )
+)
+
 
 #' search backwards in a document for a specific character
 #'
@@ -61,29 +49,13 @@ check_scope <- function(uri, document, position) {
 document_backward_search <- function(document, position, char, skip_empty_line = TRUE) {
     line <- position$line
     character <- position$character
+    # TODO: adjust for UTF-16
     .Call("document_backward_search",
         PACKAGE = "languageserver",
-        document, line, character - 1, char, skip_empty_line
+        document$content, line, character - 1, char, skip_empty_line
     )
 }
 
-#' get the contents of a line
-#'
-#' If the line number is higher than the number of lines in the document,
-#' an empty character is returned.
-#'
-#' @template document
-#' @param lineno a numeric, the line number
-#'
-#' @return a character
-document_line <- function(document, lineno) {
-    if (lineno <= length(document)) {
-        line <- document[lineno]
-    } else {
-        line <- ""
-    }
-    line
-}
 
 #' detect if the current position is inside a closure
 #'
@@ -97,7 +69,7 @@ detect_closure <- function(document, position) {
     }
 
     if (loc[1] >= 0 && loc[2] >= 0) {
-        content <- document_line(document, loc[1] + 1)
+        content <- document$line(loc[1] + 1)
         trim_content <- trimws(substr(content, 1, loc[2] + 1))
 
         closure <- stringr::str_match(
@@ -123,7 +95,7 @@ detect_token <- function(document, position) {
     line <- position$line
     character <- position$character
 
-    content <- document_line(document, line + 1)
+    content <- document$line(line + 1)
     token <- stringr::str_match(substr(content, 1, character), "\\b[a-zA-Z0-9_.:]+$")[1]
     if (is.na(token)) {
         ""
@@ -140,7 +112,7 @@ detect_hover <- function(document, position) {
     line <- position$line
     character <- position$character
 
-    content <- document_line(document, line + 1)
+    content <- document$line(line + 1)
     first <- stringr::str_match(
         substr(content, 1, character),
         "(?:([a-zA-Z][a-zA-Z0-9.]+):::?)?([a-zA-Z.][a-zA-Z0-9_.]*)$"

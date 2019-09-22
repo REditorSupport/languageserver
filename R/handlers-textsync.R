@@ -9,8 +9,12 @@
 text_document_did_open <- function(self, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
-    doc <- readLines(path_from_uri(uri), warn = FALSE)
-    self$documents[[uri]] <- doc
+    content <- readLines(path_from_uri(uri), warn = FALSE)
+    if (is.null(self$documents[[uri]])) {
+        self$documents[[uri]] <- Document$new(uri, content)
+    } else {
+        self$documents[[uri]]$set(content)
+    }
     self$text_sync(uri, document = NULL, run_lintr = TRUE, parse = TRUE)
 }
 
@@ -28,10 +32,14 @@ text_document_did_change <- function(self, params) {
     text <- contentChanges[[1]]$text
     uri <- textDocument$uri
     logger$info("did change: ", uri)
-    doc <- stringr::str_split(text, "\r\n|\n")[[1]]
-    # remove last empty line
-    if (nchar(doc[[length(doc)]]) == 0) doc <- doc[-length(doc)]
-    self$documents[[uri]] <- doc
+    content <- stringr::str_split(text, "\r\n|\n")[[1]]
+    if (is.null(self$documents[[uri]])) {
+        doc <- Document$new(uri, content)
+        self$documents[[uri]] <- doc
+    } else {
+        self$documents[[uri]]$set(content)
+        doc <- self$documents[[uri]]
+    }
     self$text_sync(uri, document = doc, run_lintr = TRUE, parse = FALSE)
 }
 
@@ -59,7 +67,8 @@ text_document_did_save <- function(self, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
     logger$info("did save:", uri)
-    self$documents[[uri]] <- readLines(path_from_uri(uri), warn = FALSE)
+    content <- readLines(path_from_uri(uri), warn = FALSE)
+    self$documents[[uri]] <- Document$new(uri, content)
     self$text_sync(uri, document = NULL, run_lintr = TRUE, parse = TRUE)
 }
 

@@ -1,3 +1,67 @@
+#' replace elements of a list
+#'
+#' @param x,y named lists
+#'
+#' @keywords internal
+merge_list <- function(x, y) {
+  x[names(y)] <- y
+  x
+}
+
+
+#' paths and uris
+#'
+#' @param uri a character, the path to a file in URI format
+path_from_uri <- function(uri) {
+    if (is.null(uri)) {
+        return(NULL)
+    }
+    start_char <- ifelse(.Platform$OS.type == "windows", 9, 8)
+    utils::URLdecode(substr(uri, start_char, nchar(uri)))
+}
+
+
+#' @param path a character, the path to a file
+#' @rdname path_from_uri
+path_to_uri <- function(path) {
+    if (is.null(path)) {
+        return(NULL)
+    }
+    prefix <- ifelse(.Platform$OS.type == "windows", "file:///", "file://")
+    paste0(prefix, utils::URLencode(path))
+}
+
+#' check if a file is an RMarkdown file
+#'
+#' @template uri
+#'
+#' @return a logical
+is_rmarkdown <- function(uri) {
+    filename <- path_from_uri(uri)
+    endsWith(tolower(filename), ".rmd") || endsWith(tolower(filename), ".rmarkdown")
+}
+
+#' check if a token is in a R code block in an Rmarkdown file
+#'
+#' In an RMarkdown document, tokens can be either inside an R code block or
+#' in the text. This function will return `FALSE` if the token is in the text
+#' and `TRUE` if it is in a code block. For R scripts, it always returns `TRUE`.
+#'
+#' @template uri
+#' @template document
+#' @template position
+#'
+#' @return a logical
+check_scope <- function(uri, document, position) {
+    if (is_rmarkdown(uri)) {
+        line <- position$line
+        !identical(sum(sapply(document$content[1:(line + 1)], function(x) startsWith(x, "```"))) %% 2, 0)
+    } else {
+        TRUE
+    }
+}
+
+
 #' calculate character offset based on the protocol
 #'
 #' @param s a character / character vector
@@ -106,16 +170,6 @@ sanitize_names <- function(objects) {
     objects[stringr::str_detect(objects, "^(?:[a-zA-Z.][a-zA-Z0-9_.]*)?$")]
 }
 
-#' replace elements of a list
-#'
-#' @param x,y named lists
-#'
-#' @keywords internal
-merge_list <- function(x, y) {
-  x[names(y)] <- y
-  x
-}
-
 
 #' check if a character vector looks like a function
 #'
@@ -130,68 +184,3 @@ match_function <- function(text) {
         funct    = matches[4]
     )
 }
-
-
-#' transform any object to a string
-#'
-#' @param ... anything
-#'
-#' @keywords internal
-to_string <- function(...) {
-    dots <- list(...)
-    if (length(dots) > 0) {
-        str <- sapply(
-            dots, function(x) {
-                tryCatch({
-                if (length(x) > 1)
-                    jsonlite::toJSON(x, auto_unbox = TRUE)
-                else
-                    x
-                },
-                error = function(e) x)
-            })
-    } else {
-        str <- ""
-    }
-    paste0(paste(str, collapse = " "), "\n")
-}
-
-#' write to log
-#'
-#' @param ... anything
-#'
-#' @keywords internal
-log_write <- function(..., file = stderr()){
-    # cat(to_string(...), file = "/tmp/rls")
-    cat(to_string(...), file = file)
-}
-
-#' a basic logger class
-#'
-#' @keywords internal
-Logger <- R6::R6Class("Logger",
-    private = list(
-        debug = FALSE,
-        file = stderr()
-    ),
-    public = list(
-        debug_mode = function(debug) {
-            if (isTRUE(debug) || is.character(debug)) {
-                private$debug <- TRUE
-                if (is.character(debug)) {
-                    private$file <- debug
-                }
-            }
-        },
-        error = function(...) {
-            log_write(..., file = private$file)
-        },
-        info = function(...) {
-            if (private$debug) log_write(..., file = private$file)
-        }
-    )
-)
-
-
-# create the logger
-logger <- Logger$new()

@@ -10,7 +10,7 @@ static int is_empty(const char *s) {
     return 1;
 }
 
-SEXP document_backward_search(SEXP document, SEXP _row, SEXP _col, SEXP _char, SEXP _skip_el) {
+SEXP document_backward_search(SEXP content, SEXP _row, SEXP _col, SEXP _char, SEXP _skip_el) {
     int row = Rf_asInteger(_row);
     int col = Rf_asInteger(_col);
     char c = CHAR(Rf_asChar(_char))[0];
@@ -30,7 +30,7 @@ SEXP document_backward_search(SEXP document, SEXP _row, SEXP _col, SEXP _char, S
     k = 0;
 
     for (i = row; i>=0; i--) {
-        ds = STRING_ELT(document, i);
+        ds = STRING_ELT(content, i);
         d = Rf_translateCharUTF8(ds);
         if (skip && i < row && is_empty(d)) {
             // skip empty row when search backward

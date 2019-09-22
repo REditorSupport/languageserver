@@ -302,12 +302,8 @@ process_sync_in <- function(self) {
         if (is.null(doc)) {
             temp_file <- NULL
         } else {
-            if (is_rmarkdown(path)) {
-                temp_file <- tempfile(fileext = ".Rmd")
-            } else {
-                temp_file <- tempfile(fileext = ".R")
-            }
-            write(item$document, file = temp_file)
+            temp_file <- tempfile(fileext = if (is_rmarkdown(path)) ".Rmd" else ".R")
+            write(doc$content, file = temp_file)
         }
 
         sync_out$set(
