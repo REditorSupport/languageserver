@@ -36,7 +36,7 @@ LanguageClient <- R6::R6Class("LanguageClient",
         read_header = function() {
             if (!self$process$is_alive() || self$process$poll_io(1)[1] != "ready") return(NULL)
             header <- self$read_one_output_line()
-            if (length(header) == 0 || nchar(header) == 0) return(NULL)
+            if (length(header) == 0 || !nzchar(header)) return(NULL)
             logger$info("received: ", header)
             matches <- stringr::str_match(header, "Content-Length: ([0-9]+)")
             if (is.na(matches[2]))
@@ -50,7 +50,7 @@ LanguageClient <- R6::R6Class("LanguageClient",
                 empty_line <- self$read_one_output_line()
                 Sys.sleep(0.01)
             }
-            if (nchar(empty_line) > 0) {
+            if (nzchar(empty_line)) {
                 stop("Unexpected non-empty line")
             }
             data <- ""

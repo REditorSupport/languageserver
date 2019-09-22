@@ -55,7 +55,7 @@ is_rmarkdown <- function(uri) {
 check_scope <- function(uri, document, position) {
     if (is_rmarkdown(uri)) {
         line <- position$line
-        !identical(sum(sapply(document$content[1:(line + 1)], function(x) startsWith(x, "```"))) %% 2, 0)
+        !identical(sum(vapply(document$content[1:(line + 1)], startsWith, integer(1), "```")) %% 2, 0)
     } else {
         TRUE
     }
@@ -68,7 +68,7 @@ check_scope <- function(uri, document, position) {
 #'
 #' @keywords internal
 ncodeunit <- function(s) {
-    sapply(iconv(s, to = "UTF-16BE", toRaw = TRUE), length) / 2
+    lengths(iconv(s, to = "UTF-16BE", toRaw = TRUE)) / 2
 }
 
 
