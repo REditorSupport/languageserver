@@ -19,7 +19,7 @@ to_string <- function(...) {
                         ""
                     }
                 },
-                error = function(e) x)
+                error = function(e) x$message)
             }, character(1L))
     } else {
         str <- ""
