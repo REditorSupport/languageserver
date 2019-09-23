@@ -30,15 +30,19 @@ style_file <- function(path, options) {
 #' @param text a vector of text
 #' @param options a named list of options, with a `tabSize` parameter
 #' @param indentation amount of whitespaces put at the begining of each line
-style_text <- function(text, options, indentation = "") {
+style_text <- function(text, options, scope = "tokens", indentation = "") {
     new_text <- tryCatch(
         styler::style_text(
             text,
-            transformers = styler::tidyverse_style(indent_by = options$tabSize)
+            transformers = styler::tidyverse_style(
+                scope = scope,
+                indent_by = options$tabSize
+            )
         ),
-        error = function(e) e)
+        error = function(e) e
+    )
     if (inherits(new_text, "error")) {
-        logger$info("formatting error:", e$message)
+        logger$info("formatting error:", new_text$message)
         return(NULL)
     }
     paste(indentation, new_text, sep = "", collapse = "\n")
@@ -62,7 +66,9 @@ formatting_reply <- function(id, uri, document, options) {
         start = position(line = 0, character = 0),
         end = if (nline) {
             position(line = nline - 1, character = ncodeunit(document$line(nline)))
-        } else position(line = 0, character = 0)
+        } else {
+              position(line = 0, character = 0)
+          }
     )
     TextEdit <- text_edit(range = range, new_text = new_text)
     TextEditList <- list(TextEdit)
@@ -83,12 +89,14 @@ range_formatting_reply <- function(id, uri, document, range, options) {
     lastline <- document$content[line2 + 1]
     # check if the selection contains complete lines
     if (range$start$character != 0 || range$end$character < ncodeunit(lastline)) {
-        return(Response$new(id, list()))
+        scope <- "line_breaks"
+    } else {
+        scope <- "tokens"
     }
 
     selection <- document$content[(line1:line2) + 1]
     indentation <- stringr::str_extract(selection[1], "^\\s*")
-    new_text <- style_text(selection, options, indentation)
+    new_text <- style_text(selection, options, scope = scope, indentation = indentation)
     if (is.null(new_text)) {
         return(Response$new(id, list()))
     }
