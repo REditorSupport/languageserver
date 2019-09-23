@@ -11,13 +11,16 @@ to_string <- function(...) {
         str <- vapply(
             dots, function(x) {
                 tryCatch({
-                if (length(x) > 1)
-                    jsonlite::toJSON(x, auto_unbox = TRUE)
-                else
-                    x
+                    if (length(x) > 1) {
+                        jsonlite::toJSON(x, auto_unbox = TRUE)
+                    } else if (length(x) == 1) {
+                        x
+                    } else {
+                        ""
+                    }
                 },
                 error = function(e) x)
-            }, character(1))
+            }, character(1L))
     } else {
         str <- ""
     }
