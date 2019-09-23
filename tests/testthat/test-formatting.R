@@ -30,6 +30,6 @@ test_that("Formatting selection works", {
 
     expect_length(result, 1)
     lines <- result[[1]]$newText %>% strsplit("\n") %>% extract2(1)
-    expect_equal(lines[1], "    y <- x + 1")
+    expect_equal(lines[1], "    y = x + 1")
     expect_equal(lines[2], "    y + 3")
 })
