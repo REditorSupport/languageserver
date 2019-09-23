@@ -8,7 +8,7 @@
 to_string <- function(...) {
     dots <- list(...)
     if (length(dots) > 0) {
-        str <- vapply(
+        str <- unlist(lapply(
             dots, function(x) {
                 tryCatch({
                     if (length(x) > 1) {
@@ -20,7 +20,7 @@ to_string <- function(...) {
                     }
                 },
                 error = function(e) x$message)
-            }, character(1L))
+            }), use.names = FALSE)
     } else {
         str <- ""
     }
