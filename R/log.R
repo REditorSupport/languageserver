@@ -8,16 +8,19 @@
 to_string <- function(...) {
     dots <- list(...)
     if (length(dots) > 0) {
-        str <- unlist(lapply(
+        str <- vapply(
             dots, function(x) {
                 tryCatch({
-                if (length(x) > 1)
-                    jsonlite::toJSON(x, auto_unbox = TRUE)
-                else
-                    x
+                    if (length(x) > 1) {
+                        jsonlite::toJSON(x, auto_unbox = TRUE)
+                    } else if (length(x) == 1) {
+                        x
+                    } else {
+                        ""
+                    }
                 },
                 error = function(e) x)
-            }), recursive = TRUE, use.names = FALSE)
+            }, character(1L))
     } else {
         str <- ""
     }
