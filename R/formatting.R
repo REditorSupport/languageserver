@@ -70,7 +70,13 @@ formatting_reply <- function(id, uri, document, options) {
 #' @param options a named list of options, with a `tabSize` parameter
 range_formatting_reply <- function(id, uri, document, range, options) {
     line1 <- range$start$line
-    line2 <- if (range$end$character == 0) range$end$line - 1 else range$end$line
+    line2 <- range$end$line
+    lastline <- document$content[line2 + 1]
+    # check if the selection contains complete lines
+    if (range$start$character != 0 || range$end$character < ncodeunit(lastline)) {
+        return(Response$new(id, list()))
+    }
+
     selection <- document$content[(line1:line2) + 1]
     indentation <- stringr::str_extract(selection[1], "^\\s*")
     newText <- style_text(selection, options, indentation)
