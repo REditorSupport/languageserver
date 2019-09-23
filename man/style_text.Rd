@@ -4,12 +4,14 @@
 \alias{style_text}
 \title{edit code style}
 \usage{
-style_text(text, options, indentation = "")
+style_text(text, options, scope = "tokens", indentation = "")
 }
 \arguments{
 \item{text}{a vector of text}
 
 \item{options}{a named list of options, with a \code{tabSize} parameter}
+
+\item{scope}{the scope type used in styler::tidyverse_style}
 
 \item{indentation}{amount of whitespaces put at the begining of each line}
 }
