@@ -49,19 +49,25 @@ style_text <- function(text, options, scope, indentation = "") {
 #' @param options a named list of options, with a `tabSize` parameter
 formatting_reply <- function(id, uri, document, options) {
     # do not use `style_file` because the changes are not necessarily saved on disk.
-    newText <- style_text(document$content, options, scope = "tokens")
-    nline <- document$nline
-    range <- range(
-        start = position(line = 0, character = 0),
-        end = if (nline) {
-            position(line = nline - 1, character = ncodeunit(document$line(nline)))
-        } else position(line = 0, character = 0)
-    )
-    TextEdit <- text_edit(range = range, new_text = newText)
-    TextEditList <- list(TextEdit)
-    Response$new(id, TextEditList)
+    tryCatch({
+        newText <- style_text(document$content, options, scope = "tokens")
+        nline <- document$nline
+        range <- range(
+            start = position(line = 0, character = 0),
+            end = if (nline) {
+                position(line = nline - 1, character = ncodeunit(document$line(nline)))
+            } else {
+                position(line = 0, character = 0)
+            }
+        )
+        TextEdit <- text_edit(range = range, new_text = newText)
+        TextEditList <- list(TextEdit)
+        Response$new(id, TextEditList)
+    }, error = function(e) {
+        logger$info(e)
+        Response$new(id, list())
+    })
 }
-
 
 #' format a part of a document
 #'
@@ -75,13 +81,19 @@ range_formatting_reply <- function(id, uri, document, range, options) {
     line2 <- if (range$end$character == 0) range$end$line - 1 else range$end$line
     selection <- document$content[(line1:line2) + 1]
     indentation <- stringr::str_extract(selection[1], "^\\s*")
-    newText <- style_text(selection, options, 
-        scope = "line_breaks", indentation = indentation)
-    range <- range(
-        start = position(line = line1, character = 0),
-        end = position(line = line2, character = ncodeunit(document$line(line2 + 1)))
-    )
-    TextEdit <- text_edit(range = range, new_text = newText)
-    TextEditList <- list(TextEdit)
-    Response$new(id, TextEditList)
+    tryCatch({
+        newText <- style_text(selection, options,
+            scope = "line_breaks", indentation = indentation
+        )
+        range <- range(
+            start = position(line = line1, character = 0),
+            end = position(line = line2, character = ncodeunit(document$line(line2 + 1)))
+        )
+        TextEdit <- text_edit(range = range, new_text = newText)
+        TextEditList <- list(TextEdit)
+        Response$new(id, TextEditList)
+    }, error = function(e) {
+        logger$info(e)
+        Response$new(id, list())
+    })
 }
