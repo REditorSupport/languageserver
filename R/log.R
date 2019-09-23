@@ -14,7 +14,7 @@ to_string <- function(...) {
                     if (length(x) > 1) {
                         jsonlite::toJSON(x, auto_unbox = TRUE)
                     } else if (length(x) == 1) {
-                        x
+                        as.character(x)
                     } else {
                         ""
                     }
