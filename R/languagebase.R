@@ -79,7 +79,7 @@ LanguageBase <- R6::R6Class("LanguageBase",
             } else if ("id" %in% pl_names) {
                 self$handle_response(payload)
             } else {
-                logger$error("unknown message")
+                logger$info("unknown message")
             }
         },
 
@@ -94,12 +94,12 @@ LanguageBase <- R6::R6Class("LanguageBase",
                     dispatch(self, id, params)
                 },
                 error = function(e) {
-                    logger$error("internal error: ", e)
+                    logger$info("internal error: ", e)
                     self$deliver(ResponseErrorMessage$new(id, "InternalError", to_string(e)))
                 }
                 )
             } else {
-                logger$error("unknown request: ", method)
+                logger$info("unknown request: ", method)
                 self$deliver(ResponseErrorMessage$new(
                     id, "MethodNotFound", paste0("unknown request ", method)
                 ))
@@ -116,11 +116,11 @@ LanguageBase <- R6::R6Class("LanguageBase",
                     dispatch(self, params)
                 },
                 error = function(e) {
-                    logger$error("internal error: ", e)
+                    logger$info("internal error: ", e)
                 }
                 )
             } else {
-                logger$error("unknown notification: ", method)
+                logger$info("unknown notification: ", method)
             }
         },
 
@@ -137,7 +137,7 @@ LanguageBase <- R6::R6Class("LanguageBase",
                 if (self$catch_callback_error) {
                     tryCatch(
                         callback(self, response$result),
-                        error = function(e) logger$error("callback error: ", e)
+                        error = function(e) logger$info("callback error: ", e)
                     )
                 } else {
                     callback(self, response$result)
