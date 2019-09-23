@@ -4,7 +4,7 @@
 \alias{style_text}
 \title{edit code style}
 \usage{
-style_text(text, options, indentation = "")
+style_text(text, options, scope, indentation = "")
 }
 \arguments{
 \item{text}{a vector of text}

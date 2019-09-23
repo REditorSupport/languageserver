@@ -30,10 +30,12 @@ style_file <- function(path, options) {
 #' @param text a vector of text
 #' @param options a named list of options, with a `tabSize` parameter
 #' @param indentation amount of whitespaces put at the begining of each line
-style_text <- function(text, options, indentation = "") {
+style_text <- function(text, options, scope, indentation = "") {
     new_text <- styler::style_text(
         text,
-        transformers = styler::tidyverse_style(indent_by = options$tabSize)
+        transformers = styler::tidyverse_style(
+            scope = scope,
+            indent_by = options$tabSize)
     )
     paste(indentation, new_text, sep = "", collapse = "\n")
 }
@@ -47,7 +49,7 @@ style_text <- function(text, options, indentation = "") {
 #' @param options a named list of options, with a `tabSize` parameter
 formatting_reply <- function(id, uri, document, options) {
     # do not use `style_file` because the changes are not necessarily saved on disk.
-    newText <- style_text(document$content, options)
+    newText <- style_text(document$content, options, scope = "tokens")
     nline <- document$nline
     range <- range(
         start = position(line = 0, character = 0),
@@ -73,7 +75,8 @@ range_formatting_reply <- function(id, uri, document, range, options) {
     line2 <- if (range$end$character == 0) range$end$line - 1 else range$end$line
     selection <- document$content[(line1:line2) + 1]
     indentation <- stringr::str_extract(selection[1], "^\\s*")
-    newText <- style_text(selection, options, indentation)
+    newText <- style_text(selection, options, 
+        scope = "line_breaks", indentation = indentation)
     range <- range(
         start = position(line = line1, character = 0),
         end = position(line = line2, character = ncodeunit(document$line(line2 + 1)))
