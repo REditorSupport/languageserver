@@ -72,6 +72,21 @@ ncodeunit <- function(s) {
 }
 
 
+#' determinal code units given code points
+#'
+#' @param line a character of text
+#' @param pts 0-indexed code points
+#'
+#' @keywords internal
+code_point_to_unit <- function(line, pts) {
+    offsets <- cumsum(ncodeunit(strsplit(line, "")[[1]]))
+    loc_map <- match(seq_len(tail(offsets, 1)), offsets)
+    result <- c(0, loc_map)[pts + 1]
+    result[is.infinite(pts)] <- nchar(line)
+    result
+}
+
+
 #' check if a filename is a directory
 #'
 #' @param filename a character
@@ -176,7 +191,7 @@ sanitize_names <- function(objects) {
 #' @param text a character vector
 #'
 #' @keywords internal
-match_function <- function(text) {
+match_call <- function(text) {
     matches <- stringr::str_match(text, "(?:([a-zA-Z][a-zA-Z0-9.]+)(:::?))?([a-zA-Z0-9_.]*)$")
     list(
         package  = matches[2],

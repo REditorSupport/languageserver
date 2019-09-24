@@ -110,9 +110,7 @@ find_definition_in_package <- function(workspace, funct, pkg) {
 #'
 #' @keywords internal
 definition_reply <- function(id, uri, workspace, document, position) {
-    token <- detect_hover(document, position)
-
-    logger$info("definition: ", token$text)
+    token <- document$detect_hover(position)
 
     matches <- stringr::str_match(
         token$text, "(?:([a-zA-Z][a-zA-Z0-9.]+)(:::?))?([a-zA-Z0-9_.]*)$")

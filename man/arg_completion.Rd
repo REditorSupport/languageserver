@@ -4,14 +4,14 @@
 \alias{arg_completion}
 \title{complete a function argument}
 \usage{
-arg_completion(workspace, token, closure)
+arg_completion(workspace, token, call)
 }
 \arguments{
 \item{workspace}{a \link{Workspace} object}
 
 \item{token}{a character, the start of the argument to identify}
 
-\item{closure}{a closure object, the function for which \code{token} may be an argument}
+\item{call}{a call object, the function for which \code{token} may be an argument}
 }
 \value{
 a list of candidates
