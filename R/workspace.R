@@ -110,7 +110,7 @@ Workspace <- R6::R6Class("Workspace",
         },
 
         get_help = function(topic, pkgname = NULL) {
-            if (is.null(pkgname) || is.na(pkgname)) {
+            if (is.null(pkgname)) {
                 pkgname <- self$guess_package(topic)
             }
             # note: the parantheses are neccessary

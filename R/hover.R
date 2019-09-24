@@ -17,12 +17,10 @@ hover_reply <- function(id, uri, workspace, document, position) {
         return(Response$new(id))
     }
 
-    hover_result <- document$detect_hover(position)
-    hover <- hover_result$text
-    matches <- match_call(hover)
+    token_result <- document$detect_token(position)
 
     contents <- tryCatch(
-        workspace$get_help(matches$funct, matches$package),
+        workspace$get_help(token_result$token, token_result$package),
         error = function(e) list()
     )
 
@@ -33,7 +31,7 @@ hover_reply <- function(id, uri, workspace, document, position) {
             id,
             result = list(
                 contents = contents,
-                range = hover_result$range
+                range = token_result$range
             )
         )
     }
