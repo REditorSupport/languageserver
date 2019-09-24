@@ -86,10 +86,25 @@ formatting_reply <- function(id, uri, document, options) {
 #' @param options a named list of options, with a `tabSize` parameter
 range_formatting_reply <- function(id, uri, document, range, options) {
     line1 <- range$start$line
-    line2 <- range$end$line
-    lastline <- document$content[line2 + 1]
+    character1 <- range$start$character
+    if (range$end$character == 0 && line1 < range$end$line) {
+        # if the cursor is at the beginning of a line, move up one line
+        line2 <- range$end$line - 1
+        lastline <- document$content[line2 + 1]
+        character2 <- ncodeunit(lastline)
+    } else {
+        line2 <- range$end$line
+        lastline <- document$content[line2 + 1]
+        character2 <- range$end$character
+    }
+
+    # check if the selection is empty
+    if (line1 == line2 && character1 == character2) {
+        return(Response$new(id, list()))
+    }
+
     # check if the selection contains complete lines
-    if (range$start$character != 0 || range$end$character < ncodeunit(lastline)) {
+    if (character1 != 0 || character2 < ncodeunit(lastline)) {
         scope <- "line_breaks"
     } else {
         scope <- "tokens"
