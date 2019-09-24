@@ -29,12 +29,23 @@ style_file <- function(path, options) {
 #'
 #' @param text a vector of text
 #' @param options a named list of options, with a `tabSize` parameter
+#' @param scope the scope type used in styler::tidyverse_style
 #' @param indentation amount of whitespaces put at the begining of each line
-style_text <- function(text, options, indentation = "") {
-    new_text <- styler::style_text(
-        text,
-        transformers = styler::tidyverse_style(indent_by = options$tabSize)
+style_text <- function(text, options, scope = "tokens", indentation = "") {
+    new_text <- tryCatch(
+        styler::style_text(
+            text,
+            transformers = styler::tidyverse_style(
+                scope = scope,
+                indent_by = options$tabSize
+            )
+        ),
+        error = function(e) e
     )
+    if (inherits(new_text, "error")) {
+        logger$info("formatting error:", new_text$message)
+        return(NULL)
+    }
     paste(indentation, new_text, sep = "", collapse = "\n")
 }
 
@@ -47,15 +58,20 @@ style_text <- function(text, options, indentation = "") {
 #' @param options a named list of options, with a `tabSize` parameter
 formatting_reply <- function(id, uri, document, options) {
     # do not use `style_file` because the changes are not necessarily saved on disk.
-    newText <- style_text(document$content, options)
+    new_text <- style_text(document$content, options)
+    if (is.null(new_text)) {
+        return(Response$new(id, list()))
+    }
     nline <- document$nline
     range <- range(
         start = position(line = 0, character = 0),
         end = if (nline) {
             position(line = nline - 1, character = ncodeunit(document$line(nline)))
-        } else position(line = 0, character = 0)
+        } else {
+              position(line = 0, character = 0)
+          }
     )
-    TextEdit <- text_edit(range = range, new_text = newText)
+    TextEdit <- text_edit(range = range, new_text = new_text)
     TextEditList <- list(TextEdit)
     Response$new(id, TextEditList)
 }
@@ -70,15 +86,26 @@ formatting_reply <- function(id, uri, document, options) {
 #' @param options a named list of options, with a `tabSize` parameter
 range_formatting_reply <- function(id, uri, document, range, options) {
     line1 <- range$start$line
-    line2 <- if (range$end$character == 0) range$end$line - 1 else range$end$line
+    line2 <- range$end$line
+    lastline <- document$content[line2 + 1]
+    # check if the selection contains complete lines
+    if (range$start$character != 0 || range$end$character < ncodeunit(lastline)) {
+        scope <- "line_breaks"
+    } else {
+        scope <- "tokens"
+    }
+
     selection <- document$content[(line1:line2) + 1]
     indentation <- stringr::str_extract(selection[1], "^\\s*")
-    newText <- style_text(selection, options, indentation)
+    new_text <- style_text(selection, options, scope = scope, indentation = indentation)
+    if (is.null(new_text)) {
+        return(Response$new(id, list()))
+    }
     range <- range(
         start = position(line = line1, character = 0),
         end = position(line = line2, character = ncodeunit(document$line(line2 + 1)))
     )
-    TextEdit <- text_edit(range = range, new_text = newText)
+    TextEdit <- text_edit(range = range, new_text = new_text)
     TextEditList <- list(TextEdit)
     Response$new(id, TextEditList)
 }
