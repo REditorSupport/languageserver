@@ -25,109 +25,117 @@ Document <- R6::R6Class(
             self$content <- content
         },
 
-        line = function(lineno) {
-            if (lineno <= self$nline) {
-                line <- self$content[lineno]
+        line = function(row) {
+            if (row <= self$nline) self$content[row] else ""
+        },
+
+        line0 = function(row) {
+            # row is 0-indexed
+            if (row < self$nline) self$content[row + 1] else ""
+        },
+
+        line_substr = function(row, start = 0, end = Inf) {
+            # start and end are based on UTF-16
+            line <- self$line0(row)
+            pos <- code_point_to_unit(line, c(start, end))
+            substr(line, pos[1] + 1, pos[2])
+        },
+
+        detect_token = function(position) {
+            text_before <- self$line_substr(position$line, end = position$character)
+            token <- stringr::str_match(text_before, "\\b(?<!\\$)(?:[^\\W]|\\.|:)+$")[1]
+            logger$info("token:", token)
+            if (is.na(token)) {
+                ""
             } else {
-                line <- ""
+                token
             }
-            line
+        },
+
+        detect_call = function(position) {
+            row <- position$line
+            text <- self$line0(row)
+            column <- code_point_to_unit(text, position$character)
+
+            if (position$character > 0) {
+                loc <- content_backward_search(self$content, row, column - 1, "(")
+            } else {
+                loc <- c(-1, -1)
+            }
+
+            if (loc[1] < 0 || loc[2] < 0)
+                return(list())
+
+            trim_content <- trimws(substr(text, 1, loc[2] + 1))
+
+            call <- stringr::str_match(
+                trim_content,
+                "\\b(?<!\\$)(?:([a-zA-Z][a-zA-Z0-9.]+):::?)?((?:[^\\W_]|\\.)(?:[^\\W]|\\.)*)\\($"
+            )
+
+            logger$info("call:", call)
+
+            if (is.na(call[2])) {
+                list(funct = call[3])
+            } else {
+                list(package = call[2], funct = call[3])
+            }
+        },
+
+        detect_hover = function(position) {
+            row <- position$line
+            text <- self$line0(row)
+            column <- code_point_to_unit(text, position$character)
+
+            first <- stringr::str_match(
+                substr(text, 1, column),
+                "\\b(?:([a-zA-Z][a-zA-Z0-9.]+):::?)?((?:[^\\W_]|\\.)(?:[^\\W]|\\.)*)$"
+            )[1]
+            second <- stringr::str_match(
+                substr(text, column + 1, nchar(text)),
+                "^(?:[^\\W_]|\\.)(?:[^\\W]|\\.)*\\b"
+            )[1]
+
+            if (is.na(first)) first <- ""
+            if (is.na(second)) second <- ""
+
+            logger$info("hover:", first, second)
+
+            # discard for example R6 methods
+            pt <- column - nchar(first)
+            if (substr(text, pt, pt) == "$") {
+                hover_text <- ""
+            } else {
+                hover_text <- paste0(first, second)
+            }
+
+            list(
+                range = range(
+                    start = position(line = row, character = position$character - ncodeunit(first)),
+                    end = position(line = row, character = position$character + ncodeunit(second))
+                ),
+                text = hover_text
+            )
         }
     )
 )
 
 
-#' search backwards in a document for a specific character
+#' search backwards in a document content for a specific character
 #'
-#' @template document
-#' @template position
+#' @param content a character vector
+#' @param row an 0-indexed integer
+#' @param column an 0-indexed integer
 #' @param char a single character
 #' @param skip_empty_line a logical
 #'
-#' @return a tuple of positive integers, the line and column position of the
+#' @return a tuple of positive integers, the row and column position of the
 #' character if found, otherwise (-1, -1)
-document_backward_search <- function(document, position, char, skip_empty_line = TRUE) {
-    line <- position$line
-    character <- position$character
+content_backward_search <- function(content, row, column, char, skip_empty_line = TRUE) {
     # TODO: adjust for UTF-16
-    .Call("document_backward_search",
+    .Call("content_backward_search",
         PACKAGE = "languageserver",
-        document$content, line, character - 1, char, skip_empty_line
-    )
-}
-
-
-#' detect if the current position is inside a closure
-#'
-#' @template document
-#' @template position
-detect_closure <- function(document, position) {
-    if (position$character > 0 && !is.null(document)) {
-        loc <- document_backward_search(document, position, "(")
-    } else {
-        loc <- c(-1, -1)
-    }
-
-    if (loc[1] >= 0 && loc[2] >= 0) {
-        content <- document$line(loc[1] + 1)
-        trim_content <- trimws(substr(content, 1, loc[2] + 1))
-
-        closure <- stringr::str_match(
-            trim_content,
-            "(?:([a-zA-Z][a-zA-Z0-9.]+):::?)?([a-zA-Z.][a-zA-Z0-9_.]*)\\($"
-        )
-
-        if (is.na(closure[2])) {
-            list(funct = closure[3])
-        } else {
-            list(package = closure[2], funct = closure[3])
-        }
-    } else {
-        list()
-    }
-}
-
-#' detect if position contains a valid token
-#'
-#' @template document
-#' @template position
-detect_token <- function(document, position) {
-    line <- position$line
-    character <- position$character
-
-    content <- document$line(line + 1)
-    token <- stringr::str_match(substr(content, 1, character), "\\b[a-zA-Z0-9_.:]+$")[1]
-    if (is.na(token)) {
-        ""
-    } else {
-        token
-    }
-}
-
-#' detect the token at the current position
-#'
-#' @template document
-#' @template position
-detect_hover <- function(document, position) {
-    line <- position$line
-    character <- position$character
-
-    content <- document$line(line + 1)
-    first <- stringr::str_match(
-        substr(content, 1, character),
-        "(?:([a-zA-Z][a-zA-Z0-9.]+):::?)?([a-zA-Z.][a-zA-Z0-9_.]*)$"
-    )[1]
-    second <- stringr::str_match(
-        substr(content, character + 1, nchar(content)),
-        "^[a-zA-Z0-9_.]+\\b"
-    )[1]
-
-    if (is.na(first)) first <- ""
-    if (is.na(second)) second <- ""
-    list(
-        begin = character - nchar(first),
-        end = character + nchar(second),
-        text = paste0(first, second)
+        content, row, column, char, skip_empty_line
     )
 }
 
@@ -227,33 +235,4 @@ parse_expr <- function(expr, env, level = 0L, srcref = attr(expr, "srcref")) {
         }
     }
     env
-}
-
-resolve_package_dependencies <- function(pkgs) {
-    if (length(pkgs)) {
-        deps <- tryCatch(
-            callr::r(
-                function(pkgs) {
-                    for (pkg in pkgs) {
-                        if (paste0("package:", pkg) %in% search()) {
-                            next
-                        }
-                        tryCatch(library(pkg, character.only = TRUE),
-                            error = function(e) NULL
-                        )
-                    }
-                    search()
-                },
-                list(pkgs = pkgs)
-            ),
-            error = function(e) NULL
-        )
-        if (!is.null(deps)) {
-            deps <- deps[startsWith(deps, "package:")]
-            deps <- gsub("package:", "", deps)
-            deps <- deps[!deps %in% pkgs]
-            pkgs <- c(pkgs, deps)
-        }
-    }
-    pkgs
 }

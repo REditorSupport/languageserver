@@ -10,7 +10,7 @@ static int is_empty(const char *s) {
     return 1;
 }
 
-SEXP document_backward_search(SEXP content, SEXP _row, SEXP _col, SEXP _char, SEXP _skip_el) {
+SEXP content_backward_search(SEXP content, SEXP _row, SEXP _col, SEXP _char, SEXP _skip_el) {
     int row = Rf_asInteger(_row);
     int col = Rf_asInteger(_col);
     char c = CHAR(Rf_asChar(_char))[0];

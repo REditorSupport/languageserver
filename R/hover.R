@@ -17,12 +17,9 @@ hover_reply <- function(id, uri, workspace, document, position) {
         return(Response$new(id))
     }
 
-    hover_result <- detect_hover(document, position)
+    hover_result <- document$detect_hover(position)
     hover <- hover_result$text
-
-    logger$info("hover: ", hover)
-
-    matches <- match_function(hover)
+    matches <- match_call(hover)
 
     contents <- tryCatch(
         workspace$get_help(matches$funct, matches$package),
@@ -32,15 +29,11 @@ hover_reply <- function(id, uri, workspace, document, position) {
     if (is.null(contents)) {
         Response$new(id)
     } else {
-        range <- range(
-            start = position(line = line, character = hover_result$begin),
-            end   = position(line = line, character = hover_result$end)
-        )
         Response$new(
             id,
             result = list(
                 contents = contents,
-                range = range
+                range = hover_result$range
             )
         )
     }

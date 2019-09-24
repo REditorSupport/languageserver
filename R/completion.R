@@ -47,11 +47,11 @@ package_completion <- function(token) {
 #'
 #' @param workspace a [Workspace] object
 #' @param token a character, the start of the argument to identify
-#' @param closure a closure object, the function for which `token` may be an argument
+#' @param call a call object, the function for which `token` may be an argument
 #'
 #' @return a list of candidates
-arg_completion <- function(workspace, token, closure) {
-    args <- names(workspace$get_formals(closure$funct, closure$package))
+arg_completion <- function(workspace, token, call) {
+    args <- names(workspace$get_formals(call$funct, call$package))
     if (is.character(args)) {
         token_args <- args[startsWith(args, token)]
         completions <- lapply(token_args, function(arg) {
@@ -76,7 +76,7 @@ arg_completion <- function(workspace, token, closure) {
 workspace_completion <- function(workspace, full_token) {
     completions <- list()
 
-    matches <- match_function(full_token)
+    matches <- match_call(full_token)
 
     pkg <- matches$package
     exported_only <- matches$accessor == "::"
@@ -144,11 +144,8 @@ completion_reply <- function(id, uri, workspace, document, position) {
                 items = list()
             )))
     }
-
-    token <- detect_token(document, position)
-    logger$info("token: ", token)
-    closure <- detect_closure(document, position)
-    logger$info("closure: ", closure)
+    token <- document$detect_token(position)
+    call <- document$detect_call(position)
 
     completions <- list()
 
@@ -159,10 +156,10 @@ completion_reply <- function(id, uri, workspace, document, position) {
             workspace_completion(workspace, token))
     }
 
-    if (length(closure) > 0) {
+    if (length(call) > 0) {
         completions <- c(
             completions,
-            arg_completion(workspace, token, closure))
+            arg_completion(workspace, token, call))
     }
 
     logger$info("completions: ", length(completions))

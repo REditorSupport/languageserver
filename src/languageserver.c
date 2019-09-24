@@ -14,7 +14,7 @@ SEXP do_getppid() {
 #endif
 
 static const R_CallMethodDef CallEntries[] = {
-    {"document_backward_search", (DL_FUNC) &document_backward_search, 5},
+    {"content_backward_search", (DL_FUNC) &content_backward_search, 5},
     {"stdin_read_char", (DL_FUNC) &stdin_read_char, 1},
     {"stdin_read_line", (DL_FUNC) &stdin_read_line},
 #if !defined(_WIN32) && !defined(_WIN64)
