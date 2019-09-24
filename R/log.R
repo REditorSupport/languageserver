@@ -14,7 +14,7 @@ to_string <- function(...) {
                     if (length(x) > 1) {
                         tryCatch(jsonlite::toJSON(x, auto_unbox = TRUE),
                             error = function(e) {
-                                paste0(e$message, capture.output(print(x)), collapse = "\n")
+                                paste0(e$message, utils::capture.output(print(x)), collapse = "\n")
                             }
                         )
                     } else if (length(x) == 1) {
@@ -23,7 +23,7 @@ to_string <- function(...) {
                         ""
                     }
                 } else {
-                    capture.output(print(x))
+                    utils::capture.output(print(x))
                 }
             }, character(1L)
         )
