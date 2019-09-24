@@ -23,7 +23,7 @@ to_string <- function(...) {
                         ""
                     }
                 } else {
-                    utils::capture.output(print(x))
+                    paste0(utils::capture.output(print(x)), collapse = "\n")
                 }
             }, character(1L)
         )
