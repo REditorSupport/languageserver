@@ -10,7 +10,7 @@ to_string <- function(...) {
     if (length(dots) > 0) {
         str <- vapply(
             dots, function(x) {
-                if (is.vector(x)) {
+                if (is.atomic(x) || is.list(x)) {
                     if (length(x) > 1) {
                         tryCatch(jsonlite::toJSON(x, auto_unbox = TRUE),
                             error = function(e) {
