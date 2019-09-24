@@ -8,19 +8,25 @@
 to_string <- function(...) {
     dots <- list(...)
     if (length(dots) > 0) {
-        str <- unlist(lapply(
+        str <- vapply(
             dots, function(x) {
-                tryCatch({
+                if (is.vector(x)) {
                     if (length(x) > 1) {
-                        jsonlite::toJSON(x, auto_unbox = TRUE)
+                        tryCatch(jsonlite::toJSON(x, auto_unbox = TRUE),
+                            error = function(e) {
+                                paste0(e$message, capture.output(print(x)), collapse = "\n")
+                            }
+                        )
                     } else if (length(x) == 1) {
                         as.character(x)
                     } else {
                         ""
                     }
-                },
-                error = function(e) x$message)
-            }), use.names = FALSE)
+                } else {
+                    capture.output(print(x))
+                }
+            }, character(1L)
+        )
     } else {
         str <- ""
     }
