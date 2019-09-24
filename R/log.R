@@ -10,17 +10,23 @@ to_string <- function(...) {
     if (length(dots) > 0) {
         str <- vapply(
             dots, function(x) {
-                tryCatch({
+                if (is.atomic(x) || is.list(x)) {
                     if (length(x) > 1) {
-                        jsonlite::toJSON(x, auto_unbox = TRUE)
+                        tryCatch(jsonlite::toJSON(x, auto_unbox = TRUE),
+                            error = function(e) {
+                                paste0(e$message, capture.output(print(x)), collapse = "\n")
+                            }
+                        )
                     } else if (length(x) == 1) {
                         as.character(x)
                     } else {
                         ""
                     }
-                },
-                error = function(e) x$message)
-            }, character(1L))
+                } else {
+                    capture.output(print(x))
+                }
+            }, character(1L)
+        )
     } else {
         str <- ""
     }
