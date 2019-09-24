@@ -47,11 +47,12 @@ package_completion <- function(token) {
 #'
 #' @param workspace a [Workspace] object
 #' @param token a character, the start of the argument to identify
-#' @param call a call object, the function for which `token` may be an argument
+#' @param funct a character, the function name
+#' @param package a character, the optional package name
 #'
 #' @return a list of candidates
-arg_completion <- function(workspace, token, call) {
-    args <- names(workspace$get_formals(call$funct, call$package))
+arg_completion <- function(workspace, token, funct, package = NULL) {
+    args <- names(workspace$get_formals(funct, package))
     if (is.character(args)) {
         token_args <- args[startsWith(args, token)]
         completions <- lapply(token_args, function(arg) {
@@ -63,32 +64,22 @@ arg_completion <- function(workspace, token, call) {
 
 #' complete any object in the workspace
 #'
-#' This function works by first checking if `full_token` is of the form
-#' `object`, `package::object` or `package:::object`. In the first two cases,
-#' it will look into all exported objects of loaded packages (or just `package`
-#' for the second case) and return any mathching objects. For the last case,
-#' it will look at the unexported objects of `package.`
-#'
 #' @param workspace a [Workspace] object
-#' @param full_token a character, the object to identify
+#' @param token a character, the object to identify
+#' @param package a character
+#' @param exported_only a boolean
 #'
 #' @return a list of candidates
-workspace_completion <- function(workspace, full_token) {
+workspace_completion <- function(workspace, token, package = NULL, exported_only = TRUE) {
     completions <- list()
 
-    matches <- match_call(full_token)
-
-    pkg <- matches$package
-    exported_only <- matches$accessor == "::"
-    token <- matches$funct
-
-    if (is.na(pkg)) {
+    if (is.null(package)) {
         packages <- workspace$loaded_packages
     } else {
-        packages <- c(pkg)
+        packages <- c(package)
     }
 
-    if (is.na(pkg) || exported_only) {
+    if (is.null(package) || exported_only) {
         for (nsname in c("_workspace_", packages)) {
             ns <- workspace$get_namespace(nsname)
             functs <- ns$functs[startsWith(ns$functs, token)]
@@ -113,17 +104,18 @@ workspace_completion <- function(workspace, full_token) {
                 nonfuncts_completions)
         }
     } else {
-        ns <- workspace$get_namespace(pkg)
+        ns <- workspace$get_namespace(package)
         unexports <- ns$unexports[startsWith(ns$unexports, token)]
         unexports_completion <- lapply(unexports, function(object) {
             list(label = object,
-                 detail = paste0("{", pkg, "}"))
+                 detail = paste0("{", package, "}"))
         })
         completions <- c(completions, unexports_completion)
     }
 
     completions
 }
+
 
 #' the response to a textDocument/completion request
 #'
@@ -135,7 +127,6 @@ workspace_completion <- function(workspace, full_token) {
 #'
 #' @return a [Response] object
 completion_reply <- function(id, uri, workspace, document, position) {
-
     if (!check_scope(uri, document, position)) {
         return(Response$new(
             id,
@@ -144,22 +135,30 @@ completion_reply <- function(id, uri, workspace, document, position) {
                 items = list()
             )))
     }
-    token <- document$detect_token(position)
-    call <- document$detect_call(position)
-
     completions <- list()
+    token_result <- document$detect_token(position, forward = FALSE)
 
-    if (nzchar(token)) {
+    full_token <- token_result$full_token
+    token <- token_result$token
+    package <- token_result$package
+
+    if (nzchar(full_token)) {
+        if (is.null(package)) {
+            completions <- c(
+                completions,
+                package_completion(token))
+        }
         completions <- c(
             completions,
-            package_completion(token),
-            workspace_completion(workspace, token))
+            workspace_completion(
+                workspace, token, package, token_result$accessor == "::"))
     }
 
-    if (length(call) > 0) {
+    call_result <- document$detect_call(position)
+    if (nzchar(call_result$token)) {
         completions <- c(
             completions,
-            arg_completion(workspace, token, call))
+            arg_completion(workspace, token, call_result$token, call_result$package))
     }
 
     logger$info("completions: ", length(completions))

@@ -110,26 +110,25 @@ find_definition_in_package <- function(workspace, funct, pkg) {
 #'
 #' @keywords internal
 definition_reply <- function(id, uri, workspace, document, position) {
-    token <- document$detect_hover(position)
 
-    matches <- stringr::str_match(
-        token$text, "(?:([a-zA-Z][a-zA-Z0-9.]+)(:::?))?([a-zA-Z0-9_.]*)$")
-    pkg <- matches[2]
-    funct <- matches[4]
+    token_result <- document$detect_token(position)
 
-    if (is.na(pkg)) {
+    pkg <- token_result$package
+    token <- token_result$token
+
+    if (is.null(pkg)) {
         # look in file first
-        definition <- workspace$get_definition(funct)
+        definition <- workspace$get_definition(token)
         result <- if (is.null(definition)) {
-            find_definition_in_package(workspace, funct, pkg)
+            find_definition_in_package(workspace, token, pkg)
         } else {
             definition
         }
     } else {
         # then look in package
-        definition <- find_definition_in_package(workspace, funct, pkg)
+        definition <- find_definition_in_package(workspace, token, pkg)
         result <- if (is.null(definition)) {
-            workspace$get_definition(funct)
+            workspace$get_definition(token)
         } else {
             definition
         }

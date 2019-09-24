@@ -4,20 +4,21 @@
 \alias{workspace_completion}
 \title{complete any object in the workspace}
 \usage{
-workspace_completion(workspace, full_token)
+workspace_completion(workspace, token, package = NULL,
+  exported_only = TRUE)
 }
 \arguments{
 \item{workspace}{a \link{Workspace} object}
 
-\item{full_token}{a character, the object to identify}
+\item{token}{a character, the object to identify}
+
+\item{package}{a character}
+
+\item{exported_only}{a boolean}
 }
 \value{
 a list of candidates
 }
 \description{
-This function works by first checking if \code{full_token} is of the form
-\code{object}, \code{package::object} or \code{package:::object}. In the first two cases,
-it will look into all exported objects of loaded packages (or just \code{package}
-for the second case) and return any mathching objects. For the last case,
-it will look at the unexported objects of \code{package.}
+complete any object in the workspace
 }

@@ -41,15 +41,28 @@ Document <- R6::R6Class(
             substr(line, pos[1] + 1, pos[2])
         },
 
-        detect_token = function(position) {
-            text_before <- self$line_substr(position$line, end = position$character)
-            token <- stringr::str_match(text_before, "\\b(?<!\\$)(?:[^\\W]|\\.|:)+$")[1]
-            logger$info("token:", token)
-            if (is.na(token)) {
-                ""
+        find_token = function(row, col, forward = TRUE) {
+            # row and col are 0-indexed
+            text <- self$line0(row)
+            text_after <- substr(text, col + 1, nchar(text))
+
+            # look forward
+            if (forward) {
+                right_token <- look_forward(text_after)$token
+                end <- col + nchar(right_token)
             } else {
-                token
+                right_token <- ""
+                end <- col
             }
+
+            matches <- look_backward(substr(text, 1, end))
+            return(list(
+                full_token = matches$full_token,
+                right_token = right_token,
+                package = empty_string_to_null(matches$package),
+                accessor = matches$accessor,
+                token = matches$token
+            ))
         },
 
         detect_call = function(position) {
@@ -64,57 +77,40 @@ Document <- R6::R6Class(
             }
 
             if (loc[1] < 0 || loc[2] < 0)
-                return(list())
+                return(list(token = ""))
 
-            trim_content <- trimws(substr(text, 1, loc[2] + 1))
+            result <- self$find_token(loc[1], loc[2], forward = FALSE)
+            logger$info("call:", result)
 
-            call <- stringr::str_match(
-                trim_content,
-                "\\b(?<!\\$)(?:([a-zA-Z][a-zA-Z0-9.]+):::?)?((?:[^\\W_]|\\.)(?:[^\\W]|\\.)*)\\($"
+            list(
+                full_token = result$full_token,
+                package = result$package,
+                accessor = result$accessor,
+                token = result$token
             )
-
-            logger$info("call:", call)
-
-            if (is.na(call[2])) {
-                list(funct = call[3])
-            } else {
-                list(package = call[2], funct = call[3])
-            }
         },
 
-        detect_hover = function(position) {
+        detect_token = function(position, forward = TRUE) {
             row <- position$line
             text <- self$line0(row)
-            column <- code_point_to_unit(text, position$character)
+            col <- code_point_to_unit(text, position$character)
 
-            first <- stringr::str_match(
-                substr(text, 1, column),
-                "\\b(?:([a-zA-Z][a-zA-Z0-9.]+):::?)?((?:[^\\W_]|\\.)(?:[^\\W]|\\.)*)$"
-            )[1]
-            second <- stringr::str_match(
-                substr(text, column + 1, nchar(text)),
-                "^(?:[^\\W_]|\\.)(?:[^\\W]|\\.)*\\b"
-            )[1]
+            result <- self$find_token(row, col, forward = forward)
 
-            if (is.na(first)) first <- ""
-            if (is.na(second)) second <- ""
+            logger$info("token:", result)
 
-            logger$info("hover:", first, second)
-
-            # discard for example R6 methods
-            pt <- column - nchar(first)
-            if (substr(text, pt, pt) == "$") {
-                hover_text <- ""
-            } else {
-                hover_text <- paste0(first, second)
-            }
+            col_end <- position$character + ncodeunit(result$right_token)
+            col_start <- col_end - ncodeunit(result$full_token)
 
             list(
                 range = range(
-                    start = position(line = row, character = position$character - ncodeunit(first)),
-                    end = position(line = row, character = position$character + ncodeunit(second))
+                    start = position(line = row, character = col_start),
+                    end = position(line = row, character = col_end)
                 ),
-                text = hover_text
+                full_token = result$full_token,
+                package = result$package,
+                accessor = result$accessor,
+                token = result$token
             )
         }
     )

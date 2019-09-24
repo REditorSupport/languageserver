@@ -55,7 +55,8 @@ is_rmarkdown <- function(uri) {
 check_scope <- function(uri, document, position) {
     if (is_rmarkdown(uri)) {
         line <- position$line
-        !identical(sum(vapply(document$content[1:(line + 1)], startsWith, integer(1), "```")) %% 2, 0)
+        !identical(sum(vapply(
+            document$content[1:(line + 1)], startsWith, integer(1), "```")) %% 2, 0)
     } else {
         TRUE
     }
@@ -80,7 +81,7 @@ ncodeunit <- function(s) {
 #' @keywords internal
 code_point_to_unit <- function(line, pts) {
     offsets <- cumsum(ncodeunit(strsplit(line, "")[[1]]))
-    loc_map <- match(seq_len(tail(offsets, 1)), offsets)
+    loc_map <- match(seq_len(utils::tail(offsets, 1)), offsets)
     result <- c(0, loc_map)[pts + 1]
     result[is.infinite(pts)] <- nchar(line)
     result
@@ -182,20 +183,26 @@ throttle <- function(fun, t = 1) {
 #'
 #' @keywords internal
 sanitize_names <- function(objects) {
-    objects[stringr::str_detect(objects, "^(?:[a-zA-Z.][a-zA-Z0-9_.]*)?$")]
+    objects[stringr::str_detect(objects, "^(?:[^\\W_]|\\.)(?:[^\\W]|\\.)*$")]
 }
 
+na_to_empty_string <- function(x) if (is.na(x)) "" else x
+empty_string_to_null <- function(x) if (nzchar(x)) x else NULL
 
-#' check if a character vector looks like a function
-#'
-#' @param text a character vector
-#'
-#' @keywords internal
-match_call <- function(text) {
-    matches <- stringr::str_match(text, "(?:([a-zA-Z][a-zA-Z0-9.]+)(:::?))?([a-zA-Z0-9_.]*)$")
+look_forward <- function(text) {
+    matches <- stringr::str_match(text, "^(?:[^\\W]|\\.)*\\b")[1]
     list(
-        package  = matches[2],
-        accessor = matches[3],
-        funct    = matches[4]
+        token = na_to_empty_string(matches[1])
+    )
+}
+
+look_backward <- function(text) {
+    matches <- stringr::str_match(
+        text, "\\b(?<!\\$)(?:([a-zA-Z][a-zA-Z0-9.]+)(:::?))?((?:[^\\W_]|\\.)(?:[^\\W]|\\.)*)?$")
+    list(
+        full_token = na_to_empty_string(matches[1]),
+        package  = na_to_empty_string(matches[2]),
+        accessor = na_to_empty_string(matches[3]),
+        token = na_to_empty_string(matches[4])
     )
 }
