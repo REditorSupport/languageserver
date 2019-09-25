@@ -1,30 +1,32 @@
 suppressPackageStartupMessages({
     library(magrittr)
     library(purrr)
+    library(fs)
 })
 
 # a hack to make withr::defer_parent to work, see https://github.com/r-lib/withr/issues/123
 defer <- withr::defer
 
-language_client <- function() {
+language_client <- function(working_dir = getwd(), debug = FALSE) {
     client <- LanguageClient$new(
-        file.path(R.home("bin"), "R"), c("--slave", "-e", "languageserver::run()"))
+        file.path(R.home("bin"), "R"), c("--slave", "-e", "languageserver::run(debug=TRUE)"))
 
     client$notification_handlers <- list(
         `textDocument/publishDiagnostics` = function(...) {}
     )
 
-    client$start()
+    client$start(working_dir = working_dir)
     client$catch_callback_error <- FALSE
-    # on_initialized response
+    # initialize request
     data <- client$fetch(blocking = TRUE)
     client$handle_raw(data)
+    client %>% notify("initialized")
     withr::defer_parent(client$stop())
     client
 }
 
 
-notify <- function(client, method, params) {
+notify <- function(client, method, params = NULL) {
     client$deliver(Notification$new(method, params))
     invisible(client)
 }
@@ -51,6 +53,7 @@ respond <- function(client, method, params, timeout=5, retry=TRUE,
     client$deliver(client$request(method, params), callback = cb)
     while (is.null(storage$result)) {
         if (remaining < 0) {
+            cat(client$read_error(), "\n")
             stop("timeout when obtaining response")
         }
         data <- client$fetch(blocking = TRUE, timeout = remaining)
@@ -61,12 +64,26 @@ respond <- function(client, method, params, timeout=5, retry=TRUE,
     if (retry && retry_when(result)) {
         remaining <- (start_time + timeout) - Sys.time()
         if (remaining < 0) {
+            cat(client$read_error(), "\n")
             stop("timeout when obtaining desired response")
         }
         return(Recall(client, method, params, remaining, retry, retry_when))
     }
     return(result)
 }
+
+
+respond_completion <- function(client, path, pos, ...) {
+    respond(
+        client,
+        "textDocument/completion",
+        list(
+            textDocument = list(uri = path_to_uri(path)),
+            position = list(line = pos[1], character = pos[2])),
+        ...
+    )
+}
+
 
 respond_definition <- function(client, path, pos, ...) {
     respond(

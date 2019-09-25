@@ -65,6 +65,10 @@ LanguageClient <- R6::R6Class("LanguageClient",
             data
         },
 
+        read_error = function() {
+            paste0(client$process$read_error_lines(), collapse = "\n")
+        },
+
         welcome = function() {
             self$deliver(
                 self$request(
