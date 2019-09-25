@@ -80,6 +80,7 @@ ncodeunit <- function(s) {
 #'
 #' @keywords internal
 code_point_to_unit <- function(line, pts) {
+    if (!nzchar(line)) return(pts)
     offsets <- cumsum(ncodeunit(strsplit(line, "")[[1]]))
     loc_map <- match(seq_len(utils::tail(offsets, 1)), offsets)
     result <- c(0, loc_map)[pts + 1]

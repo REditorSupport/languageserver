@@ -27,6 +27,7 @@ Suggests:
     knitr,
     magrittr,
     purrr,
+    fs,
     withr,
     testthat
 Encoding: UTF-8
