@@ -84,6 +84,18 @@ respond_completion <- function(client, path, pos, ...) {
     )
 }
 
+respond_signature <- function(client, path, pos, ...) {
+    respond(
+        client,
+        "textDocument/signatureHelp",
+        list(
+            textDocument = list(uri = path_to_uri(path)),
+            position = list(line = pos[1], character = pos[2])),
+        ...
+    )
+}
+
+
 
 respond_definition <- function(client, path, pos, ...) {
     respond(
