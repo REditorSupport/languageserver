@@ -12,7 +12,7 @@ to_string <- function(...) {
             dots, function(x) {
                 if (is.atomic(x) || is.list(x)) {
                     if (is.list(x) || length(x) > 1) {
-                        tryCatch(jsonlite::toJSON(x, auto_unbox = TRUE),
+                        tryCatch(jsonlite::toJSON(x, auto_unbox = TRUE, force = TRUE),
                             error = function(e) {
                                 paste0(e$message, utils::capture.output(print(x)), collapse = "\n")
                             }
