@@ -66,7 +66,7 @@ LanguageClient <- R6::R6Class("LanguageClient",
         },
 
         read_error = function() {
-            paste0(client$process$read_error_lines(), collapse = "\n")
+            paste0(self$process$read_error_lines(), collapse = "\n")
         },
 
         welcome = function() {
