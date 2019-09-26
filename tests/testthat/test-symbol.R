@@ -17,12 +17,12 @@ test_that("Document Symbol works", {
     expect_equivalent(
         result %>% detect(~ .$name == "f") %>%
             extract2("location") %>% extract2("range"),
-        range(position(0, 0), position(2, 0))
+        range(position(0, 0), position(2, 1))
     )
     expect_equivalent(
         result %>% detect(~ .$name == "g") %>%
             extract2("location") %>% extract2("range"),
-        range(position(3, 0), position(3, 25))
+        range(position(3, 0), position(3, 26))
     )
 
 })

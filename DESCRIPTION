@@ -18,6 +18,7 @@ Imports:
     lintr (>= 1.0.3),
     R6,
     repr,
+    readr,
     stringr,
     styler (>= 1.0.2),
     tools,

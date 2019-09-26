@@ -133,6 +133,9 @@ definition_reply <- function(id, uri, workspace, document, position) {
             definition
         }
     }
+
+    logger$info("definition", definition)
+
     if (is.null(result)) {
         Response$new(id)
     } else {

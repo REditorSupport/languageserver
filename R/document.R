@@ -135,30 +135,23 @@ content_backward_search <- function(content, row, column, char, skip_empty_line 
     )
 }
 
-
-#' parse a document
-#'
-#' Build the list of called packages, functions, variables, formals and
-#' signatures in the document in order to add them to the current [Workspace].
-#'
-#' @param path a character, the path to the document
-parse_document <- function(path) {
-    temp_file <- NULL
-    if (is_rmarkdown(path)) {
-        temp_file <- tempfile(fileext = ".R")
-        path <- tryCatch({
-            knitr::purl(path, output = temp_file, quiet = TRUE)
-        }, error = function(e) path)
+# The parsing result returned by `parse` is based on number of bytes in UTF-8.
+# Thus the position information is wrong, we need to fix the position afterwards.
+fix_definiation_ranges <- function(env, path) {
+    functs <- names(env$definition_ranges)
+    for (funct in functs) {
+        range <- env$definition_ranges[[funct]]
+        start_text <- readr::read_lines(path, skip = range$start$line, n_max = 1)
+        end_text <- readr::read_lines(path, skip = range$end$line, n_max = 1)
+        start_col <- utf8_to_utf16_code_point(start_text, range$start$character)
+        end_col <- utf8_to_utf16_code_point(end_text, range$end$character)
+        env$definition_ranges[[funct]] <- range(
+            position(range$start$line, start_col),
+            position(range$end$line, end_col)
+        )
     }
-    expr <- tryCatch(parse(path, keep.source = TRUE), error = function(e) NULL)
-    if (!is.null(temp_file) && file.exists(temp_file)) {
-        file.remove(temp_file)
-    }
-    env <- parse_env()
-    parse_expr(expr, env)
-    env$packages <- resolve_package_dependencies(env$packages)
-    env
 }
+
 
 parse_env <- function() {
     env <- new.env()
@@ -171,7 +164,39 @@ parse_env <- function() {
     env
 }
 
-parse_expr <- function(expr, env, level = 0L, srcref = attr(expr, "srcref")) {
+
+#' parse a document
+#'
+#' Build the list of called packages, functions, variables, formals and
+#' signatures in the document in order to add them to the current [Workspace].
+#'
+#' @param path a character, the path to the document
+parse_document <- function(path) {
+    temp_file <- NULL
+    on.exit({
+        if (!is.null(temp_file) && file.exists(temp_file)) {
+            file.remove(temp_file)
+        }
+    })
+    is_rmd <- is_rmarkdown(path)
+    if (is_rmd) {
+        temp_file <- tempfile(fileext = ".R")
+        path <- tryCatch({
+            knitr::purl(path, output = temp_file, quiet = TRUE)
+        },
+        error = function(e) path
+        )
+    }
+    expr <- tryCatch(parse(path, keep.source = TRUE), error = function(e) NULL)
+    env <- parse_env()
+    parse_expr(expr, env, is_rmd = is_rmd)
+    env$packages <- resolve_package_dependencies(env$packages)
+    fix_definiation_ranges(env, path)
+    env
+}
+
+
+parse_expr <- function(expr, env, level = 0L, srcref = attr(expr, "srcref"), is_rmd = FALSE) {
     if (length(expr) == 0L || is.symbol(expr)) {
           return(env)
       }
@@ -210,16 +235,19 @@ parse_expr <- function(expr, env, level = 0L, srcref = attr(expr, "srcref")) {
                 signature <- paste0(trimws(signature, which = "left"), collapse = "\n")
                 signature <- trimws(gsub("NULL\\s*$", "", signature))
                 env$signatures[[funct]] <- signature
-                # R is 1-indexed, language server is 0-indexed
-                first_line <- cur_srcref[1] - 1
-                first_char <- cur_srcref[5] - 1
-                last_line <- cur_srcref[3] - 1
-                last_char <- cur_srcref[6] - 1
-                definition_range <- range(
-                    position(first_line, first_char),
-                    position(last_line, last_char)
-                )
-                env$definition_ranges[[funct]] <- definition_range
+
+                if (!is_rmd) {
+                    # R is 1-indexed, language server is 0-indexed
+                    first_line <- cur_srcref[1] - 1
+                    first_char <- cur_srcref[5] - 1
+                    last_line <- cur_srcref[3] - 1
+                    last_char <- cur_srcref[6]
+                    definition_range <- range(
+                        position(first_line, first_char),
+                        position(last_line, last_char)
+                    )
+                    env$definition_ranges[[funct]] <- definition_range
+                }
             } else {
                 env$nonfuncts <- c(env$nonfuncts, funct)
             }

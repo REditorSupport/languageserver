@@ -73,7 +73,7 @@ test_that("Go to Definition works for functions in files", {
     result <- client %>% respond_definition(query_file, c(0, 0))
 
     expect_equal(result$range$start, list(line = 0, character = 0))
-    expect_equal(result$range$end, list(line = 2, character = 0))
+    expect_equal(result$range$end, list(line = 2, character = 1))
 
     # move function into different file
     writeLines("", defn_file)
@@ -118,6 +118,7 @@ test_that("Go to Definition works for in single file", {
     result <- client %>% respond_definition(single_file, c(1, 0))
 
     expect_equal(result$range$start, list(line = 0, character = 0))
+    expect_equal(result$range$end, list(line = 0, character = 28))
 
     # then query the missing function. The file is processed, don't need to retry
     result <- client %>% respond_definition(single_file, c(2, 0), retry = FALSE)
