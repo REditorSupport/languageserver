@@ -163,11 +163,11 @@ stdin_read_line <- function() {
     .Call("stdin_read_line", PACKAGE = "languageserver")
 }
 
-#' get the parent process pid
+#' check if the current process become an orphan
 #'
 #' @keywords internal
-getppid <- function() {
-    .Call("do_getppid", PACKAGE = "languageserver")
+become_orphan <- function() {
+    .Call("become_orphan", PACKAGE = "languageserver")
 }
 
 #' throttle a function execution
