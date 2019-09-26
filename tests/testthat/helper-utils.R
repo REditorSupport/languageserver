@@ -95,7 +95,16 @@ respond_signature <- function(client, path, pos, ...) {
     )
 }
 
-
+respond_hover <- function(client, path, pos, ...) {
+    respond(
+        client,
+        "textDocument/hover",
+        list(
+            textDocument = list(uri = path_to_uri(path)),
+            position = list(line = pos[1], character = pos[2])),
+        ...
+    )
+}
 
 respond_definition <- function(client, path, pos, ...) {
     respond(
