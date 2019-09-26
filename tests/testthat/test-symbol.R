@@ -15,13 +15,11 @@ test_that("Document Symbol works", {
 
     expect_equal(result %>% map_chr(~ .$name) %>% sort(), c("f", "g"))
     expect_equivalent(
-        result %>% detect(~ .$name == "f") %>%
-            extract2("location") %>% extract2("range"),
+        result %>% detect(~ .$name == "f") %>% pluck("location", "range"),
         range(position(0, 0), position(2, 1))
     )
     expect_equivalent(
-        result %>% detect(~ .$name == "g") %>%
-            extract2("location") %>% extract2("range"),
+        result %>% detect(~ .$name == "g") %>% pluck("location", "range"),
         range(position(3, 0), position(3, 26))
     )
 
