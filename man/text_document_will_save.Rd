@@ -12,6 +12,6 @@ text_document_will_save(self, params)
 \item{params}{a \link{will_save_text_document_params}}
 }
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#textDocument_willSave}{textDocument/willSave} \link{Notification}
+Handler to the \href{https://microsoft.github.io/language-server-protocol/}{textDocument/willSave} \link{Notification}
 }
 \keyword{internal}

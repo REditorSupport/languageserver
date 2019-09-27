@@ -12,7 +12,7 @@ workspace_did_change_watched_files(self, params)
 \item{params}{a did_change_watched_files_params object}
 }
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#workspace_didChangeWatchedFiles}{workspace/didChangeWatchedFiles} \link{Notification}.
+Handler to the \href{https://microsoft.github.io/language-server-protocol/}{workspace/didChangeWatchedFiles} \link{Notification}.
 }
 \details{
 Not implemented yet.

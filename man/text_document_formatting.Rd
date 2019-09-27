@@ -14,6 +14,6 @@ text_document_formatting(self, id, params)
 \item{params}{a \link{document_formatting_params} object}
 }
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#textDocument_formatting}{textDocument/formatting} \link{Request}
+Handler to the \href{https://microsoft.github.io/language-server-protocol/}{textDocument/formatting} \link{Request}
 }
 \keyword{internal}

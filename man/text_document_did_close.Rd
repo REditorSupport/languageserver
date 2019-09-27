@@ -12,6 +12,6 @@ text_document_did_close(self, params)
 \item{params}{a \link{did_close_text_document_params}}
 }
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#textDocument_didClose}{textDocument/didClose} \link{Notification}
+Handler to the \href{https://microsoft.github.io/language-server-protocol/}{textDocument/didClose} \link{Notification}
 }
 \keyword{internal}

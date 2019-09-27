@@ -16,5 +16,5 @@ on_initialize(self, id, params)
 @keywords internal}
 }
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#initialize}{initialize} \link{Request}.
+Handler to the \href{https://microsoft.github.io/language-server-protocol/}{initialize} \link{Request}.
 }

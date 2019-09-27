@@ -17,7 +17,7 @@ text_document_code_lens(self, id, params)
 a list of CodeLens objects
 }
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#textDocument_codeLens}{textDocument/codeLens} \link{Request}
+Handler to the \href{https://microsoft.github.io/language-server-protocol/}{textDocument/codeLens} \link{Request}
 }
 \details{
 Not implemented yet.

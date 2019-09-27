@@ -14,6 +14,6 @@ text_document_document_symbol(self, id, params)
 \item{params}{a \link{document_symbol_params} object}
 }
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#textDocument_documentSymbol}{textDocument/documentSymbol} \link{Request}
+Handler to the \href{https://microsoft.github.io/language-server-protocol/}{textDocument/documentSymbol} \link{Request}
 }
 \keyword{internal}

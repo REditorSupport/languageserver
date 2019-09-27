@@ -14,7 +14,7 @@ text_document_document_color(self, id, params)
 \item{params}{a document_color_params object}
 }
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#textDocument_documentColor}{textDocument/documentColor} \link{Request}
+Handler to the \href{https://microsoft.github.io/language-server-protocol/}{textDocument/documentColor} \link{Request}
 }
 \details{
 Not implemented yet.

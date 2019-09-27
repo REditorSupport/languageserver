@@ -14,6 +14,6 @@ text_document_completion(self, id, params)
 \item{params}{a \link{completion_params} object}
 }
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#textDocument_completion}{textDocument/completion} \link{Request}
+Handler to the \href{https://microsoft.github.io/language-server-protocol/}{textDocument/completion} \link{Request}
 }
 \keyword{internal}

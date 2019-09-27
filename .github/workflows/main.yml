@@ -1,0 +1,97 @@
+name: build
+
+on: [push]
+
+jobs:
+  linux:
+    strategy:
+      matrix:
+        r: [latest]
+        # r: [3.5, latest, devel]
+    runs-on: ubuntu-latest
+    container: rocker/tidyverse:${{ matrix.r }}
+    steps:
+    - uses: actions/checkout@v1
+    - name: Install apt-get dependencies
+      run: |
+        apt-get update
+        apt-get install git ssh curl bzip2 libffi6 libffi-dev -y
+    - name: Install languagesever
+      run: |
+        R --slave -e "install.packages('devtools', repos = 'https://cloud.r-project.org')"
+        R --slave -e "devtools::install(repos = 'https://cloud.r-project.org', upgrade = 'never')"
+      shell:
+        bash
+    - name: Running Tests
+      run: |
+        R --slave -e "devtools::check(args = c('--as-cran'))"
+      shell:
+        bash
+
+  macos:
+    strategy:
+      matrix:
+        r: [latest]
+        # r: [3.5, latest, devel]
+    runs-on: macOS-latest
+    steps:
+    - uses: actions/checkout@v1
+    - name: Install R
+      run: |
+        if [ "${{ matrix.r }}" == "devel" ]; then
+          R_FILE=$(curl -sL http://mac.r-project.org/ | sed -nE 's|.*href="?(.*/R-[^/]*\.pkg)"?>.*|\1|p' | tail -n1)
+          URL="http://mac.r-project.org/$R_FILE"
+        else
+          R_FILE=$(curl -sL https://cran.r-project.org/bin/macosx/el-capitan/base/ | grep -o 'R-${{ matrix.r }}[0-9\.]*.pkg' | tail -n1)
+          URL="https://cran.r-project.org/bin/macosx/el-capitan/base/$R_FILE"
+        fi
+        echo downloading "$URL"
+        curl -L "$URL" -o ~/R.pkg
+        sudo installer -pkg ~/R.pkg -target /
+    - name: Install languagesever
+      run: |
+        R --slave -e "install.packages('devtools', repos = 'https://cloud.r-project.org')"
+        R --slave -e "devtools::install(repos = 'https://cloud.r-project.org', upgrade = 'never')"
+      shell:
+        bash
+    - name: Running Tests
+      run: |
+        R --slave -e "devtools::check(args = c('--as-cran'))"
+      shell:
+        bash
+
+  windows:
+    strategy:
+      matrix:
+        r: [latest]
+        # r: [3.5, latest, devel]
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v1
+    - name: Download R
+      run: |
+        If ('${{ matrix.r }}' -eq 'latest') {
+          (new-object net.webclient).DownloadString("http://cran.rstudio.com/bin/windows/base/") -match 'href="(R-[0-9.]*[a-zA-Z]*-win.exe)"';
+          (new-object net.webclient).DownloadFile($("http://cran.rstudio.com/bin/windows/base/"+$matches[1]),"C:\R-binary.exe")
+        } ElseIf ('${{ matrix.r }}' -eq 'devel') {
+          (new-object net.webclient).DownloadFile("https://cran.r-project.org/bin/windows/base/R-devel-win.exe","C:\R-binary.exe")
+        } Else {
+          (new-object net.webclient).DownloadString("http://cran.rstudio.com/bin/windows/base/old/") -match 'R (${{ matrix.r }}[\\.0-9]*)</a>'
+          (new-object net.webclient).DownloadFile($("https://cran.r-project.org/bin/windows/base/old/"+$matches[1]+"/R-"+$matches[1]+"-win.exe"),"C:\R-binary.exe")
+        }
+      shell:
+        pwsh
+    - name: Install R
+      run: C:\R-binary.exe /VERYSILENT /DIR=C:\R
+    - name: Install languagesever
+      run: |
+        $env:TZ = "PST8PDT"
+        C:\R\bin\R --slave -e "install.packages('devtools', repos = 'https://cloud.r-project.org')"
+        C:\R\bin\R --slave -e "devtools::install(repos = 'https://cloud.r-project.org', upgrade = 'never')"
+      shell:
+        pwsh
+    - name: Running Tests
+      run: |
+        C:\R\bin\R --slave -e "devtools::check(args = c('--as-cran'))"
+      shell:
+        pwsh

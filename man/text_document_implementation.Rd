@@ -14,7 +14,7 @@ text_document_implementation(self, id, params)
 \item{params}{a \link{text_document_position_params} object}
 }
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#textDocument_implementation}{textDocument/implementation} \link{Request}
+Handler to the \href{https://microsoft.github.io/language-server-protocol/}{textDocument/implementation} \link{Request}
 }
 \details{
 Not implemented yet.

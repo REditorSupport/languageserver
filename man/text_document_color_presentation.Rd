@@ -14,7 +14,7 @@ text_document_color_presentation(self, id, params)
 \item{params}{a color_presentation_params object}
 }
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#textDocument_colorPresentation}{textDocument/colorPresentation} \link{Request}
+Handler to the \href{https://microsoft.github.io/language-server-protocol/}{textDocument/colorPresentation} \link{Request}
 }
 \details{
 Not implemented yet.

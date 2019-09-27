@@ -4,3 +4,4 @@
 ^\.Rproj\.user$
 ^cran-comments\.md$
 man-roxygen
+^.github/$

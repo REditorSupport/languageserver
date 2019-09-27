@@ -14,6 +14,6 @@ text_document_hover(self, id, params)
 \item{params}{a \link{text_document_position_params} object}
 }
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#textDocument_hover}{textDocument/hover} \link{Request}
+Handler to the \href{https://microsoft.github.io/language-server-protocol/}{textDocument/hover} \link{Request}
 }
 \keyword{internal}

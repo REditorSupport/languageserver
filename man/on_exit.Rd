@@ -12,6 +12,6 @@ on_exit(self, params)
 \item{params}{unused here}
 }
 \description{
-Hanlder to the \href{https://microsoft.github.io/language-server-protocol/specification#exit}{exit} \link{Notification}
+Hanlder to the \href{https://microsoft.github.io/language-server-protocol/}{exit} \link{Notification}
 }
 \keyword{internal}

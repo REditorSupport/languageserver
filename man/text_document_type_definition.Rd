@@ -14,7 +14,7 @@ text_document_type_definition(self, id, params)
 \item{params}{a \link{text_document_position_params} object}
 }
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#textDocument_typeDefinition}{textDocument/typeDefinition} \link{Request}
+Handler to the \href{https://microsoft.github.io/language-server-protocol/}{textDocument/typeDefinition} \link{Request}
 }
 \details{
 Not implemented yet.

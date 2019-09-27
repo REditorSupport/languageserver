@@ -17,7 +17,7 @@ text_document_document_link(self, id, params)
 a list of DocumentLink objects
 }
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#textDocument_documentLink}{textDocument/documentLink} \link{Request}
+Handler to the \href{https://microsoft.github.io/language-server-protocol/}{textDocument/documentLink} \link{Request}
 }
 \details{
 Not implemented yet.

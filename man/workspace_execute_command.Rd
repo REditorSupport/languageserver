@@ -12,7 +12,7 @@ workspace_execute_command(self, id, params)
 \item{params}{an execute_command_params object}
 }
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#workspace_executeCommand}{workspace/executeCommand} \link{Request}.
+Handler to the \href{https://microsoft.github.io/language-server-protocol/}{workspace/executeCommand} \link{Request}.
 }
 \details{
 Not implemented yet.

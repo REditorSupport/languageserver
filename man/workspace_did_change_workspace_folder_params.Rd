@@ -12,7 +12,7 @@ workspace_did_change_workspace_folder_params(self, params)
 \item{params}{a did_change_workspace_folder_params object}
 }
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#workspace_didChangeWorkspaceFolders}{workspace/didChangeWorkspaceFolders} \link{Notification}.
+Handler to the \href{https://microsoft.github.io/language-server-protocol/}{workspace/didChangeWorkspaceFolders} \link{Notification}.
 }
 \details{
 Not implemented yet.
