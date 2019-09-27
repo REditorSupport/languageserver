@@ -1,6 +1,6 @@
 #' workspace/didChangeWorkspaceFolders notification handler
 #'
-#' Handler to the [workspace/didChangeWorkspaceFolders](https://microsoft.github.io/language-server-protocol/specification#workspace_didChangeWorkspaceFolders) [Notification].
+#' Handler to the [workspace/didChangeWorkspaceFolders](https://microsoft.github.io/language-server-protocol/) [Notification].
 #'
 #' Not implemented yet.
 #'
@@ -14,7 +14,7 @@ workspace_did_change_workspace_folder_params <- function(self, params) {
 
 #' workspace/didChangeConfiguration notification handler
 #'
-#' Handler to the [workspace/didChangeConfiguration](https://microsoft.github.io/language-server-protocol/specification#workspace_didChangeConfiguration) [Notification]
+#' Handler to the [workspace/didChangeConfiguration](https://microsoft.github.io/language-server-protocol/) [Notification]
 #'
 #' @template self
 #' @param params a [did_change_configuration_params] object
@@ -39,7 +39,7 @@ workspace_did_change_configuration <- function(self, params) {
 
 #' workspace/didChangeWatchedFiles notification handler
 #'
-#' Handler to the [workspace/didChangeWatchedFiles](https://microsoft.github.io/language-server-protocol/specification#workspace_didChangeWatchedFiles) [Notification].
+#' Handler to the [workspace/didChangeWatchedFiles](https://microsoft.github.io/language-server-protocol/) [Notification].
 #'
 #' Not implemented yet.
 #'
@@ -53,7 +53,7 @@ workspace_did_change_watched_files <- function(self, params){
 
 #' workspace/symbol request handler
 #'
-#' Handler to the [workspace/symbol](https://microsoft.github.io/language-server-protocol/specification#workspace_symbol) [Request].
+#' Handler to the [workspace/symbol](https://microsoft.github.io/language-server-protocol/) [Request].
 #'
 #' @template self
 #' @param params a workspace_symbol_params object
@@ -66,7 +66,7 @@ workspace_symbol <- function(self, id, params) {
 
 #' workspace/executeCommand request handler
 #'
-#' Handler to the [workspace/executeCommand](https://microsoft.github.io/language-server-protocol/specification#workspace_executeCommand) [Request].
+#' Handler to the [workspace/executeCommand](https://microsoft.github.io/language-server-protocol/) [Request].
 #'
 #' Not implemented yet.
 #'

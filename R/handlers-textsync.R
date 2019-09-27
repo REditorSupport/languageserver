@@ -1,6 +1,6 @@
 #' textDocument/didOpen notification handler
 #'
-#' Handler to the [textDocument/didOpen](https://microsoft.github.io/language-server-protocol/specification#textDocument_didOpen) [Notification]
+#' Handler to the [textDocument/didOpen](https://microsoft.github.io/language-server-protocol/) [Notification]
 #'
 #' @template self
 #' @param params a [did_open_text_document_params]
@@ -20,7 +20,7 @@ text_document_did_open <- function(self, params) {
 
 #' textDocument/didChange notification handler
 #'
-#' Handler to the [textDocument/didChange](https://microsoft.github.io/language-server-protocol/specification#textDocument_didChange) [Notification]
+#' Handler to the [textDocument/didChange](https://microsoft.github.io/language-server-protocol/) [Notification]
 #'
 #' @template self
 #' @param params a [did_change_text_document_params]
@@ -45,7 +45,7 @@ text_document_did_change <- function(self, params) {
 
 #' textDocument/willSave notification handler
 #'
-#' Handler to the [textDocument/willSave](https://microsoft.github.io/language-server-protocol/specification#textDocument_willSave) [Notification]
+#' Handler to the [textDocument/willSave](https://microsoft.github.io/language-server-protocol/) [Notification]
 #'
 #' @template self
 #' @param params a [will_save_text_document_params]
@@ -57,7 +57,7 @@ text_document_will_save <- function(self, params) {
 
 #' textDocument/didSave notification handler
 #'
-#' Handler to the [textDocument/didSave](https://microsoft.github.io/language-server-protocol/specification#textDocument_didSave) [Notification]
+#' Handler to the [textDocument/didSave](https://microsoft.github.io/language-server-protocol/) [Notification]
 #'
 #' @template self
 #' @param params a [did_save_text_document_params]
@@ -74,7 +74,7 @@ text_document_did_save <- function(self, params) {
 
 #' textDocument/didClose notification handler
 #'
-#' Handler to the [textDocument/didClose](https://microsoft.github.io/language-server-protocol/specification#textDocument_didClose) [Notification]
+#' Handler to the [textDocument/didClose](https://microsoft.github.io/language-server-protocol/) [Notification]
 #'
 #' @template self
 #' @param params a [did_close_text_document_params]
@@ -88,7 +88,7 @@ text_document_did_close <- function(self, params) {
 
 #' textDocument/willSaveWaitUntil notification handler
 #'
-#' Handler to the [textDocument/willSaveWaitUntil](https://microsoft.github.io/language-server-protocol/specification#textDocument_willSaveWaitUntil) [Request]
+#' Handler to the [textDocument/willSaveWaitUntil](https://microsoft.github.io/language-server-protocol/) [Request]
 #'
 #' @template self
 #' @template id

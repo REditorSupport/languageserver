@@ -1,6 +1,6 @@
 #' textDocument/completion request handler
 #'
-#' Handler to the [textDocument/completion](https://microsoft.github.io/language-server-protocol/specification#textDocument_completion) [Request]
+#' Handler to the [textDocument/completion](https://microsoft.github.io/language-server-protocol/) [Request]
 #'
 #' @template self
 #' @template id
@@ -16,7 +16,7 @@ text_document_completion  <- function(self, id, params) {
 
 #' completionItem/resolve request handler
 #'
-#' Handler to the [completionItem/resolve](https://microsoft.github.io/language-server-protocol/specification#completionItem_resolve) [Request]
+#' Handler to the [completionItem/resolve](https://microsoft.github.io/language-server-protocol/) [Request]
 #'
 #' @template self
 #' @template id
@@ -29,7 +29,7 @@ completion_item_resolve  <- function(self, id, params) {
 
 #' textDocument/hover request handler
 #'
-#' Handler to the [textDocument/hover](https://microsoft.github.io/language-server-protocol/specification#textDocument_hover) [Request]
+#' Handler to the [textDocument/hover](https://microsoft.github.io/language-server-protocol/) [Request]
 #'
 #' @template self
 #' @template id
@@ -45,7 +45,7 @@ text_document_hover  <- function(self, id, params) {
 
 #' textDocument/signatureHelp request handler
 #'
-#' Handler to the [textDocument/signatureHelp](https://microsoft.github.io/language-server-protocol/specification#textDocument_signatureHelp) [Request]
+#' Handler to the [textDocument/signatureHelp](https://microsoft.github.io/language-server-protocol/) [Request]
 #'
 #' @template self
 #' @template id
@@ -61,7 +61,7 @@ text_document_signature_help  <- function(self, id, params) {
 
 #' textDocument/definition request handler
 #'
-#' Handler to the [textDocument/definition](https://microsoft.github.io/language-server-protocol/specification#textDocument_definition) [Request]
+#' Handler to the [textDocument/definition](https://microsoft.github.io/language-server-protocol/) [Request]
 #'
 #' @template self
 #' @template id
@@ -77,7 +77,7 @@ text_document_definition  <- function(self, id, params) {
 
 #' textDocument/typeDefinition request handler
 #'
-#' Handler to the [textDocument/typeDefinition](https://microsoft.github.io/language-server-protocol/specification#textDocument_typeDefinition) [Request]
+#' Handler to the [textDocument/typeDefinition](https://microsoft.github.io/language-server-protocol/) [Request]
 #'
 #' Not implemented yet.
 #'
@@ -92,7 +92,7 @@ text_document_type_definition  <- function(self, id, params) {
 
 #' textDocument/implementation request handler
 #'
-#' Handler to the [textDocument/implementation](https://microsoft.github.io/language-server-protocol/specification#textDocument_implementation) [Request]
+#' Handler to the [textDocument/implementation](https://microsoft.github.io/language-server-protocol/) [Request]
 #'
 #' Not implemented yet.
 #'
@@ -107,7 +107,7 @@ text_document_implementation  <- function(self, id, params) {
 
 #' textDocument/references request handler
 #'
-#' Handler to the [textDocument/references](https://microsoft.github.io/language-server-protocol/specification#textDocument_references) [Request]
+#' Handler to the [textDocument/references](https://microsoft.github.io/language-server-protocol/) [Request]
 #'
 #' Not implemented yet.
 #'
@@ -122,7 +122,7 @@ text_document_references  <- function(self, id, params) {
 
 #' textDocument/documentHighlight request handler
 #'
-#' Handler to the [textDocument/documentHighlight](https://microsoft.github.io/language-server-protocol/specification#textDocument_documentHighlight) [Request]
+#' Handler to the [textDocument/documentHighlight](https://microsoft.github.io/language-server-protocol/) [Request]
 #'
 #' Not implemented yet.
 #'
@@ -137,7 +137,7 @@ text_document_document_highlight  <- function(self, id, params) {
 
 #' textDocument/documentSymbol request handler
 #'
-#' Handler to the [textDocument/documentSymbol](https://microsoft.github.io/language-server-protocol/specification#textDocument_documentSymbol) [Request]
+#' Handler to the [textDocument/documentSymbol](https://microsoft.github.io/language-server-protocol/) [Request]
 #'
 #' @template self
 #' @template id
@@ -153,7 +153,7 @@ text_document_document_symbol  <- function(self, id, params) {
 
 #' textDocument/codeAction request handler
 #'
-#' Handler to the [textDocument/codeAction](https://microsoft.github.io/language-server-protocol/specification#textDocument_codeAction) [Request]
+#' Handler to the [textDocument/codeAction](https://microsoft.github.io/language-server-protocol/) [Request]
 #'
 #' Not implemented yet.
 #'
@@ -168,7 +168,7 @@ text_document_code_action  <- function(self, id, params) {
 
 #' textDocument/codeLens request handler
 #'
-#' Handler to the [textDocument/codeLens](https://microsoft.github.io/language-server-protocol/specification#textDocument_codeLens) [Request]
+#' Handler to the [textDocument/codeLens](https://microsoft.github.io/language-server-protocol/) [Request]
 #'
 #' Not implemented yet.
 #'
@@ -185,7 +185,7 @@ text_document_code_lens  <- function(self, id, params) {
 
 #' codeLens/resolve request handler
 #'
-#' Handler to the [codeLens/resolve](https://microsoft.github.io/language-server-protocol/specification#codeLens_resolve) [Request]
+#' Handler to the [codeLens/resolve](https://microsoft.github.io/language-server-protocol/) [Request]
 #'
 #' Not implemented yet.
 #'
@@ -201,7 +201,7 @@ code_lens_resolve  <- function(self, id, params) {
 
 #' textDocument/documentLink request handler
 #'
-#' Handler to the [textDocument/documentLink](https://microsoft.github.io/language-server-protocol/specification#textDocument_documentLink) [Request]
+#' Handler to the [textDocument/documentLink](https://microsoft.github.io/language-server-protocol/) [Request]
 #'
 #' Not implemented yet.
 #'
@@ -218,7 +218,7 @@ text_document_document_link  <- function(self, id, params) {
 
 #' documentLink/resolve request handler
 #'
-#' Handler to the [documentLink/resolve](https://microsoft.github.io/language-server-protocol/specification#documentLink_resolve) [Request]
+#' Handler to the [documentLink/resolve](https://microsoft.github.io/language-server-protocol/) [Request]
 #'
 #' Not implemented yet.
 #'
@@ -233,7 +233,7 @@ document_link_resolve  <- function(self, id, params) {
 
 #' textDocument/documentColor request handler
 #'
-#' Handler to the [textDocument/documentColor](https://microsoft.github.io/language-server-protocol/specification#textDocument_documentColor) [Request]
+#' Handler to the [textDocument/documentColor](https://microsoft.github.io/language-server-protocol/) [Request]
 #'
 #' Not implemented yet.
 #'
@@ -248,7 +248,7 @@ text_document_document_color  <- function(self, id, params) {
 
 #' textDocument/colorPresentation request handler
 #'
-#' Handler to the [textDocument/colorPresentation](https://microsoft.github.io/language-server-protocol/specification#textDocument_colorPresentation) [Request]
+#' Handler to the [textDocument/colorPresentation](https://microsoft.github.io/language-server-protocol/) [Request]
 #'
 #' Not implemented yet.
 #'
@@ -263,7 +263,7 @@ text_document_color_presentation  <- function(self, id, params) {
 
 #' textDocument/formatting request handler
 #'
-#' Handler to the [textDocument/formatting](https://microsoft.github.io/language-server-protocol/specification#textDocument_formatting) [Request]
+#' Handler to the [textDocument/formatting](https://microsoft.github.io/language-server-protocol/) [Request]
 #'
 #' @template self
 #' @template id
@@ -279,7 +279,7 @@ text_document_formatting  <- function(self, id, params) {
 
 #' textDocument/rangeFormatting request handler
 #'
-#' Handler to the [textDocument/rangeFormatting](https://microsoft.github.io/language-server-protocol/specification#textDocument_rangeFormatting) [Request]
+#' Handler to the [textDocument/rangeFormatting](https://microsoft.github.io/language-server-protocol/) [Request]
 #'
 #' @template self
 #' @template id
@@ -297,7 +297,7 @@ text_document_range_formatting  <- function(self, id, params) {
 
 #' textDocument/onTypeFormatting request handler
 #'
-#' Handler to the [textDocument/onTypeFormatting](https://microsoft.github.io/language-server-protocol/specification#textDocument_onTypeFormatting) [Request]
+#' Handler to the [textDocument/onTypeFormatting](https://microsoft.github.io/language-server-protocol/) [Request]
 #'
 #' Not implemented yet.
 #'
@@ -313,7 +313,7 @@ text_document_on_type_formatting  <- function(self, id, params) {
 
 #' textDocument/rename request handler
 #'
-#' Handler to the [textDocument/rename](https://microsoft.github.io/language-server-protocol/specification#textDocument_rename) [Request]
+#' Handler to the [textDocument/rename](https://microsoft.github.io/language-server-protocol/) [Request]
 #'
 #' Not implemented yet.
 #'
@@ -328,7 +328,7 @@ text_document_rename  <- function(self, id, params) {
 
 #' textDocument/prepareRename request handler
 #'
-#' Handler to the [textDocument/prepareRename](https://microsoft.github.io/language-server-protocol/specification#textDocument_prepareRename) [Request]
+#' Handler to the [textDocument/prepareRename](https://microsoft.github.io/language-server-protocol/) [Request]
 #'
 #' Not implemented yet.
 #'
@@ -343,7 +343,7 @@ text_document_prepare_rename  <- function(self, id, params) {
 
 #' textDocument/foldingRange request handler
 #'
-#' Handler to the [textDocument/foldingRange](https://microsoft.github.io/language-server-protocol/specification#textDocument_foldingRange) [Request]
+#' Handler to the [textDocument/foldingRange](https://microsoft.github.io/language-server-protocol/) [Request]
 #'
 #' Not implemented yet.
 #'

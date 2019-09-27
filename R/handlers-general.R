@@ -1,6 +1,6 @@
 #' initialize handler
 #'
-#' Handler to the [initialize](https://microsoft.github.io/language-server-protocol/specification#initialize) [Request].
+#' Handler to the [initialize](https://microsoft.github.io/language-server-protocol/) [Request].
 #'
 #' @template self
 #' @template id
@@ -19,7 +19,7 @@ on_initialize <- function(self, id, params) {
 
 #' initialized handler
 #'
-#' Handler to the [initialized](https://microsoft.github.io/language-server-protocol/specification#initialized) [Notification].
+#' Handler to the [initialized](https://microsoft.github.io/language-server-protocol/) [Notification].
 #'
 #' @template self
 #' @param params a named list
@@ -52,7 +52,7 @@ on_initialized <- function(self, params) {
 
 #' shutdown request handler
 #'
-#' Handler to the [shutdown](https://microsoft.github.io/language-server-protocol/specification#shutdown) [Request]
+#' Handler to the [shutdown](https://microsoft.github.io/language-server-protocol/) [Request]
 #'
 #' @template self
 #' @template id
@@ -67,7 +67,7 @@ on_shutdown <- function(self, id, params) {
 
 #' exit notification handler
 #'
-#' Hanlder to the [exit](https://microsoft.github.io/language-server-protocol/specification#exit) [Notification]
+#' Hanlder to the [exit](https://microsoft.github.io/language-server-protocol/) [Notification]
 #'
 #' @template self
 #' @param params unused here
@@ -79,7 +79,7 @@ on_exit <- function(self, params) {
 
 #' cancel request notification handler
 #'
-#' Handler to the [cancelRequest](https://microsoft.github.io/language-server-protocol/specification#cancelRequest) [Notification]
+#' Handler to the [cancelRequest](https://microsoft.github.io/language-server-protocol/) [Notification]
 #'
 #' @template self
 #' @param params unused here
