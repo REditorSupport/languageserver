@@ -133,25 +133,27 @@ LanguageServer <- R6::R6Class("LanguageServer",
             header <- self$read_line()
             if (length(header) == 0 || !nzchar(header)) {
                   return(NULL)
-              }
+            }
+            bytes <- NULL
 
-            logger$info("received: ", header)
-            matches <- stringr::str_match(header, "Content-Length: ([0-9]+)")
-            if (is.na(matches[2])) {
-                  stop(paste0("Unexpected input: ", header))
-              }
-            as.integer(matches[2])
+            while (TRUE) {
+                if (length(header) && !nzchar(header))
+                    break
+                logger$info("received: ", header)
+
+                if (!startsWith(header, "Content")) {
+                    stop("Unexpected non-empty line")
+                }
+                matches <- stringr::str_match(header, "Content-Length: ([0-9]+)")
+                if (!is.na(matches[2])) {
+                    bytes <- as.integer(matches[2])
+                }
+                header <- self$read_line()
+            }
+            bytes
         },
 
         read_content = function(nbytes) {
-            empty_line <- self$read_line()
-            while (length(empty_line) == 0) {
-                empty_line <- self$read_line()
-                Sys.sleep(0.01)
-            }
-            if (nzchar(empty_line)) {
-                  stop("Unexpected non-empty line")
-              }
             data <- ""
             while (nbytes > 0) {
                 newdata <- self$read_char(nbytes)
