@@ -14,6 +14,6 @@ text_document_definition(self, id, params)
 \item{params}{a \link{text_document_position_params} object}
 }
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#textDocument_definition}{textDocument/definition} \link{Request}
+Handler to the \href{https://microsoft.github.io/language-server-protocol/}{textDocument/definition} \link{Request}
 }
 \keyword{internal}

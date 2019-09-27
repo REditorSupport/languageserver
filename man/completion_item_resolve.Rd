@@ -14,6 +14,6 @@ completion_item_resolve(self, id, params)
 \item{params}{a \link{completion_params} object}
 }
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#completionItem_resolve}{completionItem/resolve} \link{Request}
+Handler to the \href{https://microsoft.github.io/language-server-protocol/}{completionItem/resolve} \link{Request}
 }
 \keyword{internal}

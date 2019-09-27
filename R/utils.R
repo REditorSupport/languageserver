@@ -69,7 +69,7 @@ check_scope <- function(uri, document, position) {
 #'
 #' @keywords internal
 ncodeunit <- function(s) {
-    lengths(iconv(s, to = "UTF-16BE", toRaw = TRUE)) / 2
+    lengths(iconv(s, from = "UTF-8", to = "UTF-16BE", toRaw = TRUE)) / 2
 }
 
 

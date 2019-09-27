@@ -14,7 +14,7 @@ code_lens_resolve(self, id, params)
 \item{params}{a CodeLens object}
 }
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#codeLens_resolve}{codeLens/resolve} \link{Request}
+Handler to the \href{https://microsoft.github.io/language-server-protocol/}{codeLens/resolve} \link{Request}
 }
 \details{
 Not implemented yet.

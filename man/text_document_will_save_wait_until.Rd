@@ -14,6 +14,6 @@ text_document_will_save_wait_until(self, id, params)
 \item{params}{a \link{will_save_text_document_params}}
 }
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#textDocument_willSaveWaitUntil}{textDocument/willSaveWaitUntil} \link{Request}
+Handler to the \href{https://microsoft.github.io/language-server-protocol/}{textDocument/willSaveWaitUntil} \link{Request}
 }
 \keyword{internal}

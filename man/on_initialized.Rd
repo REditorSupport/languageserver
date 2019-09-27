@@ -12,6 +12,6 @@ on_initialized(self, params)
 \item{params}{a named list}
 }
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#initialized}{initialized} \link{Notification}.
+Handler to the \href{https://microsoft.github.io/language-server-protocol/}{initialized} \link{Notification}.
 }
 \keyword{internal}

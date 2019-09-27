@@ -14,6 +14,6 @@ text_document_range_formatting(self, id, params)
 \item{params}{a \link{document_range_formatting_params} object}
 }
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#textDocument_rangeFormatting}{textDocument/rangeFormatting} \link{Request}
+Handler to the \href{https://microsoft.github.io/language-server-protocol/}{textDocument/rangeFormatting} \link{Request}
 }
 \keyword{internal}

@@ -14,6 +14,6 @@ on_shutdown(self, id, params)
 \item{params}{unused here}
 }
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#shutdown}{shutdown} \link{Request}
+Handler to the \href{https://microsoft.github.io/language-server-protocol/}{shutdown} \link{Request}
 }
 \keyword{internal}

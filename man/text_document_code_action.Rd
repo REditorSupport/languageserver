@@ -14,7 +14,7 @@ text_document_code_action(self, id, params)
 \item{params}{a \link{code_action_params} object}
 }
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#textDocument_codeAction}{textDocument/codeAction} \link{Request}
+Handler to the \href{https://microsoft.github.io/language-server-protocol/}{textDocument/codeAction} \link{Request}
 }
 \details{
 Not implemented yet.

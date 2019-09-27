@@ -12,6 +12,6 @@ text_document_did_change(self, params)
 \item{params}{a \link{did_change_text_document_params}}
 }
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#textDocument_didChange}{textDocument/didChange} \link{Notification}
+Handler to the \href{https://microsoft.github.io/language-server-protocol/}{textDocument/didChange} \link{Notification}
 }
 \keyword{internal}

@@ -14,7 +14,7 @@ text_document_folding_range(self, id, params)
 \item{params}{a folding_range_params object}
 }
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#textDocument_foldingRange}{textDocument/foldingRange} \link{Request}
+Handler to the \href{https://microsoft.github.io/language-server-protocol/}{textDocument/foldingRange} \link{Request}
 }
 \details{
 Not implemented yet.

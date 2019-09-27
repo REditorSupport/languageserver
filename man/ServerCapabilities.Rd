@@ -5,7 +5,7 @@
 \title{Server capabilities}
 \description{
 List all supported capabilities of the language server, as defined in the
-\href{https://microsoft.github.io/language-server-protocol/specification}{Language Server Protocol specification}.
+\href{https://microsoft.github.io/language-server-protocol/}{Language Server Protocol specification}.
 }
 \details{
 Currently the capabilities are:

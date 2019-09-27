@@ -12,6 +12,6 @@ workspace_did_change_configuration(self, params)
 \item{params}{a \link{did_change_configuration_params} object}
 }
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#workspace_didChangeConfiguration}{workspace/didChangeConfiguration} \link{Notification}
+Handler to the \href{https://microsoft.github.io/language-server-protocol/}{workspace/didChangeConfiguration} \link{Notification}
 }
 \keyword{internal}

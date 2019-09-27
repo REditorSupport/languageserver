@@ -14,7 +14,7 @@ document_link_resolve(self, id, params)
 \item{params}{a DocumentLink object}
 }
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#documentLink_resolve}{documentLink/resolve} \link{Request}
+Handler to the \href{https://microsoft.github.io/language-server-protocol/}{documentLink/resolve} \link{Request}
 }
 \details{
 Not implemented yet.

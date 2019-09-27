@@ -12,6 +12,6 @@ cancel_request(self, params)
 \item{params}{unused here}
 }
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#cancelRequest}{cancelRequest} \link{Notification}
+Handler to the \href{https://microsoft.github.io/language-server-protocol/}{cancelRequest} \link{Notification}
 }
 \keyword{internal}

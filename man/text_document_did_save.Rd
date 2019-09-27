@@ -12,6 +12,6 @@ text_document_did_save(self, params)
 \item{params}{a \link{did_save_text_document_params}}
 }
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#textDocument_didSave}{textDocument/didSave} \link{Notification}
+Handler to the \href{https://microsoft.github.io/language-server-protocol/}{textDocument/didSave} \link{Notification}
 }
 \keyword{internal}

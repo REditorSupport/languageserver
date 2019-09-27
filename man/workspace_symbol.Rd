@@ -12,6 +12,6 @@ workspace_symbol(self, id, params)
 \item{params}{a workspace_symbol_params object}
 }
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#workspace_symbol}{workspace/symbol} \link{Request}.
+Handler to the \href{https://microsoft.github.io/language-server-protocol/}{workspace/symbol} \link{Request}.
 }
 \keyword{internal}

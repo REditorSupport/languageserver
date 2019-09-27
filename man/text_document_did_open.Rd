@@ -12,6 +12,6 @@ text_document_did_open(self, params)
 \item{params}{a \link{did_open_text_document_params}}
 }
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/specification#textDocument_didOpen}{textDocument/didOpen} \link{Notification}
+Handler to the \href{https://microsoft.github.io/language-server-protocol/}{textDocument/didOpen} \link{Notification}
 }
 \keyword{internal}
