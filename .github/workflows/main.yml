@@ -83,8 +83,9 @@ jobs:
       shell:
         pwsh
     - name: Install R
-      run: C:\R-binary.exe /VERYSILENT /DIR=C:\R
-      run: C:\Rtools35.exe /VERYSILENT
+      run: |
+        C:\R-binary.exe /VERYSILENT /DIR=C:\R
+        C:\Rtools35.exe /VERYSILENT
     - name: Install languagesever
       run: |
         $env:TZ = "PST8PDT"
