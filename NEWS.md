@@ -1,3 +1,14 @@
+languageserver 0.3.1
+
+   - Recursive parsing (#56)
+   - improve way to check if process becomes orphan
+   - unicode support
+
+  Contributors:
+   - Kun Ren
+   - Randy Lai
+
+
 languageserver 0.3.0
 
   - added symbol definitions
