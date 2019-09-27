@@ -87,7 +87,7 @@ jobs:
       run: |
         $env:TZ = "PST8PDT"
         C:\R\bin\R --slave -e "install.packages('devtools', repos = 'https://cloud.r-project.org')"
-        C:\R\bin\R --slave -e "devtools::install(repos = 'https://cloud.r-project.org', upgrade = 'never')"
+        C:\R\bin\R --slave -e "devtools::install(repos = 'https://cloud.r-project.org', upgrade = 'never', type = 'win.binary')"
       shell:
         pwsh
     - name: Running Tests
