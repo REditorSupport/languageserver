@@ -137,7 +137,7 @@ content_backward_search <- function(content, row, column, char, skip_empty_line 
 
 # The parsing result returned by `parse` is based on number of bytes in UTF-8.
 # Thus the position information is wrong, we need to fix the position afterwards.
-fix_definiation_ranges <- function(env, path) {
+fix_definition_ranges <- function(env, path) {
     functs <- names(env$definition_ranges)
     for (funct in functs) {
         range <- env$definition_ranges[[funct]]
@@ -191,7 +191,7 @@ parse_document <- function(path) {
     env <- parse_env()
     parse_expr(expr, env, is_rmd = is_rmd)
     env$packages <- resolve_package_dependencies(env$packages)
-    fix_definiation_ranges(env, path)
+    fix_definition_ranges(env, path)
     env
 }
 
