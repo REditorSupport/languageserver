@@ -172,29 +172,30 @@ LanguageServer <- R6::R6Class("LanguageServer",
 
         run = function() {
             while (TRUE) {
-                ret <- tryCatch({
-                    self$check_connection()
+                ret <- try({
+                        self$check_connection()
 
-                    if (isTRUE(self$exit_flag)) {
-                        logger$info("exiting")
-                        break
-                    }
+                        if (isTRUE(self$exit_flag)) {
+                            logger$info("exiting")
+                            break
+                        }
 
-                    self$process_events()
+                        self$process_events()
 
-                    data <- self$fetch(blocking = FALSE)
-                    if (is.null(data)) {
-                        Sys.sleep(0.1)
-                        next
-                    }
-                    self$handle_raw(data)
-                },
-                error = function(e) {
+                        data <- self$fetch(blocking = FALSE)
+                        if (is.null(data)) {
+                            Sys.sleep(0.1)
+                            next
+                        }
+                        self$handle_raw(data)
+                    },
+                    silent = TRUE)
+                if (inherits(ret, "try-error")) {
                     logger$error(ret)
                     logger$error(as.list(traceback()))
                     logger$error("exiting")
                     break
-                })
+                }
             }
         }
     )
