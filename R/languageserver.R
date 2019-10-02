@@ -48,12 +48,12 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$inputcon <- inputcon
             self$outputcon <- outputcon
             self$register_handlers()
-            self$request_callbacks <- collections::Dict$new()
+            self$request_callbacks <- collections::Dict()
 
             self$workspace <- Workspace$new()
-            self$sync_in <- collections::OrderedDictL$new()
-            self$sync_out <- collections::OrderedDictL$new()
-            self$reply_queue <- collections::QueueL$new()
+            self$sync_in <- collections::OrderedDictL()
+            self$sync_out <- collections::OrderedDictL()
+            self$reply_queue <- collections::QueueL()
 
             self$process_sync_in <- throttle(
                 function() process_sync_in(self), 0.3

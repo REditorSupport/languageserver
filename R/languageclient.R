@@ -12,7 +12,7 @@ LanguageClient <- R6::R6Class("LanguageClient",
             self$process <- processx::process$new(cmd, args,
                 stdin = "|", stdout = "|", stderr = "|", supervise = TRUE)
             self$register_handlers()
-            self$request_callbacks <- collections::Dict$new()
+            self$request_callbacks <- collections::Dict()
         },
 
         finalize = function() {
