@@ -1,4 +1,4 @@
-#' @useDynLib languageserver
+#' @useDynLib languageserver, .registration = TRUE, .fixes = "C_"
 #' @importFrom R6 R6Class
 #' @details
 #' An implementation of the Language Server Protocol for R
