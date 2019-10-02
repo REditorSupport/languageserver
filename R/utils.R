@@ -163,7 +163,7 @@ stdin_read_line <- function() {
     .Call("stdin_read_line", PACKAGE = "languageserver")
 }
 
-#' check if the current process become an orphan
+#' check if the current process becomes an orphan
 #'
 #' @keywords internal
 become_orphan <- function() {
