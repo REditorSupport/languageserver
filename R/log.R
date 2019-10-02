@@ -38,7 +38,7 @@ to_string <- function(...) {
 #' @param ... anything
 #'
 #' @keywords internal
-log_write <- function(..., file = stderr()){
+log_write <- function(..., file = stderr()) {
     # cat(to_string(...), file = "/tmp/rls")
     cat(to_string(...), file = file)
 }

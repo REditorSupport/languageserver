@@ -47,7 +47,7 @@ workspace_did_change_configuration <- function(self, params) {
 #' @param params a did_change_watched_files_params object
 #'
 #' @keywords internal
-workspace_did_change_watched_files <- function(self, params){
+workspace_did_change_watched_files <- function(self, params) {
 
 }
 

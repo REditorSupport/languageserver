@@ -11,8 +11,6 @@
 #'
 #' @return a [Response] object
 hover_reply <- function(id, uri, workspace, document, position) {
-    line <- position$line
-
     if (!check_scope(uri, document, position)) {
         return(Response$new(id))
     }
