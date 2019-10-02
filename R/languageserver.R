@@ -128,11 +128,11 @@ LanguageServer <- R6::R6Class("LanguageServer",
 
         read_header = function() {
             if (self$tcp && !socketSelect(list(self$inputcon), timeout = 0)) {
-                  return(NULL)
-              }
+                return(NULL)
+            }
             header <- self$read_line()
             if (length(header) == 0 || !nzchar(header)) {
-                  return(NULL)
+                return(NULL)
             }
             bytes <- NULL
 
@@ -173,23 +173,24 @@ LanguageServer <- R6::R6Class("LanguageServer",
         run = function() {
             while (TRUE) {
                 ret <- try({
-                        self$check_connection()
+                    self$check_connection()
 
-                        if (isTRUE(self$exit_flag)) {
-                            logger$info("exiting")
-                            break
-                        }
+                    if (isTRUE(self$exit_flag)) {
+                        logger$info("exiting")
+                        break
+                    }
 
-                        self$process_events()
+                    self$process_events()
 
-                        data <- self$fetch(blocking = FALSE)
-                        if (is.null(data)) {
-                            Sys.sleep(0.1)
-                            next
-                        }
-                        self$handle_raw(data)
-                    },
-                    silent = TRUE)
+                    data <- self$fetch(blocking = FALSE)
+                    if (is.null(data)) {
+                        Sys.sleep(0.1)
+                        next
+                    }
+                    self$handle_raw(data)
+                },
+                silent = TRUE
+                )
                 if (inherits(ret, "try-error")) {
                     logger$error(ret)
                     logger$error(as.list(traceback()))
