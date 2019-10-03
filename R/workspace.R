@@ -13,27 +13,30 @@
 #' + `get_signature(funct, pkgname = NULL)`: return the signature of `funct`
 #' + `get_formals(funct, pkgname = NULL)`: return the [base::formals()] of `funct`
 #' + `get_help(topic, pkgname = NULL)`: return the help text of `topic`
-#' + `load_to_global(parse_result)`:
+#' + `parse_file(parse_data)`:
 #'
 #' @field pkgname a character, a package name
 #' @field object a character, an object name
 #' @field funct a character, a function name
 #' @field topic a character, a help topic name
-#' @field parse_result ?
+#' @field parse_data ?
 Workspace <- R6::R6Class("Workspace",
-    public = list(
-        loaded_packages = c("base", "stats", "methods", "utils", "graphics", "grDevices"),
-        namespaces = list(),
+    private = list(
         global_env = list(nonfuncts = character(0),
                           functs = character(0),
                           signatures = list(),
-                          formals = list(),
-                          definitions = DefinitionCache$new()),
+                          formals = list()),
+        namespaces = list(),
+        definitions = NULL
+    ),
+    public = list(
+        loaded_packages = c("base", "stats", "methods", "utils", "graphics", "grDevices"),
 
         initialize = function() {
             for (pkgname in self$loaded_packages) {
-                self$namespaces[[pkgname]] <- Namespace$new(pkgname)
+                private$namespaces[[pkgname]] <- Namespace$new(pkgname)
             }
+            private$definitions <- DefinitionCache$new()
         },
 
         load_package = function(pkgname) {
@@ -61,19 +64,19 @@ Workspace <- R6::R6Class("Workspace",
 
         get_namespace = function(pkgname) {
             if (pkgname == "_workspace_") {
-                self$global_env
-            } else if (pkgname %in% names(self$namespaces)) {
-                self$namespaces[[pkgname]]
+                private$global_env
+            } else if (pkgname %in% names(private$namespaces)) {
+                private$namespaces[[pkgname]]
             } else {
-                self$namespaces[[pkgname]] <- Namespace$new(pkgname)
-                self$namespaces[[pkgname]]
+                private$namespaces[[pkgname]] <- Namespace$new(pkgname)
+                private$namespaces[[pkgname]]
             }
         },
 
         get_signature = function(funct, pkgname = NULL) {
             if (is.null(pkgname)) {
-                if (funct %in% self$global_env$functs) {
-                    return(self$global_env$signatures[[funct]])
+                if (funct %in% private$global_env$functs) {
+                    return(private$global_env$signatures[[funct]])
                 }
                 pkgname <- self$guess_package(funct)
             }
@@ -92,8 +95,8 @@ Workspace <- R6::R6Class("Workspace",
 
         get_formals = function(funct, pkgname = NULL) {
             if (is.null(pkgname)) {
-                if (funct %in% self$global_env$functs) {
-                    return(self$global_env$formals[[funct]])
+                if (funct %in% private$global_env$functs) {
+                    return(private$global_env$formals[[funct]])
                 }
                 pkgname <- self$guess_package(funct)
             }
@@ -128,15 +131,15 @@ Workspace <- R6::R6Class("Workspace",
         },
 
         get_definition = function(topic) {
-            self$global_env$definitions$get(topic)
+            private$definitions$get(topic)
         },
 
         get_definitions_for_uri = function(uri) {
-            self$global_env$definitions$get_functs_for_uri(uri)
+            private$definitions$get_functs_for_uri(uri)
         },
 
         get_definitions_for_query = function(query) {
-            self$global_env$definitions$filter(query)
+            private$definitions$filter(query)
         },
 
         get_code = function(topic, pkg = NULL) {
@@ -162,16 +165,16 @@ Workspace <- R6::R6Class("Workspace",
             }
         },
 
-        load_to_global = function(parse_result, uri) {
-            self$global_env$nonfuncts <- unique(
-                c(self$global_env$nonfuncts, parse_result$nonfuncts))
-            self$global_env$functs <- unique(
-                c(self$global_env$functs, parse_result$functs))
-            self$global_env$signatures <- merge_list(
-                self$global_env$signatures, parse_result$signatures)
-            self$global_env$formals <- merge_list(
-                self$global_env$formals, parse_result$formals)
-            self$global_env$definitions$update(uri, parse_result$definition_ranges)
+        parse_file = function(uri, parse_data) {
+            private$global_env$nonfuncts <- unique(
+                c(private$global_env$nonfuncts, parse_data$nonfuncts))
+            private$global_env$functs <- unique(
+                c(private$global_env$functs, parse_data$functs))
+            private$global_env$signatures <- merge_list(
+                private$global_env$signatures, parse_data$signatures)
+            private$global_env$formals <- merge_list(
+                private$global_env$formals, parse_data$formals)
+            private$definitions$update(uri, parse_data$definition_ranges)
         }
     )
 )
@@ -193,10 +196,10 @@ workspace_sync <- function(uri, temp_file = NULL, run_lintr = TRUE, parse = FALS
     }
 
     if (parse) {
-        parse_result <- tryCatch(parse_document(path), error = function(e) NULL)
-        # parse_result <- parse_document(path)
+        parse_data <- tryCatch(parse_document(path), error = function(e) NULL)
+        # parse_data <- parse_document(path)
     } else {
-        parse_result <- NULL
+        parse_data <- NULL
     }
 
     if (run_lintr) {
@@ -206,7 +209,7 @@ workspace_sync <- function(uri, temp_file = NULL, run_lintr = TRUE, parse = FALS
         diagnostics <- NULL
     }
 
-    list(parse_result = parse_result, diagnostics = diagnostics)
+    list(parse_data = parse_data, diagnostics = diagnostics)
 }
 
 
@@ -285,14 +288,14 @@ process_sync_out <- function(self) {
                     )
                 )
             }
-            parse_result <- process_result$parse_result
-            if (!is.null(parse_result)) {
-                for (package in parse_result$packages) {
+            parse_data <- process_result$parse_data
+            if (!is.null(parse_data)) {
+                for (package in parse_data$packages) {
                     logger$info("load package:", package)
                     self$workspace$load_package(package)
                 }
 
-                self$workspace$load_to_global(parse_result, uri)
+                self$workspace$parse_file(uri, parse_data)
             }
 
             # cleanup
