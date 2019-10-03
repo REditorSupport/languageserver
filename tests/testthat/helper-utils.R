@@ -51,7 +51,7 @@ respond <- function(client, method, params, timeout=5, retry=TRUE,
     start_time <- Sys.time()
     remaining <- timeout
     client$deliver(client$request(method, params), callback = cb)
-    while (is.null(storage$result)) {
+    while (!utils::hasName(storage, "result")) {
         if (remaining < 0) {
             fail("timeout when obtaining response", info = client$read_error())
             return(NULL)
