@@ -47,7 +47,6 @@ respond <- function(client, method, params, timeout=5, retry=TRUE,
     cb <- function(self, result) {
         storage$result <- result
     }
-
     start_time <- Sys.time()
     remaining <- timeout
     client$deliver(client$request(method, params), callback = cb)
@@ -57,6 +56,9 @@ respond <- function(client, method, params, timeout=5, retry=TRUE,
             return(NULL)
         }
         data <- client$fetch(blocking = TRUE, timeout = remaining)
+        # per the docs of processx, we need to fetch stderr constantly
+        # otherwise the process will stop working
+        client$fetch_error()
         if (!is.null(data)) client$handle_raw(data)
         remaining <- (start_time + timeout) - Sys.time()
     }

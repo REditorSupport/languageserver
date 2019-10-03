@@ -3,6 +3,7 @@
 LanguageClient <- R6::R6Class("LanguageClient",
     inherit = LanguageBase,
     public = list(
+        error_buffer = NULL,
         process = NULL,
         rootUri = NULL,
         ClientCapabilities = NULL,
@@ -13,6 +14,7 @@ LanguageClient <- R6::R6Class("LanguageClient",
                 stdin = "|", stdout = "|", stderr = "|", supervise = TRUE)
             self$register_handlers()
             self$request_callbacks <- collections::Dict()
+            self$error_buffer <- ""
         },
 
         finalize = function() {
@@ -65,8 +67,17 @@ LanguageClient <- R6::R6Class("LanguageClient",
             data
         },
 
+        fetch_error = function() {
+            self$error_buffer <- paste0(
+                self$error_buffer, "\n",
+                paste0(self$process$read_error_lines(), collapse = "\n")
+                )
+        },
+
         read_error = function() {
-            paste0(self$process$read_error_lines(), collapse = "\n")
+            buf <- self$error_buffer
+            self$error_buffer <- ""
+            buf
         },
 
         welcome = function() {
