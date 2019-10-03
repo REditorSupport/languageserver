@@ -108,6 +108,7 @@ workspace_completion <- function(workspace, token, package = NULL, exported_only
         unexports <- ns$unexports[startsWith(ns$unexports, token)]
         unexports_completion <- lapply(unexports, function(object) {
             list(label = object,
+                 kind = CompletionItemKind$Field,
                  detail = paste0("{", package, "}"))
         })
         completions <- c(completions, unexports_completion)
