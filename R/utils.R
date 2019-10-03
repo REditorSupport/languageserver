@@ -153,21 +153,21 @@ is_package <- function(rootUri) {
 #'
 #' @keywords internal
 stdin_read_char <- function(n) {
-    .Call("stdin_read_char", PACKAGE = "languageserver", n)
+    .Call(C_stdin_read_char, n)
 }
 
 #' read a line from stdin
 #'
 #' @keywords internal
 stdin_read_line <- function() {
-    .Call("stdin_read_line", PACKAGE = "languageserver")
+    .Call(C_stdin_read_line)
 }
 
 #' check if the current process becomes an orphan
 #'
 #' @keywords internal
 become_orphan <- function() {
-    .Call("become_orphan", PACKAGE = "languageserver")
+    .Call(C_become_orphan)
 }
 
 #' throttle a function execution
