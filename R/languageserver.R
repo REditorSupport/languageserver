@@ -48,8 +48,6 @@ LanguageServer <- R6::R6Class("LanguageServer",
 
             self$inputcon <- inputcon
             self$outputcon <- outputcon
-            self$register_handlers()
-            self$request_callbacks <- collections::Dict()
 
             self$workspace <- Workspace$new()
             self$sync_in <- collections::OrderedDictL()
@@ -60,11 +58,12 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 function() process_sync_in(self), 0.3
             )
             self$process_sync_out <- (function() process_sync_out(self))
+            super$initialize()
         },
 
         finalize = function() {
             close(self$inputcon)
-            self$request_callbacks <- NULL
+            super$finalize()
         },
 
         process_events = function() {
@@ -113,7 +112,11 @@ LanguageServer <- R6::R6Class("LanguageServer",
 
         read_line = function() {
             if (self$tcp) {
-                readLines(self$inputcon, n = 1)
+                if (socketSelect(list(self$inputcon), timeout = 0)) {
+                    readLines(self$inputcon, n = 1)
+                } else {
+                    character(0)
+                }
             } else {
                 stdin_read_line()
             }
@@ -125,50 +128,6 @@ LanguageServer <- R6::R6Class("LanguageServer",
             } else {
                 stdin_read_char(n)
             }
-        },
-
-        read_header = function() {
-            if (self$tcp && !socketSelect(list(self$inputcon), timeout = 0)) {
-                return(NULL)
-            }
-            header <- self$read_line()
-            if (length(header) == 0 || !nzchar(header)) {
-                return(NULL)
-            }
-            bytes <- NULL
-
-            while (TRUE) {
-                if (length(header) == 0) {
-                    Sys.sleep(0.01)
-                } else if (!nzchar(header)) {
-                    break
-                } else {
-                    logger$info("received: ", header)
-
-                    if (!startsWith(header, "Content")) {
-                        stop("Unexpected non-empty line")
-                    }
-                    matches <- stringr::str_match(header, "Content-Length: ([0-9]+)")
-                    if (!is.na(matches[2])) {
-                        bytes <- as.integer(matches[2])
-                    }
-                }
-                header <- self$read_line()
-            }
-            bytes
-        },
-
-        read_content = function(nbytes) {
-            data <- ""
-            while (nbytes > 0) {
-                newdata <- self$read_char(nbytes)
-                if (length(newdata) > 0) {
-                    nbytes <- nbytes - nchar(newdata, type = "bytes")
-                    data <- paste0(data, newdata)
-                }
-                Sys.sleep(0.01)
-            }
-            data
         },
 
         run = function() {

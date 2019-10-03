@@ -12,13 +12,13 @@ LanguageClient <- R6::R6Class("LanguageClient",
         initialize = function(cmd, args) {
             self$process <- processx::process$new(cmd, args,
                 stdin = "|", stdout = "|", stderr = "|", supervise = TRUE)
-            self$register_handlers()
-            self$request_callbacks <- collections::Dict()
             self$error_buffer <- ""
+            super$initialize()
         },
 
         finalize = function() {
-            self$stop()
+            self$process$kill()
+            super$finalize()
         },
 
         check_connection = function() {
@@ -30,41 +30,13 @@ LanguageClient <- R6::R6Class("LanguageClient",
             self$process$write_input(text)
         },
 
-        read_one_output_line = function() {
+        read_line = function() {
             line <- self$process$read_output_lines(1)
             trimws(line, "right")
         },
 
-        read_header = function() {
-            if (!self$process$is_alive() || self$process$poll_io(1)[1] != "ready") return(NULL)
-            header <- self$read_one_output_line()
-            if (length(header) == 0 || !nzchar(header)) return(NULL)
-            logger$info("received: ", header)
-            matches <- stringr::str_match(header, "Content-Length: ([0-9]+)")
-            if (is.na(matches[2]))
-                stop(paste0("Unexpected input: ", header))
-            as.integer(matches[2])
-        },
-
-        read_content = function(nbytes) {
-            empty_line <- self$read_one_output_line()
-            while (length(empty_line) == 0) {
-                empty_line <- self$read_one_output_line()
-                Sys.sleep(0.01)
-            }
-            if (nzchar(empty_line)) {
-                stop("Unexpected non-empty line")
-            }
-            data <- ""
-            while (nbytes > 0) {
-                newdata <- self$process$read_output(nbytes)
-                if (length(newdata) > 0) {
-                    nbytes <- nbytes - nchar(newdata, type = "bytes")
-                    data <- paste0(data, newdata)
-                }
-                Sys.sleep(0.01)
-            }
-            data
+        read_char = function(n) {
+            self$process$read_output(n)
         },
 
         fetch_error = function() {
@@ -99,11 +71,6 @@ LanguageClient <- R6::R6Class("LanguageClient",
             self$rootUri <- path_to_uri(working_dir)
             self$ClientCapabilities <- capabilities
             self$welcome()
-        },
-
-        stop = function() {
-            self$process$kill()
-            self$request_callbacks$clear()
         },
 
         run = function() {

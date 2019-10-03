@@ -11,6 +11,15 @@ LanguageBase <- R6::R6Class("LanguageBase",
         notification_handlers = NULL,
         request_callbacks = NULL,
 
+        initialize = function() {
+            self$register_handlers()
+            self$request_callbacks <- collections::Dict()
+        },
+
+        finalize = function() {
+            self$request_callbacks$clear()
+        },
+
         get_ticket = function() {
             private$ticket <- private$ticket + 1
             private$ticket
@@ -38,6 +47,47 @@ LanguageBase <- R6::R6Class("LanguageBase",
                 id <- message$id
                 self$request_callbacks$set(as.character(id), callback)
             }
+        },
+
+        read_header = function() {
+            header <- self$read_line()
+            if (length(header) == 0 || !nzchar(header)) {
+                return(NULL)
+            }
+            bytes <- NULL
+
+            while (TRUE) {
+                if (length(header) == 0) {
+                    Sys.sleep(0.01)
+                } else if (!nzchar(header)) {
+                    break
+                } else {
+                    logger$info("received: ", header)
+
+                    if (!startsWith(header, "Content")) {
+                        stop("Unexpected non-empty line")
+                    }
+                    matches <- stringr::str_match(header, "Content-Length: ([0-9]+)")
+                    if (!is.na(matches[2])) {
+                        bytes <- as.integer(matches[2])
+                    }
+                }
+                header <- self$read_line()
+            }
+            bytes
+        },
+
+        read_content = function(nbytes) {
+            data <- ""
+            while (nbytes > 0) {
+                newdata <- self$read_char(nbytes)
+                if (length(newdata) > 0) {
+                    nbytes <- nbytes - nchar(newdata, type = "bytes")
+                    data <- paste0(data, newdata)
+                }
+                Sys.sleep(0.01)
+            }
+            data
         },
 
         fetch = function(blocking = FALSE, timeout = Inf) {
