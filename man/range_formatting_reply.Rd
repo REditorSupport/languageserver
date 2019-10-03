@@ -2,21 +2,11 @@
 % Please edit documentation in R/formatting.R
 \name{range_formatting_reply}
 \alias{range_formatting_reply}
-\title{format a part of a document}
+\title{Format a part of a document}
 \usage{
 range_formatting_reply(id, uri, document, range, options)
 }
-\arguments{
-\item{id}{a numeric, the id of the process that started the server}
-
-\item{uri}{a character, the path to a file as defined by \href{https://tools.ietf.org/html/rfc3986}{RFC 3986}}
-
-\item{document}{a character, the contents of the document}
-
-\item{range}{a \link{range}, the part of the document to format}
-
-\item{options}{a named list of options, with a \code{tabSize} parameter}
-}
 \description{
-format a part of a document
+Format a part of a document
 }
+\keyword{internal}

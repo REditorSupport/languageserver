@@ -2,7 +2,7 @@
 % Please edit documentation in R/interfaces.R
 \name{text_document_position_params}
 \alias{text_document_position_params}
-\title{a text document and a position inside that document}
+\title{A text document and a position inside that document}
 \usage{
 text_document_position_params(uri, position)
 }
@@ -12,5 +12,6 @@ text_document_position_params(uri, position)
 \item{position}{a \link{position} object}
 }
 \description{
-a text document and a position inside that document
+A text document and a position inside that document
 }
+\keyword{internal}

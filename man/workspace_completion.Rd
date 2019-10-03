@@ -2,23 +2,12 @@
 % Please edit documentation in R/completion.R
 \name{workspace_completion}
 \alias{workspace_completion}
-\title{complete any object in the workspace}
+\title{Complete any object in the workspace}
 \usage{
 workspace_completion(workspace, token, package = NULL,
   exported_only = TRUE)
 }
-\arguments{
-\item{workspace}{a \link{Workspace} object}
-
-\item{token}{a character, the object to identify}
-
-\item{package}{a character}
-
-\item{exported_only}{a boolean}
-}
-\value{
-a list of candidates
-}
 \description{
-complete any object in the workspace
+Complete any object in the workspace
 }
+\keyword{internal}

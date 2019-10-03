@@ -12,21 +12,4 @@ Namespace
 A \code{Namespace} is initialized with a package name and builds the list of
 objects defined in the package namespace.
 }
-\section{Fields}{
-
-\describe{
-\item{\code{objname}}{a character, an object name}
-
-\item{\code{funct}}{a character, a function name}
-}}
-
-\section{Methods}{
-
-\itemize{
-\item \code{exists(objname)}: returns true if \code{objname} can be found in the Namespace
-\item \code{get_signature(funct)}: return the signature of \code{funct}
-\item \code{get_formals(funct)}: return the \code{\link[base:formals]{base::formals()}} of \code{funct}
-}
-}
-
-\keyword{datasets}
+\keyword{internal}

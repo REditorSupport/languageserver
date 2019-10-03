@@ -1,6 +1,4 @@
-#' replace elements of a list
-#'
-#' @param x,y named lists
+#' Merge two lists
 #'
 #' @keywords internal
 merge_list <- function(x, y) {
@@ -9,9 +7,8 @@ merge_list <- function(x, y) {
 }
 
 
-#' paths and uris
-#'
-#' @param uri a character, the path to a file in URI format
+#' Paths and uris
+#' @keywords internal
 path_from_uri <- function(uri) {
     if (is.null(uri)) {
         return(NULL)
@@ -21,7 +18,7 @@ path_from_uri <- function(uri) {
 }
 
 
-#' @param path a character, the path to a file
+#' @keywords internal
 #' @rdname path_from_uri
 path_to_uri <- function(path) {
     if (is.null(path)) {
@@ -31,27 +28,20 @@ path_to_uri <- function(path) {
     paste0(prefix, utils::URLencode(path))
 }
 
-#' check if a file is an RMarkdown file
-#'
-#' @template uri
-#'
-#' @return a logical
+#' Check if a file is an RMarkdown file
+#' @keywords internal
 is_rmarkdown <- function(uri) {
     filename <- path_from_uri(uri)
     endsWith(tolower(filename), ".rmd") || endsWith(tolower(filename), ".rmarkdown")
 }
 
-#' check if a token is in a R code block in an Rmarkdown file
+#' Check if a token is in a R code block in an Rmarkdown file
 #'
 #' In an RMarkdown document, tokens can be either inside an R code block or
 #' in the text. This function will return `FALSE` if the token is in the text
-#' and `TRUE` if it is in a code block. For R scripts, it always returns `TRUE`.
+#' and `TRUE` if it is in a code block. For any other files, it always returns `TRUE`.
 #'
-#' @template uri
-#' @template document
-#' @template position
-#'
-#' @return a logical
+#' @keywords internal
 check_scope <- function(uri, document, position) {
     if (is_rmarkdown(uri)) {
         line <- position$line
@@ -63,17 +53,14 @@ check_scope <- function(uri, document, position) {
 }
 
 
-#' calculate character offset based on the protocol
-#'
-#' @param s a character / character vector
-#'
+#' Calculate character offset based on the protocol
 #' @keywords internal
 ncodeunit <- function(s) {
     lengths(iconv(s, from = "UTF-8", to = "UTF-16BE", toRaw = TRUE)) / 2
 }
 
 
-#' determinal code units given code points
+#' Determinal code units given code points
 #'
 #' @param line a character of text
 #' @param pts 0-indexed code points
@@ -89,7 +76,7 @@ code_point_to_unit <- function(line, pts) {
 }
 
 
-#' determinal utf16 code points given utf8 code points
+#' Determinal utf16 code points given utf8 code points
 #'
 #' @param line a character of text
 #' @param pts 0-indexed code points
@@ -102,22 +89,17 @@ utf8_to_utf16_code_point <- function(line, pts) {
 }
 
 
-#' check if a filename is a directory
-#'
-#' @param filename a character
-#'
+#' Check if a path is a directory
 #' @keywords internal
-is_directory <- function(filename) {
-    is_dir <- file.info(filename)$isdir
+is_directory <- function(path) {
+    is_dir <- file.info(path)$isdir
     !is.na(is_dir) && is_dir
 }
 
-#' find the root package folder
+#' Find the root package folder
 #'
 #' This function searches backwards in the folder structure until it finds
 #' a DESCRIPTION file or it reaches the top-level directory.
-#'
-#' @param path a character
 #'
 #' @keywords internal
 find_package <- function(path = getwd()) {
@@ -148,8 +130,6 @@ is_package <- function(rootUri) {
 }
 
 #' read a character from stdin
-#'
-#' @param n an integer
 #'
 #' @keywords internal
 stdin_read_char <- function(n) {
@@ -192,8 +172,6 @@ throttle <- function(fun, t = 1) {
 #' sanitize package objects names
 #'
 #' Remove unwanted objects, _e.g._ `names<-`, `%>%`, etc.
-#'
-#' @param objects a character vector
 #'
 #' @keywords internal
 sanitize_names <- function(objects) {

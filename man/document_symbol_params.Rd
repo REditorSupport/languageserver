@@ -2,7 +2,7 @@
 % Please edit documentation in R/interfaces.R
 \name{document_symbol_params}
 \alias{document_symbol_params}
-\title{parameters for document symbol requests}
+\title{Parameters for document symbol requests}
 \usage{
 document_symbol_params(uri)
 }
@@ -10,5 +10,6 @@ document_symbol_params(uri)
 \item{uri}{a character, the path to a file as defined by \href{https://tools.ietf.org/html/rfc3986}{RFC 3986}}
 }
 \description{
-parameters for document symbol requests
+Parameters for document symbol requests
 }
+\keyword{internal}

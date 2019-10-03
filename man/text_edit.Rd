@@ -2,7 +2,7 @@
 % Please edit documentation in R/interfaces.R
 \name{text_edit}
 \alias{text_edit}
-\title{a textual edit applicable to a text document}
+\title{A textual edit applicable to a text document}
 \usage{
 text_edit(range, new_text)
 }
@@ -12,5 +12,6 @@ text_edit(range, new_text)
 \item{new_text}{a character, the text to replace}
 }
 \description{
-a textual edit applicable to a text document
+A textual edit applicable to a text document
 }
+\keyword{internal}

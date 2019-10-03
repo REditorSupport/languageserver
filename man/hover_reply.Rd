@@ -2,25 +2,12 @@
 % Please edit documentation in R/hover.R
 \name{hover_reply}
 \alias{hover_reply}
-\title{the response to a textDocument/hover Request}
+\title{The response to a textDocument/hover Request}
 \usage{
 hover_reply(id, uri, workspace, document, position)
-}
-\arguments{
-\item{id}{a numeric, the id of the process that started the server}
-
-\item{uri}{a character, the path to a file as defined by \href{https://tools.ietf.org/html/rfc3986}{RFC 3986}}
-
-\item{workspace}{a \link{Workspace} object, the current workspace}
-
-\item{document}{a character, the contents of the document}
-
-\item{position}{a \link{position} object}
-}
-\value{
-a \link{Response} object
 }
 \description{
 When hovering on a symbol, if it is a function, return its help text
 if it exists in the current \link{Workspace}.
 }
+\keyword{internal}

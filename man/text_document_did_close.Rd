@@ -2,16 +2,11 @@
 % Please edit documentation in R/handlers-textsync.R
 \name{text_document_did_close}
 \alias{text_document_did_close}
-\title{textDocument/didClose notification handler}
+\title{\code{textDocument/didClose} notification handler}
 \usage{
 text_document_did_close(self, params)
 }
-\arguments{
-\item{self}{a \link{LanguageServer} object}
-
-\item{params}{a \link{did_close_text_document_params}}
-}
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/}{textDocument/didClose} \link{Notification}
+Handler to the \code{textDocument/didClose} \link{Notification}.
 }
 \keyword{internal}

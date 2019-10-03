@@ -2,7 +2,7 @@
 % Please edit documentation in R/log.R
 \name{log_write}
 \alias{log_write}
-\title{write to log}
+\title{Write to log}
 \usage{
 log_write(..., file = stderr())
 }
@@ -10,6 +10,6 @@ log_write(..., file = stderr())
 \item{...}{anything}
 }
 \description{
-write to log
+Write to log
 }
 \keyword{internal}

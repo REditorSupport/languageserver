@@ -117,19 +117,15 @@ Document <- R6::R6Class(
 )
 
 
-#' search backwards in a document content for a specific character
-#'
-#' @param content a character vector
-#' @param row an 0-indexed integer
-#' @param column an 0-indexed integer
-#' @param char a single character
-#' @param skip_empty_line a logical
+#' Search backwards in a document content for a specific character
 #'
 #' @return a tuple of positive integers, the row and column position of the
 #' character if found, otherwise (-1, -1)
+#' @keywords internal
 content_backward_search <- function(content, row, column, char, skip_empty_line = TRUE) {
     .Call(C_content_backward_search, content, row, column, char, skip_empty_line)
 }
+
 
 # The parsing result returned by `parse` is based on number of bytes in UTF-8.
 # Thus the position information is wrong, we need to fix the position afterwards.
@@ -161,12 +157,12 @@ parse_env <- function() {
 }
 
 
-#' parse a document
+#' Parse a document
 #'
 #' Build the list of called packages, functions, variables, formals and
 #' signatures in the document in order to add them to the current [Workspace].
 #'
-#' @param path a character, the path to the document
+#' @keywords internal
 parse_document <- function(path) {
     temp_file <- NULL
     on.exit({

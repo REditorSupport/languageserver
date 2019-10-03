@@ -2,7 +2,7 @@
 % Please edit documentation in R/interfaces.R
 \name{code_lens_params}
 \alias{code_lens_params}
-\title{parameters for code lens requests}
+\title{Parameters for code lens requests}
 \usage{
 code_lens_params(uri)
 }
@@ -10,5 +10,6 @@ code_lens_params(uri)
 \item{uri}{a character, the path to a file as defined by \href{https://tools.ietf.org/html/rfc3986}{RFC 3986}}
 }
 \description{
-parameters for code lens requests
+Parameters for code lens requests
 }
+\keyword{internal}

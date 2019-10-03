@@ -6,18 +6,6 @@
 \usage{
 workspace_symbol_reply(id, workspace, query)
 }
-\arguments{
-\item{id}{a numeric, the id of the process that started the server}
-
-\item{workspace}{a \link{Workspace} object, the current workspace}
-
-\item{query}{a character}
-}
-\value{
-A \code{Response} with a list of all the symbols
-in the workspace that match the query, or just the id
-if there weren't any.
-}
 \description{
 Get all the symbols in the workspace matching a query
 }

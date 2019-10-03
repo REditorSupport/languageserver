@@ -2,22 +2,11 @@
 % Please edit documentation in R/completion.R
 \name{arg_completion}
 \alias{arg_completion}
-\title{complete a function argument}
+\title{Complete a function argument}
 \usage{
 arg_completion(workspace, token, funct, package = NULL)
 }
-\arguments{
-\item{workspace}{a \link{Workspace} object}
-
-\item{token}{a character, the start of the argument to identify}
-
-\item{funct}{a character, the function name}
-
-\item{package}{a character, the optional package name}
-}
-\value{
-a list of candidates
-}
 \description{
-complete a function argument
+Complete a function argument
 }
+\keyword{internal}

@@ -2,21 +2,11 @@
 % Please edit documentation in R/handlers-langfeatures.R
 \name{text_document_document_color}
 \alias{text_document_document_color}
-\title{textDocument/documentColor request handler}
+\title{\code{textDocument/documentColor} request handler}
 \usage{
 text_document_document_color(self, id, params)
 }
-\arguments{
-\item{self}{a \link{LanguageServer} object}
-
-\item{id}{a numeric, the id of the process that started the server}
-
-\item{params}{a document_color_params object}
-}
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/}{textDocument/documentColor} \link{Request}
-}
-\details{
-Not implemented yet.
+Handler to the \code{textDocument/documentColor} \link{Request}.
 }
 \keyword{internal}

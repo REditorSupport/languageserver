@@ -2,7 +2,7 @@
 % Please edit documentation in R/interfaces.R
 \name{completion_params}
 \alias{completion_params}
-\title{parameters for completion requests}
+\title{Parameters for completion requests}
 \usage{
 completion_params(uri, position, context = NULL)
 }
@@ -14,5 +14,6 @@ completion_params(uri, position, context = NULL)
 \item{context}{a named list}
 }
 \description{
-parameters for completion requests
+Parameters for completion requests
 }
+\keyword{internal}

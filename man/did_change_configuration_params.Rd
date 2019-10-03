@@ -2,7 +2,7 @@
 % Please edit documentation in R/interfaces.R
 \name{did_change_configuration_params}
 \alias{did_change_configuration_params}
-\title{parameters for workspace/didChangeConfiguration notifications}
+\title{Parameters for workspace/didChangeConfiguration notifications}
 \usage{
 did_change_configuration_params(settings)
 }
@@ -10,5 +10,6 @@ did_change_configuration_params(settings)
 \item{settings}{a named list}
 }
 \description{
-parameters for workspace/didChangeConfiguration notifications
+Parameters for workspace/didChangeConfiguration notifications
 }
+\keyword{internal}

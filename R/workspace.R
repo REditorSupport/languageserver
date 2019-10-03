@@ -3,23 +3,7 @@
 #' A `Workspace` is initialized at the start of a session, when the language
 #' server is started. Its goal is to contain the `Namespace`s of the packages
 #' that are loaded during the session for quick reference.
-#'
-#' @section Methods:
-#' + `load_package(pkgname)`: add a new `Namespace` for `pkgname` if necessary
-#' and if possible
-#' + `guess_package(object)`: returns the most recently loaded package in which
-#' `object` can be found
-#' + `get_namespace(pkgname)`:  return the [Namespace] of `pkgname`
-#' + `get_signature(funct, pkgname = NULL)`: return the signature of `funct`
-#' + `get_formals(funct, pkgname = NULL)`: return the [base::formals()] of `funct`
-#' + `get_help(topic, pkgname = NULL)`: return the help text of `topic`
-#' + `parse_file(parse_data)`:
-#'
-#' @field pkgname a character, a package name
-#' @field object a character, an object name
-#' @field funct a character, a function name
-#' @field topic a character, a help topic name
-#' @field parse_data ?
+#' @keywords internal
 Workspace <- R6::R6Class("Workspace",
     private = list(
         global_env = list(nonfuncts = character(0),

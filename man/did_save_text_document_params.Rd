@@ -2,7 +2,7 @@
 % Please edit documentation in R/interfaces.R
 \name{did_save_text_document_params}
 \alias{did_save_text_document_params}
-\title{parameters for didSave notifications}
+\title{Parameters for didSave notifications}
 \usage{
 did_save_text_document_params(uri, text)
 }
@@ -12,5 +12,6 @@ did_save_text_document_params(uri, text)
 \item{text}{a character}
 }
 \description{
-parameters for didSave notifications
+Parameters for didSave notifications
 }
+\keyword{internal}

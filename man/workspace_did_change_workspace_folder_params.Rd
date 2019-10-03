@@ -2,19 +2,11 @@
 % Please edit documentation in R/handlers-workspace.R
 \name{workspace_did_change_workspace_folder_params}
 \alias{workspace_did_change_workspace_folder_params}
-\title{workspace/didChangeWorkspaceFolders notification handler}
+\title{\code{workspace/didChangeWorkspaceFolders} notification handler}
 \usage{
 workspace_did_change_workspace_folder_params(self, params)
 }
-\arguments{
-\item{self}{a \link{LanguageServer} object}
-
-\item{params}{a did_change_workspace_folder_params object}
-}
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/}{workspace/didChangeWorkspaceFolders} \link{Notification}.
-}
-\details{
-Not implemented yet.
+Handler to the \code{workspace/didChangeWorkspaceFolders} \link{Notification}.
 }
 \keyword{internal}

@@ -2,18 +2,11 @@
 % Please edit documentation in R/handlers-textsync.R
 \name{text_document_will_save_wait_until}
 \alias{text_document_will_save_wait_until}
-\title{textDocument/willSaveWaitUntil notification handler}
+\title{\code{textDocument/willSaveWaitUntil} notification handler}
 \usage{
 text_document_will_save_wait_until(self, id, params)
 }
-\arguments{
-\item{self}{a \link{LanguageServer} object}
-
-\item{id}{a numeric, the id of the process that started the server}
-
-\item{params}{a \link{will_save_text_document_params}}
-}
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/}{textDocument/willSaveWaitUntil} \link{Request}
+Handler to the \code{textDocument/willSaveWaitUntil} \link{Request}.
 }
 \keyword{internal}

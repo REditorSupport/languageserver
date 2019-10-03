@@ -2,21 +2,11 @@
 % Please edit documentation in R/handlers-langfeatures.R
 \name{text_document_on_type_formatting}
 \alias{text_document_on_type_formatting}
-\title{textDocument/onTypeFormatting request handler}
+\title{\code{textDocument/onTypeFormatting} request handler}
 \usage{
 text_document_on_type_formatting(self, id, params)
 }
-\arguments{
-\item{self}{a \link{LanguageServer} object}
-
-\item{id}{a numeric, the id of the process that started the server}
-
-\item{params}{a \link{document_on_type_formatting_params} object}
-}
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/}{textDocument/onTypeFormatting} \link{Request}
-}
-\details{
-Not implemented yet.
+Handler to the \code{textDocument/onTypeFormatting} \link{Request}.
 }
 \keyword{internal}

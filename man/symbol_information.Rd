@@ -2,7 +2,7 @@
 % Please edit documentation in R/interfaces.R
 \name{symbol_information}
 \alias{symbol_information}
-\title{non-hierachical symbol information}
+\title{Non-hierachical symbol information}
 \usage{
 symbol_information(name, kind, location)
 }
@@ -14,5 +14,6 @@ symbol_information(name, kind, location)
 \item{location}{a \link{location}}
 }
 \description{
-non-hierachical symbol information
+Non-hierachical symbol information
 }
+\keyword{internal}

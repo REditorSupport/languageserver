@@ -3,12 +3,12 @@
 \docType{data}
 \name{Logger}
 \alias{Logger}
-\title{a basic logger class}
+\title{A basic logger class}
 \format{An object of class \code{R6ClassGenerator} of length 24.}
 \usage{
 Logger
 }
 \description{
-a basic logger class
+A basic logger class
 }
 \keyword{internal}

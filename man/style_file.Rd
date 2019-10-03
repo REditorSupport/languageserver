@@ -2,16 +2,12 @@
 % Please edit documentation in R/formatting.R
 \name{style_file}
 \alias{style_file}
-\title{style a file}
+\title{Style a file}
 \usage{
 style_file(path, options)
-}
-\arguments{
-\item{path}{file path}
-
-\item{options}{a named list of options, with a \code{tabSize} parameter}
 }
 \description{
 This functions formats a document using \code{\link[styler:style_file]{styler::style_file()}} with the
 \code{\link[styler:tidyverse_style]{styler::tidyverse_style()}} style.
 }
+\keyword{internal}

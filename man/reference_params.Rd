@@ -2,7 +2,7 @@
 % Please edit documentation in R/interfaces.R
 \name{reference_params}
 \alias{reference_params}
-\title{parameters for reference requests}
+\title{Parameters for reference requests}
 \usage{
 reference_params(uri, position, context = NULL)
 }
@@ -14,5 +14,6 @@ reference_params(uri, position, context = NULL)
 \item{context}{a named list}
 }
 \description{
-parameters for reference requests
+Parameters for reference requests
 }
+\keyword{internal}

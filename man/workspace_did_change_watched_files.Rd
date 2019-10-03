@@ -2,19 +2,11 @@
 % Please edit documentation in R/handlers-workspace.R
 \name{workspace_did_change_watched_files}
 \alias{workspace_did_change_watched_files}
-\title{workspace/didChangeWatchedFiles notification handler}
+\title{\code{workspace/didChangeWatchedFiles} notification handler}
 \usage{
 workspace_did_change_watched_files(self, params)
 }
-\arguments{
-\item{self}{a \link{LanguageServer} object}
-
-\item{params}{a did_change_watched_files_params object}
-}
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/}{workspace/didChangeWatchedFiles} \link{Notification}.
-}
-\details{
-Not implemented yet.
+Handler to the \code{workspace/didChangeWatchedFiles} \link{Notification}.
 }
 \keyword{internal}

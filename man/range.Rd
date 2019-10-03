@@ -2,7 +2,7 @@
 % Please edit documentation in R/interfaces.R
 \name{range}
 \alias{range}
-\title{a range in a text document}
+\title{A range in a text document}
 \usage{
 range(start, end)
 }
@@ -15,3 +15,4 @@ range(start, end)
 A range in a text document expressed as start and end \link{position}s.
 A range is comparable to a selection in an editor.
 }
+\keyword{internal}

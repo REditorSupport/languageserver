@@ -2,18 +2,11 @@
 % Please edit documentation in R/handlers-langfeatures.R
 \name{text_document_document_symbol}
 \alias{text_document_document_symbol}
-\title{textDocument/documentSymbol request handler}
+\title{\code{textDocument/documentSymbol} request handler}
 \usage{
 text_document_document_symbol(self, id, params)
 }
-\arguments{
-\item{self}{a \link{LanguageServer} object}
-
-\item{id}{a numeric, the id of the process that started the server}
-
-\item{params}{a \link{document_symbol_params} object}
-}
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/}{textDocument/documentSymbol} \link{Request}
+Handler to the \code{textDocument/documentSymbol} \link{Request}.
 }
 \keyword{internal}

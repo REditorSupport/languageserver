@@ -37,12 +37,7 @@ fuzzy_find <- function(pattern, x) {
 #'
 #' The key reason for using this rather than a `list` is that this also cleans up
 #' when functions are removed from files.
-#' @section Methods:
-#' + `get(funct)`: get the `location` of a definition, or `NULL` if it is not found
-#' + `get_functs_for_uri(uri)`: get the `location`s of all the definitions in `uri`
-#' + `filter(pattern)`: get the `location`s of all the definitions matching `pattern`
-#' + `update(uri, ranges)`: create `locations` of functions in `uri` from `ranges`, and
-#' remove functions no longer in `uri`
+#' @keywords internal
 DefinitionCache <- R6::R6Class("DefinitionCache",
     public = list(
         get = function(funct) {
@@ -99,15 +94,7 @@ find_definition_in_package <- function(workspace, funct, pkg) {
 #' If the function is not found in a file but is found in a loaded package,
 #' writes the function definition to a temporary file and returns that
 #' as the location.
-#' @template id
-#' @template uri
-#' @template workspace
-#' @template document
-#' @template position
-#'
-#' @return A `Response` with the `uri` and [range] of the function definition,
-#' or just the `id` if the function is not found.
-#'
+
 #' @keywords internal
 definition_reply <- function(id, uri, workspace, document, position) {
 
@@ -147,14 +134,6 @@ definition_reply <- function(id, uri, workspace, document, position) {
 }
 
 #' Get all the symbols in the document
-#'
-#' @template id
-#' @template uri
-#' @template workspace
-#'
-#' @return  A `Response` with a list of all the symbols
-#' in the document, or just the id if there weren't any.
-#'
 #' @keywords internal
 document_symbol_reply <- function(id, uri, workspace) {
     defns <- workspace$get_definitions_for_uri(uri)
@@ -178,15 +157,6 @@ document_symbol_reply <- function(id, uri, workspace) {
 }
 
 #' Get all the symbols in the workspace matching a query
-#'
-#' @template id
-#' @template workspace
-#' @param query a character
-#'
-#' @return  A `Response` with a list of all the symbols
-#' in the workspace that match the query, or just the id
-#' if there weren't any.
-#'
 #' @keywords internal
 workspace_symbol_reply <- function(id, workspace, query) {
     defns <- workspace$get_definitions_for_query(query)

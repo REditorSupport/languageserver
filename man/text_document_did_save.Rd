@@ -2,16 +2,11 @@
 % Please edit documentation in R/handlers-textsync.R
 \name{text_document_did_save}
 \alias{text_document_did_save}
-\title{textDocument/didSave notification handler}
+\title{\code{textDocument/didSave} notification handler}
 \usage{
 text_document_did_save(self, params)
 }
-\arguments{
-\item{self}{a \link{LanguageServer} object}
-
-\item{params}{a \link{did_save_text_document_params}}
-}
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/}{textDocument/didSave} \link{Notification}
+Handler to the \code{textDocument/didSave} \link{Notification}.
 }
 \keyword{internal}

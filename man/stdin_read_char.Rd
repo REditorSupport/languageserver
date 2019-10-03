@@ -6,9 +6,6 @@
 \usage{
 stdin_read_char(n)
 }
-\arguments{
-\item{n}{an integer}
-}
 \description{
 read a character from stdin
 }

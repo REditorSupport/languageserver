@@ -2,21 +2,11 @@
 % Please edit documentation in R/handlers-langfeatures.R
 \name{text_document_rename}
 \alias{text_document_rename}
-\title{textDocument/rename request handler}
+\title{\code{textDocument/rename} request handler}
 \usage{
 text_document_rename(self, id, params)
 }
-\arguments{
-\item{self}{a \link{LanguageServer} object}
-
-\item{id}{a numeric, the id of the process that started the server}
-
-\item{params}{a \link{rename_params} object}
-}
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/}{textDocument/rename} \link{Request}
-}
-\details{
-Not implemented yet.
+Handler to the \code{textDocument/rename} \link{Request}.
 }
 \keyword{internal}

@@ -2,16 +2,11 @@
 % Please edit documentation in R/handlers-general.R
 \name{cancel_request}
 \alias{cancel_request}
-\title{cancel request notification handler}
+\title{\code{cancel} request notification handler}
 \usage{
 cancel_request(self, params)
 }
-\arguments{
-\item{self}{a \link{LanguageServer} object}
-
-\item{params}{unused here}
-}
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/}{cancelRequest} \link{Notification}
+Handler to the \code{cancelRequest} \link{Notification}.
 }
 \keyword{internal}

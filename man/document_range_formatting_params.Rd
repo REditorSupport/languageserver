@@ -2,7 +2,7 @@
 % Please edit documentation in R/interfaces.R
 \name{document_range_formatting_params}
 \alias{document_range_formatting_params}
-\title{parameters for document range formatting requests}
+\title{Parameters for document range formatting requests}
 \usage{
 document_range_formatting_params(uri, range, options)
 }
@@ -14,5 +14,6 @@ document_range_formatting_params(uri, range, options)
 \item{options}{a named list}
 }
 \description{
-parameters for document range formatting requests
+Parameters for document range formatting requests
 }
+\keyword{internal}

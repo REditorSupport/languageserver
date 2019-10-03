@@ -3,17 +3,13 @@
 \name{path_from_uri}
 \alias{path_from_uri}
 \alias{path_to_uri}
-\title{paths and uris}
+\title{Paths and uris}
 \usage{
 path_from_uri(uri)
 
 path_to_uri(path)
 }
-\arguments{
-\item{uri}{a character, the path to a file in URI format}
-
-\item{path}{a character, the path to a file}
-}
 \description{
-paths and uris
+Paths and uris
 }
+\keyword{internal}

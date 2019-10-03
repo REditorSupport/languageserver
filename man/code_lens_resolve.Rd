@@ -2,21 +2,11 @@
 % Please edit documentation in R/handlers-langfeatures.R
 \name{code_lens_resolve}
 \alias{code_lens_resolve}
-\title{codeLens/resolve request handler}
+\title{\code{codeLens/resolve} request handler}
 \usage{
 code_lens_resolve(self, id, params)
 }
-\arguments{
-\item{self}{a \link{LanguageServer} object}
-
-\item{id}{a numeric, the id of the process that started the server}
-
-\item{params}{a CodeLens object}
-}
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/}{codeLens/resolve} \link{Request}
-}
-\details{
-Not implemented yet.
+Handler to the \code{codeLens/resolve} \link{Request}.
 }
 \keyword{internal}

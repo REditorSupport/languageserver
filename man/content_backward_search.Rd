@@ -2,26 +2,16 @@
 % Please edit documentation in R/document.R
 \name{content_backward_search}
 \alias{content_backward_search}
-\title{search backwards in a document content for a specific character}
+\title{Search backwards in a document content for a specific character}
 \usage{
 content_backward_search(content, row, column, char,
   skip_empty_line = TRUE)
-}
-\arguments{
-\item{content}{a character vector}
-
-\item{row}{an 0-indexed integer}
-
-\item{column}{an 0-indexed integer}
-
-\item{char}{a single character}
-
-\item{skip_empty_line}{a logical}
 }
 \value{
 a tuple of positive integers, the row and column position of the
 character if found, otherwise (-1, -1)
 }
 \description{
-search backwards in a document content for a specific character
+Search backwards in a document content for a specific character
 }
+\keyword{internal}

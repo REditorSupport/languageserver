@@ -2,24 +2,11 @@
 % Please edit documentation in R/handlers-langfeatures.R
 \name{text_document_document_link}
 \alias{text_document_document_link}
-\title{textDocument/documentLink request handler}
+\title{\code{textDocument/documentLink} request handler}
 \usage{
 text_document_document_link(self, id, params)
 }
-\arguments{
-\item{self}{a \link{LanguageServer} object}
-
-\item{id}{a numeric, the id of the process that started the server}
-
-\item{params}{a \link{document_link_params} object}
-}
-\value{
-a list of DocumentLink objects
-}
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/}{textDocument/documentLink} \link{Request}
-}
-\details{
-Not implemented yet.
+Handler to the \code{textDocument/documentLink} \link{Request}.
 }
 \keyword{internal}

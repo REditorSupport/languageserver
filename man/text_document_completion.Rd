@@ -2,18 +2,11 @@
 % Please edit documentation in R/handlers-langfeatures.R
 \name{text_document_completion}
 \alias{text_document_completion}
-\title{textDocument/completion request handler}
+\title{\code{textDocument/completion} request handler}
 \usage{
 text_document_completion(self, id, params)
 }
-\arguments{
-\item{self}{a \link{LanguageServer} object}
-
-\item{id}{a numeric, the id of the process that started the server}
-
-\item{params}{a \link{completion_params} object}
-}
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/}{textDocument/completion} \link{Request}
+Handler to the \code{textDocument/completion} \link{Request}.
 }
 \keyword{internal}

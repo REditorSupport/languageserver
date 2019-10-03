@@ -2,16 +2,11 @@
 % Please edit documentation in R/handlers-general.R
 \name{on_exit}
 \alias{on_exit}
-\title{exit notification handler}
+\title{\code{exit} notification handler}
 \usage{
 on_exit(self, params)
 }
-\arguments{
-\item{self}{a \link{LanguageServer} object}
-
-\item{params}{unused here}
-}
 \description{
-Hanlder to the \href{https://microsoft.github.io/language-server-protocol/}{exit} \link{Notification}
+Hanlder to the \code{exit} \link{Notification}.
 }
 \keyword{internal}

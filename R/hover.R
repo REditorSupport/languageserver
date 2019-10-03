@@ -1,15 +1,8 @@
-#' the response to a textDocument/hover Request
+#' The response to a textDocument/hover Request
 #'
 #' When hovering on a symbol, if it is a function, return its help text
 #' if it exists in the current [Workspace].
-#'
-#' @template id
-#' @template uri
-#' @template workspace
-#' @template document
-#' @template position
-#'
-#' @return a [Response] object
+#' @keywords internal
 hover_reply <- function(id, uri, workspace, document, position) {
     if (!check_scope(uri, document, position)) {
         return(Response$new(id))

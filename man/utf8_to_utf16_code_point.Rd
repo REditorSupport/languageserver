@@ -2,7 +2,7 @@
 % Please edit documentation in R/utils.R
 \name{utf8_to_utf16_code_point}
 \alias{utf8_to_utf16_code_point}
-\title{determinal utf16 code points given utf8 code points}
+\title{Determinal utf16 code points given utf8 code points}
 \usage{
 utf8_to_utf16_code_point(line, pts)
 }
@@ -12,6 +12,6 @@ utf8_to_utf16_code_point(line, pts)
 \item{pts}{0-indexed code points}
 }
 \description{
-determinal utf16 code points given utf8 code points
+Determinal utf16 code points given utf8 code points
 }
 \keyword{internal}

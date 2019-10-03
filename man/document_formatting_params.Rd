@@ -2,7 +2,7 @@
 % Please edit documentation in R/interfaces.R
 \name{document_formatting_params}
 \alias{document_formatting_params}
-\title{parameters for document formatting requests}
+\title{Parameters for document formatting requests}
 \usage{
 document_formatting_params(uri, options)
 }
@@ -12,5 +12,6 @@ document_formatting_params(uri, options)
 \item{options}{a named list}
 }
 \description{
-parameters for document formatting requests
+Parameters for document formatting requests
 }
+\keyword{internal}

@@ -2,16 +2,11 @@
 % Please edit documentation in R/handlers-textsync.R
 \name{text_document_did_change}
 \alias{text_document_did_change}
-\title{textDocument/didChange notification handler}
+\title{\code{textDocument/didChange} notification handler}
 \usage{
 text_document_did_change(self, params)
 }
-\arguments{
-\item{self}{a \link{LanguageServer} object}
-
-\item{params}{a \link{did_change_text_document_params}}
-}
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/}{textDocument/didChange} \link{Notification}
+Handler to the \code{textDocument/didChange} \link{Notification}.
 }
 \keyword{internal}

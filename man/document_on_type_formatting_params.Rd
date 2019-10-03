@@ -2,7 +2,7 @@
 % Please edit documentation in R/interfaces.R
 \name{document_on_type_formatting_params}
 \alias{document_on_type_formatting_params}
-\title{parameters for document on type formatting requests}
+\title{Parameters for document on type formatting requests}
 \usage{
 document_on_type_formatting_params(uri, position, character, options)
 }
@@ -16,5 +16,6 @@ document_on_type_formatting_params(uri, position, character, options)
 \item{options}{a named list}
 }
 \description{
-parameters for document on type formatting requests
+Parameters for document on type formatting requests
 }
+\keyword{internal}

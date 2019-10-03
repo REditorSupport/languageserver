@@ -2,18 +2,11 @@
 % Please edit documentation in R/handlers-langfeatures.R
 \name{text_document_range_formatting}
 \alias{text_document_range_formatting}
-\title{textDocument/rangeFormatting request handler}
+\title{\code{textDocument/rangeFormatting} request handler}
 \usage{
 text_document_range_formatting(self, id, params)
 }
-\arguments{
-\item{self}{a \link{LanguageServer} object}
-
-\item{id}{a numeric, the id of the process that started the server}
-
-\item{params}{a \link{document_range_formatting_params} object}
-}
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/}{textDocument/rangeFormatting} \link{Request}
+Handler to the \code{textDocument/rangeFormatting} \link{Request}.
 }
 \keyword{internal}

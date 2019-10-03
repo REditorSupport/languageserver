@@ -2,7 +2,7 @@
 % Please edit documentation in R/interfaces.R
 \name{document_link_params}
 \alias{document_link_params}
-\title{parameters for document link requests}
+\title{Parameters for document link requests}
 \usage{
 document_link_params(uri)
 }
@@ -10,5 +10,6 @@ document_link_params(uri)
 \item{uri}{a character, the path to a file as defined by \href{https://tools.ietf.org/html/rfc3986}{RFC 3986}}
 }
 \description{
-parameters for document link requests
+Parameters for document link requests
 }
+\keyword{internal}

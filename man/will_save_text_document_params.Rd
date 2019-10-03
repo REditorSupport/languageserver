@@ -2,7 +2,7 @@
 % Please edit documentation in R/interfaces.R
 \name{will_save_text_document_params}
 \alias{will_save_text_document_params}
-\title{parameters for willSave notifications}
+\title{Parameters for willSave notifications}
 \usage{
 will_save_text_document_params(uri, reason)
 }
@@ -12,5 +12,6 @@ will_save_text_document_params(uri, reason)
 \item{reason}{an integer, see TextDocumentSaveReason}
 }
 \description{
-parameters for willSave notifications
+Parameters for willSave notifications
 }
+\keyword{internal}

@@ -2,16 +2,11 @@
 % Please edit documentation in R/handlers-workspace.R
 \name{workspace_symbol}
 \alias{workspace_symbol}
-\title{workspace/symbol request handler}
+\title{\code{workspace/symbol} request handler}
 \usage{
 workspace_symbol(self, id, params)
 }
-\arguments{
-\item{self}{a \link{LanguageServer} object}
-
-\item{params}{a workspace_symbol_params object}
-}
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/}{workspace/symbol} \link{Request}.
+Handler to the \code{workspace/symbol} \link{Request}.
 }
 \keyword{internal}

@@ -1,4 +1,5 @@
-#' base Message class
+#' Base Message class
+#' @keywords internal
 Message <- R6::R6Class("Message",
     public = list(
         jsonrpc = "2.0",
@@ -15,6 +16,7 @@ Message <- R6::R6Class("Message",
 #' Request Message class
 #'
 #' Describe a request between the client and the server.
+#' @keywords internal
 Request <- R6::R6Class("Request",
     inherit = Message,
     public = list(
@@ -42,6 +44,7 @@ Request <- R6::R6Class("Request",
 
 
 #' Notification Message class
+#' @keywords internal
 Notification <- R6::R6Class("Notification",
     inherit = Message,
     public = list(
@@ -67,6 +70,7 @@ Notification <- R6::R6Class("Notification",
 #' Response Message class
 #'
 #' Message sent as the result of a [Request]
+#' @keywords internal
 Response <- R6::R6Class("Response",
     inherit = Message,
     public = list(
@@ -110,6 +114,7 @@ ErrorCodes <- list(
 #' Response Error Message class
 #'
 #' Message sent as the result of a [Request] in case of an error.
+#' @keywords internal
 ResponseErrorMessage <- R6::R6Class(
     "Response",
     inherit = Response,

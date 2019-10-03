@@ -2,7 +2,7 @@
 % Please edit documentation in R/interfaces.R
 \name{code_action_params}
 \alias{code_action_params}
-\title{parameters for code action requests}
+\title{Parameters for code action requests}
 \usage{
 code_action_params(uri, range, context = NULL)
 }
@@ -14,5 +14,6 @@ code_action_params(uri, range, context = NULL)
 \item{context}{a named list}
 }
 \description{
-parameters for code action requests
+Parameters for code action requests
 }
+\keyword{internal}

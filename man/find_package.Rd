@@ -2,12 +2,9 @@
 % Please edit documentation in R/utils.R
 \name{find_package}
 \alias{find_package}
-\title{find the root package folder}
+\title{Find the root package folder}
 \usage{
 find_package(path = getwd())
-}
-\arguments{
-\item{path}{a character}
 }
 \description{
 This function searches backwards in the folder structure until it finds

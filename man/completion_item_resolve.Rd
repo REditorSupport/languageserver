@@ -2,18 +2,11 @@
 % Please edit documentation in R/handlers-langfeatures.R
 \name{completion_item_resolve}
 \alias{completion_item_resolve}
-\title{completionItem/resolve request handler}
+\title{\code{completionItem/resolve} request handler}
 \usage{
 completion_item_resolve(self, id, params)
 }
-\arguments{
-\item{self}{a \link{LanguageServer} object}
-
-\item{id}{a numeric, the id of the process that started the server}
-
-\item{params}{a \link{completion_params} object}
-}
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/}{completionItem/resolve} \link{Request}
+Handler to the \code{completionItem/resolve} \link{Request}.
 }
 \keyword{internal}

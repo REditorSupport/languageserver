@@ -2,16 +2,11 @@
 % Please edit documentation in R/completion.R
 \name{package_completion}
 \alias{package_completion}
-\title{complete a package name}
+\title{Complete a package name}
 \usage{
 package_completion(token)
 }
-\arguments{
-\item{token}{a character, the start of the package name to identify}
-}
-\value{
-a list of candidates
-}
 \description{
-complete a package name
+Complete a package name
 }
+\keyword{internal}

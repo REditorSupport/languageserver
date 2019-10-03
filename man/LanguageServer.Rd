@@ -3,7 +3,7 @@
 \docType{data}
 \name{LanguageServer}
 \alias{LanguageServer}
-\title{the language server}
+\title{The language server}
 \format{An object of class \code{R6ClassGenerator} of length 24.}
 \usage{
 LanguageServer
@@ -11,4 +11,4 @@ LanguageServer
 \description{
 Describe the language server and how it interacts with clients.
 }
-\keyword{datasets}
+\keyword{internal}

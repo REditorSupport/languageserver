@@ -11,4 +11,4 @@ Notification
 \description{
 Notification Message class
 }
-\keyword{datasets}
+\keyword{internal}

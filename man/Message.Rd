@@ -3,12 +3,12 @@
 \docType{data}
 \name{Message}
 \alias{Message}
-\title{base Message class}
+\title{Base Message class}
 \format{An object of class \code{R6ClassGenerator} of length 24.}
 \usage{
 Message
 }
 \description{
-base Message class
+Base Message class
 }
-\keyword{datasets}
+\keyword{internal}

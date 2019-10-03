@@ -29,11 +29,8 @@ CompletionItemKind <- list(
     TypeParameter = 25
 )
 
-#' complete a package name
-#'
-#' @param token a character, the start of the package name to identify
-#'
-#' @return a list of candidates
+#' Complete a package name
+#' @keywords internal
 package_completion <- function(token) {
     installed_packages <- rownames(utils::installed.packages())
     token_packages <- installed_packages[startsWith(installed_packages, token)]
@@ -43,14 +40,8 @@ package_completion <- function(token) {
     completions
 }
 
-#' complete a function argument
-#'
-#' @param workspace a [Workspace] object
-#' @param token a character, the start of the argument to identify
-#' @param funct a character, the function name
-#' @param package a character, the optional package name
-#'
-#' @return a list of candidates
+#' Complete a function argument
+#' @keywords internal
 arg_completion <- function(workspace, token, funct, package = NULL) {
     args <- names(workspace$get_formals(funct, package))
     if (is.character(args)) {
@@ -62,14 +53,8 @@ arg_completion <- function(workspace, token, funct, package = NULL) {
     }
 }
 
-#' complete any object in the workspace
-#'
-#' @param workspace a [Workspace] object
-#' @param token a character, the object to identify
-#' @param package a character
-#' @param exported_only a boolean
-#'
-#' @return a list of candidates
+#' Complete any object in the workspace
+#' @keywords internal
 workspace_completion <- function(workspace, token, package = NULL, exported_only = TRUE) {
     completions <- list()
 
@@ -118,15 +103,8 @@ workspace_completion <- function(workspace, token, package = NULL, exported_only
 }
 
 
-#' the response to a textDocument/completion request
-#'
-#' @template id
-#' @template uri
-#' @template workspace
-#' @template document
-#' @template position
-#'
-#' @return a [Response] object
+#' The response to a textDocument/completion request
+#' @keywords internal
 completion_reply <- function(id, uri, workspace, document, position) {
     if (!check_scope(uri, document, position)) {
         return(Response$new(

@@ -2,19 +2,11 @@
 % Please edit documentation in R/handlers-workspace.R
 \name{workspace_execute_command}
 \alias{workspace_execute_command}
-\title{workspace/executeCommand request handler}
+\title{\code{workspace/executeCommand} request handler}
 \usage{
 workspace_execute_command(self, id, params)
 }
-\arguments{
-\item{self}{a \link{LanguageServer} object}
-
-\item{params}{an execute_command_params object}
-}
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/}{workspace/executeCommand} \link{Request}.
-}
-\details{
-Not implemented yet.
+Handler to the \code{workspace/executeCommand} \link{Request}.
 }
 \keyword{internal}

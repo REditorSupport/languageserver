@@ -2,7 +2,7 @@
 % Please edit documentation in R/interfaces.R
 \name{position}
 \alias{position}
-\title{a position in a text document}
+\title{A position in a text document}
 \usage{
 position(line, character)
 }
@@ -15,3 +15,4 @@ position(line, character)
 Position in a text document expressed as zero-based line and zero-based
 character offset.
 }
+\keyword{internal}

@@ -2,20 +2,12 @@
 % Please edit documentation in R/formatting.R
 \name{style_text}
 \alias{style_text}
-\title{edit code style}
+\title{Edit code style}
 \usage{
 style_text(text, options, scope = "tokens", indentation = "")
-}
-\arguments{
-\item{text}{a vector of text}
-
-\item{options}{a named list of options, with a \code{tabSize} parameter}
-
-\item{scope}{the scope type used in styler::tidyverse_style}
-
-\item{indentation}{amount of whitespaces put at the begining of each line}
 }
 \description{
 This functions formats a list of text using \code{\link[styler:style_text]{styler::style_text()}} with the
 \code{\link[styler:tidyverse_style]{styler::tidyverse_style()}} style.
 }
+\keyword{internal}

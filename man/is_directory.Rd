@@ -2,14 +2,11 @@
 % Please edit documentation in R/utils.R
 \name{is_directory}
 \alias{is_directory}
-\title{check if a filename is a directory}
+\title{Check if a path is a directory}
 \usage{
-is_directory(filename)
-}
-\arguments{
-\item{filename}{a character}
+is_directory(path)
 }
 \description{
-check if a filename is a directory
+Check if a path is a directory
 }
 \keyword{internal}

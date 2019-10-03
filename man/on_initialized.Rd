@@ -2,16 +2,11 @@
 % Please edit documentation in R/handlers-general.R
 \name{on_initialized}
 \alias{on_initialized}
-\title{initialized handler}
+\title{\code{initialized} handler}
 \usage{
 on_initialized(self, params)
 }
-\arguments{
-\item{self}{a \link{LanguageServer} object}
-
-\item{params}{a named list}
-}
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/}{initialized} \link{Notification}.
+Handler to the \code{initialized} \link{Notification}.
 }
 \keyword{internal}

@@ -2,19 +2,11 @@
 % Please edit documentation in R/handlers-general.R
 \name{on_initialize}
 \alias{on_initialize}
-\title{initialize handler}
+\title{\code{initialize} handler}
 \usage{
 on_initialize(self, id, params)
 }
-\arguments{
-\item{self}{a \link{LanguageServer} object}
-
-\item{id}{a numeric, the id of the process that started the server}
-
-\item{params}{a named list, the \code{initialize} Request options
-
-@keywords internal}
-}
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/}{initialize} \link{Request}.
+Handler to the \code{initialize} \link{Request}.
 }
+\keyword{internal}

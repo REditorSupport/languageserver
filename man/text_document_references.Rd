@@ -2,21 +2,11 @@
 % Please edit documentation in R/handlers-langfeatures.R
 \name{text_document_references}
 \alias{text_document_references}
-\title{textDocument/references request handler}
+\title{\code{textDocument/references} request handler}
 \usage{
 text_document_references(self, id, params)
 }
-\arguments{
-\item{self}{a \link{LanguageServer} object}
-
-\item{id}{a numeric, the id of the process that started the server}
-
-\item{params}{a \link{reference_params} object}
-}
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/}{textDocument/references} \link{Request}
-}
-\details{
-Not implemented yet.
+Handler to the \code{textDocument/references} \link{Request}.
 }
 \keyword{internal}

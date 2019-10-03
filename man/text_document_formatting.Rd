@@ -2,18 +2,11 @@
 % Please edit documentation in R/handlers-langfeatures.R
 \name{text_document_formatting}
 \alias{text_document_formatting}
-\title{textDocument/formatting request handler}
+\title{\code{textDocument/formatting} request handler}
 \usage{
 text_document_formatting(self, id, params)
 }
-\arguments{
-\item{self}{a \link{LanguageServer} object}
-
-\item{id}{a numeric, the id of the process that started the server}
-
-\item{params}{a \link{document_formatting_params} object}
-}
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/}{textDocument/formatting} \link{Request}
+Handler to the \code{textDocument/formatting} \link{Request}.
 }
 \keyword{internal}

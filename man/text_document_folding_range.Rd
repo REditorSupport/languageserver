@@ -2,21 +2,11 @@
 % Please edit documentation in R/handlers-langfeatures.R
 \name{text_document_folding_range}
 \alias{text_document_folding_range}
-\title{textDocument/foldingRange request handler}
+\title{\code{textDocument/foldingRange} request handler}
 \usage{
 text_document_folding_range(self, id, params)
 }
-\arguments{
-\item{self}{a \link{LanguageServer} object}
-
-\item{id}{a numeric, the id of the process that started the server}
-
-\item{params}{a folding_range_params object}
-}
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/}{textDocument/foldingRange} \link{Request}
-}
-\details{
-Not implemented yet.
+Handler to the \code{textDocument/foldingRange} \link{Request}.
 }
 \keyword{internal}

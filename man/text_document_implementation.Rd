@@ -2,21 +2,11 @@
 % Please edit documentation in R/handlers-langfeatures.R
 \name{text_document_implementation}
 \alias{text_document_implementation}
-\title{textDocument/implementation request handler}
+\title{\code{textDocument/implementation} request handler}
 \usage{
 text_document_implementation(self, id, params)
 }
-\arguments{
-\item{self}{a \link{LanguageServer} object}
-
-\item{id}{a numeric, the id of the process that started the server}
-
-\item{params}{a \link{text_document_position_params} object}
-}
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/}{textDocument/implementation} \link{Request}
-}
-\details{
-Not implemented yet.
+Handler to the \code{textDocument/implementation} \link{Request}.
 }
 \keyword{internal}

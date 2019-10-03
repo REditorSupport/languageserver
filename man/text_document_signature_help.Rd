@@ -2,18 +2,11 @@
 % Please edit documentation in R/handlers-langfeatures.R
 \name{text_document_signature_help}
 \alias{text_document_signature_help}
-\title{textDocument/signatureHelp request handler}
+\title{\code{textDocument/signatureHelp} request handler}
 \usage{
 text_document_signature_help(self, id, params)
 }
-\arguments{
-\item{self}{a \link{LanguageServer} object}
-
-\item{id}{a numeric, the id of the process that started the server}
-
-\item{params}{a \link{text_document_position_params} object}
-}
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/}{textDocument/signatureHelp} \link{Request}
+Handler to the \code{textDocument/signatureHelp} \link{Request}.
 }
 \keyword{internal}

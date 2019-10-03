@@ -2,16 +2,11 @@
 % Please edit documentation in R/handlers-textsync.R
 \name{text_document_will_save}
 \alias{text_document_will_save}
-\title{textDocument/willSave notification handler}
+\title{\code{textDocument/willSave} notification handler}
 \usage{
 text_document_will_save(self, params)
 }
-\arguments{
-\item{self}{a \link{LanguageServer} object}
-
-\item{params}{a \link{will_save_text_document_params}}
-}
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/}{textDocument/willSave} \link{Notification}
+Handler to the \code{textDocument/willSave} \link{Notification}.
 }
 \keyword{internal}

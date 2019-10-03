@@ -2,14 +2,12 @@
 % Please edit documentation in R/document.R
 \name{parse_document}
 \alias{parse_document}
-\title{parse a document}
+\title{Parse a document}
 \usage{
 parse_document(path)
-}
-\arguments{
-\item{path}{a character, the path to the document}
 }
 \description{
 Build the list of called packages, functions, variables, formals and
 signatures in the document in order to add them to the current \link{Workspace}.
 }
+\keyword{internal}

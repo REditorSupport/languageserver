@@ -2,7 +2,7 @@
 % Please edit documentation in R/interfaces.R
 \name{document_uri}
 \alias{document_uri}
-\title{a document URI}
+\title{A document URI}
 \usage{
 document_uri(uri)
 }
@@ -12,3 +12,4 @@ document_uri(uri)
 \description{
 A Uniform Resource Identifier as defined by \href{http://tools.ietf.org/html/rfc3986}{RFC 3986}.
 }
+\keyword{internal}

@@ -2,18 +2,11 @@
 % Please edit documentation in R/handlers-general.R
 \name{on_shutdown}
 \alias{on_shutdown}
-\title{shutdown request handler}
+\title{\code{shutdown} request handler}
 \usage{
 on_shutdown(self, id, params)
 }
-\arguments{
-\item{self}{a \link{LanguageServer} object}
-
-\item{id}{a numeric, the id of the process that started the server}
-
-\item{params}{unused here}
-}
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/}{shutdown} \link{Request}
+Handler to the \code{shutdown} \link{Request}.
 }
 \keyword{internal}

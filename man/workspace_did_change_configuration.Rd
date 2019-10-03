@@ -2,16 +2,11 @@
 % Please edit documentation in R/handlers-workspace.R
 \name{workspace_did_change_configuration}
 \alias{workspace_did_change_configuration}
-\title{workspace/didChangeConfiguration notification handler}
+\title{\code{workspace/didChangeConfiguration} notification handler}
 \usage{
 workspace_did_change_configuration(self, params)
 }
-\arguments{
-\item{self}{a \link{LanguageServer} object}
-
-\item{params}{a \link{did_change_configuration_params} object}
-}
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/}{workspace/didChangeConfiguration} \link{Notification}
+Handler to the \code{workspace/didChangeConfiguration} \link{Notification}
 }
 \keyword{internal}

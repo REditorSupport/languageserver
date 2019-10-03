@@ -2,7 +2,7 @@
 % Please edit documentation in R/utils.R
 \name{code_point_to_unit}
 \alias{code_point_to_unit}
-\title{determinal code units given code points}
+\title{Determinal code units given code points}
 \usage{
 code_point_to_unit(line, pts)
 }
@@ -12,6 +12,6 @@ code_point_to_unit(line, pts)
 \item{pts}{0-indexed code points}
 }
 \description{
-determinal code units given code points
+Determinal code units given code points
 }
 \keyword{internal}

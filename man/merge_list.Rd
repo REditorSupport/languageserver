@@ -2,14 +2,11 @@
 % Please edit documentation in R/utils.R
 \name{merge_list}
 \alias{merge_list}
-\title{replace elements of a list}
+\title{Merge two lists}
 \usage{
 merge_list(x, y)
 }
-\arguments{
-\item{x, y}{named lists}
-}
 \description{
-replace elements of a list
+Merge two lists
 }
 \keyword{internal}

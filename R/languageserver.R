@@ -4,9 +4,10 @@
 #' An implementation of the Language Server Protocol for R
 "_PACKAGE"
 
-#' the language server
+#' The language server
 #'
 #' Describe the language server and how it interacts with clients.
+#' @keywords internal
 LanguageServer <- R6::R6Class("LanguageServer",
     inherit = LanguageBase,
     public = list(

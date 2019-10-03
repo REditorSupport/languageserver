@@ -3,13 +3,7 @@
 #' If the symbol at the current position is a function, return its arguments
 #' (as with [base::args()]).
 #'
-#' @template id
-#' @template uri
-#' @template workspace
-#' @template document
-#' @template position
-#'
-#' @return a [Response] object
+#' @keywords internal
 signature_reply <- function(id, uri, workspace, document, position) {
 
     if (!check_scope(uri, document, position)) {

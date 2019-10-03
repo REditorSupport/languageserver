@@ -2,7 +2,7 @@
 % Please edit documentation in R/interfaces.R
 \name{did_change_text_document_params}
 \alias{did_change_text_document_params}
-\title{parameters for didChange notifications}
+\title{Parameters for didChange notifications}
 \usage{
 did_change_text_document_params(uri, changes)
 }
@@ -12,5 +12,6 @@ did_change_text_document_params(uri, changes)
 \item{changes}{a list of text_document_content_change_event}
 }
 \description{
-parameters for didChange notifications
+Parameters for didChange notifications
 }
+\keyword{internal}

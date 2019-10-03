@@ -2,18 +2,11 @@
 % Please edit documentation in R/handlers-langfeatures.R
 \name{text_document_hover}
 \alias{text_document_hover}
-\title{textDocument/hover request handler}
+\title{\code{textDocument/hover} request handler}
 \usage{
 text_document_hover(self, id, params)
 }
-\arguments{
-\item{self}{a \link{LanguageServer} object}
-
-\item{id}{a numeric, the id of the process that started the server}
-
-\item{params}{a \link{text_document_position_params} object}
-}
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/}{textDocument/hover} \link{Request}
+Handler to the \code{textDocument/hover} \link{Request}.
 }
 \keyword{internal}

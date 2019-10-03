@@ -2,16 +2,11 @@
 % Please edit documentation in R/handlers-textsync.R
 \name{text_document_did_open}
 \alias{text_document_did_open}
-\title{textDocument/didOpen notification handler}
+\title{\code{textDocument/didOpen} notification handler}
 \usage{
 text_document_did_open(self, params)
 }
-\arguments{
-\item{self}{a \link{LanguageServer} object}
-
-\item{params}{a \link{did_open_text_document_params}}
-}
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/}{textDocument/didOpen} \link{Notification}
+Handler to the \code{textDocument/didOpen} \link{Notification}.
 }
 \keyword{internal}

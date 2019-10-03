@@ -2,14 +2,11 @@
 % Please edit documentation in R/utils.R
 \name{ncodeunit}
 \alias{ncodeunit}
-\title{calculate character offset based on the protocol}
+\title{Calculate character offset based on the protocol}
 \usage{
 ncodeunit(s)
 }
-\arguments{
-\item{s}{a character / character vector}
-}
 \description{
-calculate character offset based on the protocol
+Calculate character offset based on the protocol
 }
 \keyword{internal}

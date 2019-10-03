@@ -2,7 +2,7 @@
 % Please edit documentation in R/interfaces.R
 \name{did_open_text_document_params}
 \alias{did_open_text_document_params}
-\title{parameters for didOpen notifications}
+\title{Parameters for didOpen notifications}
 \usage{
 did_open_text_document_params(uri)
 }
@@ -10,5 +10,6 @@ did_open_text_document_params(uri)
 \item{uri}{a character, the path to a file as defined by \href{https://tools.ietf.org/html/rfc3986}{RFC 3986}}
 }
 \description{
-parameters for didOpen notifications
+Parameters for didOpen notifications
 }
+\keyword{internal}

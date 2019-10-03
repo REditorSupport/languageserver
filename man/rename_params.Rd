@@ -2,7 +2,7 @@
 % Please edit documentation in R/interfaces.R
 \name{rename_params}
 \alias{rename_params}
-\title{parameters for rename requests}
+\title{Parameters for rename requests}
 \usage{
 rename_params(uri, position, new_name)
 }
@@ -14,5 +14,6 @@ rename_params(uri, position, new_name)
 \item{new_name}{a character}
 }
 \description{
-parameters for rename requests
+Parameters for rename requests
 }
+\keyword{internal}

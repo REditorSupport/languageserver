@@ -1,12 +1,8 @@
-#' initialize handler
+#' `initialize` handler
 #'
-#' Handler to the [initialize](https://microsoft.github.io/language-server-protocol/) [Request].
+#' Handler to the `initialize` [Request].
 #'
-#' @template self
-#' @template id
-#' @param params a named list, the `initialize` Request options
-#'
-#'  @keywords internal
+#' @keywords internal
 on_initialize <- function(self, id, params) {
     logger$info("initialization config: ", params)
     self$processId <- params$processId
@@ -17,12 +13,9 @@ on_initialize <- function(self, id, params) {
     self$deliver(Response$new(id = id, result = list(capabilities = ServerCapabilities)))
 }
 
-#' initialized handler
+#' `initialized` handler
 #'
-#' Handler to the [initialized](https://microsoft.github.io/language-server-protocol/) [Notification].
-#'
-#' @template self
-#' @param params a named list
+#' Handler to the `initialized` [Notification].
 #'
 #' @keywords internal
 on_initialized <- function(self, params) {
@@ -50,14 +43,9 @@ on_initialized <- function(self, params) {
     # lint_result <- lintr::lint_package(rootPath)
 }
 
-#' shutdown request handler
+#' `shutdown` request handler
 #'
-#' Handler to the [shutdown](https://microsoft.github.io/language-server-protocol/) [Request]
-#'
-#' @template self
-#' @template id
-#' @param params unused here
-#'
+#' Handler to the `shutdown` [Request].
 #' @keywords internal
 on_shutdown <- function(self, id, params) {
     self$exit_flag <- TRUE
@@ -65,25 +53,17 @@ on_shutdown <- function(self, id, params) {
 }
 
 
-#' exit notification handler
+#' `exit` notification handler
 #'
-#' Hanlder to the [exit](https://microsoft.github.io/language-server-protocol/) [Notification]
-#'
-#' @template self
-#' @param params unused here
-#'
+#' Hanlder to the `exit` [Notification].
 #' @keywords internal
 on_exit <- function(self, params) {
     self$exit_flag <- TRUE
 }
 
-#' cancel request notification handler
+#' `cancel` request notification handler
 #'
-#' Handler to the [cancelRequest](https://microsoft.github.io/language-server-protocol/) [Notification]
-#'
-#' @template self
-#' @param params unused here
-#'
+#' Handler to the `cancelRequest` [Notification].
 #' @keywords internal
 cancel_request <- function(self, params) {
 

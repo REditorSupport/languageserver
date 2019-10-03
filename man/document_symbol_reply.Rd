@@ -6,17 +6,6 @@
 \usage{
 document_symbol_reply(id, uri, workspace)
 }
-\arguments{
-\item{id}{a numeric, the id of the process that started the server}
-
-\item{uri}{a character, the path to a file as defined by \href{https://tools.ietf.org/html/rfc3986}{RFC 3986}}
-
-\item{workspace}{a \link{Workspace} object, the current workspace}
-}
-\value{
-A \code{Response} with a list of all the symbols
-in the document, or just the id if there weren't any.
-}
 \description{
 Get all the symbols in the document
 }

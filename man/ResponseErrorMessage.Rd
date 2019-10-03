@@ -11,4 +11,4 @@ ResponseErrorMessage
 \description{
 Message sent as the result of a \link{Request} in case of an error.
 }
-\keyword{datasets}
+\keyword{internal}

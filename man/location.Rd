@@ -2,7 +2,7 @@
 % Please edit documentation in R/interfaces.R
 \name{location}
 \alias{location}
-\title{a location inside a resource}
+\title{A location inside a resource}
 \usage{
 location(uri, range)
 }
@@ -14,3 +14,4 @@ location(uri, range)
 \description{
 Represents a location inside a resource, such as a line inside a text file.
 }
+\keyword{internal}

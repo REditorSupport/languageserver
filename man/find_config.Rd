@@ -2,11 +2,11 @@
 % Please edit documentation in R/diagnostics.R
 \name{find_config}
 \alias{find_config}
-\title{find the lintr config file}
+\title{Find the lintr config file}
 \usage{
 find_config(filename)
 }
 \description{
-find the lintr config file
+Find the lintr config file
 }
 \keyword{internal}

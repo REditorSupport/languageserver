@@ -13,9 +13,7 @@ diagnostic_severity(result)
 
 diagnostic_from_lint(result)
 }
-\arguments{
-\item{result}{the result from \code{\link[lintr:lint]{lintr::lint()}}}
-}
 \description{
 Diagnose problems in files after linting.
 }
+\keyword{internal}

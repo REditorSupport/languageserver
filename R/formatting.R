@@ -1,10 +1,9 @@
-#' style a file
+#' Style a file
 #'
 #' This functions formats a document using [styler::style_file()] with the
 #' [styler::tidyverse_style()] style.
 #'
-#' @param path file path
-#' @param options a named list of options, with a `tabSize` parameter
+#' @keywords internal
 style_file <- function(path, options) {
     document <- readLines(path, warn = FALSE)
     if (is_rmarkdown(path)) {
@@ -22,15 +21,12 @@ style_file <- function(path, options) {
 }
 
 
-#' edit code style
+#' Edit code style
 #'
 #' This functions formats a list of text using [styler::style_text()] with the
 #' [styler::tidyverse_style()] style.
 #'
-#' @param text a vector of text
-#' @param options a named list of options, with a `tabSize` parameter
-#' @param scope the scope type used in styler::tidyverse_style
-#' @param indentation amount of whitespaces put at the begining of each line
+#' @keywords internal
 style_text <- function(text, options, scope = "tokens", indentation = "") {
     new_text <- tryCatch(
         styler::style_text(
@@ -50,12 +46,8 @@ style_text <- function(text, options, scope = "tokens", indentation = "") {
 }
 
 
-#' format a document
-#'
-#' @template id
-#' @template uri
-#' @template document
-#' @param options a named list of options, with a `tabSize` parameter
+#' Format a document
+#' @keywords internal
 formatting_reply <- function(id, uri, document, options) {
     # do not use `style_file` because the changes are not necessarily saved on disk.
     new_text <- style_text(document$content, options)
@@ -77,13 +69,8 @@ formatting_reply <- function(id, uri, document, options) {
 }
 
 
-#' format a part of a document
-#'
-#' @template id
-#' @template uri
-#' @template document
-#' @param range a [range], the part of the document to format
-#' @param options a named list of options, with a `tabSize` parameter
+#' Format a part of a document
+#' @keywords internal
 range_formatting_reply <- function(id, uri, document, range, options) {
     line1 <- range$start$line
     character1 <- range$start$character

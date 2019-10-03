@@ -1,11 +1,6 @@
-#' textDocument/completion request handler
+#' `textDocument/completion` request handler
 #'
-#' Handler to the [textDocument/completion](https://microsoft.github.io/language-server-protocol/) [Request]
-#'
-#' @template self
-#' @template id
-#' @param params a [completion_params] object
-#'
+#' Handler to the `textDocument/completion` [Request].
 #' @keywords internal
 text_document_completion  <- function(self, id, params) {
     textDocument <- params$textDocument
@@ -14,26 +9,17 @@ text_document_completion  <- function(self, id, params) {
         id, uri, self$workspace, self$documents[[uri]], params$position))
 }
 
-#' completionItem/resolve request handler
+#' `completionItem/resolve` request handler
 #'
-#' Handler to the [completionItem/resolve](https://microsoft.github.io/language-server-protocol/) [Request]
-#'
-#' @template self
-#' @template id
-#' @param params a [completion_params] object
-#'
+#' Handler to the `completionItem/resolve` [Request].
 #' @keywords internal
 completion_item_resolve  <- function(self, id, params) {
 
 }
 
-#' textDocument/hover request handler
+#' `textDocument/hover` request handler
 #'
-#' Handler to the [textDocument/hover](https://microsoft.github.io/language-server-protocol/) [Request]
-#'
-#' @template self
-#' @template id
-#' @template tdpp
+#' Handler to the `textDocument/hover` [Request].
 #'
 #' @keywords internal
 text_document_hover  <- function(self, id, params) {
@@ -43,13 +29,9 @@ text_document_hover  <- function(self, id, params) {
         id, uri, self$workspace, self$documents[[uri]], params$position))
 }
 
-#' textDocument/signatureHelp request handler
+#' `textDocument/signatureHelp` request handler
 #'
-#' Handler to the [textDocument/signatureHelp](https://microsoft.github.io/language-server-protocol/) [Request]
-#'
-#' @template self
-#' @template id
-#' @template tdpp
+#' Handler to the `textDocument/signatureHelp` [Request].
 #'
 #' @keywords internal
 text_document_signature_help  <- function(self, id, params) {
@@ -59,14 +41,9 @@ text_document_signature_help  <- function(self, id, params) {
         id, uri, self$workspace, self$documents[[uri]], params$position))
 }
 
-#' textDocument/definition request handler
+#' `textDocument/definition` request handler
 #'
-#' Handler to the [textDocument/definition](https://microsoft.github.io/language-server-protocol/) [Request]
-#'
-#' @template self
-#' @template id
-#' @template tdpp
-#'
+#' Handler to the `textDocument/definition` [Request].
 #' @keywords internal
 text_document_definition  <- function(self, id, params) {
     textDocument <- params$textDocument
@@ -75,74 +52,42 @@ text_document_definition  <- function(self, id, params) {
             id, uri, self$workspace, self$documents[[uri]], params$position))
 }
 
-#' textDocument/typeDefinition request handler
+#' `textDocument/typeDefinition` request handler
 #'
-#' Handler to the [textDocument/typeDefinition](https://microsoft.github.io/language-server-protocol/) [Request]
-#'
-#' Not implemented yet.
-#'
-#' @template self
-#' @template id
-#' @template tdpp
+#' Handler to the `textDocument/typeDefinition` [Request].
 #'
 #' @keywords internal
 text_document_type_definition  <- function(self, id, params) {
 
 }
 
-#' textDocument/implementation request handler
+#' `textDocument/implementation` request handler
 #'
-#' Handler to the [textDocument/implementation](https://microsoft.github.io/language-server-protocol/) [Request]
-#'
-#' Not implemented yet.
-#'
-#' @template self
-#' @template id
-#' @template tdpp
-#'
+#' Handler to the `textDocument/implementation` [Request].
 #' @keywords internal
 text_document_implementation  <- function(self, id, params) {
 
 }
 
-#' textDocument/references request handler
+#' `textDocument/references` request handler
 #'
-#' Handler to the [textDocument/references](https://microsoft.github.io/language-server-protocol/) [Request]
-#'
-#' Not implemented yet.
-#'
-#' @template self
-#' @template id
-#' @param params a [reference_params] object
-#'
+#' Handler to the `textDocument/references` [Request].
 #' @keywords internal
 text_document_references  <- function(self, id, params) {
 
 }
 
-#' textDocument/documentHighlight request handler
+#' `textDocument/documentHighlight` request handler
 #'
-#' Handler to the [textDocument/documentHighlight](https://microsoft.github.io/language-server-protocol/) [Request]
-#'
-#' Not implemented yet.
-#'
-#' @template self
-#' @template id
-#' @template tdpp
-#'
+#' Handler to the `textDocument/documentHighlight` [Request].
 #' @keywords internal
 text_document_document_highlight  <- function(self, id, params) {
 
 }
 
-#' textDocument/documentSymbol request handler
+#' `textDocument/documentSymbol` request handler
 #'
-#' Handler to the [textDocument/documentSymbol](https://microsoft.github.io/language-server-protocol/) [Request]
-#'
-#' @template self
-#' @template id
-#' @param params a [document_symbol_params] object
-#'
+#' Handler to the `textDocument/documentSymbol` [Request].
 #' @keywords internal
 text_document_document_symbol  <- function(self, id, params) {
     textDocument <- params$textDocument
@@ -151,124 +96,66 @@ text_document_document_symbol  <- function(self, id, params) {
             id, uri, self$workspace))
 }
 
-#' textDocument/codeAction request handler
+#' `textDocument/codeAction` request handler
 #'
-#' Handler to the [textDocument/codeAction](https://microsoft.github.io/language-server-protocol/) [Request]
-#'
-#' Not implemented yet.
-#'
-#' @template self
-#' @template id
-#' @param params a [code_action_params] object
-#'
+#' Handler to the `textDocument/codeAction` [Request].
 #' @keywords internal
 text_document_code_action  <- function(self, id, params) {
 
 }
 
-#' textDocument/codeLens request handler
+#' `textDocument/codeLens` request handler
 #'
-#' Handler to the [textDocument/codeLens](https://microsoft.github.io/language-server-protocol/) [Request]
-#'
-#' Not implemented yet.
-#'
-#' @template self
-#' @template id
-#' @param params a [code_lens_params] object
-#'
-#' @return a list of CodeLens objects
-#'
+#' Handler to the `textDocument/codeLens` [Request].
 #' @keywords internal
 text_document_code_lens  <- function(self, id, params) {
 
 }
 
-#' codeLens/resolve request handler
+#' `codeLens/resolve` request handler
 #'
-#' Handler to the [codeLens/resolve](https://microsoft.github.io/language-server-protocol/) [Request]
-#'
-#' Not implemented yet.
-#'
-#' @template self
-#' @template id
-#' @param params a CodeLens object
-#'
+#' Handler to the `codeLens/resolve` [Request].
 #' @keywords internal
 code_lens_resolve  <- function(self, id, params) {
 
 }
 
 
-#' textDocument/documentLink request handler
+#' `textDocument/documentLink` request handler
 #'
-#' Handler to the [textDocument/documentLink](https://microsoft.github.io/language-server-protocol/) [Request]
-#'
-#' Not implemented yet.
-#'
-#' @template self
-#' @template id
-#' @param params a [document_link_params] object
-#'
-#' @return a list of DocumentLink objects
-#'
+#' Handler to the `textDocument/documentLink` [Request].
 #' @keywords internal
 text_document_document_link  <- function(self, id, params) {
 
 }
 
-#' documentLink/resolve request handler
+#' `documentLink/resolve` request handler
 #'
-#' Handler to the [documentLink/resolve](https://microsoft.github.io/language-server-protocol/) [Request]
-#'
-#' Not implemented yet.
-#'
-#' @template self
-#' @template id
-#' @param params a DocumentLink object
-#'
+#' Handler to the `documentLink/resolve` [Request].
 #' @keywords internal
 document_link_resolve  <- function(self, id, params) {
 
 }
 
-#' textDocument/documentColor request handler
+#' `textDocument/documentColor` request handler
 #'
-#' Handler to the [textDocument/documentColor](https://microsoft.github.io/language-server-protocol/) [Request]
-#'
-#' Not implemented yet.
-#'
-#' @template self
-#' @template id
-#' @param params a document_color_params object
-#'
+#' Handler to the `textDocument/documentColor` [Request].
 #' @keywords internal
 text_document_document_color  <- function(self, id, params) {
 
 }
 
-#' textDocument/colorPresentation request handler
+#' `textDocument/colorPresentation` request handler
 #'
-#' Handler to the [textDocument/colorPresentation](https://microsoft.github.io/language-server-protocol/) [Request]
-#'
-#' Not implemented yet.
-#'
-#' @template self
-#' @template id
-#' @param params a color_presentation_params object
-#'
+#' Handler to the `textDocument/colorPresentation` [Request].
 #' @keywords internal
 text_document_color_presentation  <- function(self, id, params) {
 
 }
 
-#' textDocument/formatting request handler
+#' `textDocument/formatting` request handler
 #'
-#' Handler to the [textDocument/formatting](https://microsoft.github.io/language-server-protocol/) [Request]
-#'
-#' @template self
-#' @template id
-#' @param params a [document_formatting_params] object
-#'
+#' Handler to the `textDocument/formatting` [Request].
 #' @keywords internal
 text_document_formatting  <- function(self, id, params) {
     textDocument <- params$textDocument
@@ -277,14 +164,9 @@ text_document_formatting  <- function(self, id, params) {
     self$deliver(formatting_reply(id, uri, self$documents[[uri]], options))
 }
 
-#' textDocument/rangeFormatting request handler
+#' `textDocument/rangeFormatting` request handler
 #'
-#' Handler to the [textDocument/rangeFormatting](https://microsoft.github.io/language-server-protocol/) [Request]
-#'
-#' @template self
-#' @template id
-#' @param params a [document_range_formatting_params] object
-#'
+#' Handler to the `textDocument/rangeFormatting` [Request].
 #' @keywords internal
 text_document_range_formatting  <- function(self, id, params) {
     textDocument <- params$textDocument
@@ -295,62 +177,34 @@ text_document_range_formatting  <- function(self, id, params) {
 }
 
 
-#' textDocument/onTypeFormatting request handler
+#' `textDocument/onTypeFormatting` request handler
 #'
-#' Handler to the [textDocument/onTypeFormatting](https://microsoft.github.io/language-server-protocol/) [Request]
-#'
-#' Not implemented yet.
-#'
-#' @template self
-#' @template id
-#' @param params a [document_on_type_formatting_params] object
-#'
+#' Handler to the `textDocument/onTypeFormatting` [Request].
 #' @keywords internal
 text_document_on_type_formatting  <- function(self, id, params) {
 
 }
 
 
-#' textDocument/rename request handler
+#' `textDocument/rename` request handler
 #'
-#' Handler to the [textDocument/rename](https://microsoft.github.io/language-server-protocol/) [Request]
-#'
-#' Not implemented yet.
-#'
-#' @template self
-#' @template id
-#' @param params a [rename_params] object
-#'
+#' Handler to the `textDocument/rename` [Request].
 #' @keywords internal
 text_document_rename  <- function(self, id, params) {
 
 }
 
-#' textDocument/prepareRename request handler
+#' `textDocument/prepareRename` request handler
 #'
-#' Handler to the [textDocument/prepareRename](https://microsoft.github.io/language-server-protocol/) [Request]
-#'
-#' Not implemented yet.
-#'
-#' @template self
-#' @template id
-#' @template tdpp
-#'
+#' Handler to the `textDocument/prepareRename` [Request].
 #' @keywords internal
 text_document_prepare_rename  <- function(self, id, params) {
 
 }
 
-#' textDocument/foldingRange request handler
+#' `textDocument/foldingRange` request handler
 #'
-#' Handler to the [textDocument/foldingRange](https://microsoft.github.io/language-server-protocol/) [Request]
-#'
-#' Not implemented yet.
-#'
-#' @template self
-#' @template id
-#' @param params a folding_range_params object
-#'
+#' Handler to the `textDocument/foldingRange` [Request].
 #' @keywords internal
 text_document_folding_range  <- function(self, id, params) {
 

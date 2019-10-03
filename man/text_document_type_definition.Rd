@@ -2,21 +2,11 @@
 % Please edit documentation in R/handlers-langfeatures.R
 \name{text_document_type_definition}
 \alias{text_document_type_definition}
-\title{textDocument/typeDefinition request handler}
+\title{\code{textDocument/typeDefinition} request handler}
 \usage{
 text_document_type_definition(self, id, params)
 }
-\arguments{
-\item{self}{a \link{LanguageServer} object}
-
-\item{id}{a numeric, the id of the process that started the server}
-
-\item{params}{a \link{text_document_position_params} object}
-}
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/}{textDocument/typeDefinition} \link{Request}
-}
-\details{
-Not implemented yet.
+Handler to the \code{textDocument/typeDefinition} \link{Request}.
 }
 \keyword{internal}

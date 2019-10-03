@@ -2,14 +2,7 @@
 #'
 #' A `Namespace` is initialized with a package name and builds the list of
 #' objects defined in the package namespace.
-#'
-#' @section Methods:
-#' + `exists(objname)`: returns true if `objname` can be found in the Namespace
-#' + `get_signature(funct)`: return the signature of `funct`
-#' + `get_formals(funct)`: return the [base::formals()] of `funct`
-#'
-#' @field objname a character, an object name
-#' @field funct a character, a function name
+#' @keywords internal
 Namespace <- R6::R6Class("Namespace",
     public = list(
         package_name = NULL,

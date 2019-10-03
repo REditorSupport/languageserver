@@ -2,18 +2,11 @@
 % Please edit documentation in R/handlers-langfeatures.R
 \name{text_document_definition}
 \alias{text_document_definition}
-\title{textDocument/definition request handler}
+\title{\code{textDocument/definition} request handler}
 \usage{
 text_document_definition(self, id, params)
 }
-\arguments{
-\item{self}{a \link{LanguageServer} object}
-
-\item{id}{a numeric, the id of the process that started the server}
-
-\item{params}{a \link{text_document_position_params} object}
-}
 \description{
-Handler to the \href{https://microsoft.github.io/language-server-protocol/}{textDocument/definition} \link{Request}
+Handler to the \code{textDocument/definition} \link{Request}.
 }
 \keyword{internal}

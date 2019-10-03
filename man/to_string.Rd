@@ -2,7 +2,7 @@
 % Please edit documentation in R/log.R
 \name{to_string}
 \alias{to_string}
-\title{transform any object to a string}
+\title{Transform any object to a string}
 \usage{
 to_string(...)
 }
@@ -10,6 +10,6 @@ to_string(...)
 \item{...}{anything}
 }
 \description{
-transform any object to a string
+Transform any object to a string
 }
 \keyword{internal}

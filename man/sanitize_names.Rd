@@ -6,9 +6,6 @@
 \usage{
 sanitize_names(objects)
 }
-\arguments{
-\item{objects}{a character vector}
-}
 \description{
 Remove unwanted objects, \emph{e.g.} \code{names<-}, \code{\%>\%}, etc.
 }

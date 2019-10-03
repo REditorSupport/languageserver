@@ -6,21 +6,6 @@
 \usage{
 definition_reply(id, uri, workspace, document, position)
 }
-\arguments{
-\item{id}{a numeric, the id of the process that started the server}
-
-\item{uri}{a character, the path to a file as defined by \href{https://tools.ietf.org/html/rfc3986}{RFC 3986}}
-
-\item{workspace}{a \link{Workspace} object, the current workspace}
-
-\item{document}{a character, the contents of the document}
-
-\item{position}{a \link{position} object}
-}
-\value{
-A \code{Response} with the \code{uri} and \link{range} of the function definition,
-or just the \code{id} if the function is not found.
-}
 \description{
 If the function is not found in a file but is found in a loaded package,
 writes the function definition to a temporary file and returns that
