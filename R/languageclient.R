@@ -3,7 +3,6 @@
 LanguageClient <- R6::R6Class("LanguageClient",
     inherit = LanguageBase,
     public = list(
-        error_buffer = NULL,
         process = NULL,
         rootUri = NULL,
         ClientCapabilities = NULL,
@@ -11,8 +10,7 @@ LanguageClient <- R6::R6Class("LanguageClient",
 
         initialize = function(cmd, args) {
             self$process <- processx::process$new(cmd, args,
-                stdin = "|", stdout = "|", stderr = "|", supervise = TRUE)
-            self$error_buffer <- ""
+                stdin = "|", stdout = "|", supervise = TRUE)
             super$initialize()
         },
 
@@ -31,6 +29,7 @@ LanguageClient <- R6::R6Class("LanguageClient",
         },
 
         read_line = function() {
+            if (!self$process$is_alive() || self$process$poll_io(1)[1] != "ready") return(NULL)
             line <- self$process$read_output_lines(1)
             trimws(line, "right")
         },
@@ -39,17 +38,8 @@ LanguageClient <- R6::R6Class("LanguageClient",
             self$process$read_output(n)
         },
 
-        fetch_error = function() {
-            self$error_buffer <- paste0(
-                self$error_buffer, "\n",
-                paste0(self$process$read_error_lines(), collapse = "\n")
-                )
-        },
-
         read_error = function() {
-            buf <- self$error_buffer
-            self$error_buffer <- ""
-            buf
+            paste0(self$process$read_error_lines(), collapse = "\n")
         },
 
         welcome = function() {

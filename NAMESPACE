@@ -3,4 +3,4 @@
 export(run)
 export(workspace_sync)
 importFrom(R6,R6Class)
-useDynLib(languageserver, .registration = TRUE, .fixes = "C_")
+useDynLib(languageserver)

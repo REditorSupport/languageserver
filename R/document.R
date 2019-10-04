@@ -123,7 +123,11 @@ Document <- R6::R6Class(
 #' character if found, otherwise (-1, -1)
 #' @keywords internal
 content_backward_search <- function(content, row, column, char, skip_empty_line = TRUE) {
-    .Call(C_content_backward_search, content, row, column, char, skip_empty_line)
+    # TODO: adjust for UTF-16
+    .Call("content_backward_search",
+        PACKAGE = "languageserver",
+        content, row, column, char, skip_empty_line
+    )
 }
 
 

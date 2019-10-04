@@ -84,7 +84,7 @@ test_that("Go to Definition works for functions in files", {
     result <- client %>% respond_definition(query_file, c(0, 0),
         retry_when = function(result) {
             length(result) == 0 || result$uri == path_to_uri(defn_file)
-        }, timeout = 15)
+        })
 
     expect_equal(result$uri, path_to_uri(defn2_file))
 })
