@@ -2,11 +2,11 @@
 % Please edit documentation in R/utils.R
 \name{become_orphan}
 \alias{become_orphan}
-\title{check if the current process become an orphan}
+\title{check if the current process becomes an orphan}
 \usage{
 become_orphan()
 }
 \description{
-check if the current process become an orphan
+check if the current process becomes an orphan
 }
 \keyword{internal}
