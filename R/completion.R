@@ -59,13 +59,13 @@ workspace_completion <- function(workspace, token, package = NULL, exported_only
     completions <- list()
 
     if (is.null(package)) {
-        packages <- workspace$loaded_packages
+        packages <- c("_workspace_", workspace$loaded_packages)
     } else {
         packages <- c(package)
     }
 
     if (is.null(package) || exported_only) {
-        for (nsname in c("_workspace_", packages)) {
+        for (nsname in packages) {
             ns <- workspace$get_namespace(nsname)
             functs <- ns$functs[startsWith(ns$functs, token)]
             if (nsname == "_workspace_") {
