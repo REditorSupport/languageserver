@@ -155,8 +155,10 @@ Workspace <- R6::R6Class("Workspace",
         },
 
         parse_file = function(uri, parse_data) {
-            if (file.exists(parse_data$xml_file)) {
+            if (!is.null(parse_data$xml_file) && 
+                file.exists(parse_data$xml_file)) {
                 parse_data$xml_doc <- xml2::read_xml(parse_data$xml_file)
+                file.remove(parse_data$xml_file)
             }
 
             private$parse_data[[uri]] <- parse_data
