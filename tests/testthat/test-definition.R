@@ -17,7 +17,6 @@ test_that("DefinitionCache works", {
 })
 
 test_that("DefinitionCache works when multiple functions are removed", {
-    skip_on_cran()
     dc <- DefinitionCache$new()
     range1 <- range(position(1, 2), position(3, 4))
     range2 <- range(position(5, 6), position(7, 8))

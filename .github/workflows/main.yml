@@ -25,6 +25,8 @@ jobs:
     - name: Running Tests
       run: |
         R --slave -e "devtools::check(args = c('--as-cran'))"
+      env:
+        NOT_CRAN: true
       shell:
         bash
 
@@ -57,6 +59,8 @@ jobs:
     - name: Running Tests
       run: |
         R --slave -e "devtools::check(args = c('--as-cran'))"
+      env:
+        NOT_CRAN: true
       shell:
         bash
 
@@ -96,5 +100,7 @@ jobs:
     - name: Running Tests
       run: |
         C:\R\bin\R --slave -e "devtools::check(args = c('--as-cran'))"
+      env:
+        NOT_CRAN: true
       shell:
         pwsh
