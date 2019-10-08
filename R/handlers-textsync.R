@@ -5,7 +5,7 @@
 text_document_did_open <- function(self, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
-    content <- readLines(path_from_uri(uri), warn = FALSE)
+    content <- readr::read_lines(path_from_uri(uri))
     if (is.null(self$documents[[uri]])) {
         self$documents[[uri]] <- Document$new(uri, content)
     } else {
@@ -51,7 +51,7 @@ text_document_did_save <- function(self, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
     logger$info("did save:", uri)
-    content <- readLines(path_from_uri(uri), warn = FALSE)
+    content <- readr::read_lines(path_from_uri(uri))
     self$documents[[uri]] <- Document$new(uri, content)
     self$text_sync(uri, document = NULL, run_lintr = TRUE, parse = TRUE)
 }

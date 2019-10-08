@@ -75,10 +75,8 @@ find_definition_in_package <- function(workspace, funct, pkg) {
         # if the function exists in the workspace, write the code to a file
         tmp <- file.path(tempdir(), paste0(funct, ".R"))
         logger$info("tmp: ", tmp)
-        con <- file(tmp, "w+")
-        writeLines(text = code, con = con)
-        close(con)
-        nlines <- length(readLines(tmp)) + 1
+        readr::write_lines(code, tmp)
+        nlines <- length(readr::read_lines(tmp)) + 1
         list(
             uri = path_to_uri(tmp),
             range = range(
