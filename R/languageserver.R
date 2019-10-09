@@ -100,7 +100,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 self$exit_flag <- TRUE
             }
 
-            if (.Platform$OS.type == "unix" && become_orphan()) {
+            if (.Platform$OS.type == "unix" && process_is_detached()) {
                 # exit if the current process becomes orphan
                 self$exit_flag <- TRUE
             }

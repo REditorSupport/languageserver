@@ -8,7 +8,7 @@
 
 static int ppid = -1;
 
-SEXP become_orphan() {
+SEXP process_is_detached() {
     if (ppid == -1) {
         ppid = (int) getppid();
     }
@@ -21,7 +21,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"stdin_read_char", (DL_FUNC) &stdin_read_char, 1},
     {"stdin_read_line", (DL_FUNC) &stdin_read_line},
 #if !defined(_WIN32) && !defined(_WIN64)
-    {"become_orphan", (DL_FUNC) &become_orphan},
+    {"process_is_detached", (DL_FUNC) &process_is_detached},
 #endif
     {NULL, NULL, 0}
 };
