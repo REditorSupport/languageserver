@@ -1,3 +1,14 @@
+get_style <- function(...) {
+    style <- getOption("languageserver.formatting_style")
+    if (is.null(style)) {
+        style <- styler::tidyverse_style(...)
+        style$token$force_assignment_op <- NULL
+    } else {
+        style <- style(...)
+    }
+    style
+}
+
 #' Style a file
 #'
 #' This functions formats a document using [styler::style_file()] with the
@@ -13,7 +24,7 @@ style_file <- function(path, options) {
     }
     writeLines(document, temp_file)
     styler::style_file(temp_file,
-        transformers = styler::tidyverse_style(indent_by = options$tabSize)
+        transformers = get_style(indent_by = options$tabSize)
     )
     contents <- readLines(temp_file, warn = FALSE)
     file.remove(temp_file)
@@ -27,12 +38,11 @@ style_file <- function(path, options) {
 #' [styler::tidyverse_style()] style.
 #'
 #' @keywords internal
-style_text <- function(text, options, scope = "tokens", indentation = "") {
+style_text <- function(text, options, indentation = "") {
     new_text <- tryCatch(
         styler::style_text(
             text,
-            transformers = styler::tidyverse_style(
-                scope = scope,
+            transformers = get_style(
                 indent_by = options$tabSize
             )
         ),
@@ -90,16 +100,9 @@ range_formatting_reply <- function(id, uri, document, range, options) {
         return(Response$new(id, list()))
     }
 
-    # check if the selection contains complete lines
-    if (character1 != 0 || character2 < ncodeunit(lastline)) {
-        scope <- "line_breaks"
-    } else {
-        scope <- "tokens"
-    }
-
     selection <- document$content[(line1:line2) + 1]
     indentation <- stringr::str_extract(selection[1], "^\\s*")
-    new_text <- style_text(selection, options, scope = scope, indentation = indentation)
+    new_text <- style_text(selection, options, indentation = indentation)
     if (is.null(new_text)) {
         return(Response$new(id, list()))
     }
