@@ -11,7 +11,7 @@ text_document_did_open <- function(self, params) {
     } else {
         self$documents[[uri]]$set(content)
     }
-    self$text_sync(uri, document = NULL, run_lintr = TRUE, parse = TRUE)
+    self$text_sync(uri, document = NULL, run_lintr = TRUE, parse = TRUE, resolve = TRUE)
 }
 
 #' `textDocument/didChange` notification handler
@@ -32,7 +32,7 @@ text_document_did_change <- function(self, params) {
         self$documents[[uri]]$set(content)
         doc <- self$documents[[uri]]
     }
-    self$text_sync(uri, document = doc, run_lintr = TRUE, parse = FALSE)
+    self$text_sync(uri, document = doc, run_lintr = TRUE, parse = TRUE, resolve = FALSE)
 }
 
 #' `textDocument/willSave` notification handler
@@ -53,7 +53,7 @@ text_document_did_save <- function(self, params) {
     logger$info("did save:", uri)
     content <- readLines(path_from_uri(uri), warn = FALSE)
     self$documents[[uri]] <- Document$new(uri, content)
-    self$text_sync(uri, document = NULL, run_lintr = TRUE, parse = TRUE)
+    self$text_sync(uri, document = NULL, run_lintr = TRUE, parse = TRUE, resolve = TRUE)
 }
 
 #' `textDocument/didClose` notification handler

@@ -188,7 +188,6 @@ parse_document <- function(path, tmpdir) {
     expr <- tryCatch(parse(path, keep.source = TRUE), error = function(e) NULL)
     env <- parse_env()
     parse_expr(expr, env, is_rmd = is_rmd)
-    env$packages <- resolve_package_dependencies(env$packages)
     fix_definition_ranges(env, path)
     env$xml_file <- tryCatch({
         xml_text <- xmlparsedata::xml_parse_data(expr)

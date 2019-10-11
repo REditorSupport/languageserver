@@ -184,7 +184,7 @@ Workspace <- R6::R6Class("Workspace",
 #' @param run_lintr set \code{FALSE} to disable lintr diagnostics
 #' @param parse set \code{FALSE} to disable parsing file
 #' @export
-workspace_sync <- function(uri, temp_dir = NULL, temp_file = NULL, run_lintr = TRUE, parse = FALSE) {
+workspace_sync <- function(uri, temp_dir = NULL, temp_file = NULL, run_lintr = TRUE, parse = FALSE, resolve = FALSE) {
     if (is.null(temp_file)) {
         path <- path_from_uri(uri)
     } else {
@@ -194,6 +194,9 @@ workspace_sync <- function(uri, temp_dir = NULL, temp_file = NULL, run_lintr = T
     if (parse) {
         parse_data <- tryCatch(parse_document(path, temp_dir), error = function(e) NULL)
         # parse_data <- parse_document(path)
+        if (resolve) {
+            parse_data$packages <- resolve_package_dependencies(parse_data$packages)
+        }
     } else {
         parse_data <- NULL
     }
@@ -236,6 +239,7 @@ process_sync_in <- function(self) {
         item <- sync_in$pop(uri)
         run_lintr <- item$run_lintr && self$run_lintr
         parse <- parse || item$parse
+        resolve <- item$resolve
         doc <- item$document
         path <- path_from_uri(uri)
         if (is.null(doc)) {
@@ -255,7 +259,8 @@ process_sync_in <- function(self) {
                         temp_dir = tempdir(),
                         temp_file = temp_file,
                         run_lintr = run_lintr,
-                        parse = parse
+                        parse = parse,
+                        resolve = resolve
                     ),
                     system_profile = TRUE, user_profile = TRUE
                 ),

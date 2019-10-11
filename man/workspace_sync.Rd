@@ -5,7 +5,7 @@
 \title{Determine workspace information for a given file}
 \usage{
 workspace_sync(uri, temp_dir = NULL, temp_file = NULL,
-  run_lintr = TRUE, parse = FALSE)
+  run_lintr = TRUE, parse = FALSE, resolve = FALSE)
 }
 \arguments{
 \item{uri}{the file uri}
