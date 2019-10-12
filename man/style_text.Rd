@@ -4,10 +4,10 @@
 \alias{style_text}
 \title{Edit code style}
 \usage{
-style_text(text, options, indentation = "")
+style_text(text, style, indentation = "")
 }
 \description{
 This functions formats a list of text using \code{\link[styler:style_text]{styler::style_text()}} with the
-\code{\link[styler:tidyverse_style]{styler::tidyverse_style()}} style.
+specified style.
 }
 \keyword{internal}
