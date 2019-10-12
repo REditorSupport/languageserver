@@ -8,6 +8,6 @@ style_file(path, style)
 }
 \description{
 This functions formats a document using \code{\link[styler:style_file]{styler::style_file()}} with the
-\code{\link[styler:tidyverse_style]{styler::tidyverse_style()}} style.
+specified style.
 }
 \keyword{internal}

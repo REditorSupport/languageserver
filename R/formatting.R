@@ -1,9 +1,9 @@
-get_style <- function(...) {
+get_style <- function(options) {
     style <- getOption("languageserver.formatting_style")
     if (is.null(style)) {
-        style <- styler::tidyverse_style(...)
+        style <- styler::tidyverse_style(indent_by = options$tabSize)
     } else {
-        style <- style(...)
+        style <- style(options)
     }
     style
 }
@@ -11,7 +11,7 @@ get_style <- function(...) {
 #' Style a file
 #'
 #' This functions formats a document using [styler::style_file()] with the
-#' [styler::tidyverse_style()] style.
+#' specified style.
 #'
 #' @keywords internal
 style_file <- function(path, style) {
@@ -57,7 +57,7 @@ style_text <- function(text, style, indentation = "") {
 #' @keywords internal
 formatting_reply <- function(id, uri, document, options) {
     # do not use `style_file` because the changes are not necessarily saved on disk.
-    style <- get_style(indent_by = options$tabSize)
+    style <- get_style(options)
     new_text <- style_text(document$content, style)
     if (is.null(new_text)) {
         return(Response$new(id, list()))
@@ -98,7 +98,7 @@ range_formatting_reply <- function(id, uri, document, range, options) {
         return(Response$new(id, list()))
     }
 
-    style <- get_style(indent_by = options$tabSize)
+    style <- get_style(options)
     # check if the selection contains complete lines
     if (character1 != 0 || character2 < ncodeunit(lastline)) {
         # disable assignment operator fix for partial selection
