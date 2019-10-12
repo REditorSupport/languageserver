@@ -4,7 +4,7 @@
 \alias{style_file}
 \title{Style a file}
 \usage{
-style_file(path, options)
+style_file(path, style)
 }
 \description{
 This functions formats a document using \code{\link[styler:style_file]{styler::style_file()}} with the

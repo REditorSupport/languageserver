@@ -2,7 +2,6 @@ get_style <- function(...) {
     style <- getOption("languageserver.formatting_style")
     if (is.null(style)) {
         style <- styler::tidyverse_style(...)
-        style$token$force_assignment_op <- NULL
     } else {
         style <- style(...)
     }
@@ -15,7 +14,7 @@ get_style <- function(...) {
 #' [styler::tidyverse_style()] style.
 #'
 #' @keywords internal
-style_file <- function(path, options) {
+style_file <- function(path, style) {
     document <- readLines(path, warn = FALSE)
     if (is_rmarkdown(path)) {
         temp_file <- tempfile(fileext = ".Rmd")
@@ -24,7 +23,7 @@ style_file <- function(path, options) {
     }
     writeLines(document, temp_file)
     styler::style_file(temp_file,
-        transformers = get_style(indent_by = options$tabSize)
+        transformers = style
     )
     contents <- readLines(temp_file, warn = FALSE)
     file.remove(temp_file)
@@ -35,16 +34,14 @@ style_file <- function(path, options) {
 #' Edit code style
 #'
 #' This functions formats a list of text using [styler::style_text()] with the
-#' [styler::tidyverse_style()] style.
+#' specified style.
 #'
 #' @keywords internal
-style_text <- function(text, options, indentation = "") {
+style_text <- function(text, style, indentation = "") {
     new_text <- tryCatch(
         styler::style_text(
             text,
-            transformers = get_style(
-                indent_by = options$tabSize
-            )
+            transformers = style
         ),
         error = function(e) e
     )
@@ -60,7 +57,8 @@ style_text <- function(text, options, indentation = "") {
 #' @keywords internal
 formatting_reply <- function(id, uri, document, options) {
     # do not use `style_file` because the changes are not necessarily saved on disk.
-    new_text <- style_text(document$content, options)
+    style <- get_style(indent_by = options$tabSize)
+    new_text <- style_text(document$content, style)
     if (is.null(new_text)) {
         return(Response$new(id, list()))
     }
@@ -100,9 +98,16 @@ range_formatting_reply <- function(id, uri, document, range, options) {
         return(Response$new(id, list()))
     }
 
+    style <- get_style(indent_by = options$tabSize)
+    # check if the selection contains complete lines
+    if (character1 != 0 || character2 < ncodeunit(lastline)) {
+        # disable assignment operator fix for partial selection
+        style$token$force_assignment_op <- NULL
+    }
+
     selection <- document$content[(line1:line2) + 1]
     indentation <- stringr::str_extract(selection[1], "^\\s*")
-    new_text <- style_text(selection, options, indentation = indentation)
+    new_text <- style_text(selection, style, indentation = indentation)
     if (is.null(new_text)) {
         return(Response$new(id, list()))
     }
