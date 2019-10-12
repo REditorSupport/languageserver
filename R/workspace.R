@@ -180,9 +180,11 @@ Workspace <- R6::R6Class("Workspace",
 #'
 #' internal use only
 #' @param uri the file uri
+#' @param temp_dir the temporary directory to store intermediate files
 #' @param temp_file the file to lint, determine from \code{uri} if \code{NULL}
 #' @param run_lintr set \code{FALSE} to disable lintr diagnostics
 #' @param parse set \code{FALSE} to disable parsing file
+#' @param resolve set \code{FALSE} to disable resolving package dependencies
 #' @export
 workspace_sync <- function(uri, temp_dir = NULL, temp_file = NULL, run_lintr = TRUE, parse = FALSE, resolve = FALSE) {
     if (is.null(temp_file)) {
