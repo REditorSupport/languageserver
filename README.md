@@ -110,11 +110,20 @@ setHook(
 ### Customizing formatting style
 
 The language server uses [`styler`](https://github.com/r-lib/styler) to perform code formatting. It uses `styler::tidyverse_style(indent_by = options$tabSize)` as the default style where `options` is the [formatting
-options](https://microsoft.github.io/language-server-protocol/specifications/specification-3-14/#textDocument_formatting) of the document.
+options](https://microsoft.github.io/language-server-protocol/specifications/specification-3-14/#textDocument_formatting).
 
 The formatting style can be customized by specifying `languageserver.formatting_style` option which
-is suppoed to be a funtion that accepts an `options` argument mentioned above. For example, to disable
-assignment operator fix (replacing `=` with `<-`), you may append the following code in your `.Rprofile`:
+is suppoed to be a function that accepts an `options` argument mentioned above. You could consider to put the code in `.Rprofile`.
+
+[`styler::tidyverse_style`](<https://styler.r-lib.org/reference/tidyverse_style.html>) provides numerous arguments to customize the formatting behavior. For example, to make it only work at indention scope:
+
+```r
+options(languageserver.formatting_style = function(options) {
+  styler::tidyverse_style(scope = "indention", indent_by = options$tabSize)
+}
+```
+
+To disable assignment operator fix (replacing `=` with `<-`):
 
 ```r
 options(languageserver.formatting_style = function(options) {
@@ -124,4 +133,4 @@ options(languageserver.formatting_style = function(options) {
 }
 ```
 
-To further customize the formatting style, please refer to <https://styler.r-lib.org/articles/customizing_styler.html>.
+To further customize the formatting style, please refer to [Customizing styler](https://styler.r-lib.org/articles/customizing_styler.html).
