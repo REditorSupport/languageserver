@@ -29,6 +29,19 @@ CompletionItemKind <- list(
     TypeParameter = 25
 )
 
+constants <- c("TRUE", "FALSE", "NULL", 
+    "NA", "NA_integer_", "NA_real_", "NA_complex_", "NA_character_", 
+    "Inf", "NaN")
+
+#' Complete langauge constants
+#' @keywords internal
+constant_completion <- function(token) {
+    consts <- constants[startsWith(constants, token)]
+    completions <- lapply(consts, function(const) {
+        list(label = const, kind = CompletionItemKind$Constant)
+    })
+}
+
 #' Complete a package name
 #' @keywords internal
 package_completion <- function(token) {
@@ -165,12 +178,10 @@ completion_reply <- function(id, uri, workspace, document, position) {
         }
         completions <- c(
             completions,
+            constant_completion(token),
             workspace_completion(
-                workspace, token, package, token_result$accessor == "::"))
-        completions <- c(
-            completions,
-            scope_completion(uri, workspace, token, position)
-        )
+                workspace, token, package, token_result$accessor == "::"),
+            scope_completion(uri, workspace, token, position))
     }
 
     call_result <- document$detect_call(position)
