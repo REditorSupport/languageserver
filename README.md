@@ -119,7 +119,7 @@ is suppoed to be a function that accepts an `options` argument mentioned above. 
 
 ```r
 options(languageserver.formatting_style = function(options) {
-  styler::tidyverse_style(scope = "indention", indent_by = options$tabSize)
+    styler::tidyverse_style(scope = "indention", indent_by = options$tabSize)
 })
 ```
 
@@ -127,9 +127,9 @@ To disable assignment operator fix (replacing `=` with `<-`):
 
 ```r
 options(languageserver.formatting_style = function(options) {
-  style <- styler::tidyverse_style(indent_by = options$tabSize)
-  style$token$force_assignment_op <- NULL
-  style
+    style <- styler::tidyverse_style(indent_by = options$tabSize)
+    style$token$force_assignment_op <- NULL
+    style
 })
 ```
 
