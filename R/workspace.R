@@ -26,7 +26,7 @@ Workspace <- R6::R6Class("Workspace",
 
         load_package = function(pkgname) {
             if (!(pkgname %in% self$loaded_packages)) {
-                ns <- tryCatch(self$get_namespace(pkgname), error = function(e) NULL)
+                ns <- self$get_namespace(pkgname)
                 logger$info("ns: ", ns)
                 if (!is.null(ns)) {
                     self$loaded_packages <- append(self$loaded_packages, pkgname)
@@ -40,7 +40,7 @@ Workspace <- R6::R6Class("Workspace",
 
             for (pkgname in rev(self$loaded_packages)) {
                 ns <- self$get_namespace(pkgname)
-                if (ns$exists(object)) {
+                if (!is.null(ns) && ns$exists(object)) {
                     return(pkgname)
                 }
             }
@@ -52,9 +52,11 @@ Workspace <- R6::R6Class("Workspace",
                 private$global_env
             } else if (pkgname %in% names(private$namespaces)) {
                 private$namespaces[[pkgname]]
-            } else {
+            } else if (length(find.package(pkgname, quiet = TRUE))) {
                 private$namespaces[[pkgname]] <- Namespace$new(pkgname)
                 private$namespaces[[pkgname]]
+            } else {
+                NULL
             }
         },
 
@@ -68,14 +70,11 @@ Workspace <- R6::R6Class("Workspace",
             if (is.null(pkgname)) {
                 NULL
             } else {
-                tryCatch({
-                    ns <- self$get_namespace(pkgname)
+                ns <- self$get_namespace(pkgname)
+                if (!is.null(ns)) {
                     ns$get_signature(funct)
-                    },
-                    error = function(e) NULL
-                )
+                }
             }
-
         },
 
         get_formals = function(funct, pkgname = NULL) {
@@ -88,12 +87,10 @@ Workspace <- R6::R6Class("Workspace",
             if (is.null(pkgname)) {
                 NULL
             } else {
-                tryCatch({
-                        ns <- self$get_namespace(pkgname)
-                        ns$get_formals(funct)
-                    },
-                    error = function(e) list()
-                )
+                ns <- self$get_namespace(pkgname)
+                if (!is.null(ns)) {
+                    ns$get_formals(funct)
+                }
             }
         },
 
@@ -134,19 +131,15 @@ Workspace <- R6::R6Class("Workspace",
             }
             logger$info("pkg:", pkg)
 
-            if (is.null(pkg)) {
-                return(NULL)
-            } else {
+            if (!is.null(pkg) && length(find.package(pkg, quiet = TRUE))) {
                 code <- utils::getFromNamespace(topic, pkg)
-            }
-            if (length(code) > 0) {
-                code <- repr::repr_text(code)
-                # reorganize the code
-                code <- stringr::str_split(code, "\n")[[1]]
-                code[1] <- paste(topic, "<-", code[1])
-                enc2utf8(code[!grepl("<bytecode|<environment", code)])
-            } else {
-                NULL
+                if (length(code) > 0) {
+                    code <- repr::repr_text(code)
+                    # reorganize the code
+                    code <- stringr::str_split(code, "\n")[[1]]
+                    code[1] <- paste(topic, "<-", code[1])
+                    enc2utf8(code[!grepl("<bytecode|<environment", code)])
+                }
             }
         },
 
