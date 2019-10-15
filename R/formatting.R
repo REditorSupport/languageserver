@@ -15,17 +15,17 @@ get_style <- function(options) {
 #'
 #' @keywords internal
 style_file <- function(path, style) {
-    document <- readLines(path, warn = FALSE)
+    document <- readr::read_lines(path)
     if (is_rmarkdown(path)) {
         temp_file <- tempfile(fileext = ".Rmd")
     } else {
         temp_file <- tempfile(fileext = ".R")
     }
-    writeLines(document, temp_file)
+    readr::write_lines(document, temp_file)
     styler::style_file(temp_file,
         transformers = style
     )
-    contents <- readLines(temp_file, warn = FALSE)
+    contents <- readr::read_lines(temp_file)
     file.remove(temp_file)
     paste(contents, collapse = "\n")
 }

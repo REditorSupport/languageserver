@@ -146,8 +146,8 @@ stdin_read_line <- function() {
 #' check if the current process becomes an orphan
 #'
 #' @keywords internal
-become_orphan <- function() {
-    .Call("become_orphan", PACKAGE = "languageserver")
+process_is_detached <- function() {
+    .Call("process_is_detached", PACKAGE = "languageserver")
 }
 
 #' throttle a function execution
