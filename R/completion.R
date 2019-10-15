@@ -67,6 +67,9 @@ workspace_completion <- function(workspace, token, package = NULL, exported_only
     if (is.null(package) || exported_only) {
         for (nsname in packages) {
             ns <- workspace$get_namespace(nsname)
+            if (is.null(ns)) {
+                next
+            }
             functs <- ns$functs[startsWith(ns$functs, token)]
             if (nsname == "_workspace_") {
                 tag <- "[workspace]"
@@ -90,13 +93,17 @@ workspace_completion <- function(workspace, token, package = NULL, exported_only
         }
     } else {
         ns <- workspace$get_namespace(package)
-        unexports <- ns$unexports[startsWith(ns$unexports, token)]
-        unexports_completion <- lapply(unexports, function(object) {
-            list(label = object,
-                 kind = CompletionItemKind$Field,
-                 detail = paste0("{", package, "}"))
-        })
-        completions <- c(completions, unexports_completion)
+        if (!is.null(ns)) {
+            unexports <- ns$unexports[startsWith(ns$unexports, token)]
+            unexports_completion <- lapply(unexports, function(object) {
+                list(
+                    label = object,
+                    kind = CompletionItemKind$Field,
+                    detail = paste0("{", package, "}")
+                )
+            })
+            completions <- c(completions, unexports_completion)
+        }
     }
 
     completions
