@@ -22,7 +22,9 @@ Imports:
     stringr,
     styler (>= 1.0.2),
     tools,
-    utils
+    utils,
+    xml2,
+    xmlparsedata
 Suggests:
     processx,
     knitr,

@@ -6,6 +6,7 @@
 #' @keywords internal
 Workspace <- R6::R6Class("Workspace",
     private = list(
+        parse_data = list(),
         global_env = list(nonfuncts = character(0),
                           functs = character(0),
                           signatures = list(),
@@ -149,7 +150,18 @@ Workspace <- R6::R6Class("Workspace",
             }
         },
 
+        get_parse_data = function(uri) {
+            private$parse_data[[uri]]
+        },
+
         parse_file = function(uri, parse_data) {
+            if (!is.null(parse_data$xml_file) && 
+                file.exists(parse_data$xml_file)) {
+                parse_data$xml_doc <- xml2::read_xml(parse_data$xml_file)
+                file.remove(parse_data$xml_file)
+            }
+
+            private$parse_data[[uri]] <- parse_data
             private$global_env$nonfuncts <- unique(
                 c(private$global_env$nonfuncts, parse_data$nonfuncts))
             private$global_env$functs <- unique(
@@ -168,11 +180,13 @@ Workspace <- R6::R6Class("Workspace",
 #'
 #' internal use only
 #' @param uri the file uri
+#' @param temp_dir the temporary directory to store intermediate files
 #' @param temp_file the file to lint, determine from \code{uri} if \code{NULL}
 #' @param run_lintr set \code{FALSE} to disable lintr diagnostics
 #' @param parse set \code{FALSE} to disable parsing file
+#' @param resolve set \code{FALSE} to disable resolving package dependencies
 #' @export
-workspace_sync <- function(uri, temp_file = NULL, run_lintr = TRUE, parse = FALSE) {
+workspace_sync <- function(uri, temp_dir = NULL, temp_file = NULL, run_lintr = TRUE, parse = FALSE, resolve = FALSE) {
     if (is.null(temp_file)) {
         path <- path_from_uri(uri)
     } else {
@@ -180,8 +194,11 @@ workspace_sync <- function(uri, temp_file = NULL, run_lintr = TRUE, parse = FALS
     }
 
     if (parse) {
-        parse_data <- tryCatch(parse_document(path), error = function(e) NULL)
+        parse_data <- tryCatch(parse_document(path, temp_dir), error = function(e) NULL)
         # parse_data <- parse_document(path)
+        if (resolve) {
+            parse_data$packages <- resolve_package_dependencies(parse_data$packages)
+        }
     } else {
         parse_data <- NULL
     }
@@ -224,6 +241,7 @@ process_sync_in <- function(self) {
         item <- sync_in$pop(uri)
         run_lintr <- item$run_lintr && self$run_lintr
         parse <- parse || item$parse
+        resolve <- item$resolve
         doc <- item$document
         path <- path_from_uri(uri)
         if (is.null(doc)) {
@@ -240,9 +258,11 @@ process_sync_in <- function(self) {
                     function(...) languageserver::workspace_sync(...),
                     list(
                         uri = uri,
+                        temp_dir = tempdir(),
                         temp_file = temp_file,
                         run_lintr = run_lintr,
-                        parse = parse
+                        parse = parse,
+                        resolve = resolve
                     ),
                     system_profile = TRUE, user_profile = TRUE
                 ),

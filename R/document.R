@@ -157,6 +157,8 @@ parse_env <- function() {
     env$formals <- list()
     env$signatures <- list()
     env$definition_ranges <- list()
+    env$xml_file <- NULL
+    env$xml_doc <- NULL
     env
 }
 
@@ -167,7 +169,7 @@ parse_env <- function() {
 #' signatures in the document in order to add them to the current [Workspace].
 #'
 #' @keywords internal
-parse_document <- function(path) {
+parse_document <- function(path, tmpdir) {
     temp_file <- NULL
     on.exit({
         if (!is.null(temp_file) && file.exists(temp_file)) {
@@ -176,7 +178,7 @@ parse_document <- function(path) {
     })
     is_rmd <- is_rmarkdown(path)
     if (is_rmd) {
-        temp_file <- tempfile(fileext = ".R")
+        temp_file <- tempfile(fileext = ".R", tmpdir = tmpdir)
         path <- tryCatch({
             knitr::purl(path, output = temp_file, quiet = TRUE)
         },
@@ -186,8 +188,13 @@ parse_document <- function(path) {
     expr <- tryCatch(parse(path, keep.source = TRUE), error = function(e) NULL)
     env <- parse_env()
     parse_expr(expr, env, is_rmd = is_rmd)
-    env$packages <- resolve_package_dependencies(env$packages)
     fix_definition_ranges(env, path)
+    env$xml_file <- tryCatch({
+        xml_text <- xmlparsedata::xml_parse_data(expr)
+        xml_file <- tempfile(basename(path), tmpdir = tmpdir, fileext = ".xml")
+        write(xml_text, xml_file)
+        xml_file
+    }, error = function(e) NULL)
     env
 }
 
