@@ -146,8 +146,10 @@ scope_completion <- function(uri, workspace, token, position) {
         "expr/RIGHT_ASSIGN/following-sibling::expr/SYMBOL/text()"))
     equal_assign_symbols <- xml2::xml_text(xml2::xml_find_all(enclosing_scopes, 
         "equal_assign/expr[1]/SYMBOL/text()"))
+    for_symbols <- xml2::xml_text(xml2::xml_find_all(enclosing_scopes,
+        "forcond/SYMBOL/text()"))
     scope_symbols <- unique(c(symbol_formals, left_assign_symbols,
-        right_assign_symbols, equal_assign_symbols))
+        right_assign_symbols, equal_assign_symbols, for_symbols))
 
     scope_symbols <- scope_symbols[startsWith(scope_symbols, token)]
     completions <- lapply(scope_symbols, function(symbol) {
