@@ -181,14 +181,14 @@ completion_reply <- function(id, uri, workspace, document, position) {
         if (is.null(package)) {
             completions <- c(
                 completions,
-                package_completion(token))
+                constant_completion(token),
+                package_completion(token),
+                scope_completion(uri, workspace, token, position))
         }
         completions <- c(
             completions,
-            constant_completion(token),
             workspace_completion(
-                workspace, token, package, token_result$accessor == "::"),
-            scope_completion(uri, workspace, token, position))
+                workspace, token, package, token_result$accessor == "::"))
     }
 
     call_result <- document$detect_call(position)
