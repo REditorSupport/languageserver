@@ -91,21 +91,8 @@ let g:LanguageClient_serverCommands = {
 
 ### Linters
 
-With [lintr](https://github.com/jimhester/lintr) master branch, the linters can be specified by creating the `.lintr` file at the project or home directory. Details can be found at lintr [documentation](https://github.com/jimhester/lintr#project-configuration).
+With [lintr](https://github.com/jimhester/lintr) v2.0.0, the linters can be specified by creating the `.lintr` file at the project or home directory. Details can be found at lintr [documentation](https://github.com/jimhester/lintr#project-configuration). The option `languageserver.default_linters` is now deprecated in favor of the `.lintr` approach.
 
-Until a new version of lintr is released, you could consider the following settings in `.Rprofile`:
-
-```r
-setHook(
-    packageEvent("languageserver", "onLoad"),
-    function(...) {
-        options(languageserver.default_linters = lintr::with_defaults(
-            line_length_linter = lintr::line_length_linter(100),
-            object_usage_linter = NULL
-        ))
-    }
-)
-```
 
 ### Customizing formatting style
 

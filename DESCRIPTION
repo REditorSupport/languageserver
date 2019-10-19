@@ -18,7 +18,7 @@ Imports:
     collections (>= 0.2.0),
     desc,
     jsonlite,
-    lintr (>= 1.0.3),
+    lintr (>= 2.0.0),
     R6,
     readr,
     repr,
