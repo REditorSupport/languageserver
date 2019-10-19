@@ -33,7 +33,7 @@ constants <- c("TRUE", "FALSE", "NULL",
     "NA", "NA_integer_", "NA_real_", "NA_complex_", "NA_character_", 
     "Inf", "NaN")
 
-#' Complete langauge constants
+#' Complete language constants
 #' @keywords internal
 constant_completion <- function(token) {
     consts <- constants[startsWith(constants, token)]
