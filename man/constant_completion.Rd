@@ -2,11 +2,11 @@
 % Please edit documentation in R/completion.R
 \name{constant_completion}
 \alias{constant_completion}
-\title{Complete langauge constants}
+\title{Complete language constants}
 \usage{
 constant_completion(token)
 }
 \description{
-Complete langauge constants
+Complete language constants
 }
 \keyword{internal}
