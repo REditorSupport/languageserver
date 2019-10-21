@@ -10,7 +10,8 @@ test_that("Simple completion works", {
             "str",
             "file.c",
             "fs::path",
-            "foo$sol"
+            "foo$sol",
+            ".Mac"
         ),
         temp_file)
 
@@ -30,6 +31,9 @@ test_that("Simple completion works", {
 
     result <- client %>% respond_completion(temp_file, c(3, 7))
     expect_length(result$items, 0)
+
+    result <- client %>% respond_completion(temp_file, c(4, 4))
+    expect_length(result$items %>% keep(~.$label == ".Machine"), 1)
 })
 
 
