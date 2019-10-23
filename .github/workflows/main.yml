@@ -52,8 +52,8 @@ jobs:
         sudo installer -pkg ~/R.pkg -target /
     - name: Install languagesever
       run: |
-        R --slave -e "install.packages('devtools', repos = 'https://cloud.r-project.org')"
-        R --slave -e "devtools::install(repos = 'https://cloud.r-project.org', upgrade = 'never')"
+        R --slave -e "install.packages('devtools', repos = 'https://cloud.r-project.org', type = 'mac.binary.el-capitan')"
+        R --slave -e "devtools::install(repos = 'https://cloud.r-project.org', upgrade = 'never', type = 'mac.binary.el-capitan')"
       shell:
         bash
     - name: Running Tests
@@ -93,7 +93,7 @@ jobs:
     - name: Install languagesever
       run: |
         $env:TZ = "PST8PDT"
-        C:\R\bin\R --slave -e "install.packages('devtools', repos = 'https://cloud.r-project.org')"
+        C:\R\bin\R --slave -e "install.packages('devtools', repos = 'https://cloud.r-project.org', type = 'win.binary')"
         C:\R\bin\R --slave -e "devtools::install(repos = 'https://cloud.r-project.org', upgrade = 'never', type = 'win.binary')"
       shell:
         pwsh

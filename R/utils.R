@@ -190,7 +190,7 @@ look_forward <- function(text) {
 
 look_backward <- function(text) {
     matches <- stringr::str_match(
-        text, "\\b(?<!\\$)(?:([a-zA-Z][a-zA-Z0-9.]+)(:::?))?((?:[^\\W_]|\\.)(?:[^\\W]|\\.)*)?$")
+        text, "(?<!\\$)(?:\\b|(?=\\.))(?:([a-zA-Z][a-zA-Z0-9.]+)(:::?))?((?:[^\\W_]|\\.)(?:[^\\W]|\\.)*)?$")
     list(
         full_token = na_to_empty_string(matches[1]),
         package  = na_to_empty_string(matches[2]),
