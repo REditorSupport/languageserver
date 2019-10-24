@@ -133,12 +133,12 @@ content_backward_search <- function(content, row, column, char, skip_empty_line 
 
 # The parsing result returned by `parse` is based on number of bytes in UTF-8.
 # Thus the position information is wrong, we need to fix the position afterwards.
-fix_definition_ranges <- function(env, path) {
+fix_definition_ranges <- function(env, lines) {
     functs <- names(env$definition_ranges)
     for (funct in functs) {
         range <- env$definition_ranges[[funct]]
-        start_text <- readr::read_lines(path, skip = range$start$line, n_max = 1)
-        end_text <- readr::read_lines(path, skip = range$end$line, n_max = 1)
+        start_text <- lines[range$start$line + 1]
+        end_text <- lines[range$end$line + 1]
         start_col <- code_point_to_unit(start_text, range$start$character)
         end_col <- code_point_to_unit(end_text, range$end$character)
         env$definition_ranges[[funct]] <- range(
@@ -188,7 +188,7 @@ parse_document <- function(path, tmpdir) {
     expr <- tryCatch(parse(path, keep.source = TRUE), error = function(e) NULL)
     env <- parse_env()
     parse_expr(expr, env, is_rmd = is_rmd)
-    fix_definition_ranges(env, path)
+    fix_definition_ranges(env, attr(expr, "srcfile")$lines)
     env$xml_file <- tryCatch({
         xml_text <- xmlparsedata::xml_parse_data(expr)
         xml_file <- tempfile(basename(path), tmpdir = tmpdir, fileext = ".xml")
