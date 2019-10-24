@@ -139,8 +139,8 @@ fix_definition_ranges <- function(env, path) {
         range <- env$definition_ranges[[funct]]
         start_text <- readr::read_lines(path, skip = range$start$line, n_max = 1)
         end_text <- readr::read_lines(path, skip = range$end$line, n_max = 1)
-        start_col <- utf8_to_utf16_code_point(start_text, range$start$character)
-        end_col <- utf8_to_utf16_code_point(end_text, range$end$character)
+        start_col <- code_point_to_unit(start_text, range$start$character)
+        end_col <- code_point_to_unit(end_text, range$end$character)
         env$definition_ranges[[funct]] <- range(
             position(range$start$line, start_col),
             position(range$end$line, end_col)

@@ -76,19 +76,6 @@ code_point_to_unit <- function(line, pts) {
 }
 
 
-#' Determinal utf16 code points given utf8 code points
-#'
-#' @param line a character of text
-#' @param pts 0-indexed code points
-#'
-#' @keywords internal
-utf8_to_utf16_code_point <- function(line, pts) {
-    utf16cp <- c(0, cumsum(ncodeunit(strsplit(line, "")[[1]])))
-    utf8cp <- c(0, cumsum(nchar(strsplit(line, "")[[1]], type = "bytes")))
-    utf16cp[match(pts, utf8cp)]
-}
-
-
 #' Check if a path is a directory
 #' @keywords internal
 is_directory <- function(path) {
