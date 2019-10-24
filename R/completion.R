@@ -29,8 +29,8 @@ CompletionItemKind <- list(
     TypeParameter = 25
 )
 
-constants <- c("TRUE", "FALSE", "NULL", 
-    "NA", "NA_integer_", "NA_real_", "NA_complex_", "NA_character_", 
+constants <- c("TRUE", "FALSE", "NULL",
+    "NA", "NA_integer_", "NA_real_", "NA_complex_", "NA_character_",
     "Inf", "NaN")
 
 #' Complete language constants
@@ -123,7 +123,7 @@ workspace_completion <- function(workspace, token, package = NULL, exported_only
 }
 
 find_enclosing_scopes <- function(x, line, col) {
-    xpath <- sprintf("//expr[(@line1 < %d or (@line1 = %d and @col1 <= %d)) and 
+    xpath <- sprintf("//expr[(@line1 < %d or (@line1 = %d and @col1 <= %d)) and
         (@line2 > %d or (@line2 = %d and @col2 >= %d))]",
         line, line, col, line, line, col)
     xml2::xml_find_all(x, xpath)
@@ -135,16 +135,16 @@ scope_completion <- function(uri, workspace, token, position) {
         return(list())
     }
 
-    enclosing_scopes <- find_enclosing_scopes(xml_doc, 
+    enclosing_scopes <- find_enclosing_scopes(xml_doc,
         position$line + 1, position$character + 1)
-    
-    symbol_formals <- xml2::xml_text(xml2::xml_find_all(enclosing_scopes, 
+
+    symbol_formals <- xml2::xml_text(xml2::xml_find_all(enclosing_scopes,
         "expr[FUNCTION]/SYMBOL_FORMALS/text()"))
-    left_assign_symbols <- xml2::xml_text(xml2::xml_find_all(enclosing_scopes, 
+    left_assign_symbols <- xml2::xml_text(xml2::xml_find_all(enclosing_scopes,
         "expr/LEFT_ASSIGN/preceding-sibling::expr/SYMBOL/text()"))
-    right_assign_symbols <- xml2::xml_text(xml2::xml_find_all(enclosing_scopes, 
+    right_assign_symbols <- xml2::xml_text(xml2::xml_find_all(enclosing_scopes,
         "expr/RIGHT_ASSIGN/following-sibling::expr/SYMBOL/text()"))
-    equal_assign_symbols <- xml2::xml_text(xml2::xml_find_all(enclosing_scopes, 
+    equal_assign_symbols <- xml2::xml_text(xml2::xml_find_all(enclosing_scopes,
         "equal_assign/expr[1]/SYMBOL/text()"))
     for_symbols <- xml2::xml_text(xml2::xml_find_all(enclosing_scopes,
         "forcond/SYMBOL/text()"))
