@@ -1,3 +1,23 @@
+languageserver 0.3.2
+
+   - read other header fields
+   - require newer version of collections
+   - allow colon to trigger completion
+   - specify kind for non exported package objects
+   - Only provide package exported objects at :: (#84)
+   - run tests on github actions
+   - implementation of scope completion using xpath
+   - Allow user customizable formatting style
+   - use readr's read_lines and write_lines
+   - use a better function name
+   - Provide completion for language constants
+   - bump lintr to 2.0.0
+
+  Contributors:
+   - Kun Ren
+   - Randy Lai
+
+
 languageserver 0.3.1
 
    - Recursive parsing (#56)

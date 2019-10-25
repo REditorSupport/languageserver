@@ -1,8 +1,8 @@
 Type: Package
 Package: languageserver
 Title: Language Server Protocol
-Version: 0.3.1
-Date: 2019-9-27
+Version: 0.3.2
+Date: 2019-10-25
 Author: Randy Lai
 Maintainer: Randy Lai <randy.cs.lai@gmail.com>
 Description: An implementation of the Language Server Protocol for R. The
