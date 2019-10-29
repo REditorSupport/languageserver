@@ -18,7 +18,7 @@ Namespace <- R6::R6Class("Namespace",
             self$exports <- sanitize_names(getNamespaceExports(ns))
             self$unexports <- setdiff(objects, self$exports)
             isf <- vapply(self$exports, function(x) {
-                        is.function(get(x, envir = ns))}, logical(1L))
+                        is.function(get(x, envir = ns))}, logical(1L), USE.NAMES = FALSE)
             self$functs <- self$exports[isf]
             self$nonfuncts <- setdiff(self$exports, self$functs)
         },
