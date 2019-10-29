@@ -106,18 +106,18 @@ ncodeunit <- function(s) {
 }
 
 
-#' Determinal code units given code points
+#' Determinal code points given code units
 #'
 #' @param line a character of text
-#' @param pts 0-indexed code points
+#' @param units 0-indexed code points
 #'
 #' @keywords internal
-code_point_to_unit <- function(line, pts) {
-    if (!nzchar(line)) return(pts)
+code_point_from_unit <- function(line, units) {
+    if (!nzchar(line)) return(units)
     offsets <- cumsum(ncodeunit(strsplit(line, "")[[1]]))
     loc_map <- match(seq_len(utils::tail(offsets, 1)), offsets)
-    result <- c(0, loc_map)[pts + 1]
-    result[is.infinite(pts)] <- nchar(line)
+    result <- c(0, loc_map)[units + 1]
+    result[is.infinite(units)] <- nchar(line)
     result
 }
 

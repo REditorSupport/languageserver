@@ -37,7 +37,7 @@ Document <- R6::R6Class(
         line_substr = function(row, start = 0, end = Inf) {
             # start and end are based on UTF-16
             line <- self$line0(row)
-            pos <- code_point_to_unit(line, c(start, end))
+            pos <- code_point_from_unit(line, c(start, end))
             substr(line, pos[1] + 1, pos[2])
         },
 
@@ -68,7 +68,7 @@ Document <- R6::R6Class(
         detect_call = function(position) {
             row <- position$line
             text <- self$line0(row)
-            column <- code_point_to_unit(text, position$character)
+            column <- code_point_from_unit(text, position$character)
 
             if (position$character > 0) {
                 loc <- content_backward_search(self$content, row, column - 1, "(")
@@ -93,7 +93,7 @@ Document <- R6::R6Class(
         detect_token = function(position, forward = TRUE) {
             row <- position$line
             text <- self$line0(row)
-            col <- code_point_to_unit(text, position$character)
+            col <- code_point_from_unit(text, position$character)
 
             result <- self$find_token(row, col, forward = forward)
 
@@ -139,8 +139,8 @@ fix_definition_ranges <- function(env, lines) {
         range <- env$definition_ranges[[funct]]
         start_text <- lines[range$start$line + 1]
         end_text <- lines[range$end$line + 1]
-        start_col <- code_point_to_unit(start_text, range$start$character)
-        end_col <- code_point_to_unit(end_text, range$end$character)
+        start_col <- code_point_from_unit(start_text, range$start$character)
+        end_col <- code_point_from_unit(end_text, range$end$character)
         env$definition_ranges[[funct]] <- range(
             position(range$start$line, start_col),
             position(range$end$line, end_col)
