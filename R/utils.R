@@ -45,11 +45,43 @@ is_rmarkdown <- function(uri) {
 check_scope <- function(uri, document, position) {
     if (is_rmarkdown(uri)) {
         line <- position$line
-        !identical(sum(vapply(
-            document$content[1:(line + 1)], startsWith, integer(1), "```")) %% 2, 0)
+        flags <- vapply(
+            document$content[1:(line + 1)], startsWith, logical(1), "```", USE.NAMES = F)
+        if (any(flags)) {
+            last_match <- document$content[max(which(flags))]
+            stringr::str_detect(last_match, "```\\{r[ ,\\}]") && !identical(sum(flags) %% 2, 0)
+        } else {
+            FALSE
+        }
     } else {
         TRUE
     }
+}
+
+
+#' Safer version of `seq` which returns empty vector if b < a
+#' @keywords internal
+safe_seq <- function(a, b) {
+    seq(a, b, length = max(0, b - a + 1))
+}
+
+#' A version of knitr::purl but it doesn't delete empty lines between blocks
+#' @keywords internal
+purl <- function(path, output) {
+    content <- readr::read_lines(path)
+    begins_or_ends <- which(stringr::str_detect(content, "```"))
+    begins <- which(stringr::str_detect(content, "```\\{r[ ,\\}]"))
+    ends <- setdiff(begins_or_ends, begins)
+    keeps <- integer()
+    for (b in begins) {
+        z <- which(ends > b)
+        if (length(z) == 0) break
+        e <- ends[min(z)]
+        keeps <- c(keeps, safe_seq(b + 1, e - 1))
+    }
+    content[seq_len(length(content))[-keeps]] <- ""
+    readr::write_lines(content, output)
+    output
 }
 
 
