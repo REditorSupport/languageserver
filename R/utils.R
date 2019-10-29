@@ -65,22 +65,36 @@ safe_seq <- function(a, b) {
     seq(a, b, length = max(0, b - a + 1))
 }
 
+
+#' Extract the R code blocks of a Rmarkdown file
+#' @keywords internal
+extract_blocks <- function(content) {
+    begins_or_ends <- which(stringr::str_detect(content, "```"))
+    begins <- which(stringr::str_detect(content, "```\\{r[ ,\\}]"))
+    ends <- setdiff(begins_or_ends, begins)
+    blocks <- list()
+    for (begin in begins) {
+        z <- which(ends > begin)
+        if (length(z) == 0) break
+        end <- ends[min(z)]
+        lines <- safe_seq(begin + 1, end - 1)
+        if (length(lines) > 0) {
+            blocks[[length(blocks) + 1]] <- list(lines = lines, text = content[lines])
+        }
+    }
+    blocks
+}
+
 #' A version of knitr::purl but it doesn't delete empty lines between blocks
 #' @keywords internal
 purl <- function(path, output) {
     content <- readr::read_lines(path)
-    begins_or_ends <- which(stringr::str_detect(content, "```"))
-    begins <- which(stringr::str_detect(content, "```\\{r[ ,\\}]"))
-    ends <- setdiff(begins_or_ends, begins)
-    keeps <- integer()
-    for (b in begins) {
-        z <- which(ends > b)
-        if (length(z) == 0) break
-        e <- ends[min(z)]
-        keeps <- c(keeps, safe_seq(b + 1, e - 1))
+    blocks <- extract_blocks(content)
+    rmd_content <- rep("", length(content))
+    for (block in blocks) {
+        rmd_content[block$lines] <- content[block$lines]
     }
-    content[seq_len(length(content))[-keeps]] <- ""
-    readr::write_lines(content, output)
+    readr::write_lines(rmd_content, output)
     output
 }
 

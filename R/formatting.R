@@ -8,29 +8,6 @@ get_style <- function(options) {
     style
 }
 
-#' Style a file
-#'
-#' This functions formats a document using [styler::style_file()] with the
-#' specified style.
-#'
-#' @keywords internal
-style_file <- function(path, style) {
-    document <- readr::read_lines(path)
-    if (is_rmarkdown(path)) {
-        temp_file <- tempfile(fileext = ".Rmd")
-    } else {
-        temp_file <- tempfile(fileext = ".R")
-    }
-    readr::write_lines(document, temp_file)
-    styler::style_file(temp_file,
-        transformers = style
-    )
-    contents <- readr::read_lines(temp_file)
-    file.remove(temp_file)
-    paste(contents, collapse = "\n")
-}
-
-
 #' Edit code style
 #'
 #' This functions formats a list of text using [styler::style_text()] with the
@@ -56,23 +33,46 @@ style_text <- function(text, style, indentation = "") {
 #' Format a document
 #' @keywords internal
 formatting_reply <- function(id, uri, document, options) {
-    # do not use `style_file` because the changes are not necessarily saved on disk.
     style <- get_style(options)
-    new_text <- style_text(document$content, style)
-    if (is.null(new_text)) {
-        return(Response$new(id, list()))
-    }
     nline <- document$nline
-    range <- range(
-        start = position(line = 0, character = 0),
-        end = if (nline) {
-            position(line = nline - 1, character = ncodeunit(document$line(nline)))
-        } else {
-              position(line = 0, character = 0)
-          }
-    )
-    TextEdit <- text_edit(range = range, new_text = new_text)
-    TextEditList <- list(TextEdit)
+    if (document$is_rmarkdown) {
+        logger$info("formatting R markdown file")
+        blocks <- extract_blocks(document$content)
+        if (length(blocks) == 0) {
+            return(Response$new(id, list()))
+        }
+        TextEditList <- list()
+        for (block in blocks) {
+            new_text <- style_text(block$text, style)
+            if (is.null(new_text)) {
+                new_text <- block$text
+            }
+            a <- min(block$lines)
+            b <- max(block$lines)
+            range <- range(
+                start = position(line = a - 1, character = 0),
+                end = position(line = b - 1, character = ncodeunit(document$line(b)))
+            )
+            TextEdit <- text_edit(range = range, new_text = new_text)
+            TextEditList[[length(TextEditList) + 1]] <- TextEdit
+        }
+    } else {
+        logger$info("formatting R file")
+        new_text <- style_text(document$content, style)
+        if (is.null(new_text)) {
+            return(Response$new(id, list()))
+        }
+        range <- range(
+            start = position(line = 0, character = 0),
+            end = if (nline) {
+                position(line = nline - 1, character = ncodeunit(document$line(nline)))
+            } else {
+                position(line = 0, character = 0)
+            }
+        )
+        TextEdit <- text_edit(range = range, new_text = new_text)
+        TextEditList <- list(TextEdit)
+    }
     Response$new(id, TextEditList)
 }
 
