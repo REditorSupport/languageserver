@@ -45,11 +45,57 @@ is_rmarkdown <- function(uri) {
 check_scope <- function(uri, document, position) {
     if (is_rmarkdown(uri)) {
         line <- position$line
-        !identical(sum(vapply(
-            document$content[1:(line + 1)], startsWith, integer(1), "```")) %% 2, 0)
+        flags <- vapply(
+            document$content[1:(line + 1)], startsWith, logical(1), "```", USE.NAMES = F)
+        if (any(flags)) {
+            last_match <- document$content[max(which(flags))]
+            stringr::str_detect(last_match, "```\\{r[ ,\\}]") && !identical(sum(flags) %% 2, 0)
+        } else {
+            FALSE
+        }
     } else {
         TRUE
     }
+}
+
+
+#' Safer version of `seq` which returns empty vector if b < a
+#' @keywords internal
+safe_seq <- function(a, b) {
+    seq(a, b, length = max(0, b - a + 1))
+}
+
+
+#' Extract the R code blocks of a Rmarkdown file
+#' @keywords internal
+extract_blocks <- function(content) {
+    begins_or_ends <- which(stringr::str_detect(content, "```"))
+    begins <- which(stringr::str_detect(content, "```\\{r[ ,\\}]"))
+    ends <- setdiff(begins_or_ends, begins)
+    blocks <- list()
+    for (begin in begins) {
+        z <- which(ends > begin)
+        if (length(z) == 0) break
+        end <- ends[min(z)]
+        lines <- safe_seq(begin + 1, end - 1)
+        if (length(lines) > 0) {
+            blocks[[length(blocks) + 1]] <- list(lines = lines, text = content[lines])
+        }
+    }
+    blocks
+}
+
+#' A version of knitr::purl but it doesn't delete empty lines between blocks
+#' @keywords internal
+purl <- function(path, output) {
+    content <- readr::read_lines(path)
+    blocks <- extract_blocks(content)
+    rmd_content <- rep("", length(content))
+    for (block in blocks) {
+        rmd_content[block$lines] <- content[block$lines]
+    }
+    readr::write_lines(rmd_content, output)
+    output
 }
 
 

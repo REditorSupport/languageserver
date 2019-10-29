@@ -179,15 +179,16 @@ parse_document <- function(path, tmpdir) {
     is_rmd <- is_rmarkdown(path)
     if (is_rmd) {
         temp_file <- tempfile(fileext = ".R", tmpdir = tmpdir)
+        # keep the R blocks in place
         path <- tryCatch({
-            knitr::purl(path, output = temp_file, quiet = TRUE)
+            purl(path, output = temp_file)
         },
         error = function(e) path
         )
     }
     expr <- tryCatch(parse(path, keep.source = TRUE), error = function(e) NULL)
     env <- parse_env()
-    parse_expr(expr, env, is_rmd = is_rmd)
+    parse_expr(expr, env)
     fix_definition_ranges(env, attr(expr, "srcfile")$lines)
     env$xml_file <- tryCatch({
         xml_text <- xmlparsedata::xml_parse_data(expr)
@@ -199,7 +200,7 @@ parse_document <- function(path, tmpdir) {
 }
 
 
-parse_expr <- function(expr, env, level = 0L, srcref = attr(expr, "srcref"), is_rmd = FALSE) {
+parse_expr <- function(expr, env, level = 0L, srcref = attr(expr, "srcref")) {
     if (length(expr) == 0L || is.symbol(expr)) {
           return(env)
       }
@@ -239,18 +240,16 @@ parse_expr <- function(expr, env, level = 0L, srcref = attr(expr, "srcref"), is_
                 signature <- trimws(gsub("NULL\\s*$", "", signature))
                 env$signatures[[funct]] <- signature
 
-                if (!is_rmd) {
-                    # R is 1-indexed, language server is 0-indexed
-                    first_line <- cur_srcref[1] - 1
-                    first_char <- cur_srcref[5] - 1
-                    last_line <- cur_srcref[3] - 1
-                    last_char <- cur_srcref[6]
-                    definition_range <- range(
-                        position(first_line, first_char),
-                        position(last_line, last_char)
-                    )
-                    env$definition_ranges[[funct]] <- definition_range
-                }
+                # R is 1-indexed, language server is 0-indexed
+                first_line <- cur_srcref[1] - 1
+                first_char <- cur_srcref[5] - 1
+                last_line <- cur_srcref[3] - 1
+                last_char <- cur_srcref[6]
+                definition_range <- range(
+                    position(first_line, first_char),
+                    position(last_line, last_char)
+                )
+                env$definition_ranges[[funct]] <- definition_range
             } else {
                 env$nonfuncts <- c(env$nonfuncts, funct)
             }
