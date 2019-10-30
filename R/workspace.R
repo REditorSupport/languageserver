@@ -10,12 +10,13 @@ Workspace <- R6::R6Class("Workspace",
         global_env = list(nonfuncts = character(0),
                           functs = character(0),
                           signatures = list(),
-                          formals = list()),
+                          formals = list(),
+                          lazydata = character()),
         namespaces = list(),
         definitions = NULL
     ),
     public = list(
-        loaded_packages = c("base", "stats", "methods", "utils", "graphics", "grDevices"),
+        loaded_packages = c("base", "stats", "methods", "utils", "graphics", "grDevices", "datasets"),
 
         initialize = function() {
             for (pkgname in self$loaded_packages) {

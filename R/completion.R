@@ -100,9 +100,16 @@ workspace_completion <- function(workspace, token, package = NULL, exported_only
                      kind = CompletionItemKind$Field,
                      detail = tag)
             })
+            lazydata <- ns$lazydata[startsWith(ns$lazydata, token)]
+            lazydata_completions <- lapply(lazydata, function(object) {
+                list(label = object,
+                     kind = CompletionItemKind$Field,
+                     detail = tag)
+            })
             completions <- c(completions,
                 functs_completions,
-                nonfuncts_completions)
+                nonfuncts_completions,
+                lazydata_completions)
         }
     } else {
         ns <- workspace$get_namespace(package)
