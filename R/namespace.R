@@ -10,6 +10,7 @@ Namespace <- R6::R6Class("Namespace",
         unexports = NULL,
         functs = NULL,
         nonfuncts = NULL,
+        lazydata = NULL,
 
         initialize = function(pkgname) {
             self$package_name <- pkgname
@@ -21,6 +22,8 @@ Namespace <- R6::R6Class("Namespace",
                         is.function(get(x, envir = ns))}, logical(1L), USE.NAMES = FALSE)
             self$functs <- self$exports[isf]
             self$nonfuncts <- setdiff(self$exports, self$functs)
+            self$lazydata <- if (length(ns$.__NAMESPACE__.$lazydata))
+                objects(ns$.__NAMESPACE__.$lazydata) else character()
         },
 
         exists = function(objname) {
