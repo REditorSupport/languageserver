@@ -114,7 +114,7 @@ print.document_uri <- function(x, start_char = "", ...) {
   cat(start_char, "<DocumentURI>", unclass(x))
 }
 
-#' Non-hierachical symbol information
+#' Non-hierarchical symbol information
 #'
 #' @param name a character
 #' @param kind an integer

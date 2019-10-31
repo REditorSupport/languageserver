@@ -1,7 +1,7 @@
 # languageserver: An implementation of the Language Server Protocol for R
 
 [![Build Status](https://travis-ci.org/REditorSupport/languageserver.svg?branch=master)](https://travis-ci.org/REditorSupport/languageserver)
-[![Github Action](https://github.com/REditorSupport/languageserver/workflows/build/badge.svg?branch=master)](https://github.com/REditorSupport/languageserver/actions)
+[![Github Action](https://github.com/REditorSupport/languageserver/workflows/build/badge.svg?branch=master)](https://github.com/REditorSupport/languageserver)
 [![CRAN\_Status\_Badge](http://www.r-pkg.org/badges/version/languageserver)](https://cran.r-project.org/package=languageserver)
 [![](http://cranlogs.r-pkg.org/badges/grand-total/languageserver)](https://cran.r-project.org/package=languageserver)
 
@@ -101,7 +101,7 @@ The language server uses [`styler`](https://github.com/r-lib/styler) to perform 
 options](https://microsoft.github.io/language-server-protocol/specifications/specification-3-14/#textDocument_formatting).
 
 The formatting style can be customized by specifying `languageserver.formatting_style` option which
-is suppoed to be a function that accepts an `options` argument mentioned above. You could consider to put the code in `.Rprofile`.
+is supposed to be a function that accepts an `options` argument mentioned above. You could consider to put the code in `.Rprofile`.
 
 [`styler::tidyverse_style`](<https://styler.r-lib.org/reference/tidyverse_style.html>) provides numerous arguments to customize the formatting behavior. For example, to make it only work at indention scope:
 

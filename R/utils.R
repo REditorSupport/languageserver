@@ -106,7 +106,7 @@ ncodeunit <- function(s) {
 }
 
 
-#' Determinal code points given code units
+#' Determine code points given code units
 #'
 #' @param line a character of text
 #' @param units 0-indexed code points

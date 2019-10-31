@@ -55,7 +55,7 @@ on_shutdown <- function(self, id, params) {
 
 #' `exit` notification handler
 #'
-#' Hanlder to the `exit` [Notification].
+#' Handler to the `exit` [Notification].
 #' @keywords internal
 on_exit <- function(self, params) {
     self$exit_flag <- TRUE

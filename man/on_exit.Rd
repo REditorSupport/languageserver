@@ -7,6 +7,6 @@
 on_exit(self, params)
 }
 \description{
-Hanlder to the \code{exit} \link{Notification}.
+Handler to the \code{exit} \link{Notification}.
 }
 \keyword{internal}
