@@ -85,17 +85,16 @@ extract_blocks <- function(content) {
     blocks
 }
 
-#' A version of knitr::purl but it doesn't delete empty lines between blocks
+#' Strip out all the non R blocks in a R markdown file
+#' @param content a character vector
 #' @keywords internal
-purl <- function(path, output) {
-    content <- readr::read_lines(path)
+purl <- function(content) {
     blocks <- extract_blocks(content)
     rmd_content <- rep("", length(content))
     for (block in blocks) {
         rmd_content[block$lines] <- content[block$lines]
     }
-    readr::write_lines(rmd_content, output)
-    output
+    rmd_content
 }
 
 

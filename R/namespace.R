@@ -54,7 +54,7 @@ Namespace <- R6::R6Class("Namespace",
 )
 
 
-resolve_package_dependencies <- function(pkgs) {
+resolve_attached_packages <- function(pkgs) {
     if (length(pkgs)) {
         deps <- tryCatch(
             callr::r(
