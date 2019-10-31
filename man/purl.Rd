@@ -2,11 +2,14 @@
 % Please edit documentation in R/utils.R
 \name{purl}
 \alias{purl}
-\title{A version of knitr::purl but it doesn't delete empty lines between blocks}
+\title{Strip out all the non R blocks in a R markdown file}
 \usage{
-purl(path, output)
+purl(content)
+}
+\arguments{
+\item{content}{a character vector}
 }
 \description{
-A version of knitr::purl but it doesn't delete empty lines between blocks
+Strip out all the non R blocks in a R markdown file
 }
 \keyword{internal}
