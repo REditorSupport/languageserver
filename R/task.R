@@ -50,8 +50,8 @@ TaskManager <- R6::R6Class("TaskManager",
     ),
     public = list(
         initialize = function() {
-            private$pending_tasks <- collections::OrderedDict()
-            private$running_tasks <- collections::OrderedDict()
+            private$pending_tasks <- collections::OrderedDictL()
+            private$running_tasks <- collections::OrderedDictL()
             self$run_tasks <- throttle(self$run_tasks_, 0.1)
             # self$run_tasks <- self$run_tasks_
         },
