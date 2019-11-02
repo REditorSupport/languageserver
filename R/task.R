@@ -60,9 +60,10 @@ TaskManager <- R6::R6Class("TaskManager",
         },
         run_tasks = NULL,
         run_tasks_ = function(n = 8) {
+            n <- max(n - private$running_tasks$size(), 0)
             ids <- private$pending_tasks$keys()
             if (length(ids) > n) {
-                ids <- ids[1:n]
+                ids <- ids[seq_len(n)]
             }
             for (id in ids) {
                 if (private$running_tasks$has(id)) {
@@ -92,8 +93,10 @@ TaskManager <- R6::R6Class("TaskManager",
 create_task <- function(target, args, callback = NULL, error = NULL) {
     func <- call(":::", as.name("languageserver"), substitute(target))
     target <- eval(substitute(function(...) func(...), list(func = func)))
-    Task$new(target = target,
-             args = args,
-             callback = callback,
-             error = error)
+    Task$new(
+        target = target,
+        args = args,
+        callback = callback,
+        error = error
+    )
 }
