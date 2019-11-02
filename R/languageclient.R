@@ -2,6 +2,9 @@
 
 LanguageClient <- R6::R6Class("LanguageClient",
     inherit = LanguageBase,
+    private = list(
+        read_char_buf = raw(0)
+    ),
     public = list(
         process = NULL,
         rootUri = NULL,
@@ -31,13 +34,32 @@ LanguageClient <- R6::R6Class("LanguageClient",
         },
 
         read_line = function() {
+            buf <- private$read_char_buf
+            if (length(buf) > 0 && as.raw(10) %in% buf) {
+                first_match <- min(which(buf == as.raw(10)))
+                line <- buf[seq_len(first_match - 1)]
+                if (length(line) > 0 && line[length(line)] == as.raw(13)) {
+                    line <- line[-length(line)]
+                }
+                private$read_char_buf <- buf[safe_seq(first_match + 1, length(buf))]
+                return(rawToChar(line))
+            }
             if (!self$process$is_alive() || self$process$poll_io(1)[1] != "ready") return(NULL)
             line <- self$process$read_output_lines(1)
+            if (length(line) > 0) {
+                line <- paste0(rawToChar(buf), line)
+            }
             trimws(line, "right")
         },
 
         read_char = function(n) {
-            self$process$read_output(n)
+            data <- c(private$read_char_buf, charToRaw(self$process$read_output(n)))
+            if (length(data) > n) {
+                private$read_char_buf <- data[safe_seq(n + 1, length(data))]
+                rawToChar(data[seq_len(0)])
+            } else {
+                rawToChar(data)
+            }
         },
 
         read_error = function() {
