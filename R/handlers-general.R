@@ -33,10 +33,7 @@ on_initialized <- function(self, params) {
         deps <- tryCatch(desc::desc_get_deps(project_root), error = function(e) NULL)
         if (!is.null(deps)) {
             packages <- Filter(function(x) x != "R", deps$package[deps$type == "Depends"])
-            for (package in packages) {
-                logger$info("load package:", package)
-                self$workspace$load_package(package)
-            }
+            self$workspace$load_packages(packages)
         }
     }
     # TODO: result lint result of the package

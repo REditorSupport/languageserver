@@ -157,45 +157,8 @@ parse_env <- function() {
     env$formals <- list()
     env$signatures <- list()
     env$definition_ranges <- list()
-    env$xml_file <- NULL
+    env$xml_data <- NULL
     env$xml_doc <- NULL
-    env
-}
-
-
-#' Parse a document
-#'
-#' Build the list of called packages, functions, variables, formals and
-#' signatures in the document in order to add them to the current [Workspace].
-#'
-#' @keywords internal
-parse_document <- function(path, tmpdir) {
-    temp_file <- NULL
-    on.exit({
-        if (!is.null(temp_file) && file.exists(temp_file)) {
-            file.remove(temp_file)
-        }
-    })
-    is_rmd <- is_rmarkdown(path)
-    if (is_rmd) {
-        temp_file <- tempfile(fileext = ".R", tmpdir = tmpdir)
-        # keep the R blocks in place
-        path <- tryCatch({
-            purl(path, output = temp_file)
-        },
-        error = function(e) path
-        )
-    }
-    expr <- tryCatch(parse(path, keep.source = TRUE), error = function(e) NULL)
-    env <- parse_env()
-    parse_expr(expr, env)
-    fix_definition_ranges(env, attr(expr, "srcfile")$lines)
-    env$xml_file <- tryCatch({
-        xml_text <- xmlparsedata::xml_parse_data(expr)
-        xml_file <- tempfile(basename(path), tmpdir = tmpdir, fileext = ".xml")
-        write(xml_text, xml_file)
-        xml_file
-    }, error = function(e) NULL)
     env
 }
 
@@ -261,4 +224,54 @@ parse_expr <- function(expr, env, level = 0L, srcref = attr(expr, "srcref")) {
         }
     }
     env
+}
+
+
+
+#' Parse a document
+#'
+#' Build the list of called packages, functions, variables, formals and
+#' signatures in the document in order to add them to the current [Workspace].
+#'
+#' @keywords internal
+parse_document <- function(path, content = NULL, resolve = FALSE) {
+    if (is.null(content)) {
+        content <- readr::read_lines(path)
+    }
+    if (is_rmarkdown(path)) {
+        content <- purl(content)
+    }
+    text <- paste0(content, collapse = "\n")
+    expr <- tryCatch(parse(text = text, keep.source = TRUE), error = function(e) NULL)
+    env <- parse_env()
+    parse_expr(expr, env)
+    fix_definition_ranges(env, attr(expr, "srcfile")$lines)
+    if (!is.null(expr)) {
+        xml_data <- xmlparsedata::xml_parse_data(expr)
+        env$xml_data <- xml_data
+    }
+    if (resolve) {
+        env$packages <- resolve_attached_packages(env$packages)
+    }
+    env
+}
+
+
+parse_callback <- function(self, uri, parse_data) {
+    if (is.null(parse_data)) return(NULL)
+    logger$info("parse_callback called")
+    self$workspace$update_prase_data(uri, parse_data)
+}
+
+
+parse_task <- function(self, uri, document, resolve = FALSE) {
+    if (is.null(document)) {
+        content <- NULL
+    } else {
+        content <- document$content
+    }
+    create_task(
+        parse_document,
+        list(path = path_from_uri(uri), content = content, resolve = resolve),
+        callback = function(result) parse_callback(self, uri, result))
 }

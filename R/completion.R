@@ -137,7 +137,7 @@ find_enclosing_scopes <- function(x, line, col) {
 }
 
 scope_completion <- function(uri, workspace, token, position) {
-    xml_doc <- workspace$get_parse_data(uri)$xml_doc
+    xml_doc <- workspace$get_xml_doc(uri)
     if (is.null(xml_doc)) {
         return(list())
     }

@@ -6,14 +6,14 @@
 #' @keywords internal
 Workspace <- R6::R6Class("Workspace",
     private = list(
-        parse_data = list(),
         global_env = list(nonfuncts = character(0),
                           functs = character(0),
                           signatures = list(),
                           formals = list(),
                           lazydata = character()),
         namespaces = list(),
-        definitions = NULL
+        definitions = NULL,
+        xml_docs = list()
     ),
     public = list(
         loaded_packages = c("base", "stats", "methods", "utils", "graphics", "grDevices", "datasets"),
@@ -33,6 +33,12 @@ Workspace <- R6::R6Class("Workspace",
                     self$loaded_packages <- append(self$loaded_packages, pkgname)
                     logger$info("loaded_packages: ", self$loaded_packages)
                 }
+            }
+        },
+
+        load_packages = function(packages) {
+            for (package in packages) {
+                self$load_package(package)
             }
         },
 
@@ -144,18 +150,13 @@ Workspace <- R6::R6Class("Workspace",
             }
         },
 
-        get_parse_data = function(uri) {
-            private$parse_data[[uri]]
+        get_xml_doc = function(uri) {
+            private$xml_docs[[uri]]
         },
 
-        parse_file = function(uri, parse_data) {
-            if (!is.null(parse_data$xml_file) && 
-                file.exists(parse_data$xml_file)) {
-                parse_data$xml_doc <- xml2::read_xml(parse_data$xml_file)
-                file.remove(parse_data$xml_file)
-            }
+        update_prase_data = function(uri, parse_data) {
+            self$load_packages(parse_data$packages)
 
-            private$parse_data[[uri]] <- parse_data
             private$global_env$nonfuncts <- unique(
                 c(private$global_env$nonfuncts, parse_data$nonfuncts))
             private$global_env$functs <- unique(
@@ -164,144 +165,13 @@ Workspace <- R6::R6Class("Workspace",
                 private$global_env$signatures, parse_data$signatures)
             private$global_env$formals <- merge_list(
                 private$global_env$formals, parse_data$formals)
+
             private$definitions$update(uri, parse_data$definition_ranges)
+
+            if (!is.null(parse_data$xml_data)) {
+                private$xml_docs[[uri]] <- tryCatch(
+                    xml2::read_xml(parse_data$xml_data), error = function(e) NULL)
+            }
         }
     )
 )
-
-
-#' Determine workspace information for a given file
-#'
-#' internal use only
-#' @param uri the file uri
-#' @param temp_dir the temporary directory to store intermediate files
-#' @param temp_file the file to lint, determine from \code{uri} if \code{NULL}
-#' @param run_lintr set \code{FALSE} to disable lintr diagnostics
-#' @param parse set \code{FALSE} to disable parsing file
-#' @param resolve set \code{FALSE} to disable resolving package dependencies
-#' @export
-workspace_sync <- function(uri, temp_dir = NULL, temp_file = NULL, run_lintr = TRUE, parse = FALSE, resolve = FALSE) {
-    if (is.null(temp_file)) {
-        path <- path_from_uri(uri)
-    } else {
-        path <- temp_file
-    }
-
-    if (parse) {
-        parse_data <- tryCatch(parse_document(path, temp_dir), error = function(e) NULL)
-        # parse_data <- parse_document(path)
-        if (resolve) {
-            parse_data$packages <- resolve_package_dependencies(parse_data$packages)
-        }
-    } else {
-        parse_data <- NULL
-    }
-
-    if (run_lintr) {
-        diagnostics <- tryCatch(diagnose_file(path), error = function(e) NULL)
-        # diagnostics <- diagnose_file(path)
-    } else {
-        diagnostics <- NULL
-    }
-
-    list(parse_data = parse_data, diagnostics = diagnostics)
-}
-
-
-process_sync_in <- function(self) {
-    sync_in <- self$sync_in
-    sync_out <- self$sync_out
-
-    uris <- sync_in$keys()
-    # avoid heavy cpu usage
-    if (length(uris) > 8) {
-        uris <- uris[1:8]
-    }
-    for (uri in uris) {
-        parse <- FALSE
-        if (sync_out$has(uri)) {
-            item <- sync_out$pop(uri)
-            process <- item$process
-            parse <- item$parse
-            if (process$is_alive()) {
-                tryCatch(process$kill(), error = function(e) NULL)
-            }
-            temp_file <- item$temp_file
-            if (!is.null(temp_file) && file.exists(temp_file)) {
-                file.remove(temp_file)
-            }
-        }
-
-        item <- sync_in$pop(uri)
-        run_lintr <- item$run_lintr && self$run_lintr
-        parse <- parse || item$parse
-        resolve <- item$resolve
-        doc <- item$document
-        path <- path_from_uri(uri)
-        if (is.null(doc)) {
-            temp_file <- NULL
-        } else {
-            temp_file <- tempfile(fileext = if (is_rmarkdown(path)) ".Rmd" else ".R")
-            write(doc$content, file = temp_file)
-        }
-
-        sync_out$set(
-            uri,
-            list(
-                process = callr::r_bg(
-                    function(...) languageserver::workspace_sync(...),
-                    list(
-                        uri = uri,
-                        temp_dir = tempdir(),
-                        temp_file = temp_file,
-                        run_lintr = run_lintr,
-                        parse = parse,
-                        resolve = resolve
-                    ),
-                    system_profile = TRUE, user_profile = TRUE
-                ),
-                parse = parse,
-                temp_file = temp_file
-            )
-        )
-    }
-}
-
-process_sync_out <- function(self) {
-    for (uri in self$sync_out$keys()) {
-        item <- self$sync_out$get(uri)
-        process <- item$process
-
-        if (!is.null(process) && !process$is_alive()) {
-            process_result <- process$get_result()
-            diagnostics <- process_result$diagnostics
-            if (!is.null(diagnostics)) {
-                self$deliver(
-                    Notification$new(
-                        method = "textDocument/publishDiagnostics",
-                        params = list(
-                            uri = uri,
-                            diagnostics = diagnostics
-                        )
-                    )
-                )
-            }
-            parse_data <- process_result$parse_data
-            if (!is.null(parse_data)) {
-                for (package in parse_data$packages) {
-                    logger$info("load package:", package)
-                    self$workspace$load_package(package)
-                }
-
-                self$workspace$parse_file(uri, parse_data)
-            }
-
-            # cleanup
-            self$sync_out$remove(uri)
-            temp_file <- item$temp_file
-            if (!is.null(temp_file) && file.exists(temp_file)) {
-                file.remove(temp_file)
-            }
-        }
-    }
-}

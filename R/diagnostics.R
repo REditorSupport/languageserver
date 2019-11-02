@@ -61,13 +61,47 @@ find_config <- function(filename) {
 #'
 #' Lint and diagnose problems in a file.
 #' @keywords internal
-diagnose_file <- function(path) {
+diagnose_file <- function(path, content = NULL) {
     if (is.null(find_config(path))) {
         linters <- getOption("languageserver.default_linters", NULL)
     } else {
         linters <- NULL
     }
-    diagnostics <- lapply(lintr::lint(path, linters = linters), diagnostic_from_lint)
+    if (is.null(content)) {
+        diagnostics <- lapply(lintr::lint(path, linters = linters), diagnostic_from_lint)
+    } else {
+        # use inline data
+        text <- paste0(content, collapse = "\n")
+        diagnostics <- lapply(lintr::lint(text, linters = linters), diagnostic_from_lint)
+    }
     names(diagnostics) <- NULL
     diagnostics
+}
+
+
+diagnostics_callback <- function(self, uri, diagnostics) {
+    if (is.null(diagnostics)) return(NULL)
+    logger$info("diagnostics_callback called")
+    self$deliver(
+        Notification$new(
+            method = "textDocument/publishDiagnostics",
+            params = list(
+                uri = uri,
+                diagnostics = diagnostics
+            )
+        )
+    )
+}
+
+
+diagnostics_task <- function(self, uri, document) {
+    if (is.null(document)) {
+        content <- NULL
+    } else {
+        content <- document$content
+    }
+    create_task(
+        diagnose_file,
+        list(path = path_from_uri(uri), content = content),
+        callback = function(result) diagnostics_callback(self, uri, result))
 }

@@ -74,9 +74,11 @@ test_that("Go to Definition works for functions in files", {
     expect_equal(result$range$start, list(line = 0, character = 0))
     expect_equal(result$range$end, list(line = 2, character = 1))
 
+
     # move function into different file
     writeLines("", defn_file)
     writeLines(c("my_fn <- function(x) {", "  x + 1", "}"), defn2_file)
+
     client %>% did_save(defn_file)
     client %>% did_save(defn2_file)
 
