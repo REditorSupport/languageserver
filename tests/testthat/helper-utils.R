@@ -9,10 +9,14 @@ defer <- withr::defer
 
 language_client <- function(working_dir = getwd(), debug = FALSE) {
     client <- LanguageClient$new(
-        file.path(R.home("bin"), "R"), c("--slave", "-e", "languageserver::run(debug=TRUE)"))
+        file.path(R.home("bin"), "R"), c("--slave", "-e", "languageserver::run()"))
 
     client$notification_handlers <- list(
-        `textDocument/publishDiagnostics` = function(...) {}
+        `textDocument/publishDiagnostics` = function(self, params) {
+            uri <- params$uri
+            diagnostics <- params$diagnostics
+            self$diagnostics$set(uri, diagnostics)
+        }
     )
 
     client$start(working_dir = working_dir)
@@ -28,6 +32,24 @@ language_client <- function(working_dir = getwd(), debug = FALSE) {
 
 notify <- function(client, method, params = NULL) {
     client$deliver(Notification$new(method, params))
+    invisible(client)
+}
+
+
+did_open <- function(client, path) {
+    text <- paste0(readr::read_lines(path), collapse = "\n")
+    notify(
+        client,
+        "textDocument/didOpen",
+        list(
+            textDocument = list(
+                uri = path_to_uri(path),
+                languageId = "R",
+                version = 1,
+                text = text
+            )
+        )
+    )
     invisible(client)
 }
 
@@ -139,4 +161,32 @@ respond_range_formatting <- function(client, path, start_pos, end_pos, ...) {
             options = list(tabSize = 4, insertSpaces = TRUE)),
         ...
     )
+}
+
+
+wait_for <- function(client, method, timeout = 5) {
+    storage <- new.env()
+    start_time <- Sys.time()
+    remaining <- timeout
+
+    original_handler <- client$notification_handlers[[method]]
+    on.exit({
+        client$notification_handlers[[method]] <- original_handler
+    })
+    client$notification_handlers[[method]] <- function(self, params) {
+        storage$params <- params
+        original_handler(self, params)
+    }
+
+    while (remaining > 0) {
+        data <- client$fetch(blocking = TRUE, timeout = remaining)
+        if (!is.null(data)) {
+            client$handle_raw(data)
+            if (hasName(storage, "params")) {
+                return(storage$params)
+            }
+        }
+        remaining <- (start_time + timeout) - Sys.time()
+    }
+    NULL
 }
