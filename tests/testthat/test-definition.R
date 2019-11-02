@@ -74,13 +74,15 @@ test_that("Go to Definition works for functions in files", {
     expect_equal(result$range$start, list(line = 0, character = 0))
     expect_equal(result$range$end, list(line = 2, character = 1))
 
-
     # move function into different file
     writeLines("", defn_file)
     writeLines(c("my_fn <- function(x) {", "  x + 1", "}"), defn2_file)
 
     client %>% did_save(defn_file)
+    # these `sleep` should not be needed, just to be safe here
+    Sys.sleep(0.1)
     client %>% did_save(defn2_file)
+    Sys.sleep(0.1)
 
     result <- client %>% respond_definition(query_file, c(0, 0),
         retry_when = function(result) {
