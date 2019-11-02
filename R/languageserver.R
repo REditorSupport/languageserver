@@ -74,7 +74,8 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$resolve_task_manager$check_tasks()
         },
 
-        text_sync = function(uri, document = NULL, run_lintr = TRUE, parse = TRUE, resolve = TRUE) {
+        text_sync = function(
+                uri, document = NULL, run_lintr = FALSE, parse = FALSE, resolve = FALSE) {
             if (run_lintr) {
                 self$diagnostics_task_manager$add_task(
                     uri,
