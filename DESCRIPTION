@@ -34,7 +34,7 @@ Suggests:
     magrittr,
     processx,
     purrr,
-    testthat,
+    testthat (>= 2.1.0),
     withr
 ByteCompile: yes
 Encoding: UTF-8
