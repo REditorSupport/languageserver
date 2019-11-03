@@ -23,7 +23,7 @@ Imports:
     readr,
     repr,
     stringr,
-    styler (>= 1.0.2),
+    styler (>= 1.2.0),
     tools,
     utils,
     xml2,
