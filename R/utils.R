@@ -63,7 +63,7 @@ check_scope <- function(uri, document, position) {
 
 #' Safer version of `seq` which returns empty vector if b < a
 #' @keywords internal
-safe_seq <- function(a, b) {
+seq_safe <- function(a, b) {
     seq(a, b, length = max(0, b - a + 1))
 }
 
@@ -79,7 +79,7 @@ extract_blocks <- function(content) {
         z <- which(ends > begin)
         if (length(z) == 0) break
         end <- ends[min(z)]
-        lines <- safe_seq(begin + 1, end - 1)
+        lines <- seq_safe(begin + 1, end - 1)
         if (length(lines) > 0) {
             blocks[[length(blocks) + 1]] <- list(lines = lines, text = content[lines])
         }
