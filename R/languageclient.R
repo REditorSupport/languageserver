@@ -36,28 +36,30 @@ LanguageClient <- R6::R6Class("LanguageClient",
         read_line = function() {
             buf <- private$read_char_buf
             if (length(buf) > 0 && as.raw(10) %in% buf) {
-                first_match <- min(which(buf == as.raw(10)))
+                first_match <- min(which(buf == charToRaw("\n")))
                 line <- buf[seq_len(first_match - 1)]
-                if (length(line) > 0 && line[length(line)] == as.raw(13)) {
+                if (length(line) > 0 && line[length(line7)] == charToRaw("\r")) {
                     line <- line[-length(line)]
                 }
-                private$read_char_buf <- buf[safe_seq(first_match + 1, length(buf))]
+                private$read_char_buf <- buf[seq_safe(first_match + 1, length(buf))]
                 return(rawToChar(line))
             }
             if (!self$process$is_alive() || self$process$poll_io(1)[1] != "ready") return(NULL)
             line <- self$process$read_output_lines(1)
             if (length(line) > 0) {
                 line <- paste0(rawToChar(buf), line)
-            }
+                private$read_char_buf <- raw(0)
             trimws(line, "right")
+            }
         },
 
         read_char = function(n) {
             data <- c(private$read_char_buf, charToRaw(self$process$read_output(n)))
             if (length(data) > n) {
-                private$read_char_buf <- data[safe_seq(n + 1, length(data))]
+                private$read_char_buf <- data[seq_safe(n + 1, length(data))]
                 rawToChar(data[seq_len(0)])
             } else {
+                private$read_char_buf <- raw(0)
                 rawToChar(data)
             }
         },
