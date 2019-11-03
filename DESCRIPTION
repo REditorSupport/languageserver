@@ -29,6 +29,7 @@ Imports:
     xml2,
     xmlparsedata
 Suggests:
+    covr,
     fs,
     knitr,
     magrittr,

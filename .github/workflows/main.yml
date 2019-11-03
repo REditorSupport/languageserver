@@ -11,6 +11,8 @@ jobs:
         # r: [3.5, latest, devel]
     runs-on: ubuntu-latest
     container: rocker/tidyverse:${{ matrix.r }}
+    env:
+      NOT_CRAN: true
     steps:
     - uses: actions/checkout@v1
     - name: Install apt-get dependencies
@@ -26,8 +28,12 @@ jobs:
     - name: Running Tests
       run: |
         Rscript -e "rcmdcheck::rcmdcheck(args = c('--as-cran', '--no-manual', '--timings'), error_on = 'warning')"
+      shell:
+        bash
+    - name: Codecov
+      run: Rscript -e "covr::codecov()" || true
       env:
-        NOT_CRAN: true
+        CODECOV_TOKEN: ${{secrets.CODECOV_TOKEN}}
       shell:
         bash
 
@@ -35,23 +41,16 @@ jobs:
     if: contains(github.event.head_commit.message, '[ci skip]') == false
     strategy:
       matrix:
-        r: [latest]
-        # r: [3.5, latest, devel]
+        r: [3.6]
+        # r: [3.5, 3.6, devel]
     runs-on: macOS-latest
+    env:
+      NOT_CRAN: true
     steps:
     - uses: actions/checkout@v1
-    - name: Install R
-      run: |
-        if [ "${{ matrix.r }}" == "devel" ]; then
-          R_FILE=$(curl -sL http://mac.r-project.org/ | sed -nE 's|.*href="?(.*/R-[^/]*\.pkg)"?>.*|\1|p' | tail -n1)
-          URL="http://mac.r-project.org/$R_FILE"
-        else
-          R_FILE=$(curl -sL https://cran.r-project.org/bin/macosx/el-capitan/base/ | grep -o 'R-${{ matrix.r }}[0-9\.]*.pkg' | tail -n1)
-          URL="https://cran.r-project.org/bin/macosx/el-capitan/base/$R_FILE"
-        fi
-        echo downloading "$URL"
-        curl -L "$URL" -o ~/R.pkg
-        sudo installer -pkg ~/R.pkg -target /
+    - uses: r-lib/actions/setup-r@v1
+      with:
+        r-version: ${{ matrix.r }}
     - name: Install languagesever
       run: |
         Rscript -e "install.packages(c('remotes', 'rcmdcheck'), repos = 'https://cloud.r-project.org', type = 'mac.binary.el-capitan')"
@@ -61,8 +60,12 @@ jobs:
     - name: Running Tests
       run: |
         Rscript -e "rcmdcheck::rcmdcheck(args = c('--as-cran', '--no-manual', '--timings'), error_on = 'warning')"
+      shell:
+        bash
+    - name: Codecov
+      run: Rscript -e "covr::codecov()" || true
       env:
-        NOT_CRAN: true
+        CODECOV_TOKEN: ${{secrets.CODECOV_TOKEN}}
       shell:
         bash
 
@@ -70,32 +73,16 @@ jobs:
     if: contains(github.event.head_commit.message, '[ci skip]') == false
     strategy:
       matrix:
-        r: [latest]
-        # r: [3.5, latest, devel]
+        r: [3.6]
+        # r: [3.5, 3.6, devel]
     runs-on: windows-latest
+    env:
+      NOT_CRAN: true
     steps:
     - uses: actions/checkout@v1
-    - name: Download R
-      run: |
-        If ('${{ matrix.r }}' -eq 'latest') {
-          (new-object net.webclient).DownloadString("http://cran.rstudio.com/bin/windows/base/") -match 'href="(R-[0-9.]*[a-zA-Z]*-win.exe)"';
-          (new-object net.webclient).DownloadFile($("http://cran.rstudio.com/bin/windows/base/"+$matches[1]),"C:\R-binary.exe")
-        } ElseIf ('${{ matrix.r }}' -eq 'devel') {
-          (new-object net.webclient).DownloadFile("https://cran.r-project.org/bin/windows/base/R-devel-win.exe","C:\R-binary.exe")
-        } Else {
-          (new-object net.webclient).DownloadString("http://cran.rstudio.com/bin/windows/base/old/") -match 'R (${{ matrix.r }}[\\.0-9]*)</a>'
-          (new-object net.webclient).DownloadFile($("https://cran.r-project.org/bin/windows/base/old/"+$matches[1]+"/R-"+$matches[1]+"-win.exe"),"C:\R-binary.exe")
-        }
-        (new-object net.webclient).DownloadFile("https://cran.r-project.org/bin/windows/Rtools/Rtools35.exe","C:\Rtools35.exe")
-      shell:
-        pwsh
-    - name: Install R
-      run: |
-        Start-Process -FilePath "C:\R-binary.exe" -Wait -ArgumentList "/VERYSILENT /DIR=C:\R"
-        Start-Process -FilePath "C:\Rtools35.exe" -Wait -ArgumentList "/VERYSILENT"
-        Write-Host "::add-path::C:\R\bin\"
-      shell:
-        pwsh
+    - uses: r-lib/actions/setup-r@v1
+      with:
+        r-version: ${{ matrix.r }}
     - name: Install dependencies
       run: |
         Rscript -e "install.packages(c('remotes', 'devtools'), repos = 'https://cloud.r-project.org', type = 'win.binary')"
@@ -107,7 +94,5 @@ jobs:
     - name: Running Tests
       run: |
         Rscript -e "rcmdcheck::rcmdcheck(args = c('--as-cran', '--no-manual', '--timings'), error_on = 'warning')"
-      env:
-        NOT_CRAN: true
       shell:
         pwsh

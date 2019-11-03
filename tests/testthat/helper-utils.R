@@ -25,7 +25,16 @@ language_client <- function(working_dir = getwd(), debug = FALSE) {
     data <- client$fetch(blocking = TRUE)
     client$handle_raw(data)
     client %>% notify("initialized")
-    withr::defer_parent(client$stop())
+    withr::defer_parent({
+        if (Sys.getenv("R_COVR", "") == "true") {
+            # it is necessary to shutdown the server in covr
+            # we skip this for other times for speed
+            client %>% respond("shutdown", NULL, retry = FALSE)
+            client$process$wait()
+        } else {
+            client$stop()
+        }
+    })
     client
 }
 
@@ -63,17 +72,26 @@ did_save <- function(client, path) {
 }
 
 
-respond <- function(client, method, params, timeout=5, retry=TRUE,
+respond <- function(client, method, params, timeout, retry=TRUE,
                             retry_when = function(result) length(result) == 0) {
+    if (missing(timeout)) {
+        if (Sys.getenv("R_COVR", "") == "true") {
+            # we give more time to covr
+            timeout <- 30
+        } else {
+            timeout <- 5
+        }
+    }
     storage <- new.env()
     cb <- function(self, result) {
+        storage$done <- TRUE
         storage$result <- result
     }
 
     start_time <- Sys.time()
     remaining <- timeout
     client$deliver(client$request(method, params), callback = cb)
-    while (is.null(storage$result)) {
+    while (!isTRUE(storage$done)) {
         if (remaining < 0) {
             fail("timeout when obtaining response")
             return(NULL)
