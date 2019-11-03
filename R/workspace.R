@@ -16,7 +16,8 @@ Workspace <- R6::R6Class("Workspace",
         xml_docs = list()
     ),
     public = list(
-        loaded_packages = c("base", "stats", "methods", "utils", "graphics", "grDevices", "datasets"),
+        loaded_packages = c(
+            "base", "stats", "methods", "utils", "graphics", "grDevices", "datasets"),
 
         initialize = function() {
             for (pkgname in self$loaded_packages) {
@@ -119,8 +120,17 @@ Workspace <- R6::R6Class("Workspace",
             }
         },
 
-        get_definition = function(topic) {
-            private$definitions$get(topic)
+        get_definition = function(token, pkg = NULL) {
+            if (is.null(pkg)) {
+                # look in file first
+                definition <- private$definitions$get(token)
+                if (is.null(definition)) {
+                    definition <- self$find_definition_in_package(token)
+                }
+            } else {
+                definition <- self$find_definition_in_package(token, pkg)
+            }
+            definition
         },
 
         get_definitions_for_uri = function(uri) {
@@ -129,6 +139,24 @@ Workspace <- R6::R6Class("Workspace",
 
         get_definitions_for_query = function(query) {
             private$definitions$filter(query)
+        },
+
+        find_definition_in_package = function(funct, pkg = NULL) {
+            code <- self$get_code(funct, pkg)
+            if (!is.null(code)) {
+                # if the function exists in the workspace, write the code to a file
+                tmp <- file.path(tempdir(), paste0(funct, ".R"))
+                logger$info("tmp: ", tmp)
+                readr::write_lines(code, tmp)
+                nlines <- length(readr::read_lines(tmp)) + 1
+                list(
+                    uri = path_to_uri(tmp),
+                    range = range(
+                        start = position(line = 0, character = 0),
+                        end = position(line = nlines, character = 0)
+                    )
+                )
+            }
         },
 
         get_code = function(topic, pkg = NULL) {

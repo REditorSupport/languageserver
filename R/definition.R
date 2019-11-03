@@ -67,26 +67,6 @@ DefinitionCache <- R6::R6Class("DefinitionCache",
     )
 )
 
-find_definition_in_package <- function(workspace, funct, pkg) {
-    code <- workspace$get_code(funct, pkg)
-    if (is.null(code)) {
-        NULL
-    } else {
-        # if the function exists in the workspace, write the code to a file
-        tmp <- file.path(tempdir(), paste0(funct, ".R"))
-        logger$info("tmp: ", tmp)
-        readr::write_lines(code, tmp)
-        nlines <- length(readr::read_lines(tmp)) + 1
-        list(
-            uri = path_to_uri(tmp),
-            range = range(
-                start = position(line = 0, character = 0),
-                end = position(line = nlines, character = 0)
-            )
-        )
-    }
-}
-
 #' Get the location of a specified function definition
 #'
 #' If the function is not found in a file but is found in a loaded package,
@@ -101,72 +81,10 @@ definition_reply <- function(id, uri, workspace, document, position) {
     pkg <- token_result$package
     token <- token_result$token
 
-    if (is.null(pkg)) {
-        # look in file first
-        definition <- workspace$get_definition(token)
-        result <- if (is.null(definition)) {
-            find_definition_in_package(workspace, token, pkg)
-        } else {
-            definition
-        }
-    } else {
-        # then look in package
-        definition <- find_definition_in_package(workspace, token, pkg)
-        result <- if (is.null(definition)) {
-            workspace$get_definition(token)
-        } else {
-            definition
-        }
-    }
+    result <- workspace$get_definition(token, pkg)
 
-    logger$info("definition", definition)
+    logger$info("definition", result)
 
-    if (is.null(result)) {
-        Response$new(id)
-    } else {
-        Response$new(
-            id,
-            result = result
-        )
-    }
-}
-
-#' Get all the symbols in the document
-#' @keywords internal
-document_symbol_reply <- function(id, uri, workspace) {
-    defns <- workspace$get_definitions_for_uri(uri)
-    logger$info("document symbols found: ", length(defns))
-    result <- lapply(names(defns),
-        function(funct) {
-            symbol_information(
-                name = funct,
-                kind = SymbolKind[["Function"]],
-                location = defns[[funct]]
-            )
-    })
-    if (is.null(result)) {
-        Response$new(id)
-    } else {
-        Response$new(
-            id,
-            result = result
-        )
-    }
-}
-
-#' Get all the symbols in the workspace matching a query
-#' @keywords internal
-workspace_symbol_reply <- function(id, workspace, query) {
-    defns <- workspace$get_definitions_for_query(query)
-    logger$info("workspace symbols found: ", length(defns))
-    result <- lapply(names(defns),
-        function(funct) {
-            symbol_information(
-                name = funct,
-                kind = SymbolKind[["Function"]],
-                location = defns[[funct]]
-            )
-    })
     if (is.null(result)) {
         Response$new(id)
     } else {

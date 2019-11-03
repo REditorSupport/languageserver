@@ -79,7 +79,7 @@ respond <- function(client, method, params, timeout, retry=TRUE,
             # we give more time to covr
             timeout <- 30
         } else {
-            timeout <- 5
+            timeout <- 10
         }
     }
     storage <- new.env()
