@@ -12,8 +12,18 @@ hover_reply <- function(id, uri, workspace, document, position) {
 
     contents <- tryCatch(
         workspace$get_help(token_result$token, token_result$package),
-        error = function(e) list()
+        error = function(e) NULL
     )
+
+    if (is.null(contents)) {
+        # try function signature
+        sig <- workspace$get_signature(token_result$token, token_result$package)
+        logger$info("sig: ", sig)
+        if (!is.null(sig)) {
+            sig <- trimws(gsub("function\\s*", token_result$token, sig))
+        }
+        contents <- sig
+    }
 
     if (is.null(contents)) {
         Response$new(id)
