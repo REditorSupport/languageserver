@@ -1,33 +1,30 @@
-#' A data structure for package namespaces
-#'
-#' A `Namespace` is initialized with a package name and builds the list of
-#' objects defined in the package namespace.
+#' A class for storing package information
 #' @keywords internal
 Namespace <- R6::R6Class("Namespace",
     public = list(
         package_name = NULL,
-        exports = NULL,
-        unexports = NULL,
-        functs = NULL,
-        nonfuncts = NULL,
-        lazydata = NULL,
+        objs = character(0),
+        all_objs = character(0),
+        functs = character(0),
+        nonfuncts = character(0),
+        lazydata = character(0),
 
         initialize = function(pkgname) {
             self$package_name <- pkgname
             ns <- asNamespace(pkgname)
             objects <- sanitize_names(objects(ns))
-            self$exports <- sanitize_names(getNamespaceExports(ns))
-            self$unexports <- setdiff(objects, self$exports)
-            isf <- vapply(self$exports, function(x) {
+            self$objs <- sanitize_names(getNamespaceExports(ns))
+            self$all_objs <- setdiff(objects, self$objs)
+            isf <- vapply(self$objs, function(x) {
                         is.function(get(x, envir = ns))}, logical(1L), USE.NAMES = FALSE)
-            self$functs <- self$exports[isf]
-            self$nonfuncts <- setdiff(self$exports, self$functs)
+            self$functs <- self$objs[isf]
+            self$nonfuncts <- setdiff(self$objs, self$functs)
             self$lazydata <- if (length(ns$.__NAMESPACE__.$lazydata))
                 objects(ns$.__NAMESPACE__.$lazydata) else character()
         },
 
         exists = function(objname) {
-            objname %in% self$exports
+            objname %in% self$objs
         },
 
         get_signature = function(funct) {
@@ -52,6 +49,36 @@ Namespace <- R6::R6Class("Namespace",
 
         print = function() {
             cat(paste0("Namespace: ", self$package_name))
+        }
+    )
+)
+
+WORKSPACE <- "_workspace_"
+
+#' A class for storing global environment information
+GlobalNameSpace <- R6::R6Class("GlobalNameSpace",
+    inherit = Namespace,
+    public = list(
+        signatures = list(),
+        formals = list(),
+
+        initialize = function() {
+            self$package_name <- WORKSPACE
+        },
+
+        get_signature = function(funct) {
+            self$signatures[[funct]]
+        },
+
+        get_formals = function(funct) {
+            self$formals[[funct]]
+        },
+
+        update = function(nonfuncts, functs, signatures, formals) {
+            self$nonfuncts <- unique(c(self$nonfuncts, nonfuncts))
+            self$functs <- unique(c(self$functs, functs))
+            self$signatures <- merge_list(self$signatures, signatures)
+            self$formals <- merge_list(self$formals, formals)
         }
     )
 )
