@@ -91,6 +91,7 @@ LanguageBase <- R6::R6Class("LanguageBase",
         },
 
         fetch = function(blocking = FALSE, timeout = Inf) {
+            self$check_connection()
             start_time <- Sys.time()
             nbytes <- self$read_header()
             if (is.null(nbytes)) {

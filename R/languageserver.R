@@ -133,8 +133,6 @@ LanguageServer <- R6::R6Class("LanguageServer",
         run = function() {
             while (TRUE) {
                 ret <- try({
-                    self$check_connection()
-
                     if (isTRUE(self$exit_flag)) {
                         logger$info("exiting")
                         break
