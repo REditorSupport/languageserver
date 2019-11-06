@@ -6,11 +6,7 @@
 #' @keywords internal
 Workspace <- R6::R6Class("Workspace",
     private = list(
-        global_env = list(nonfuncts = character(0),
-                          functs = character(0),
-                          signatures = list(),
-                          formals = list(),
-                          lazydata = character()),
+        global_env = NULL,
         namespaces = list(),
         definitions = NULL,
         xml_docs = list()
@@ -23,6 +19,7 @@ Workspace <- R6::R6Class("Workspace",
             for (pkgname in self$loaded_packages) {
                 private$namespaces[[pkgname]] <- Namespace$new(pkgname)
             }
+            private$global_env <- GlobalNameSpace$new()
             private$definitions <- DefinitionCache$new()
         },
 
@@ -56,7 +53,7 @@ Workspace <- R6::R6Class("Workspace",
         },
 
         get_namespace = function(pkgname) {
-            if (pkgname == "_workspace_") {
+            if (pkgname == WORKSPACE) {
                 private$global_env
             } else if (pkgname %in% names(private$namespaces)) {
                 private$namespaces[[pkgname]]
@@ -185,15 +182,12 @@ Workspace <- R6::R6Class("Workspace",
         update_parse_data = function(uri, parse_data) {
             self$load_packages(parse_data$packages)
 
-            private$global_env$nonfuncts <- unique(
-                c(private$global_env$nonfuncts, parse_data$nonfuncts))
-            private$global_env$functs <- unique(
-                c(private$global_env$functs, parse_data$functs))
-            private$global_env$signatures <- merge_list(
-                private$global_env$signatures, parse_data$signatures)
-            private$global_env$formals <- merge_list(
-                private$global_env$formals, parse_data$formals)
-
+            private$global_env$update(
+                parse_data$nonfuncts,
+                parse_data$functs,
+                parse_data$signatures,
+                parse_data$formals
+            )
             private$definitions$update(uri, parse_data$definition_ranges)
 
             if (!is.null(parse_data$xml_data)) {
