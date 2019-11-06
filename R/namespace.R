@@ -3,8 +3,8 @@
 Namespace <- R6::R6Class("Namespace",
     public = list(
         package_name = NULL,
-        objs = character(0),
-        all_objs = character(0),
+        exports = character(0),
+        unexports = character(0),
         functs = character(0),
         nonfuncts = character(0),
         lazydata = character(0),
@@ -13,18 +13,22 @@ Namespace <- R6::R6Class("Namespace",
             self$package_name <- pkgname
             ns <- asNamespace(pkgname)
             objects <- sanitize_names(objects(ns))
-            self$objs <- sanitize_names(getNamespaceExports(ns))
-            self$all_objs <- setdiff(objects, self$objs)
-            isf <- vapply(self$objs, function(x) {
+            self$exports <- sanitize_names(getNamespaceExports(ns))
+            self$unexports <- setdiff(objects, self$exports)
+            isf <- vapply(self$exports, function(x) {
                         is.function(get(x, envir = ns))}, logical(1L), USE.NAMES = FALSE)
-            self$functs <- self$objs[isf]
-            self$nonfuncts <- setdiff(self$objs, self$functs)
+            self$functs <- self$exports[isf]
+            self$nonfuncts <- setdiff(self$exports, self$functs)
             self$lazydata <- if (length(ns$.__NAMESPACE__.$lazydata))
                 objects(ns$.__NAMESPACE__.$lazydata) else character()
         },
 
         exists = function(objname) {
-            objname %in% self$objs
+            objname %in% self$exports
+        },
+
+        exists_funct = function(funct) {
+            funct %in% self$functs
         },
 
         get_signature = function(funct) {
@@ -77,6 +81,7 @@ GlobalNameSpace <- R6::R6Class("GlobalNameSpace",
         update = function(nonfuncts, functs, signatures, formals) {
             self$nonfuncts <- unique(c(self$nonfuncts, nonfuncts))
             self$functs <- unique(c(self$functs, functs))
+            self$exports <- unique(c(self$nonfuncts, self$functs))
             self$signatures <- merge_list(self$signatures, signatures)
             self$formals <- merge_list(self$formals, formals)
         }

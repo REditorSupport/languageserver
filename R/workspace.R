@@ -40,13 +40,21 @@ Workspace <- R6::R6Class("Workspace",
             }
         },
 
-        guess_package = function(object) {
-            logger$info("loaded_packages:", self$loaded_packages)
+        guess_package = function(object, isf = FALSE) {
+            packages <- c(WORKSPACE, rev(self$loaded_packages))
 
-            for (pkgname in rev(self$loaded_packages)) {
+            for (pkgname in packages) {
                 ns <- self$get_namespace(pkgname)
-                if (!is.null(ns) && ns$exists(object)) {
-                    return(pkgname)
+                if (isf) {
+                    if (!is.null(ns) && ns$exists(object)) {
+                        logger$info("guess package:", pkgname)
+                        return(pkgname)
+                    }
+                } else {
+                    if (!is.null(ns) && ns$exists_funct(object)) {
+                        logger$info("guess package:", pkgname)
+                        return(pkgname)
+                    }
                 }
             }
             NULL
@@ -67,35 +75,27 @@ Workspace <- R6::R6Class("Workspace",
 
         get_signature = function(funct, pkgname = NULL) {
             if (is.null(pkgname)) {
-                if (funct %in% private$global_env$functs) {
-                    return(private$global_env$signatures[[funct]])
+                pkgname <- self$guess_package(funct, isf = TRUE)
+                if (is.null(pkgname)) {
+                    return(NULL)
                 }
-                pkgname <- self$guess_package(funct)
             }
-            if (is.null(pkgname)) {
-                NULL
-            } else {
-                ns <- self$get_namespace(pkgname)
-                if (!is.null(ns)) {
-                    ns$get_signature(funct)
-                }
+            ns <- self$get_namespace(pkgname)
+            if (!is.null(ns)) {
+                ns$get_signature(funct)
             }
         },
 
         get_formals = function(funct, pkgname = NULL) {
             if (is.null(pkgname)) {
-                if (funct %in% private$global_env$functs) {
-                    return(private$global_env$formals[[funct]])
+                pkgname <- self$guess_package(funct, isf = TRUE)
+                if (is.null(pkgname)) {
+                    return(NULL)
                 }
-                pkgname <- self$guess_package(funct)
             }
-            if (is.null(pkgname)) {
-                NULL
-            } else {
-                ns <- self$get_namespace(pkgname)
-                if (!is.null(ns)) {
-                    ns$get_formals(funct)
-                }
+            ns <- self$get_namespace(pkgname)
+            if (!is.null(ns)) {
+                ns$get_formals(funct)
             }
         },
 
