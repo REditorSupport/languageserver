@@ -114,8 +114,8 @@ workspace_completion <- function(workspace, token, package = NULL, exported_only
     } else {
         ns <- workspace$get_namespace(package)
         if (!is.null(ns)) {
-            all_objs <- ns$all_objs[startsWith(ns$all_objs, token)]
-            unexports_completion <- lapply(all_objs, function(object) {
+            unexports <- ns$unexports[startsWith(ns$unexports, token)]
+            unexports_completion <- lapply(unexports, function(object) {
                 list(
                     label = object,
                     kind = CompletionItemKind$Field,
