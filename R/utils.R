@@ -61,6 +61,12 @@ check_scope <- function(uri, document, position) {
 }
 
 
+fuzzy_find <- function(x, pattern) {
+    subsequence_regex <- paste0(strsplit(pattern, "")[[1]], collapse = ".*")
+    grepl(subsequence_regex, x, ignore.case = TRUE)
+}
+
+
 #' Safer version of `seq` which returns empty vector if b < a
 #' @keywords internal
 seq_safe <- function(a, b) {

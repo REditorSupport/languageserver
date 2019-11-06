@@ -28,10 +28,7 @@ SymbolKind <- list(
     TypeParameter = 26
 )
 
-fuzzy_find <- function(pattern, x) {
-    subsequence_regex <- paste0(strsplit(pattern, "")[[1]], collapse = ".*")
-    grepl(subsequence_regex, x, ignore.case = TRUE)
-}
+
 
 #' A data structure to hold function definition locations
 #'
@@ -47,7 +44,7 @@ DefinitionCache <- R6::R6Class("DefinitionCache",
             private$definitions[private$uris[[uri]]]
         },
         filter = function(pattern) {
-            private$definitions[fuzzy_find(pattern, names(private$definitions))]
+            private$definitions[fuzzy_find(names(private$definitions), pattern)]
         },
         update = function(uri, ranges) {
             functs <- names(ranges)
