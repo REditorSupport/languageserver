@@ -104,11 +104,15 @@ Workspace <- R6::R6Class("Workspace",
                 pkgname <- self$guess_package(topic)
             }
             # note: the parantheses are neccessary
-            if (is.null(pkgname)) {
-                hfile <- utils::help((topic))
-            } else {
-                hfile <- utils::help((topic), (pkgname))
-            }
+            hfile <- tryCatch({
+                    if (is.null(pkgname)) {
+                        utils::help((topic))
+                    } else {
+                        utils::help((topic), (pkgname))
+                    }
+                },
+                error = function(e) character(0)
+            )
 
             if (length(hfile) > 0) {
                 enc2utf8(repr::repr_text(hfile))
@@ -122,10 +126,10 @@ Workspace <- R6::R6Class("Workspace",
                 # look in file first
                 definition <- private$definition_cache$get(token)
                 if (is.null(definition)) {
-                    definition <- self$find_definition_in_package(token)
+                    definition <- self$get_definition_in_package(token)
                 }
             } else {
-                definition <- self$find_definition_in_package(token, pkg)
+                definition <- self$get_definition_in_package(token, pkg)
             }
             definition
         },
@@ -138,41 +142,29 @@ Workspace <- R6::R6Class("Workspace",
             private$definition_cache$filter(query)
         },
 
-        find_definition_in_package = function(funct, pkg = NULL) {
-            code <- self$get_code(funct, pkg)
-            if (!is.null(code)) {
-                # if the function exists in the workspace, write the code to a file
-                tmp <- file.path(tempdir(), paste0(funct, ".R"))
-                logger$info("tmp: ", tmp)
-                readr::write_lines(code, tmp)
-                nlines <- length(readr::read_lines(tmp)) + 1
-                list(
-                    uri = path_to_uri(tmp),
-                    range = range(
-                        start = position(line = 0, character = 0),
-                        end = position(line = nlines, character = 0)
-                    )
-                )
-            }
-        },
-
-        get_code = function(topic, pkg = NULL) {
-            if (is.null(pkg) || is.na(pkg)) {
-                logger$info("pkg guess !")
-                pkg <- self$guess_package(topic)
-            }
-            logger$info("pkg:", pkg)
-
-            if (!is.null(pkg) && length(find.package(pkg, quiet = TRUE))) {
-                code <- utils::getFromNamespace(topic, pkg)
-                if (length(code) > 0) {
-                    code <- repr::repr_text(code)
-                    # reorganize the code
-                    code <- stringr::str_split(code, "\n")[[1]]
-                    code[1] <- paste(topic, "<-", code[1])
-                    enc2utf8(code[!grepl("<bytecode|<environment", code)])
+        get_definition_in_package = function(funct, pkgname = NULL) {
+            if (is.null(pkgname)) {
+                pkgname <- self$guess_package(funct, isf = TRUE)
+                if (is.null(pkgname)) {
+                    return(NULL)
                 }
             }
+            ns <- self$get_namespace(pkgname)
+            code <- ns$get_body(funct)
+            if (is.null(code)) {
+                return(NULL)
+            }
+
+            # if the function exists in the workspace, write the code to a file
+            temp_file <- file.path(tempdir(), paste0(funct, ".R"))
+            readr::write_lines(code, temp_file)
+            list(
+                uri = path_to_uri(temp_file),
+                range = range(
+                    start = position(line = 0, character = 0),
+                    end = position(line = stringr::str_count(code, "\n") + 1, character = 0)
+                )
+            )
         },
 
         get_xml_doc = function(uri) {
