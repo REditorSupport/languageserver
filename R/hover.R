@@ -10,10 +10,7 @@ hover_reply <- function(id, uri, workspace, document, position) {
 
     token_result <- document$detect_token(position)
 
-    contents <- tryCatch(
-        workspace$get_help(token_result$token, token_result$package),
-        error = function(e) NULL
-    )
+    contents <- workspace$get_help(token_result$token, token_result$package)
 
     if (is.null(contents)) {
         # try function signature

@@ -32,6 +32,9 @@ Namespace <- R6::R6Class("Namespace",
         },
 
         get_signature = function(funct) {
+            if (!self$exists_funct(funct)) {
+                return(NULL)
+            }
             pkgname <- self$package_name
             ns <- asNamespace(pkgname)
             fn <- get(funct, envir = ns)
@@ -45,10 +48,27 @@ Namespace <- R6::R6Class("Namespace",
         },
 
         get_formals = function(funct) {
+            if (!self$exists_funct(funct)) {
+                return(NULL)
+            }
             pkgname <- self$package_name
             ns <- asNamespace(pkgname)
             fn <- get(funct, envir = ns)
             formals(fn)
+        },
+
+        get_body = function(funct) {
+            if (!self$exists_funct(funct)) {
+                return(NULL)
+            }
+            pkgname <- self$package_name
+            ns <- asNamespace(pkgname)
+            fn <- get(funct, envir = ns)
+            code <- repr::repr_text(fn)
+            # reorganize the code
+            code <- stringr::str_split(code, "\n")[[1]]
+            code[1] <- paste(funct, "<-", code[1])
+            paste0(code[!grepl("<bytecode|<environment", code)], collapse = "\n")
         },
 
         print = function() {
@@ -66,6 +86,7 @@ GlobalNameSpace <- R6::R6Class("GlobalNameSpace",
         signatures = list(),
         formals = list(),
         definitions = list(),
+        uris = list(),
 
         initialize = function() {
             self$package_name <- WORKSPACE
@@ -77,6 +98,10 @@ GlobalNameSpace <- R6::R6Class("GlobalNameSpace",
 
         get_formals = function(funct) {
             self$formals[[funct]]
+        },
+
+        get_body = function(funct) {
+            NULL
         },
 
         update = function(nonfuncts, functs, signatures, formals) {
