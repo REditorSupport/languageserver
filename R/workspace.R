@@ -121,17 +121,22 @@ Workspace <- R6::R6Class("Workspace",
             }
         },
 
-        get_definition = function(token, pkg = NULL) {
-            if (is.null(pkg)) {
-                # look in file first
-                definition <- private$definition_cache$get(token)
-                if (is.null(definition)) {
-                    definition <- self$get_definition_in_package(token)
+        get_definition = function(symbol, pkgname = NULL) {
+            if (is.null(pkgname)) {
+                # look in global_env
+                definition <- private$definition_cache$get(symbol)
+                if (!is.null(definition)) {
+                    return(definition)
                 }
-            } else {
-                definition <- self$get_definition_in_package(token, pkg)
+                pkgname <- self$guess_package(symbol, isf = TRUE)
+                if (is.null(pkgname)) {
+                    return(NULL)
+                }
             }
-            definition
+            ns <- self$get_namespace(pkgname)
+            if (!is.null(ns)) {
+                ns$get_definition(symbol)
+            }
         },
 
         get_definitions_for_uri = function(uri) {
@@ -140,31 +145,6 @@ Workspace <- R6::R6Class("Workspace",
 
         get_definitions_for_query = function(query) {
             private$definition_cache$filter(query)
-        },
-
-        get_definition_in_package = function(funct, pkgname = NULL) {
-            if (is.null(pkgname)) {
-                pkgname <- self$guess_package(funct, isf = TRUE)
-                if (is.null(pkgname)) {
-                    return(NULL)
-                }
-            }
-            ns <- self$get_namespace(pkgname)
-            code <- ns$get_body(funct)
-            if (is.null(code)) {
-                return(NULL)
-            }
-
-            # if the function exists in the workspace, write the code to a file
-            temp_file <- file.path(tempdir(), paste0(funct, ".R"))
-            readr::write_lines(code, temp_file)
-            list(
-                uri = path_to_uri(temp_file),
-                range = range(
-                    start = position(line = 0, character = 0),
-                    end = position(line = stringr::str_count(code, "\n") + 1, character = 0)
-                )
-            )
         },
 
         get_xml_doc = function(uri) {

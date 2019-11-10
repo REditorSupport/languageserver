@@ -57,6 +57,24 @@ Namespace <- R6::R6Class("Namespace",
             formals(fn)
         },
 
+        get_definition = function(symbol) {
+            code <- self$get_body(symbol)
+            if (is.null(code)) {
+                return(NULL)
+            }
+
+            # if the function exists in the workspace, write the code to a file
+            temp_file <- file.path(tempdir(), paste0(symbol, ".R"))
+            readr::write_lines(code, temp_file)
+            list(
+                uri = path_to_uri(temp_file),
+                range = range(
+                    start = position(line = 0, character = 0),
+                    end = position(line = stringr::str_count(code, "\n") + 1, character = 0)
+                )
+            )
+        },
+
         get_body = function(funct) {
             if (!self$exists_funct(funct)) {
                 return(NULL)
@@ -100,6 +118,10 @@ GlobalNameSpace <- R6::R6Class("GlobalNameSpace",
             self$formals[[funct]]
         },
 
+        get_definition = function(symbol) {
+            NULL
+        },
+
         get_body = function(funct) {
             NULL
         },
@@ -113,6 +135,44 @@ GlobalNameSpace <- R6::R6Class("GlobalNameSpace",
         }
     )
 )
+
+#' A data structure to hold function definition locations
+#'
+#' The key reason for using this rather than a `list` is that this also cleans up
+#' when functions are removed from files.
+#' @keywords internal
+DefinitionCache <- R6::R6Class("DefinitionCache",
+    private = list(
+        locations = list(),
+        uris = list()
+    ),
+    public = list(
+        get = function(funct) {
+            private$locations[[funct]]
+        },
+        get_functs_for_uri = function(uri) {
+            private$locations[private$uris[[uri]]]
+        },
+        filter = function(pattern) {
+            private$locations[fuzzy_find(names(private$locations), pattern)]
+        },
+        update = function(uri, ranges) {
+            functs <- names(ranges)
+            removed_functs <- setdiff(private$uris[[uri]], functs)
+            if (!is.null(removed_functs) && length(removed_functs) > 0) {
+                private$locations[removed_functs] <- NULL
+            }
+            for (funct in functs) {
+                private$locations[[funct]] <- location(
+                    uri = uri,
+                    range = ranges[[funct]]
+                )
+            }
+            private$uris[[uri]] <- functs
+        }
+    )
+)
+
 
 
 resolve_attached_packages <- function(pkgs) {
