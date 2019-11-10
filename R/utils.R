@@ -49,12 +49,14 @@ check_scope <- function(uri, document, position) {
             document$content[1:(line + 1)], startsWith, logical(1), "```", USE.NAMES = F)
         if (any(flags)) {
             last_match <- document$content[max(which(flags))]
-            stringr::str_detect(last_match, "```\\{r[ ,\\}]") && !identical(sum(flags) %% 2, 0)
+            stringr::str_detect(last_match, "```\\{r[ ,\\}]") &&
+                !identical(sum(flags) %% 2, 0) &&
+                !enclosed_by_quotes(document, position)
         } else {
             FALSE
         }
     } else {
-        TRUE
+        !enclosed_by_quotes(document, position)
     }
 }
 

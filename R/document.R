@@ -71,7 +71,7 @@ Document <- R6::R6Class(
             column <- code_point_from_unit(text, position$character)
 
             if (position$character > 0) {
-                loc <- content_backward_search(self$content, row, column - 1, "(")
+                loc <- backward_search(self$content, row, column - 1, "(")
             } else {
                 loc <- c(-1, -1)
             }
@@ -122,12 +122,19 @@ Document <- R6::R6Class(
 #' @return a tuple of positive integers, the row and column position of the
 #' character if found, otherwise (-1, -1)
 #' @keywords internal
-content_backward_search <- function(content, row, column, char, skip_empty_line = TRUE) {
-    # TODO: adjust for UTF-16
-    .Call("content_backward_search",
+backward_search <- function(content, row, column, char, skip_empty_line = TRUE) {
+    .Call("backward_search",
         PACKAGE = "languageserver",
         content, row, column, char, skip_empty_line
     )
+}
+
+
+#' check if a position is inside quotes
+#' @keywords internal
+enclosed_by_quotes <- function(document, pos) {
+    s <- document$content[pos$line + 1]
+    .Call("enclosed_by_quotes", PACKAGE = "languageserver", s, pos$character)
 }
 
 

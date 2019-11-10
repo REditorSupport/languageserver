@@ -1,5 +1,5 @@
 #include <ctype.h>
-#include "document.h"
+#include "search.h"
 
 static int is_empty(const char *s) {
     while (*s != '\0') {
@@ -10,7 +10,7 @@ static int is_empty(const char *s) {
     return 1;
 }
 
-SEXP content_backward_search(SEXP content, SEXP _row, SEXP _col, SEXP _char, SEXP _skip_el) {
+SEXP backward_search(SEXP content, SEXP _row, SEXP _col, SEXP _char, SEXP _skip_el) {
     int row = Rf_asInteger(_row);
     int col = Rf_asInteger(_col);
     char c = CHAR(Rf_asChar(_char))[0];
@@ -25,8 +25,8 @@ SEXP content_backward_search(SEXP content, SEXP _row, SEXP _col, SEXP _char, SEX
     unsigned char dj;
     int found = 0;
     int nparen = 0;
-    int in_dquote = 0;
-    int in_squote = 0;
+    int in_dquote;
+    int in_squote;
     k = 0;
 
     for (i = row; i>=0; i--) {
@@ -40,11 +40,12 @@ SEXP content_backward_search(SEXP content, SEXP _row, SEXP _col, SEXP _char, SEX
         }
         maxj = strlen(d);
 
-        // first search forward with quotation awareness
-        // until the `col` character (only for the last line)
+        // first search forward until the `col` character (only for the last line)
         // or until a comment sign
         j = 0;
         k = 0;
+        in_dquote = 0;
+        in_squote = 0;
         while (j < maxj) {
             dj = d[j];
             if (0x80 <= dj && dj <= 0xbf) {
@@ -69,16 +70,17 @@ SEXP content_backward_search(SEXP content, SEXP _row, SEXP _col, SEXP _char, SEX
                 } else {
                     in_squote = 1;
                 }
-            } else if (!in_dquote && !in_squote && nparen == 0 && dj == '#') {
+            } else if (!in_dquote && !in_squote && dj == '#') {
                 break;
             }
             j++;
             k++;
         }
 
-        // then search backward until an unbalanced "(" with quotation awareness
+        // then search backward until an unbalanced "("
         in_dquote = 0;
         in_squote = 0;
+        nparen = 0;
         while (j >= 0) {
             dj = d[j];
             if (0x80 <= dj && dj <= 0xbf) {
@@ -101,7 +103,7 @@ SEXP content_backward_search(SEXP content, SEXP _row, SEXP _col, SEXP _char, SEX
                 } else {
                     in_squote = 1;
                 }
-            } else if (c == '(' && !in_dquote && !in_squote) {
+            } else if (!in_dquote && !in_squote && c == '(') {
                 if (nparen == 0 && dj == '(') {
                     found = 1;
                     break;
@@ -123,4 +125,53 @@ SEXP content_backward_search(SEXP content, SEXP _row, SEXP _col, SEXP _char, SEX
     INTEGER(loc)[1] = k;
     UNPROTECT(1);
     return loc;
+}
+
+
+SEXP enclosed_by_quotes(SEXP s, SEXP _pos) {
+    int pos = Rf_asInteger(_pos);
+    SEXP ds = STRING_ELT(s, 0);
+    const char* d = Rf_translateCharUTF8(ds);
+    unsigned char dj;
+    int n = strlen(d);
+    int enclosed = 0;
+    int in_dquote = 0;
+    int in_squote = 0;
+    int j, k;
+
+    // search forward until the `pos` character or until a comment sign
+    j = 0;
+    k = 0;
+    while (j < n && j < pos) {
+        dj = d[j];
+        if (0x80 <= dj && dj <= 0xbf) {
+            j++;
+            continue;
+        }
+
+        if (!in_squote && dj == '"') {
+            if (in_dquote) {
+                if (j == 0 || d[j - 1] != '\\') {
+                    in_dquote = 0;
+                }
+            } else {
+                in_dquote = 1;
+            }
+        } else if (!in_dquote && dj == '\'') {
+            if (in_squote) {
+                if (j == 0 || d[j - 1] != '\\') {
+                    in_squote = 0;
+                }
+            } else {
+                in_squote = 1;
+            }
+        } else if (!in_dquote && !in_squote && dj == '#') {
+            break;
+        }
+        j++;
+        k++;
+    }
+
+    enclosed = in_dquote || in_squote;
+    return Rf_ScalarLogical(enclosed);
 }
