@@ -1,4 +1,4 @@
-#include "document.h"
+#include "search.h"
 #include "reader.h"
 
 
@@ -17,7 +17,8 @@ SEXP process_is_detached() {
 #endif
 
 static const R_CallMethodDef CallEntries[] = {
-    {"content_backward_search", (DL_FUNC) &content_backward_search, 5},
+    {"backward_search", (DL_FUNC) &backward_search, 5},
+    {"enclosed_by_quotes", (DL_FUNC) &enclosed_by_quotes, 2},
     {"stdin_read_char", (DL_FUNC) &stdin_read_char, 1},
     {"stdin_read_line", (DL_FUNC) &stdin_read_line},
 #if !defined(_WIN32) && !defined(_WIN64)
