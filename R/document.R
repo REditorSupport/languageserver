@@ -156,24 +156,10 @@ fix_definition_ranges <- function(env, lines) {
 }
 
 
-parse_env <- function() {
-    env <- new.env()
-    env$packages <- character()
-    env$nonfuncts <- character()
-    env$functs <- character()
-    env$formals <- list()
-    env$signatures <- list()
-    env$definition_ranges <- list()
-    env$xml_data <- NULL
-    env$xml_doc <- NULL
-    env
-}
-
-
 parse_expr <- function(expr, env, level = 0L, srcref = attr(expr, "srcref")) {
     if (length(expr) == 0L || is.symbol(expr)) {
           return(env)
-      }
+    }
     for (i in seq_along(expr)) {
         e <- expr[[i]]
         if (!is.call(e) || !is.symbol(e[[1L]])) next
@@ -250,6 +236,18 @@ parse_document <- function(path, content = NULL, resolve = FALSE) {
     }
     text <- paste0(content, collapse = "\n")
     expr <- tryCatch(parse(text = text, keep.source = TRUE), error = function(e) NULL)
+    parse_env <- function() {
+        env <- new.env(parent = .GlobalEnv)
+        env$packages <- character()
+        env$nonfuncts <- character()
+        env$functs <- character()
+        env$formals <- list()
+        env$signatures <- list()
+        env$definition_ranges <- list()
+        env$xml_data <- NULL
+        env$xml_doc <- NULL
+        env
+    }
     env <- parse_env()
     parse_expr(expr, env)
     fix_definition_ranges(env, attr(expr, "srcfile")$lines)
