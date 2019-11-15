@@ -128,6 +128,20 @@ code_point_from_unit <- function(line, units) {
     result
 }
 
+#' Determine code units given code points
+#'
+#' @param line a character of text
+#' @param units 0-indexed code units
+#'
+#' @keywords internal
+code_point_to_unit <- function(line, pts) {
+    if (!nzchar(line)) return(pts)
+    offsets <- c(0, cumsum(ncodeunit(strsplit(line, "")[[1]])))
+    result <- offsets[pts + 1]
+    result[is.infinite(pts)] <- offsets[length(offsets)]
+    result
+}
+
 
 #' Check if a path is a directory
 #' @keywords internal

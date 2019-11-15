@@ -4,31 +4,34 @@
 #' when functions are removed from files.
 #' @keywords internal
 DefinitionCache <- R6::R6Class("DefinitionCache",
+    private = list(
+        locations = list(),
+        uris = list()
+    ),
     public = list(
         get = function(funct) {
-            private$definitions[[funct]]
+            private$locations[[funct]]
         },
         get_functs_for_uri = function(uri) {
-            private$definitions[private$uris[[uri]]]
+            private$locations[private$uris[[uri]]]
         },
         filter = function(pattern) {
-            private$definitions[fuzzy_find(names(private$definitions), pattern)]
+            private$locations[fuzzy_find(names(private$locations), pattern)]
         },
         update = function(uri, ranges) {
             functs <- names(ranges)
             removed_functs <- setdiff(private$uris[[uri]], functs)
             if (!is.null(removed_functs) && length(removed_functs) > 0) {
-                private$definitions[removed_functs] <- NULL
+                private$locations[removed_functs] <- NULL
             }
             for (funct in functs) {
-                private$definitions[[funct]] <- location(uri, ranges[[funct]])
+                private$locations[[funct]] <- location(
+                    uri = uri,
+                    range = ranges[[funct]]
+                )
             }
             private$uris[[uri]] <- functs
         }
-    ),
-    private = list(
-        definitions = list(),
-        uris = list()
     )
 )
 

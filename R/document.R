@@ -129,7 +129,6 @@ backward_search <- function(content, row, column, char, skip_empty_line = TRUE) 
     )
 }
 
-
 #' check if a position is inside quotes
 #' @keywords internal
 enclosed_by_quotes <- function(document, pos) {
@@ -137,22 +136,21 @@ enclosed_by_quotes <- function(document, pos) {
     .Call("enclosed_by_quotes", PACKAGE = "languageserver", s, pos$character)
 }
 
-
-# The parsing result returned by `parse` is based on number of bytes in UTF-8.
-# Thus the position information is wrong, we need to fix the position afterwards.
-fix_definition_ranges <- function(env, lines) {
-    functs <- names(env$definition_ranges)
-    for (funct in functs) {
-        range <- env$definition_ranges[[funct]]
-        start_text <- lines[range$start$line + 1]
-        end_text <- lines[range$end$line + 1]
-        start_col <- code_point_from_unit(start_text, range$start$character)
-        end_col <- code_point_from_unit(end_text, range$end$character)
-        env$definition_ranges[[funct]] <- range(
-            position(range$start$line, start_col),
-            position(range$end$line, end_col)
+#' Expression range in UTF-16 code units
+#' @keywords internal
+expr_range <- function(srcref) {
+    lines <- attr(srcref, "srcfile")$lines
+    # R is 1-indexed, language server is 0-indexed
+    first_line <- srcref[1] - 1
+    first_char <- code_point_to_unit(lines[srcref[1]], srcref[5] - 1)
+    last_line <- srcref[3] - 1
+    last_char <- code_point_to_unit(lines[srcref[3]], srcref[6])
+    return(
+        range(
+            start = position(first_line, first_char),
+            end = position(last_line, last_char)
         )
-    }
+    )
 }
 
 
@@ -187,26 +185,20 @@ parse_expr <- function(expr, env, level = 0L, srcref = attr(expr, "srcref")) {
             funct <- as.character(e[[2L]])
             env$objects <- c(env$objects, funct)
             if (is.call(e[[3L]]) && e[[3L]][[1L]] == "function") {
+                # functions
                 env$functs <- c(env$functs, funct)
                 func <- e[[3L]]
                 env$formals[[funct]] <- func[[2L]]
+
                 signature <- func
                 signature <- utils::capture.output(print(signature[1:2]))
                 signature <- paste0(trimws(signature, which = "left"), collapse = "\n")
                 signature <- trimws(gsub("NULL\\s*$", "", signature))
                 env$signatures[[funct]] <- signature
 
-                # R is 1-indexed, language server is 0-indexed
-                first_line <- cur_srcref[1] - 1
-                first_char <- cur_srcref[5] - 1
-                last_line <- cur_srcref[3] - 1
-                last_char <- cur_srcref[6]
-                definition_range <- range(
-                    position(first_line, first_char),
-                    position(last_line, last_char)
-                )
-                env$definition_ranges[[funct]] <- definition_range
+                env$definition_ranges[[funct]] <- expr_range(cur_srcref)
             } else {
+                # symbols
                 env$nonfuncts <- c(env$nonfuncts, funct)
             }
         } else if (f %in% c("library", "require") && length(e) == 2L) {
@@ -250,7 +242,6 @@ parse_document <- function(path, content = NULL, resolve = FALSE) {
     }
     env <- parse_env()
     parse_expr(expr, env)
-    fix_definition_ranges(env, attr(expr, "srcfile")$lines)
     if (!is.null(expr)) {
         xml_data <- xmlparsedata::xml_parse_data(expr)
         env$xml_data <- xml_data

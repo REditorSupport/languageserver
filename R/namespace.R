@@ -65,6 +65,7 @@ GlobalNameSpace <- R6::R6Class("GlobalNameSpace",
     public = list(
         signatures = list(),
         formals = list(),
+        definitions = list(),
 
         initialize = function() {
             self$package_name <- WORKSPACE
