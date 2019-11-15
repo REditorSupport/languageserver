@@ -82,7 +82,7 @@ respond <- function(client, method, params, timeout, retry=TRUE,
             timeout <- 10
         }
     }
-    storage <- new.env()
+    storage <- new.env(parent = .GlobalEnv)
     cb <- function(self, result) {
         storage$done <- TRUE
         storage$result <- result
@@ -183,7 +183,7 @@ respond_range_formatting <- function(client, path, start_pos, end_pos, ...) {
 
 
 wait_for <- function(client, method, timeout = 5) {
-    storage <- new.env()
+    storage <- new.env(parent = .GlobalEnv)
     start_time <- Sys.time()
     remaining <- timeout
 

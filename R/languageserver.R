@@ -16,7 +16,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
         outputcon = NULL,
         exit_flag = NULL,
 
-        documents = new.env(),
+        documents = new.env(parent = .GlobalEnv),
         workspace = NULL,
 
         run_lintr = TRUE,
