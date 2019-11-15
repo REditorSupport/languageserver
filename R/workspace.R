@@ -8,7 +8,7 @@ Workspace <- R6::R6Class("Workspace",
     private = list(
         global_env = NULL,
         namespaces = list(),
-        definitions = NULL,
+        definition_cache = NULL,
         xml_docs = list()
     ),
     public = list(
@@ -20,7 +20,7 @@ Workspace <- R6::R6Class("Workspace",
                 private$namespaces[[pkgname]] <- Namespace$new(pkgname)
             }
             private$global_env <- GlobalNameSpace$new()
-            private$definitions <- DefinitionCache$new()
+            private$definition_cache <- DefinitionCache$new()
         },
 
         load_package = function(pkgname) {
@@ -120,7 +120,7 @@ Workspace <- R6::R6Class("Workspace",
         get_definition = function(token, pkg = NULL) {
             if (is.null(pkg)) {
                 # look in file first
-                definition <- private$definitions$get(token)
+                definition <- private$definition_cache$get(token)
                 if (is.null(definition)) {
                     definition <- self$find_definition_in_package(token)
                 }
@@ -131,11 +131,11 @@ Workspace <- R6::R6Class("Workspace",
         },
 
         get_definitions_for_uri = function(uri) {
-            private$definitions$get_functs_for_uri(uri)
+            private$definition_cache$get_functs_for_uri(uri)
         },
 
         get_definitions_for_query = function(query) {
-            private$definitions$filter(query)
+            private$definition_cache$filter(query)
         },
 
         find_definition_in_package = function(funct, pkg = NULL) {
@@ -188,7 +188,7 @@ Workspace <- R6::R6Class("Workspace",
                 parse_data$signatures,
                 parse_data$formals
             )
-            private$definitions$update(uri, parse_data$definition_ranges)
+            private$definition_cache$update(uri, parse_data$definition_ranges)
 
             if (!is.null(parse_data$xml_data)) {
                 private$xml_docs[[uri]] <- tryCatch(
