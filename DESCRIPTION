@@ -33,6 +33,7 @@ Suggests:
     fs,
     knitr,
     magrittr,
+    mockery,
     processx,
     purrr,
     testthat (>= 2.1.0),
