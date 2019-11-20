@@ -23,7 +23,7 @@ signature_reply <- function(id, uri, workspace, document, position) {
             sig <- trimws(gsub("function\\s*", result$token, sig))
             SignatureInformation <- list(list(
                 label = sig,
-                documentation = paste0(doc$title, "\n", doc$description)
+                documentation = paste0(doc$title, doc$description, collapse = "\n")
             ))
             activeSignature <- 0
         }
