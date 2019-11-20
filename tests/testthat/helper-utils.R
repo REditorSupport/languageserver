@@ -1,5 +1,6 @@
 suppressPackageStartupMessages({
     library(magrittr)
+    library(mockery)
     library(purrr)
     library(fs)
 })

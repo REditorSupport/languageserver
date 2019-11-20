@@ -12,9 +12,11 @@ LanguageClient <- R6::R6Class("LanguageClient",
         ServerCapabilities = NULL,
         diagnostics = NULL,
 
-        initialize = function(cmd, args) {
-            self$process <- processx::process$new(cmd, args,
-                stdin = "|", stdout = "|", supervise = TRUE)
+        initialize = function(cmd = NULL, args = NULL) {
+            if (!is.null(cmd)) {
+                self$process <- processx::process$new(cmd, args,
+                    stdin = "|", stdout = "|", supervise = TRUE)
+            }
             self$diagnostics <- collections::DictL()
             super$initialize()
         },
@@ -33,6 +35,11 @@ LanguageClient <- R6::R6Class("LanguageClient",
             self$process$write_input(text)
         },
 
+        read_output_lines = function() {
+            if (!self$process$is_alive() || self$process$poll_io(1)[1] != "ready") return(NULL)
+            self$process$read_output_lines(1)
+        },
+
         read_line = function() {
             buf <- private$read_char_buf
             if (length(buf) > 0 && as.raw(10) %in% buf) {
@@ -44,8 +51,7 @@ LanguageClient <- R6::R6Class("LanguageClient",
                 private$read_char_buf <- buf[seq_safe(first_match + 1, length(buf))]
                 return(rawToChar(line))
             }
-            if (!self$process$is_alive() || self$process$poll_io(1)[1] != "ready") return(NULL)
-            line <- self$process$read_output_lines(1)
+            line <- self$read_output_lines()
             if (length(line) > 0) {
                 line <- paste0(rawToChar(buf), line)
                 private$read_char_buf <- raw(0)
@@ -53,11 +59,19 @@ LanguageClient <- R6::R6Class("LanguageClient",
             }
         },
 
+        read_output = function(n) {
+            self$process$read_output(n)
+        },
+
         read_char = function(n) {
-            data <- c(private$read_char_buf, charToRaw(self$process$read_output(n)))
+            if (length(private$read_char_buf) < n) {
+                data <- c(private$read_char_buf, charToRaw(self$read_output(n - length(private$read_char_buf))))
+            } else {
+                data <- private$read_char_buf
+            }
             if (length(data) > n) {
                 private$read_char_buf <- data[seq_safe(n + 1, length(data))]
-                rawToChar(data[seq_len(0)])
+                rawToChar(data[seq_len(n)])
             } else {
                 private$read_char_buf <- raw(0)
                 rawToChar(data)
