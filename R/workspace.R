@@ -154,7 +154,7 @@ Workspace <- R6::R6Class("Workspace",
             private$xml_docs[[uri]]
         },
 
-        update_prase_data = function(uri, parse_data) {
+        update_parse_data = function(uri, parse_data) {
             self$load_packages(parse_data$packages)
 
             private$global_env$nonfuncts <- unique(

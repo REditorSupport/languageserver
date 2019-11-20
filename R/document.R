@@ -267,7 +267,7 @@ parse_document <- function(path, content = NULL, resolve = FALSE) {
 parse_callback <- function(self, uri, parse_data) {
     if (is.null(parse_data)) return(NULL)
     logger$info("parse_callback called")
-    self$workspace$update_prase_data(uri, parse_data)
+    self$workspace$update_parse_data(uri, parse_data)
 }
 
 
