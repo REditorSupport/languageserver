@@ -19,7 +19,7 @@ hover_reply <- function(id, uri, workspace, document, position) {
         if (!is.null(sig)) {
             sig <- trimws(gsub("function\\s*", token_result$token, sig))
         }
-        contents <- sig
+        contents <- sprintf("```r\n%s\n```", sig)
     }
 
     if (is.null(contents)) {
@@ -28,7 +28,9 @@ hover_reply <- function(id, uri, workspace, document, position) {
         Response$new(
             id,
             result = list(
-                contents = contents,
+                contents = list(
+                    kind = "markdown",
+                    value = contents),
                 range = token_result$range
             )
         )
