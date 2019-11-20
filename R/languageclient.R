@@ -38,7 +38,7 @@ LanguageClient <- R6::R6Class("LanguageClient",
             if (length(buf) > 0 && as.raw(10) %in% buf) {
                 first_match <- min(which(buf == charToRaw("\n")))
                 line <- buf[seq_len(first_match - 1)]
-                if (length(line) > 0 && line[length(line7)] == charToRaw("\r")) {
+                if (length(line) > 0 && line[length(line)] == charToRaw("\r")) {
                     line <- line[-length(line)]
                 }
                 private$read_char_buf <- buf[seq_safe(first_match + 1, length(buf))]
@@ -49,7 +49,7 @@ LanguageClient <- R6::R6Class("LanguageClient",
             if (length(line) > 0) {
                 line <- paste0(rawToChar(buf), line)
                 private$read_char_buf <- raw(0)
-            trimws(line, "right")
+                trimws(line, "right")
             }
         },
 
