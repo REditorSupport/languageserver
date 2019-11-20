@@ -63,7 +63,7 @@ arg_completion <- function(workspace, token, funct, package = NULL) {
         completions <- lapply(token_args, function(arg) {
             list(label = arg, kind = CompletionItemKind$Variable,
                 detail = "parameter",
-                documentation = doc$arguments[[arg]])
+                documentation = paste0(doc$arguments[[arg]], collapse = ""))
         })
         completions
     }
