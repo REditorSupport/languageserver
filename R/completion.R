@@ -58,10 +58,12 @@ package_completion <- function(token) {
 arg_completion <- function(workspace, token, funct, package = NULL) {
     args <- names(workspace$get_formals(funct, package))
     if (is.character(args)) {
+        doc <- workspace$get_documentation(funct, package)
         token_args <- args[startsWith(args, token)]
         completions <- lapply(token_args, function(arg) {
             list(label = arg, kind = CompletionItemKind$Variable,
-                documentation = paste0("argument: ", arg))
+                detail = "parameter",
+                documentation = doc$arguments[[arg]])
         })
         completions
     }
