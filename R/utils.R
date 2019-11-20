@@ -261,10 +261,19 @@ find_doc_item <- function(doc, tag) {
     }
 }
 
+convert_doc_to_markdown <- function(doc) {
+    lapply(doc, function(item) {
+        tag <- attr(item, "Rd_tag")
+        if (is.null(tag) || is.character(item)) {
+            trimws(item)
+        } else if (tag == "\\code") {
+            sprintf("`%s`", paste0(unlist(item), collapse = ""))
+        } else {
+            convert_doc_to_markdown(item)
+        }
+    })
+}
+
 convert_doc_string <- function(doc) {
-    paste0(rapply(doc, function(item) {
-        switch(attr(item, "Rd_tag"),
-            RCODE = sprintf("`%s`", item),
-            trimws(item))
-    }, classes = "character"), collapse = " ")
+    paste0(unlist(convert_doc_to_markdown(doc)), collapse = " ")
 }
