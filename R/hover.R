@@ -18,7 +18,7 @@ hover_reply <- function(id, uri, workspace, document, position) {
         logger$info("sig: ", sig)
         if (!is.null(sig)) {
             sig <- trimws(gsub("function\\s*", token_result$token, sig))
-            contents <- list(kind = "markdown", value = sprintf("```r\n%s\n```", sig))
+            contents <- sprintf("```r\n%s\n```", sig)
         }
     }
 
