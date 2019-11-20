@@ -21,12 +21,15 @@ signature_reply <- function(id, uri, workspace, document, position) {
         logger$info("sig: ", sig)
         if (!is.null(sig)) {
             sig <- trimws(gsub("function\\s*", result$token, sig))
+            doc_string <- doc$description
+            if (is.null(doc_string)) {
+                documentation <- ""
+            } else {
+                documentation <- list(kind = "markdown", value = doc_string)
+            }
             SignatureInformation <- list(list(
                 label = sig,
-                documentation = list(
-                    kind = "markdown",
-                    value = paste0(doc$description, collapse = "")
-                )
+                documentation = documentation
             ))
             activeSignature <- 0
         }
