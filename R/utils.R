@@ -252,3 +252,11 @@ look_backward <- function(text) {
         token = na_to_empty_string(matches[4])
     )
 }
+
+find_doc_item <- function(doc, tag) {
+    for (item in doc) {
+        if (attr(item, "Rd_tag") == tag) {
+            return(item)
+        }
+    }
+}

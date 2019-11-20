@@ -139,9 +139,9 @@ Workspace <- R6::R6Class("Workspace",
 
             if (length(hfile) > 0) {
                 doc <- utils:::.getHelpFile(hfile)
-                title_item <- self$find_doc_item(doc, "\\title")
-                description_item <- self$find_doc_item(doc, "\\description")
-                arguments_item <- self$find_doc_item(doc, "\\arguments")
+                title_item <- find_doc_item(doc, "\\title")
+                description_item <- find_doc_item(doc, "\\description")
+                arguments_item <- find_doc_item(doc, "\\arguments")
                 title <- paste0(trimws(unlist(title_item)), collapse = " ")
                 description <- paste0(trimws(unlist(description_item)), collapse = " ")
                 arguments <- list()
@@ -213,14 +213,6 @@ Workspace <- R6::R6Class("Workspace",
             if (!is.null(parse_data$xml_data)) {
                 private$xml_docs[[uri]] <- tryCatch(
                     xml2::read_xml(parse_data$xml_data), error = function(e) NULL)
-            }
-        },
-
-        find_doc_item = function(doc, tag) {
-            for (item in doc) {
-                if (attr(item, "Rd_tag") == tag) {
-                    return(item)
-                }
             }
         }
     )
