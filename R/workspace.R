@@ -127,18 +127,16 @@ Workspace <- R6::R6Class("Workspace",
                 pkgname <- self$guess_package(topic)
             }
             if (is.null(pkgname)) {
-                item <- topic
-                if (!is.null(private$documentation[[item]])) {
-                    return(private$documentation[[item]])
-                }
-                hfile <- utils::help((topic))
-            } else {
-                item <- paste0(pkgname, ".", topic)
-                if (!is.null(private$documentation[[item]])) {
-                    return(private$documentation[[item]])
-                }
-                hfile <- utils::help((topic), (pkgname))
+                # only provide documentation for objects in package
+                return(NULL)
             }
+
+            item <- paste0(pkgname, "::", topic)
+            if (!is.null(private$documentation[[item]])) {
+                return(private$documentation[[item]])
+            }
+            hfile <- utils::help((topic), (pkgname))
+
             if (length(hfile) > 0) {
                 doc <- utils:::.getHelpFile(hfile)
                 title_item <- self$find_doc_item(doc, "\\title")
