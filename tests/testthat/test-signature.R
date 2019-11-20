@@ -17,10 +17,16 @@ test_that("Simple signature works", {
     result <- client %>% respond_signature(temp_file, c(0, 10))
     expect_length(result$signatures, 1)
     expect_match(result$signatures[[1]]$label, "file\\.path\\(.*")
+    expect_equal(result$signatures[[1]]$documentation$kind, "markdown")
+    expect_match(result$signatures[[1]]$documentation$value,
+        ".*Construct the path to a file from components in a platform-independent way.*")
 
     result <- client %>% respond_signature(temp_file, c(1, 21))
     expect_length(result$signatures, 1)
     expect_match(result$signatures[[1]]$label, "path_home\\(.*")
+    expect_equal(result$signatures[[1]]$documentation$kind, "markdown")
+    expect_match(result$signatures[[1]]$documentation$value,
+        ".*`path_expand\\(\\)` performs tilde expansion on a path.*")
 })
 
 test_that("Signature of user function works", {
