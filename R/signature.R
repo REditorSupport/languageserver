@@ -17,13 +17,13 @@ signature_reply <- function(id, uri, workspace, document, position) {
 
     if (nzchar(result$token)) {
         sig <- workspace$get_signature(result$token, result$package)
-        formals <- workspace$get_formals(result$token, result$package)
-        logger$info("sig: ", sig, ", formals: ", length(formals))
+        doc <- workspace$get_documentation(result$token, result$package)
+        logger$info("sig: ", sig)
         if (!is.null(sig)) {
             sig <- trimws(gsub("function\\s*", result$token, sig))
             SignatureInformation <- list(list(
                 label = sig,
-                documentation = paste0("documentation: ", result$token)
+                documentation = paste0(doc$title, "\n", doc$description)
             ))
             activeSignature <- 0
         }

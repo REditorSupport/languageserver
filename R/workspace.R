@@ -9,6 +9,7 @@ Workspace <- R6::R6Class("Workspace",
         global_env = NULL,
         namespaces = list(),
         definition_cache = NULL,
+        documentation = list(),
         xml_docs = list()
     ),
     public = list(
@@ -121,6 +122,55 @@ Workspace <- R6::R6Class("Workspace",
             }
         },
 
+        get_documentation = function(topic, pkgname = NULL) {
+            if (is.null(pkgname)) {
+                pkgname <- self$guess_package(topic)
+            }
+            if (is.null(pkgname)) {
+                item <- topic
+                if (!is.null(private$documentation[[item]])) {
+                    return(private$documentation[[item]])
+                }
+                hfile <- utils::help((topic))
+            } else {
+                item <- paste0(pkgname, ".", topic)
+                if (!is.null(private$documentation[[item]])) {
+                    return(private$documentation[[item]])
+                }
+                hfile <- utils::help((topic), (pkgname))
+            }
+            if (length(hfile) > 0) {
+                doc <- utils:::.getHelpFile(hfile)
+                title_item <- self$find_doc_item(doc, "\\title")
+                description_item <- self$find_doc_item(doc, "\\description")
+                arguments_item <- self$find_doc_item(doc, "\\arguments")
+                title <- paste0(trimws(unlist(title_item)), collapse = " ")
+                description <- paste0(trimws(unlist(description_item)), collapse = " ")
+                arguments <- list()
+                if (length(arguments_item)) {
+                    arg_items <- arguments_item[vapply(arguments_item,
+                        function(arg) attr(arg, "Rd_tag") == "\\item", logical(1L))]
+                    arg_names <- vapply(arg_items, function(item) {
+                        argname <- item[[1]][[1]]
+                        switch(attr(argname, "Rd_tag"),
+                            TEXT = argname, "\\dots" = "...", "")
+                    }, character(1L))
+                    names(arg_items) <- arg_names
+                    arguments <- lapply(arg_items, function(item) {
+                        paste0(trimws(unlist(item[[2]])), collapse = " ")
+                    })
+                }
+                private$documentation[[item]] <- list(
+                    title = title,
+                    description = description,
+                    arguments = arguments
+                )
+            } else {
+                private$documentation[[item]] <- list()
+            }
+        },
+
+
         get_definition = function(symbol, pkgname = NULL) {
             if (is.null(pkgname)) {
                 # look in global_env
@@ -165,6 +215,14 @@ Workspace <- R6::R6Class("Workspace",
             if (!is.null(parse_data$xml_data)) {
                 private$xml_docs[[uri]] <- tryCatch(
                     xml2::read_xml(parse_data$xml_data), error = function(e) NULL)
+            }
+        },
+
+        find_doc_item = function(doc, tag) {
+            for (item in doc) {
+                if (attr(item, "Rd_tag") == tag) {
+                    return(item)
+                }
             }
         }
     )
