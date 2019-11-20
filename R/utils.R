@@ -260,3 +260,11 @@ find_doc_item <- function(doc, tag) {
         }
     }
 }
+
+convert_doc_string <- function(doc) {
+    paste0(rapply(doc, function(item) {
+        switch(attr(item, "Rd_tag"),
+            RCODE = sprintf("`%s`", item),
+            trimws(item))
+    }, classes = "character"), collapse = " ")
+}

@@ -142,8 +142,8 @@ Workspace <- R6::R6Class("Workspace",
                 title_item <- find_doc_item(doc, "\\title")
                 description_item <- find_doc_item(doc, "\\description")
                 arguments_item <- find_doc_item(doc, "\\arguments")
-                title <- paste0(trimws(unlist(title_item)), collapse = " ")
-                description <- paste0(trimws(unlist(description_item)), collapse = " ")
+                title <- convert_doc_string(title_item)
+                description <- convert_doc_string(description_item)
                 arguments <- list()
                 if (length(arguments_item)) {
                     arg_items <- arguments_item[vapply(arguments_item,
@@ -155,7 +155,7 @@ Workspace <- R6::R6Class("Workspace",
                     }, character(1L))
                     names(arg_items) <- arg_names
                     arguments <- lapply(arg_items, function(item) {
-                        paste0(trimws(unlist(item[[2]])), collapse = " ")
+                        convert_doc_string(item[[2]])
                     })
                 }
                 private$documentation[[item]] <- list(
