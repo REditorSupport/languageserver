@@ -60,7 +60,8 @@ arg_completion <- function(workspace, token, funct, package = NULL) {
     if (is.character(args)) {
         token_args <- args[startsWith(args, token)]
         completions <- lapply(token_args, function(arg) {
-            list(label = arg, kind = CompletionItemKind$Variable)
+            list(label = arg, kind = CompletionItemKind$Variable,
+                documentation = paste0("argument: ", arg))
         })
         completions
     }
