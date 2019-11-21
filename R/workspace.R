@@ -124,7 +124,7 @@ Workspace <- R6::R6Class("Workspace",
 
         get_documentation = function(topic, pkgname = NULL) {
             if (is.null(pkgname)) {
-                pkgname <- self$guess_package(topic)
+                pkgname <- self$guess_namespace(topic)
             }
             if (is.null(pkgname) || pkgname == WORKSPACE) {
                 # only provide documentation for objects in package
