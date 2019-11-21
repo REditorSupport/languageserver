@@ -1,5 +1,7 @@
 #include <ctype.h>
 #include "search.h"
+#include "fsm.h"
+
 
 static int is_empty(const char *s) {
     while (*s != '\0') {
@@ -128,50 +130,29 @@ SEXP backward_search(SEXP content, SEXP _row, SEXP _col, SEXP _char, SEXP _skip_
 }
 
 
-SEXP enclosed_by_quotes(SEXP s, SEXP _pos) {
-    int pos = Rf_asInteger(_pos);
+SEXP enclosed_by_quotes(SEXP s, SEXP _col) {
+    int col = Rf_asInteger(_col);
     SEXP ds = STRING_ELT(s, 0);
     const char* d = Rf_translateCharUTF8(ds);
     unsigned char dj;
     int n = strlen(d);
-    int enclosed = 0;
-    int in_dquote = 0;
-    int in_squote = 0;
-    int j, k;
 
     // search forward until the `pos` character or until a comment sign
-    j = 0;
-    k = 0;
-    while (j < n && j < pos) {
+    int j = 0;
+    int k = 0;
+    fsm_state state = fsm_initialize();
+
+    while (j < n && k <= col) {
         dj = d[j];
         if (0x80 <= dj && dj <= 0xbf) {
             j++;
             continue;
         }
-
-        if (!in_squote && dj == '"') {
-            if (in_dquote) {
-                if (j == 0 || d[j - 1] != '\\') {
-                    in_dquote = 0;
-                }
-            } else {
-                in_dquote = 1;
-            }
-        } else if (!in_dquote && dj == '\'') {
-            if (in_squote) {
-                if (j == 0 || d[j - 1] != '\\') {
-                    in_squote = 0;
-                }
-            } else {
-                in_squote = 1;
-            }
-        } else if (!in_dquote && !in_squote && dj == '#') {
-            break;
-        }
+        fsm_feed(&state, dj);
         j++;
         k++;
     }
 
-    enclosed = in_dquote || in_squote;
+    int enclosed = state.single_quoted || state.doubled_quoted;
     return Rf_ScalarLogical(enclosed);
 }

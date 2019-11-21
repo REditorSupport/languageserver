@@ -132,8 +132,9 @@ backward_search <- function(content, row, column, char, skip_empty_line = TRUE) 
 #' check if a position is inside quotes
 #' @keywords internal
 enclosed_by_quotes <- function(document, pos) {
-    s <- document$content[pos$line + 1]
-    .Call("enclosed_by_quotes", PACKAGE = "languageserver", s, pos$character)
+    text <- document$line0(pos$line)
+    col <- code_point_from_unit(text, pos$character)
+    .Call("enclosed_by_quotes", PACKAGE = "languageserver", text, col)
 }
 
 #' Expression range in UTF-16 code units
