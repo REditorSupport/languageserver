@@ -6,7 +6,6 @@ typedef struct {
     int double_quoted;
     int backticked;
     int escaped;
-    int paren_level;
 } fsm_state;
 
 fsm_state fsm_initialize();

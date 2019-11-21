@@ -13,18 +13,23 @@ test_that("enclosed_by_quotes works as expected", {
 })
 
 
-test_that("backward_search works as expected", {
+test_that("find_unbalanced_paren works as expected", {
     bsearch <- function(content, row, column) {
-        .Call("backward_search",
+        .Call("find_unbalanced_paren",
             PACKAGE = "languageserver",
-            content, row, column, "(", TRUE
+            content, row, column, TRUE
         )
     }
     expect_equal(bsearch("foo(xy", 0, 5) , c(0, 3))
-    expect_equal(bsearch("foo(xy'𐐀'", 0, 6) , c(-1, -1))
-    expect_equal(bsearch("foo(xy'𐐀'", 0, 7) , c(-1, -1))
-    expect_equal(bsearch("foo(xy'𐐀'", 0, 8) , c(0, 3))
-    expect_equal(bsearch("foo(xy'\\'𐐀'", 0, 10) , c(0, 3))
+    expect_equal(bsearch("foo(xy(abc)", 0, 5) , c(0, 3))
+    expect_equal(bsearch("foo(xy(abc)", 0, 6) , c(0, 6))
+    expect_equal(bsearch("foo(xy(abc)", 0, 7) , c(0, 6))
+    expect_equal(bsearch("foo(xy(abc), param2", 0, 12) , c(0, 3))
+    expect_equal(bsearch("foo(#xyz(bar", 0, 10) , c(0, 3))
+    expect_equal(bsearch("foo('xyz(bar", 0, 10) , c(0, 3))
+    expect_equal(bsearch("foo(\"xyz(bar", 0, 10) , c(0, 3))
+    expect_equal(bsearch("foo('xyz', bar", 0, 10) , c(0, 3))
+    expect_equal(bsearch("foo(\"xyz\", bar", 0, 10) , c(0, 3))
     expect_equal(bsearch("𐐀𐐀𐐀(𐐀𐐀𐐀", 0, 5) , c(0, 3))
 
     # multiline
