@@ -264,16 +264,18 @@ find_doc_item <- function(doc, tag) {
 convert_doc_to_markdown <- function(doc) {
     unlist(lapply(doc, function(item) {
         tag <- attr(item, "Rd_tag")
-        if (length(item)) {
-            if (is.null(tag)) {
-                convert_doc_to_markdown(item)
-            } else if (tag == "\\code") {
-                sprintf("`%s`", paste0(unlist(item), collapse = ""))
-            } else if (is.character(item)) {
-                trimws(item)
-            } else {
+        if (is.null(tag)) {
+            if (length(item)) {
                 convert_doc_to_markdown(item)
             }
+        } else if (tag == "\\dots") {
+            "..."
+        } else if (tag == "\\code") {
+            sprintf("`%s`", paste0(convert_doc_to_markdown(item), collapse = ""))
+        } else if (is.character(item)) {
+            trimws(item)
+        } else if (length(item)) {
+            convert_doc_to_markdown(item)
         }
     }))
 }
