@@ -7,6 +7,6 @@
 
 SEXP backward_search(SEXP document, SEXP _row, SEXP _col, SEXP _char, SEXP _skip_el);
 
-SEXP enclosed_by_quotes(SEXP s, SEXP _pos);
+SEXP enclosed_by_quotes(SEXP s, SEXP _col);
 
 #endif /* end of include guard: SEARCH_H__ */
