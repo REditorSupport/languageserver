@@ -1,6 +1,7 @@
 #include <ctype.h>
 #include "search.h"
 #include "fsm.h"
+#include "stack.h"
 
 
 static int is_empty(const char *s) {
@@ -12,10 +13,9 @@ static int is_empty(const char *s) {
     return 1;
 }
 
-SEXP backward_search(SEXP content, SEXP _row, SEXP _col, SEXP _char, SEXP _skip_el) {
+SEXP find_unbalanced_paren(SEXP content, SEXP _row, SEXP _col, SEXP _skip_el) {
     int row = Rf_asInteger(_row);
     int col = Rf_asInteger(_col);
-    char chr = CHAR(Rf_asChar(_char))[0];
     int skip = Rf_asInteger(_skip_el);
 
     int i, j, k;
@@ -23,11 +23,7 @@ SEXP backward_search(SEXP content, SEXP _row, SEXP _col, SEXP _char, SEXP _skip_
     const char* c;
     unsigned char cj;
     fsm_state state;
-
-    int found = 0;
-    int nparen = 0;
-    int in_dquote;
-    int in_squote;
+    stack stk;
 
     for (i = row; i >= 0; i--) {
         c = Rf_translateCharUTF8(STRING_ELT(content, i));
@@ -43,6 +39,7 @@ SEXP backward_search(SEXP content, SEXP _row, SEXP _col, SEXP _char, SEXP _skip_
         j = 0;
         k = 0;
         state = fsm_initialize();
+        stack_clear(&stk);
 
         while (j < n && (i < row || k <= col)) {
             cj = c[j];
@@ -50,55 +47,23 @@ SEXP backward_search(SEXP content, SEXP _row, SEXP _col, SEXP _char, SEXP _skip_
                 j++;
                 continue;
             }
-            if (!state.single_quoted && !state.double_quoted && cj == '#') break;
+            if (!state.single_quoted && !state.double_quoted && !state.escaped) {
+                if (cj == '#') {
+                    break;
+                } else if (cj == '(') {
+                    stack_push(&stk, k);
+                } else if (cj == ')') {
+                    stack_pop(&stk);
+                }
+            }
             fsm_feed(&state, cj);
             j++;
             k++;
         }
-        j--;
-        k--;
-
-        // then search backward until an unbalanced "("
-        in_dquote = 0;
-        in_squote = 0;
-        nparen = 0;
-        while (j >= 0) {
-            cj = c[j];
-            if (0x80 <= cj && cj <= 0xbf) {
-                j--;
-                continue;
-            }
-            if (!in_squote && cj == '"') {
-                if (in_dquote) {
-                    if (j == 0 || c[j - 1] != '\\') {
-                        in_dquote = 0;
-                    }
-                } else {
-                    in_dquote = 1;
-                }
-            } else if (!in_dquote && cj == '\'') {
-                if (in_squote) {
-                    if (j == 0 || c[j - 1] != '\\') {
-                        in_squote = 0;
-                    }
-                } else {
-                    in_squote = 1;
-                }
-            } else if (!in_dquote && !in_squote && chr == '(') {
-                if (nparen == 0 && cj == '(') {
-                    found = 1;
-                    break;
-                } else if (cj == '(') {
-                    nparen++;
-                } else if (cj == ')') {
-                    nparen--;
-                }
-            }
-            j--;
-            k--;
+        k = stack_pop(&stk);
+        if (k >= 0) {
+            break;
         }
-        if (found) break;
-        // if nothing was found, continue to the previous line
     }
 
     SEXP loc = PROTECT(Rf_allocVector(INTSXP, 2));
@@ -115,7 +80,7 @@ SEXP enclosed_by_quotes(SEXP _s, SEXP _col) {
     unsigned char cj;
     int n = strlen(c);
 
-    // search forward until the `pos` character
+    // search forward until the `col` character or # sign
     int j = 0;
     int k = 0;
     fsm_state state = fsm_initialize();
@@ -126,6 +91,7 @@ SEXP enclosed_by_quotes(SEXP _s, SEXP _col) {
             j++;
             continue;
         }
+        if (!state.single_quoted && !state.double_quoted && !state.escaped && cj == '#') break;
         fsm_feed(&state, cj);
         j++;
         k++;
