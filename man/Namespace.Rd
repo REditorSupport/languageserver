@@ -4,7 +4,7 @@
 \name{Namespace}
 \alias{Namespace}
 \title{A class for storing package information}
-\format{An object of class \code{R6ClassGenerator} of length 24.}
+\format{An object of class \code{R6ClassGenerator} of length 25.}
 \usage{
 Namespace
 }

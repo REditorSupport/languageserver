@@ -4,7 +4,7 @@
 \alias{find_unbalanced_paren}
 \title{Search backwards in a document content for a specific character}
 \usage{
-find_unbalanced_paren(content, row, column, char, skip_empty_line = TRUE)
+find_unbalanced_paren(content, row, column, skip_empty_line = TRUE)
 }
 \value{
 a tuple of positive integers, the row and column position of the

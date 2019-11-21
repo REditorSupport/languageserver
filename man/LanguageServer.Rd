@@ -4,7 +4,7 @@
 \name{LanguageServer}
 \alias{LanguageServer}
 \title{The language server}
-\format{An object of class \code{R6ClassGenerator} of length 24.}
+\format{An object of class \code{R6ClassGenerator} of length 25.}
 \usage{
 LanguageServer
 }

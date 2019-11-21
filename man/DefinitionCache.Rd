@@ -4,7 +4,7 @@
 \name{DefinitionCache}
 \alias{DefinitionCache}
 \title{A data structure to hold function definition locations}
-\format{An object of class \code{R6ClassGenerator} of length 24.}
+\format{An object of class \code{R6ClassGenerator} of length 25.}
 \usage{
 DefinitionCache
 }
