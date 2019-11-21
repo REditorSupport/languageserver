@@ -9,9 +9,9 @@ typedef struct {
 } fsm_state;
 */
 
-fsm_state fsm_initialize() {
-    fsm_state bs = {0, 0, 0, 0};
-    return bs;
+
+void fsm_initialize(fsm_state* s) {
+    *s = (fsm_state){0, 0, 0, 0};
 }
 
 

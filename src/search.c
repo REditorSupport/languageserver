@@ -38,9 +38,8 @@ SEXP find_unbalanced_paren(SEXP content, SEXP _row, SEXP _col, SEXP _skip_el) {
         // search forward until the `col` character or # sign
         j = 0;
         k = 0;
-        state = fsm_initialize();
-        stack_clear(&stk);
-
+        fsm_initialize(&state);
+        stack_initialize(&stk);
         while (j < n && (i < row || k <= col)) {
             cj = c[j];
             if (0x80 <= cj && cj <= 0xbf) {
@@ -61,11 +60,11 @@ SEXP find_unbalanced_paren(SEXP content, SEXP _row, SEXP _col, SEXP _skip_el) {
             k++;
         }
         k = stack_pop(&stk);
+        stack_clear(&stk);
         if (k >= 0) {
             break;
         }
     }
-
     SEXP loc = PROTECT(Rf_allocVector(INTSXP, 2));
     INTEGER(loc)[0] = i;
     INTEGER(loc)[1] = k;
@@ -83,8 +82,9 @@ SEXP enclosed_by_quotes(SEXP _s, SEXP _col) {
     // search forward until the `col` character or # sign
     int j = 0;
     int k = 0;
-    fsm_state state = fsm_initialize();
 
+    fsm_state state;
+    fsm_initialize(&state);
     while (j < n && k <= col) {
         cj = c[j];
         if (0x80 <= cj && cj <= 0xbf) {
