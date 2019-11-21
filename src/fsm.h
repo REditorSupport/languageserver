@@ -3,7 +3,8 @@
 
 typedef struct {
     int single_quoted;
-    int doubled_quoted;
+    int double_quoted;
+    int backticked;
     int escaped;
     int paren_level;
 } fsm_state;
