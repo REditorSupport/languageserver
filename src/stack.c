@@ -14,14 +14,25 @@ typedef struct {
 } stack;
 */
 
+void stack_initialize(stack* s) {
+    s->top = NULL;
+}
+
 void stack_clear(stack* s) {
+    stackitem* t = s->top;
+    stackitem* temp;
+    while (t != NULL) {
+        temp = t->prev;
+        free(t);
+        t = temp;
+    }
     s->top = NULL;
 }
 
 
 void stack_push(stack* s, int x) {
     stackitem* t = s->top;
-    stackitem* si = malloc (sizeof(stackitem));
+    stackitem* si = malloc(sizeof(stackitem));
     si->prev = t;
     si->x = x;
     s->top = si;

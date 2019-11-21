@@ -10,6 +10,8 @@ typedef struct {
     stackitem* top;
 } stack;
 
+void stack_initialize(stack* s);
+
 void stack_clear(stack* s);
 
 void stack_push(stack* s, int x);

@@ -8,8 +8,8 @@ typedef struct {
     int escaped;
 } fsm_state;
 
-fsm_state fsm_initialize();
 
+void fsm_initialize(fsm_state* s);
 void fsm_feed(fsm_state* state, const char c);
 
 
