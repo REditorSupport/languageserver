@@ -36,6 +36,26 @@ test_that("Simple completion works", {
     expect_length(result$items %>% keep(~.$label == ".Machine"), 1)
 })
 
+test_that("Completion of function arguments works", {
+    skip_on_cran()
+    client <- language_client()
+    
+    withr::local_tempfile(c("temp_file"), fileext = ".R")
+    writeLines(
+        c(
+            "str(obj"
+        ),
+        temp_file)
+    
+    client %>% did_save(temp_file)
+
+    result <- client %>% respond_completion(temp_file, c(0, 6))
+    arg_items <- result$items %>% keep(~.$label == "object")
+    expect_length(arg_items, 1)
+    expect_equal(arg_items[[1]]$documentation$kind, "markdown")
+    expect_equal(arg_items[[1]]$documentation$value,
+        "any object about which you want to have some information.")
+})
 
 test_that("Completion of user function works", {
     skip_on_cran()
