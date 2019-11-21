@@ -14,7 +14,37 @@ text_document_completion  <- function(self, id, params) {
 #' Handler to the `completionItem/resolve` [Request].
 #' @keywords internal
 completion_item_resolve  <- function(self, id, params) {
-
+    logger$info("completion_item_resolve:", params)
+    respond <- FALSE
+    if (is.null(params$data) || is.null(params$data$package) || params$data$package == WORKSPACE) {
+        
+    } else {
+        if (params$data$type == "parameter") {
+            doc <- self$workspace$get_documentation(params$data$funct, params$data$package)
+            doc_string <- doc$arguments[[params$label]]
+            if (!is.null(doc_string)) {
+                params$documentation <- list(kind = "markdown", value = doc_string)
+                respond <- TRUE
+            }
+        } else if (params$data$type %in% c("function", "nonfunction", "lazydata")) {
+            doc <- self$workspace$get_documentation(params$label, params$data$package)
+            doc_string <- doc$description
+            if (!is.null(doc_string)) {
+                params$documentation <- list(kind = "markdown", value = doc_string)
+                respond <- TRUE
+            }
+        }
+    }
+    if (respond) {
+        params$data <- NULL
+        logger$info(params)
+        self$deliver(Response$new(
+            id,
+            result = params
+        ))
+    } else {
+        self$deliver(Response$new(id))
+    }
 }
 
 #' `textDocument/hover` request handler
