@@ -165,6 +165,7 @@ LanguageServer$set("public", "register_handlers", function() {
         initialize = on_initialize,
         shutdown = on_shutdown,
         `textDocument/completion` = text_document_completion,
+        `completionItem/resolve` = completion_item_resolve,
         `textDocument/definition` = text_document_definition,
         `textDocument/hover` = text_document_hover,
         `textDocument/signatureHelp` = text_document_signature_help,

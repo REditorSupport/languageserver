@@ -38,7 +38,8 @@ constants <- c("TRUE", "FALSE", "NULL",
 constant_completion <- function(token) {
     consts <- constants[startsWith(constants, token)]
     completions <- lapply(consts, function(const) {
-        list(label = const, kind = CompletionItemKind$Constant)
+        list(label = const, kind = CompletionItemKind$Constant,
+            data = list(type = "constant"))
     })
 }
 
@@ -48,7 +49,8 @@ package_completion <- function(token) {
     installed_packages <- rownames(utils::installed.packages())
     token_packages <- installed_packages[startsWith(installed_packages, token)]
     completions <- lapply(token_packages, function(package) {
-        list(label = package, kind = CompletionItemKind$Module)
+        list(label = package, kind = CompletionItemKind$Module,
+            data = list(type = "package"))
     })
     completions
 }
@@ -56,22 +58,23 @@ package_completion <- function(token) {
 #' Complete a function argument
 #' @keywords internal
 arg_completion <- function(workspace, token, funct, package = NULL) {
-    args <- names(workspace$get_formals(funct, package))
-    if (is.character(args)) {
-        doc <- workspace$get_documentation(funct, package)
-        token_args <- args[startsWith(args, token)]
-        completions <- lapply(token_args, function(arg) {
-            doc_string <- doc$arguments[[arg]]
-            if (is.null(doc_string)) {
-                documentation <- ""
-            } else {
-                documentation <- list(kind = "markdown", value = doc_string)
-            }
-            list(label = arg, kind = CompletionItemKind$Variable,
-                detail = "parameter",
-                documentation = documentation)
-        })
-        completions
+    if (is.null(package)) {
+        package <- workspace$guess_namespace(funct, isf = TRUE)
+    }
+    if (!is.null(package)) {
+        args <- names(workspace$get_formals(funct, package))
+        if (is.character(args)) {
+            token_args <- args[startsWith(args, token)]
+            completions <- lapply(token_args, function(arg) {
+                list(label = arg, kind = CompletionItemKind$Variable,
+                    detail = "parameter",
+                    data = list(
+                        type = "parameter",
+                        funct = funct, package = package
+                ))
+            })
+            completions
+        }
     }
 }
 
@@ -101,19 +104,31 @@ workspace_completion <- function(workspace, token, package = NULL, exported_only
             functs_completions <- lapply(functs, function(object) {
                 list(label = object,
                      kind = CompletionItemKind$Function,
-                     detail = tag)
+                     detail = tag,
+                     data = list(
+                         type = "function",
+                         package = nsname
+                     ))
             })
             nonfuncts <- ns$nonfuncts[startsWith(ns$nonfuncts, token)]
             nonfuncts_completions <- lapply(nonfuncts, function(object) {
                 list(label = object,
                      kind = CompletionItemKind$Field,
-                     detail = tag)
+                     detail = tag,
+                     data = list(
+                         type = "nonfunction",
+                         package = nsname
+                     ))
             })
             lazydata <- ns$lazydata[startsWith(ns$lazydata, token)]
             lazydata_completions <- lapply(lazydata, function(object) {
                 list(label = object,
                      kind = CompletionItemKind$Field,
-                     detail = tag)
+                     detail = tag,
+                     data = list(
+                         type = "lazydata",
+                         package = nsname
+                     ))
             })
             completions <- c(completions,
                 functs_completions,

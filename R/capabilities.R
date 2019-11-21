@@ -17,7 +17,7 @@ TextDocumentSyncOptions <- list(
 )
 
 CompletionOptions <- list(
-    resolveProvider = FALSE,
+    resolveProvider = TRUE,
     triggerCharacters = list(".", ":")
 )
 
