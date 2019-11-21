@@ -247,11 +247,19 @@ completion_reply <- function(id, uri, workspace, document, position) {
 completion_item_resolve_reply <- function(id, workspace, params) {
     resolved <- FALSE
     if (is.null(params$data) || 
-        is.null(params$data$package) || 
-        params$data$package == WORKSPACE) {
+        is.null(params$data$type) || 
+        (!is.null(params$data$package) && params$data$package == WORKSPACE)) {
         
     } else {
-        if (params$data$type == "parameter") {
+        if (params$data$type == "package") {
+            if (length(find.package(params$label))) {
+                desc <- utils::packageDescription(params$label, fields = c("Title", "Description"))
+                params$detail <- desc$Title
+                params$documentation <- paste0(trimws(
+                    strsplit(desc$Description, split = "\n")[[1]]), collapse = " ")
+                resolved <- TRUE
+            }
+        } else if (params$data$type == "parameter") {
             doc <- workspace$get_documentation(params$data$funct, params$data$package)
             doc_string <- doc$arguments[[params$label]]
             if (!is.null(doc_string)) {
