@@ -125,6 +125,15 @@ respond_completion <- function(client, path, pos, ...) {
     )
 }
 
+respond_completion_item_resolve <- function(client, params, ...) {
+    respond(
+        client,
+        "completionItem/resolve",
+        params,
+        ...
+    )
+}
+
 respond_signature <- function(client, path, pos, ...) {
     respond(
         client,
