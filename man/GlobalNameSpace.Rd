@@ -4,7 +4,7 @@
 \name{GlobalNameSpace}
 \alias{GlobalNameSpace}
 \title{A class for storing global environment information}
-\format{An object of class \code{R6ClassGenerator} of length 24.}
+\format{An object of class \code{R6ClassGenerator} of length 25.}
 \usage{
 GlobalNameSpace
 }

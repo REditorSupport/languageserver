@@ -4,7 +4,7 @@
 \name{Workspace}
 \alias{Workspace}
 \title{A data structure for a session workspace}
-\format{An object of class \code{R6ClassGenerator} of length 24.}
+\format{An object of class \code{R6ClassGenerator} of length 25.}
 \usage{
 Workspace
 }

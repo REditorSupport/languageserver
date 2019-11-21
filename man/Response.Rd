@@ -4,7 +4,7 @@
 \name{Response}
 \alias{Response}
 \title{Response Message class}
-\format{An object of class \code{R6ClassGenerator} of length 24.}
+\format{An object of class \code{R6ClassGenerator} of length 25.}
 \usage{
 Response
 }
