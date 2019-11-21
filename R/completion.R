@@ -241,3 +241,40 @@ completion_reply <- function(id, uri, workspace, document, position) {
         )
     )
 }
+
+#' The response to a completionItem/resolve request
+#' @keywords internal
+completion_item_resolve_reply <- function(id, workspace, params) {
+    resolved <- FALSE
+    if (is.null(params$data) || 
+        is.null(params$data$package) || 
+        params$data$package == WORKSPACE) {
+        
+    } else {
+        if (params$data$type == "parameter") {
+            doc <- workspace$get_documentation(params$data$funct, params$data$package)
+            doc_string <- doc$arguments[[params$label]]
+            if (!is.null(doc_string)) {
+                params$documentation <- list(kind = "markdown", value = doc_string)
+                resolved <- TRUE
+            }
+        } else if (params$data$type %in% c("function", "nonfunction", "lazydata")) {
+            doc <- workspace$get_documentation(params$label, params$data$package)
+            doc_string <- doc$description
+            if (!is.null(doc_string)) {
+                params$documentation <- list(kind = "markdown", value = doc_string)
+                resolved <- TRUE
+            }
+        }
+    }
+
+    if (resolved) {
+        params$data <- NULL
+        Response$new(
+            id,
+            result = params
+        )
+    } else {
+        Response$new(id)
+    }
+}
