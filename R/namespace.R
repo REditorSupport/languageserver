@@ -85,7 +85,8 @@ Namespace <- R6::R6Class("Namespace",
             code <- repr::repr_text(fn)
             # reorganize the code
             code <- stringr::str_split(code, "\n")[[1]]
-            code[1] <- paste(funct, "<-", code[1])
+            # we don't add  `<-` to avoid the parser pasrsing the file
+            # code[1] <- paste(funct, "<-", code[1])
             paste0(code[!grepl("<bytecode|<environment", code)], collapse = "\n")
         },
 

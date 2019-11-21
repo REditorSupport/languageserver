@@ -40,19 +40,19 @@ Workspace <- R6::R6Class("Workspace",
             }
         },
 
-        guess_package = function(object, isf = FALSE) {
+        guess_namespace = function(object, isf = FALSE) {
             packages <- c(WORKSPACE, rev(self$loaded_packages))
 
             for (pkgname in packages) {
                 ns <- self$get_namespace(pkgname)
                 if (isf) {
-                    if (!is.null(ns) && ns$exists(object)) {
-                        logger$info("guess package:", pkgname)
+                    if (!is.null(ns) && ns$exists_funct(object)) {
+                        logger$info("guess namespace:", pkgname)
                         return(pkgname)
                     }
                 } else {
-                    if (!is.null(ns) && ns$exists_funct(object)) {
-                        logger$info("guess package:", pkgname)
+                    if (!is.null(ns) && ns$exists(object)) {
+                        logger$info("guess namespace:", pkgname)
                         return(pkgname)
                     }
                 }
@@ -75,7 +75,7 @@ Workspace <- R6::R6Class("Workspace",
 
         get_signature = function(funct, pkgname = NULL) {
             if (is.null(pkgname)) {
-                pkgname <- self$guess_package(funct, isf = TRUE)
+                pkgname <- self$guess_namespace(funct, isf = TRUE)
                 if (is.null(pkgname)) {
                     return(NULL)
                 }
@@ -88,7 +88,7 @@ Workspace <- R6::R6Class("Workspace",
 
         get_formals = function(funct, pkgname = NULL) {
             if (is.null(pkgname)) {
-                pkgname <- self$guess_package(funct, isf = TRUE)
+                pkgname <- self$guess_namespace(funct, isf = TRUE)
                 if (is.null(pkgname)) {
                     return(NULL)
                 }
@@ -101,7 +101,7 @@ Workspace <- R6::R6Class("Workspace",
 
         get_help = function(topic, pkgname = NULL) {
             if (is.null(pkgname)) {
-                pkgname <- self$guess_package(topic)
+                pkgname <- self$guess_namespace(topic)
             }
             # note: the parantheses are neccessary
             hfile <- tryCatch({
@@ -128,7 +128,7 @@ Workspace <- R6::R6Class("Workspace",
                 if (!is.null(definition)) {
                     return(definition)
                 }
-                pkgname <- self$guess_package(symbol, isf = TRUE)
+                pkgname <- self$guess_namespace(symbol, isf = TRUE)
                 if (is.null(pkgname)) {
                     return(NULL)
                 }
