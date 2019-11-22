@@ -38,9 +38,12 @@ Namespace <- R6::R6Class("Namespace",
             pkgname <- self$package_name
             ns <- asNamespace(pkgname)
             fn <- get(funct, envir = ns)
-            sig <- utils::capture.output(print(args(fn)))
-            sig <- sig[-length(sig)]
-            paste0(trimws(sig, which = "left"), collapse = "\n")
+            args <- args(fn)
+            if (!is.null(args)) {
+                sig <- utils::capture.output(print(args))
+                sig <- sig[-length(sig)]
+                paste0(trimws(sig, which = "left"), collapse = "\n")
+            }
         },
 
         get_formals = function(funct) {
