@@ -24,6 +24,7 @@ SEXP find_unbalanced_paren(SEXP content, SEXP _row, SEXP _col, SEXP _skip_el) {
     unsigned char cj;
     fsm_state state;
     stack stk;
+    int nparens = 0;
 
     for (i = row; i >= 0; i--) {
         c = Rf_translateCharUTF8(STRING_ELT(content, i));
@@ -50,8 +51,10 @@ SEXP find_unbalanced_paren(SEXP content, SEXP _row, SEXP _col, SEXP _skip_el) {
                 if (cj == '#') {
                     break;
                 } else if (cj == '(') {
+                    nparens += 1;
                     stack_push(&stk, k);
                 } else if (cj == ')') {
+                    nparens -= 1;
                     stack_pop(&stk);
                 }
             }
@@ -61,7 +64,7 @@ SEXP find_unbalanced_paren(SEXP content, SEXP _row, SEXP _col, SEXP _skip_el) {
         }
         k = stack_pop(&stk);
         stack_clear(&stk);
-        if (k >= 0) {
+        if (nparens >= 1 && k >= 0) {
             break;
         }
     }

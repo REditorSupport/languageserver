@@ -71,7 +71,7 @@ Document <- R6::R6Class(
             column <- code_point_from_unit(text, position$character)
 
             if (position$character > 0) {
-                loc <- find_unbalanced_paren(self$content, row, column)
+                loc <- find_unbalanced_paren(self$content, row, column - 1)
             } else {
                 loc <- c(-1, -1)
             }
