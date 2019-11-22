@@ -40,7 +40,7 @@ Namespace <- R6::R6Class("Namespace",
             fn <- get(funct, envir = ns)
             args <- args(fn)
             if (!is.null(args)) {
-                sig <- utils::capture.output(print(args))
+                sig <- format(args)
                 sig <- sig[-length(sig)]
                 paste0(trimws(sig, which = "left"), collapse = "\n")
             }
