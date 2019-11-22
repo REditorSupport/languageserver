@@ -17,15 +17,14 @@ signature_reply <- function(id, uri, workspace, document, position) {
 
     if (nzchar(result$token)) {
         sig <- workspace$get_signature(result$token, result$package)
-        doc <- workspace$get_documentation(result$token, result$package)
         logger$info("sig: ", sig)
         if (!is.null(sig)) {
             sig <- trimws(gsub("function\\s*", result$token, sig))
-            doc_string <- doc$description
-            if (is.null(doc_string)) {
+            doc <- workspace$get_documentation(result$token, result$package)
+            if (is.null(doc$description)) {
                 documentation <- ""
             } else {
-                documentation <- list(kind = "markdown", value = doc_string)
+                documentation <- list(kind = "markdown", value = doc$description)
             }
             SignatureInformation <- list(list(
                 label = sig,

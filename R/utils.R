@@ -268,6 +268,8 @@ convert_doc_to_markdown <- function(doc) {
             if (length(item)) {
                 convert_doc_to_markdown(item)
             }
+        } else if (tag == "\\R") {
+            "**R**"
         } else if (tag == "\\dots") {
             "..."
         } else if (tag == "\\code") {
