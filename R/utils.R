@@ -285,3 +285,30 @@ convert_doc_to_markdown <- function(doc) {
 convert_doc_string <- function(doc) {
     paste0(convert_doc_to_markdown(doc), collapse = " ")
 }
+
+#' @importFrom glue glue
+#' @import xml2
+NULL
+
+xdoc_find_enclosing_scopes <- function(x, line, col, top = FALSE) {
+    if (top) {
+        xpath <- glue("/exprlist | //expr[(@line1 < {line} or (@line1 = {line} and @col1 <= {col})) and
+                (@line2 > {line} or (@line2 = {line} and @col2 >= {col}))]")
+    } else {
+        xpath <- glue("//expr[(@line1 < {line} or (@line1 = {line} and @col1 <= {col})) and
+                (@line2 > {line} or (@line2 = {line} and @col2 >= {col}))]")
+    }
+    xml_find_all(x, xpath)
+}
+
+xdoc_find_symbol <- function(x, line, col) {
+    xpath <- glue("//expr[(@line1 = {line} and @col1 <= {col}) and
+          (@line2 = {line} and @col2 >= {col})]/SYMBOL")
+    xml_find_all(x, xpath)
+}
+
+xdoc_find_symbol_sub <- function(x, line, col) {
+    xpath <- glue("//expr/SYMBOL_SUB[(@line1 = {line} and @col1 <= {col}) and
+          (@line2 = {line} and @col2 >= {col})]")
+    xml_find_all(x, xpath)
+}

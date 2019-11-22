@@ -9,7 +9,6 @@ hover_reply <- function(id, uri, workspace, document, position) {
     }
 
     token_result <- document$detect_token(position)
-
     contents <- workspace$get_help(token_result$token, token_result$package)
 
     if (is.null(contents)) {
@@ -22,18 +21,18 @@ hover_reply <- function(id, uri, workspace, document, position) {
                 resolved <- FALSE
 
                 if (!resolved) {
-                    token <- find_symbol(xdoc, position$line + 1, position$character + 1)
+                    token <- xml_text(xdoc_find_symbol(xdoc, position$line + 1, position$character + 1))
                     if (length(token) == 1L) {
-                        token_text <- xml2::xml_text(token)
-                        enclosing_scopes <- find_enclosing_scopes2(xdoc, position$line + 1, position$character + 1)
-                        def_lines <- xml2::xml_find_all(enclosing_scopes, sprintf("
-                                            expr[FUNCTION and SYMBOL_FORMALS[text() = '%s']]/@line1 |
-                                            expr[LEFT_ASSIGN/preceding-sibling::expr/SYMBOL[text() = '%s']]/@line1 |
-                                            expr[RIGHT_ASSIGN/following-sibling::expr/SYMBOL[text() = '%s']]/@line1 |
-                                            equal_assign[expr[1]/SYMBOL[text() = '%s']]/@line1",
-                            token_text, token_text, token_text, token_text))
+                        enclosing_scopes <- xdoc_find_enclosing_scopes(xdoc, position$line + 1, position$character + 1, top = TRUE)
+                        xpath <- glue("
+                            expr[FUNCTION and SYMBOL_FORMALS[text() = '{token}']]/@line1 |
+                            expr[LEFT_ASSIGN/preceding-sibling::expr/SYMBOL[text() = '{token}']]/@line1 |
+                            expr[RIGHT_ASSIGN/following-sibling::expr/SYMBOL[text() = '{token}']]/@line1 |
+                            equal_assign[expr[1]/SYMBOL[text() = '{token}']]/@line1 |
+                            forcond/SYMBOL[text() = '{token}']/@line1")
+                        def_lines <- xml_find_all(enclosing_scopes, xpath)
                         if (length(def_lines)) {
-                            last_def_line <- as.integer(xml2::xml_text(def_lines[[length(def_lines)]]))
+                            last_def_line <- as.integer(xml_text(def_lines[[length(def_lines)]]))
                             contents <- sprintf("```r\n%s\n```", trimws(document$line(last_def_line)))
                             resolved <- TRUE
                         }
@@ -41,15 +40,15 @@ hover_reply <- function(id, uri, workspace, document, position) {
                 }
                 
                 if (!resolved) {
-                    token <- find_symbol_sub(xdoc, position$line + 1, position$character + 1)
+                    token <- xdoc_find_symbol_sub(xdoc, position$line + 1, position$character + 1)
                     if (length(token) == 1) {
-                        package <- xml2::xml_text(xml2::xml_find_all(token, "preceding-sibling::expr/SYMBOL_PACKAGE/text()"))
-                        funct <- xml2::xml_text(xml2::xml_find_all(token, "preceding-sibling::expr/SYMBOL_FUNCTION_CALL/text()"))
+                        package <- xml_text(xml_find_all(token, "preceding-sibling::expr/SYMBOL_PACKAGE/text()"))
+                        funct <- xml_text(xml_find_all(token, "preceding-sibling::expr/SYMBOL_FUNCTION_CALL/text()"))
                         if (length(package) == 0) {
                             package <- NULL
                         }
                         doc <- workspace$get_documentation(funct, package)
-                        doc_string <- doc$arguments[[xml2::xml_text(token)]]
+                        doc_string <- doc$arguments[[xml_text(token)]]
                         if (!is.null(doc_string)) {
                             contents <- doc_string
                             resolved <- TRUE
@@ -75,25 +74,4 @@ hover_reply <- function(id, uri, workspace, document, position) {
             )
         )
     }
-}
-
-find_enclosing_scopes2 <- function(x, line, col) {
-    xpath <- sprintf("/exprlist | //expr[(@line1 < %d or (@line1 = %d and @col1 <= %d)) and
-        (@line2 > %d or (@line2 = %d and @col2 >= %d))]",
-        line, line, col, line, line, col)
-    xml2::xml_find_all(x, xpath)
-}
-
-find_symbol <- function(x, line, col) {
-    xpath <- sprintf("//expr[(@line1 = %d and @col1 <= %d) and
-          (@line2 = %d and @col2 >= %d)]/SYMBOL",
-        line, col, line, col)
-    xml2::xml_find_all(x, xpath)
-}
-
-find_symbol_sub <- function(x, line, col) {
-    xpath <- sprintf("//expr/SYMBOL_SUB[(@line1 = %d and @col1 <= %d) and
-          (@line2 = %d and @col2 >= %d)]",
-        line, col, line, col)
-    xml2::xml_find_all(x, xpath)
 }
