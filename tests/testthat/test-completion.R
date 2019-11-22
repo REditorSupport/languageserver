@@ -148,5 +148,5 @@ test_that("Completion item resolve works", {
     resolve_result <- client %>% respond_completion_item_resolve(items[[1]])
     expect_equal(resolve_result$documentation$kind, "markdown")
     expect_match(resolve_result$documentation$value,
-        "`.Machine` is a variable holding information on the numerical characteristics of the machine is running on")
+        "`.Machine` is a variable holding information on the numerical characteristics of the machine \\*\\*R\\*\\* is running on")
 })
