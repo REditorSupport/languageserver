@@ -192,7 +192,7 @@ parse_expr <- function(expr, env, level = 0L, srcref = attr(expr, "srcref")) {
                 env$formals[[funct]] <- func[[2L]]
 
                 signature <- func
-                signature <- utils::capture.output(print(signature[1:2]))
+                signature <- format(signature[1:2])
                 signature <- paste0(trimws(signature, which = "left"), collapse = "\n")
                 signature <- trimws(gsub("NULL\\s*$", "", signature))
                 env$signatures[[funct]] <- signature
