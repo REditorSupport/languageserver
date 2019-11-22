@@ -43,23 +43,25 @@ hover_reply <- function(id, uri, workspace, document, position) {
             token <- xdoc_find_symbol_sub(xdoc,
                 position$line + 1, position$character + 1)
             if (length(token) == 1) {
-                package <- xml_text(xml_find_all(token,
-                    "preceding-sibling::expr/SYMBOL_PACKAGE/text()"))
                 funct <- xml_text(xml_find_all(token,
                     "preceding-sibling::expr/SYMBOL_FUNCTION_CALL/text()"))
-                if (length(package) == 0) {
-                    package <- NULL
-                }
-                argument <- xml_text(token)
-                doc <- workspace$get_documentation(funct, package)
-                doc_string <- doc$arguments[[argument]]
-                if (!is.null(doc_string)) {
-                    sig <- workspace$get_signature(funct, package)
-                    if (is.null(sig)) {
-                        contents <- doc_string
-                    } else {
-                        sig <- trimws(gsub("function\\s*", funct, sig))
-                        contents <- sprintf("```r\n%s\n```\n`%s`: %s", sig, argument, doc_string)
+                if (length(funct) == 1L) {
+                    package <- xml_text(xml_find_all(token,
+                        "preceding-sibling::expr/SYMBOL_PACKAGE/text()"))
+                    if (length(package) == 0) {
+                        package <- NULL
+                    }
+                    argument <- xml_text(token)
+                    doc <- workspace$get_documentation(funct, package)
+                    doc_string <- doc$arguments[[argument]]
+                    if (!is.null(doc_string)) {
+                        sig <- workspace$get_signature(funct, package)
+                        if (is.null(sig)) {
+                            contents <- doc_string
+                        } else {
+                            sig <- trimws(gsub("function\\s*", funct, sig))
+                            contents <- sprintf("```r\n%s\n```\n`%s`: %s", sig, argument, doc_string)
+                        }
                     }
                 }
                 resolved <- TRUE
