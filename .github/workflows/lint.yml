@@ -1,0 +1,31 @@
+name: lint
+
+on: [push, pull_request]
+
+jobs:
+  linux:
+    if: contains(github.event.head_commit.message, '[ci skip]') == false
+    strategy:
+      matrix:
+        r: [latest]
+        # r: [3.5, latest, devel]
+    runs-on: ubuntu-latest
+    container: rocker/tidyverse:${{ matrix.r }}
+    env:
+      NOT_CRAN: true
+    steps:
+    - uses: actions/checkout@v1
+    - name: Install apt-get dependencies
+      run: |
+        apt-get update
+        apt-get install git ssh curl bzip2 libffi6 libffi-dev -y
+    - name: Install lintr
+      run: |
+        Rscript -e "install.packages('lintr', repos = 'https://cloud.r-project.org')"
+      shell:
+        bash
+    - name: Running lintr
+      run: |
+        Rscript -e "library(lintr); lint_package()"
+      shell:
+        bash

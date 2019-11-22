@@ -246,10 +246,10 @@ completion_reply <- function(id, uri, workspace, document, position) {
 #' @keywords internal
 completion_item_resolve_reply <- function(id, workspace, params) {
     resolved <- FALSE
-    if (is.null(params$data) || 
-        is.null(params$data$type) || 
+    if (is.null(params$data) ||
+        is.null(params$data$type) ||
         (!is.null(params$data$package) && params$data$package == WORKSPACE)) {
-        
+
     } else {
         if (params$data$type == "package") {
             if (length(find.package(params$label))) {

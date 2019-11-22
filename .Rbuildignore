@@ -6,3 +6,4 @@
 man-roxygen
 .github
 ^codecov.yml$
+^.lintr$
