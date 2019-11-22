@@ -302,13 +302,13 @@ xdoc_find_enclosing_scopes <- function(x, line, col, top = FALSE) {
 }
 
 xdoc_find_symbol <- function(x, line, col) {
-    xpath <- glue("//expr[(@line1 = {line} and @col1 <= {col}) and
-          (@line2 = {line} and @col2 >= {col})]/SYMBOL")
+    xpath <- glue("//SYMBOL[(@line1 = {line} and @col1 <= {col}) and
+          (@line2 = {line} and @col2 >= {col})]")
     xml_find_all(x, xpath)
 }
 
 xdoc_find_symbol_sub <- function(x, line, col) {
-    xpath <- glue("//expr/SYMBOL_SUB[(@line1 = {line} and @col1 <= {col}) and
+    xpath <- glue("//SYMBOL_SUB[(@line1 = {line} and @col1 <= {col}) and
           (@line2 = {line} and @col2 >= {col})]")
     xml_find_all(x, xpath)
 }
