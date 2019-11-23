@@ -39,12 +39,11 @@ hover_reply <- function(id, uri, workspace, document, position) {
             )
             token_name <- xml_name(token)
             token_text <- xml_text(token)
-            logger$info(token_name, range)
+            logger$info(token_name, token_text, range)
             if (token_name %in% c("SYMBOL", "SYMBOL_FUNCTION_CALL")) {
                 # symbol
                 preceding_dollar <- xml_find_first(token, "preceding-sibling::OP-DOLLAR")
-                logger$info("preceding_dollar", length(preceding_dollar))
-                if (length(preceding_dollar) == 0) {
+                if (length(preceding_dollar) == 0 && (is.null(ns) || ns != WORKSPACE || is.null(sig))) {
                     enclosing_scopes <- xdoc_find_enclosing_scopes(xdoc,
                         position$line + 1, position$character + 1, top = TRUE)
                     xpath <- glue(paste(
