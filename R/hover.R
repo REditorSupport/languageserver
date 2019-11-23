@@ -11,10 +11,13 @@ hover_reply <- function(id, uri, workspace, document, position) {
     token_result <- document$detect_token(position)
     range <- token_result$range
 
-    ns <- workspace$guess_namespace(token_result$token, isf = TRUE)
-    logger$info("ns: ", ns)
+    if (is.null(token_result$package)) {
+        signs <- workspace$guess_namespace(token_result$token)
+    } else {
+        signs <- token_result$package
+    }
 
-    sig <- workspace$get_signature(token_result$token, ns)
+    sig <- workspace$get_signature(token_result$token, signs)
     contents <- NULL
     
     if (!is.null(sig)) {
@@ -43,7 +46,7 @@ hover_reply <- function(id, uri, workspace, document, position) {
             if (token_name %in% c("SYMBOL", "SYMBOL_FUNCTION_CALL")) {
                 # symbol
                 preceding_dollar <- xml_find_first(token, "preceding-sibling::OP-DOLLAR")
-                if (length(preceding_dollar) == 0 && (is.null(ns) || ns != WORKSPACE || is.null(sig))) {
+                if (length(preceding_dollar) == 0 && (is.null(signs) || signs != WORKSPACE || is.null(sig))) {
                     enclosing_scopes <- xdoc_find_enclosing_scopes(xdoc,
                         position$line + 1, position$character + 1, top = TRUE)
                     xpath <- glue(paste(
@@ -113,7 +116,7 @@ hover_reply <- function(id, uri, workspace, document, position) {
     }
 
     if (!resolved) {
-        contents <- workspace$get_help(token_result$token, ns)
+        contents <- workspace$get_help(token_result$token, token_result$package)
         if (is.null(contents) && !is.null(sig)) {
             contents <- sprintf("```r\n%s\n```", sig)
         }
