@@ -302,8 +302,8 @@ xdoc_find_enclosing_scopes <- function(x, line, col, top = FALSE) {
 }
 
 xdoc_find_symbol <- function(x, line, col) {
-    xpath <- glue("//SYMBOL[(@line1 = {line} and @col1 <= {col}) and
-          (@line2 = {line} and @col2 >= {col})]")
+    xpath <- glue("//*[self::SYMBOL or self::SYMBOL_FUNCTION_CALL]
+        [(@line1 = {line} and @col1 <= {col}) and (@line2 = {line} and @col2 >= {col})]")
     xml_find_all(x, xpath)
 }
 

@@ -10,13 +10,23 @@ hover_reply <- function(id, uri, workspace, document, position) {
 
     token_result <- document$detect_token(position)
 
+    ns <- workspace$guess_namespace(token_result$token, isf = TRUE)
+    logger$info("ns: ", ns)
+
+    sig <- workspace$get_signature(token_result$token, ns)
     contents <- NULL
+    
+    if (!is.null(sig)) {
+        logger$info("sig: ", sig)
+        sig <- trimws(gsub("function\\s*", token_result$token, sig))
+    }
+
     resolved <- FALSE
     xdoc <- workspace$get_xml_doc(uri)
 
     if (!is.null(xdoc)) {
         # symbol
-        if (!resolved) {
+        if (is.null(sig) || is.null(ns) || ns != WORKSPACE) {
             token <- xdoc_find_symbol(xdoc,
                 position$line + 1, position$character + 1)
             if (length(token) == 1L) {
@@ -63,23 +73,16 @@ hover_reply <- function(id, uri, workspace, document, position) {
                             contents <- sprintf("```r\n%s\n```\n`%s`: %s", sig, argument, doc_string)
                         }
                     }
+                    resolved <- TRUE
                 }
-                resolved <- TRUE
             }
         }
     }
 
     if (!resolved) {
-        contents <- workspace$get_help(token_result$token, token_result$package)
-        
-        if (is.null(contents)) {
-            # try function signature
-            sig <- workspace$get_signature(token_result$token, token_result$package)
-            logger$info("sig: ", sig)
-            if (!is.null(sig)) {
-                sig <- trimws(gsub("function\\s*", token_result$token, sig))
-                contents <- sprintf("```r\n%s\n```", sig)
-            }
+        contents <- workspace$get_help(token_result$token, ns)
+        if (is.null(contents) && !is.null(sig)) {
+            contents <- sprintf("```r\n%s\n```", sig)
         }
     }
 
