@@ -301,14 +301,9 @@ xdoc_find_enclosing_scopes <- function(x, line, col, top = FALSE) {
     xml_find_all(x, xpath)
 }
 
-xdoc_find_symbol <- function(x, line, col) {
-    xpath <- glue("//*[self::SYMBOL or self::SYMBOL_FUNCTION_CALL]
-        [(@line1 = {line} and @col1 <= {col}) and (@line2 = {line} and @col2 >= {col})]")
-    xml_find_all(x, xpath)
-}
-
-xdoc_find_symbol_sub <- function(x, line, col) {
-    xpath <- glue("//SYMBOL_SUB[(@line1 = {line} and @col1 <= {col}) and
-          (@line2 = {line} and @col2 >= {col})]")
-    xml_find_all(x, xpath)
+xdoc_find_token <- function(x, line, col) {
+    xpath <- glue("//*[not(*)]
+    [(@line1 < {line} or (@line1 = {line} and @col1 <= {col})) and
+                (@line2 > {line} or (@line2 = {line} and @col2 >= {col}))]")
+    xml_find_first(x, xpath)
 }
