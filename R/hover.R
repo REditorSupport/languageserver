@@ -35,7 +35,7 @@ hover_reply <- function(id, uri, workspace, document, position) {
                     character = as.integer(xml_attr(token, "col1")) - 1),
                 end = position(
                     line = as.integer(xml_attr(token, "line2")) - 1, 
-                    character = as.integer(xml_attr(token, "col2")) - 1)
+                    character = as.integer(xml_attr(token, "col2")))
             )
             token_name <- xml_name(token)
             token_text <- xml_text(token)
