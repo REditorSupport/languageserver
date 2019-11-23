@@ -161,7 +161,7 @@ parse_expr <- function(expr, env, level = 0L, srcref = attr(expr, "srcref")) {
     }
     for (i in seq_along(expr)) {
         e <- expr[[i]]
-        if (!is.call(e) || !is.symbol(e[[1L]])) next
+        if (missing(e) || !is.call(e) || !is.symbol(e[[1L]])) next
         f <- as.character(e[[1L]])
         cur_srcref <- if (level == 0L) srcref[[i]] else srcref
         if (f %in% c("{", "(")) {
