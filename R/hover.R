@@ -47,15 +47,26 @@ hover_reply <- function(id, uri, workspace, document, position) {
                     enclosing_scopes <- xdoc_find_enclosing_scopes(xdoc,
                         position$line + 1, position$character + 1, top = TRUE)
                     xpath <- glue(paste(
-                        "expr[FUNCTION and SYMBOL_FORMALS[text() = '{token_text}']]/@line1 |",
-                        "expr[LEFT_ASSIGN/preceding-sibling::expr/SYMBOL[text() = '{token_text}']]/@line1 |",
-                        "expr[RIGHT_ASSIGN/following-sibling::expr/SYMBOL[text() = '{token_text}']]/@line1 |",
-                        "equal_assign[expr[1]/SYMBOL[text() = '{token_text}']]/@line1 |",
-                        "forcond/SYMBOL[text() = '{token_text}']/@line1"))
-                    def_lines <- xml_find_all(enclosing_scopes, xpath)
-                    if (length(def_lines)) {
-                        last_def_line <- as.integer(xml_text(def_lines[[length(def_lines)]]))
-                        contents <- sprintf("```r\n%s\n```", trimws(document$line(last_def_line)))
+                        "expr[FUNCTION and SYMBOL_FORMALS[text() = '{token_text}']] |",
+                        "expr[LEFT_ASSIGN/preceding-sibling::expr/SYMBOL[text() = '{token_text}']] |",
+                        "expr[RIGHT_ASSIGN/following-sibling::expr/SYMBOL[text() = '{token_text}']] |",
+                        "equal_assign[expr[1]/SYMBOL[text() = '{token_text}']] |",
+                        "forcond/SYMBOL[text() = '{token_text}']"))
+                    all_defs <- xml_find_all(enclosing_scopes, xpath)
+                    if (length(all_defs)) {
+                        last_def <- all_defs[[length(all_defs)]]
+                        def_funct <- xml_find_first(last_def, "FUNCTION")
+                        if (length(def_funct)) {
+                            def_funct_end <- xml_find_first(last_def, 
+                                glue("SYMBOL_FORMALS[text() = '{token_text}']"))
+                            def_line1 <- as.integer(xml_attr(def_funct, "line1"))
+                            def_line2 <- as.integer(xml_attr(def_funct_end, "line2"))
+                            def_lines <- seq.int(def_line1, def_line2)
+                        } else {
+                            def_lines <- as.integer(xml_attr(last_def, "line1"))
+                        }
+                        contents <- sprintf("```r\n%s\n```",
+                            trimws(paste0(document$line(def_lines), collapse = "\n")))
                         resolved <- TRUE
                     }
                 }
