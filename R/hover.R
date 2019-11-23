@@ -103,7 +103,7 @@ hover_reply <- function(id, uri, workspace, document, position) {
             } else if (token_name == "NUM_CONST") {
                 # logical, integer, double
                 # contents <- "number"
-                resolved <- TRUE
+                # resolved <- TRUE
             } else if (token_name == "STR_CONST") {
                 # string literal
                 # contents <- "string"
