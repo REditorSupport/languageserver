@@ -47,11 +47,12 @@ hover_reply <- function(id, uri, workspace, document, position) {
                 if (length(preceding_dollar) == 0) {
                     enclosing_scopes <- xdoc_find_enclosing_scopes(xdoc,
                         position$line + 1, position$character + 1, top = TRUE)
-                    xpath <- glue("expr[FUNCTION and SYMBOL_FORMALS[text() = '{token_text}']]/@line1 |
-                                                   expr[LEFT_ASSIGN/preceding-sibling::expr/SYMBOL[text() = '{token_text}']]/@line1 |
-                                                   expr[RIGHT_ASSIGN/following-sibling::expr/SYMBOL[text() = '{token_text}']]/@line1 |
-                                                   equal_assign[expr[1]/SYMBOL[text() = '{token_text}']]/@line1 |
-                                                   forcond/SYMBOL[text() = '{token_text}']/@line1")
+                    xpath <- glue(paste(
+                        "expr[FUNCTION and SYMBOL_FORMALS[text() = '{token_text}']]/@line1 |",
+                        "expr[LEFT_ASSIGN/preceding-sibling::expr/SYMBOL[text() = '{token_text}']]/@line1 |",
+                        "expr[RIGHT_ASSIGN/following-sibling::expr/SYMBOL[text() = '{token_text}']]/@line1 |",
+                        "equal_assign[expr[1]/SYMBOL[text() = '{token_text}']]/@line1 |",
+                        "forcond/SYMBOL[text() = '{token_text}']/@line1"))
                     def_lines <- xml_find_all(enclosing_scopes, xpath)
                     if (length(def_lines)) {
                         last_def_line <- as.integer(xml_text(def_lines[[length(def_lines)]]))

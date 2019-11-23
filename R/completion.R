@@ -161,12 +161,11 @@ scope_completion <- function(uri, workspace, token, position) {
 
     enclosing_scopes <- xdoc_find_enclosing_scopes(xdoc,
         position$line + 1, position$character + 1)
-    scope_symbols <- xml_find_all(enclosing_scopes,
-        "expr[FUNCTION]/SYMBOL_FORMALS/text() |
-         expr/LEFT_ASSIGN/preceding-sibling::expr/SYMBOL/text() |
-         expr/RIGHT_ASSIGN/following-sibling::expr/SYMBOL/text() |
-         equal_assign/expr[1]/SYMBOL/text() |
-         forcond/SYMBOL/text()")
+    scope_symbols <- xml_find_all(enclosing_scopes, paste(
+        "expr[FUNCTION]/SYMBOL_FORMALS/text() |",
+        "expr/LEFT_ASSIGN/preceding-sibling::expr/SYMBOL/text() |",
+        "equal_assign/expr[1]/SYMBOL/text() |",
+        "forcond/SYMBOL/text()"))
     scope_symbols <- unique(xml_text(scope_symbols))
     scope_symbols <- scope_symbols[startsWith(scope_symbols, token)]
     completions <- lapply(scope_symbols, function(symbol) {
