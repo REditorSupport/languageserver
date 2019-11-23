@@ -29,14 +29,14 @@ hover_reply <- function(id, uri, workspace, document, position) {
         token <- xdoc_find_token(xdoc, position$line + 1, position$character + 1)
         logger$info(token)
         if (length(token)) {
-            range <- range(
-                start = position(
-                    line = as.integer(xml_attr(token, "line1")) - 1,
-                    character = as.integer(xml_attr(token, "col1")) - 1),
-                end = position(
-                    line = as.integer(xml_attr(token, "line2")) - 1, 
-                    character = as.integer(xml_attr(token, "col2")))
-            )
+            # range <- range(
+            #     start = position(
+            #         line = as.integer(xml_attr(token, "line1")) - 1,
+            #         character = as.integer(xml_attr(token, "col1")) - 1),
+            #     end = position(
+            #         line = as.integer(xml_attr(token, "line2")) - 1, 
+            #         character = as.integer(xml_attr(token, "col2")))
+            # )
             token_name <- xml_name(token)
             token_text <- xml_text(token)
             logger$info(token_name, token_text, range)
@@ -98,15 +98,15 @@ hover_reply <- function(id, uri, workspace, document, position) {
                 }
             } else if (token_name == "SYMBOL_FORMALS") {
                 # function formals
-                contents <- "function parameter"
+                # contents <- "function parameter"
                 resolved <- TRUE
             } else if (token_name == "NUM_CONST") {
                 # logical, integer, double
-                contents <- "number"
+                # contents <- "number"
                 resolved <- TRUE
             } else if (token_name == "STR_CONST") {
                 # string literal
-                contents <- "string"
+                # contents <- "string"
                 resolved <- TRUE
             }
         }
