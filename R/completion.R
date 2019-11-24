@@ -269,7 +269,7 @@ completion_item_resolve_reply <- function(id, workspace, params) {
                 params$documentation <- list(kind = "markdown", value = doc_string)
                 resolved <- TRUE
             }
-        } else if (params$data$type %in% c("function", "nonfunction", "lazydata")) {
+        } else if (params$data$type %in% c("constant", "function", "nonfunction", "lazydata")) {
             doc <- workspace$get_documentation(params$label, params$data$package)
             doc_string <- doc$description
             if (!is.null(doc_string)) {

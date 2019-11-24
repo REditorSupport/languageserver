@@ -126,12 +126,12 @@ Workspace <- R6::R6Class("Workspace",
             if (is.null(pkgname)) {
                 pkgname <- self$guess_namespace(topic)
             }
-            if (is.null(pkgname) || pkgname == WORKSPACE) {
-                # only provide documentation for objects in package
+            if (!is.null(pkgname) && pkgname == WORKSPACE) {
+                # no documentation for workspace objects
                 return(NULL)
             }
 
-            item <- paste0(pkgname, "::", topic)
+            item <- paste0(c(pkgname, topic), collapse = "::")
             if (!is.null(private$documentation[[item]])) {
                 return(private$documentation[[item]])
             }
