@@ -29,7 +29,9 @@ hover_reply <- function(id, uri, workspace, document, position) {
     xdoc <- workspace$get_xml_doc(uri)
 
     if (!is.null(xdoc)) {
-        token <- xdoc_find_token(xdoc, position$line + 1, position$character + 1)
+        line <- position$line + 1
+        col <- position$character + 1
+        token <- xdoc_find_token(xdoc, line, col)
         logger$info(token)
         if (length(token)) {
             # range <- range(
@@ -48,13 +50,13 @@ hover_reply <- function(id, uri, workspace, document, position) {
                 preceding_dollar <- xml_find_first(token, "preceding-sibling::OP-DOLLAR")
                 if (length(preceding_dollar) == 0 && (is.null(signs) || signs != WORKSPACE || is.null(sig))) {
                     enclosing_scopes <- xdoc_find_enclosing_scopes(xdoc,
-                        position$line + 1, position$character + 1, top = TRUE)
+                        line, col, top = TRUE)
                     xpath <- glue(paste(
-                        "expr[FUNCTION and SYMBOL_FORMALS[text() = '{token_text}']] |",
-                        "expr[LEFT_ASSIGN/preceding-sibling::expr/SYMBOL[text() = '{token_text}']] |",
-                        "expr[RIGHT_ASSIGN/following-sibling::expr/SYMBOL[text() = '{token_text}']] |",
-                        "equal_assign[expr[1]/SYMBOL[text() = '{token_text}']] |",
-                        "forcond/SYMBOL[text() = '{token_text}']"))
+                        "expr[FUNCTION and SYMBOL_FORMALS[text() = '{token_text}' and @line1 <= {line}]] |",
+                        "expr[LEFT_ASSIGN/preceding-sibling::expr/SYMBOL[text() = '{token_text}' and @line1 <= {line}]] |",
+                        "expr[RIGHT_ASSIGN/following-sibling::expr/SYMBOL[text() = '{token_text}' and @line1 <= {line}]] |",
+                        "equal_assign[expr[1]/SYMBOL[text() = '{token_text}' and @line1 <= {line}]] |",
+                        "forcond/SYMBOL[text() = '{token_text}' and @line1 <= {line}]"))
                     all_defs <- xml_find_all(enclosing_scopes, xpath)
                     if (length(all_defs)) {
                         last_def <- all_defs[[length(all_defs)]]
