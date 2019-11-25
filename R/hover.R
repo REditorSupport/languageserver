@@ -87,6 +87,10 @@ hover_reply <- function(id, uri, workspace, document, position) {
                     }
                     doc <- workspace$get_documentation(funct, package)
                     doc_string <- doc$arguments[[token_text]]
+                    if (is.null(doc_string)) {
+                        doc_string <- doc$arguments$...
+                        token_text <- "..."
+                    }
                     if (!is.null(doc_string)) {
                         sig <- workspace$get_signature(funct, package)
                         if (is.null(sig)) {
