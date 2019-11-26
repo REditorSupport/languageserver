@@ -65,7 +65,7 @@ definition_reply <- function(id, uri, workspace, document, position) {
         }
     }
 
-    if (is.null(result)) {
+    if (!resolved) {
         result <- workspace$get_definition(token_result$token, token_result$package)
     }
 
