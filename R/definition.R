@@ -8,14 +8,8 @@
 definition_reply <- function(id, uri, workspace, document, position) {
 
     token_result <- document$detect_token(position)
-
-    pkg <- token_result$package
-    if (is.null(pkg)) {
-        pkg <- workspace$guess_namespace(token_result$token)
-    }
-
-    result <- workspace$get_definition(token_result$token, token_result$package)
-    logger$info("definition", result)
+    resolved <- FALSE
+    result <- NULL
 
     xdoc <- workspace$get_xml_doc(uri)
     if (!is.null(xdoc)) {
@@ -38,14 +32,14 @@ definition_reply <- function(id, uri, workspace, document, position) {
             if (token_name %in% c("SYMBOL", "SYMBOL_FUNCTION_CALL")) {
                 # symbol
                 preceding_dollar <- xml_find_first(token, "preceding-sibling::OP-DOLLAR")
-                if (length(preceding_dollar) == 0 && (is.null(pkg) || pkg != WORKSPACE || is.null(result))) {
+                if (length(preceding_dollar) == 0) {
                     enclosing_scopes <- xdoc_find_enclosing_scopes(xdoc,
                         line, col, top = TRUE)
                     xpath <- glue(paste(
                         "expr[FUNCTION]/SYMBOL_FORMALS[text() = '{token_text}' and @line1 <= {line}] |",
-                        "expr/LEFT_ASSIGN/preceding-sibling::expr/SYMBOL[text() = '{token_text}' and @line1 <= {line}] |",
-                        "expr/RIGHT_ASSIGN/following-sibling::expr/SYMBOL[text() = '{token_text}' and @line1 <= {line}] |",
-                        "equal_assign/expr[1]/SYMBOL[text() = '{token_text}' and @line1 <= {line}] |",
+                        "expr[LEFT_ASSIGN/preceding-sibling::expr/SYMBOL[text() = '{token_text}' and @line1 <= {line}]] |",
+                        "expr[RIGHT_ASSIGN/following-sibling::expr/SYMBOL[text() = '{token_text}' and @line1 <= {line}]] |",
+                        "equal_assign[expr[1]/SYMBOL[text() = '{token_text}' and @line1 <= {line}]] |",
                         "forcond/SYMBOL[text() = '{token_text}' and @line1 <= {line}]"))
                     all_defs <- xml_find_all(enclosing_scopes, xpath)
                     if (length(all_defs)) {
@@ -61,11 +55,18 @@ definition_reply <- function(id, uri, workspace, document, position) {
                                     character = as.integer(xml_attr(last_def, "col2")))
                             )
                         )
+                        logger$info("definition: ", result)
                         resolved <- TRUE
                     }
                 }
+            } else {
+                resolved <- TRUE
             }
         }
+    }
+
+    if (is.null(result)) {
+        result <- workspace$get_definition(token_result$token, token_result$package)
     }
 
     if (is.null(result)) {
