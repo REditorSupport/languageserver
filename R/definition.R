@@ -14,7 +14,7 @@ definition_reply <- function(id, uri, workspace, document, position) {
         pkg <- workspace$guess_namespace(token_result$token)
     }
 
-    result <- workspace$get_definition(token_result$token, pkg)
+    result <- workspace$get_definition(token_result$token, token_result$package)
     logger$info("definition", result)
 
     xdoc <- workspace$get_xml_doc(uri)
