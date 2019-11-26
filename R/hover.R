@@ -34,17 +34,17 @@ hover_reply <- function(id, uri, workspace, document, position) {
         token <- xdoc_find_token(xdoc, line, col)
         logger$info(token)
         if (length(token)) {
-            # range <- range(
-            #     start = position(
-            #         line = as.integer(xml_attr(token, "line1")) - 1,
-            #         character = as.integer(xml_attr(token, "col1")) - 1),
-            #     end = position(
-            #         line = as.integer(xml_attr(token, "line2")) - 1, 
-            #         character = as.integer(xml_attr(token, "col2")))
-            # )
             token_name <- xml_name(token)
             token_text <- xml_text(token)
-            logger$info(token_name, token_text, range)
+            token_range <- range(
+                start = position(
+                    line = as.integer(xml_attr(token, "line1")) - 1,
+                    character = as.integer(xml_attr(token, "col1")) - 1),
+                end = position(
+                    line = as.integer(xml_attr(token, "line2")) - 1,
+                    character = as.integer(xml_attr(token, "col2")))
+            )
+            logger$info(token_name, token_text, token_range)
             if (token_name %in% c("SYMBOL", "SYMBOL_FUNCTION_CALL")) {
                 # symbol
                 preceding_dollar <- xml_find_first(token, "preceding-sibling::OP-DOLLAR")
