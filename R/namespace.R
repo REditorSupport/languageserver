@@ -42,7 +42,7 @@ Namespace <- R6::R6Class("Namespace",
             if (!is.null(args)) {
                 sig <- format(args)
                 sig <- sig[-length(sig)]
-                paste0(trimws(sig, which = "left"), collapse = "\n")
+                paste0(trimws(sig, which = "left"), collapse = "")
             }
         },
 
