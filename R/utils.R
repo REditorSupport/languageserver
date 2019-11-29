@@ -272,7 +272,7 @@ convert_doc_to_markdown <- function(doc) {
             "**R**"
         } else if (tag == "\\dots") {
             "..."
-        } else if (tag %in% c("\\code", "\\env")) {
+        } else if (tag %in% c("\\code", "\\env", "\\eqn")) {
             sprintf("`%s`", paste0(convert_doc_to_markdown(item), collapse = ""))
         } else if (tag %in% c("\\ifelse", "USERMACRO")) {
             ""
