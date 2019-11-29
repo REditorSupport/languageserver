@@ -68,9 +68,11 @@ arg_completion <- function(workspace, token, funct, package = NULL) {
             completions <- lapply(token_args, function(arg) {
                 list(label = arg, kind = CompletionItemKind$Variable,
                     detail = "parameter",
+                    preselect = TRUE,
                     data = list(
                         type = "parameter",
-                        funct = funct, package = package
+                        funct = funct,
+                        package = package
                 ))
             })
             completions
