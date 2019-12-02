@@ -311,6 +311,6 @@ xdoc_find_token <- function(x, line, col) {
 }
 
 xml_single_quote <- function(x) {
-    x <- gsub("'", "&apos;", x)
+    x <- gsub("'", "&apos;", x, fixed = TRUE)
     x
 }
