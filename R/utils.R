@@ -309,3 +309,8 @@ xdoc_find_token <- function(x, line, col) {
                 (@line2 > {line} or (@line2 = {line} and @col2 >= {col}))]")
     xml_find_first(x, xpath)
 }
+
+xml_single_quote <- function(x) {
+    x <- gsub("'", "&apos;", x)
+    x
+}

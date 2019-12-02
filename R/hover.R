@@ -32,7 +32,6 @@ hover_reply <- function(id, uri, workspace, document, position) {
         line <- position$line + 1
         col <- position$character + 1
         token <- xdoc_find_token(xdoc, line, col)
-        logger$info(token)
         if (length(token)) {
             token_name <- xml_name(token)
             token_text <- xml_text(token)
@@ -51,19 +50,20 @@ hover_reply <- function(id, uri, workspace, document, position) {
                 if (length(preceding_dollar) == 0 && (is.null(signs) || signs != WORKSPACE || is.null(sig))) {
                     enclosing_scopes <- xdoc_find_enclosing_scopes(xdoc,
                         line, col, top = TRUE)
+                    token_quote <- xml_single_quote(token_text)
                     xpath <- glue(paste(
-                        "expr[FUNCTION and SYMBOL_FORMALS[text() = '{token_text}' and @line1 <= {line}]] |",
-                        "expr[LEFT_ASSIGN/preceding-sibling::expr/SYMBOL[text() = '{token_text}' and @line1 <= {line}]] |",
-                        "expr[RIGHT_ASSIGN/following-sibling::expr/SYMBOL[text() = '{token_text}' and @line1 <= {line}]] |",
-                        "equal_assign[expr[1]/SYMBOL[text() = '{token_text}' and @line1 <= {line}]] |",
-                        "forcond/SYMBOL[text() = '{token_text}' and @line1 <= {line}]"))
+                        "expr[FUNCTION and SYMBOL_FORMALS[text() = '{token_quote}' and @line1 <= {line}]] |",
+                        "expr[LEFT_ASSIGN/preceding-sibling::expr/SYMBOL[text() = '{token_quote}' and @line1 <= {line}]] |",
+                        "expr[RIGHT_ASSIGN/following-sibling::expr/SYMBOL[text() = '{token_quote}' and @line1 <= {line}]] |",
+                        "equal_assign[expr[1]/SYMBOL[text() = '{token_quote}' and @line1 <= {line}]] |",
+                        "forcond/SYMBOL[text() = '{token_quote}' and @line1 <= {line}]"))
                     all_defs <- xml_find_all(enclosing_scopes, xpath)
                     if (length(all_defs)) {
                         last_def <- all_defs[[length(all_defs)]]
                         def_funct <- xml_find_first(last_def, "FUNCTION")
                         if (length(def_funct)) {
                             def_funct_end <- xml_find_first(last_def, 
-                                glue("SYMBOL_FORMALS[text() = '{token_text}']"))
+                                glue("SYMBOL_FORMALS[text() = '{token_quote}']"))
                             def_line1 <- as.integer(xml_attr(def_funct, "line1"))
                             def_line2 <- as.integer(xml_attr(def_funct_end, "line2"))
                             def_lines <- seq.int(def_line1, def_line2)
@@ -116,6 +116,9 @@ hover_reply <- function(id, uri, workspace, document, position) {
             } else if (token_name == "STR_CONST") {
                 # string literal
                 # contents <- "string"
+                resolved <- TRUE
+            } else if (token_name == "COMMENT") {
+                # comment
                 resolved <- TRUE
             }
         }

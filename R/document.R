@@ -289,35 +289,39 @@ document_highlight_reply <- function(id, uri, workspace, position) {
         line <- position$line + 1
         col <- position$character + 1
         token <- xdoc_find_token(xdoc, line, col)
-        logger$info(token)
         if (length(token)) {
             token_name <- xml_name(token)
-            token_text <- xml_text(token)
-            token_range <- range(
-                start = position(
-                    line = as.integer(xml_attr(token, "line1")) - 1,
-                    character = as.integer(xml_attr(token, "col1")) - 1),
-                end = position(
-                    line = as.integer(xml_attr(token, "line2")) - 1,
-                    character = as.integer(xml_attr(token, "col2")))
-            )
-            logger$info(token_name, token_text, token_range)
-            xpath <- glue("//*[not(*) and text() = '{token_text}']")
-            tokens <- xml_find_all(xdoc, xpath)
-            if (length(tokens)) {
-                result <- lapply(tokens, function(token) {
-                    list(
-                        range = range(
-                            start = position(
-                                line = as.integer(xml_attr(token, "line1")) - 1,
-                                character = as.integer(xml_attr(token, "col1")) - 1),
-                            end = position(
-                                line = as.integer(xml_attr(token, "line2")) - 1,
-                                character = as.integer(xml_attr(token, "col2")))
-                        ),
-                        kind = DocumentHighlightKind$Text
-                    )
-                })
+            if (token_name == "COMMENT") {
+                # ignore comments
+            } else {
+                token_text <- xml_text(token)
+                token_range <- range(
+                    start = position(
+                        line = as.integer(xml_attr(token, "line1")) - 1,
+                        character = as.integer(xml_attr(token, "col1")) - 1),
+                    end = position(
+                        line = as.integer(xml_attr(token, "line2")) - 1,
+                        character = as.integer(xml_attr(token, "col2")))
+                )
+                logger$info(token_name, token_text, token_range)
+                token_quote <- xml_single_quote(token_text)
+                xpath <- glue("//*[not(*) and text() = '{token_quote}']")
+                tokens <- xml_find_all(xdoc, xpath)
+                if (length(tokens)) {
+                    result <- lapply(tokens, function(token) {
+                        list(
+                            range = range(
+                                start = position(
+                                    line = as.integer(xml_attr(token, "line1")) - 1,
+                                    character = as.integer(xml_attr(token, "col1")) - 1),
+                                end = position(
+                                    line = as.integer(xml_attr(token, "line2")) - 1,
+                                    character = as.integer(xml_attr(token, "col2")))
+                            ),
+                            kind = DocumentHighlightKind$Text
+                        )
+                    })
+                }
             }
         }
     }
