@@ -51,7 +51,7 @@ ServerCapabilities <- list(
     # implementationProvider = FALSE,
     definitionProvider = TRUE,
     # referencesProvider = FALSE
-    # documentHighlightProvider = FALSE,
+    documentHighlightProvider = TRUE,
     documentSymbolProvider = TRUE,
     workspaceSymbolProvider = TRUE,
     # codeActionProvider = FALSE,

@@ -60,7 +60,7 @@ These editors are supported by installing the corresponding package.
 - [x] signatureHelpProvider
 - [x] definitionProvider
 - [ ] referencesProvider
-- [ ] documentHighlightProvider
+- [x] documentHighlightProvider
 - [x] documentSymbolProvider
 - [x] workspaceSymbolProvider
 - [ ] codeActionProvider

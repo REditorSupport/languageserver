@@ -83,7 +83,10 @@ text_document_references  <- function(self, id, params) {
 #' Handler to the `textDocument/documentHighlight` [Request].
 #' @keywords internal
 text_document_document_highlight  <- function(self, id, params) {
-
+    textDocument <- params$textDocument
+    uri <- textDocument$uri
+    self$deliver(document_highlight_reply(
+        id, uri, self$workspace, params$position))
 }
 
 #' `textDocument/documentSymbol` request handler
