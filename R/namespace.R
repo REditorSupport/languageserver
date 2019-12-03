@@ -126,12 +126,16 @@ GlobalNameSpace <- R6::R6Class("GlobalNameSpace",
             NULL
         },
 
-        update = function(nonfuncts, functs, signatures, formals) {
-            self$nonfuncts <- unique(c(self$nonfuncts, nonfuncts))
-            self$functs <- unique(c(self$functs, functs))
+        update = function(parse_data) {
+            self$nonfuncts <- unique(unlist(lapply(parse_data, "[[", "nonfuncts"), use.names = FALSE))
+            self$functs <- unique(unlist(lapply(parse_data, "[[", "functs"), use.names = FALSE))
             self$exports <- unique(c(self$nonfuncts, self$functs))
-            self$signatures <- merge_list(self$signatures, signatures)
-            self$formals <- merge_list(self$formals, formals)
+            self$signatures <- list()
+            self$formals <- list()
+            for (item in parse_data) {
+                self$signatures <- merge_list(self$signatures, item$signatures)
+                self$formals <- merge_list(self$formals, item$formals)
+            }
         }
     )
 )
