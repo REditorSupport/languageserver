@@ -10,7 +10,7 @@ Workspace <- R6::R6Class("Workspace",
         namespaces = list(),
         definition_cache = NULL,
         documentation = list(),
-        xml_docs = list()
+        parse_data = list()
     ),
     public = list(
         loaded_packages = c(
@@ -196,24 +196,18 @@ Workspace <- R6::R6Class("Workspace",
         },
 
         get_xml_doc = function(uri) {
-            private$xml_docs[[uri]]
+            private$parse_data[[uri]]$xml_doc
         },
 
         update_parse_data = function(uri, parse_data) {
             self$load_packages(parse_data$packages)
-
-            private$global_env$update(
-                parse_data$nonfuncts,
-                parse_data$functs,
-                parse_data$signatures,
-                parse_data$formals
-            )
-            private$definition_cache$update(uri, parse_data$definition_ranges)
-
             if (!is.null(parse_data$xml_data)) {
-                private$xml_docs[[uri]] <- tryCatch(
+                parse_data$xml_doc <- tryCatch(
                     xml2::read_xml(parse_data$xml_data), error = function(e) NULL)
             }
+            private$parse_data[[uri]] <- parse_data
+            private$global_env$update(private$parse_data)
+            private$definition_cache$update(uri, parse_data$definition_ranges)
         }
     )
 )
