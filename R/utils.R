@@ -288,10 +288,6 @@ convert_doc_string <- function(doc) {
     paste0(convert_doc_to_markdown(doc), collapse = " ")
 }
 
-#' @importFrom glue glue
-#' @import xml2
-NULL
-
 xdoc_find_enclosing_scopes <- function(x, line, col, top = FALSE) {
     if (top) {
         xpath <- glue("/exprlist | //expr[(@line1 < {line} or (@line1 = {line} and @col1 <= {col})) and
