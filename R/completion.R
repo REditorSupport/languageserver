@@ -166,6 +166,7 @@ scope_completion <- function(uri, workspace, token, position) {
     scope_symbols <- xml_find_all(enclosing_scopes, paste(
         "expr[FUNCTION]/SYMBOL_FORMALS/text() |",
         "expr/LEFT_ASSIGN/preceding-sibling::expr/SYMBOL/text() |",
+        "expr/RIGHT_ASSIGN/following-sibling::expr/SYMBOL/text() |",
         "equal_assign/expr[1]/SYMBOL/text() |",
         "forcond/SYMBOL/text()"))
     scope_symbols <- unique(xml_text(scope_symbols))
