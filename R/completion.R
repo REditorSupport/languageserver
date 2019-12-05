@@ -163,21 +163,39 @@ scope_completion <- function(uri, workspace, token, position) {
 
     enclosing_scopes <- xdoc_find_enclosing_scopes(xdoc,
         position$line + 1, position$character + 1)
-    scope_symbols <- xml_find_all(enclosing_scopes, paste(
-        "expr[FUNCTION]/SYMBOL_FORMALS/text() |",
-        "expr/LEFT_ASSIGN/preceding-sibling::expr/SYMBOL/text() |",
-        "expr/RIGHT_ASSIGN/following-sibling::expr/SYMBOL/text() |",
-        "equal_assign/expr[1]/SYMBOL/text() |",
-        "forcond/SYMBOL/text()"))
-    scope_symbols <- unique(xml_text(scope_symbols))
+
+    completions <- list()
+    scope_symbols <- unique(xml_text(xml_find_all(enclosing_scopes, paste(
+        "expr[FUNCTION]/SYMBOL_FORMALS",
+        "forcond/SYMBOL",
+        "expr/LEFT_ASSIGN[not(following-sibling::expr/FUNCTION)]/preceding-sibling::expr/SYMBOL",
+        "expr/RIGHT_ASSIGN[not(preceding-sibling::expr/FUNCTION)]/following-sibling::expr/SYMBOL",
+        "equal_assign/EQ_ASSIGN[not(following-sibling::expr/FUNCTION)]/preceding-sibling::expr/SYMBOL",
+        sep = "|"))))
     scope_symbols <- scope_symbols[startsWith(scope_symbols, token)]
-    completions <- lapply(scope_symbols, function(symbol) {
+    completions <- c(completions, lapply(scope_symbols, function(symbol) {
         list(
             label = symbol,
             kind = CompletionItemKind$Field,
             detail = "[scope]"
         )
-    })
+    }))
+
+    scope_functs <- unique(xml_text(xml_find_all(enclosing_scopes, paste(
+        "expr/LEFT_ASSIGN[following-sibling::expr/FUNCTION]/preceding-sibling::expr/SYMBOL",
+        "expr/RIGHT_ASSIGN[preceding-sibling::expr/FUNCTION]/following-sibling::expr/SYMBOL",
+        "equal_assign/EQ_ASSIGN[following-sibling::expr/FUNCTION]/preceding-sibling::expr/SYMBOL",
+        sep = "|"))))
+    scope_functs <- scope_functs[startsWith(scope_functs, token)]
+    completions <- c(completions, lapply(scope_functs, function(symbol) {
+        list(
+            label = symbol,
+            kind = CompletionItemKind$Function,
+            detail = "[scope]"
+        )
+    }))
+
+    completions
 }
 
 #' The response to a textDocument/completion request
