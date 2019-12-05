@@ -37,11 +37,12 @@ definition_reply <- function(id, uri, workspace, document, position) {
                         line, col, top = TRUE)
                     token_quote <- xml_single_quote(token_text)
                     xpath <- glue(paste(
-                        "expr[FUNCTION]/SYMBOL_FORMALS[text() = '{token_quote}' and @line1 <= {line}] |",
-                        "expr[LEFT_ASSIGN/preceding-sibling::expr/SYMBOL[text() = '{token_quote}' and @line1 <= {line}]] |",
-                        "expr[RIGHT_ASSIGN/following-sibling::expr/SYMBOL[text() = '{token_quote}' and @line1 <= {line}]] |",
-                        "equal_assign[expr[1]/SYMBOL[text() = '{token_quote}' and @line1 <= {line}]] |",
-                        "forcond/SYMBOL[text() = '{token_quote}' and @line1 <= {line}]"))
+                        "expr[FUNCTION]/SYMBOL_FORMALS[text() = '{token_quote}' and @line1 <= {line}]",
+                        "expr[LEFT_ASSIGN/preceding-sibling::expr/SYMBOL[text() = '{token_quote}' and @line1 <= {line}]]",
+                        "expr[RIGHT_ASSIGN/following-sibling::expr/SYMBOL[text() = '{token_quote}' and @line1 <= {line}]]",
+                        "equal_assign[expr[1]/SYMBOL[text() = '{token_quote}' and @line1 <= {line}]]",
+                        "forcond/SYMBOL[text() = '{token_quote}' and @line1 <= {line}]",
+                        sep = "|"))
                     all_defs <- xml_find_all(enclosing_scopes, xpath)
                     if (length(all_defs)) {
                         last_def <- all_defs[[length(all_defs)]]
@@ -49,7 +50,7 @@ definition_reply <- function(id, uri, workspace, document, position) {
                             uri = uri,
                             range = range(
                                 start = position(
-                                    line = as.integer(xml_attr(last_def, "line1")) - 1, 
+                                    line = as.integer(xml_attr(last_def, "line1")) - 1,
                                     character = as.integer(xml_attr(last_def, "col1")) - 1),
                                 end = position(
                                     line = as.integer(xml_attr(last_def, "line2")) - 1,
