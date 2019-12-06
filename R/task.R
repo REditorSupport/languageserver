@@ -28,8 +28,10 @@ Task <- R6::R6Class("Task",
             } else {
                 result <- tryCatch(private$process$get_result(), error = function(e) e)
                 if (!is.null(private$callback)) {
-                    if (!is.null(private$error) && inherits(result, "error")) {
-                        private$error(result)
+                    if (inherits(result, "error")) {
+                        if (!is.null(private$error)) {
+                            private$error(result)
+                        }
                     } else {
                         private$callback(result)
                     }
