@@ -8,13 +8,68 @@
 definition_reply <- function(id, uri, workspace, document, position) {
 
     token_result <- document$detect_token(position)
+    resolved <- FALSE
+    result <- NULL
 
-    pkg <- token_result$package
-    token <- token_result$token
+    xdoc <- workspace$get_xml_doc(uri)
+    if (!is.null(xdoc)) {
+        line <- position$line + 1
+        col <- position$character + 1
+        token <- xdoc_find_token(xdoc, line, col)
+        logger$info("definition: ", token)
+        if (length(token)) {
+            token_name <- xml_name(token)
+            token_text <- xml_text(token)
+            token_range <- range(
+                start = position(
+                    line = as.integer(xml_attr(token, "line1")) - 1,
+                    character = as.integer(xml_attr(token, "col1")) - 1),
+                end = position(
+                    line = as.integer(xml_attr(token, "line2")) - 1,
+                    character = as.integer(xml_attr(token, "col2")))
+            )
+            logger$info("definition: ", token_name, token_text, token_range)
+            if (token_name %in% c("SYMBOL", "SYMBOL_FUNCTION_CALL")) {
+                # symbol
+                preceding_dollar <- xml_find_first(token, "preceding-sibling::OP-DOLLAR")
+                if (length(preceding_dollar) == 0) {
+                    enclosing_scopes <- xdoc_find_enclosing_scopes(xdoc,
+                        line, col, top = TRUE)
+                    token_quote <- xml_single_quote(token_text)
+                    xpath <- glue(paste(
+                        "expr[FUNCTION]/SYMBOL_FORMALS[text() = '{token_quote}' and @line1 <= {line}]",
+                        "expr[LEFT_ASSIGN/preceding-sibling::expr/SYMBOL[text() = '{token_quote}' and @line1 <= {line}]]",
+                        "expr[RIGHT_ASSIGN/following-sibling::expr/SYMBOL[text() = '{token_quote}' and @line1 <= {line}]]",
+                        "equal_assign[expr[1]/SYMBOL[text() = '{token_quote}' and @line1 <= {line}]]",
+                        "forcond/SYMBOL[text() = '{token_quote}' and @line1 <= {line}]",
+                        sep = "|"))
+                    all_defs <- xml_find_all(enclosing_scopes, xpath)
+                    if (length(all_defs)) {
+                        last_def <- all_defs[[length(all_defs)]]
+                        result <- list(
+                            uri = uri,
+                            range = range(
+                                start = position(
+                                    line = as.integer(xml_attr(last_def, "line1")) - 1,
+                                    character = as.integer(xml_attr(last_def, "col1")) - 1),
+                                end = position(
+                                    line = as.integer(xml_attr(last_def, "line2")) - 1,
+                                    character = as.integer(xml_attr(last_def, "col2")))
+                            )
+                        )
+                        logger$info("definition: ", result)
+                        resolved <- TRUE
+                    }
+                }
+            } else {
+                resolved <- TRUE
+            }
+        }
+    }
 
-    result <- workspace$get_definition(token, pkg)
-
-    logger$info("definition", result)
+    if (!resolved) {
+        result <- workspace$get_definition(token_result$token, token_result$package)
+    }
 
     if (is.null(result)) {
         Response$new(id)

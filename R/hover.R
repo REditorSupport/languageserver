@@ -9,15 +9,125 @@ hover_reply <- function(id, uri, workspace, document, position) {
     }
 
     token_result <- document$detect_token(position)
+    range <- token_result$range
 
-    contents <- workspace$get_help(token_result$token, token_result$package)
+    if (is.null(token_result$package)) {
+        signs <- workspace$guess_namespace(token_result$token)
+    } else {
+        signs <- token_result$package
+    }
 
-    if (is.null(contents)) {
-        # try function signature
-        sig <- workspace$get_signature(token_result$token, token_result$package)
+    sig <- workspace$get_signature(token_result$token, signs)
+    contents <- NULL
+
+    if (!is.null(sig)) {
         logger$info("sig: ", sig)
-        if (!is.null(sig)) {
-            sig <- trimws(gsub("function\\s*", token_result$token, sig))
+        sig <- trimws(gsub("function\\s*", token_result$token, sig))
+    }
+
+    resolved <- FALSE
+    xdoc <- workspace$get_xml_doc(uri)
+
+    if (!is.null(xdoc)) {
+        line <- position$line + 1
+        col <- position$character + 1
+        token <- xdoc_find_token(xdoc, line, col)
+        if (length(token)) {
+            token_name <- xml_name(token)
+            token_text <- xml_text(token)
+            token_range <- range(
+                start = position(
+                    line = as.integer(xml_attr(token, "line1")) - 1,
+                    character = as.integer(xml_attr(token, "col1")) - 1),
+                end = position(
+                    line = as.integer(xml_attr(token, "line2")) - 1,
+                    character = as.integer(xml_attr(token, "col2")))
+            )
+            logger$info(token_name, token_text, token_range)
+            if (token_name %in% c("SYMBOL", "SYMBOL_FUNCTION_CALL")) {
+                # symbol
+                preceding_dollar <- xml_find_first(token, "preceding-sibling::OP-DOLLAR")
+                if (length(preceding_dollar) == 0 && (is.null(signs) || signs != WORKSPACE || is.null(sig))) {
+                    enclosing_scopes <- xdoc_find_enclosing_scopes(xdoc,
+                        line, col, top = TRUE)
+                    token_quote <- xml_single_quote(token_text)
+                    xpath <- glue(paste(
+                        "expr[FUNCTION and SYMBOL_FORMALS[text() = '{token_quote}' and @line1 <= {line}]]",
+                        "expr[LEFT_ASSIGN/preceding-sibling::expr/SYMBOL[text() = '{token_quote}' and @line1 <= {line}]]",
+                        "expr[RIGHT_ASSIGN/following-sibling::expr/SYMBOL[text() = '{token_quote}' and @line1 <= {line}]]",
+                        "equal_assign[expr[1]/SYMBOL[text() = '{token_quote}' and @line1 <= {line}]]",
+                        "forcond/SYMBOL[text() = '{token_quote}' and @line1 <= {line}]",
+                        sep = "|"))
+                    all_defs <- xml_find_all(enclosing_scopes, xpath)
+                    if (length(all_defs)) {
+                        last_def <- all_defs[[length(all_defs)]]
+                        def_funct <- xml_find_first(last_def, "FUNCTION")
+                        if (length(def_funct)) {
+                            def_funct_end <- xml_find_first(last_def,
+                                glue("SYMBOL_FORMALS[text() = '{token_quote}']"))
+                            def_line1 <- as.integer(xml_attr(def_funct, "line1"))
+                            def_line2 <- as.integer(xml_attr(def_funct_end, "line2"))
+                            def_lines <- seq.int(def_line1, def_line2)
+                        } else {
+                            def_lines <- as.integer(xml_attr(last_def, "line1"))
+                        }
+                        contents <- sprintf("```r\n%s\n```",
+                            trimws(paste0(document$line(def_lines), collapse = "\n")))
+                        resolved <- TRUE
+                    }
+                }
+            } else if (token_name == "SYMBOL_SUB") {
+                # function parameter
+                funct <- xml_text(xml_find_first(token,
+                    "preceding-sibling::expr/SYMBOL_FUNCTION_CALL/text()"))
+                if (!is.na(funct)) {
+                    package <- xml_text(xml_find_first(token,
+                        "preceding-sibling::expr/SYMBOL_PACKAGE/text()"))
+                    if (is.na(package)) {
+                        package <- NULL
+                    }
+                    doc <- workspace$get_documentation(funct, package)
+                    doc_string <- doc$arguments[[token_text]]
+                    if (is.null(doc_string)) {
+                        doc_string <- doc$arguments$...
+                        token_text <- "..."
+                    }
+                    if (!is.null(doc_string)) {
+                        sig <- workspace$get_signature(funct, package)
+                        if (is.null(sig)) {
+                            contents <- doc_string
+                        } else {
+                            sig <- trimws(gsub("function\\s*", funct,
+                                stringr::str_trunc(sig, 300)))
+                            contents <- c(
+                                sprintf("```r\n%s\n```", sig),
+                                sprintf("`%s`: %s", token_text, doc_string))
+                        }
+                    }
+                    resolved <- TRUE
+                }
+            } else if (token_name == "SYMBOL_FORMALS") {
+                # function formals
+                # contents <- "function parameter"
+                resolved <- TRUE
+            } else if (token_name == "NUM_CONST") {
+                # logical, integer, double
+                # contents <- "number"
+                # resolved <- TRUE
+            } else if (token_name == "STR_CONST") {
+                # string literal
+                # contents <- "string"
+                resolved <- TRUE
+            } else if (token_name == "COMMENT") {
+                # comment
+                resolved <- TRUE
+            }
+        }
+    }
+
+    if (!resolved) {
+        contents <- workspace$get_help(token_result$token, token_result$package)
+        if (is.null(contents) && !is.null(sig)) {
             contents <- sprintf("```r\n%s\n```", sig)
         }
     }
@@ -29,7 +139,7 @@ hover_reply <- function(id, uri, workspace, document, position) {
             id,
             result = list(
                 contents = contents,
-                range = token_result$range
+                range = range
             )
         )
     }

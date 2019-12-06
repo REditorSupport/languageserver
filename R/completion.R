@@ -68,9 +68,11 @@ arg_completion <- function(workspace, token, funct, package = NULL) {
             completions <- lapply(token_args, function(arg) {
                 list(label = arg, kind = CompletionItemKind$Variable,
                     detail = "parameter",
+                    preselect = TRUE,
                     data = list(
                         type = "parameter",
-                        funct = funct, package = package
+                        funct = funct,
+                        package = package
                 ))
             })
             completions
@@ -153,43 +155,47 @@ workspace_completion <- function(workspace, token, package = NULL, exported_only
     completions
 }
 
-find_enclosing_scopes <- function(x, line, col) {
-    xpath <- sprintf("//expr[(@line1 < %d or (@line1 = %d and @col1 <= %d)) and
-        (@line2 > %d or (@line2 = %d and @col2 >= %d))]",
-        line, line, col, line, line, col)
-    xml2::xml_find_all(x, xpath)
-}
-
 scope_completion <- function(uri, workspace, token, position) {
-    xml_doc <- workspace$get_xml_doc(uri)
-    if (is.null(xml_doc)) {
+    xdoc <- workspace$get_xml_doc(uri)
+    if (is.null(xdoc)) {
         return(list())
     }
 
-    enclosing_scopes <- find_enclosing_scopes(xml_doc,
+    enclosing_scopes <- xdoc_find_enclosing_scopes(xdoc,
         position$line + 1, position$character + 1)
 
-    symbol_formals <- xml2::xml_text(xml2::xml_find_all(enclosing_scopes,
-        "expr[FUNCTION]/SYMBOL_FORMALS/text()"))
-    left_assign_symbols <- xml2::xml_text(xml2::xml_find_all(enclosing_scopes,
-        "expr/LEFT_ASSIGN/preceding-sibling::expr/SYMBOL/text()"))
-    right_assign_symbols <- xml2::xml_text(xml2::xml_find_all(enclosing_scopes,
-        "expr/RIGHT_ASSIGN/following-sibling::expr/SYMBOL/text()"))
-    equal_assign_symbols <- xml2::xml_text(xml2::xml_find_all(enclosing_scopes,
-        "equal_assign/expr[1]/SYMBOL/text()"))
-    for_symbols <- xml2::xml_text(xml2::xml_find_all(enclosing_scopes,
-        "forcond/SYMBOL/text()"))
-    scope_symbols <- unique(c(symbol_formals, left_assign_symbols,
-        right_assign_symbols, equal_assign_symbols, for_symbols))
-
+    completions <- list()
+    scope_symbols <- unique(xml_text(xml_find_all(enclosing_scopes, paste(
+        "expr[FUNCTION]/SYMBOL_FORMALS",
+        "forcond/SYMBOL",
+        "expr/LEFT_ASSIGN[not(following-sibling::expr/FUNCTION)]/preceding-sibling::expr/SYMBOL",
+        "expr/RIGHT_ASSIGN[not(preceding-sibling::expr/FUNCTION)]/following-sibling::expr/SYMBOL",
+        "equal_assign/EQ_ASSIGN[not(following-sibling::expr/FUNCTION)]/preceding-sibling::expr/SYMBOL",
+        sep = "|"))))
     scope_symbols <- scope_symbols[startsWith(scope_symbols, token)]
-    completions <- lapply(scope_symbols, function(symbol) {
+    completions <- c(completions, lapply(scope_symbols, function(symbol) {
         list(
             label = symbol,
             kind = CompletionItemKind$Field,
             detail = "[scope]"
         )
-    })
+    }))
+
+    scope_functs <- unique(xml_text(xml_find_all(enclosing_scopes, paste(
+        "expr/LEFT_ASSIGN[following-sibling::expr/FUNCTION]/preceding-sibling::expr/SYMBOL",
+        "expr/RIGHT_ASSIGN[preceding-sibling::expr/FUNCTION]/following-sibling::expr/SYMBOL",
+        "equal_assign/EQ_ASSIGN[following-sibling::expr/FUNCTION]/preceding-sibling::expr/SYMBOL",
+        sep = "|"))))
+    scope_functs <- scope_functs[startsWith(scope_functs, token)]
+    completions <- c(completions, lapply(scope_functs, function(symbol) {
+        list(
+            label = symbol,
+            kind = CompletionItemKind$Function,
+            detail = "[scope]"
+        )
+    }))
+
+    completions
 }
 
 #' The response to a textDocument/completion request

@@ -1,5 +1,7 @@
 #' @useDynLib languageserver
 #' @importFrom R6 R6Class
+#' @importFrom glue glue
+#' @import xml2
 #' @details
 #' An implementation of the Language Server Protocol for R
 "_PACKAGE"
@@ -172,6 +174,7 @@ LanguageServer$set("public", "register_handlers", function() {
         `textDocument/formatting` = text_document_formatting,
         `textDocument/rangeFormatting` = text_document_range_formatting,
         `textDocument/documentSymbol` = text_document_document_symbol,
+        `textDocument/documentHighlight` = text_document_document_highlight,
         `workspace/symbol` = workspace_symbol
     )
 

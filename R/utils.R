@@ -272,8 +272,10 @@ convert_doc_to_markdown <- function(doc) {
             "**R**"
         } else if (tag == "\\dots") {
             "..."
-        } else if (tag == "\\code") {
+        } else if (tag %in% c("\\code", "\\env", "\\eqn")) {
             sprintf("`%s`", paste0(convert_doc_to_markdown(item), collapse = ""))
+        } else if (tag %in% c("\\ifelse", "USERMACRO")) {
+            ""
         } else if (is.character(item)) {
             trimws(item)
         } else if (length(item)) {
@@ -284,4 +286,27 @@ convert_doc_to_markdown <- function(doc) {
 
 convert_doc_string <- function(doc) {
     paste0(convert_doc_to_markdown(doc), collapse = " ")
+}
+
+xdoc_find_enclosing_scopes <- function(x, line, col, top = FALSE) {
+    if (top) {
+        xpath <- glue("/exprlist | //expr[(@line1 < {line} or (@line1 = {line} and @col1 <= {col})) and
+                (@line2 > {line} or (@line2 = {line} and @col2 >= {col}))]")
+    } else {
+        xpath <- glue("//expr[(@line1 < {line} or (@line1 = {line} and @col1 <= {col})) and
+                (@line2 > {line} or (@line2 = {line} and @col2 >= {col}))]")
+    }
+    xml_find_all(x, xpath)
+}
+
+xdoc_find_token <- function(x, line, col) {
+    xpath <- glue("//*[not(*)]
+    [(@line1 < {line} or (@line1 = {line} and @col1 <= {col})) and
+                (@line2 > {line} or (@line2 = {line} and @col2 >= {col}))]")
+    xml_find_first(x, xpath)
+}
+
+xml_single_quote <- function(x) {
+    x <- gsub("'", "&apos;", x, fixed = TRUE)
+    x
 }

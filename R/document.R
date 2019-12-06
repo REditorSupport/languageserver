@@ -272,3 +272,66 @@ parse_task <- function(self, uri, document, resolve = FALSE) {
         list(path = path_from_uri(uri), content = content, resolve = resolve),
         callback = function(result) parse_callback(self, uri, result))
 }
+
+DocumentHighlightKind <- list(
+    Text = 1,
+    Read = 2,
+    Write = 3
+)
+
+#' The response to a textDocument/documentHighlight Request
+#'
+#' @keywords internal
+document_highlight_reply <- function(id, uri, workspace, position) {
+    result <- NULL
+    xdoc <- workspace$get_xml_doc(uri)
+    if (!is.null(xdoc)) {
+        line <- position$line + 1
+        col <- position$character + 1
+        token <- xdoc_find_token(xdoc, line, col)
+        if (length(token)) {
+            token_name <- xml_name(token)
+            if (token_name == "COMMENT") {
+                # ignore comments
+            } else {
+                token_text <- xml_text(token)
+                token_range <- range(
+                    start = position(
+                        line = as.integer(xml_attr(token, "line1")) - 1,
+                        character = as.integer(xml_attr(token, "col1")) - 1),
+                    end = position(
+                        line = as.integer(xml_attr(token, "line2")) - 1,
+                        character = as.integer(xml_attr(token, "col2")))
+                )
+                logger$info(token_name, token_text, token_range)
+                token_quote <- xml_single_quote(token_text)
+                xpath <- glue("//*[not(*) and text() = '{token_quote}']")
+                tokens <- xml_find_all(xdoc, xpath)
+                if (length(tokens)) {
+                    result <- lapply(tokens, function(token) {
+                        list(
+                            range = range(
+                                start = position(
+                                    line = as.integer(xml_attr(token, "line1")) - 1,
+                                    character = as.integer(xml_attr(token, "col1")) - 1),
+                                end = position(
+                                    line = as.integer(xml_attr(token, "line2")) - 1,
+                                    character = as.integer(xml_attr(token, "col2")))
+                            ),
+                            kind = DocumentHighlightKind$Text
+                        )
+                    })
+                }
+            }
+        }
+    }
+
+    if (is.null(result)) {
+        Response$new(id)
+    } else {
+        Response$new(
+            id,
+            result = result
+        )
+    }
+}
