@@ -71,12 +71,16 @@ Document <- R6::R6Class(
             column <- code_point_from_unit(text, position$character)
 
             if (position$character > 0) {
-                loc <- find_unbalanced_paren(self$content, row, column - 1)
+                fub_result <- find_unbalanced_bracket(self$content, row, column - 1)
+                loc <- fub_result[[1]]
+                bracket <- fub_result[[2]]
             } else {
                 loc <- c(-1, -1)
+                bracket <- " "
             }
+            logger$info("bracket is", bracket)
 
-            if (loc[1] < 0 || loc[2] < 0)
+            if (loc[1] < 0 || loc[2] < 0 || bracket != "(")
                 return(list(token = ""))
 
             result <- self$find_token(loc[1], loc[2], forward = FALSE)
@@ -118,12 +122,9 @@ Document <- R6::R6Class(
 
 
 #' Search backwards in a document content for a specific character
-#'
-#' @return a tuple of positive integers, the row and column position of the
-#' character if found, otherwise (-1, -1)
 #' @keywords internal
-find_unbalanced_paren <- function(content, row, column, skip_empty_line = TRUE) {
-    .Call("find_unbalanced_paren",
+find_unbalanced_bracket <- function(content, row, column, skip_empty_line = TRUE) {
+    .Call("find_unbalanced_bracket",
         PACKAGE = "languageserver",
         content, row, column, skip_empty_line
     )

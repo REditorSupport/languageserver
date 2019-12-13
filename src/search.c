@@ -13,7 +13,7 @@ static int is_empty(const char *s) {
     return 1;
 }
 
-SEXP find_unbalanced_paren(SEXP content, SEXP _row, SEXP _col, SEXP _skip_el) {
+SEXP find_unbalanced_bracket(SEXP content, SEXP _row, SEXP _col, SEXP _skip_el) {
     int row = Rf_asInteger(_row);
     int col = Rf_asInteger(_col);
     int skip = Rf_asInteger(_skip_el);
@@ -23,8 +23,10 @@ SEXP find_unbalanced_paren(SEXP content, SEXP _row, SEXP _col, SEXP _skip_el) {
     const char* c;
     unsigned char cj;
     fsm_state state;
-    stack stk;
-    int nparens = 0;
+    stack codept_pos;
+    stack pos;
+    int nbracket = 0;
+    char brac[2] = " \x00";
 
     for (i = row; i >= 0; i--) {
         c = Rf_translateCharUTF8(STRING_ELT(content, i));
@@ -40,7 +42,8 @@ SEXP find_unbalanced_paren(SEXP content, SEXP _row, SEXP _col, SEXP _skip_el) {
         j = 0;
         k = 0;
         fsm_initialize(&state);
-        stack_initialize(&stk);
+        stack_initialize(&codept_pos);
+        stack_initialize(&pos);
         while (j < n && (i < row || k <= col)) {
             cj = c[j];
             if (0x80 <= cj && cj <= 0xbf) {
@@ -51,28 +54,37 @@ SEXP find_unbalanced_paren(SEXP content, SEXP _row, SEXP _col, SEXP _skip_el) {
                 if (cj == '#') {
                     break;
                 } else if (cj == '(' || cj == '[' || cj == '{') {
-                    nparens += 1;
-                    stack_push(&stk, k);
+                    nbracket += 1;
+                    stack_push(&pos, j);
+                    stack_push(&codept_pos, k);
                 } else if (cj == ')' || cj == ']' || cj == '}') {
-                    nparens -= 1;
-                    stack_pop(&stk);
+                    nbracket -= 1;
+                    stack_pop(&pos);
+                    stack_pop(&codept_pos);
                 }
             }
             fsm_feed(&state, cj);
             j++;
             k++;
         }
-        k = stack_pop(&stk);
-        stack_clear(&stk);
-        if (nparens >= 1 && k >= 0) {
+        j = stack_pop(&pos);
+        k = stack_pop(&codept_pos);
+        stack_clear(&pos);
+        stack_clear(&codept_pos);
+        if (nbracket >= 1 && k >= 0) {
+            brac[0] = c[j];
             break;
         }
     }
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 2));
     SEXP loc = PROTECT(Rf_allocVector(INTSXP, 2));
     INTEGER(loc)[0] = i;
     INTEGER(loc)[1] = k;
-    UNPROTECT(1);
-    return loc;
+    SET_VECTOR_ELT(out, 0, loc);
+    SEXP bracket = PROTECT(Rf_mkString((const char*) brac));
+    SET_VECTOR_ELT(out, 1, bracket);
+    UNPROTECT(3);
+    return out;
 }
 
 

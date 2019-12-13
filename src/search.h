@@ -5,7 +5,7 @@
 #include <R.h>
 #include <Rinternals.h>
 
-SEXP find_unbalanced_paren(SEXP document, SEXP _row, SEXP _col, SEXP _skip_el);
+SEXP find_unbalanced_bracket(SEXP document, SEXP _row, SEXP _col, SEXP _skip_el);
 
 SEXP enclosed_by_quotes(SEXP s, SEXP _col);
 
