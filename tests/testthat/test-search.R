@@ -19,7 +19,7 @@ test_that("find_unbalanced_bracket works as expected", {
         .Call("find_unbalanced_bracket",
             PACKAGE = "languageserver",
             content, row, column, TRUE
-        )[[1]]
+        )
     }
     expect_equal(bsearch("foo(xy", 0, 5)[[1]], c(0, 3))
     expect_equal(bsearch("foo(xy(abc)", 0, 5)[[1]], c(0, 3))
