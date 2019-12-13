@@ -23,8 +23,8 @@ SEXP find_unbalanced_bracket(SEXP content, SEXP _row, SEXP _col, SEXP _skip_el) 
     const char* c;
     unsigned char cj;
     fsm_state state;
-    stack codept_pos;
     stack pos;
+    stack codept_pos;
     int nbracket = 0;
     char brac[2] = " \x00";
 
@@ -42,15 +42,15 @@ SEXP find_unbalanced_bracket(SEXP content, SEXP _row, SEXP _col, SEXP _skip_el) 
         j = 0;
         k = 0;
         fsm_initialize(&state);
-        stack_initialize(&codept_pos);
         stack_initialize(&pos);
+        stack_initialize(&codept_pos);
         while (j < n && (i < row || k <= col)) {
             cj = c[j];
             if (0x80 <= cj && cj <= 0xbf) {
                 j++;
                 continue;
             }
-            if (!state.single_quoted && !state.double_quoted && !state.escaped) {
+            if (!state.single_quoted && !state.double_quoted && !state.backticked & !state.escaped) {
                 if (cj == '#') {
                     break;
                 } else if (cj == '(' || cj == '[' || cj == '{') {
@@ -106,7 +106,7 @@ SEXP enclosed_by_quotes(SEXP _s, SEXP _col) {
             j++;
             continue;
         }
-        if (!state.single_quoted && !state.double_quoted && !state.escaped && cj == '#') break;
+        if (!state.single_quoted && !state.double_quoted && !state.backticked && !state.escaped && cj == '#') break;
         fsm_feed(&state, cj);
         j++;
         k++;
