@@ -50,10 +50,10 @@ SEXP find_unbalanced_paren(SEXP content, SEXP _row, SEXP _col, SEXP _skip_el) {
             if (!state.single_quoted && !state.double_quoted && !state.escaped) {
                 if (cj == '#') {
                     break;
-                } else if (cj == '(') {
+                } else if (cj == '(' || cj == '[' || cj == '{') {
                     nparens += 1;
                     stack_push(&stk, k);
-                } else if (cj == ')') {
+                } else if (cj == ')' || cj == ']' || cj == '}') {
                     nparens -= 1;
                     stack_pop(&stk);
                 }
