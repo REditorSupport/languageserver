@@ -53,9 +53,9 @@ hover_reply <- function(id, uri, workspace, document, position) {
                     token_quote <- xml_single_quote(token_text)
                     xpath <- glue(paste(
                         "expr[FUNCTION and SYMBOL_FORMALS[text() = '{token_quote}' and @line1 <= {line}]]",
-                        "expr[LEFT_ASSIGN/preceding-sibling::expr/SYMBOL[text() = '{token_quote}' and @line1 <= {line}]]",
-                        "expr[RIGHT_ASSIGN/following-sibling::expr/SYMBOL[text() = '{token_quote}' and @line1 <= {line}]]",
-                        "equal_assign[expr[1]/SYMBOL[text() = '{token_quote}' and @line1 <= {line}]]",
+                        "expr[LEFT_ASSIGN/preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {line}]]",
+                        "expr[RIGHT_ASSIGN/following-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {line}]]",
+                        "equal_assign[EQ_ASSIGN/preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {line}]]",
                         "forcond/SYMBOL[text() = '{token_quote}' and @line1 <= {line}]",
                         sep = "|"))
                     all_defs <- xml_find_all(enclosing_scopes, xpath)
