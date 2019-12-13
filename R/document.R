@@ -296,6 +296,7 @@ document_highlight_reply <- function(id, uri, workspace, position) {
                 # ignore comments
             } else {
                 token_text <- xml_text(token)
+                token_quote <- xml_single_quote(token_text)
                 token_range <- range(
                     start = position(
                         line = as.integer(xml_attr(token, "line1")) - 1,
@@ -304,10 +305,23 @@ document_highlight_reply <- function(id, uri, workspace, position) {
                         line = as.integer(xml_attr(token, "line2")) - 1,
                         character = as.integer(xml_attr(token, "col2")))
                 )
-                logger$info(token_name, token_text, token_range)
-                token_quote <- xml_single_quote(token_text)
-                xpath <- glue("//*[not(*) and text() = '{token_quote}']")
-                tokens <- xml_find_all(xdoc, xpath)
+                logger$info("highlight: ", token_name, token_text, token_range)
+
+                tokens <- NULL
+                if (token_name %in% c("SYMBOL", "SYMBOL_FUNCTION_CALL", "SYMBOL_FORMALS")) {
+                    preceding_dollar <- xml_find_first(token, "preceding-sibling::OP-DOLLAR")
+                    if (length(preceding_dollar) == 0) {
+                        xpath <- glue("//*[(self::SYMBOL or self::SYMBOL_FUNCTION_CALL or self::SYMBOL_FORMALS) and not(preceding-sibling::OP-DOLLAR) and text() = '{token_quote}']")
+                        tokens <- xml_find_all(xdoc, xpath)
+                    }
+                } else if (token_name %in% c("SYMBOL_SUB", "SLOT")) {
+                    # ignore
+                } else {
+                    # highligh tokens with same name and text
+                    xpath <- glue("//{token_name}[text()='{token_quote}']")
+                    tokens <- xml_find_all(xdoc, xpath)
+                }
+
                 if (length(tokens)) {
                     result <- lapply(tokens, function(token) {
                         list(
