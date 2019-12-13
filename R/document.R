@@ -317,7 +317,7 @@ document_highlight_reply <- function(id, uri, workspace, position) {
                 } else if (token_name %in% c("SYMBOL_SUB", "SLOT")) {
                     # ignore
                 } else {
-                    # highligh tokens with same name and text
+                    # highlight tokens with same name and text
                     xpath <- glue("//{token_name}[text()='{token_quote}']")
                     tokens <- xml_find_all(xdoc, xpath)
                 }
