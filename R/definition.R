@@ -16,7 +16,6 @@ definition_reply <- function(id, uri, workspace, document, position) {
         line <- position$line + 1
         col <- position$character + 1
         token <- xdoc_find_token(xdoc, line, col)
-        logger$info("definition: ", token)
         if (length(token)) {
             token_name <- xml_name(token)
             token_text <- xml_text(token)
