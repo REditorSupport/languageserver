@@ -14,9 +14,9 @@ test_that("enclosed_by_quotes works as expected", {
 })
 
 
-test_that("find_unbalanced_paren works as expected", {
+test_that("find_unbalanced_bracket works as expected", {
     bsearch <- function(content, row, column) {
-        .Call("find_unbalanced_paren",
+        .Call("find_unbalanced_bracket",
             PACKAGE = "languageserver",
             content, row, column, TRUE
         )
