@@ -168,9 +168,9 @@ scope_completion <- function(uri, workspace, token, position) {
     scope_symbols <- unique(xml_text(xml_find_all(enclosing_scopes, paste(
         "expr[FUNCTION]/SYMBOL_FORMALS",
         "forcond/SYMBOL",
-        "expr/LEFT_ASSIGN[not(following-sibling::expr/FUNCTION)]/preceding-sibling::expr/SYMBOL",
-        "expr/RIGHT_ASSIGN[not(preceding-sibling::expr/FUNCTION)]/following-sibling::expr/SYMBOL",
-        "equal_assign/EQ_ASSIGN[not(following-sibling::expr/FUNCTION)]/preceding-sibling::expr/SYMBOL",
+        "expr/LEFT_ASSIGN[not(following-sibling::expr/FUNCTION)]/preceding-sibling::expr[count(*)=1]/SYMBOL",
+        "expr/RIGHT_ASSIGN[not(preceding-sibling::expr/FUNCTION)]/following-sibling::expr[count(*)=1]/SYMBOL",
+        "equal_assign/EQ_ASSIGN[not(following-sibling::expr/FUNCTION)]/preceding-sibling::expr[count(*)=1]/SYMBOL",
         sep = "|"))))
     scope_symbols <- scope_symbols[startsWith(scope_symbols, token)]
     completions <- c(completions, lapply(scope_symbols, function(symbol) {
@@ -182,9 +182,9 @@ scope_completion <- function(uri, workspace, token, position) {
     }))
 
     scope_functs <- unique(xml_text(xml_find_all(enclosing_scopes, paste(
-        "expr/LEFT_ASSIGN[following-sibling::expr/FUNCTION]/preceding-sibling::expr/SYMBOL",
-        "expr/RIGHT_ASSIGN[preceding-sibling::expr/FUNCTION]/following-sibling::expr/SYMBOL",
-        "equal_assign/EQ_ASSIGN[following-sibling::expr/FUNCTION]/preceding-sibling::expr/SYMBOL",
+        "expr/LEFT_ASSIGN[following-sibling::expr/FUNCTION]/preceding-sibling::expr[count(*)=1]/SYMBOL",
+        "expr/RIGHT_ASSIGN[preceding-sibling::expr/FUNCTION]/following-sibling::expr[count(*)=1]/SYMBOL",
+        "equal_assign/EQ_ASSIGN[following-sibling::expr/FUNCTION]/preceding-sibling::expr[count(*)=1]/SYMBOL",
         sep = "|"))))
     scope_functs <- scope_functs[startsWith(scope_functs, token)]
     completions <- c(completions, lapply(scope_functs, function(symbol) {
