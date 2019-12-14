@@ -228,8 +228,7 @@ parse_document <- function(path, content = NULL, resolve = FALSE) {
     if (is_rmarkdown(path)) {
         content <- purl(content)
     }
-    text <- paste0(content, collapse = "\n")
-    expr <- tryCatch(parse(text = text, keep.source = TRUE), error = function(e) NULL)
+    expr <- tryCatch(parse(text = content, keep.source = TRUE), error = function(e) NULL)
     if (!is.null(expr)) {
         parse_env <- function() {
             env <- new.env(parent = .GlobalEnv)
