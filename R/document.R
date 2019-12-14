@@ -230,28 +230,28 @@ parse_document <- function(path, content = NULL, resolve = FALSE) {
     }
     text <- paste0(content, collapse = "\n")
     expr <- tryCatch(parse(text = text, keep.source = TRUE), error = function(e) NULL)
-    parse_env <- function() {
-        env <- new.env(parent = .GlobalEnv)
-        env$packages <- character()
-        env$nonfuncts <- character()
-        env$functs <- character()
-        env$formals <- list()
-        env$signatures <- list()
-        env$definition_ranges <- list()
-        env$xml_data <- NULL
-        env$xml_doc <- NULL
-        env
-    }
-    env <- parse_env()
-    parse_expr(expr, env)
     if (!is.null(expr)) {
+        parse_env <- function() {
+            env <- new.env(parent = .GlobalEnv)
+            env$packages <- character()
+            env$nonfuncts <- character()
+            env$functs <- character()
+            env$formals <- list()
+            env$signatures <- list()
+            env$definition_ranges <- list()
+            env$xml_data <- NULL
+            env$xml_doc <- NULL
+            env
+        }
+        env <- parse_env()
+        parse_expr(expr, env)
         xml_data <- xmlparsedata::xml_parse_data(expr)
         env$xml_data <- xml_data
+        if (resolve) {
+            env$packages <- resolve_attached_packages(env$packages)
+        }
+        env
     }
-    if (resolve) {
-        env$packages <- resolve_attached_packages(env$packages)
-    }
-    env
 }
 
 
