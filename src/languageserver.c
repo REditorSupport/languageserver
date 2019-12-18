@@ -2,7 +2,7 @@
 #include "reader.h"
 
 
-#if !defined(_WIN32) && !defined(_WIN64)
+#if !defined(_WIN32)
 
 #include <unistd.h> /* for getppid */
 
@@ -21,7 +21,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"enclosed_by_quotes", (DL_FUNC) &enclosed_by_quotes, 2},
     {"stdin_read_char", (DL_FUNC) &stdin_read_char, 1},
     {"stdin_read_line", (DL_FUNC) &stdin_read_line},
-#if !defined(_WIN32) && !defined(_WIN64)
+#if !defined(_WIN32)
     {"process_is_detached", (DL_FUNC) &process_is_detached},
 #endif
     {NULL, NULL, 0}
