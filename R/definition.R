@@ -36,7 +36,7 @@ definition_reply <- function(id, uri, workspace, document, position) {
                         line, col, top = TRUE)
                     token_quote <- xml_single_quote(token_text)
                     xpath <- glue(paste(
-                        "expr[FUNCTION]/SYMBOL_FORMALS[text() = '{token_quote}' and @line1 <= {line}]",
+                        "FUNCTION/following-sibling::SYMBOL_FORMALS[text() = '{token_quote}' and @line1 <= {line}]",
                         "expr[LEFT_ASSIGN/preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {line}]]",
                         "expr[RIGHT_ASSIGN/following-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {line}]]",
                         "equal_assign[EQ_ASSIGN/preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {line}]]",
