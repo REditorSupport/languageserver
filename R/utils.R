@@ -13,7 +13,7 @@ path_from_uri <- function(uri) {
     if (is.null(uri)) {
         return(NULL)
     }
-    start_char <- ifelse(.Platform$OS.type == "windows", 9, 8)
+    start_char <- if (.Platform$OS.type == "windows") 9 else 8
     utils::URLdecode(substr(uri, start_char, nchar(uri)))
 }
 
@@ -24,7 +24,7 @@ path_to_uri <- function(path) {
     if (is.null(path)) {
         return(NULL)
     }
-    prefix <- ifelse(.Platform$OS.type == "windows", "file:///", "file://")
+    prefix <- if (.Platform$OS.type == "windows") "file:///" else "file://"
     paste0(prefix, utils::URLencode(path))
 }
 
