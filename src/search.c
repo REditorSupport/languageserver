@@ -26,6 +26,7 @@ SEXP find_unbalanced_bracket(SEXP content, SEXP _row, SEXP _col, SEXP _skip_el) 
     stack pos;
     stack codept_pos;
     int nbracket = 0;
+    int nunbalanced = 0;
     char brac[2] = " \x00";
 
     for (i = row; i >= 0; i--) {
@@ -58,14 +59,24 @@ SEXP find_unbalanced_bracket(SEXP content, SEXP _row, SEXP _col, SEXP _skip_el) 
                     stack_push(&pos, j);
                     stack_push(&codept_pos, k);
                 } else if (cj == ')' || cj == ']' || cj == '}') {
-                    nbracket -= 1;
-                    stack_pop(&pos);
-                    stack_pop(&codept_pos);
+                    if (nbracket > 0) {
+                        nbracket -= 1;
+                        stack_pop(&pos);
+                        stack_pop(&codept_pos);
+                    } else {
+                        nunbalanced += 1;
+                    }
                 }
             }
             fsm_feed(&state, cj);
             j++;
             k++;
+        }
+        while (nunbalanced > 0 && nbracket > 0) {
+            stack_pop(&pos);
+            stack_pop(&codept_pos);
+            nunbalanced -= 1;
+            nbracket -= 1;
         }
         j = stack_pop(&pos);
         k = stack_pop(&codept_pos);
