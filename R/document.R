@@ -34,13 +34,6 @@ Document <- R6::R6Class(
             if (row < self$nline) self$content[row + 1] else ""
         },
 
-        line_substr = function(row, start = 0, end = Inf) {
-            # start and end are based on UTF-16
-            line <- self$line0(row)
-            pos <- code_point_from_unit(line, c(start, end))
-            substr(line, pos[1] + 1, pos[2])
-        },
-
         find_token = function(row, col, forward = TRUE) {
             # row and col are 0-indexed
             text <- self$line0(row)
@@ -65,13 +58,12 @@ Document <- R6::R6Class(
             ))
         },
 
-        detect_call = function(position) {
-            row <- position$line
-            text <- self$line0(row)
-            column <- code_point_from_unit(text, position$character)
+        detect_call = function(point) {
+            row <- point$row
+            col <- point$col
 
-            if (position$character > 0) {
-                fub_result <- find_unbalanced_bracket(self$content, row, column - 1)
+            if (col > 0) {
+                fub_result <- find_unbalanced_bracket(self$content, row, col - 1)
                 loc <- fub_result[[1]]
                 bracket <- fub_result[[2]]
             } else {
@@ -94,27 +86,45 @@ Document <- R6::R6Class(
             )
         },
 
-        detect_token = function(position, forward = TRUE) {
-            row <- position$line
-            text <- self$line0(row)
-            col <- code_point_from_unit(text, position$character)
-
+        detect_token = function(point, forward = TRUE) {
+            row <- point$row
+            col <- point$col
             result <- self$find_token(row, col, forward = forward)
 
             logger$info("token:", result)
 
-            col_end <- position$character + ncodeunit(result$right_token)
-            col_start <- col_end - ncodeunit(result$full_token)
+            col_end <- col + nchar(result$right_token)
+            col_start <- col_end - nchar(result$full_token)
 
             list(
-                range = range(
-                    start = position(line = row, character = col_start),
-                    end = position(line = row, character = col_end)
+                range = list(
+                    start = list(row = row, col = col_start),
+                    end = list(row = row, col = col_end)
                 ),
                 full_token = result$full_token,
                 package = result$package,
                 accessor = result$accessor,
                 token = result$token
+            )
+        },
+
+        from_lsp_position = function(position) {
+            # convert UTF-16 based position to code point based position
+            text <- self$line0(position$line)
+            col <- code_point_from_unit(text, position$character)
+            list(
+                row = position$line,
+                col = col
+            )
+        },
+
+        to_lsp_position = function(point) {
+            # convert code point based position to UTF-16 based position
+            text <- self$line0(point$row)
+            col <- code_point_to_unit(text, point$col)
+            position(
+                line = point$row,
+                character = col
             )
         }
     )
@@ -132,9 +142,9 @@ find_unbalanced_bracket <- function(content, row, column, skip_empty_line = FALS
 
 #' check if a position is inside quotes
 #' @keywords internal
-enclosed_by_quotes <- function(document, pos) {
-    text <- document$line0(pos$line)
-    col <- code_point_from_unit(text, pos$character)
+enclosed_by_quotes <- function(document, point) {
+    text <- document$line0(point$row)
+    col <- point$line
     .Call("enclosed_by_quotes", PACKAGE = "languageserver", text, col)
 }
 
@@ -271,81 +281,4 @@ parse_task <- function(self, uri, document, resolve = FALSE) {
         parse_document,
         list(path = path_from_uri(uri), content = content, resolve = resolve),
         callback = function(result) parse_callback(self, uri, result))
-}
-
-DocumentHighlightKind <- list(
-    Text = 1,
-    Read = 2,
-    Write = 3
-)
-
-#' The response to a textDocument/documentHighlight Request
-#'
-#' @keywords internal
-document_highlight_reply <- function(id, uri, workspace, position) {
-    result <- NULL
-    xdoc <- workspace$get_xml_doc(uri)
-    if (!is.null(xdoc)) {
-        line <- position$line + 1
-        col <- position$character + 1
-        token <- xdoc_find_token(xdoc, line, col)
-        if (length(token)) {
-            token_name <- xml_name(token)
-            if (token_name == "COMMENT") {
-                # ignore comments
-            } else {
-                token_text <- xml_text(token)
-                token_quote <- xml_single_quote(token_text)
-                token_range <- range(
-                    start = position(
-                        line = as.integer(xml_attr(token, "line1")) - 1,
-                        character = as.integer(xml_attr(token, "col1")) - 1),
-                    end = position(
-                        line = as.integer(xml_attr(token, "line2")) - 1,
-                        character = as.integer(xml_attr(token, "col2")))
-                )
-                logger$info("highlight: ", token_name, token_text, token_range)
-
-                tokens <- NULL
-                if (token_name %in% c("SYMBOL", "SYMBOL_FUNCTION_CALL", "SYMBOL_FORMALS")) {
-                    preceding_dollar <- xml_find_first(token, "preceding-sibling::OP-DOLLAR")
-                    if (length(preceding_dollar) == 0) {
-                        xpath <- glue("//*[(self::SYMBOL or self::SYMBOL_FUNCTION_CALL or self::SYMBOL_FORMALS) and not(preceding-sibling::OP-DOLLAR) and text() = '{token_quote}']")
-                        tokens <- xml_find_all(xdoc, xpath)
-                    }
-                } else if (token_name %in% c("SYMBOL_SUB", "SLOT")) {
-                    # ignore
-                } else {
-                    # highlight tokens with same name and text
-                    xpath <- glue("//{token_name}[text()='{token_quote}']")
-                    tokens <- xml_find_all(xdoc, xpath)
-                }
-
-                if (length(tokens)) {
-                    result <- lapply(tokens, function(token) {
-                        list(
-                            range = range(
-                                start = position(
-                                    line = as.integer(xml_attr(token, "line1")) - 1,
-                                    character = as.integer(xml_attr(token, "col1")) - 1),
-                                end = position(
-                                    line = as.integer(xml_attr(token, "line2")) - 1,
-                                    character = as.integer(xml_attr(token, "col2")))
-                            ),
-                            kind = DocumentHighlightKind$Text
-                        )
-                    })
-                }
-            }
-        }
-    }
-
-    if (is.null(result)) {
-        Response$new(id)
-    } else {
-        Response$new(
-            id,
-            result = result
-        )
-    }
 }

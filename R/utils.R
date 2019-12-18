@@ -42,21 +42,21 @@ is_rmarkdown <- function(uri) {
 #' and `TRUE` if it is in a code block. For any other files, it always returns `TRUE`.
 #'
 #' @keywords internal
-check_scope <- function(uri, document, position) {
+check_scope <- function(uri, document, point) {
     if (is_rmarkdown(uri)) {
-        line <- position$line
+        row <- point$row
         flags <- vapply(
-            document$content[1:(line + 1)], startsWith, logical(1), "```", USE.NAMES = F)
+            document$content[1:(row + 1)], startsWith, logical(1), "```", USE.NAMES = F)
         if (any(flags)) {
             last_match <- document$content[max(which(flags))]
             stringr::str_detect(last_match, "```\\{r[ ,\\}]") &&
                 !identical(sum(flags) %% 2, 0) &&
-                !enclosed_by_quotes(document, position)
+                !enclosed_by_quotes(document, point)
         } else {
             FALSE
         }
     } else {
-        !enclosed_by_quotes(document, position)
+        !enclosed_by_quotes(document, point)
     }
 }
 

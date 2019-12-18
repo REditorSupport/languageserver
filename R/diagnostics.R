@@ -7,18 +7,21 @@ NULL
 
 #' @rdname diagnostics
 #' @keywords internal
-diagnostic_range <- function(result) {
+diagnostic_range <- function(result, content) {
     line <- result$line_number - 1
     column <- result$column_number - 1
+    text <- if (line + 1 <= length(content)) content[line + 1] else ""
     if (is.null(result$ranges)) {
+        cols <- code_point_to_unit(text, c(column, column + 1))
         range(
-            start = position(line = line, character = column),
-            end = position(line = line, character = column + 1)
+            start = position(line = line, character = cols[1]),
+            end = position(line = line, character = cols[2])
         )
     } else {
+        cols <- code_point_to_unit(text, c(result$ranges[[1]][1] - 1, result$ranges[[1]][2]))
         range(
-            start = position(line = line, character = result$ranges[[1]][1] - 1),
-            end = position(line = line, character = result$ranges[[1]][2])
+            start = position(line = line, character = cols[1]),
+            end = position(line = line, character = cols[2])
         )
     }
 }
@@ -40,9 +43,9 @@ diagnostic_severity <- function(result) {
 
 #' @rdname diagnostics
 #' @keywords internal
-diagnostic_from_lint <- function(result) {
+diagnostic_from_lint <- function(result, content) {
     list(
-        range = diagnostic_range(result),
+        range = diagnostic_range(result, content),
         severity = diagnostic_severity(result),
         source = "lintr",
         message = result$message
@@ -68,11 +71,14 @@ diagnose_file <- function(path, content = NULL) {
         linters <- NULL
     }
     if (is.null(content)) {
-        diagnostics <- lapply(lintr::lint(path, linters = linters), diagnostic_from_lint)
+        content <- readr::read_lines(path)
+        diagnostics <- lapply(
+            lintr::lint(path, linters = linters), diagnostic_from_lint, content = content)
     } else {
         # use inline data
         text <- paste0(content, collapse = "\n")
-        diagnostics <- lapply(lintr::lint(text, linters = linters), diagnostic_from_lint)
+        diagnostics <- lapply(
+            lintr::lint(text, linters = linters), diagnostic_from_lint, content = content)
     }
     names(diagnostics) <- NULL
     diagnostics

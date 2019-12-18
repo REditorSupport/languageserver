@@ -4,7 +4,7 @@
 \alias{definition_reply}
 \title{Get the location of a specified function definition}
 \usage{
-definition_reply(id, uri, workspace, document, position)
+definition_reply(id, uri, workspace, document, point)
 }
 \description{
 If the function is not found in a file but is found in a loaded package,

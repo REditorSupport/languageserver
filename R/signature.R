@@ -4,13 +4,13 @@
 #' (as with [base::args()]).
 #'
 #' @keywords internal
-signature_reply <- function(id, uri, workspace, document, position) {
+signature_reply <- function(id, uri, workspace, document, point) {
 
-    if (!check_scope(uri, document, position)) {
+    if (!check_scope(uri, document, point)) {
         return(Response$new(id, list(signatures = NULL)))
     }
 
-    result <- document$detect_call(position)
+    result <- document$detect_call(point)
 
     SignatureInformation <- list()
     activeSignature <- -1

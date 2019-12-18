@@ -4,7 +4,7 @@
 \alias{hover_reply}
 \title{The response to a textDocument/hover Request}
 \usage{
-hover_reply(id, uri, workspace, document, position)
+hover_reply(id, uri, workspace, document, point)
 }
 \description{
 When hovering on a symbol, if it is a function, return its help text

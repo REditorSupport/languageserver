@@ -4,7 +4,7 @@
 \alias{completion_reply}
 \title{The response to a textDocument/completion request}
 \usage{
-completion_reply(id, uri, workspace, document, position)
+completion_reply(id, uri, workspace, document, point)
 }
 \description{
 The response to a textDocument/completion request

@@ -4,7 +4,7 @@
 \alias{enclosed_by_quotes}
 \title{check if a position is inside quotes}
 \usage{
-enclosed_by_quotes(document, pos)
+enclosed_by_quotes(document, point)
 }
 \description{
 check if a position is inside quotes

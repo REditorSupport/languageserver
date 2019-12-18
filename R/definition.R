@@ -5,42 +5,34 @@
 #' as the location.
 
 #' @keywords internal
-definition_reply <- function(id, uri, workspace, document, position) {
+definition_reply <- function(id, uri, workspace, document, point) {
 
-    token_result <- document$detect_token(position)
+    token_result <- document$detect_token(point)
     resolved <- FALSE
     result <- NULL
 
     xdoc <- workspace$get_xml_doc(uri)
     if (!is.null(xdoc)) {
-        line <- position$line + 1
-        col <- position$character + 1
-        token <- xdoc_find_token(xdoc, line, col)
+        row <- point$row + 1
+        col <- point$col + 1
+        token <- xdoc_find_token(xdoc, row, col)
         if (length(token)) {
             token_name <- xml_name(token)
             token_text <- xml_text(token)
-            token_range <- range(
-                start = position(
-                    line = as.integer(xml_attr(token, "line1")) - 1,
-                    character = as.integer(xml_attr(token, "col1")) - 1),
-                end = position(
-                    line = as.integer(xml_attr(token, "line2")) - 1,
-                    character = as.integer(xml_attr(token, "col2")))
-            )
-            logger$info("definition: ", token_name, token_text, token_range)
+            logger$info("definition: ", token_name, token_text)
             if (token_name %in% c("SYMBOL", "SYMBOL_FUNCTION_CALL")) {
                 # symbol
                 preceding_dollar <- xml_find_first(token, "preceding-sibling::OP-DOLLAR")
                 if (length(preceding_dollar) == 0) {
                     enclosing_scopes <- xdoc_find_enclosing_scopes(xdoc,
-                        line, col, top = TRUE)
+                        row, col, top = TRUE)
                     token_quote <- xml_single_quote(token_text)
                     xpath <- glue(paste(
-                        "FUNCTION/following-sibling::SYMBOL_FORMALS[text() = '{token_quote}' and @line1 <= {line}]",
-                        "expr[LEFT_ASSIGN/preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {line}]]",
-                        "expr[RIGHT_ASSIGN/following-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {line}]]",
-                        "equal_assign[EQ_ASSIGN/preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {line}]]",
-                        "forcond/SYMBOL[text() = '{token_quote}' and @line1 <= {line}]",
+                        "FUNCTION/following-sibling::SYMBOL_FORMALS[text() = '{token_quote}' and @line1 <= {row}]",
+                        "expr[LEFT_ASSIGN/preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]]",
+                        "expr[RIGHT_ASSIGN/following-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]]",
+                        "equal_assign[EQ_ASSIGN/preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]]",
+                        "forcond/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]",
                         sep = "|"))
                     all_defs <- xml_find_all(enclosing_scopes, xpath)
                     if (length(all_defs)) {
@@ -48,12 +40,12 @@ definition_reply <- function(id, uri, workspace, document, position) {
                         result <- list(
                             uri = uri,
                             range = range(
-                                start = position(
-                                    line = as.integer(xml_attr(last_def, "line1")) - 1,
-                                    character = as.integer(xml_attr(last_def, "col1")) - 1),
-                                end = position(
-                                    line = as.integer(xml_attr(last_def, "line2")) - 1,
-                                    character = as.integer(xml_attr(last_def, "col2")))
+                                start = document$to_lsp_position(list(
+                                    row = as.integer(xml_attr(last_def, "line1")) - 1,
+                                    col = as.integer(xml_attr(last_def, "col1")) - 1)),
+                                end = document$to_lsp_position(list(
+                                    row = as.integer(xml_attr(last_def, "line2")) - 1,
+                                    col = as.integer(xml_attr(last_def, "col2"))))
                             )
                         )
                         logger$info("definition: ", result)
