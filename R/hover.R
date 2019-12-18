@@ -3,12 +3,12 @@
 #' When hovering on a symbol, if it is a function, return its help text
 #' if it exists in the current [Workspace].
 #' @keywords internal
-hover_reply <- function(id, uri, workspace, document, position) {
-    if (!check_scope(uri, document, position)) {
+hover_reply <- function(id, uri, workspace, document, point) {
+    if (!check_scope(uri, document, point)) {
         return(Response$new(id))
     }
 
-    token_result <- document$detect_token(position)
+    token_result <- document$detect_token(point)
     range <- token_result$range
 
     if (is.null(token_result$package)) {
@@ -29,34 +29,26 @@ hover_reply <- function(id, uri, workspace, document, position) {
     xdoc <- workspace$get_xml_doc(uri)
 
     if (!is.null(xdoc)) {
-        line <- position$line + 1
-        col <- position$character + 1
-        token <- xdoc_find_token(xdoc, line, col)
+        row <- point$row + 1
+        col <- point$col + 1
+        token <- xdoc_find_token(xdoc, row, col)
         if (length(token)) {
             token_name <- xml_name(token)
             token_text <- xml_text(token)
-            token_range <- range(
-                start = position(
-                    line = as.integer(xml_attr(token, "line1")) - 1,
-                    character = as.integer(xml_attr(token, "col1")) - 1),
-                end = position(
-                    line = as.integer(xml_attr(token, "line2")) - 1,
-                    character = as.integer(xml_attr(token, "col2")))
-            )
-            logger$info(token_name, token_text, token_range)
+            logger$info(token_name, token_text)
             if (token_name %in% c("SYMBOL", "SYMBOL_FUNCTION_CALL")) {
                 # symbol
                 preceding_dollar <- xml_find_first(token, "preceding-sibling::OP-DOLLAR")
                 if (length(preceding_dollar) == 0 && (is.null(signs) || signs != WORKSPACE || is.null(sig))) {
                     enclosing_scopes <- xdoc_find_enclosing_scopes(xdoc,
-                        line, col, top = TRUE)
+                        row, col, top = TRUE)
                     token_quote <- xml_single_quote(token_text)
                     xpath <- glue(paste(
-                        "FUNCTION[following-sibling::SYMBOL_FORMALS[text() = '{token_quote}' and @line1 <= {line}]]/parent::expr",
-                        "expr[LEFT_ASSIGN/preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {line}]]",
-                        "expr[RIGHT_ASSIGN/following-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {line}]]",
-                        "equal_assign[EQ_ASSIGN/preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {line}]]",
-                        "forcond/SYMBOL[text() = '{token_quote}' and @line1 <= {line}]",
+                        "FUNCTION[following-sibling::SYMBOL_FORMALS[text() = '{token_quote}' and @line1 <= {row}]]/parent::expr",
+                        "expr[LEFT_ASSIGN/preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]]",
+                        "expr[RIGHT_ASSIGN/following-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]]",
+                        "equal_assign[EQ_ASSIGN/preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]]",
+                        "forcond/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]",
                         sep = "|"))
                     all_defs <- xml_find_all(enclosing_scopes, xpath)
                     if (length(all_defs)) {
@@ -139,7 +131,10 @@ hover_reply <- function(id, uri, workspace, document, position) {
             id,
             result = list(
                 contents = contents,
-                range = range
+                range = range(
+                    start = document$to_lsp_position(range$start),
+                    end = document$to_lsp_position(range$end)
+                )
             )
         )
     }

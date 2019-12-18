@@ -50,8 +50,8 @@ formatting_reply <- function(id, uri, document, options) {
             a <- min(block$lines)
             b <- max(block$lines)
             range <- range(
-                start = position(line = a - 1, character = 0),
-                end = position(line = b - 1, character = ncodeunit(document$line(b)))
+                start = document$to_lsp_position(list(row = a - 1, col = 0)),
+                end = document$to_lsp_position(list(row = b - 1, col = nchar(document$line(b))))
             )
             TextEdit <- text_edit(range = range, new_text = new_text)
             TextEditList[[length(TextEditList) + 1]] <- TextEdit
@@ -63,11 +63,11 @@ formatting_reply <- function(id, uri, document, options) {
             return(Response$new(id, list()))
         }
         range <- range(
-            start = position(line = 0, character = 0),
+            start = document$to_lsp_position(list(row = 0, col = 0)),
             end = if (nline) {
-                position(line = nline - 1, character = ncodeunit(document$line(nline)))
+                document$to_lsp_position(list(row = nline - 1, col = nchar(document$line(nline))))
             } else {
-                position(line = 0, character = 0)
+                document$to_lsp_position(list(row = 0, col = 0))
             }
         )
         TextEdit <- text_edit(range = range, new_text = new_text)
@@ -80,40 +80,40 @@ formatting_reply <- function(id, uri, document, options) {
 #' Format a part of a document
 #' @keywords internal
 range_formatting_reply <- function(id, uri, document, range, options) {
-    line1 <- range$start$line
-    character1 <- range$start$character
-    if (range$end$character == 0 && line1 < range$end$line) {
+    row1 <- range$start$row
+    col1 <- range$start$col
+    if (range$end$col == 0 && row1 < range$end$row) {
         # if the cursor is at the beginning of a line, move up one line
-        line2 <- range$end$line - 1
-        lastline <- document$content[line2 + 1]
-        character2 <- ncodeunit(lastline)
+        row2 <- range$end$row - 1
+        lastline <- document$content[row2 + 1]
+        col2 <- nchar(lastline)
     } else {
-        line2 <- range$end$line
-        lastline <- document$content[line2 + 1]
-        character2 <- range$end$character
+        row2 <- range$end$row
+        lastline <- document$content[row2 + 1]
+        col2 <- range$end$col
     }
 
     # check if the selection is empty
-    if (line1 == line2 && character1 == character2) {
+    if (row1 == row2 && col1 == col2) {
         return(Response$new(id, list()))
     }
 
     style <- get_style(options)
     # check if the selection contains complete lines
-    if (character1 != 0 || character2 < ncodeunit(lastline)) {
+    if (col1 != 0 || col2 < nchar(lastline)) {
         # disable assignment operator fix for partial selection
         style$token$force_assignment_op <- NULL
     }
 
-    selection <- document$content[(line1:line2) + 1]
+    selection <- document$content[(row1:row2) + 1]
     indentation <- stringr::str_extract(selection[1], "^\\s*")
     new_text <- style_text(selection, style, indentation = indentation)
     if (is.null(new_text)) {
         return(Response$new(id, list()))
     }
     range <- range(
-        start = position(line = line1, character = 0),
-        end = position(line = line2, character = ncodeunit(document$line(line2 + 1)))
+        start = document$to_lsp_position(list(row = row1, col = 0)),
+        end = document$to_lsp_position(list(row = row2, col = nchar(document$line(col2 + 1))))
     )
     TextEdit <- text_edit(range = range, new_text = new_text)
     TextEditList <- list(TextEdit)

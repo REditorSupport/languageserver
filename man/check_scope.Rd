@@ -4,7 +4,7 @@
 \alias{check_scope}
 \title{Check if a token is in a R code block in an Rmarkdown file}
 \usage{
-check_scope(uri, document, position)
+check_scope(uri, document, point)
 }
 \description{
 In an RMarkdown document, tokens can be either inside an R code block or

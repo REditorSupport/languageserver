@@ -4,7 +4,7 @@
 \alias{signature_reply}
 \title{the response to a textDocument/signatureHelp Request}
 \usage{
-signature_reply(id, uri, workspace, document, position)
+signature_reply(id, uri, workspace, document, point)
 }
 \description{
 If the symbol at the current position is a function, return its arguments

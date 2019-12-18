@@ -155,14 +155,14 @@ workspace_completion <- function(workspace, token, package = NULL, exported_only
     completions
 }
 
-scope_completion <- function(uri, workspace, token, position) {
+scope_completion <- function(uri, workspace, token, point) {
     xdoc <- workspace$get_xml_doc(uri)
     if (is.null(xdoc)) {
         return(list())
     }
 
     enclosing_scopes <- xdoc_find_enclosing_scopes(xdoc,
-        position$line + 1, position$character + 1)
+        point$row + 1, point$col + 1)
 
     completions <- list()
     scope_symbols <- unique(xml_text(xml_find_all(enclosing_scopes, paste(
@@ -200,8 +200,8 @@ scope_completion <- function(uri, workspace, token, position) {
 
 #' The response to a textDocument/completion request
 #' @keywords internal
-completion_reply <- function(id, uri, workspace, document, position) {
-    if (!check_scope(uri, document, position)) {
+completion_reply <- function(id, uri, workspace, document, point) {
+    if (!check_scope(uri, document, point)) {
         return(Response$new(
             id,
             result = list(
@@ -210,7 +210,7 @@ completion_reply <- function(id, uri, workspace, document, position) {
             )))
     }
     completions <- list()
-    token_result <- document$detect_token(position, forward = FALSE)
+    token_result <- document$detect_token(point, forward = FALSE)
 
     full_token <- token_result$full_token
     token <- token_result$token
@@ -222,7 +222,7 @@ completion_reply <- function(id, uri, workspace, document, position) {
                 completions,
                 constant_completion(token),
                 package_completion(token),
-                scope_completion(uri, workspace, token, position))
+                scope_completion(uri, workspace, token, point))
         }
         completions <- c(
             completions,
@@ -230,7 +230,7 @@ completion_reply <- function(id, uri, workspace, document, position) {
                 workspace, token, package, token_result$accessor == "::"))
     }
 
-    call_result <- document$detect_call(position)
+    call_result <- document$detect_call(point)
     if (nzchar(call_result$token)) {
         completions <- c(
             completions,
