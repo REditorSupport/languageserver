@@ -19,7 +19,7 @@ SEXP stdin_read_char(SEXP _n) {
         buf = (char*) malloc((bufsize + 1) * sizeof(char));
     }
     while (bufsize < n) {
-        bufsize = bufsize * 2;
+        bufsize = 2 * n;
         buf = (char*) realloc(buf, (bufsize + 1) * sizeof(char));
     }
 
@@ -93,7 +93,7 @@ SEXP stdin_read_char(SEXP _n) {
     }
 
     while (bufsize < n) {
-        bufsize = bufsize * 2;
+        bufsize = 2 * n;
         buf = (char*) realloc(buf, (bufsize + 1) * sizeof(char));
     }
 
