@@ -27,7 +27,7 @@ jobs:
         bash
     - name: Running Tests
       run: |
-        Rscript -e "rcmdcheck::rcmdcheck(args = c('--as-cran', '--no-manual', '--timings'), error_on = 'warning')"
+        Rscript -e "rcmdcheck::rcmdcheck(args = c('--as-cran', '--no-manual', '--timings'))"
       shell:
         bash
     - name: Codecov
@@ -59,7 +59,7 @@ jobs:
         bash
     - name: Running Tests
       run: |
-        Rscript -e "rcmdcheck::rcmdcheck(args = c('--as-cran', '--no-manual', '--timings'), error_on = 'warning')"
+        Rscript -e "rcmdcheck::rcmdcheck(args = c('--as-cran', '--no-manual', '--timings'))"
       shell:
         bash
     - name: Codecov
@@ -93,6 +93,6 @@ jobs:
         pwsh
     - name: Running Tests
       run: |
-        Rscript -e "rcmdcheck::rcmdcheck(args = c('--as-cran', '--no-manual', '--timings'), error_on = 'warning')"
+        Rscript -e "rcmdcheck::rcmdcheck(args = c('--as-cran', '--no-manual', '--timings'))"
       shell:
         pwsh
