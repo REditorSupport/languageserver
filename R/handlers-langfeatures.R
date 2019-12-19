@@ -185,7 +185,7 @@ text_document_range_formatting  <- function(self, id, params) {
         end = document$from_lsp_position(params$range$end)
     )
     options <- params$options
-    self$deliver(range_formatting_reply(id, uri, self$documents[[uri]], range, options))
+    self$deliver(range_formatting_reply(id, uri, document, range, options))
 }
 
 
