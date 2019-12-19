@@ -123,7 +123,7 @@ Document <- R6::R6Class(
 
 #' Search backwards in a document content for a specific character
 #' @keywords internal
-find_unbalanced_bracket <- function(content, row, column, skip_empty_line = TRUE) {
+find_unbalanced_bracket <- function(content, row, column, skip_empty_line = FALSE) {
     .Call("find_unbalanced_bracket",
         PACKAGE = "languageserver",
         content, row, column, skip_empty_line
