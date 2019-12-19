@@ -86,6 +86,11 @@ SEXP find_unbalanced_bracket(SEXP content, SEXP _row, SEXP _col, SEXP _skip_el) 
             brac[0] = c[j];
             break;
         }
+        if (i < row && (state.single_quoted || state.double_quoted)) {
+            // do not search further if an unmatched quote is detected
+            i = k = -1;
+            break;
+        }
     }
     SEXP out = PROTECT(Rf_allocVector(VECSXP, 2));
     SEXP loc = PROTECT(Rf_allocVector(INTSXP, 2));
