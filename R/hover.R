@@ -132,8 +132,8 @@ hover_reply <- function(id, uri, workspace, document, point) {
             result = list(
                 contents = contents,
                 range = range(
-                    start = document$to_lsp_position(range$start),
-                    end = document$to_lsp_position(range$end)
+                    start = document$to_lsp_position(row = range$start$row, col = range$start$col),
+                    end = document$to_lsp_position(row = range$end$row, col = range$end$col)
                 )
             )
         )

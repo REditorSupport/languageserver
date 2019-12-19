@@ -50,8 +50,8 @@ formatting_reply <- function(id, uri, document, options) {
             a <- min(block$lines)
             b <- max(block$lines)
             range <- range(
-                start = document$to_lsp_position(list(row = a - 1, col = 0)),
-                end = document$to_lsp_position(list(row = b - 1, col = nchar(document$line(b))))
+                start = document$to_lsp_position(row = a - 1, col = 0),
+                end = document$to_lsp_position(row = b - 1, col = nchar(document$line(b)))
             )
             TextEdit <- text_edit(range = range, new_text = new_text)
             TextEditList[[length(TextEditList) + 1]] <- TextEdit
@@ -63,11 +63,11 @@ formatting_reply <- function(id, uri, document, options) {
             return(Response$new(id, list()))
         }
         range <- range(
-            start = document$to_lsp_position(list(row = 0, col = 0)),
+            start = document$to_lsp_position(row = 0, col = 0),
             end = if (nline) {
-                document$to_lsp_position(list(row = nline - 1, col = nchar(document$line(nline))))
+                document$to_lsp_position(row = nline - 1, col = nchar(document$line(nline)))
             } else {
-                document$to_lsp_position(list(row = 0, col = 0))
+                document$to_lsp_position(row = 0, col = 0)
             }
         )
         TextEdit <- text_edit(range = range, new_text = new_text)
@@ -112,8 +112,8 @@ range_formatting_reply <- function(id, uri, document, range, options) {
         return(Response$new(id, list()))
     }
     range <- range(
-        start = document$to_lsp_position(list(row = row1, col = 0)),
-        end = document$to_lsp_position(list(row = row2, col = nchar(document$line(col2 + 1))))
+        start = document$to_lsp_position(row = row1, col = 0),
+        end = document$to_lsp_position(row = row2, col = nchar(document$line(col2 + 1)))
     )
     TextEdit <- text_edit(range = range, new_text = new_text)
     TextEditList <- list(TextEdit)

@@ -40,12 +40,12 @@ definition_reply <- function(id, uri, workspace, document, point) {
                         result <- list(
                             uri = uri,
                             range = range(
-                                start = document$to_lsp_position(list(
+                                start = document$to_lsp_position(
                                     row = as.integer(xml_attr(last_def, "line1")) - 1,
-                                    col = as.integer(xml_attr(last_def, "col1")) - 1)),
-                                end = document$to_lsp_position(list(
+                                    col = as.integer(xml_attr(last_def, "col1")) - 1),
+                                end = document$to_lsp_position(
                                     row = as.integer(xml_attr(last_def, "line2")) - 1,
-                                    col = as.integer(xml_attr(last_def, "col2"))))
+                                    col = as.integer(xml_attr(last_def, "col2")))
                             )
                         )
                         logger$info("definition: ", result)

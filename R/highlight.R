@@ -42,12 +42,12 @@ document_highlight_reply <- function(id, uri, workspace, document, point) {
                     result <- lapply(tokens, function(token) {
                         list(
                             range = range(
-                                start = document$to_lsp_position(list(
+                                start = document$to_lsp_position(
                                     row = as.integer(xml_attr(token, "line1")) - 1,
-                                    col = as.integer(xml_attr(token, "col1")) - 1)),
-                                end = document$to_lsp_position(list(
+                                    col = as.integer(xml_attr(token, "col1")) - 1),
+                                end = document$to_lsp_position(
                                     row = as.integer(xml_attr(token, "line2")) - 1,
-                                    col = as.integer(xml_attr(token, "col2"))))
+                                    col = as.integer(xml_attr(token, "col2")))
                             ),
                             kind = DocumentHighlightKind$Text
                         )

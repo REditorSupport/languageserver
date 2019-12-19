@@ -111,20 +111,18 @@ Document <- R6::R6Class(
         from_lsp_position = function(position) {
             # convert UTF-16 based position to code point based position
             text <- self$line0(position$line)
-            col <- code_point_from_unit(text, position$character)
             list(
                 row = position$line,
-                col = col
+                col = code_point_from_unit(text, position$character)
             )
         },
 
-        to_lsp_position = function(point) {
+        to_lsp_position = function(row, col) {
             # convert code point based position to UTF-16 based position
-            text <- self$line0(point$row)
-            col <- code_point_to_unit(text, point$col)
+            text <- self$line0(row)
             position(
-                line = point$row,
-                character = col
+                line = row,
+                character = code_point_to_unit(text, col)
             )
         }
     )
