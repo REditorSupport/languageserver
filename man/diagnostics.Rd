@@ -7,11 +7,11 @@
 \alias{diagnostic_from_lint}
 \title{diagnostics}
 \usage{
-diagnostic_range(result)
+diagnostic_range(result, content)
 
 diagnostic_severity(result)
 
-diagnostic_from_lint(result)
+diagnostic_from_lint(result, content)
 }
 \description{
 Diagnose problems in files after linting.

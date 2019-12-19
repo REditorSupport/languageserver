@@ -4,7 +4,7 @@
 \alias{find_unbalanced_bracket}
 \title{Search backwards in a document content for a specific character}
 \usage{
-find_unbalanced_bracket(content, row, column, skip_empty_line = TRUE)
+find_unbalanced_bracket(content, row, column, skip_empty_line = FALSE)
 }
 \description{
 Search backwards in a document content for a specific character
