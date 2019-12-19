@@ -1,3 +1,10 @@
+languageserver 0.3.3
+
+   - xml based parsing which provides more information on hovering, definitions and completions
+   - a bug fix in reading stdin
+   - unicode support improvement
+   - some internal refactoring
+
 languageserver 0.3.2
 
    - read other header fields
