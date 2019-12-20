@@ -23,64 +23,48 @@ jobs:
       run: |
         Rscript -e "install.packages(c('remotes', 'rcmdcheck'), repos = 'https://cloud.r-project.org')"
         Rscript -e "remotes::install_deps(dependencies = TRUE)"
-      shell:
-        bash
     - name: Running Tests
       run: |
         Rscript -e "rcmdcheck::rcmdcheck(args = c('--as-cran', '--no-manual', '--timings'))"
-      shell:
-        bash
     - name: Codecov
       run: Rscript -e "covr::codecov()" || true
       env:
         CODECOV_TOKEN: ${{secrets.CODECOV_TOKEN}}
-      shell:
-        bash
 
   macos:
     if: contains(github.event.head_commit.message, '[ci skip]') == false
     strategy:
       matrix:
-        r: [3.6]
+        r: [latest]
         # r: [3.5, 3.6, devel]
     runs-on: macOS-latest
     env:
       NOT_CRAN: true
     steps:
     - uses: actions/checkout@v1
-    - uses: r-lib/actions/setup-r@v1
+    - uses: r-lib/actions/setup-r@master
       with:
         r-version: ${{ matrix.r }}
     - name: Install languagesever
       run: |
         Rscript -e "install.packages(c('remotes', 'rcmdcheck'), repos = 'https://cloud.r-project.org', type = 'mac.binary.el-capitan')"
         Rscript -e "remotes::install_deps(dependencies = TRUE, type = 'mac.binary.el-capitan')"
-      shell:
-        bash
     - name: Running Tests
       run: |
         Rscript -e "rcmdcheck::rcmdcheck(args = c('--as-cran', '--no-manual', '--timings'))"
-      shell:
-        bash
-    - name: Codecov
-      run: Rscript -e "covr::codecov()" || true
-      env:
-        CODECOV_TOKEN: ${{secrets.CODECOV_TOKEN}}
-      shell:
-        bash
 
   windows:
     if: contains(github.event.head_commit.message, '[ci skip]') == false
     strategy:
       matrix:
-        r: [3.6]
+        r: [latest]
         # r: [3.5, 3.6, devel]
     runs-on: windows-latest
     env:
       NOT_CRAN: true
     steps:
     - uses: actions/checkout@v1
-    - uses: r-lib/actions/setup-r@v1
+    - uses: r-lib/actions/setup-r@master
       with:
         r-version: ${{ matrix.r }}
     - name: Install dependencies
@@ -89,10 +73,6 @@ jobs:
         Rscript -e "remotes::install_deps(dependencies = TRUE, type = 'win.binary')"
         # in Windows, we need to install a seperate copy for spawning server in the tests
         Rscript -e "devtools::install(type = 'win.binary')"
-      shell:
-        pwsh
     - name: Running Tests
       run: |
         Rscript -e "rcmdcheck::rcmdcheck(args = c('--as-cran', '--no-manual', '--timings'))"
-      shell:
-        pwsh
