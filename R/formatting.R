@@ -113,7 +113,7 @@ range_formatting_reply <- function(id, uri, document, range, options) {
     }
     range <- range(
         start = document$to_lsp_position(row = row1, col = 0),
-        end = document$to_lsp_position(row = row2, col = nchar(document$line(col2 + 1)))
+        end = document$to_lsp_position(row = row2, col = nchar(document$line0(row2)))
     )
     TextEdit <- text_edit(range = range, new_text = new_text)
     TextEditList <- list(TextEdit)
