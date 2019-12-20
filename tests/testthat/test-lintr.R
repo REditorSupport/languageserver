@@ -2,7 +2,7 @@ context("Test Diagnostics")
 
 test_that("lintr works", {
     skip_on_cran()
-    client <- language_client()
+    client <- language_client(diagnostics = TRUE)
 
     withr::local_tempfile(c("temp_file"), fileext = ".R")
     writeLines("a = 1", temp_file)
@@ -18,11 +18,7 @@ test_that("lintr works", {
 
 test_that("lintr is disabled", {
     skip_on_cran()
-    client <- language_client()
-
-    client %>% notify(
-        "workspace/didChangeConfiguration",
-        list(settings = list(diagnostics = FALSE)))
+    client <- language_client(diagnostics = FALSE)
 
     withr::local_tempfile(c("temp_file"), fileext = ".R")
     writeLines("a = 1", temp_file)

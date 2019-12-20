@@ -8,7 +8,7 @@ suppressPackageStartupMessages({
 # a hack to make withr::defer_parent to work, see https://github.com/r-lib/withr/issues/123
 defer <- withr::defer
 
-language_client <- function(working_dir = getwd(), debug = FALSE) {
+language_client <- function(working_dir = getwd(), debug = FALSE, diagnostics = FALSE) {
     client <- LanguageClient$new(
         file.path(R.home("bin"), "R"), c("--slave", "-e", "languageserver::run()"))
 
@@ -26,6 +26,8 @@ language_client <- function(working_dir = getwd(), debug = FALSE) {
     data <- client$fetch(blocking = TRUE)
     client$handle_raw(data)
     client %>% notify("initialized")
+    client %>% notify(
+        "workspace/didChangeConfiguration", list(settings = list(diagnostics = diagnostics)))
     withr::defer_parent({
         if (Sys.getenv("R_COVR", "") == "true") {
             # it is necessary to shutdown the server in covr
