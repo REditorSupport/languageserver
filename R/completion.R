@@ -97,12 +97,12 @@ workspace_completion <- function(workspace, token, package = NULL, exported_only
             if (is.null(ns)) {
                 next
             }
-            functs <- ns$functs[startsWith(ns$functs, token)]
             if (nsname == WORKSPACE) {
                 tag <- "[workspace]"
             } else {
                 tag <- paste0("{", nsname, "}")
             }
+            functs <- ns$exported_functs[startsWith(ns$exported_functs, token)]
             functs_completions <- lapply(functs, function(object) {
                 list(label = object,
                      kind = CompletionItemKind$Function,
@@ -112,7 +112,7 @@ workspace_completion <- function(workspace, token, package = NULL, exported_only
                          package = nsname
                      ))
             })
-            nonfuncts <- ns$nonfuncts[startsWith(ns$nonfuncts, token)]
+            nonfuncts <- ns$exported_nonfuncts[startsWith(ns$exported_nonfuncts, token)]
             nonfuncts_completions <- lapply(nonfuncts, function(object) {
                 list(label = object,
                      kind = CompletionItemKind$Field,
@@ -140,15 +140,30 @@ workspace_completion <- function(workspace, token, package = NULL, exported_only
     } else {
         ns <- workspace$get_namespace(package)
         if (!is.null(ns)) {
-            unexports <- ns$unexports[startsWith(ns$unexports, token)]
-            unexports_completion <- lapply(unexports, function(object) {
-                list(
-                    label = object,
-                    kind = CompletionItemKind$Field,
-                    detail = paste0("{", package, "}")
-                )
+            tag <- paste0("{", package, "}")
+            functs <- ns$unexported_functs[startsWith(ns$unexported_functs, token)]
+            functs_completions <- lapply(functs, function(object) {
+                list(label = object,
+                     kind = CompletionItemKind$Function,
+                     detail = tag,
+                     data = list(
+                         type = "function",
+                         package = package
+                     ))
             })
-            completions <- c(completions, unexports_completion)
+            nonfuncts <- ns$unexported_nonfuncts[startsWith(ns$unexported_nonfuncts, token)]
+            nonfuncts_completions <- lapply(nonfuncts, function(object) {
+                list(label = object,
+                     kind = CompletionItemKind$Field,
+                     detail = tag,
+                     data = list(
+                         type = "nonfunction",
+                         package = package
+                     ))
+            })
+            completions <- c(completions,
+                functs_completions,
+                nonfuncts_completions)
         }
     }
 
