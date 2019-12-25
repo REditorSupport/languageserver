@@ -59,7 +59,8 @@ definition_reply <- function(id, uri, workspace, document, point) {
     }
 
     if (!resolved) {
-        result <- workspace$get_definition(token_result$token, token_result$package)
+        result <- workspace$get_definition(token_result$token, token_result$package,
+            exported_only = token_result$accessor != ":::")
     }
 
     if (is.null(result)) {

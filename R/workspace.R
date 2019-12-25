@@ -74,7 +74,7 @@ Workspace <- R6::R6Class("Workspace",
             }
         },
 
-        get_signature = function(funct, pkgname = NULL) {
+        get_signature = function(funct, pkgname = NULL, exported_only = TRUE) {
             if (is.null(pkgname)) {
                 pkgname <- self$guess_namespace(funct, isf = TRUE)
                 if (is.null(pkgname)) {
@@ -83,11 +83,11 @@ Workspace <- R6::R6Class("Workspace",
             }
             ns <- self$get_namespace(pkgname)
             if (!is.null(ns)) {
-                ns$get_signature(funct)
+                ns$get_signature(funct, exported_only = exported_only)
             }
         },
 
-        get_formals = function(funct, pkgname = NULL) {
+        get_formals = function(funct, pkgname = NULL, exported_only = TRUE) {
             if (is.null(pkgname)) {
                 pkgname <- self$guess_namespace(funct, isf = TRUE)
                 if (is.null(pkgname)) {
@@ -96,7 +96,7 @@ Workspace <- R6::R6Class("Workspace",
             }
             ns <- self$get_namespace(pkgname)
             if (!is.null(ns)) {
-                ns$get_formals(funct)
+                ns$get_formals(funct, exported_only = exported_only)
             }
         },
 
@@ -169,7 +169,7 @@ Workspace <- R6::R6Class("Workspace",
         },
 
 
-        get_definition = function(symbol, pkgname = NULL) {
+        get_definition = function(symbol, pkgname = NULL, exported_only = TRUE) {
             if (is.null(pkgname)) {
                 # look in global_env
                 definition <- private$definition_cache$get(symbol)
@@ -183,7 +183,7 @@ Workspace <- R6::R6Class("Workspace",
             }
             ns <- self$get_namespace(pkgname)
             if (!is.null(ns)) {
-                ns$get_definition(symbol)
+                ns$get_definition(symbol, exported_only = exported_only)
             }
         },
 

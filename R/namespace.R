@@ -49,8 +49,8 @@ Namespace <- R6::R6Class("Namespace",
             }
         },
 
-        get_signature = function(funct) {
-            if (!self$exists_funct(funct, exported_only = FALSE)) {
+        get_signature = function(funct, exported_only = TRUE) {
+            if (!self$exists_funct(funct, exported_only = exported_only)) {
                 return(NULL)
             }
             pkgname <- self$package_name
@@ -64,8 +64,8 @@ Namespace <- R6::R6Class("Namespace",
             }
         },
 
-        get_formals = function(funct) {
-            if (!self$exists_funct(funct, exported_only = FALSE)) {
+        get_formals = function(funct, exported_only = TRUE) {
+            if (!self$exists_funct(funct, exported_only = exported_only)) {
                 return(NULL)
             }
             pkgname <- self$package_name
@@ -74,8 +74,8 @@ Namespace <- R6::R6Class("Namespace",
             formals(fn)
         },
 
-        get_definition = function(symbol) {
-            code <- self$get_body(symbol)
+        get_definition = function(symbol, exported_only = TRUE) {
+            code <- self$get_body(symbol, exported_only = exported_only)
             if (is.null(code)) {
                 return(NULL)
             }
@@ -92,8 +92,8 @@ Namespace <- R6::R6Class("Namespace",
             )
         },
 
-        get_body = function(funct) {
-            if (!self$exists_funct(funct, exported_only = FALSE)) {
+        get_body = function(funct, exported_only = TRUE) {
+            if (!self$exists_funct(funct, exported_only = exported_only)) {
                 return(NULL)
             }
             pkgname <- self$package_name
@@ -128,19 +128,19 @@ GlobalNameSpace <- R6::R6Class("GlobalNameSpace",
             self$package_name <- WORKSPACE
         },
 
-        get_signature = function(funct) {
+        get_signature = function(funct, exported_only = TRUE) {
             self$signatures[[funct]]
         },
 
-        get_formals = function(funct) {
+        get_formals = function(funct, exported_only = TRUE) {
             self$formals[[funct]]
         },
 
-        get_definition = function(symbol) {
+        get_definition = function(symbol, exported_only = TRUE) {
             NULL
         },
 
-        get_body = function(funct) {
+        get_body = function(funct, exported_only = TRUE) {
             NULL
         },
 

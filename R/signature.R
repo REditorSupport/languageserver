@@ -16,7 +16,8 @@ signature_reply <- function(id, uri, workspace, document, point) {
     activeSignature <- -1
 
     if (nzchar(result$token)) {
-        sig <- workspace$get_signature(result$token, result$package)
+        sig <- workspace$get_signature(result$token, result$package,
+            exported_only = result$accessor != ":::")
         logger$info("sig: ", sig)
         if (!is.null(sig)) {
             sig <- trimws(gsub("function\\s*", result$token, sig))

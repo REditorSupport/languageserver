@@ -17,7 +17,8 @@ hover_reply <- function(id, uri, workspace, document, point) {
         signs <- token_result$package
     }
 
-    sig <- workspace$get_signature(token_result$token, signs)
+    sig <- workspace$get_signature(token_result$token, signs,
+        exported_only = token_result$accessor != ":::")
     contents <- NULL
 
     if (!is.null(sig)) {

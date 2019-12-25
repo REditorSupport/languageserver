@@ -57,12 +57,12 @@ package_completion <- function(token) {
 
 #' Complete a function argument
 #' @keywords internal
-arg_completion <- function(workspace, token, funct, package = NULL) {
+arg_completion <- function(workspace, token, funct, package = NULL, exported_only = TRUE) {
     if (is.null(package)) {
         package <- workspace$guess_namespace(funct, isf = TRUE)
     }
     if (!is.null(package)) {
-        args <- names(workspace$get_formals(funct, package))
+        args <- names(workspace$get_formals(funct, package, exported_only = exported_only))
         if (is.character(args)) {
             token_args <- args[startsWith(args, token)]
             completions <- lapply(token_args, function(arg) {
@@ -249,7 +249,9 @@ completion_reply <- function(id, uri, workspace, document, point) {
     if (nzchar(call_result$token)) {
         completions <- c(
             completions,
-            arg_completion(workspace, token, call_result$token, call_result$package))
+            arg_completion(workspace, token,
+                call_result$token, call_result$package,
+                exported_only = call_result$accessor != ":::"))
     }
 
     logger$info("completions: ", length(completions))
