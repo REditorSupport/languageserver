@@ -28,7 +28,7 @@ hover_reply <- function(id, uri, workspace, document, point) {
     resolved <- FALSE
     xdoc <- workspace$get_xml_doc(uri)
 
-    if (!is.null(xdoc)) {
+    if (token_result$accessor == "" && !is.null(xdoc)) {
         row <- point$row + 1
         col <- point$col + 1
         token <- xdoc_find_token(xdoc, row, col)
@@ -101,6 +101,9 @@ hover_reply <- function(id, uri, workspace, document, point) {
             } else if (token_name == "SYMBOL_FORMALS") {
                 # function formals
                 # contents <- "function parameter"
+                resolved <- TRUE
+            } else if (token_name == "SLOT") {
+                # S4 slot
                 resolved <- TRUE
             } else if (token_name == "NUM_CONST") {
                 # logical, integer, double

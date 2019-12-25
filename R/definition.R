@@ -12,7 +12,7 @@ definition_reply <- function(id, uri, workspace, document, point) {
     result <- NULL
 
     xdoc <- workspace$get_xml_doc(uri)
-    if (!is.null(xdoc)) {
+    if (token_result$accessor == "" && !is.null(xdoc)) {
         row <- point$row + 1
         col <- point$col + 1
         token <- xdoc_find_token(xdoc, row, col)
