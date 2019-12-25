@@ -170,6 +170,20 @@ workspace_completion <- function(workspace, token, package = NULL, exported_only
     completions
 }
 
+scope_completion_symbols_xpath <- paste(
+    "FUNCTION/following-sibling::SYMBOL_FORMALS",
+    "forcond/SYMBOL",
+    "expr/LEFT_ASSIGN[not(following-sibling::expr/FUNCTION)]/preceding-sibling::expr[count(*)=1]/SYMBOL",
+    "expr/RIGHT_ASSIGN[not(preceding-sibling::expr/FUNCTION)]/following-sibling::expr[count(*)=1]/SYMBOL",
+    "equal_assign/EQ_ASSIGN[not(following-sibling::expr/FUNCTION)]/preceding-sibling::expr[count(*)=1]/SYMBOL",
+    sep = "|")
+
+scope_completion_functs_xpath <- paste(
+    "expr/LEFT_ASSIGN[following-sibling::expr/FUNCTION]/preceding-sibling::expr[count(*)=1]/SYMBOL",
+    "expr/RIGHT_ASSIGN[preceding-sibling::expr/FUNCTION]/following-sibling::expr[count(*)=1]/SYMBOL",
+    "equal_assign/EQ_ASSIGN[following-sibling::expr/FUNCTION]/preceding-sibling::expr[count(*)=1]/SYMBOL",
+    sep = "|")
+
 scope_completion <- function(uri, workspace, token, point) {
     xdoc <- workspace$get_xml_doc(uri)
     if (is.null(xdoc)) {
@@ -180,13 +194,7 @@ scope_completion <- function(uri, workspace, token, point) {
         point$row + 1, point$col + 1)
 
     completions <- list()
-    scope_symbols <- unique(xml_text(xml_find_all(enclosing_scopes, paste(
-        "FUNCTION/following-sibling::SYMBOL_FORMALS",
-        "forcond/SYMBOL",
-        "expr/LEFT_ASSIGN[not(following-sibling::expr/FUNCTION)]/preceding-sibling::expr[count(*)=1]/SYMBOL",
-        "expr/RIGHT_ASSIGN[not(preceding-sibling::expr/FUNCTION)]/following-sibling::expr[count(*)=1]/SYMBOL",
-        "equal_assign/EQ_ASSIGN[not(following-sibling::expr/FUNCTION)]/preceding-sibling::expr[count(*)=1]/SYMBOL",
-        sep = "|"))))
+    scope_symbols <- unique(xml_text(xml_find_all(enclosing_scopes, scope_completion_symbols_xpath)))
     scope_symbols <- scope_symbols[startsWith(scope_symbols, token)]
     completions <- c(completions, lapply(scope_symbols, function(symbol) {
         list(
@@ -196,11 +204,7 @@ scope_completion <- function(uri, workspace, token, point) {
         )
     }))
 
-    scope_functs <- unique(xml_text(xml_find_all(enclosing_scopes, paste(
-        "expr/LEFT_ASSIGN[following-sibling::expr/FUNCTION]/preceding-sibling::expr[count(*)=1]/SYMBOL",
-        "expr/RIGHT_ASSIGN[preceding-sibling::expr/FUNCTION]/following-sibling::expr[count(*)=1]/SYMBOL",
-        "equal_assign/EQ_ASSIGN[following-sibling::expr/FUNCTION]/preceding-sibling::expr[count(*)=1]/SYMBOL",
-        sep = "|"))))
+    scope_functs <- unique(xml_text(xml_find_all(enclosing_scopes, scope_completion_functs_xpath)))
     scope_functs <- scope_functs[startsWith(scope_functs, token)]
     completions <- c(completions, lapply(scope_functs, function(symbol) {
         list(
