@@ -141,7 +141,7 @@ workspace_completion <- function(workspace, token, package = NULL, exported_only
         ns <- workspace$get_namespace(package)
         if (!is.null(ns)) {
             tag <- paste0("{", package, "}")
-            functs <- ns$unexported_functs[startsWith(ns$unexported_functs, token)]
+            functs <- ns$functs[startsWith(ns$functs, token)]
             functs_completions <- lapply(functs, function(object) {
                 list(label = object,
                      kind = CompletionItemKind$Function,
@@ -151,7 +151,7 @@ workspace_completion <- function(workspace, token, package = NULL, exported_only
                          package = package
                      ))
             })
-            nonfuncts <- ns$unexported_nonfuncts[startsWith(ns$unexported_nonfuncts, token)]
+            nonfuncts <- ns$nonfuncts[startsWith(ns$nonfuncts, token)]
             nonfuncts_completions <- lapply(nonfuncts, function(object) {
                 list(label = object,
                      kind = CompletionItemKind$Field,
