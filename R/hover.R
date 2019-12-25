@@ -81,7 +81,7 @@ hover_reply <- function(id, uri, workspace, document, point) {
                     if (is.na(package)) {
                         package <- NULL
                     }
-                    doc <- workspace$get_documentation(funct, package)
+                    doc <- workspace$get_documentation(funct, package, isf = TRUE)
                     doc_string <- doc$arguments[[token_text]]
                     if (is.null(doc_string)) {
                         doc_string <- doc$arguments$...

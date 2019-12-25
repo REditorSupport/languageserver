@@ -290,14 +290,15 @@ completion_item_resolve_reply <- function(id, workspace, params) {
                 resolved <- TRUE
             }
         } else if (params$data$type == "parameter") {
-            doc <- workspace$get_documentation(params$data$funct, params$data$package)
+            doc <- workspace$get_documentation(params$data$funct, params$data$package, isf = TRUE)
             doc_string <- doc$arguments[[params$label]]
             if (!is.null(doc_string)) {
                 params$documentation <- list(kind = "markdown", value = doc_string)
                 resolved <- TRUE
             }
         } else if (params$data$type %in% c("constant", "function", "nonfunction", "lazydata")) {
-            doc <- workspace$get_documentation(params$label, params$data$package)
+            doc <- workspace$get_documentation(params$label, params$data$package,
+                isf = params$data$type == "function")
             doc_string <- doc$description
             if (!is.null(doc_string)) {
                 params$documentation <- list(kind = "markdown", value = doc_string)
