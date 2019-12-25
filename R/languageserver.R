@@ -1,6 +1,5 @@
 #' @useDynLib languageserver
 #' @importFrom R6 R6Class
-#' @importFrom glue glue
 #' @import xml2
 #' @details
 #' An implementation of the Language Server Protocol for R

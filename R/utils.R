@@ -288,21 +288,29 @@ convert_doc_string <- function(doc) {
     paste0(convert_doc_to_markdown(doc), collapse = " ")
 }
 
+glue <- function(.x, ...) {
+    param <- list(...)
+    for (key in names(param)) {
+        .x <- gsub(paste0("{", key, "}"), param[[key]], .x, fixed = TRUE)
+    }
+    .x
+}
+
 xdoc_find_enclosing_scopes <- function(x, line, col, top = FALSE) {
     if (top) {
-        xpath <- glue("/exprlist | //expr[(@line1 < {line} or (@line1 = {line} and @col1 <= {col})) and
-                (@line2 > {line} or (@line2 = {line} and @col2 >= {col}))]")
+        xpath <- "/exprlist | //expr[(@line1 < {line} or (@line1 = {line} and @col1 <= {col})) and
+                (@line2 > {line} or (@line2 = {line} and @col2 >= {col}))]"
     } else {
-        xpath <- glue("//expr[(@line1 < {line} or (@line1 = {line} and @col1 <= {col})) and
-                (@line2 > {line} or (@line2 = {line} and @col2 >= {col}))]")
+        xpath <- "//expr[(@line1 < {line} or (@line1 = {line} and @col1 <= {col})) and
+                (@line2 > {line} or (@line2 = {line} and @col2 >= {col}))]"
     }
+    xpath <- glue(xpath, line = line, col = col)
     xml_find_all(x, xpath)
 }
 
 xdoc_find_token <- function(x, line, col) {
-    xpath <- glue("//*[not(*)]
-    [(@line1 < {line} or (@line1 = {line} and @col1 <= {col})) and
-                (@line2 > {line} or (@line2 = {line} and @col2 >= {col}))]")
+    xpath <- glue("//*[not(*)][(@line1 < {line} or (@line1 = {line} and @col1 <= {col})) and (@line2 > {line} or (@line2 = {line} and @col2 >= {col}))]",
+        line = line, col = col)
     xml_find_first(x, xpath)
 }
 

@@ -52,14 +52,14 @@ hover_reply <- function(id, uri, workspace, document, point) {
                     enclosing_scopes <- xdoc_find_enclosing_scopes(xdoc,
                         row, col, top = TRUE)
                     token_quote <- xml_single_quote(token_text)
-                    xpath <- glue(hover_xpath)
+                    xpath <- glue(hover_xpath, token_quote = token_quote, row = row)
                     all_defs <- xml_find_all(enclosing_scopes, xpath)
                     if (length(all_defs)) {
                         last_def <- all_defs[[length(all_defs)]]
                         def_funct <- xml_find_first(last_def, "FUNCTION")
                         if (length(def_funct)) {
                             def_funct_end <- xml_find_first(last_def,
-                                glue("SYMBOL_FORMALS[text() = '{token_quote}']"))
+                                glue("SYMBOL_FORMALS[text() = '{token_quote}']", token_quote = token_quote))
                             def_line1 <- as.integer(xml_attr(def_funct, "line1"))
                             def_line2 <- as.integer(xml_attr(def_funct_end, "line2"))
                             def_lines <- seq.int(def_line1, def_line2)

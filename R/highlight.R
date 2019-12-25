@@ -29,14 +29,15 @@ document_highlight_reply <- function(id, uri, workspace, document, point) {
                 if (token_name %in% c("SYMBOL", "SYMBOL_FUNCTION_CALL", "SYMBOL_FORMALS")) {
                     preceding_dollar <- xml_find_first(token, "preceding-sibling::OP-DOLLAR")
                     if (length(preceding_dollar) == 0) {
-                        xpath <- glue(document_highlight_xpath)
+                        xpath <- glue(document_highlight_xpath, token_quote = token_quote)
                         tokens <- xml_find_all(xdoc, xpath)
                     }
                 } else if (token_name %in% c("SYMBOL_SUB", "SLOT")) {
                     # ignore
                 } else {
                     # highlight tokens with same name and text
-                    xpath <- glue("//{token_name}[text()='{token_quote}']")
+                    xpath <- glue("//{token_name}[text()='{token_quote}']",
+                        token_name = token_name, token_quote = token_quote)
                     tokens <- xml_find_all(xdoc, xpath)
                 }
 

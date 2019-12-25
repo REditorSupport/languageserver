@@ -35,7 +35,7 @@ definition_reply <- function(id, uri, workspace, document, point) {
                     enclosing_scopes <- xdoc_find_enclosing_scopes(xdoc,
                         row, col, top = TRUE)
                     token_quote <- xml_single_quote(token_text)
-                    xpath <- glue(definition_xpath)
+                    xpath <- glue(definition_xpath, token_quote = token_quote, row = row)
                     all_defs <- xml_find_all(enclosing_scopes, xpath)
                     if (length(all_defs)) {
                         last_def <- all_defs[[length(all_defs)]]
