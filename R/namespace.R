@@ -7,11 +7,8 @@ Namespace <- R6::R6Class("Namespace",
         functs = character(0),
         nonfuncts = character(0),
         exports = character(0),
-        unexports = character(0),
         exported_functs = character(0),
         exported_nonfuncts = character(0),
-        unexported_functs = character(0),
-        unexported_nonfuncts = character(0),
         lazydata = character(0),
 
         initialize = function(pkgname) {
@@ -24,11 +21,8 @@ Namespace <- R6::R6Class("Namespace",
             self$functs <- self$objects[is_function]
             self$nonfuncts <- self$objects[!is_function]
             self$exports <- self$objects[is_exported]
-            self$unexports <- self$objects[!is_exported]
             self$exported_functs <- self$objects[is_exported & is_function]
             self$exported_nonfuncts <- self$objects[is_exported & !is_function]
-            self$unexported_functs <- self$objects[!is_exported & is_function]
-            self$unexported_nonfuncts <- self$objects[!is_exported & !is_function]
             self$lazydata <- if (length(ns$.__NAMESPACE__.$lazydata))
                 objects(ns$.__NAMESPACE__.$lazydata) else character()
         },
