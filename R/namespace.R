@@ -81,7 +81,7 @@ Namespace <- R6::R6Class("Namespace",
                 uri = path_to_uri(temp_file),
                 range = range(
                     start = position(line = 0, character = 0),
-                    end = position(line = stringr::str_count(code, "\n") + 1, character = 0)
+                    end = position(line = length(code) + 1, character = 0)
                 )
             )
         },
@@ -93,12 +93,12 @@ Namespace <- R6::R6Class("Namespace",
             pkgname <- self$package_name
             ns <- asNamespace(pkgname)
             fn <- get(funct, envir = ns)
-            code <- repr::repr_text(fn)
-            # reorganize the code
-            code <- stringr::str_split(code, "\n")[[1]]
-            # we don't add  `<-` to avoid the parser pasrsing the file
-            # code[1] <- paste(funct, "<-", code[1])
-            paste0(code[!grepl("<bytecode|<environment", code)], collapse = "\n")
+            if (is.primitive(fn)) {
+                code <- utils::capture.output(print(fn))
+            } else {
+                code <- deparse(fn)
+            }
+            code
         },
 
         print = function() {
