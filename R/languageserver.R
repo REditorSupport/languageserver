@@ -172,6 +172,7 @@ LanguageServer$set("public", "register_handlers", function() {
         `textDocument/signatureHelp` = text_document_signature_help,
         `textDocument/formatting` = text_document_formatting,
         `textDocument/rangeFormatting` = text_document_range_formatting,
+        `textDocument/onTypeFormatting` = text_document_on_type_formatting,
         `textDocument/documentSymbol` = text_document_document_symbol,
         `textDocument/documentHighlight` = text_document_document_highlight,
         `workspace/symbol` = workspace_symbol
