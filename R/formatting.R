@@ -119,3 +119,27 @@ range_formatting_reply <- function(id, uri, document, range, options) {
     TextEditList <- list(TextEdit)
     Response$new(id, TextEditList)
 }
+
+#' Format on type
+#' @keywords internal
+on_type_formatting_reply <- function(id, uri, document, point, ch, options) {
+    if (ch == "\n") {
+        row <- point$row - 1
+    } else {
+        row <- point$row
+    }
+    style <- get_style(options)
+    selection <- document$line0(row)
+    indentation <- stringr::str_extract(selection, "^\\s*")
+    new_text <- style_text(selection, style, indentation = indentation)
+    if (is.null(new_text)) {
+        return(Response$new(id, list()))
+    }
+    range <- range(
+        start = document$to_lsp_position(row = row, col = 0),
+        end = document$to_lsp_position(row = row, col = nchar(document$line0(row)))
+    )
+    TextEdit <- text_edit(range = range, new_text = new_text)
+    TextEditList <- list(TextEdit)
+    Response$new(id, TextEditList)
+}

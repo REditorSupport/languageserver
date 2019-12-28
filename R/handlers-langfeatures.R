@@ -194,7 +194,13 @@ text_document_range_formatting  <- function(self, id, params) {
 #' Handler to the `textDocument/onTypeFormatting` [Request].
 #' @keywords internal
 text_document_on_type_formatting  <- function(self, id, params) {
-
+    textDocument <- params$textDocument
+    uri <- textDocument$uri
+    document <- self$documents[[uri]]
+    point <- document$from_lsp_position(params$position)
+    ch <- params$ch
+    options <- params$options
+    self$deliver(on_type_formatting_reply(id, uri, document, point, ch, options))
 }
 
 

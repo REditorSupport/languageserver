@@ -67,7 +67,7 @@ These editors are supported by installing the corresponding package.
 - [ ] codeLensProvider
 - [x] documentFormattingProvider
 - [x] documentRangeFormattingProvider
-- [ ] documentOnTypeFormattingProvider
+- [x] documentOnTypeFormattingProvider
 - [ ] renameProvider
 - [ ] documentLinkProvider
 - [ ] executeCommandProvider
