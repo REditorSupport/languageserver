@@ -179,7 +179,7 @@ expr_range <- function(srcref) {
 }
 
 
-parse_expr <- function(expr, env, level = 0L, srcref = attr(expr, "srcref")) {
+parse_expr <- function(content, expr, env, level = 0L, srcref = attr(expr, "srcref")) {
     if (length(expr) == 0L || is.symbol(expr)) {
           return(env)
     }
@@ -189,23 +189,23 @@ parse_expr <- function(expr, env, level = 0L, srcref = attr(expr, "srcref")) {
         f <- as.character(e[[1L]])
         cur_srcref <- if (level == 0L) srcref[[i]] else srcref
         if (f %in% c("{", "(")) {
-            Recall(e[-1L], env, level + 1L, cur_srcref)
+            Recall(content, e[-1L], env, level + 1L, cur_srcref)
         } else if (f == "if") {
-            Recall(e[[2L]], env, level + 1L, cur_srcref)
-            Recall(e[[3L]], env, level + 1L, cur_srcref)
+            Recall(content, e[[2L]], env, level + 1L, cur_srcref)
+            Recall(content, e[[3L]], env, level + 1L, cur_srcref)
             if (length(e) == 4L) {
-                Recall(e[[4L]], env, level + 1L, cur_srcref)
+                Recall(content, e[[4L]], env, level + 1L, cur_srcref)
             }
         } else if (f == "for") {
             if (is.symbol(e[[2L]])) {
                 env$nonfuncts <- c(env$nonfuncts, as.character(e[[2L]]))
             }
-            Recall(e[[4L]], env, level + 1L, cur_srcref)
+            Recall(content, e[[4L]], env, level + 1L, cur_srcref)
         } else if (f == "while") {
-            Recall(e[[2L]], env, level + 1L, cur_srcref)
-            Recall(e[[3L]], env, level + 1L, cur_srcref)
+            Recall(content, e[[2L]], env, level + 1L, cur_srcref)
+            Recall(content, e[[3L]], env, level + 1L, cur_srcref)
         } else if (f == "repeat") {
-            Recall(e[[2L]], env, level + 1L, cur_srcref)
+            Recall(content, e[[2L]], env, level + 1L, cur_srcref)
         } else if (f %in% c("<-", "=") && length(e) == 3L && is.symbol(e[[2L]])) {
             funct <- as.character(e[[2L]])
             env$objects <- c(env$objects, funct)
@@ -217,12 +217,19 @@ parse_expr <- function(expr, env, level = 0L, srcref = attr(expr, "srcref")) {
 
                 signature <- func
                 signature <- format(signature[1:2])
-                signature <- paste0(trimws(signature, which = "left"), collapse = "\n")
+                signature <- paste0(trimws(signature, which = "left"), collapse = "")
                 signature <- gsub("^function\\s*", funct, signature)
                 signature <- gsub("\\s*NULL$", "", signature)
                 env$signatures[[funct]] <- signature
 
-                env$definition_ranges[[funct]] <- expr_range(cur_srcref)
+                expr_range <- expr_range(cur_srcref)
+                env$definition_ranges[[funct]] <- expr_range
+
+                doc_line1 <- detect_comments(content, expr_range$start$line) + 1
+                if (doc_line1 <= expr_range$start$line) {
+                    env$documentation[[funct]] <- uncomment(
+                        content[seq.int(doc_line1, expr_range$start$line)])
+                }
             } else {
                 # symbols
                 env$nonfuncts <- c(env$nonfuncts, funct)
@@ -236,8 +243,6 @@ parse_expr <- function(expr, env, level = 0L, srcref = attr(expr, "srcref")) {
     }
     env
 }
-
-
 
 #' Parse a document
 #'
@@ -262,12 +267,13 @@ parse_document <- function(path, content = NULL, resolve = FALSE) {
             env$formals <- list()
             env$signatures <- list()
             env$definition_ranges <- list()
+            env$documentation <- list()
             env$xml_data <- NULL
             env$xml_doc <- NULL
             env
         }
         env <- parse_env()
-        parse_expr(expr, env)
+        parse_expr(content, expr, env)
         xml_data <- xmlparsedata::xml_parse_data(expr)
         env$xml_data <- xml_data
         if (resolve) {
