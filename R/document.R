@@ -151,16 +151,6 @@ detect_comments <- function(content, row) {
         content, row)
 }
 
-detect_indention <- function(content, start_row, end_row) {
-    .Call("detect_indention", PACKAGE = "languageserver",
-        content, start_row, end_row)
-}
-
-remove_indention <- function(content, start_row, end_row, indention) {
-    .Call("remove_indention", PACKAGE = "languageserver",
-        content, start_row, end_row, indention)
-}
-
 #' Expression range in UTF-16 code units
 #' @keywords internal
 expr_range <- function(srcref) {
