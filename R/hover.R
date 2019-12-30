@@ -66,7 +66,7 @@ hover_reply <- function(id, uri, workspace, document, point) {
                         doc_line1 <- detect_comments(document$content, def_line1 - 1) + 1
                         if (doc_line1 < def_line1) {
                             doc_text <- paste0(trimws(document$line(seq.int(doc_line1, def_line1 - 1)),
-                                whitespace = "[\\s\t\r\n#]"), collapse = "\n")
+                                whitespace = "\\s|\\t|\\n|#+'?"), collapse = "\n\n")
                         }
                         contents <- c(sprintf("```r\n%s\n```", def_text), doc_text)
                         resolved <- TRUE
@@ -126,7 +126,15 @@ hover_reply <- function(id, uri, workspace, document, point) {
     if (!resolved) {
         contents <- workspace$get_help(token_result$token, token_result$package)
         if (is.null(contents) && !is.null(sig)) {
-            contents <- sprintf("```r\n%s\n```", sig)
+            def_range <- workspace$get_definition(token_result$token, token_result$package)$range
+            logger$info("hover def_range:", def_range)
+            doc_text <- NULL
+            doc_line1 <- detect_comments(document$content, def_range$start$line) + 1
+            if (doc_line1 <= def_range$start$line) {
+                doc_text <- paste0(trimws(document$line(seq.int(doc_line1, def_range$start$line)),
+                    whitespace = "\\s|\\t|\\n|#+'?"), collapse = "\n\n")
+            }
+            contents <- c(sprintf("```r\n%s\n```", sig), doc_text)
         }
     }
 
