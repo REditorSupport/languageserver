@@ -62,12 +62,19 @@ hover_reply <- function(id, uri, workspace, document, point) {
                                 glue("SYMBOL_FORMALS[text() = '{token_quote}']", token_quote = token_quote))
                             def_line1 <- as.integer(xml_attr(def_funct, "line1"))
                             def_line2 <- as.integer(xml_attr(def_funct_end, "line2"))
-                            def_lines <- seq.int(def_line1, def_line2)
                         } else {
-                            def_lines <- as.integer(xml_attr(last_def, "line1"))
+                            def_line1 <- as.integer(xml_attr(last_def, "line1"))
+                            def_line2 <- def_line1
                         }
-                        contents <- sprintf("```r\n%s\n```",
-                            trimws(paste0(document$line(def_lines), collapse = "\n")))
+                        def_line1 <- detect_comments(document$content, def_line1 - 1) + 1
+                        def_lines <- seq.int(def_line1, def_line2)
+                        def_indent <- detect_indention(document$content, def_line1 - 1, def_line2 - 1)
+                        if (def_indent == 0) {
+                            def_text <- document$line(def_lines)
+                        } else {
+                            def_text <- remove_indention(document$content, def_line1 - 1, def_line2 - 1, def_indent)
+                        }
+                        contents <- sprintf("```r\n%s\n```", paste0(def_text, collapse = "\n"))
                         resolved <- TRUE
                     }
                 }
