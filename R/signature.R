@@ -21,11 +21,14 @@ signature_reply <- function(id, uri, workspace, document, point) {
         logger$info("sig: ", sig)
         if (!is.null(sig)) {
             doc <- workspace$get_documentation(result$token, result$package, isf = TRUE)
-            if (is.null(doc$description)) {
-                documentation <- ""
-            } else {
-                documentation <- list(kind = "markdown", value = doc$description)
+            doc_string <- ""
+            if (is.character(doc)) {
+                doc_string <- paste0(doc, collapse = "\n\n")
+            } else if (is.list(doc) && is.character(doc$description)) {
+                doc_string <- doc$description
             }
+            documentation <- list(kind = "markdown", value = doc_string)
+
             SignatureInformation <- list(list(
                 label = sig,
                 documentation = documentation

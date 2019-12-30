@@ -65,8 +65,9 @@ hover_reply <- function(id, uri, workspace, document, point) {
                         doc_text <- NULL
                         doc_line1 <- detect_comments(document$content, def_line1 - 1) + 1
                         if (doc_line1 < def_line1) {
-                            doc_text <- paste0(trimws(document$line(seq.int(doc_line1, def_line1 - 1)),
-                                whitespace = "\\s|\\t|\\n|#+'?"), collapse = "\n\n")
+                            doc_text <- paste0(
+                                uncomment(document$line(seq.int(doc_line1, def_line1 - 1))),
+                                    collapse = "\n\n")
                         }
                         contents <- c(sprintf("```r\n%s\n```", def_text), doc_text)
                         resolved <- TRUE
@@ -83,10 +84,13 @@ hover_reply <- function(id, uri, workspace, document, point) {
                         package <- NULL
                     }
                     doc <- workspace$get_documentation(funct, package, isf = TRUE)
-                    doc_string <- doc$arguments[[token_text]]
-                    if (is.null(doc_string)) {
-                        doc_string <- doc$arguments$...
-                        token_text <- "..."
+                    doc_string <- NULL
+                    if (is.list(doc)) {
+                        doc_string <- doc$arguments[[token_text]]
+                        if (is.null(doc_string)) {
+                            doc_string <- doc$arguments$...
+                            token_text <- "..."
+                        }
                     }
                     if (!is.null(doc_string)) {
                         sig <- workspace$get_signature(funct, package)
@@ -126,13 +130,9 @@ hover_reply <- function(id, uri, workspace, document, point) {
     if (!resolved) {
         contents <- workspace$get_help(token_result$token, token_result$package)
         if (is.null(contents) && !is.null(sig)) {
-            def_range <- workspace$get_definition(token_result$token, token_result$package)$range
-            logger$info("hover def_range:", def_range)
-            doc_text <- NULL
-            doc_line1 <- detect_comments(document$content, def_range$start$line) + 1
-            if (doc_line1 <= def_range$start$line) {
-                doc_text <- paste0(trimws(document$line(seq.int(doc_line1, def_range$start$line)),
-                    whitespace = "\\s|\\t|\\n|#+'?"), collapse = "\n\n")
+            doc_text <- workspace$get_documentation(token_result$token, token_result$package)
+            if (is.character(doc_text)) {
+                doc_text <- paste0(doc_text, collapse = "\n\n")
             }
             contents <- c(sprintf("```r\n%s\n```", sig), doc_text)
         }

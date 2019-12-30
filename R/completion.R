@@ -273,10 +273,7 @@ completion_reply <- function(id, uri, workspace, document, point) {
 #' @keywords internal
 completion_item_resolve_reply <- function(id, workspace, params) {
     resolved <- FALSE
-    if (is.null(params$data) ||
-        is.null(params$data$type) ||
-        (!is.null(params$data$package) && params$data$package == WORKSPACE)) {
-
+    if (is.null(params$data) || is.null(params$data$type)) {
     } else {
         if (params$data$type == "package") {
             if (length(find.package(params$label))) {
@@ -291,7 +288,10 @@ completion_item_resolve_reply <- function(id, workspace, params) {
             }
         } else if (params$data$type == "parameter") {
             doc <- workspace$get_documentation(params$data$funct, params$data$package, isf = TRUE)
-            doc_string <- doc$arguments[[params$label]]
+            doc_string <- NULL
+            if (is.list(doc)) {
+                doc_string <- doc$arguments[[params$label]]
+            }
             if (!is.null(doc_string)) {
                 params$documentation <- list(kind = "markdown", value = doc_string)
                 resolved <- TRUE
@@ -299,7 +299,13 @@ completion_item_resolve_reply <- function(id, workspace, params) {
         } else if (params$data$type %in% c("constant", "function", "nonfunction", "lazydata")) {
             doc <- workspace$get_documentation(params$label, params$data$package,
                 isf = params$data$type == "function")
-            doc_string <- doc$description
+            doc_string <- NULL
+            if (is.character(doc)) {
+                doc_string <- paste0(doc, collapse = "\n\n")
+            } else if (is.list(doc) && is.character(doc$description)) {
+                doc_string <- doc$description
+            }
+
             if (!is.null(doc_string)) {
                 params$documentation <- list(kind = "markdown", value = doc_string)
                 resolved <- TRUE

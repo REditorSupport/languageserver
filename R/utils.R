@@ -253,6 +253,8 @@ look_backward <- function(text) {
     )
 }
 
+uncomment <- function(x) gsub("^\\s*#+'?\\s*", "", x)
+
 find_doc_item <- function(doc, tag) {
     for (item in doc) {
         if (attr(item, "Rd_tag") == tag) {
