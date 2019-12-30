@@ -67,7 +67,7 @@ hover_reply <- function(id, uri, workspace, document, point) {
                         if (doc_line1 < def_line1) {
                             doc_text <- paste0(
                                 uncomment(document$line(seq.int(doc_line1, def_line1 - 1))),
-                                    collapse = "\n\n")
+                                    collapse = "  \n")
                         }
                         contents <- c(sprintf("```r\n%s\n```", def_text), doc_text)
                         resolved <- TRUE
@@ -130,11 +130,12 @@ hover_reply <- function(id, uri, workspace, document, point) {
     if (!resolved) {
         contents <- workspace$get_help(token_result$token, token_result$package)
         if (is.null(contents) && !is.null(sig)) {
-            doc_text <- workspace$get_documentation(token_result$token, token_result$package)
-            if (is.character(doc_text)) {
-                doc_text <- paste0(doc_text, collapse = "\n\n")
+            doc <- workspace$get_documentation(token_result$token, token_result$package)
+            doc_string <- NULL
+            if (is.character(doc)) {
+                doc_string <- doc
             }
-            contents <- c(sprintf("```r\n%s\n```", sig), doc_text)
+            contents <- c(sprintf("```r\n%s\n```", sig), doc_string)
         }
     }
 
