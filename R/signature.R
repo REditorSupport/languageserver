@@ -20,7 +20,6 @@ signature_reply <- function(id, uri, workspace, document, point) {
             exported_only = result$accessor != ":::")
         logger$info("sig: ", sig)
         if (!is.null(sig)) {
-            sig <- trimws(gsub("function\\s*", result$token, sig))
             doc <- workspace$get_documentation(result$token, result$package, isf = TRUE)
             if (is.null(doc$description)) {
                 documentation <- ""

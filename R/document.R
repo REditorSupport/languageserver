@@ -218,7 +218,8 @@ parse_expr <- function(expr, env, level = 0L, srcref = attr(expr, "srcref")) {
                 signature <- func
                 signature <- format(signature[1:2])
                 signature <- paste0(trimws(signature, which = "left"), collapse = "\n")
-                signature <- trimws(gsub("NULL\\s*$", "", signature))
+                signature <- gsub("^function\\s*", funct, signature)
+                signature <- gsub("\\s*NULL$", "", signature)
                 env$signatures[[funct]] <- signature
 
                 env$definition_ranges[[funct]] <- expr_range(cur_srcref)
