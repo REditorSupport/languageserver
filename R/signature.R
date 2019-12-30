@@ -23,7 +23,7 @@ signature_reply <- function(id, uri, workspace, document, point) {
             doc <- workspace$get_documentation(result$token, result$package, isf = TRUE)
             doc_string <- ""
             if (is.character(doc)) {
-                doc_string <- paste0(doc, collapse = "\n\n")
+                doc_string <- doc
             } else if (is.list(doc) && is.character(doc$description)) {
                 doc_string <- doc$description
             }
