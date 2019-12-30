@@ -67,10 +67,9 @@ hover_reply <- function(id, uri, workspace, document, point) {
                             def_line2 <- def_line1
                         }
                         def_line1 <- detect_comments(document$content, def_line1 - 1) + 1
-                        def_lines <- seq.int(def_line1, def_line2)
                         def_indent <- detect_indention(document$content, def_line1 - 1, def_line2 - 1)
                         if (def_indent == 0) {
-                            def_text <- document$line(def_lines)
+                            def_text <- document$line(seq.int(def_line1, def_line2))
                         } else {
                             def_text <- remove_indention(document$content, def_line1 - 1, def_line2 - 1, def_indent)
                         }
