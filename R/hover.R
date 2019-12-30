@@ -60,14 +60,15 @@ hover_reply <- function(id, uri, workspace, document, point) {
                             def_line1 <- as.integer(xml_attr(last_def, "line1"))
                             def_line2 <- def_line1
                         }
-                        def_line1 <- detect_comments(document$content, def_line1 - 1) + 1
-                        def_indent <- detect_indention(document$content, def_line1 - 1, def_line2 - 1)
-                        if (def_indent == 0) {
-                            def_text <- document$line(seq.int(def_line1, def_line2))
-                        } else {
-                            def_text <- remove_indention(document$content, def_line1 - 1, def_line2 - 1, def_indent)
+                        def_text <- trimws(paste0(document$line(seq.int(def_line1, def_line2)),
+                            collapse = "\n"))
+                        doc_text <- NULL
+                        doc_line1 <- detect_comments(document$content, def_line1 - 1) + 1
+                        if (doc_line1 < def_line1) {
+                            doc_text <- paste0(trimws(document$line(seq.int(doc_line1, def_line1 - 1)),
+                                whitespace = "[\\s\t\r\n#]"), collapse = "\n")
                         }
-                        contents <- sprintf("```r\n%s\n```", paste0(def_text, collapse = "\n"))
+                        contents <- c(sprintf("```r\n%s\n```", def_text), doc_text)
                         resolved <- TRUE
                     }
                 }
