@@ -11,8 +11,4 @@ SEXP enclosed_by_quotes(SEXP s, SEXP _col);
 
 SEXP detect_comments(SEXP content, SEXP _row);
 
-SEXP detect_indention(SEXP content, SEXP _start_row, SEXP _end_row);
-
-SEXP remove_indention(SEXP content, SEXP _start_row, SEXP _end_row, SEXP _indention);
-
 #endif /* end of include guard: SEARCH_H__ */

@@ -20,8 +20,6 @@ static const R_CallMethodDef CallEntries[] = {
     {"find_unbalanced_bracket", (DL_FUNC) &find_unbalanced_bracket, 4},
     {"enclosed_by_quotes", (DL_FUNC) &enclosed_by_quotes, 2},
     {"detect_comments", (DL_FUNC) &detect_comments, 2},
-    {"detect_indention", (DL_FUNC) &detect_indention, 3},
-    {"remove_indention", (DL_FUNC) &remove_indention, 4},
     {"stdin_read_char", (DL_FUNC) &stdin_read_char, 1},
     {"stdin_read_line", (DL_FUNC) &stdin_read_line},
 #if !defined(_WIN32)
