@@ -131,3 +131,81 @@ SEXP enclosed_by_quotes(SEXP _s, SEXP _col) {
     int enclosed = state.single_quoted || state.double_quoted;
     return Rf_ScalarLogical(enclosed);
 }
+
+SEXP detect_comments(SEXP content, SEXP _row) {
+    int row = Rf_asInteger(_row);
+    int out = row;
+    int i = row - 1;
+    int is_comment = 0;
+    const char *c;
+    while (i >= 0) {
+        c = Rf_translateCharUTF8(STRING_ELT(content, i));
+        is_comment = 0;
+        while (*c != '\0') {
+            if (isspace((unsigned char)*c)) {
+            } else if (*c == '#') {
+                is_comment = 1;
+                out = i;
+                break;
+            } else {
+                break;
+            }
+            c++;
+        }
+        if (!is_comment) {
+            break;
+        }
+        i--;
+    }
+    return Rf_ScalarInteger(out);
+}
+
+SEXP detect_indention(SEXP content, SEXP _start_row, SEXP _end_row) {
+    int start_row = Rf_asInteger(_start_row);
+    int end_row = Rf_asInteger(_end_row);
+    int indention = 0;
+    int ind = 0;
+    int is_empty = 1;
+    const char *c;
+    for (int i = start_row; i <= end_row; i++) {
+        ind = 0;
+        is_empty = 1;
+        c = Rf_translateCharUTF8(STRING_ELT(content, i));
+        while (*c != '\0') {
+            if (isspace((unsigned char)*c)) {
+                ind++;
+            } else {
+                is_empty = 0;
+                break;
+            }
+            c++;
+        }
+        if (!is_empty) {
+            if (ind == 0) {
+                break;
+            } else if (indention > 0) {
+                if (ind < indention) {
+                    indention = ind;
+                }
+            } else {
+                indention = ind;
+            }
+        }
+    }
+    return Rf_ScalarInteger(indention);
+}
+
+SEXP remove_indention(SEXP content, SEXP _start_row, SEXP _end_row, SEXP _indention) {
+    int start_row = Rf_asInteger(_start_row);
+    int end_row = Rf_asInteger(_end_row);
+    int n = end_row - start_row + 1;
+    int indention = Rf_asInteger(_indention);
+    const char *c;
+    SEXP out = PROTECT(Rf_allocVector(STRSXP, n));
+    for (int i = 0; i < n; i++) {
+        c = Rf_translateCharUTF8(STRING_ELT(content, start_row + i));
+        SET_STRING_ELT(out, i, Rf_mkChar(c + indention));
+    }
+    UNPROTECT(1);
+    return out;
+}
