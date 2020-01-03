@@ -3,5 +3,4 @@
 export(run)
 import(xml2)
 importFrom(R6,R6Class)
-importFrom(glue,glue)
 useDynLib(languageserver)

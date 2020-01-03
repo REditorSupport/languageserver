@@ -3,36 +3,48 @@
 Namespace <- R6::R6Class("Namespace",
     public = list(
         package_name = NULL,
-        exports = character(0),
-        unexports = character(0),
+        objects = character(0),
         functs = character(0),
         nonfuncts = character(0),
+        exports = character(0),
+        exported_functs = character(0),
+        exported_nonfuncts = character(0),
         lazydata = character(0),
 
         initialize = function(pkgname) {
             self$package_name <- pkgname
             ns <- asNamespace(pkgname)
-            objects <- sanitize_names(objects(ns))
-            self$exports <- sanitize_names(getNamespaceExports(ns))
-            self$unexports <- setdiff(objects, self$exports)
-            isf <- vapply(self$exports, function(x) {
+            self$objects <- sanitize_names(objects(ns, all.names = TRUE))
+            is_function <- vapply(self$objects, function(x) {
                         is.function(get(x, envir = ns))}, logical(1L), USE.NAMES = FALSE)
-            self$functs <- self$exports[isf]
-            self$nonfuncts <- setdiff(self$exports, self$functs)
+            is_exported <- self$objects %in% sanitize_names(getNamespaceExports(ns))
+            self$functs <- self$objects[is_function]
+            self$nonfuncts <- self$objects[!is_function]
+            self$exports <- self$objects[is_exported]
+            self$exported_functs <- self$objects[is_exported & is_function]
+            self$exported_nonfuncts <- self$objects[is_exported & !is_function]
             self$lazydata <- if (length(ns$.__NAMESPACE__.$lazydata))
                 objects(ns$.__NAMESPACE__.$lazydata) else character()
         },
 
-        exists = function(objname) {
-            objname %in% self$exports
+        exists = function(objname, exported_only = TRUE) {
+            if (exported_only) {
+                objname %in% self$exports
+            } else {
+                objname %in% self$objects
+            }
         },
 
-        exists_funct = function(funct) {
-            funct %in% self$functs
+        exists_funct = function(funct, exported_only = TRUE) {
+            if (exported_only) {
+                funct %in% self$exported_functs
+            } else {
+                funct %in% self$functs
+            }
         },
 
-        get_signature = function(funct) {
-            if (!self$exists_funct(funct)) {
+        get_signature = function(funct, exported_only = TRUE) {
+            if (!self$exists_funct(funct, exported_only = exported_only)) {
                 return(NULL)
             }
             pkgname <- self$package_name
@@ -46,8 +58,8 @@ Namespace <- R6::R6Class("Namespace",
             }
         },
 
-        get_formals = function(funct) {
-            if (!self$exists_funct(funct)) {
+        get_formals = function(funct, exported_only = TRUE) {
+            if (!self$exists_funct(funct, exported_only = exported_only)) {
                 return(NULL)
             }
             pkgname <- self$package_name
@@ -56,8 +68,8 @@ Namespace <- R6::R6Class("Namespace",
             formals(fn)
         },
 
-        get_definition = function(symbol) {
-            code <- self$get_body(symbol)
+        get_definition = function(symbol, exported_only = TRUE) {
+            code <- self$get_body(symbol, exported_only = exported_only)
             if (is.null(code)) {
                 return(NULL)
             }
@@ -69,24 +81,24 @@ Namespace <- R6::R6Class("Namespace",
                 uri = path_to_uri(temp_file),
                 range = range(
                     start = position(line = 0, character = 0),
-                    end = position(line = stringr::str_count(code, "\n") + 1, character = 0)
+                    end = position(line = length(code) + 1, character = 0)
                 )
             )
         },
 
-        get_body = function(funct) {
-            if (!self$exists_funct(funct)) {
+        get_body = function(funct, exported_only = TRUE) {
+            if (!self$exists_funct(funct, exported_only = exported_only)) {
                 return(NULL)
             }
             pkgname <- self$package_name
             ns <- asNamespace(pkgname)
             fn <- get(funct, envir = ns)
-            code <- repr::repr_text(fn)
-            # reorganize the code
-            code <- stringr::str_split(code, "\n")[[1]]
-            # we don't add  `<-` to avoid the parser pasrsing the file
-            # code[1] <- paste(funct, "<-", code[1])
-            paste0(code[!grepl("<bytecode|<environment", code)], collapse = "\n")
+            if (is.primitive(fn)) {
+                code <- utils::capture.output(print(fn))
+            } else {
+                code <- deparse(fn)
+            }
+            code
         },
 
         print = function() {
@@ -110,26 +122,29 @@ GlobalNameSpace <- R6::R6Class("GlobalNameSpace",
             self$package_name <- WORKSPACE
         },
 
-        get_signature = function(funct) {
+        get_signature = function(funct, exported_only = TRUE) {
             self$signatures[[funct]]
         },
 
-        get_formals = function(funct) {
+        get_formals = function(funct, exported_only = TRUE) {
             self$formals[[funct]]
         },
 
-        get_definition = function(symbol) {
+        get_definition = function(symbol, exported_only = TRUE) {
             NULL
         },
 
-        get_body = function(funct) {
+        get_body = function(funct, exported_only = TRUE) {
             NULL
         },
 
         update = function(parse_data) {
             self$nonfuncts <- unique(unlist(lapply(parse_data, "[[", "nonfuncts"), use.names = FALSE))
+            self$exported_nonfuncts <- self$nonfuncts
             self$functs <- unique(unlist(lapply(parse_data, "[[", "functs"), use.names = FALSE))
-            self$exports <- unique(c(self$nonfuncts, self$functs))
+            self$exported_functs <- self$functs
+            self$objects <- unique(c(self$nonfuncts, self$functs))
+            self$exports <- self$objects
             self$signatures <- list()
             self$formals <- list()
             for (item in parse_data) {

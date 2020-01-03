@@ -1,3 +1,11 @@
+definition_xpath <- paste(
+    "FUNCTION/following-sibling::SYMBOL_FORMALS[text() = '{token_quote}' and @line1 <= {row}]",
+    "expr[LEFT_ASSIGN/preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]]",
+    "expr[RIGHT_ASSIGN/following-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]]",
+    "equal_assign[EQ_ASSIGN/preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]]",
+    "forcond/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]",
+    sep = "|")
+
 #' Get the location of a specified function definition
 #'
 #' If the function is not found in a file but is found in a loaded package,
@@ -12,7 +20,7 @@ definition_reply <- function(id, uri, workspace, document, point) {
     result <- NULL
 
     xdoc <- workspace$get_xml_doc(uri)
-    if (!is.null(xdoc)) {
+    if (token_result$accessor == "" && !is.null(xdoc)) {
         row <- point$row + 1
         col <- point$col + 1
         token <- xdoc_find_token(xdoc, row, col)
@@ -27,13 +35,7 @@ definition_reply <- function(id, uri, workspace, document, point) {
                     enclosing_scopes <- xdoc_find_enclosing_scopes(xdoc,
                         row, col, top = TRUE)
                     token_quote <- xml_single_quote(token_text)
-                    xpath <- glue(paste(
-                        "FUNCTION/following-sibling::SYMBOL_FORMALS[text() = '{token_quote}' and @line1 <= {row}]",
-                        "expr[LEFT_ASSIGN/preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]]",
-                        "expr[RIGHT_ASSIGN/following-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]]",
-                        "equal_assign[EQ_ASSIGN/preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]]",
-                        "forcond/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]",
-                        sep = "|"))
+                    xpath <- glue(definition_xpath, row = row, token_quote = token_quote)
                     all_defs <- xml_find_all(enclosing_scopes, xpath)
                     if (length(all_defs)) {
                         last_def <- all_defs[[length(all_defs)]]
@@ -59,7 +61,8 @@ definition_reply <- function(id, uri, workspace, document, point) {
     }
 
     if (!resolved) {
-        result <- workspace$get_definition(token_result$token, token_result$package)
+        result <- workspace$get_definition(token_result$token, token_result$package,
+            exported_only = token_result$accessor != ":::")
     }
 
     if (is.null(result)) {

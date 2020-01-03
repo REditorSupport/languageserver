@@ -1,3 +1,11 @@
+hover_xpath <- paste(
+    "FUNCTION[following-sibling::SYMBOL_FORMALS[text() = '{token_quote}' and @line1 <= {row}]]/parent::expr",
+    "expr[LEFT_ASSIGN/preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]]",
+    "expr[RIGHT_ASSIGN/following-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]]",
+    "equal_assign[EQ_ASSIGN/preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]]",
+    "forcond/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]",
+    sep = "|")
+
 #' The response to a textDocument/hover Request
 #'
 #' When hovering on a symbol, if it is a function, return its help text
@@ -17,7 +25,8 @@ hover_reply <- function(id, uri, workspace, document, point) {
         signs <- token_result$package
     }
 
-    sig <- workspace$get_signature(token_result$token, signs)
+    sig <- workspace$get_signature(token_result$token, signs,
+        exported_only = token_result$accessor != ":::")
     contents <- NULL
 
     if (!is.null(sig)) {
@@ -28,7 +37,7 @@ hover_reply <- function(id, uri, workspace, document, point) {
     resolved <- FALSE
     xdoc <- workspace$get_xml_doc(uri)
 
-    if (!is.null(xdoc)) {
+    if (token_result$accessor == "" && !is.null(xdoc)) {
         row <- point$row + 1
         col <- point$col + 1
         token <- xdoc_find_token(xdoc, row, col)
@@ -43,20 +52,14 @@ hover_reply <- function(id, uri, workspace, document, point) {
                     enclosing_scopes <- xdoc_find_enclosing_scopes(xdoc,
                         row, col, top = TRUE)
                     token_quote <- xml_single_quote(token_text)
-                    xpath <- glue(paste(
-                        "FUNCTION[following-sibling::SYMBOL_FORMALS[text() = '{token_quote}' and @line1 <= {row}]]/parent::expr",
-                        "expr[LEFT_ASSIGN/preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]]",
-                        "expr[RIGHT_ASSIGN/following-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]]",
-                        "equal_assign[EQ_ASSIGN/preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]]",
-                        "forcond/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]",
-                        sep = "|"))
+                    xpath <- glue(hover_xpath, row = row, token_quote = token_quote)
                     all_defs <- xml_find_all(enclosing_scopes, xpath)
                     if (length(all_defs)) {
                         last_def <- all_defs[[length(all_defs)]]
                         def_funct <- xml_find_first(last_def, "FUNCTION")
                         if (length(def_funct)) {
                             def_funct_end <- xml_find_first(last_def,
-                                glue("SYMBOL_FORMALS[text() = '{token_quote}']"))
+                                glue("SYMBOL_FORMALS[text() = '{token_quote}']", token_quote = token_quote))
                             def_line1 <- as.integer(xml_attr(def_funct, "line1"))
                             def_line2 <- as.integer(xml_attr(def_funct_end, "line2"))
                             def_lines <- seq.int(def_line1, def_line2)
@@ -78,7 +81,7 @@ hover_reply <- function(id, uri, workspace, document, point) {
                     if (is.na(package)) {
                         package <- NULL
                     }
-                    doc <- workspace$get_documentation(funct, package)
+                    doc <- workspace$get_documentation(funct, package, isf = TRUE)
                     doc_string <- doc$arguments[[token_text]]
                     if (is.null(doc_string)) {
                         doc_string <- doc$arguments$...
@@ -101,6 +104,9 @@ hover_reply <- function(id, uri, workspace, document, point) {
             } else if (token_name == "SYMBOL_FORMALS") {
                 # function formals
                 # contents <- "function parameter"
+                resolved <- TRUE
+            } else if (token_name == "SLOT") {
+                # S4 slot
                 resolved <- TRUE
             } else if (token_name == "NUM_CONST") {
                 # logical, integer, double

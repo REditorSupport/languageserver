@@ -57,12 +57,12 @@ package_completion <- function(token) {
 
 #' Complete a function argument
 #' @keywords internal
-arg_completion <- function(workspace, token, funct, package = NULL) {
+arg_completion <- function(workspace, token, funct, package = NULL, exported_only = TRUE) {
     if (is.null(package)) {
         package <- workspace$guess_namespace(funct, isf = TRUE)
     }
     if (!is.null(package)) {
-        args <- names(workspace$get_formals(funct, package))
+        args <- names(workspace$get_formals(funct, package, exported_only = exported_only))
         if (is.character(args)) {
             token_args <- args[startsWith(args, token)]
             completions <- lapply(token_args, function(arg) {
@@ -97,12 +97,12 @@ workspace_completion <- function(workspace, token, package = NULL, exported_only
             if (is.null(ns)) {
                 next
             }
-            functs <- ns$functs[startsWith(ns$functs, token)]
             if (nsname == WORKSPACE) {
                 tag <- "[workspace]"
             } else {
                 tag <- paste0("{", nsname, "}")
             }
+            functs <- ns$exported_functs[startsWith(ns$exported_functs, token)]
             functs_completions <- lapply(functs, function(object) {
                 list(label = object,
                      kind = CompletionItemKind$Function,
@@ -112,7 +112,7 @@ workspace_completion <- function(workspace, token, package = NULL, exported_only
                          package = nsname
                      ))
             })
-            nonfuncts <- ns$nonfuncts[startsWith(ns$nonfuncts, token)]
+            nonfuncts <- ns$exported_nonfuncts[startsWith(ns$exported_nonfuncts, token)]
             nonfuncts_completions <- lapply(nonfuncts, function(object) {
                 list(label = object,
                      kind = CompletionItemKind$Field,
@@ -140,20 +140,49 @@ workspace_completion <- function(workspace, token, package = NULL, exported_only
     } else {
         ns <- workspace$get_namespace(package)
         if (!is.null(ns)) {
-            unexports <- ns$unexports[startsWith(ns$unexports, token)]
-            unexports_completion <- lapply(unexports, function(object) {
-                list(
-                    label = object,
-                    kind = CompletionItemKind$Field,
-                    detail = paste0("{", package, "}")
-                )
+            tag <- paste0("{", package, "}")
+            functs <- ns$functs[startsWith(ns$functs, token)]
+            functs_completions <- lapply(functs, function(object) {
+                list(label = object,
+                     kind = CompletionItemKind$Function,
+                     detail = tag,
+                     data = list(
+                         type = "function",
+                         package = package
+                     ))
             })
-            completions <- c(completions, unexports_completion)
+            nonfuncts <- ns$nonfuncts[startsWith(ns$nonfuncts, token)]
+            nonfuncts_completions <- lapply(nonfuncts, function(object) {
+                list(label = object,
+                     kind = CompletionItemKind$Field,
+                     detail = tag,
+                     data = list(
+                         type = "nonfunction",
+                         package = package
+                     ))
+            })
+            completions <- c(completions,
+                functs_completions,
+                nonfuncts_completions)
         }
     }
 
     completions
 }
+
+scope_completion_symbols_xpath <- paste(
+    "FUNCTION/following-sibling::SYMBOL_FORMALS",
+    "forcond/SYMBOL",
+    "expr/LEFT_ASSIGN[not(following-sibling::expr/FUNCTION)]/preceding-sibling::expr[count(*)=1]/SYMBOL",
+    "expr/RIGHT_ASSIGN[not(preceding-sibling::expr/FUNCTION)]/following-sibling::expr[count(*)=1]/SYMBOL",
+    "equal_assign/EQ_ASSIGN[not(following-sibling::expr/FUNCTION)]/preceding-sibling::expr[count(*)=1]/SYMBOL",
+    sep = "|")
+
+scope_completion_functs_xpath <- paste(
+    "expr/LEFT_ASSIGN[following-sibling::expr/FUNCTION]/preceding-sibling::expr[count(*)=1]/SYMBOL",
+    "expr/RIGHT_ASSIGN[preceding-sibling::expr/FUNCTION]/following-sibling::expr[count(*)=1]/SYMBOL",
+    "equal_assign/EQ_ASSIGN[following-sibling::expr/FUNCTION]/preceding-sibling::expr[count(*)=1]/SYMBOL",
+    sep = "|")
 
 scope_completion <- function(uri, workspace, token, point) {
     xdoc <- workspace$get_xml_doc(uri)
@@ -165,13 +194,7 @@ scope_completion <- function(uri, workspace, token, point) {
         point$row + 1, point$col + 1)
 
     completions <- list()
-    scope_symbols <- unique(xml_text(xml_find_all(enclosing_scopes, paste(
-        "FUNCTION/following-sibling::SYMBOL_FORMALS",
-        "forcond/SYMBOL",
-        "expr/LEFT_ASSIGN[not(following-sibling::expr/FUNCTION)]/preceding-sibling::expr[count(*)=1]/SYMBOL",
-        "expr/RIGHT_ASSIGN[not(preceding-sibling::expr/FUNCTION)]/following-sibling::expr[count(*)=1]/SYMBOL",
-        "equal_assign/EQ_ASSIGN[not(following-sibling::expr/FUNCTION)]/preceding-sibling::expr[count(*)=1]/SYMBOL",
-        sep = "|"))))
+    scope_symbols <- unique(xml_text(xml_find_all(enclosing_scopes, scope_completion_symbols_xpath)))
     scope_symbols <- scope_symbols[startsWith(scope_symbols, token)]
     completions <- c(completions, lapply(scope_symbols, function(symbol) {
         list(
@@ -181,11 +204,7 @@ scope_completion <- function(uri, workspace, token, point) {
         )
     }))
 
-    scope_functs <- unique(xml_text(xml_find_all(enclosing_scopes, paste(
-        "expr/LEFT_ASSIGN[following-sibling::expr/FUNCTION]/preceding-sibling::expr[count(*)=1]/SYMBOL",
-        "expr/RIGHT_ASSIGN[preceding-sibling::expr/FUNCTION]/following-sibling::expr[count(*)=1]/SYMBOL",
-        "equal_assign/EQ_ASSIGN[following-sibling::expr/FUNCTION]/preceding-sibling::expr[count(*)=1]/SYMBOL",
-        sep = "|"))))
+    scope_functs <- unique(xml_text(xml_find_all(enclosing_scopes, scope_completion_functs_xpath)))
     scope_functs <- scope_functs[startsWith(scope_functs, token)]
     completions <- c(completions, lapply(scope_functs, function(symbol) {
         list(
@@ -234,7 +253,9 @@ completion_reply <- function(id, uri, workspace, document, point) {
     if (nzchar(call_result$token)) {
         completions <- c(
             completions,
-            arg_completion(workspace, token, call_result$token, call_result$package))
+            arg_completion(workspace, token,
+                call_result$token, call_result$package,
+                exported_only = call_result$accessor != ":::"))
     }
 
     logger$info("completions: ", length(completions))
@@ -269,14 +290,15 @@ completion_item_resolve_reply <- function(id, workspace, params) {
                 resolved <- TRUE
             }
         } else if (params$data$type == "parameter") {
-            doc <- workspace$get_documentation(params$data$funct, params$data$package)
+            doc <- workspace$get_documentation(params$data$funct, params$data$package, isf = TRUE)
             doc_string <- doc$arguments[[params$label]]
             if (!is.null(doc_string)) {
                 params$documentation <- list(kind = "markdown", value = doc_string)
                 resolved <- TRUE
             }
         } else if (params$data$type %in% c("constant", "function", "nonfunction", "lazydata")) {
-            doc <- workspace$get_documentation(params$label, params$data$package)
+            doc <- workspace$get_documentation(params$label, params$data$package,
+                isf = params$data$type == "function")
             doc_string <- doc$description
             if (!is.null(doc_string)) {
                 params$documentation <- list(kind = "markdown", value = doc_string)
