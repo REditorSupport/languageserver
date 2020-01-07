@@ -50,6 +50,8 @@ These editors are supported by installing the corresponding package.
             :server-id 'lsp-R))
     ```
 
+- JupyterLab: [jupyterlab-lsp](https://github.com/krassowski/jupyterlab-lsp)
+
 ## Services Implemented
 
 `languageserver` is still under active development, the following services have been implemented:
