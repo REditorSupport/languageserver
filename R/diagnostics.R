@@ -75,6 +75,12 @@ diagnose_file <- function(path, content = NULL) {
         diagnostics <- lapply(
             lintr::lint(path, linters = linters), diagnostic_from_lint, content = content)
     } else {
+        if (is_rmarkdown(path)) {
+            # make sure Rmarkdown file has at least one block
+            if (!any(stringr::str_detect(content, "```\\{r[ ,\\}]"))) {
+                return(list())
+            }
+        }
         # use inline data
         text <- paste0(content, collapse = "\n")
         diagnostics <- lapply(

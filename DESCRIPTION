@@ -31,7 +31,6 @@ Imports:
 Suggests:
     covr,
     fs,
-    knitr,
     magrittr,
     mockery,
     processx,
