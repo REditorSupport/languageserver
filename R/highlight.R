@@ -32,9 +32,8 @@ document_highlight_reply <- function(id, uri, workspace, document, point) {
                         xpath <- glue(document_highlight_xpath, token_quote = token_quote)
                         tokens <- xml_find_all(xdoc, xpath)
                     }
-                } else if (token_name %in% c("SYMBOL_SUB", "SLOT")) {
-                    # ignore
-                } else {
+                } else if (token_name %in% c(
+                        "SYMBOL_PACKAGE", "FUNCTION", "NUM_CONST", "STR_CONST")) {
                     # highlight tokens with same name and text
                     xpath <- glue("//{token_name}[text()='{token_quote}']",
                         token_name = token_name, token_quote = token_quote)
