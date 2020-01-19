@@ -43,28 +43,31 @@ document_symbol_reply <- function(id, uri, workspace, document) {
             )
     })
 
+    section_symbols <- NULL
     section_lines <- seq_len(document$nline)
     section_lines <- section_lines[startsWith(document$content, "#")]
     section_lines <- section_lines[
         grep("^\\#+\\s*(.+)\\s*(\\#{4,}|\\+{4,}|\\-{4,}|\\={4,})\\s*$",
             document$content[section_lines])]
-    section_names <- trimws(gsub("^\\#+\\s*(.+)\\s*(\\#{4,}|\\+{4,}|\\-{4,}|\\={4,})\\s*$",
-        "\\1", document$content[section_lines]))
     logger$info("document sections found: ", length(section_lines))
-    section_end_lines <- c(section_lines[-1] - 1, document$nline)
-    section_symbols <- .mapply(function(name, start_line, end_line) {
-        symbol_information(
-            name = name,
-            kind = SymbolKind$String,
-            location = list(
-                uri = uri,
-                range = range(
-                    start = document$to_lsp_position(row = start_line - 1, col = 0),
-                    end = document$to_lsp_position(row = end_line - 1, col = nchar(document$line(end_line)))
+    if (length(section_lines)) {
+        section_names <- trimws(gsub("^\\#+\\s*(.+)\\s*(\\#{4,}|\\+{4,}|\\-{4,}|\\={4,})\\s*$",
+            "\\1", document$content[section_lines]))
+        section_end_lines <- c(section_lines[-1] - 1, document$nline)
+        section_symbols <- .mapply(function(name, start_line, end_line) {
+            symbol_information(
+                name = name,
+                kind = SymbolKind$String,
+                location = list(
+                    uri = uri,
+                    range = range(
+                        start = document$to_lsp_position(row = start_line - 1, col = 0),
+                        end = document$to_lsp_position(row = end_line - 1, col = nchar(document$line(end_line)))
+                    )
                 )
             )
-        )
-    }, list(section_names, section_lines, section_end_lines), NULL)
+        }, list(section_names, section_lines, section_end_lines), NULL)
+    }
 
     result <- c(definition_symbols, section_symbols)
 
