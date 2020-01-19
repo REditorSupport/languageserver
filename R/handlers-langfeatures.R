@@ -101,7 +101,8 @@ text_document_document_highlight  <- function(self, id, params) {
 text_document_document_symbol  <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
-    self$deliver(document_symbol_reply(id, uri, self$workspace))
+    document <- self$documents[[uri]]
+    self$deliver(document_symbol_reply(id, uri, self$workspace, document))
 }
 
 #' `textDocument/codeAction` request handler
