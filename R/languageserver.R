@@ -108,7 +108,11 @@ LanguageServer <- R6::R6Class("LanguageServer",
         },
 
         write_text = function(text) {
-            cat(text, file = self$outputcon)
+            if (.Platform$OS.type == "windows") {
+                writeLines(text, self$outputcon, sep = "", useBytes = TRUE)
+            } else  {
+                cat(text, file = self$outputcon)
+            }
         },
 
         read_line = function() {
