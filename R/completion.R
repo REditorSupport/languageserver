@@ -29,6 +29,11 @@ CompletionItemKind <- list(
     TypeParameter = 25
 )
 
+InsertTextFormat <- list(
+    PlainText = 1,
+    Snippet = 2
+)
+
 constants <- c("TRUE", "FALSE", "NULL",
     "NA", "NA_integer_", "NA_real_", "NA_complex_", "NA_character_",
     "Inf", "NaN")
@@ -66,9 +71,12 @@ arg_completion <- function(workspace, token, funct, package = NULL, exported_onl
         if (is.character(args)) {
             token_args <- args[startsWith(args, token)]
             completions <- lapply(token_args, function(arg) {
-                list(label = arg, kind = CompletionItemKind$Variable,
+                list(label = arg,
+                    kind = CompletionItemKind$Variable,
                     detail = "parameter",
                     preselect = TRUE,
+                    insertText = paste0(arg, " = "),
+                    insertTextFormat = InsertTextFormat$PlainText,
                     data = list(
                         type = "parameter",
                         funct = funct,
@@ -107,6 +115,8 @@ workspace_completion <- function(workspace, token, package = NULL, exported_only
                 list(label = object,
                      kind = CompletionItemKind$Function,
                      detail = tag,
+                     insertText = paste0(object, "($0)"),
+                     insertTextFormat = InsertTextFormat$Snippet,
                      data = list(
                          type = "function",
                          package = nsname
@@ -146,6 +156,8 @@ workspace_completion <- function(workspace, token, package = NULL, exported_only
                 list(label = object,
                      kind = CompletionItemKind$Function,
                      detail = tag,
+                     insertText = paste0(object, "($0)"),
+                     insertTextFormat = InsertTextFormat$Snippet,
                      data = list(
                          type = "function",
                          package = package
@@ -210,7 +222,9 @@ scope_completion <- function(uri, workspace, token, point) {
         list(
             label = symbol,
             kind = CompletionItemKind$Function,
-            detail = "[scope]"
+            detail = "[scope]",
+            insertText = paste0(symbol, "($0)"),
+            insertTextFormat = InsertTextFormat$Snippet
         )
     }))
 
