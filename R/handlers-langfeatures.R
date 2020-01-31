@@ -134,7 +134,32 @@ code_lens_resolve  <- function(self, id, params) {
 #' Handler to the `textDocument/documentLink` [Request].
 #' @keywords internal
 text_document_document_link  <- function(self, id, params) {
-
+    xdoc <- self$workspace$get_xml_doc(params$textDocument$uri)
+    if (!is.null(xdoc)) {
+        str_tokens <- xml_find_all(xdoc, "//STR_CONST[@line1=@line2 and @col2 > @col1 + 1]")
+        str_texts <- xml_text(str_tokens)
+        str_texts <- substr(str_texts, 2, nchar(str_texts) - 1)
+        paths <- file.path(self$rootPath, str_texts)
+        sel <- file.exists(paths)
+        str_tokens <- str_tokens[sel]
+        str_texts <- str_texts[sel]
+        str_line1 <- as.integer(xml_attr(str_tokens, "line1"))
+        str_col1 <- as.integer(xml_attr(str_tokens, "col1"))
+        str_col2 <- as.integer(xml_attr(str_tokens, "col2"))
+        uris <- file.path(self$rootUri, str_texts)
+        links <- .mapply(function(line, col1, col2, uri) {
+            list(
+                range = range(
+                    start = position(line - 1, col1),
+                    end = position(line - 1, col2 - 1)
+                ),
+                target = uri
+            )
+        }, list(str_line1, str_col1, str_col2, uris), NULL)
+        self$deliver(Response$new(id, result = links))
+    } else {
+        self$deliver(Response$new(id))
+    }
 }
 
 #' `documentLink/resolve` request handler

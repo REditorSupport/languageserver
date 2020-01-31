@@ -58,9 +58,9 @@ ServerCapabilities <- list(
     # codeLensProvider = CodeLensOptions,
     documentFormattingProvider = TRUE,
     documentRangeFormattingProvider = TRUE,
-    documentOnTypeFormattingProvider = DocumentOnTypeFormattingOptions
+    documentOnTypeFormattingProvider = DocumentOnTypeFormattingOptions,
     # renameProvider = FALSE,
-    # documentLinkProvider = DocumentLinkOptions,
+    documentLinkProvider = DocumentLinkOptions
     # colorProvider = FALSE,
     # foldingRangeProvider = FALSE,
     # executeCommandProvider = ExecuteCommandOptions,

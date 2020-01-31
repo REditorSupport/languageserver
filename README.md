@@ -67,7 +67,7 @@ These editors are supported by installing the corresponding package.
 - [x] documentRangeFormattingProvider
 - [x] documentOnTypeFormattingProvider
 - [ ] renameProvider
-- [ ] documentLinkProvider
+- [x] documentLinkProvider
 - [ ] executeCommandProvider
 
 ## Settings
