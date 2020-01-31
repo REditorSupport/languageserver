@@ -179,6 +179,7 @@ LanguageServer$set("public", "register_handlers", function() {
         `textDocument/onTypeFormatting` = text_document_on_type_formatting,
         `textDocument/documentSymbol` = text_document_document_symbol,
         `textDocument/documentHighlight` = text_document_document_highlight,
+        `textDocument/documentLink` = text_document_document_link,
         `workspace/symbol` = workspace_symbol
     )
 
