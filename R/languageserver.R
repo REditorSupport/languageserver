@@ -205,6 +205,7 @@ LanguageServer$set("public", "register_handlers", function() {
         `textDocument/documentLink` = text_document_document_link,
         `textDocument/documentColor` = text_document_document_color,
         `textDocument/colorPresentation` = text_document_color_presentation,
+        `textDocument/foldingRange` = text_document_folding_range,
         `workspace/symbol` = workspace_symbol
     )
 
