@@ -4,7 +4,7 @@
 document_link_reply <- function(id, uri, workspace, document, rootPath, rootUri) {
     result <- NULL
 
-    xdoc <- workspace$get_xml_doc(uri)
+    xdoc <- workspace$get_parse_data(uri)$xml_doc
     if (!is.null(xdoc)) {
         str_tokens <- xml_find_all(xdoc, "//STR_CONST[@line1=@line2 and @col2 > @col1 + 1]")
         str_texts <- xml_text(str_tokens)

@@ -2,19 +2,22 @@ Document <- R6::R6Class(
     "Document",
     public = list(
         uri = NULL,
+        version = 0,
         nline = 0,
         content = NULL,
         is_rmarkdown = NULL,
 
-        initialize = function(uri, content = NULL) {
+        initialize = function(uri, version, content = NULL) {
             self$uri <- uri
+            self$version <- version
             self$is_rmarkdown <- is_rmarkdown(self$uri)
             if (!is.null(content)) {
-                self$set(content)
+                self$set(version, content)
             }
         },
 
-        set = function(content) {
+        set = function(version, content) {
+            self$version <- version
             # remove last empty line
             nline <- length(content)
             if (nline > 0L && !nzchar(content[nline])) {
@@ -275,14 +278,14 @@ parse_document <- function(path, content = NULL, resolve = FALSE) {
 }
 
 
-parse_callback <- function(self, uri, parse_data) {
+parse_callback <- function(self, uri, version, parse_data) {
     if (is.null(parse_data)) return(NULL)
-    logger$info("parse_callback called")
+    logger$info("parse_callback called:", list(uri = uri, version = version))
+    parse_data$version <- version
     self$workspace$update_parse_data(uri, parse_data)
 }
 
-
-parse_task <- function(self, uri, document, resolve = FALSE) {
+parse_task <- function(self, uri, version, document, resolve = FALSE) {
     if (is.null(document)) {
         content <- NULL
     } else {
@@ -291,5 +294,5 @@ parse_task <- function(self, uri, document, resolve = FALSE) {
     create_task(
         parse_document,
         list(path = path_from_uri(uri), content = content, resolve = resolve),
-        callback = function(result) parse_callback(self, uri, result))
+        callback = function(result) parse_callback(self, uri, version, result))
 }

@@ -11,7 +11,7 @@ document_highlight_xpath <- "//*[(self::SYMBOL or self::SYMBOL_FUNCTION_CALL or 
 #' @keywords internal
 document_highlight_reply <- function(id, uri, workspace, document, point) {
     result <- NULL
-    xdoc <- workspace$get_xml_doc(uri)
+    xdoc <- workspace$get_parse_data(uri)$xml_doc
     if (!is.null(xdoc)) {
         row <- point$row + 1
         col <- point$col + 1

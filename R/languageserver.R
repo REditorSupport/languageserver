@@ -76,22 +76,22 @@ LanguageServer <- R6::R6Class("LanguageServer",
         },
 
         text_sync = function(
-                uri, document = NULL, run_lintr = FALSE, parse = FALSE, resolve = FALSE) {
+                uri, version, document = NULL, run_lintr = FALSE, parse = FALSE, resolve = FALSE) {
             if (run_lintr && self$run_lintr) {
                 self$diagnostics_task_manager$add_task(
                     uri,
-                    diagnostics_task(self, uri, document)
+                    diagnostics_task(self, uri, version, document)
                 )
             }
             if (resolve) {
                 self$resolve_task_manager$add_task(
                     uri,
-                    parse_task(self, uri, document, resolve = TRUE)
+                    parse_task(self, uri, version, document, resolve = TRUE)
                 )
             } else if (parse) {
                 self$parse_task_manager$add_task(
                     uri,
-                    parse_task(self, uri, document, resolve = FALSE)
+                    parse_task(self, uri, version, document, resolve = FALSE)
                 )
             }
         },

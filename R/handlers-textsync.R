@@ -5,13 +5,15 @@
 text_document_did_open <- function(self, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
+    version <- textDocument$version
+    logger$info("did open:", list(uri = uri, version = version))
     content <- readr::read_lines(path_from_uri(uri))
     if (is.null(self$documents[[uri]])) {
-        self$documents[[uri]] <- Document$new(uri, content)
+        self$documents[[uri]] <- Document$new(uri, version, content)
     } else {
-        self$documents[[uri]]$set(content)
+        self$documents[[uri]]$set(version, content)
     }
-    self$text_sync(uri, document = NULL, run_lintr = TRUE, parse = TRUE, resolve = TRUE)
+    self$text_sync(uri, version = version, document = NULL, run_lintr = TRUE, parse = TRUE, resolve = TRUE)
 }
 
 #' `textDocument/didChange` notification handler
@@ -23,16 +25,17 @@ text_document_did_change <- function(self, params) {
     contentChanges <- params$contentChanges
     text <- contentChanges[[1]]$text
     uri <- textDocument$uri
-    logger$info("did change: ", uri)
+    version <- textDocument$version
+    logger$info("did change:", list(uri = uri, version = version))
     content <- stringr::str_split(text, "\r\n|\n")[[1]]
     if (is.null(self$documents[[uri]])) {
-        doc <- Document$new(uri, content)
+        doc <- Document$new(uri, version, content)
         self$documents[[uri]] <- doc
     } else {
-        self$documents[[uri]]$set(content)
+        self$documents[[uri]]$set(version, content)
         doc <- self$documents[[uri]]
     }
-    self$text_sync(uri, document = doc, run_lintr = TRUE, parse = TRUE, resolve = FALSE)
+    self$text_sync(uri, version = version, document = doc, run_lintr = TRUE, parse = TRUE, resolve = FALSE)
 }
 
 #' `textDocument/willSave` notification handler
@@ -50,10 +53,11 @@ text_document_will_save <- function(self, params) {
 text_document_did_save <- function(self, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
-    logger$info("did save:", uri)
+    version <- textDocument$version
+    logger$info("did save:", list(uri = uri, version = version))
     content <- readr::read_lines(path_from_uri(uri))
-    self$documents[[uri]] <- Document$new(uri, content)
-    self$text_sync(uri, document = NULL, run_lintr = TRUE, parse = TRUE, resolve = TRUE)
+    self$documents[[uri]] <- Document$new(uri, version, content)
+    self$text_sync(uri, version = version, document = NULL, run_lintr = TRUE, parse = TRUE, resolve = TRUE)
 }
 
 #' `textDocument/didClose` notification handler

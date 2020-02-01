@@ -197,7 +197,7 @@ scope_completion_functs_xpath <- paste(
     sep = "|")
 
 scope_completion <- function(uri, workspace, token, point) {
-    xdoc <- workspace$get_xml_doc(uri)
+    xdoc <- workspace$get_parse_data(uri)$xml_doc
     if (is.null(xdoc)) {
         return(list())
     }

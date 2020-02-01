@@ -29,7 +29,11 @@ hover_reply <- function(id, uri, workspace, document, point) {
         exported_only = token_result$accessor != ":::")
     contents <- NULL
     resolved <- FALSE
-    xdoc <- workspace$get_xml_doc(uri)
+
+    version <- workspace$get_parse_data(uri)$version
+    logger$info("hover:", list(uri = uri, version = version))
+
+    xdoc <- workspace$get_parse_data(uri)$xml_doc
 
     if (token_result$accessor == "" && !is.null(xdoc)) {
         row <- point$row + 1

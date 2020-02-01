@@ -91,9 +91,9 @@ diagnose_file <- function(path, content = NULL) {
 }
 
 
-diagnostics_callback <- function(self, uri, diagnostics) {
+diagnostics_callback <- function(self, uri, version, diagnostics) {
     if (is.null(diagnostics)) return(NULL)
-    logger$info("diagnostics_callback called")
+    logger$info("diagnostics_callback called:", list(uri = uri, version = version))
     self$deliver(
         Notification$new(
             method = "textDocument/publishDiagnostics",
@@ -106,7 +106,7 @@ diagnostics_callback <- function(self, uri, diagnostics) {
 }
 
 
-diagnostics_task <- function(self, uri, document) {
+diagnostics_task <- function(self, uri, version, document) {
     if (is.null(document)) {
         content <- NULL
     } else {
@@ -115,5 +115,5 @@ diagnostics_task <- function(self, uri, document) {
     create_task(
         diagnose_file,
         list(path = path_from_uri(uri), content = content),
-        callback = function(result) diagnostics_callback(self, uri, result))
+        callback = function(result) diagnostics_callback(self, uri, version, result))
 }
