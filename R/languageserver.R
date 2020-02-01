@@ -118,7 +118,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
         read_line = function() {
             if (self$tcp) {
                 if (socketSelect(list(self$inputcon), timeout = 0)) {
-                    readLines(self$inputcon, n = 1)
+                    readLines(self$inputcon, n = 1, encoding = "UTF-8")
                 } else {
                     character(0)
                 }
@@ -129,7 +129,9 @@ LanguageServer <- R6::R6Class("LanguageServer",
 
         read_char = function(n) {
             if (self$tcp) {
-                readChar(self$inputcon, n, useBytes = TRUE)
+                out <- readChar(self$inputcon, n, useBytes = TRUE)
+                Encoding(out) <- "UTF-8"
+                out
             } else {
                 stdin_read_char(n)
             }
