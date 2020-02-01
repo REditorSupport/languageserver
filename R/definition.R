@@ -19,7 +19,7 @@ definition_reply <- function(id, uri, workspace, document, point) {
     resolved <- FALSE
     result <- NULL
 
-    xdoc <- workspace$get_xml_doc(uri)
+    xdoc <- workspace$get_parse_data(uri)$xml_doc
     if (token_result$accessor == "" && !is.null(xdoc)) {
         row <- point$row + 1
         col <- point$col + 1

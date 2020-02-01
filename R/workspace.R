@@ -194,8 +194,8 @@ Workspace <- R6::R6Class("Workspace",
             private$definition_cache$filter(query)
         },
 
-        get_xml_doc = function(uri) {
-            private$parse_data[[uri]]$xml_doc
+        get_parse_data = function(uri) {
+            private$parse_data[[uri]]
         },
 
         update_parse_data = function(uri, parse_data) {
