@@ -102,7 +102,8 @@ text_document_document_symbol  <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
     document <- self$documents[[uri]]
-    self$deliver(document_symbol_reply(id, uri, self$workspace, document))
+    self$deliver(document_symbol_reply(id, uri, self$workspace, document,
+        self$ClientCapabilities$textDocument$documentSymbol))
 }
 
 #' `textDocument/codeAction` request handler
