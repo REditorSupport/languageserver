@@ -119,6 +119,7 @@ LanguageBase <- R6::R6Class("LanguageBase",
             )
             if (inherits(payload, "error")) {
                 logger$error("error handling json: ", payload)
+                logger$error("traceback:", as.list(traceback()))
                 return(NULL)
             }
             pl_names <- names(payload)
@@ -145,7 +146,8 @@ LanguageBase <- R6::R6Class("LanguageBase",
                     dispatch(self, id, params)
                 },
                 error = function(e) {
-                    logger$info("internal error: ", e)
+                    logger$info("internal error:", e)
+                    logger$info("traceback:", as.list(traceback()))
                     self$deliver(ResponseErrorMessage$new(id, "InternalError", to_string(e)))
                 }
                 )
@@ -167,7 +169,8 @@ LanguageBase <- R6::R6Class("LanguageBase",
                     dispatch(self, params)
                 },
                 error = function(e) {
-                    logger$info("internal error: ", e)
+                    logger$info("internal error:", e)
+                    logger$info("traceback:", as.list(traceback()))
                 }
                 )
             } else {
@@ -182,7 +185,8 @@ LanguageBase <- R6::R6Class("LanguageBase",
                 error = function(e) NULL
             )
             if ("error" %in% names(response)) {
-                logger$info("got an error: ", response$error)
+                logger$info("internal error:", response$error)
+                logger$info("traceback:", as.list(traceback()))
             } else if (!is.null(callback)) {
                 logger$info("calling callback")
                 if (self$catch_callback_error) {
