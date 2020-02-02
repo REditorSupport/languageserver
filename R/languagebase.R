@@ -114,7 +114,8 @@ LanguageBase <- R6::R6Class("LanguageBase",
 
         handle_raw = function(data) {
             payload <- tryCatchStack(
-                jsonlite::fromJSON(data, simplifyVector = FALSE)
+                jsonlite::fromJSON(data, simplifyVector = FALSE),
+                error = function(e) e
             )
             if (inherits(payload, "error")) {
                 logger$error("error handling json: ", payload)

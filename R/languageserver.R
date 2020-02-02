@@ -151,7 +151,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                         next
                     }
                     self$handle_raw(data)
-                }, error = identity)
+                }, error = function(e) e)
                 if (inherits(ret, "error")) {
                     logger$error(ret)
                     logger$error("exiting")
