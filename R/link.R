@@ -1,7 +1,7 @@
 #' The response to a textDocument/documentLink Request
 #'
 #' @keywords internal
-document_link_reply <- function(id, uri, workspace, document, rootPath, rootUri) {
+document_link_reply <- function(id, uri, workspace, document, rootUri) {
     result <- NULL
 
     xdoc <- workspace$get_parse_data(uri)$xml_doc
@@ -11,9 +11,10 @@ document_link_reply <- function(id, uri, workspace, document, rootPath, rootUri)
         str_texts <- substr(str_texts, 2, nchar(str_texts) - 1)
         is_abs_path <- grepl("^(~|/+|[A-Za-z]:)", str_texts)
 
+        root_path <- path_from_uri(rootUri)
         paths <- str_texts
         paths[is_abs_path] <- normalizePath(str_texts[is_abs_path], "/", mustWork = FALSE)
-        paths[!is_abs_path] <- file.path(rootPath, str_texts[!is_abs_path])
+        paths[!is_abs_path] <- file.path(root_path, str_texts[!is_abs_path])
 
         sel <- file.exists(paths) & !dir.exists(paths)
         str_tokens <- str_tokens[sel]
@@ -22,7 +23,7 @@ document_link_reply <- function(id, uri, workspace, document, rootPath, rootUri)
         is_abs_path <- is_abs_path[sel]
 
         uris <- paths
-        uris[is_abs_path] <- paste0("file://", paths[is_abs_path])
+        uris[is_abs_path] <- path_to_uri(paths[is_abs_path])
         uris[!is_abs_path] <- file.path(rootUri, str_texts[!is_abs_path])
 
         str_line1 <- as.integer(xml_attr(str_tokens, "line1"))
