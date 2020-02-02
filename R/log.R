@@ -8,20 +8,18 @@ to_string <- function(...) {
     if (length(dots) > 0) {
         str <- vapply(
             dots, function(x) {
-                if (is.atomic(x) || is.list(x)) {
+                if (inherits(x, "error")) {
+                    capture_print(x)
+                } else if (is.atomic(x) || is.list(x)) {
                     if (is.list(x) || length(x) > 1) {
-                        tryCatch(jsonlite::toJSON(x, auto_unbox = TRUE, force = TRUE),
-                            error = function(e) {
-                                paste0(e$message, utils::capture.output(print(x)), collapse = "\n")
-                            }
-                        )
+                        jsonlite::toJSON(x, auto_unbox = TRUE, force = TRUE, pretty = TRUE)
                     } else if (length(x) == 1) {
                         as.character(x)
                     } else {
                         ""
                     }
                 } else {
-                    paste0(utils::capture.output(print(x)), collapse = "\n")
+                    capture_print(x)
                 }
             }, character(1L), USE.NAMES = FALSE
         )
