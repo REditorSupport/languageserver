@@ -10,8 +10,8 @@ merge_list <- function(x, y) {
 #' Paths and uris
 #' @keywords internal
 path_from_uri <- function(uri) {
-    if (is.null(uri)) {
-        return(NULL)
+    if (length(uri) == 0) {
+        return(character())
     }
     start_char <- if (.Platform$OS.type == "windows") 9 else 8
     utils::URLdecode(substr(uri, start_char, nchar(uri)))
@@ -21,8 +21,8 @@ path_from_uri <- function(uri) {
 #' @keywords internal
 #' @rdname path_from_uri
 path_to_uri <- function(path) {
-    if (is.null(path)) {
-        return(NULL)
+    if (length(path) == 0) {
+        return(character())
     }
     prefix <- if (.Platform$OS.type == "windows") "file:///" else "file://"
     paste0(prefix, utils::URLencode(path))
