@@ -4,7 +4,7 @@
 \alias{document_symbol_reply}
 \title{Get all the symbols in the document}
 \usage{
-document_symbol_reply(id, uri, workspace)
+document_symbol_reply(id, uri, workspace, document, capabilities)
 }
 \description{
 Get all the symbols in the document
