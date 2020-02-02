@@ -137,7 +137,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
 
         run = function() {
             while (TRUE) {
-                ret <- try({
+                ret <- tryCatchStack({
                     if (isTRUE(self$exit_flag)) {
                         logger$info("exiting")
                         break
@@ -151,12 +151,9 @@ LanguageServer <- R6::R6Class("LanguageServer",
                         next
                     }
                     self$handle_raw(data)
-                },
-                silent = TRUE
-                )
-                if (inherits(ret, "try-error")) {
+                }, error = identity)
+                if (inherits(ret, "error")) {
                     logger$error(ret)
-                    logger$error(as.list(traceback()))
                     logger$error("exiting")
                     break
                 }

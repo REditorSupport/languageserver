@@ -6,6 +6,22 @@ merge_list <- function(x, y) {
   x
 }
 
+#' tryCatch with stack captured
+#'
+#' @keywords internal
+tryCatchStack <- function(expr, ...) {
+  expr <- substitute(expr)
+  env <- parent.frame()
+  capture_calls <- function(e) {
+    calls <- sys.calls()
+    ncalls <- length(calls)
+    e$calls <- c(calls[-c(seq_len(frame + 7), ncalls - 1, ncalls)], e$call)
+    e$calls <- lapply(e$calls, deparse)
+    signalCondition(e)
+  }
+  frame <- sys.nframe()
+  tryCatch(withCallingHandlers(eval(expr, env), error = capture_calls), ...)
+}
 
 #' Paths and uris
 #' @keywords internal
