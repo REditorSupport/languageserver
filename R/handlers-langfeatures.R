@@ -139,8 +139,7 @@ text_document_document_link  <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
     document <- self$documents[[uri]]
-    self$deliver(document_link_reply(id, uri, self$workspace,
-        document, self$rootPath, self$rootUri))
+    self$deliver(document_link_reply(id, uri, self$workspace, document, self$rootUri))
 }
 
 #' `documentLink/resolve` request handler
