@@ -27,7 +27,7 @@ SEXP stdin_read_char(SEXP _n) {
         if (bytes_avail > 0) {
             ReadFile(h, buf, n, &bytes_read, NULL);
             buf[bytes_read] = '\0';
-            return Rf_mkString(buf);
+            return Rf_ScalarString(Rf_mkCharCE(buf, CE_UTF8));
         }
         return Rf_allocVector(STRSXP, 0);
     } else {
@@ -57,7 +57,7 @@ SEXP stdin_read_line() {
                             buf[bufpos - 1] = '\0';
                         }
                         bufpos = 0;
-                        return Rf_mkString(buf);
+                        return Rf_ScalarString(Rf_mkCharCE(buf, CE_UTF8));
                     }
                     bufpos++;
                     if (bufpos >= bufsize) {
@@ -103,7 +103,7 @@ SEXP stdin_read_char(SEXP _n) {
     if (bytes_read == 0) {
         return Rf_allocVector(STRSXP, 0);
     } else {
-        return Rf_mkString(buf);
+        return Rf_ScalarString(Rf_mkCharCE(buf, CE_UTF8));
     }
 }
 
@@ -122,7 +122,7 @@ SEXP stdin_read_line() {
                 buf[bufpos - 1] = '\0';
             }
             bufpos = 0;
-            return Rf_mkString(buf);
+            return Rf_ScalarString(Rf_mkCharCE(buf, CE_UTF8));
         }
         bufpos++;
         if (bufpos >= bufsize) {
