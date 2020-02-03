@@ -3,8 +3,15 @@ Package: languageserver
 Title: Language Server Protocol
 Version: 0.3.3
 Date: 2019-12-20
-Author: Randy Lai
-Maintainer: Randy Lai <randy.cs.lai@gmail.com>
+Authors@R: 
+    c(person(given = "Randy",
+             family = "Lai",
+             role = c("aut", "cre"),
+             email = "randy.cs.lai@gmail.com"),
+      person(given = "Kun",
+             family = "Ren",
+             role = "ctb",
+             email = "mail@renkun.me"))
 Description: An implementation of the Language Server Protocol for R. The
     Language Server protocol is used by an editor client to integrate
     features like auto completion. See
