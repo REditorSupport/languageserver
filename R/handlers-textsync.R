@@ -13,6 +13,10 @@ text_document_did_open <- function(self, params) {
     } else {
         self$documents[[uri]]$set(version, content)
     }
+    self$pending_replies[[uri]] <- list(
+        `textDocument/documentSymbol` = collections::Queue(),
+        `textDocument/documentLink` = collections::Queue()
+    )
     self$text_sync(uri, version = version, document = NULL, run_lintr = TRUE, parse = TRUE, resolve = TRUE)
 }
 
@@ -68,6 +72,7 @@ text_document_did_close <- function(self, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
     rm(list = uri, envir = self$documents)
+    rm(list = uri, envir = self$pending_replies)
 }
 
 #' `textDocument/willSaveWaitUntil` notification handler

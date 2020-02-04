@@ -32,7 +32,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
         parse_task_manager = NULL,
         resolve_task_manager = NULL,
 
-        reply_queue = NULL,
+        pending_replies = new.env(parent = .GlobalEnv),
 
         initialize = function(host, port) {
             if (is.null(port)) {
