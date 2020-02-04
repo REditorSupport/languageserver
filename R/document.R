@@ -283,6 +283,24 @@ parse_callback <- function(self, uri, version, parse_data) {
     logger$info("parse_callback called:", list(uri = uri, version = version))
     parse_data$version <- version
     self$workspace$update_parse_data(uri, parse_data)
+
+    pending_replies <- self$pending_replies[[uri]]
+    for (name in names(pending_replies)) {
+        queue <- pending_replies[[name]]
+        handler <- self$request_handlers[[name]]
+        while (queue$size()) {
+            item <- queue$peek()
+            if (item$version < version) {
+                self$deliver(Response$new(item$id))
+                queue$pop()
+            } else if (item$version == version) {
+                handler(self, item$id, item$params)
+                queue$pop()
+            } else {
+                break
+            }
+        }
+    }
 }
 
 parse_task <- function(self, uri, version, document, resolve = FALSE) {

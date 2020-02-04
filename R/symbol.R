@@ -32,6 +32,11 @@ SymbolKind <- list(
 #' Get all the symbols in the document
 #' @keywords internal
 document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
+    parse_data <- workspace$get_parse_data(uri)
+    if (is.null(parse_data) || parse_data$version != document$version) {
+        return(NULL)
+    }
+
     defns <- workspace$get_definitions_for_uri(uri)
     logger$info("document definitions found: ", length(defns))
     definition_symbols <- lapply(names(defns),

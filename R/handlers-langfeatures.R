@@ -102,8 +102,18 @@ text_document_document_symbol  <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
     document <- self$documents[[uri]]
-    self$deliver(document_symbol_reply(id, uri, self$workspace, document,
-        self$ClientCapabilities$textDocument$documentSymbol))
+    reply <- document_symbol_reply(id, uri, self$workspace, document,
+        self$ClientCapabilities$textDocument$documentSymbol)
+    if (is.null(reply)) {
+        queue <- self$pending_replies[[uri]][["textDocument/documentSymbol"]]
+        queue$push(list(
+            id = id,
+            version = document$version,
+            params = params
+        ))
+    } else {
+        self$deliver(reply)
+    }
 }
 
 #' `textDocument/codeAction` request handler
@@ -139,7 +149,17 @@ text_document_document_link  <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
     document <- self$documents[[uri]]
-    self$deliver(document_link_reply(id, uri, self$workspace, document, self$rootUri))
+    reply <- document_link_reply(id, uri, self$workspace, document, self$rootUri)
+    if (is.null(reply)) {
+        queue <- self$pending_replies[[uri]][["textDocument/documentLink"]]
+        queue$push(list(
+            id = id,
+            version = document$version,
+            params = params
+        ))
+    } else {
+        self$deliver(reply)
+    }
 }
 
 #' `documentLink/resolve` request handler
