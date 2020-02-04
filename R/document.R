@@ -248,6 +248,9 @@ parse_document <- function(path, content = NULL, resolve = FALSE) {
     if (is.null(content)) {
         content <- readr::read_lines(path)
     }
+    if (length(content) == 0) {
+        content <- ""
+    }
     if (is_rmarkdown(path)) {
         content <- purl(content)
     }
@@ -294,5 +297,6 @@ parse_task <- function(self, uri, version, document, resolve = FALSE) {
     create_task(
         parse_document,
         list(path = path_from_uri(uri), content = content, resolve = resolve),
-        callback = function(result) parse_callback(self, uri, version, result))
+        callback = function(result) parse_callback(self, uri, version, result),
+        error = function(e) logger$info("parse_task:", e))
 }

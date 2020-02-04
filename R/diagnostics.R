@@ -115,5 +115,6 @@ diagnostics_task <- function(self, uri, version, document) {
     create_task(
         diagnose_file,
         list(path = path_from_uri(uri), content = content),
-        callback = function(result) diagnostics_callback(self, uri, version, result))
+        callback = function(result) diagnostics_callback(self, uri, version, result),
+        error = function(e) logger$info("diagnostics_task:", e))
 }
