@@ -17,7 +17,7 @@ LanguageClient <- R6::R6Class("LanguageClient",
                 self$process <- processx::process$new(cmd, args,
                     stdin = "|", stdout = "|", supervise = TRUE)
             }
-            self$diagnostics <- collections::DictL()
+            self$diagnostics <- collections::Dict()
             super$initialize()
         },
 

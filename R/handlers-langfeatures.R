@@ -105,7 +105,7 @@ text_document_document_symbol  <- function(self, id, params) {
     reply <- document_symbol_reply(id, uri, self$workspace, document,
         self$ClientCapabilities$textDocument$documentSymbol)
     if (is.null(reply)) {
-        queue <- self$pending_replies[[uri]][["textDocument/documentSymbol"]]
+        queue <- self$pending_replies$get(uri)[["textDocument/documentSymbol"]]
         queue$push(list(
             id = id,
             version = document$version,
@@ -151,7 +151,7 @@ text_document_document_link  <- function(self, id, params) {
     document <- self$documents[[uri]]
     reply <- document_link_reply(id, uri, self$workspace, document, self$rootUri)
     if (is.null(reply)) {
-        queue <- self$pending_replies[[uri]][["textDocument/documentLink"]]
+        queue <- self$pending_replies$get(uri)[["textDocument/documentLink"]]
         queue$push(list(
             id = id,
             version = document$version,

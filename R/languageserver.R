@@ -17,7 +17,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
         outputcon = NULL,
         exit_flag = NULL,
 
-        documents = new.env(parent = .GlobalEnv),
+        documents = NULL,
         workspace = NULL,
 
         run_lintr = TRUE,
@@ -32,7 +32,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
         parse_task_manager = NULL,
         resolve_task_manager = NULL,
 
-        pending_replies = new.env(parent = .GlobalEnv),
+        pending_replies = NULL,
 
         initialize = function(host, port) {
             if (is.null(port)) {
@@ -52,11 +52,14 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$inputcon <- inputcon
             self$outputcon <- outputcon
 
+            self$document <- new.env(parent = .GlobalEnv)
             self$workspace <- Workspace$new()
 
             self$diagnostics_task_manager <- TaskManager$new()
             self$parse_task_manager <- TaskManager$new()
             self$resolve_task_manager <- TaskManager$new()
+
+            self$pending_replies <- collections::Dict()
 
             super$initialize()
         },
@@ -77,6 +80,14 @@ LanguageServer <- R6::R6Class("LanguageServer",
 
         text_sync = function(
                 uri, version, document = NULL, run_lintr = FALSE, parse = FALSE, resolve = FALSE) {
+
+            if (!self$pending_replies$has(uri)) {
+                self$pending_replies$set(uri, list(
+                    `textDocument/documentSymbol` = collections::Queue(),
+                    `textDocument/documentLink` = collections::Queue()
+                ))
+            }
+
             if (run_lintr && self$run_lintr) {
                 self$diagnostics_task_manager$add_task(
                     uri,
