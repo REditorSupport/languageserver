@@ -104,32 +104,32 @@ get_rmd_document_section_symbols <- function(uri, document) {
         }
     }
 
-    title_lines <- grepl("^#+\\s+\\S+", content)
+    section_lines <- grepl("^#+\\s+\\S+", content)
     for (i in seq_len(length(block_lines) / 2)) {
-        title_lines[seq.int(block_lines[[2 * i - 1]], block_lines[[2 * i]])] <- FALSE
+        section_lines[seq.int(block_lines[[2 * i - 1]], block_lines[[2 * i]])] <- FALSE
     }
 
-    title_lines <- which(title_lines)
-    ntitles <- length(title_lines)
-    title_texts <- content[title_lines]
-    title_hashes <- gsub("^(#+)\\s+.+$", "\\1", title_texts)
-    title_levels <- nchar(title_hashes)
-    title_names <- gsub("^#+\\s+(.+)$", "\\1", title_texts)
+    section_lines <- which(section_lines)
+    section_num <- length(section_lines)
+    section_texts <- content[section_lines]
+    section_hashes <- gsub("^(#+)\\s+.+$", "\\1", section_texts)
+    section_levels <- nchar(section_hashes)
+    section_names <- gsub("^#+\\s+(.+)$", "\\1", section_texts)
 
-    title_symbols <- lapply(seq_len(ntitles), function(i) {
-        start_line <- title_lines[[i]]
+    section_symbols <- lapply(seq_len(section_num), function(i) {
+        start_line <- section_lines[[i]]
         end_line <- document$nline
-        level <- title_levels[[i]]
+        level <- section_levels[[i]]
         j <- i + 1
-        while (j <= ntitles) {
-            if (title_levels[[j]] <= level) {
-                end_line <- title_lines[[j]] - 1
+        while (j <= section_num) {
+            if (section_levels[[j]] <= level) {
+                end_line <- section_lines[[j]] - 1
                 break
             }
             j <- j + 1
         }
         symbol_information(
-            name = title_names[[i]],
+            name = section_names[[i]],
             kind = SymbolKind$String,
             location = list(
                 uri = uri,
@@ -141,7 +141,7 @@ get_rmd_document_section_symbols <- function(uri, document) {
         )
     })
 
-    title_symbols
+    section_symbols
 }
 
 get_document_section_symbols <- function(uri, document) {
