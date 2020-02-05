@@ -22,7 +22,7 @@ Depends:
     R (>= 3.4.0)
 Imports:
     callr (>= 3.0.0),
-    collections (>= 0.2.0),
+    collections (>= 0.2.3),
     desc (>= 1.2.0),
     jsonlite (>= 1.6),
     lintr (>= 2.0.0),
