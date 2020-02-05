@@ -5,7 +5,8 @@ document_link_reply <- function(id, uri, workspace, document, rootUri) {
     result <- NULL
 
     parse_data <- workspace$get_parse_data(uri)
-    if (is.null(parse_data) || parse_data$version != document$version) {
+    if (is.null(parse_data) ||
+            (!is.null(parse_data$version) && parse_data$version != document$version)) {
         return(NULL)
     }
 

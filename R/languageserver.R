@@ -52,7 +52,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$inputcon <- inputcon
             self$outputcon <- outputcon
 
-            self$document <- new.env(parent = .GlobalEnv)
+            self$documents <- new.env(parent = .GlobalEnv)
             self$workspace <- Workspace$new()
 
             self$diagnostics_task_manager <- TaskManager$new()
