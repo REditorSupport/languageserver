@@ -28,6 +28,65 @@ SymbolKind <- list(
     TypeParameter = 26
 )
 
+get_r_document_section_symbols <- function(document) {
+    section_symbols <- NULL
+    section_lines <- seq_len(document$nline)
+    section_lines <- section_lines[
+        grep("^\\#+\\s*(.+)\\s*(\\#{4,}|\\+{4,}|\\-{4,}|\\={4,})\\s*$",
+            document$content[section_lines])]
+    logger$info("document sections found: ", length(section_lines))
+    if (length(section_lines)) {
+        section_names <- trimws(gsub("^\\#+\\s*(.+)\\s*(\\#{4,}|\\+{4,}|\\-{4,}|\\={4,})\\s*$",
+            "\\1", document$content[section_lines]))
+        section_end_lines <- c(section_lines[-1] - 1, document$nline)
+        section_symbols <- .mapply(function(name, start_line, end_line) {
+            symbol_information(
+                name = name,
+                kind = SymbolKind$String,
+                location = list(
+                    uri = uri,
+                    range = range(
+                        start = document$to_lsp_position(row = start_line - 1, col = 0),
+                        end = document$to_lsp_position(row = end_line - 1, col = nchar(document$line(end_line)))
+                    )
+                )
+            )
+        }, list(section_names, section_lines, section_end_lines), NULL)
+    }
+
+    subsection_symbols <- NULL
+    subsection_lines <- seq_len(document$nline)
+    subsection_lines <- subsection_lines[
+        grep("^\\s+\\#+\\s*(.+)\\s*(\\#{4,}|\\+{4,}|\\-{4,}|\\={4,})\\s*$",
+            document$content[subsection_lines])]
+    logger$info("document subsections found: ", length(subsection_lines))
+    if (length(subsection_lines)) {
+        subsection_names <- trimws(gsub("^\\s+\\#+\\s*(.+)\\s*(\\#{4,}|\\+{4,}|\\-{4,}|\\={4,})\\s*$",
+            "\\1", document$content[subsection_lines]))
+        subsection_symbols <- .mapply(function(name, line) {
+            symbol_information(
+                name = name,
+                kind = SymbolKind$String,
+                location = list(
+                    uri = uri,
+                    range = range(
+                        start = document$to_lsp_position(row = line - 1, col = 0),
+                        end = document$to_lsp_position(row = line - 1, col = nchar(document$line(line)))
+                    )
+                )
+            )
+        }, list(subsection_names, subsection_lines), NULL)
+    }
+
+    c(section_symbols, subsection_symbols)
+}
+
+get_document_section_symbols <- function(document) {
+    if (document$is_rmarkdown) {
+    } else {
+        get_r_document_section_symbols(document)
+    }
+}
 
 #' Get all the symbols in the document
 #' @keywords internal
@@ -50,56 +109,8 @@ document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
     result <- definition_symbols
 
     if (isTRUE(capabilities$hierarchicalDocumentSymbolSupport)) {
-        section_symbols <- NULL
-        section_lines <- seq_len(document$nline)
-        section_lines <- section_lines[
-            grep("^\\#+\\s*(.+)\\s*(\\#{4,}|\\+{4,}|\\-{4,}|\\={4,})\\s*$",
-                document$content[section_lines])]
-        logger$info("document sections found: ", length(section_lines))
-        if (length(section_lines)) {
-            section_names <- trimws(gsub("^\\#+\\s*(.+)\\s*(\\#{4,}|\\+{4,}|\\-{4,}|\\={4,})\\s*$",
-                "\\1", document$content[section_lines]))
-            section_end_lines <- c(section_lines[-1] - 1, document$nline)
-            section_symbols <- .mapply(function(name, start_line, end_line) {
-                symbol_information(
-                    name = name,
-                    kind = SymbolKind$String,
-                    location = list(
-                        uri = uri,
-                        range = range(
-                            start = document$to_lsp_position(row = start_line - 1, col = 0),
-                            end = document$to_lsp_position(row = end_line - 1, col = nchar(document$line(end_line)))
-                        )
-                    )
-                )
-            }, list(section_names, section_lines, section_end_lines), NULL)
-            result <- c(result, section_symbols)
-        }
-
-        subsection_symbols <- NULL
-        subsection_lines <- seq_len(document$nline)
-        subsection_lines <- subsection_lines[
-            grep("^\\s+\\#+\\s*(.+)\\s*(\\#{4,}|\\+{4,}|\\-{4,}|\\={4,})\\s*$",
-                document$content[subsection_lines])]
-        logger$info("document subsections found: ", length(subsection_lines))
-        if (length(subsection_lines)) {
-            subsection_names <- trimws(gsub("^\\s+\\#+\\s*(.+)\\s*(\\#{4,}|\\+{4,}|\\-{4,}|\\={4,})\\s*$",
-                "\\1", document$content[subsection_lines]))
-            subsection_symbols <- .mapply(function(name, line) {
-                symbol_information(
-                    name = name,
-                    kind = SymbolKind$String,
-                    location = list(
-                        uri = uri,
-                        range = range(
-                            start = document$to_lsp_position(row = line - 1, col = 0),
-                            end = document$to_lsp_position(row = line - 1, col = nchar(document$line(line)))
-                        )
-                    )
-                )
-            }, list(subsection_names, subsection_lines), NULL)
-            result <- c(result, subsection_symbols)
-        }
+        section_symbols <- get_document_section_symbols(document)
+        result <- c(result, section_symbols)
     }
 
     if (length(result) == 0) {
