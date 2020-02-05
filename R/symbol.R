@@ -28,7 +28,7 @@ SymbolKind <- list(
     TypeParameter = 26
 )
 
-get_r_document_section_symbols <- function(document) {
+get_r_document_section_symbols <- function(uri, document) {
     section_symbols <- NULL
     section_lines <- seq_len(document$nline)
     section_lines <- section_lines[
@@ -81,10 +81,74 @@ get_r_document_section_symbols <- function(document) {
     c(section_symbols, subsection_symbols)
 }
 
-get_document_section_symbols <- function(document) {
+get_rmd_document_section_symbols <- function(uri, document) {
+    content <- document$content
+    if (length(content) == 0) {
+        return(NULL)
+    }
+
+    block_lines <- grep("^\\s*```", content)
+    if (length(block_lines) %% 2 != 0) {
+        return(NULL)
+    }
+
+    if (grepl("^---\\s*$", content[[1]])) {
+        front_start <- 1L
+        front_end <- 2L
+        while (front_end <= document$nline) {
+            if (grepl("^---\\s*$", content[[front_end]])) {
+                block_lines <- c(front_start, front_end, block_lines)
+                break
+            }
+            front_end <- front_end + 1L
+        }
+    }
+
+    title_lines <- grepl("^#+\\s+\\S+", content)
+    for (i in seq_len(length(block_lines) / 2)) {
+        title_lines[seq.int(block_lines[[2 * i - 1]], block_lines[[2 * i]])] <- FALSE
+    }
+
+    title_lines <- which(title_lines)
+    ntitles <- length(title_lines)
+    title_texts <- content[title_lines]
+    title_hashes <- gsub("^(#+)\\s+.+$", "\\1", title_texts)
+    title_levels <- nchar(title_hashes)
+    title_names <- gsub("^#+\\s+(.+)$", "\\1", title_texts)
+
+    title_symbols <- lapply(seq_len(ntitles), function(i) {
+        start_line <- title_lines[[i]]
+        end_line <- document$nline
+        level <- title_levels[[i]]
+        j <- i + 1
+        while (j <= ntitles) {
+            if (title_levels[[j]] <= level) {
+                end_line <- title_lines[[j]] - 1
+                break
+            }
+            j <- j + 1
+        }
+        symbol_information(
+            name = title_names[[i]],
+            kind = SymbolKind$String,
+            location = list(
+                uri = uri,
+                range = range(
+                    start = document$to_lsp_position(row = start_line - 1, col = 0),
+                    end = document$to_lsp_position(row = end_line - 1, col = nchar(document$line(end_line)))
+                )
+            )
+        )
+    })
+
+    title_symbols
+}
+
+get_document_section_symbols <- function(uri, document) {
     if (document$is_rmarkdown) {
+        get_rmd_document_section_symbols(uri, document)
     } else {
-        get_r_document_section_symbols(document)
+        get_r_document_section_symbols(uri, document)
     }
 }
 
@@ -109,7 +173,7 @@ document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
     result <- definition_symbols
 
     if (isTRUE(capabilities$hierarchicalDocumentSymbolSupport)) {
-        section_symbols <- get_document_section_symbols(document)
+        section_symbols <- get_document_section_symbols(uri, document)
         result <- c(result, section_symbols)
     }
 
