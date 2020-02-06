@@ -36,8 +36,8 @@ get_r_document_section_symbols <- function(uri, document) {
             document$content[section_lines], perl = TRUE)]
     logger$info("document sections found: ", length(section_lines))
     if (length(section_lines)) {
-        section_names <- trimws(gsub("^\\#+\\s*(.+?)\\s*(\\#{4,}|\\+{4,}|\\-{4,}|\\={4,})\\s*$",
-            "\\1", document$content[section_lines], perl = TRUE))
+        section_names <- gsub("^\\#+\\s*(.+?)\\s*(\\#{4,}|\\+{4,}|\\-{4,}|\\={4,})\\s*$",
+            "\\1", document$content[section_lines], perl = TRUE)
         section_end_lines <- c(section_lines[-1] - 1, document$nline)
         section_symbols <- .mapply(function(name, start_line, end_line) {
             symbol_information(
