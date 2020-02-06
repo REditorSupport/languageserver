@@ -287,7 +287,7 @@ parse_callback <- function(self, uri, version, parse_data) {
     parse_data$version <- version
     self$workspace$update_parse_data(uri, parse_data)
 
-    pending_replies <- self$pending_replies$get(uri)
+    pending_replies <- self$pending_replies$get(uri, NULL)
     for (name in names(pending_replies)) {
         queue <- pending_replies[[name]]
         handler <- self$request_handlers[[name]]
