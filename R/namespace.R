@@ -142,6 +142,7 @@ GlobalNameSpace <- R6::R6Class("GlobalNameSpace",
         },
 
         update = function(parse_data) {
+            parse_data <- parse_data$as_list()
             self$nonfuncts <- unique(unlist(lapply(parse_data, "[[", "nonfuncts"), use.names = FALSE))
             self$exported_nonfuncts <- self$nonfuncts
             self$functs <- unique(unlist(lapply(parse_data, "[[", "functs"), use.names = FALSE))

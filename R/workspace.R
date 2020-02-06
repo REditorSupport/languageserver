@@ -7,21 +7,24 @@
 Workspace <- R6::R6Class("Workspace",
     private = list(
         global_env = NULL,
-        namespaces = list(),
         definition_cache = NULL,
-        documentation = list(),
-        parse_data = list()
+        namespaces = NULL,
+        documentation = NULL,
+        parse_data = NULL
     ),
     public = list(
         loaded_packages = c(
             "base", "stats", "methods", "utils", "graphics", "grDevices", "datasets"),
 
         initialize = function() {
-            for (pkgname in self$loaded_packages) {
-                private$namespaces[[pkgname]] <- Namespace$new(pkgname)
-            }
             private$global_env <- GlobalNameSpace$new()
             private$definition_cache <- DefinitionCache$new()
+            private$namespaces <- collections::Dict()
+            private$documentation <- collections::Dict()
+            private$parse_data <- collections::Dict()
+            for (pkgname in self$loaded_packages) {
+                private$namespaces$set(pkgname, Namespace$new(pkgname))
+            }
         },
 
         load_package = function(pkgname) {
@@ -29,7 +32,7 @@ Workspace <- R6::R6Class("Workspace",
                 ns <- self$get_namespace(pkgname)
                 logger$info("ns: ", ns)
                 if (!is.null(ns)) {
-                    self$loaded_packages <- append(self$loaded_packages, pkgname)
+                    self$loaded_packages <- c(self$loaded_packages, pkgname)
                     logger$info("loaded_packages: ", self$loaded_packages)
                 }
             }
@@ -64,11 +67,12 @@ Workspace <- R6::R6Class("Workspace",
         get_namespace = function(pkgname) {
             if (pkgname == WORKSPACE) {
                 private$global_env
-            } else if (pkgname %in% names(private$namespaces)) {
-                private$namespaces[[pkgname]]
+            } else if (private$namespaces$has(pkgname)) {
+                private$namespaces$get(pkgname)
             } else if (length(find.package(pkgname, quiet = TRUE))) {
-                private$namespaces[[pkgname]] <- Namespace$new(pkgname)
-                private$namespaces[[pkgname]]
+                ns <- Namespace$new(pkgname)
+                private$namespaces$set(pkgname, ns)
+                ns
             } else {
                 NULL
             }
@@ -131,8 +135,8 @@ Workspace <- R6::R6Class("Workspace",
             }
 
             item <- paste0(c(pkgname, topic), collapse = "::")
-            if (!is.null(private$documentation[[item]])) {
-                return(private$documentation[[item]])
+            if (private$documentation$has(item)) {
+                return(private$documentation$get(item))
             }
             hfile <- utils::help((topic), (pkgname))
 
@@ -157,14 +161,16 @@ Workspace <- R6::R6Class("Workspace",
                         convert_doc_string(item[[2]])
                     })
                 }
-                private$documentation[[item]] <- list(
+                value <- list(
                     title = title,
                     description = description,
                     arguments = arguments
                 )
             } else {
-                private$documentation[[item]] <- list()
+                value <- list()
             }
+            private$documentation$set(item, value)
+            value
         },
 
 
@@ -195,7 +201,7 @@ Workspace <- R6::R6Class("Workspace",
         },
 
         get_parse_data = function(uri) {
-            private$parse_data[[uri]]
+            private$parse_data$get(uri, NULL)
         },
 
         update_parse_data = function(uri, parse_data) {
@@ -204,7 +210,7 @@ Workspace <- R6::R6Class("Workspace",
                 parse_data$xml_doc <- tryCatch(
                     xml2::read_xml(parse_data$xml_data), error = function(e) NULL)
             }
-            private$parse_data[[uri]] <- parse_data
+            private$parse_data$set(uri, parse_data)
             private$global_env$update(private$parse_data)
             private$definition_cache$update(uri, parse_data$definition_ranges)
         }
