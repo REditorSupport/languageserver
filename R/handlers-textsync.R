@@ -8,10 +8,10 @@ text_document_did_open <- function(self, params) {
     version <- textDocument$version
     logger$info("did open:", list(uri = uri, version = version))
     content <- readr::read_lines(path_from_uri(uri))
-    if (is.null(self$documents[[uri]])) {
-        self$documents[[uri]] <- Document$new(uri, version, content)
+    if (self$documents$has(uri)) {
+        self$documents$get(uri)$set(version, content)
     } else {
-        self$documents[[uri]]$set(version, content)
+        self$documents$set(uri, Document$new(uri, version, content))
     }
     self$text_sync(uri, version = version, document = NULL, run_lintr = TRUE, parse = TRUE, resolve = TRUE)
 }
@@ -28,12 +28,12 @@ text_document_did_change <- function(self, params) {
     version <- textDocument$version
     logger$info("did change:", list(uri = uri, version = version))
     content <- stringr::str_split(text, "\r\n|\n")[[1]]
-    if (is.null(self$documents[[uri]])) {
-        doc <- Document$new(uri, version, content)
-        self$documents[[uri]] <- doc
+    if (self$documents$has(uri)) {
+        doc <- self$documents$get(uri)
+        doc$set(version, content)
     } else {
-        self$documents[[uri]]$set(version, content)
-        doc <- self$documents[[uri]]
+        doc <- Document$new(uri, version, content)
+        self$documents$set(uri, doc)
     }
     self$text_sync(uri, version = version, document = doc, run_lintr = TRUE, parse = TRUE, resolve = FALSE)
 }
@@ -56,7 +56,7 @@ text_document_did_save <- function(self, params) {
     version <- textDocument$version
     logger$info("did save:", list(uri = uri, version = version))
     content <- readr::read_lines(path_from_uri(uri))
-    self$documents[[uri]] <- Document$new(uri, version, content)
+    self$documents$set(uri, Document$new(uri, version, content))
     self$text_sync(uri, version = version, document = NULL, run_lintr = TRUE, parse = TRUE, resolve = TRUE)
 }
 
@@ -67,7 +67,7 @@ text_document_did_save <- function(self, params) {
 text_document_did_close <- function(self, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
-    rm(list = uri, envir = self$documents)
+    self$documents$remove(uri)
     self$pending_replies$remove(uri)
 }
 

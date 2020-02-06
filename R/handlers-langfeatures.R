@@ -5,7 +5,7 @@
 text_document_completion  <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
-    document <- self$documents[[uri]]
+    document <- self$documents$get(uri)
     point <- document$from_lsp_position(params$position)
     self$deliver(completion_reply(id, uri, self$workspace, document, point))
 }
@@ -27,7 +27,7 @@ completion_item_resolve  <- function(self, id, params) {
 text_document_hover  <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
-    document <- self$documents[[uri]]
+    document <- self$documents$get(uri)
     point <- document$from_lsp_position(params$position)
     self$deliver(hover_reply(id, uri, self$workspace, document, point))
 }
@@ -40,7 +40,7 @@ text_document_hover  <- function(self, id, params) {
 text_document_signature_help  <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
-    document <- self$documents[[uri]]
+    document <- self$documents$get(uri)
     point <- document$from_lsp_position(params$position)
     self$deliver(signature_reply(id, uri, self$workspace, document, point))
 }
@@ -52,7 +52,7 @@ text_document_signature_help  <- function(self, id, params) {
 text_document_definition  <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
-    document <- self$documents[[uri]]
+    document <- self$documents$get(uri)
     point <- document$from_lsp_position(params$position)
     self$deliver(definition_reply(id, uri, self$workspace, document, point))
 }
@@ -89,7 +89,7 @@ text_document_references  <- function(self, id, params) {
 text_document_document_highlight  <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
-    document <- self$documents[[uri]]
+    document <- self$documents$get(uri)
     point <- document$from_lsp_position(params$position)
     self$deliver(document_highlight_reply(id, uri, self$workspace, document, point))
 }
@@ -101,7 +101,7 @@ text_document_document_highlight  <- function(self, id, params) {
 text_document_document_symbol  <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
-    document <- self$documents[[uri]]
+    document <- self$documents$get(uri)
     reply <- document_symbol_reply(id, uri, self$workspace, document,
         self$ClientCapabilities$textDocument$documentSymbol)
     if (is.null(reply)) {
@@ -148,7 +148,7 @@ code_lens_resolve  <- function(self, id, params) {
 text_document_document_link  <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
-    document <- self$documents[[uri]]
+    document <- self$documents$get(uri)
     reply <- document_link_reply(id, uri, self$workspace, document, self$rootUri)
     if (is.null(reply)) {
         queue <- self$pending_replies$get(uri)[["textDocument/documentLink"]]
@@ -194,7 +194,7 @@ text_document_formatting  <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
     options <- params$options
-    self$deliver(formatting_reply(id, uri, self$documents[[uri]], options))
+    self$deliver(formatting_reply(id, uri, self$documents$get(uri), options))
 }
 
 #' `textDocument/rangeFormatting` request handler
@@ -204,7 +204,7 @@ text_document_formatting  <- function(self, id, params) {
 text_document_range_formatting  <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
-    document <- self$documents[[uri]]
+    document <- self$documents$get(uri)
     range <- list(
         start = document$from_lsp_position(params$range$start),
         end = document$from_lsp_position(params$range$end)
@@ -221,7 +221,7 @@ text_document_range_formatting  <- function(self, id, params) {
 text_document_on_type_formatting  <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
-    document <- self$documents[[uri]]
+    document <- self$documents$get(uri)
     point <- document$from_lsp_position(params$position)
     ch <- params$ch
     options <- params$options
