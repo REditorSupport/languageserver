@@ -61,8 +61,8 @@ get_r_document_section_symbols <- function(uri, document) {
             document$content[subsection_lines], perl = TRUE)]
     logger$info("document subsections found: ", length(subsection_lines))
     if (length(subsection_lines)) {
-        subsection_names <- trimws(gsub("^\\s+\\#+\\s*(.+?)\\s*(\\#{4,}|\\+{4,}|\\-{4,}|\\={4,})\\s*$",
-            "\\1", document$content[subsection_lines], perl = TRUE))
+        subsection_names <- gsub("^\\s+\\#+\\s*(.+?)\\s*(\\#{4,}|\\+{4,}|\\-{4,}|\\={4,})\\s*$",
+            "\\1", document$content[subsection_lines], perl = TRUE)
         subsection_symbols <- .mapply(function(name, line) {
             symbol_information(
                 name = name,
