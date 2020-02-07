@@ -95,7 +95,7 @@ These editors are supported by installing the corresponding package.
 
 With [lintr](https://github.com/jimhester/lintr) v2.0.0, the linters can be specified by creating the `.lintr` file at the project or home directory. Details can be found at lintr [documentation](https://github.com/jimhester/lintr#project-configuration). The option `languageserver.default_linters` is now deprecated in favor of the `.lintr` approach.
 
-### Custimizing server capbabilities
+### Customizing server capbabilities
 
 Server capabilities are defined in [capabilities.R](https://github.com/REditorSupport/languageserver/blob/master/R/capabilities.R). Users could override the settings by specifiying `languageserver.server_capabilities` option in `.Rprofile`. For example,
 the following code will turn off `definitionProvider`,
