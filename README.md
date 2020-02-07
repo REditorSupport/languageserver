@@ -108,7 +108,7 @@ options(
 )
 ```
 
-Please make sure you won't enable any providers that are not currently supported.
+Please only use this option to disable providers and do not enable any providers that have not been implemented. Changing any other entries may cause unexpected behaviors on the server.
 
 ### Customizing formatting style
 
