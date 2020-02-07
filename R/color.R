@@ -38,7 +38,6 @@ document_color_reply <- function(id, uri, workspace, document) {
         )
       )
     }, list(str_line1, str_col1, str_col2, seq_along(str_texts)), NULL)
-    logger$info(result)
   }
 
   if (is.null(result)) {
