@@ -37,7 +37,7 @@ Request <- R6::R6Class("Request",
             if (!is.null(self$params)) {
                 payload$params <- self$params
             }
-            jsonlite::toJSON(payload, auto_unbox = TRUE, force = TRUE)
+            jsonlite::toJSON(payload, auto_unbox = TRUE, null = "null", force = TRUE)
         }
     )
 )
@@ -62,7 +62,7 @@ Notification <- R6::R6Class("Notification",
             if (!is.null(self$params)) {
                 payload$params <- self$params
             }
-            jsonlite::toJSON(payload, auto_unbox = TRUE, force = TRUE)
+            jsonlite::toJSON(payload, auto_unbox = TRUE, null = "null", force = TRUE)
         }
     )
 )
@@ -91,7 +91,7 @@ Response <- R6::R6Class("Response",
             if (!is.null(self$error)) {
                 payload$error <- self$error
             }
-            jsonlite::toJSON(payload, auto_unbox = TRUE, force = TRUE)
+            jsonlite::toJSON(payload, auto_unbox = TRUE, null = "null", force = TRUE)
         }
     )
 )
