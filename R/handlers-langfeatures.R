@@ -175,7 +175,20 @@ document_link_resolve  <- function(self, id, params) {
 #' Handler to the `textDocument/documentColor` [Request].
 #' @keywords internal
 text_document_document_color  <- function(self, id, params) {
-
+    textDocument <- params$textDocument
+    uri <- textDocument$uri
+    document <- self$documents$get(uri)
+    reply <- document_color_reply(id, uri, self$workspace, document)
+    if (is.null(reply)) {
+        queue <- self$pending_replies$get(uri)[["textDocument/documentColor"]]
+        queue$push(list(
+            id = id,
+            version = document$version,
+            params = params
+        ))
+    } else {
+        self$deliver(reply)
+    }
 }
 
 #' `textDocument/colorPresentation` request handler
@@ -183,7 +196,7 @@ text_document_document_color  <- function(self, id, params) {
 #' Handler to the `textDocument/colorPresentation` [Request].
 #' @keywords internal
 text_document_color_presentation  <- function(self, id, params) {
-
+    logger$info("text_document_color_presentation:", id, params)
 }
 
 #' `textDocument/formatting` request handler
