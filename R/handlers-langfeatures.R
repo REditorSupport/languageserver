@@ -197,6 +197,11 @@ text_document_document_color  <- function(self, id, params) {
 #' @keywords internal
 text_document_color_presentation  <- function(self, id, params) {
     logger$info("text_document_color_presentation:", id, params)
+    textDocument <- params$textDocument
+    uri <- textDocument$uri
+    document <- self$documents$get(uri)
+    color <- params$color
+    self$deliver(color_presentation_reply(id, uri, self$workspace, document, color))
 }
 
 #' `textDocument/formatting` request handler

@@ -47,3 +47,18 @@ document_color_reply <- function(id, uri, workspace, document) {
     Response$new(id, result = result)
   }
 }
+
+#' The response to a textDocument/colorPresentation Request
+#'
+#' @keywords internal
+color_presentation_reply <- function(id, uri, workspace, document, color) {
+  if (color$alpha == 1) {
+    hex_color <- grDevices::rgb(color$red, color$green, color$blue)
+  } else {
+    hex_color <- grDevices::rgb(color$red, color$green, color$blue, color$alpha)
+  }
+  result <- list(
+    list(label = hex_color)
+  )
+  Response$new(id, result = result)
+}
