@@ -196,7 +196,6 @@ text_document_document_color  <- function(self, id, params) {
 #' Handler to the `textDocument/colorPresentation` [Request].
 #' @keywords internal
 text_document_color_presentation  <- function(self, id, params) {
-    logger$info("text_document_color_presentation:", id, params)
     textDocument <- params$textDocument
     uri <- textDocument$uri
     document <- self$documents$get(uri)
