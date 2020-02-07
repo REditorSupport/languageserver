@@ -10,6 +10,9 @@ on_initialize <- function(self, id, params) {
     self$rootPath <- path_from_uri(self$rootUri)
     self$initializationOptions <- params$initializationOptions
     self$ClientCapabilities <- params$capabilities
+    ServerCapabilities <- merge_list(
+        ServerCapabilities,
+        getOption("languageserver.server_capabilities"))
     self$deliver(Response$new(id = id, result = list(capabilities = ServerCapabilities)))
 }
 
