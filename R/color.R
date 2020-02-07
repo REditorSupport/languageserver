@@ -57,6 +57,7 @@ color_presentation_reply <- function(id, uri, workspace, document, color) {
     hex_color <- grDevices::rgb(color$red, color$green, color$blue, color$alpha)
   }
   result <- list(
+    list(label = tolower(hex_color)),
     list(label = hex_color)
   )
   Response$new(id, result = result)
