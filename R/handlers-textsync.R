@@ -68,7 +68,10 @@ text_document_did_save <- function(self, params) {
 text_document_did_close <- function(self, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
-    self$workspace$documents$remove(uri)
+    # do not remove document in package
+    if (!(is_package(self$rootUri) && startsWith(uri, self$rootUri))) {
+        self$workspace$documents$remove(uri)
+    }
     self$pending_replies$remove(uri)
 }
 
