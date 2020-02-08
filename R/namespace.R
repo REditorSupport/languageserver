@@ -47,14 +47,14 @@ PackageNamespace <- R6::R6Class("PackageNamespace",
             }
         },
 
-        get_completions = function(funct_only = TRUE, exported_only = TRUE) {
-            if (funct_only && exported_only) {
+        get_completions = function(want_functs = TRUE, exported_only = TRUE) {
+            if (want_functs && exported_only) {
                 private$exported_functs
-            } else if (!funct_only && exported_only) {
+            } else if (!want_functs && exported_only) {
                 private$exported_nonfuncts
-            } else if (funct_only && !exported_only) {
+            } else if (want_functs && !exported_only) {
                 private$functs
-            } else if (!funct_only && !exported_only) {
+            } else if (!want_functs && !exported_only) {
                 private$nonfuncts
             }
         },
@@ -207,11 +207,11 @@ GlobalEnv <- R6::R6Class("GlobalEnv",
             return(FALSE)
         },
 
-        get_completions = function(funct_only = TRUE, exported_only = TRUE) {
+        get_completions = function(want_functs = TRUE, exported_only = TRUE) {
             completions <- character(0)
             for (doc in self$documents$values()) {
                 if (!is.null(doc$parse_data)) {
-                    if (funct_only) {
+                    if (want_functs) {
                         completions <- c(completions, doc$parse_data$functs)
                     } else {
                         completions <- c(completions, doc$parse_data$nonfuncts)
