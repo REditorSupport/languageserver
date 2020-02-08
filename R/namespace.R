@@ -92,9 +92,8 @@ PackageNamespace <- R6::R6Class("PackageNamespace",
 
         get_documentation = function(topic) {
             pkgname <- self$package_name
-            item <- paste0(c(pkgname, topic), collapse = "::")
-            if (private$documentation$has(item)) {
-                return(private$documentation$get(item))
+            if (private$documentation$has(topic)) {
+                return(private$documentation$get(topic))
             }
             hfile <- utils::help((topic), (pkgname))
 
@@ -127,7 +126,7 @@ PackageNamespace <- R6::R6Class("PackageNamespace",
             } else {
                 value <- list()
             }
-            private$documentation$set(item, value)
+            private$documentation$set(topic, value)
             value
         },
 
