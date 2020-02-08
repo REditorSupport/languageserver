@@ -30,10 +30,11 @@ on_initialized <- function(self, params) {
         files <- list.files(source_dir)
         for (f in files) {
             logger$info("load ", f)
-            uri <- path_to_uri(file.path(source_dir, f))
-            doc <- Document$new(uri, NULL, NULL)
+            path <- file.path(source_dir, f)
+            uri <- path_to_uri(path)
+            doc <- Document$new(uri, NULL, readr::read_lines(path))
             self$workspace$documents$set(uri, doc)
-            self$text_sync(uri, version = NULL, document = NULL, parse = TRUE)
+            self$text_sync(uri, document = doc, parse = TRUE)
         }
         deps <- tryCatch(desc::desc_get_deps(project_root), error = function(e) NULL)
         if (!is.null(deps)) {

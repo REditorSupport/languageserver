@@ -6,15 +6,24 @@ text_document_did_open <- function(self, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
     version <- textDocument$version
+    text <- textDocument$text
     logger$info("did open:", list(uri = uri, version = version))
-    content <- readr::read_lines(path_from_uri(uri))
+    path <- path_from_uri(uri)
+    if (!is.null(text)) {
+        content <- stringr::str_split(text, "\r\n|\n")[[1]]
+    } else if (file.exists(path)) {
+        content <- readr::read_lines(path)
+    } else {
+        content <- NULL
+    }
     if (self$workspace$documents$has(uri)) {
         doc <- self$workspace$documents$get(uri)
         doc$set_content(version, content)
     } else {
-        self$workspace$documents$set(uri, Document$new(uri, version, content))
+        doc <- Document$new(uri, version, content)
+        self$workspace$documents$set(uri, doc)
     }
-    self$text_sync(uri, version = version, document = NULL, run_lintr = TRUE, parse = TRUE, resolve = TRUE)
+    self$text_sync(uri, document = doc, run_lintr = TRUE, parse = TRUE, resolve = TRUE)
 }
 
 #' `textDocument/didChange` notification handler
@@ -24,9 +33,9 @@ text_document_did_open <- function(self, params) {
 text_document_did_change <- function(self, params) {
     textDocument <- params$textDocument
     contentChanges <- params$contentChanges
-    text <- contentChanges[[1]]$text
     uri <- textDocument$uri
     version <- textDocument$version
+    text <- contentChanges[[1]]$text
     logger$info("did change:", list(uri = uri, version = version))
     content <- stringr::str_split(text, "\r\n|\n")[[1]]
     if (self$workspace$documents$has(uri)) {
@@ -36,7 +45,7 @@ text_document_did_change <- function(self, params) {
         doc <- Document$new(uri, version, content)
         self$workspace$documents$set(uri, doc)
     }
-    self$text_sync(uri, version = version, document = doc, run_lintr = TRUE, parse = TRUE, resolve = FALSE)
+    self$text_sync(uri, document = doc, run_lintr = TRUE, parse = TRUE)
 }
 
 #' `textDocument/willSave` notification handler
@@ -55,10 +64,24 @@ text_document_did_save <- function(self, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
     version <- textDocument$version
+    text <- textDocument$text
     logger$info("did save:", list(uri = uri, version = version))
-    content <- readr::read_lines(path_from_uri(uri))
-    self$workspace$documents$set(uri, Document$new(uri, version, content))
-    self$text_sync(uri, version = version, document = NULL, run_lintr = TRUE, parse = TRUE, resolve = TRUE)
+    path <- path_from_uri(uri)
+    if (!is.null(text)) {
+        content <- stringr::str_split(text, "\r\n|\n")[[1]]
+    } else if (file.exists(path)) {
+        content <- readr::read_lines(path)
+    } else {
+        content <- NULL
+    }
+    if (self$workspace$documents$has(uri)) {
+        doc <- self$workspace$documents$get(uri)
+        doc$set_content(version, content)
+    } else {
+        doc <- Document$new(uri, version, content)
+        self$workspace$documents$set(uri, doc)
+    }
+    self$text_sync(uri, document = doc, run_lintr = TRUE, parse = TRUE, resolve = TRUE)
 }
 
 #' `textDocument/didClose` notification handler

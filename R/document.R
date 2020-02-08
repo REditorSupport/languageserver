@@ -4,17 +4,15 @@ Document <- R6::R6Class(
         uri = NULL,
         version = NULL,
         nline = 0,
-        content = "",
+        content = NULL,
         parse_data = NULL,
         is_rmarkdown = NULL,
 
-        initialize = function(uri, version, content = NULL) {
+        initialize = function(uri, version, content = "") {
             self$uri <- uri
             self$version <- version
             self$is_rmarkdown <- is_rmarkdown(self$uri)
-            if (!is.null(content)) {
-                self$set_content(version, content)
-            }
+            self$set_content(version, content)
         },
 
         set_content = function(version, content) {
@@ -249,14 +247,11 @@ parse_expr <- function(content, expr, env, level = 0L, srcref = attr(expr, "srcr
 #' signatures in the document in order to add them to the current [Workspace].
 #'
 #' @keywords internal
-parse_document <- function(path, content = NULL, resolve = FALSE) {
-    if (is.null(content)) {
-        content <- readr::read_lines(path)
-    }
+parse_document <- function(uri, content, resolve = FALSE) {
     if (length(content) == 0) {
         content <- ""
     }
-    if (is_rmarkdown(path)) {
+    if (is_rmarkdown(uri)) {
         content <- purl(content)
     }
     expr <- tryCatch(parse(text = content, keep.source = TRUE), error = function(e) NULL)
@@ -311,15 +306,12 @@ parse_callback <- function(self, uri, version, parse_data) {
     }
 }
 
-parse_task <- function(self, uri, version, document, resolve = FALSE) {
-    if (is.null(document)) {
-        content <- NULL
-    } else {
-        content <- document$content
-    }
+parse_task <- function(self, uri, document, resolve = FALSE) {
+    version <- document$version
+    content <- document$content
     create_task(
         parse_document,
-        list(path = path_from_uri(uri), content = content, resolve = resolve),
+        list(uri = uri, content = content, resolve = resolve),
         callback = function(result) parse_callback(self, uri, version, result),
         error = function(e) logger$info("parse_task:", e))
 }

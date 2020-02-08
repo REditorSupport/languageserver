@@ -4,7 +4,7 @@
 \alias{diagnose_file}
 \title{Run diagnostic on a file}
 \usage{
-diagnose_file(path, content = NULL)
+diagnose_file(uri, content)
 }
 \description{
 Lint and diagnose problems in a file.
