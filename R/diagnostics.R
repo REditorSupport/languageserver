@@ -64,7 +64,8 @@ find_config <- function(filename) {
 #'
 #' Lint and diagnose problems in a file.
 #' @keywords internal
-diagnose_file <- function(path, content = NULL) {
+diagnose_file <- function(uri, content = NULL) {
+    path <- path_from_uri(uri)
     if (is.null(find_config(path))) {
         linters <- getOption("languageserver.default_linters", NULL)
     } else {
@@ -114,7 +115,7 @@ diagnostics_task <- function(self, uri, version, document) {
     }
     create_task(
         diagnose_file,
-        list(path = path_from_uri(uri), content = content),
+        list(uri = uri, content = content),
         callback = function(result) diagnostics_callback(self, uri, version, result),
         error = function(e) logger$info("diagnostics_task:", e))
 }

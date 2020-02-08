@@ -7,13 +7,23 @@ text_document_did_open <- function(self, params) {
     uri <- textDocument$uri
     version <- textDocument$version
     logger$info("did open:", list(uri = uri, version = version))
-    content <- readr::read_lines(path_from_uri(uri))
-    if (self$documents$has(uri)) {
-        self$documents$get(uri)$set(version, content)
+    path <- path_from_uri(uri)
+
+    if (file.exists(path)) {
+        content <- readr::read_lines(path)
     } else {
-        self$documents$set(uri, Document$new(uri, version, content))
+        text <- textDocument$text
+        content <- stringr::str_split(text, "\r\n|\n")[[1]]
     }
-    self$text_sync(uri, version = version, document = NULL, run_lintr = TRUE, parse = TRUE, resolve = TRUE)
+
+    if (self$documents$has(uri)) {
+        doc <- self$documents$get(uri)
+        doc$set(version, content)
+    } else {
+        doc <- Document$new(uri, version, content)
+        self$documents$set(uri, doc)
+    }
+    self$text_sync(uri, version = version, document = doc, run_lintr = TRUE, parse = TRUE, resolve = TRUE)
 }
 
 #' `textDocument/didChange` notification handler

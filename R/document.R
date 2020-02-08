@@ -244,14 +244,15 @@ parse_expr <- function(content, expr, env, level = 0L, srcref = attr(expr, "srcr
 #' signatures in the document in order to add them to the current [Workspace].
 #'
 #' @keywords internal
-parse_document <- function(path, content = NULL, resolve = FALSE) {
+parse_document <- function(uri, content = NULL, resolve = FALSE) {
     if (is.null(content)) {
+        path <- path_from_uri(uri)
         content <- readr::read_lines(path)
     }
     if (length(content) == 0) {
         content <- ""
     }
-    if (is_rmarkdown(path)) {
+    if (is_rmarkdown(uri)) {
         content <- purl(content)
     }
     expr <- tryCatch(parse(text = content, keep.source = TRUE), error = function(e) NULL)
@@ -314,7 +315,7 @@ parse_task <- function(self, uri, version, document, resolve = FALSE) {
     }
     create_task(
         parse_document,
-        list(path = path_from_uri(uri), content = content, resolve = resolve),
+        list(uri = uri, content = content, resolve = resolve),
         callback = function(result) parse_callback(self, uri, version, result),
         error = function(e) logger$info("parse_task:", e))
 }
