@@ -2,9 +2,10 @@ Document <- R6::R6Class(
     "Document",
     public = list(
         uri = NULL,
-        version = 0,
+        version = NULL,
         nline = 0,
-        content = NULL,
+        content = "",
+        parse_data = NULL,
         is_rmarkdown = NULL,
 
         initialize = function(uri, version, content = NULL) {
@@ -12,11 +13,11 @@ Document <- R6::R6Class(
             self$version <- version
             self$is_rmarkdown <- is_rmarkdown(self$uri)
             if (!is.null(content)) {
-                self$set(version, content)
+                self$set_content(version, content)
             }
         },
 
-        set = function(version, content) {
+        set_content = function(version, content) {
             self$version <- version
             # remove last empty line
             nline <- length(content)
@@ -26,6 +27,10 @@ Document <- R6::R6Class(
             }
             self$nline <- nline
             self$content <- content
+        },
+
+        update_parse_data = function(parse_data) {
+            self$parse_data <- parse_data
         },
 
         line = function(row) {

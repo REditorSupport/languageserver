@@ -168,7 +168,10 @@ document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
             symbol_information(
                 name = funct,
                 kind = SymbolKind$Function,
-                location = defns[[funct]]
+                location = location(
+                    uri = uri,
+                    range = defns[[funct]]
+                )
             )
     })
     result <- definition_symbols

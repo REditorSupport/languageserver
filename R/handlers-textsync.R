@@ -9,7 +9,8 @@ text_document_did_open <- function(self, params) {
     logger$info("did open:", list(uri = uri, version = version))
     content <- readr::read_lines(path_from_uri(uri))
     if (self$workspace$documents$has(uri)) {
-        self$workspace$documents$get(uri)$set(version, content)
+        doc <- self$workspace$documents$get(uri)
+        doc$set_content(version, content)
     } else {
         self$workspace$documents$set(uri, Document$new(uri, version, content))
     }
@@ -30,7 +31,7 @@ text_document_did_change <- function(self, params) {
     content <- stringr::str_split(text, "\r\n|\n")[[1]]
     if (self$workspace$documents$has(uri)) {
         doc <- self$workspace$documents$get(uri)
-        doc$set(version, content)
+        doc$set_content(version, content)
     } else {
         doc <- Document$new(uri, version, content)
         self$workspace$documents$set(uri, doc)
