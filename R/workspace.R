@@ -13,10 +13,14 @@ Workspace <- R6::R6Class("Workspace",
         parse_data = NULL
     ),
     public = list(
+        documents = NULL,
+
         loaded_packages = c(
             "base", "stats", "methods", "utils", "graphics", "grDevices", "datasets"),
 
         initialize = function() {
+            self$documents <- collections::Dict()
+
             private$global_env <- GlobalNameSpace$new()
             private$definition_cache <- DefinitionCache$new()
             private$namespaces <- collections::Dict()

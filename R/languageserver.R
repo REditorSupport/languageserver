@@ -52,7 +52,6 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$inputcon <- inputcon
             self$outputcon <- outputcon
 
-            self$documents <- collections::Dict()
             self$workspace <- Workspace$new()
 
             self$diagnostics_task_manager <- TaskManager$new()
