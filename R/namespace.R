@@ -271,10 +271,6 @@ GlobalEnv <- R6::R6Class("GlobalEnv",
                 }
             }
             NULL
-        },
-
-        get_body = function(funct, exported_only = TRUE) {
-            NULL
         }
     )
 )
