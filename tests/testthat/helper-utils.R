@@ -9,8 +9,15 @@ suppressPackageStartupMessages({
 defer <- withr::defer
 
 language_client <- function(working_dir = getwd(), debug = FALSE, diagnostics = FALSE) {
+
+    if (nzchar(Sys.getenv("DEBUGLSP"))) {
+        script <- "languageserver::run(debug = '/tmp/lsp')"
+    } else {
+        script <- "languageserver::run()"
+    }
+
     client <- LanguageClient$new(
-        file.path(R.home("bin"), "R"), c("--slave", "-e", "languageserver::run()"))
+        file.path(R.home("bin"), "R"), c("--slave", "-e", script))
 
     client$notification_handlers <- list(
         `textDocument/publishDiagnostics` = function(self, params) {
