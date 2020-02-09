@@ -62,8 +62,8 @@ text_document_will_save <- function(self, params) {
 #' @keywords internal
 text_document_did_save <- function(self, params) {
     textDocument <- params$textDocument
-    uri <- textDocument$uri
     text <- params$text
+    uri <- textDocument$uri
     logger$info("did save:", list(uri = uri))
     path <- path_from_uri(uri)
     if (!is.null(text)) {

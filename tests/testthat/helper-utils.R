@@ -74,10 +74,20 @@ did_open <- function(client, path) {
 
 
 did_save <- function(client, path) {
+    includeText <- tryCatch(
+        client$ServerCapabilities$textDocumentSync$save$includeText,
+        error = function(e) FALSE
+    )
+    if (includeText) {
+        text <- paste0(readr::read_lines(path), collapse = "\n")
+        params <- list(textDocument = list(uri = path_to_uri(path)), text = text)
+    } else {
+        params <- list(textDocument = list(uri = path_to_uri(path)))
+    }
     notify(
         client,
         "textDocument/didSave",
-        list(textDocument = list(uri = path_to_uri(path))))
+        params)
     invisible(client)
 }
 
