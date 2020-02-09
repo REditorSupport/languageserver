@@ -6,9 +6,9 @@
 \alias{languageserver-package}
 \title{languageserver: Language Server Protocol}
 \description{
-An implementation of the Language Server Protocol for R. The
-    Language Server protocol is used by an editor client to integrate
-    features like auto completion. See
+An implementation of the Language Server Protocol
+    for R. The Language Server protocol is used by an editor client to
+    integrate features like auto completion. See
     <https://microsoft.github.io/language-server-protocol> for details.
 }
 \details{
@@ -18,6 +18,15 @@ An implementation of the Language Server Protocol for R
 Useful links:
 \itemize{
   \item \url{https://github.com/REditorSupport/languageserver}
+}
+
+}
+\author{
+\strong{Maintainer}: Randy Lai \email{randy.cs.lai@gmail.com}
+
+Other contributors:
+\itemize{
+  \item Kun Ren \email{mail@renkun.me} [contributor]
 }
 
 }

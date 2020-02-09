@@ -1,5 +1,5 @@
 SaveOptions <- list(
-    includeText = FALSE
+    includeText = TRUE
 )
 
 TextDocumentSyncKind <- list(

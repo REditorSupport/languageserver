@@ -12,7 +12,8 @@ to_string <- function(...) {
                     capture_print(x)
                 } else if (is.atomic(x) || is.list(x)) {
                     if (is.list(x) || length(x) > 1) {
-                        jsonlite::toJSON(x, auto_unbox = TRUE, force = TRUE, pretty = TRUE)
+                        jsonlite::toJSON(
+                            x, auto_unbox = TRUE, force = TRUE, null = "null", pretty = TRUE)
                     } else if (length(x) == 1) {
                         as.character(x)
                     } else {

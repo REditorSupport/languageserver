@@ -1,46 +1,66 @@
 #' A class for storing package information
 #' @keywords internal
-Namespace <- R6::R6Class("Namespace",
-    public = list(
-        package_name = NULL,
+PackageNamespace <- R6::R6Class("PackageNamespace",
+    private = list(
+        documentation = NULL,
         objects = character(0),
         functs = character(0),
         nonfuncts = character(0),
         exports = character(0),
         exported_functs = character(0),
         exported_nonfuncts = character(0),
-        lazydata = character(0),
+        lazydata = character(0)
+    ),
+    public = list(
+        package_name = NULL,
 
         initialize = function(pkgname) {
             self$package_name <- pkgname
             ns <- asNamespace(pkgname)
-            self$objects <- sanitize_names(objects(ns, all.names = TRUE))
-            is_function <- vapply(self$objects, function(x) {
+            private$objects <- sanitize_names(objects(ns, all.names = TRUE))
+            is_function <- vapply(private$objects, function(x) {
                         is.function(get(x, envir = ns))}, logical(1L), USE.NAMES = FALSE)
-            is_exported <- self$objects %in% sanitize_names(getNamespaceExports(ns))
-            self$functs <- self$objects[is_function]
-            self$nonfuncts <- self$objects[!is_function]
-            self$exports <- self$objects[is_exported]
-            self$exported_functs <- self$objects[is_exported & is_function]
-            self$exported_nonfuncts <- self$objects[is_exported & !is_function]
-            self$lazydata <- if (length(ns$.__NAMESPACE__.$lazydata))
+            is_exported <- private$objects %in% sanitize_names(getNamespaceExports(ns))
+            private$functs <- private$objects[is_function]
+            private$nonfuncts <- private$objects[!is_function]
+            private$exports <- private$objects[is_exported]
+            private$exported_functs <- private$objects[is_exported & is_function]
+            private$exported_nonfuncts <- private$objects[is_exported & !is_function]
+            private$lazydata <- if (length(ns$.__NAMESPACE__.$lazydata))
                 objects(ns$.__NAMESPACE__.$lazydata) else character()
+            private$documentation <- collections::Dict()
         },
 
         exists = function(objname, exported_only = TRUE) {
             if (exported_only) {
-                objname %in% self$exports
+                objname %in% private$exports
             } else {
-                objname %in% self$objects
+                objname %in% private$objects
             }
         },
 
         exists_funct = function(funct, exported_only = TRUE) {
             if (exported_only) {
-                funct %in% self$exported_functs
+                funct %in% private$exported_functs
             } else {
-                funct %in% self$functs
+                funct %in% private$functs
             }
+        },
+
+        get_symbols = function(want_functs = TRUE, exported_only = TRUE) {
+            if (want_functs && exported_only) {
+                private$exported_functs
+            } else if (!want_functs && exported_only) {
+                private$exported_nonfuncts
+            } else if (want_functs && !exported_only) {
+                private$functs
+            } else if (!want_functs && !exported_only) {
+                private$nonfuncts
+            }
+        },
+
+        get_lazydata = function() {
+            private$lazydata
         },
 
         get_signature = function(funct, exported_only = TRUE) {
@@ -68,6 +88,46 @@ Namespace <- R6::R6Class("Namespace",
             ns <- asNamespace(pkgname)
             fn <- get(funct, envir = ns)
             formals(fn)
+        },
+
+        get_documentation = function(topic) {
+            pkgname <- self$package_name
+            if (private$documentation$has(topic)) {
+                return(private$documentation$get(topic))
+            }
+            hfile <- utils::help((topic), (pkgname))
+
+            if (length(hfile) > 0) {
+                doc <- utils:::.getHelpFile(hfile)
+                title_item <- find_doc_item(doc, "\\title")
+                description_item <- find_doc_item(doc, "\\description")
+                arguments_item <- find_doc_item(doc, "\\arguments")
+                title <- convert_doc_string(title_item)
+                description <- convert_doc_string(description_item)
+                arguments <- list()
+                if (length(arguments_item)) {
+                    arg_items <- arguments_item[vapply(arguments_item,
+                        function(arg) attr(arg, "Rd_tag") == "\\item", logical(1L))]
+                    arg_names <- vapply(arg_items, function(item) {
+                        argname <- item[[1]][[1]]
+                        switch(attr(argname, "Rd_tag"),
+                            TEXT = argname, "\\dots" = "...", "")
+                    }, character(1L))
+                    names(arg_items) <- arg_names
+                    arguments <- lapply(arg_items, function(item) {
+                        convert_doc_string(item[[2]])
+                    })
+                }
+                value <- list(
+                    title = title,
+                    description = description,
+                    arguments = arguments
+                )
+            } else {
+                value <- list()
+            }
+            private$documentation$set(topic, value)
+            value
         },
 
         get_definition = function(symbol, exported_only = TRUE) {
@@ -112,92 +172,107 @@ Namespace <- R6::R6Class("Namespace",
 WORKSPACE <- "_workspace_"
 
 #' A class for storing global environment information
-GlobalNameSpace <- R6::R6Class("GlobalNameSpace",
-    inherit = Namespace,
+GlobalEnv <- R6::R6Class("GlobalEnv",
     public = list(
-        signatures = list(),
-        formals = list(),
-        definitions = list(),
-        uris = list(),
-        documentation = list(),
+        documents = NULL,
+        package_name = NULL,
 
-        initialize = function() {
+        initialize = function(documents) {
+            self$documents <- documents
             self$package_name <- WORKSPACE
         },
 
+        exists = function(objname, exported_only = TRUE) {
+            for (doc in self$documents$values()) {
+                if (!is.null(doc$parse_data)) {
+                    if (objname %in% doc$parse_data$nonfuncts) {
+                        return(TRUE)
+                    } else if (objname %in% doc$parse_data$functs) {
+                        return(TRUE)
+                    }
+                }
+            }
+            return(FALSE)
+        },
+
+        exists_funct = function(funct, exported_only = TRUE) {
+            for (doc in self$documents$values()) {
+                if (!is.null(doc$parse_data)) {
+                    if (funct %in% doc$parse_data$functs) {
+                        return(TRUE)
+                    }
+                }
+            }
+            return(FALSE)
+        },
+
+        get_symbols = function(want_functs = TRUE, exported_only = TRUE) {
+            symbols <- character(0)
+            for (doc in self$documents$values()) {
+                if (!is.null(doc$parse_data)) {
+                    if (want_functs) {
+                        symbols <- c(symbols, doc$parse_data$functs)
+                    } else {
+                        symbols <- c(symbols, doc$parse_data$nonfuncts)
+                    }
+                }
+            }
+            symbols
+        },
+
+        get_lazydata = function() {
+            character(0)
+        },
+
         get_signature = function(funct, exported_only = TRUE) {
-            self$signatures[[funct]]
+            for (doc in self$documents$values()) {
+                if (!is.null(doc$parse_data)) {
+                    if (funct %in% doc$parse_data$functs) {
+                        return(doc$parse_data$signatures[[funct]])
+                    }
+                }
+            }
+            NULL
         },
 
         get_formals = function(funct, exported_only = TRUE) {
-            self$formals[[funct]]
+            for (doc in self$documents$values()) {
+                if (!is.null(doc$parse_data)) {
+                    if (funct %in% doc$parse_data$functs) {
+                        return(doc$parse_data$formals[[funct]])
+                    }
+                }
+            }
+            NULL
+        },
+
+        get_documentation = function(topic) {
+            for (doc in self$documents$values()) {
+                if (!is.null(doc$parse_data)) {
+                    if (topic %in% doc$parse_data$functs) {
+                        return(doc$parse_data$documentation[[topic]])
+                    }
+                }
+            }
+            NULL
         },
 
         get_definition = function(symbol, exported_only = TRUE) {
-            NULL
-        },
-
-        get_body = function(funct, exported_only = TRUE) {
-            NULL
-        },
-
-        update = function(parse_data) {
-            parse_data <- parse_data$as_list()
-            self$nonfuncts <- unique(unlist(lapply(parse_data, "[[", "nonfuncts"), use.names = FALSE))
-            self$exported_nonfuncts <- self$nonfuncts
-            self$functs <- unique(unlist(lapply(parse_data, "[[", "functs"), use.names = FALSE))
-            self$exported_functs <- self$functs
-            self$objects <- unique(c(self$nonfuncts, self$functs))
-            self$exports <- self$objects
-            self$signatures <- list()
-            self$formals <- list()
-            self$documentation <- list()
-            for (item in parse_data) {
-                self$signatures <- merge_list(self$signatures, item$signatures)
-                self$formals <- merge_list(self$formals, item$formals)
-                self$documentation <- merge_list(self$documentation, item$documentation)
+            for (doc in self$documents$values()) {
+                if (!is.null(doc$parse_data)) {
+                    if (symbol %in% doc$parse_data$functs) {
+                        def <- location(
+                            uri = doc$uri,
+                            range = doc$parse_data$definition_ranges[[symbol]]
+                        )
+                        return(def)
+                    }
+                }
             }
+            NULL
         }
     )
 )
-
-#' A data structure to hold function definition locations
-#'
-#' The key reason for using this rather than a `list` is that this also cleans up
-#' when functions are removed from files.
-#' @keywords internal
-DefinitionCache <- R6::R6Class("DefinitionCache",
-    private = list(
-        locations = list(),
-        uris = list()
-    ),
-    public = list(
-        get = function(funct) {
-            private$locations[[funct]]
-        },
-        get_functs_for_uri = function(uri) {
-            private$locations[private$uris[[uri]]]
-        },
-        filter = function(pattern) {
-            private$locations[fuzzy_find(names(private$locations), pattern)]
-        },
-        update = function(uri, ranges) {
-            functs <- names(ranges)
-            removed_functs <- setdiff(private$uris[[uri]], functs)
-            if (!is.null(removed_functs) && length(removed_functs) > 0) {
-                private$locations[removed_functs] <- NULL
-            }
-            for (funct in functs) {
-                private$locations[[funct]] <- location(
-                    uri = uri,
-                    range = ranges[[funct]]
-                )
-            }
-            private$uris[[uri]] <- functs
-        }
-    )
-)
-
 
 
 resolve_attached_packages <- function(pkgs) {

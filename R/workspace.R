@@ -5,25 +5,20 @@
 #' that are loaded during the session for quick reference.
 #' @keywords internal
 Workspace <- R6::R6Class("Workspace",
-    private = list(
-        global_env = NULL,
-        definition_cache = NULL,
-        namespaces = NULL,
-        documentation = NULL,
-        parse_data = NULL
-    ),
     public = list(
+        namespaces = NULL,
+        global_env = NULL,
+        documents = NULL,
+
         loaded_packages = c(
             "base", "stats", "methods", "utils", "graphics", "grDevices", "datasets"),
 
         initialize = function() {
-            private$global_env <- GlobalNameSpace$new()
-            private$definition_cache <- DefinitionCache$new()
-            private$namespaces <- collections::Dict()
-            private$documentation <- collections::Dict()
-            private$parse_data <- collections::Dict()
+            self$documents <- collections::Dict()
+            self$global_env <- GlobalEnv$new(self$documents)
+            self$namespaces <- collections::Dict()
             for (pkgname in self$loaded_packages) {
-                private$namespaces$set(pkgname, Namespace$new(pkgname))
+                self$namespaces$set(pkgname, PackageNamespace$new(pkgname))
             }
         },
 
@@ -66,12 +61,12 @@ Workspace <- R6::R6Class("Workspace",
 
         get_namespace = function(pkgname) {
             if (pkgname == WORKSPACE) {
-                private$global_env
-            } else if (private$namespaces$has(pkgname)) {
-                private$namespaces$get(pkgname)
+                self$global_env
+            } else if (self$namespaces$has(pkgname)) {
+                self$namespaces$get(pkgname)
             } else if (length(find.package(pkgname, quiet = TRUE))) {
-                ns <- Namespace$new(pkgname)
-                private$namespaces$set(pkgname, ns)
+                ns <- PackageNamespace$new(pkgname)
+                self$namespaces$set(pkgname, ns)
                 ns
             } else {
                 NULL
@@ -128,59 +123,19 @@ Workspace <- R6::R6Class("Workspace",
 
         get_documentation = function(topic, pkgname = NULL, isf = FALSE) {
             if (is.null(pkgname)) {
-                pkgname <- self$guess_namespace(topic, isf = isf)
-            }
-            if (!is.null(pkgname) && pkgname == WORKSPACE) {
-                return(private$global_env$documentation[[topic]])
-            }
-
-            item <- paste0(c(pkgname, topic), collapse = "::")
-            if (private$documentation$has(item)) {
-                return(private$documentation$get(item))
-            }
-            hfile <- utils::help((topic), (pkgname))
-
-            if (length(hfile) > 0) {
-                doc <- utils:::.getHelpFile(hfile)
-                title_item <- find_doc_item(doc, "\\title")
-                description_item <- find_doc_item(doc, "\\description")
-                arguments_item <- find_doc_item(doc, "\\arguments")
-                title <- convert_doc_string(title_item)
-                description <- convert_doc_string(description_item)
-                arguments <- list()
-                if (length(arguments_item)) {
-                    arg_items <- arguments_item[vapply(arguments_item,
-                        function(arg) attr(arg, "Rd_tag") == "\\item", logical(1L))]
-                    arg_names <- vapply(arg_items, function(item) {
-                        argname <- item[[1]][[1]]
-                        switch(attr(argname, "Rd_tag"),
-                            TEXT = argname, "\\dots" = "...", "")
-                    }, character(1L))
-                    names(arg_items) <- arg_names
-                    arguments <- lapply(arg_items, function(item) {
-                        convert_doc_string(item[[2]])
-                    })
+                pkgname <- self$guess_namespace(topic, isf = TRUE)
+                if (is.null(pkgname)) {
+                    return(NULL)
                 }
-                value <- list(
-                    title = title,
-                    description = description,
-                    arguments = arguments
-                )
-            } else {
-                value <- list()
             }
-            private$documentation$set(item, value)
-            value
+            ns <- self$get_namespace(pkgname)
+            if (!is.null(ns)) {
+                ns$get_documentation(topic)
+            }
         },
-
 
         get_definition = function(symbol, pkgname = NULL, exported_only = TRUE) {
             if (is.null(pkgname)) {
-                # look in global_env
-                definition <- private$definition_cache$get(symbol)
-                if (!is.null(definition)) {
-                    return(definition)
-                }
                 pkgname <- self$guess_namespace(symbol, isf = TRUE)
                 if (is.null(pkgname)) {
                     return(NULL)
@@ -193,15 +148,32 @@ Workspace <- R6::R6Class("Workspace",
         },
 
         get_definitions_for_uri = function(uri) {
-            private$definition_cache$get_functs_for_uri(uri)
+            parse_data <- self$get_parse_data(uri)
+            if (is.null(parse_data)) {
+                return(list())
+            }
+            parse_data$definition_ranges
         },
 
-        get_definitions_for_query = function(query) {
-            private$definition_cache$filter(query)
+        get_definitions_for_query = function(pattern) {
+            ranges <- list()
+            for (doc in self$documents$values()) {
+                parse_data <- doc$parse_data
+                if (is.null(parse_data)) next
+                doc_ranges <- lapply(
+                        parse_data$definition_ranges,
+                        function(r) list(
+                            uri = doc$uri,
+                            range = r
+                        )
+                    )
+                ranges <- append(ranges, doc_ranges[fuzzy_find(names(doc_ranges), pattern)])
+            }
+            ranges
         },
 
         get_parse_data = function(uri) {
-            private$parse_data$get(uri, NULL)
+            self$documents$get(uri)$parse_data
         },
 
         update_parse_data = function(uri, parse_data) {
@@ -210,9 +182,7 @@ Workspace <- R6::R6Class("Workspace",
                 parse_data$xml_doc <- tryCatch(
                     xml2::read_xml(parse_data$xml_data), error = function(e) NULL)
             }
-            private$parse_data$set(uri, parse_data)
-            private$global_env$update(private$parse_data)
-            private$definition_cache$update(uri, parse_data$definition_ranges)
+            self$documents$get(uri)$update_parse_data(parse_data)
         }
     )
 )

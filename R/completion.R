@@ -110,7 +110,8 @@ workspace_completion <- function(workspace, token, package = NULL, exported_only
             } else {
                 tag <- paste0("{", nsname, "}")
             }
-            functs <- ns$exported_functs[startsWith(ns$exported_functs, token)]
+            functs <- ns$get_symbols(want_functs = TRUE, exported_only = TRUE)
+            functs <- functs[startsWith(functs, token)]
             functs_completions <- lapply(functs, function(object) {
                 list(label = object,
                      kind = CompletionItemKind$Function,
@@ -122,7 +123,8 @@ workspace_completion <- function(workspace, token, package = NULL, exported_only
                          package = nsname
                      ))
             })
-            nonfuncts <- ns$exported_nonfuncts[startsWith(ns$exported_nonfuncts, token)]
+            nonfuncts <- ns$get_symbols(want_functs = FALSE, exported_only = TRUE)
+            nonfuncts <- nonfuncts[startsWith(nonfuncts, token)]
             nonfuncts_completions <- lapply(nonfuncts, function(object) {
                 list(label = object,
                      kind = CompletionItemKind$Field,
@@ -132,7 +134,8 @@ workspace_completion <- function(workspace, token, package = NULL, exported_only
                          package = nsname
                      ))
             })
-            lazydata <- ns$lazydata[startsWith(ns$lazydata, token)]
+            lazydata <- ns$get_lazydata()
+            lazydata <- lazydata[startsWith(lazydata, token)]
             lazydata_completions <- lapply(lazydata, function(object) {
                 list(label = object,
                      kind = CompletionItemKind$Field,
@@ -151,7 +154,8 @@ workspace_completion <- function(workspace, token, package = NULL, exported_only
         ns <- workspace$get_namespace(package)
         if (!is.null(ns)) {
             tag <- paste0("{", package, "}")
-            functs <- ns$functs[startsWith(ns$functs, token)]
+            functs <- ns$get_symbols(want_functs = TRUE, exported_only = FALSE)
+            functs <- functs[startsWith(functs, token)]
             functs_completions <- lapply(functs, function(object) {
                 list(label = object,
                      kind = CompletionItemKind$Function,
@@ -163,7 +167,8 @@ workspace_completion <- function(workspace, token, package = NULL, exported_only
                          package = package
                      ))
             })
-            nonfuncts <- ns$nonfuncts[startsWith(ns$nonfuncts, token)]
+            nonfuncts <- ns$get_symbols(want_functs = FALSE, exported_only = FALSE)
+            nonfuncts <- nonfuncts[startsWith(nonfuncts, token)]
             nonfuncts_completions <- lapply(nonfuncts, function(object) {
                 list(label = object,
                      kind = CompletionItemKind$Field,

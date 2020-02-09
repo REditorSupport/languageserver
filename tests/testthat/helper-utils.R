@@ -9,8 +9,15 @@ suppressPackageStartupMessages({
 defer <- withr::defer
 
 language_client <- function(working_dir = getwd(), debug = FALSE, diagnostics = FALSE) {
+
+    if (nzchar(Sys.getenv("DEBUGLSP"))) {
+        script <- "languageserver::run(debug = '/tmp/lsp')"
+    } else {
+        script <- "languageserver::run()"
+    }
+
     client <- LanguageClient$new(
-        file.path(R.home("bin"), "R"), c("--slave", "-e", "languageserver::run()"))
+        file.path(R.home("bin"), "R"), c("--slave", "-e", script))
 
     client$notification_handlers <- list(
         `textDocument/publishDiagnostics` = function(self, params) {
@@ -67,10 +74,20 @@ did_open <- function(client, path) {
 
 
 did_save <- function(client, path) {
+    includeText <- tryCatch(
+        client$ServerCapabilities$textDocumentSync$save$includeText,
+        error = function(e) FALSE
+    )
+    if (includeText) {
+        text <- paste0(readr::read_lines(path), collapse = "\n")
+        params <- list(textDocument = list(uri = path_to_uri(path)), text = text)
+    } else {
+        params <- list(textDocument = list(uri = path_to_uri(path)))
+    }
     notify(
         client,
         "textDocument/didSave",
-        list(textDocument = list(uri = path_to_uri(path))))
+        params)
     invisible(client)
 }
 

@@ -15,7 +15,7 @@ tryCatchStack <- function(expr, ...) {
     capture_calls <- function(e) {
         calls <- sys.calls()
         ncalls <- length(calls)
-        e$calls <- c(calls[-c(seq_len(frame + 7), ncalls - 1, ncalls)], e$call)
+        e$calls <- calls[-c(seq_len(frame + 7), ncalls - 1, ncalls)]
         class(e) <- c("errorWithStack", class(e))
         signalCondition(e)
     }
@@ -25,6 +25,13 @@ tryCatchStack <- function(expr, ...) {
 
 print.errorWithStack <- function(x, ...) {
     cat("Error: ", conditionMessage(x), "\n", sep = "")
+
+    call <- conditionCall(x)
+    if (!is.null(call)) {
+        cat("Call: ")
+        print(call)
+    }
+
     if (length(x$calls)) {
         cat("Stack trace:\n")
         rev_calls <- rev(x$calls)
@@ -79,7 +86,7 @@ check_scope <- function(uri, document, point) {
     if (is_rmarkdown(uri)) {
         row <- point$row
         flags <- vapply(
-            document$content[1:(row + 1)], startsWith, logical(1), "```", USE.NAMES = F)
+            document$content[1:(row + 1)], startsWith, logical(1), "```", USE.NAMES = FALSE)
         if (any(flags)) {
             last_match <- document$content[max(which(flags))]
             stringr::str_detect(last_match, "```\\{r[ ,\\}]") &&
