@@ -15,7 +15,7 @@ tryCatchStack <- function(expr, ...) {
     capture_calls <- function(e) {
         calls <- sys.calls()
         ncalls <- length(calls)
-        e$calls <- c(calls[-c(seq_len(frame + 7), ncalls - 1, ncalls)], e$call)
+        e$calls <- calls[-c(seq_len(frame + 7), ncalls - 1, ncalls)]
         class(e) <- c("errorWithStack", class(e))
         signalCondition(e)
     }
@@ -25,6 +25,13 @@ tryCatchStack <- function(expr, ...) {
 
 print.errorWithStack <- function(x, ...) {
     cat("Error: ", conditionMessage(x), "\n", sep = "")
+
+    call <- conditionCall(x)
+    if (!is.null(call)) {
+        cat("Call: ")
+        print(call)
+    }
+
     if (length(x$calls)) {
         cat("Stack trace:\n")
         rev_calls <- rev(x$calls)
