@@ -47,7 +47,7 @@ PackageNamespace <- R6::R6Class("PackageNamespace",
             }
         },
 
-        get_completions = function(want_functs = TRUE, exported_only = TRUE) {
+        get_symbols = function(want_functs = TRUE, exported_only = TRUE) {
             if (want_functs && exported_only) {
                 private$exported_functs
             } else if (!want_functs && exported_only) {
@@ -206,18 +206,18 @@ GlobalEnv <- R6::R6Class("GlobalEnv",
             return(FALSE)
         },
 
-        get_completions = function(want_functs = TRUE, exported_only = TRUE) {
-            completions <- character(0)
+        get_symbols = function(want_functs = TRUE, exported_only = TRUE) {
+            symbols <- character(0)
             for (doc in self$documents$values()) {
                 if (!is.null(doc$parse_data)) {
                     if (want_functs) {
-                        completions <- c(completions, doc$parse_data$functs)
+                        symbols <- c(symbols, doc$parse_data$functs)
                     } else {
-                        completions <- c(completions, doc$parse_data$nonfuncts)
+                        symbols <- c(symbols, doc$parse_data$nonfuncts)
                     }
                 }
             }
-            completions
+            symbols
         },
 
         get_lazydata = function() {

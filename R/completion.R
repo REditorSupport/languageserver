@@ -110,7 +110,7 @@ workspace_completion <- function(workspace, token, package = NULL, exported_only
             } else {
                 tag <- paste0("{", nsname, "}")
             }
-            functs <- ns$get_completions(want_functs = TRUE, exported_only = TRUE)
+            functs <- ns$get_symbols(want_functs = TRUE, exported_only = TRUE)
             functs <- functs[startsWith(functs, token)]
             functs_completions <- lapply(functs, function(object) {
                 list(label = object,
@@ -123,7 +123,7 @@ workspace_completion <- function(workspace, token, package = NULL, exported_only
                          package = nsname
                      ))
             })
-            nonfuncts <- ns$get_completions(want_functs = FALSE, exported_only = TRUE)
+            nonfuncts <- ns$get_symbols(want_functs = FALSE, exported_only = TRUE)
             nonfuncts <- nonfuncts[startsWith(nonfuncts, token)]
             nonfuncts_completions <- lapply(nonfuncts, function(object) {
                 list(label = object,
@@ -154,7 +154,7 @@ workspace_completion <- function(workspace, token, package = NULL, exported_only
         ns <- workspace$get_namespace(package)
         if (!is.null(ns)) {
             tag <- paste0("{", package, "}")
-            functs <- ns$get_completions(want_functs = TRUE, exported_only = FALSE)
+            functs <- ns$get_symbols(want_functs = TRUE, exported_only = FALSE)
             functs <- functs[startsWith(functs, token)]
             functs_completions <- lapply(functs, function(object) {
                 list(label = object,
@@ -167,7 +167,7 @@ workspace_completion <- function(workspace, token, package = NULL, exported_only
                          package = package
                      ))
             })
-            nonfuncts <- ns$get_completions(want_functs = FALSE, exported_only = FALSE)
+            nonfuncts <- ns$get_symbols(want_functs = FALSE, exported_only = FALSE)
             nonfuncts <- nonfuncts[startsWith(nonfuncts, token)]
             nonfuncts_completions <- lapply(nonfuncts, function(object) {
                 list(label = object,
