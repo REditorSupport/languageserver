@@ -6,7 +6,7 @@ document_color_reply <- function(id, uri, workspace, document) {
 
   parse_data <- workspace$get_parse_data(uri)
   if (is.null(parse_data) ||
-    (!is.null(parse_data$version) && parse_data$version != document$version)) {
+          (!is.null(parse_data$version) && parse_data$version != document$version)) {
     return(NULL)
   }
 

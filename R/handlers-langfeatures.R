@@ -177,7 +177,7 @@ document_link_resolve  <- function(self, id, params) {
 text_document_document_color  <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
-    document <- self$documents$get(uri)
+    document <- self$workspace$documents$get(uri)
     reply <- document_color_reply(id, uri, self$workspace, document)
     if (is.null(reply)) {
         queue <- self$pending_replies$get(uri)[["textDocument/documentColor"]]
@@ -198,7 +198,7 @@ text_document_document_color  <- function(self, id, params) {
 text_document_color_presentation  <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
-    document <- self$documents$get(uri)
+    document <- self$workspace$documents$get(uri)
     color <- params$color
     self$deliver(color_presentation_reply(id, uri, self$workspace, document, color))
 }
