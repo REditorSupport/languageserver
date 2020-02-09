@@ -282,7 +282,7 @@ parse_document <- function(uri, content, resolve = FALSE) {
 
 
 parse_callback <- function(self, uri, version, parse_data) {
-    if (is.null(parse_data)) return(NULL)
+    if (is.null(parse_data) || !self$workspace$documents$has(uri)) return(NULL)
     logger$info("parse_callback called:", list(uri = uri, version = version))
     parse_data$version <- version
     self$workspace$update_parse_data(uri, parse_data)
