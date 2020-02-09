@@ -37,14 +37,7 @@ These editors are supported by installing the corresponding package.
     
     or use [coc-r-lsp](https://github.com/neoclide/coc-r-lsp) with [coc.nvim](https://github.com/neoclide/coc.nvim)
 
-- EMacs: [lsp-mode](https://github.com/emacs-lsp/lsp-mode) with settings
-    ```elisp
-    (lsp-register-client
-        (make-lsp-client :new-connection
-            (lsp-stdio-connection '("R" "--slave" "-e" "languageserver::run()"))
-            :major-modes '(ess-r-mode inferior-ess-r-mode)
-            :server-id 'lsp-R))
-    ```
+- Emacs: [lsp-mode](https://github.com/emacs-lsp/lsp-mode)
 
 - JupyterLab: [jupyterlab-lsp](https://github.com/krassowski/jupyterlab-lsp)
 
