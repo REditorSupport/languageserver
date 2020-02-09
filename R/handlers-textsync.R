@@ -75,7 +75,7 @@ text_document_did_save <- function(self, params) {
     }
     if (self$workspace$documents$has(uri)) {
         doc <- self$workspace$documents$get(uri)
-        doc$set_content(NULL, content)
+        doc$set_content(doc$version, content)
     } else {
         doc <- Document$new(uri, NULL, content)
         self$workspace$documents$set(uri, doc)
