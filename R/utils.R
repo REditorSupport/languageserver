@@ -86,7 +86,7 @@ check_scope <- function(uri, document, point) {
     if (is_rmarkdown(uri)) {
         row <- point$row
         flags <- vapply(
-            document$content[1:(row + 1)], startsWith, logical(1), "```", USE.NAMES = F)
+            document$content[1:(row + 1)], startsWith, logical(1), "```", USE.NAMES = FALSE)
         if (any(flags)) {
             last_match <- document$content[max(which(flags))]
             stringr::str_detect(last_match, "```\\{r[ ,\\}]") &&
