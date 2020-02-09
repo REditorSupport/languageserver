@@ -38,13 +38,13 @@ LanguageServer <- R6::R6Class("LanguageServer",
             if (is.null(port)) {
                 logger$info("connection type: stdio")
                 outputcon <- stdout()
-                inputcon <- file("stdin")
-                # note: windows doesn't non-blocking read stdin
-                open(inputcon, blocking = FALSE)
+                # note: windows doesn't support `blocking = FALSE`
+                # we use `PeekNamedPipe` in c to mimic non-blocking reading
+                inputcon <- file("stdin", open = "rb", blocking = FALSE)
             } else {
                 self$tcp <- TRUE
                 logger$info("connection type: tcp at ", port)
-                inputcon <- socketConnection(host = host, port = port, open = "r+")
+                inputcon <- socketConnection(host = host, port = port, open = "r+b")
                 logger$info("connected")
                 outputcon <- inputcon
             }
