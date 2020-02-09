@@ -63,9 +63,8 @@ text_document_will_save <- function(self, params) {
 text_document_did_save <- function(self, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
-    version <- textDocument$version
-    text <- textDocument$text
-    logger$info("did save:", list(uri = uri, version = version))
+    text <- params$text
+    logger$info("did save:", list(uri = uri))
     path <- path_from_uri(uri)
     if (!is.null(text)) {
         content <- stringr::str_split(text, "\r\n|\n")[[1]]
@@ -76,9 +75,9 @@ text_document_did_save <- function(self, params) {
     }
     if (self$workspace$documents$has(uri)) {
         doc <- self$workspace$documents$get(uri)
-        doc$set_content(version, content)
+        doc$set_content(NULL, content)
     } else {
-        doc <- Document$new(uri, version, content)
+        doc <- Document$new(uri, NULL, content)
         self$workspace$documents$set(uri, doc)
     }
     self$text_sync(uri, document = doc, run_lintr = TRUE, parse = TRUE, resolve = TRUE)
