@@ -51,3 +51,19 @@ test_that("Formatting selection works for partial line", {
     expect_equal(lines[1], "    y = x + 1")
     expect_equal(lines[2], "    y + 3")
 })
+
+
+test_that("On type formatting works", {
+    skip_on_cran()
+    client <- language_client()
+
+    withr::local_tempfile(c("temp_file"), fileext = ".R")
+    writeLines(c("my_fun <- function(x) { x }"), temp_file)
+
+    client %>% did_save(temp_file)
+
+    result <- client %>% respond_on_type_formatting(temp_file, c(0, 27), "}")
+
+    expect_length(result, 1)
+    expect_equal(result[[1]]$newText, "my_fun <- function(x) {\n    x\n}")
+})

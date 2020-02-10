@@ -231,6 +231,20 @@ respond_selection_range <- function(client, path, positions, ...) {
     )
 }
 
+respond_on_type_formatting <- function(client, path, pos, ch, ...) {
+    respond(
+        client,
+        "textDocument/onTypeFormatting",
+        list(
+            textDocument = list(uri = path_to_uri(path)),
+            position = position(pos[1], pos[2]),
+            ch = ch,
+            options = list(tabSize = 4, insertSpaces = TRUE)),
+        ...
+    )
+}
+
+
 wait_for <- function(client, method, timeout = 5) {
     storage <- new.env(parent = .GlobalEnv)
     start_time <- Sys.time()
