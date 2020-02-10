@@ -245,6 +245,19 @@ respond_on_type_formatting <- function(client, path, pos, ch, ...) {
 }
 
 
+respond_document_highlight <- function(client, path, pos, ...) {
+    respond(
+        client,
+        "textDocument/documentHighlight",
+        list(
+            textDocument = list(uri = path_to_uri(path)),
+            position = list(line = pos[1], character = pos[2])),
+        ...
+    )
+}
+
+
+
 wait_for <- function(client, method, timeout = 5) {
     storage <- new.env(parent = .GlobalEnv)
     start_time <- Sys.time()
