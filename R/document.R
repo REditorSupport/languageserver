@@ -247,7 +247,7 @@ parse_expr <- function(content, expr, env, level = 0L, srcref = attr(expr, "srcr
 #' signatures in the document in order to add them to the current [Workspace].
 #'
 #' @keywords internal
-parse_document <- function(uri, content, resolve = FALSE) {
+parse_document <- function(uri, content, loaded_packages = character()) {
     if (length(content) == 0) {
         content <- ""
     }
@@ -259,6 +259,7 @@ parse_document <- function(uri, content, resolve = FALSE) {
         parse_env <- function() {
             env <- new.env(parent = .GlobalEnv)
             env$packages <- character()
+            env$load_packages <- character()
             env$nonfuncts <- character()
             env$functs <- character()
             env$formals <- list()
@@ -273,8 +274,10 @@ parse_document <- function(uri, content, resolve = FALSE) {
         parse_expr(content, expr, env)
         xml_data <- xmlparsedata::xml_parse_data(expr)
         env$xml_data <- xml_data
-        if (resolve) {
-            env$packages <- resolve_attached_packages(env$packages)
+        load_packages <- setdiff(env$packages, loaded_packages)
+        load_packages <- basename(find.package(load_packages, quiet = TRUE))
+        if (length(load_packages)) {
+            env$load_packages <- resolve_attached_packages(load_packages)
         }
         env
     }
@@ -306,12 +309,13 @@ parse_callback <- function(self, uri, version, parse_data) {
     }
 }
 
-parse_task <- function(self, uri, document, resolve = FALSE) {
+parse_task <- function(self, uri, document) {
     version <- document$version
     content <- document$content
+    loaded_packages <- self$workspace$loaded_packages
     create_task(
         parse_document,
-        list(uri = uri, content = content, resolve = resolve),
+        list(uri = uri, content = content, loaded_packages = loaded_packages),
         callback = function(result) parse_callback(self, uri, version, result),
         error = function(e) logger$info("parse_task:", e))
 }

@@ -23,7 +23,7 @@ text_document_did_open <- function(self, params) {
         doc <- Document$new(uri, version, content)
         self$workspace$documents$set(uri, doc)
     }
-    self$text_sync(uri, document = doc, run_lintr = TRUE, parse = TRUE, resolve = TRUE)
+    self$text_sync(uri, document = doc, run_lintr = TRUE, parse = TRUE)
 }
 
 #' `textDocument/didChange` notification handler
@@ -80,7 +80,7 @@ text_document_did_save <- function(self, params) {
         doc <- Document$new(uri, NULL, content)
         self$workspace$documents$set(uri, doc)
     }
-    self$text_sync(uri, document = doc, run_lintr = TRUE, parse = TRUE, resolve = TRUE)
+    self$text_sync(uri, document = doc, run_lintr = TRUE, parse = TRUE)
 }
 
 #' `textDocument/didClose` notification handler

@@ -177,7 +177,7 @@ Workspace <- R6::R6Class("Workspace",
         },
 
         update_parse_data = function(uri, parse_data) {
-            self$load_packages(parse_data$packages)
+            self$load_packages(parse_data$load_packages)
             if (!is.null(parse_data$xml_data)) {
                 parse_data$xml_doc <- tryCatch(
                     xml2::read_xml(parse_data$xml_data), error = function(e) NULL)
