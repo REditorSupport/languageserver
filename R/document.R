@@ -7,12 +7,14 @@ Document <- R6::R6Class(
         content = NULL,
         parse_data = NULL,
         is_rmarkdown = NULL,
+        loaded_packages = NULL,
 
         initialize = function(uri, version, content = "") {
             self$uri <- uri
             self$version <- version
             self$is_rmarkdown <- is_rmarkdown(self$uri)
             self$set_content(version, content)
+            self$loaded_packages <- character()
         },
 
         set_content = function(version, content) {
@@ -278,6 +280,7 @@ parse_document <- function(uri, content, loaded_packages = character()) {
         load_packages <- basename(find.package(load_packages, quiet = TRUE))
         if (length(load_packages)) {
             env$load_packages <- resolve_attached_packages(load_packages)
+            env$packages <- union(env$packages, env$load_packages)
         }
         env
     }
@@ -289,6 +292,9 @@ parse_callback <- function(self, uri, version, parse_data) {
     logger$info("parse_callback called:", list(uri = uri, version = version))
     parse_data$version <- version
     self$workspace$update_parse_data(uri, parse_data)
+
+    doc <- self$workspace$documents$get(uri)
+    doc$loaded_packages <- parse_data$packages
 
     pending_replies <- self$pending_replies$get(uri, NULL)
     for (name in names(pending_replies)) {
@@ -312,7 +318,7 @@ parse_callback <- function(self, uri, version, parse_data) {
 parse_task <- function(self, uri, document) {
     version <- document$version
     content <- document$content
-    loaded_packages <- self$workspace$loaded_packages
+    loaded_packages <- document$loaded_packages
     create_task(
         parse_document,
         list(uri = uri, content = content, loaded_packages = loaded_packages),

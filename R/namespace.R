@@ -281,9 +281,6 @@ resolve_attached_packages <- function(pkgs) {
             callr::r(
                 function(pkgs) {
                     for (pkg in pkgs) {
-                        if (paste0("package:", pkg) %in% search()) {
-                            next
-                        }
                         tryCatch(library(pkg, character.only = TRUE),
                             error = function(e) NULL
                         )
@@ -296,7 +293,7 @@ resolve_attached_packages <- function(pkgs) {
         )
         if (!is.null(deps)) {
             deps <- deps[startsWith(deps, "package:")]
-            deps <- gsub("package:", "", deps)
+            deps <- gsub("package:", "", deps, fixed = TRUE)
             deps <- deps[!deps %in% pkgs]
             pkgs <- c(pkgs, deps)
         }
