@@ -93,6 +93,7 @@ text_document_did_close <- function(self, params) {
     # do not remove document in package
     if (!(is_package(self$rootUri) && startsWith(uri, self$rootUri))) {
         self$workspace$documents$remove(uri)
+        self$workspace$update_loaded_packages()
     }
     self$pending_replies$remove(uri)
 }
