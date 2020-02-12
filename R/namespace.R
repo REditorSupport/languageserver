@@ -276,22 +276,11 @@ GlobalEnv <- R6::R6Class("GlobalEnv",
 
 
 resolve_attached_packages <- function(pkgs) {
-    if (length(pkgs)) {
-        pkgs <- tryCatch(
-            callr::r(
-                function(pkgs) {
-                    startup_packages <- .packages()
-                    for (pkg in pkgs) {
-                        tryCatch(library(pkg, character.only = TRUE),
-                            error = function(e) NULL
-                        )
-                    }
-                    rev(setdiff(.packages(), startup_packages))
-                },
-                list(pkgs = pkgs)
-            ),
+    startup_packages <- .packages()
+    for (pkg in pkgs) {
+        tryCatch(library(pkg, character.only = TRUE),
             error = function(e) NULL
         )
     }
-    pkgs
+    rev(setdiff(.packages(), startup_packages))
 }
