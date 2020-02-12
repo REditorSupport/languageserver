@@ -296,7 +296,7 @@ parse_callback <- function(self, uri, version, parse_data) {
                 uri,
                 resolve_task(self, uri, doc, parse_data$packages)
             )
-            doc$loaded_packages <- load_packages
+            doc$loaded_packages <- parse_data$packages
         } else {
             doc$loaded_packages <- character()
         }
