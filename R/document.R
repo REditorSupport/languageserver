@@ -273,6 +273,7 @@ parse_document <- function(uri, content) {
         }
         env <- parse_env()
         parse_expr(content, expr, env)
+        env$packages <- basename(find.package(env$packages, quiet = TRUE))
         xml_data <- xmlparsedata::xml_parse_data(expr)
         env$xml_data <- xml_data
         env
@@ -291,10 +292,9 @@ parse_callback <- function(self, uri, version, parse_data) {
 
     if (!identical(old_parse_data$packages, parse_data$packages)) {
         if (length(parse_data$packages)) {
-            load_packages <- basename(find.package(parse_data$packages, quiet = TRUE))
             self$parse_task_manager$add_task(
                 uri,
-                resolve_task(self, uri, doc, load_packages)
+                resolve_task(self, uri, doc, parse_data$packages)
             )
             doc$loaded_packages <- load_packages
         } else {
