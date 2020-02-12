@@ -4,7 +4,7 @@
 \alias{parse_document}
 \title{Parse a document}
 \usage{
-parse_document(uri, content, loaded_packages = NULL)
+parse_document(uri, content, loaded_packages = character())
 }
 \description{
 Build the list of called packages, functions, variables, formals and
