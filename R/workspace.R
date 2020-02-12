@@ -1,3 +1,5 @@
+startup_packages <- c("base", "methods", "datasets", "utils", "grDevices", "graphics", "stats")
+
 #' A data structure for a session workspace
 #'
 #' A `Workspace` is initialized at the start of a session, when the language
@@ -9,9 +11,7 @@ Workspace <- R6::R6Class("Workspace",
         namespaces = NULL,
         global_env = NULL,
         documents = NULL,
-
-        loaded_packages = c(
-            "base", "stats", "methods", "utils", "graphics", "grDevices", "datasets"),
+        loaded_packages = startup_packages,
 
         initialize = function() {
             self$documents <- collections::Dict()
@@ -176,13 +176,22 @@ Workspace <- R6::R6Class("Workspace",
             self$documents$get(uri)$parse_data
         },
 
+        update_loaded_packages = function() {
+            loaded_packages <- startup_packages
+            for (doc in self$documents$values()) {
+                loaded_packages <- union(loaded_packages, doc$loaded_packages)
+            }
+            self$loaded_packages <- loaded_packages
+        },
+
         update_parse_data = function(uri, parse_data) {
-            self$load_packages(parse_data$packages)
+            self$load_packages(parse_data$load_packages)
             if (!is.null(parse_data$xml_data)) {
                 parse_data$xml_doc <- tryCatch(
                     xml2::read_xml(parse_data$xml_data), error = function(e) NULL)
             }
             self$documents$get(uri)$update_parse_data(parse_data)
+            self$update_loaded_packages()
         }
     )
 )

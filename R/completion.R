@@ -51,7 +51,7 @@ constant_completion <- function(token) {
 #' Complete a package name
 #' @keywords internal
 package_completion <- function(token) {
-    installed_packages <- rownames(utils::installed.packages())
+    installed_packages <- .packages(all.available = TRUE)
     token_packages <- installed_packages[startsWith(installed_packages, token)]
     completions <- lapply(token_packages, function(package) {
         list(label = package, kind = CompletionItemKind$Module,
