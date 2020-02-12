@@ -274,8 +274,7 @@ parse_document <- function(uri, content) {
         env <- parse_env()
         parse_expr(content, expr, env)
         env$packages <- basename(find.package(env$packages, quiet = TRUE))
-        xml_data <- xmlparsedata::xml_parse_data(expr)
-        env$xml_data <- xml_data
+        env$xml_data <- xmlparsedata::xml_parse_data(expr)
         env
     }
 }
