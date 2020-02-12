@@ -296,10 +296,11 @@ parse_callback <- function(self, uri, version, parse_data) {
                 uri,
                 resolve_task(self, uri, doc, load_packages)
             )
+            doc$loaded_packages <- load_packages
         } else {
             doc$loaded_packages <- character()
-            self$workspace$update_loaded_packages()
         }
+        self$workspace$update_loaded_packages()
     }
 
     pending_replies <- self$pending_replies$get(uri, NULL)
