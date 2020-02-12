@@ -123,23 +123,76 @@ range_formatting_reply <- function(id, uri, document, range, options) {
 #' Format on type
 #' @keywords internal
 on_type_formatting_reply <- function(id, uri, document, point, ch, options) {
+    content <- document$content
+    end_line <- point$row + 1
     if (ch == "\n") {
-        row <- point$row - 1
+        # use "." to complete the partial expression
+        content[end_line] <- "."
+        start_line <- end_line - 1
     } else {
-        row <- point$row
+        start_line <- end_line
     }
-    style <- get_style(options)
-    selection <- document$line0(row)
-    indentation <- stringr::str_extract(selection, "^\\s*")
-    new_text <- style_text(selection, style, indentation = indentation)
-    if (is.null(new_text)) {
-        return(Response$new(id, list()))
+
+    # backward parse until more expressions or non-parseable
+    expr <- NULL
+    nexpr <- 0
+    res <- tryCatchTimeout({
+        while (start_line >= 1) {
+            expr <- tryCatch(parse(
+                text = content[start_line:end_line],
+                keep.source = FALSE),
+            error = function(e) NULL)
+            nexpr1 <- length(expr)
+            if (nexpr > 0 && (nexpr1 > nexpr || nexpr1 == 0)) {
+                start_line <- start_line + 1
+                break
+            }
+            nexpr <- nexpr1
+            start_line <- start_line - 1
+        }
+        TRUE
+    }, timeout = 0.1, error = function(e) logger$info("on_type_formatting_reply:", e))
+
+    if (is.null(res)) {
+        return(Response$new(id))
     }
-    range <- range(
-        start = document$to_lsp_position(row = row, col = 0),
-        end = document$to_lsp_position(row = row, col = nchar(document$line0(row)))
-    )
-    TextEdit <- text_edit(range = range, new_text = new_text)
-    TextEditList <- list(TextEdit)
-    Response$new(id, TextEditList)
+
+    if (start_line == 0) {
+        start_line <- 1
+    }
+
+    while (start_line < end_line) {
+        if (grepl("\\S", content[[start_line]])) {
+            break
+        }
+        start_line <- start_line + 1
+    }
+
+    logger$info("on_type_formatting_reply:", list(
+        start_line = start_line,
+        end_line = end_line,
+        chunk = content[start_line:end_line]
+    ))
+    if (nexpr >= 1) {
+        style <- get_style(options)
+        indentation <- stringr::str_extract(content[start_line], "^\\s*")
+        new_text <- tryCatchTimeout(
+            style_text(content[start_line:end_line], style, indentation = indentation),
+            timeout = 1,
+            error = function(e) logger$info("on_type_formatting_reply:", e))
+        if (!is.null(new_text)) {
+            if (ch == "\n") {
+                new_text <- substr(new_text, 1, nchar(new_text) - 1)
+            }
+            range <- range(
+                start = document$to_lsp_position(row = start_line - 1, col = 0),
+                end = document$to_lsp_position(row = end_line - 1, col = nchar(document$line(end_line)))
+            )
+            TextEdit <- text_edit(range = range, new_text = new_text)
+            TextEditList <- list(TextEdit)
+            return(Response$new(id, TextEditList))
+        }
+    }
+
+    Response$new(id)
 }
