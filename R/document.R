@@ -325,7 +325,7 @@ parse_task <- function(self, uri, document) {
     version <- document$version
     content <- document$content
     create_task(
-        parse_document,
+        package_call(parse_document),
         list(uri = uri, content = content),
         callback = function(result) parse_callback(self, uri, version, result),
         error = function(e) logger$info("parse_task:", e))
