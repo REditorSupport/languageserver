@@ -249,7 +249,7 @@ parse_expr <- function(content, expr, env, level = 0L, srcref = attr(expr, "srcr
 #' signatures in the document in order to add them to the current [Workspace].
 #'
 #' @keywords internal
-parse_document <- function(uri, content, loaded_packages = character()) {
+parse_document <- function(uri, content) {
     if (length(content) == 0) {
         content <- ""
     }
@@ -261,7 +261,6 @@ parse_document <- function(uri, content, loaded_packages = character()) {
         parse_env <- function() {
             env <- new.env(parent = .GlobalEnv)
             env$packages <- character()
-            env$load_packages <- character()
             env$nonfuncts <- character()
             env$functs <- character()
             env$formals <- list()
@@ -276,12 +275,6 @@ parse_document <- function(uri, content, loaded_packages = character()) {
         parse_expr(content, expr, env)
         xml_data <- xmlparsedata::xml_parse_data(expr)
         env$xml_data <- xml_data
-        load_packages <- setdiff(env$packages, loaded_packages)
-        load_packages <- basename(find.package(load_packages, quiet = TRUE))
-        if (length(load_packages)) {
-            env$load_packages <- resolve_attached_packages(load_packages)
-            env$packages <- union(env$packages, env$load_packages)
-        }
         env
     }
 }
@@ -290,11 +283,24 @@ parse_document <- function(uri, content, loaded_packages = character()) {
 parse_callback <- function(self, uri, version, parse_data) {
     if (is.null(parse_data) || !self$workspace$documents$has(uri)) return(NULL)
     logger$info("parse_callback called:", list(uri = uri, version = version))
+    doc <- self$workspace$documents$get(uri)
+
     parse_data$version <- version
+    old_parse_data <- doc$parse_data
     self$workspace$update_parse_data(uri, parse_data)
 
-    doc <- self$workspace$documents$get(uri)
-    doc$loaded_packages <- parse_data$packages
+    if (!identical(old_parse_data$packages, parse_data$packages)) {
+        if (length(parse_data$packages)) {
+            load_packages <- basename(find.package(parse_data$packages, quiet = TRUE))
+            self$parse_task_manager$add_task(
+                uri,
+                resolve_task(self, uri, doc, load_packages)
+            )
+        } else {
+            doc$loaded_packages <- character()
+            self$workspace$update_loaded_packages()
+        }
+    }
 
     pending_replies <- self$pending_replies$get(uri, NULL)
     for (name in names(pending_replies)) {
@@ -318,10 +324,27 @@ parse_callback <- function(self, uri, version, parse_data) {
 parse_task <- function(self, uri, document) {
     version <- document$version
     content <- document$content
-    loaded_packages <- document$loaded_packages
     create_task(
         parse_document,
-        list(uri = uri, content = content, loaded_packages = loaded_packages),
+        list(uri = uri, content = content),
         callback = function(result) parse_callback(self, uri, version, result),
         error = function(e) logger$info("parse_task:", e))
+}
+
+resolve_callback <- function(self, uri, version, packages) {
+    if (!self$workspace$documents$has(uri)) return(NULL)
+    logger$info("resolve_callback called:", list(uri = uri, version = version))
+    self$workspace$load_packages(packages)
+    doc <- self$workspace$documents$get(uri)
+    doc$loaded_packages <- packages
+    self$workspace$update_loaded_packages()
+}
+
+resolve_task <- function(self, uri, document, packages) {
+    version <- document$version
+    create_task(
+        resolve_attached_packages,
+        list(pkgs = packages),
+        callback = function(result) resolve_callback(self, uri, version, result),
+        error = function(e) logger$info("resolve_task:", e))
 }
