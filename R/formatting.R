@@ -127,13 +127,16 @@ on_type_formatting_reply <- function(id, uri, document, point, ch, options) {
     end_line <- point$row + 1
     use_zero <- FALSE
     if (ch == "\n") {
+        start_line <- end_line - 1
+        if (grepl("^\\s*$", content[[start_line]])) {
+            return(Response$new(id))
+        }
         if (grepl("^\\s*(#.+)?$", content[[end_line]])) {
             # use "0" to complete the potentially incomplete expression
             last_line <- content[end_line]
             content[end_line] <- "0"
             use_zero <- TRUE
         }
-        start_line <- end_line - 1
     } else {
         start_line <- end_line
     }
