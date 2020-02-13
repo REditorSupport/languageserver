@@ -181,11 +181,11 @@ on_type_formatting_reply <- function(id, uri, document, point, ch, options) {
             start_line <- start_line + 1
         }
 
-        logger$info("on_type_formatting_reply:", list(
-            start_line = start_line,
-            end_line = end_line,
-            chunk = content[start_line:end_line]
-        ))
+        # logger$info("on_type_formatting_reply:", list(
+        #     start_line = start_line,
+        #     end_line = end_line,
+        #     chunk = content[start_line:end_line]
+        # ))
 
         style <- get_style(options)
         indentation <- stringr::str_extract(content[start_line], "^\\s*")
