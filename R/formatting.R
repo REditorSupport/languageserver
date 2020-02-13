@@ -161,7 +161,7 @@ on_type_formatting_reply <- function(id, uri, document, point, ch, options) {
             start_line <- start_line - 1
         }
         TRUE
-    }, timeout = 0.1, error = function(e) logger$info("on_type_formatting_reply:", e))
+    }, timeout = 0.1, error = function(e) logger$info("on_type_formatting_reply:parser:", e))
 
     if (is.null(res)) {
         # timeout
@@ -192,7 +192,8 @@ on_type_formatting_reply <- function(id, uri, document, point, ch, options) {
         new_text <- tryCatchTimeout(
             style_text(content[start_line:end_line], style, indentation = indentation),
             timeout = 1,
-            error = function(e) logger$info("on_type_formatting_reply:", e))
+            error <- function(e) logger$info("on_type_formatting_reply:styler:", e)
+        )
         if (!is.null(new_text)) {
             if (use_zero) {
                 new_text <- substr(new_text, 1, nchar(new_text) - 1)
