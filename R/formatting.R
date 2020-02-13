@@ -125,9 +125,13 @@ range_formatting_reply <- function(id, uri, document, range, options) {
 on_type_formatting_reply <- function(id, uri, document, point, ch, options) {
     content <- document$content
     end_line <- point$row + 1
+    use_dot <- FALSE
     if (ch == "\n") {
-        # use "." to complete the partial expression
-        content[end_line] <- "."
+        if (grepl("^\\s*$", content[[end_line]])) {
+            # use "." to complete the potentially incomplete expression
+            content[end_line] <- "."
+            use_dot <- TRUE
+        }
         start_line <- end_line - 1
     } else {
         start_line <- end_line
@@ -143,6 +147,11 @@ on_type_formatting_reply <- function(id, uri, document, point, ch, options) {
                 keep.source = FALSE),
             error = function(e) NULL)
             nexpr1 <- length(expr)
+            # stop backward parsing when
+            # 1. we have at least one expression parsed; and
+            # 2. we are entering the previous expression:
+            #    * if it is one-line expression, then we got 1 more expression.
+            #    * if it is multi-line expression, then we got no expression
             if (nexpr > 0 && (nexpr1 > nexpr || nexpr1 == 0)) {
                 start_line <- start_line + 1
                 break
@@ -154,6 +163,7 @@ on_type_formatting_reply <- function(id, uri, document, point, ch, options) {
     }, timeout = 0.1, error = function(e) logger$info("on_type_formatting_reply:", e))
 
     if (is.null(res)) {
+        # timeout
         return(Response$new(id))
     }
 
@@ -161,6 +171,7 @@ on_type_formatting_reply <- function(id, uri, document, point, ch, options) {
         start_line <- 1
     }
 
+    # find first non-empty line for the detection of indention
     while (start_line < end_line) {
         if (grepl("\\S", content[[start_line]])) {
             break
@@ -173,6 +184,7 @@ on_type_formatting_reply <- function(id, uri, document, point, ch, options) {
         end_line = end_line,
         chunk = content[start_line:end_line]
     ))
+
     if (nexpr >= 1) {
         style <- get_style(options)
         indentation <- stringr::str_extract(content[start_line], "^\\s*")
@@ -181,13 +193,14 @@ on_type_formatting_reply <- function(id, uri, document, point, ch, options) {
             timeout = 1,
             error = function(e) logger$info("on_type_formatting_reply:", e))
         if (!is.null(new_text)) {
-            if (ch == "\n") {
+            if (use_dot && ch == "\n") {
                 new_text <- substr(new_text, 1, nchar(new_text) - 1)
             }
             range <- range(
                 start = document$to_lsp_position(row = start_line - 1, col = 0),
                 end = document$to_lsp_position(row = end_line - 1, col = nchar(document$line(end_line)))
             )
+            logger$info("on_type_formatting_reply:", list(range = range, new_text = new_text))
             TextEdit <- text_edit(range = range, new_text = new_text)
             TextEditList <- list(TextEdit)
             return(Response$new(id, TextEditList))
