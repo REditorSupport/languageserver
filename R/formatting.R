@@ -125,12 +125,13 @@ range_formatting_reply <- function(id, uri, document, range, options) {
 on_type_formatting_reply <- function(id, uri, document, point, ch, options) {
     content <- document$content
     end_line <- point$row + 1
-    use_dot <- FALSE
+    use_zero <- FALSE
     if (ch == "\n") {
         if (grepl("^\\s*(#.+)?$", content[[end_line]])) {
-            # use "." to complete the potentially incomplete expression
-            content[end_line] <- paste0("...()", content[end_line])
-            use_dot <- TRUE
+            # use "0" to complete the potentially incomplete expression
+            last_line <- content[end_line]
+            content[end_line] <- "0"
+            use_zero <- TRUE
         }
         start_line <- end_line - 1
     } else {
@@ -193,8 +194,9 @@ on_type_formatting_reply <- function(id, uri, document, point, ch, options) {
             timeout = 1,
             error = function(e) logger$info("on_type_formatting_reply:", e))
         if (!is.null(new_text)) {
-            if (use_dot) {
-                new_text <- gsub("...()", "", new_text, fixed = TRUE)
+            if (use_zero) {
+                new_text <- substr(new_text, 1, nchar(new_text) - 1)
+                new_text <- paste0(new_text, trimws(last_line, whitespace = "\\s"))
             }
             range <- range(
                 start = document$to_lsp_position(row = start_line - 1, col = 0),
