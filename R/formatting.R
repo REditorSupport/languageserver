@@ -167,25 +167,25 @@ on_type_formatting_reply <- function(id, uri, document, point, ch, options) {
         return(Response$new(id))
     }
 
-    if (start_line == 0) {
-        start_line <- 1
-    }
-
-    # find first non-empty line for the detection of indention
-    while (start_line < end_line) {
-        if (grepl("\\S", content[[start_line]])) {
-            break
-        }
-        start_line <- start_line + 1
-    }
-
-    logger$info("on_type_formatting_reply:", list(
-        start_line = start_line,
-        end_line = end_line,
-        chunk = content[start_line:end_line]
-    ))
-
     if (nexpr >= 1) {
+        if (start_line == 0) {
+            start_line <- 1
+        }
+
+        # find first non-empty line for the detection of indention
+        while (start_line < end_line) {
+            if (grepl("\\S", content[[start_line]])) {
+                break
+            }
+            start_line <- start_line + 1
+        }
+
+        logger$info("on_type_formatting_reply:", list(
+            start_line = start_line,
+            end_line = end_line,
+            chunk = content[start_line:end_line]
+        ))
+
         style <- get_style(options)
         indentation <- stringr::str_extract(content[start_line], "^\\s*")
         new_text <- tryCatchTimeout(
@@ -193,14 +193,13 @@ on_type_formatting_reply <- function(id, uri, document, point, ch, options) {
             timeout = 1,
             error = function(e) logger$info("on_type_formatting_reply:", e))
         if (!is.null(new_text)) {
-            if (use_dot && ch == "\n") {
+            if (use_dot) {
                 new_text <- substr(new_text, 1, nchar(new_text) - 1)
             }
             range <- range(
                 start = document$to_lsp_position(row = start_line - 1, col = 0),
                 end = document$to_lsp_position(row = end_line - 1, col = nchar(document$line(end_line)))
             )
-            logger$info("on_type_formatting_reply:", list(range = range, new_text = new_text))
             TextEdit <- text_edit(range = range, new_text = new_text)
             TextEditList <- list(TextEdit)
             return(Response$new(id, TextEditList))
