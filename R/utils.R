@@ -43,6 +43,14 @@ print.errorWithStack <- function(x, ...) {
     invisible(x)
 }
 
+tryCatchTimeout <- function(expr, timeout = Inf, ...) {
+    expr <- substitute(expr)
+    envir <- parent.frame()
+    setTimeLimit(timeout, transient = TRUE)
+    on.exit(setTimeLimit())
+    tryCatch(eval(expr, envir), ...)
+}
+
 capture_print <- function(x) {
     paste0(utils::capture.output(print(x)), collapse = "\n")
 }
