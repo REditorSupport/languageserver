@@ -204,7 +204,7 @@ on_type_formatting_reply <- function(id, uri, document, point, ch, options) {
         if (!is.null(new_text)) {
             if (use_zero) {
                 new_text <- substr(new_text, 1, nchar(new_text) - 1)
-                new_text <- paste0(new_text, trimws(last_line, whitespace = "\\s"))
+                new_text <- paste0(new_text, trimws(last_line))
             }
             range <- range(
                 start = document$to_lsp_position(row = start_line - 1, col = 0),
