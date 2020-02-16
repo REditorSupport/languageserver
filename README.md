@@ -131,3 +131,15 @@ options(languageserver.formatting_style = function(options) {
 ```
 
 To further customize the formatting style, please refer to [Customizing styler](https://styler.r-lib.org/articles/customizing_styler.html).
+
+### Enabling cache for formatting by styler
+
+With [`styler`](https://github.com/r-lib/styler) v1.3, the formatting of top-level expressions
+can be cached by [`R.cache`](https://github.com/HenrikBengtsson/R.cache), which significantly improves the formatting performance. To enable this feature, user has to
+perform a one-time authorization to create a permanent directory in user home directory with the following command in R:
+
+```r
+R.cache::getCachePath()
+```
+
+The first time the command is run, it will ask user whether to create a permanent cache directory. Type `Y` and enter, the cache directory will be created.
