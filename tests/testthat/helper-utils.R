@@ -210,6 +210,26 @@ respond_range_formatting <- function(client, path, start_pos, end_pos, ...) {
     )
 }
 
+respond_folding_range <- function(client, path, ...) {
+    respond(
+        client,
+        "textDocument/foldingRange",
+        list(
+            textDocument = list(uri = path_to_uri(path))),
+        ...
+    )
+}
+
+respond_selection_range <- function(client, path, positions, ...) {
+    respond(
+        client,
+        "textDocument/selectionRange",
+        list(
+            textDocument = list(uri = path_to_uri(path)),
+            positions),
+        ...
+    )
+}
 
 wait_for <- function(client, method, timeout = 5) {
     storage <- new.env(parent = .GlobalEnv)

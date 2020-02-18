@@ -62,6 +62,8 @@ These editors are supported by installing the corresponding package.
 - [ ] renameProvider
 - [x] documentLinkProvider
 - [x] colorProvider
+- [ ] foldingRangeProvider
+- [ ] selectionRangeProvider
 - [ ] executeCommandProvider
 
 ## Settings
