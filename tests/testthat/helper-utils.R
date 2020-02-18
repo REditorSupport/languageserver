@@ -92,7 +92,7 @@ did_save <- function(client, path) {
 }
 
 
-respond <- function(client, method, params, timeout, retry=TRUE,
+respond <- function(client, method, params, timeout, retry = TRUE,
                             retry_when = function(result) length(result) == 0) {
     if (missing(timeout)) {
         if (Sys.getenv("R_COVR", "") == "true") {

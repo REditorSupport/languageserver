@@ -5,8 +5,12 @@ test_that("Document Symbol works", {
     client <- language_client()
 
     withr::local_tempfile(c("defn_file"), fileext = ".R")
-    writeLines(c("f <- function(x) {", "  x + 1", "}",
-                 "g <- function(x) { x - 1 }"), defn_file)
+    writeLines(c(
+        "f <- function(x) {",
+        "  x + 1",
+        "}",
+        "g <- function(x) { x - 1 }"
+    ), defn_file)
 
     client %>% did_save(defn_file)
     result <- client %>% respond(
@@ -22,7 +26,6 @@ test_that("Document Symbol works", {
         result %>% detect(~ .$name == "g") %>% pluck("location", "range"),
         range(position(3, 0), position(3, 26))
     )
-
 })
 
 test_that("Workspace Symbol works", {
@@ -30,9 +33,17 @@ test_that("Workspace Symbol works", {
     client <- language_client()
 
     withr::local_tempfile(c("defn_file", "defn2_file"), fileext = ".R")
-    writeLines(c("f1 <- function(x) {", "  x + 1", "}",
-                 "g <- function(x) { x - 1 }"), defn_file)
-    writeLines(c("f2 <- function(x) {", "  x + 1", "}"), defn2_file)
+    writeLines(c(
+        "f1 <- function(x) {",
+        "  x + 1",
+        "}",
+        "g <- function(x) { x - 1 }"
+    ), defn_file)
+    writeLines(c(
+        "f2 <- function(x) {", 
+        "  x + 1", 
+        "}"
+    ), defn2_file)
 
     client %>% did_save(defn_file)
     client %>% did_save(defn2_file)
