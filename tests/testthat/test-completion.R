@@ -11,7 +11,9 @@ test_that("Simple completion works", {
             "file.c",
             "fs::path",
             "foo$sol",
-            ".Mac"
+            ".Mac",
+            "grDev",
+            "TRU"
         ),
         temp_file)
 
@@ -33,7 +35,13 @@ test_that("Simple completion works", {
     expect_length(result$items, 0)
 
     result <- client %>% respond_completion(temp_file, c(4, 4))
-    expect_length(result$items %>% keep(~.$label == ".Machine"), 1)
+    expect_length(result$items %>% keep(~ .$label == ".Machine"), 1)
+    
+    result <- client %>% respond_completion(temp_file, c(5, 5))
+    expect_length(result$items %>% keep(~ .$label == "grDevices"), 1)
+
+    result <- client %>% respond_completion(temp_file, c(6, 3))
+    expect_length(result$items %>% keep(~ .$label == "TRUE"), 1)
 })
 
 test_that("Completion of function arguments works", {
@@ -75,7 +83,6 @@ test_that("Completion of user function works", {
     expect_length(result$items %>% keep(~.$label == "my_fun"), 1)
 
 })
-
 
 test_that("Completion inside a package works", {
     skip_on_cran()
