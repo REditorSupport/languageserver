@@ -30,12 +30,7 @@ document_color_reply <- function(id, uri, workspace, document) {
           start = document$to_lsp_position(line - 1, col1),
           end = document$to_lsp_position(line - 1, col2 - 1)
         ),
-        color = list(
-          red = str_colors["red", i],
-          green = str_colors["green", i],
-          blue = str_colors["blue", i],
-          alpha = str_colors["alpha", i]
-        )
+        color = as.list(str_colors[, i])
       )
     }, list(str_line1, str_col1, str_col2, seq_along(str_texts)), NULL)
   }
