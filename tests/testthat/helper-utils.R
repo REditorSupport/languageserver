@@ -139,7 +139,8 @@ respond_completion <- function(client, path, pos, ...) {
         "textDocument/completion",
         list(
             textDocument = list(uri = path_to_uri(path)),
-            position = list(line = pos[1], character = pos[2])),
+            position = list(line = pos[1], character = pos[2])
+        ),
         ...
     )
 }
@@ -159,7 +160,8 @@ respond_signature <- function(client, path, pos, ...) {
         "textDocument/signatureHelp",
         list(
             textDocument = list(uri = path_to_uri(path)),
-            position = list(line = pos[1], character = pos[2])),
+            position = list(line = pos[1], character = pos[2])
+        ),
         ...
     )
 }
@@ -170,7 +172,8 @@ respond_hover <- function(client, path, pos, ...) {
         "textDocument/hover",
         list(
             textDocument = list(uri = path_to_uri(path)),
-            position = list(line = pos[1], character = pos[2])),
+            position = list(line = pos[1], character = pos[2])
+        ),
         ...
     )
 }
@@ -181,7 +184,8 @@ respond_definition <- function(client, path, pos, ...) {
         "textDocument/definition",
         list(
             textDocument = list(uri = path_to_uri(path)),
-            position = list(line = pos[1], character = pos[2])),
+            position = list(line = pos[1], character = pos[2])
+        ),
         ...
     )
 }
@@ -193,7 +197,8 @@ respond_formatting <- function(client, path, ...) {
         "textDocument/formatting",
         list(
             textDocument = list(uri = path_to_uri(path)),
-            options = list(tabSize = 4, insertSpaces = TRUE)),
+            options = list(tabSize = 4, insertSpaces = TRUE)
+        ),
         ...
     )
 }
@@ -204,8 +209,12 @@ respond_range_formatting <- function(client, path, start_pos, end_pos, ...) {
         "textDocument/rangeFormatting",
         list(
             textDocument = list(uri = path_to_uri(path)),
-            range = range(position(start_pos[1], start_pos[2]), position(end_pos[1], end_pos[2])),
-            options = list(tabSize = 4, insertSpaces = TRUE)),
+            range = range(
+                start = position(start_pos[1], start_pos[2]),
+                end = position(end_pos[1], end_pos[2])
+            ),
+            options = list(tabSize = 4, insertSpaces = TRUE)
+        ),
         ...
     )
 }
@@ -239,7 +248,8 @@ respond_on_type_formatting <- function(client, path, pos, ch, ...) {
             textDocument = list(uri = path_to_uri(path)),
             position = position(pos[1], pos[2]),
             ch = ch,
-            options = list(tabSize = 4, insertSpaces = TRUE)),
+            options = list(tabSize = 4, insertSpaces = TRUE)
+        ),
         ...
     )
 }
@@ -251,12 +261,55 @@ respond_document_highlight <- function(client, path, pos, ...) {
         "textDocument/documentHighlight",
         list(
             textDocument = list(uri = path_to_uri(path)),
-            position = list(line = pos[1], character = pos[2])),
+            position = list(line = pos[1], character = pos[2])
+        ),
         ...
     )
 }
 
+respond_document_symbol <- function(client, path, ...) {
+    respond(
+        client,
+        "textDocument/documentSymbol",
+        list(
+            textDocument = list(uri = path_to_uri(path))
+        ),
+        ...
+    )
+}
 
+respond_workspace_symbol <- function(client, query, ...) {
+    respond(
+        client,
+        "workspace/symbol",
+        list(
+            query = query
+        ),
+        ...
+    )
+}
+
+respond_document_link <- function(client, path, ...) {
+    respond(
+        client,
+        "textDocument/documentLink",
+        list(
+            textDocument = list(uri = path_to_uri(path))
+        ),
+        ...
+    )
+}
+
+respond_document_color <- function(client, path, ...) {
+    respond(
+        client,
+        "textDocument/documentColor",
+        list(
+            textDocument = list(uri = path_to_uri(path))
+        ),
+        ...
+    )
+}
 
 wait_for <- function(client, method, timeout = 5) {
     storage <- new.env(parent = .GlobalEnv)

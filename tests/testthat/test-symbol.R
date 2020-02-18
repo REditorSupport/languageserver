@@ -13,9 +13,7 @@ test_that("Document Symbol works", {
     ), defn_file)
 
     client %>% did_save(defn_file)
-    result <- client %>% respond(
-        "textDocument/documentSymbol",
-        list(textDocument = list(uri = path_to_uri(defn_file))))
+    result <- client %>% respond_document_symbol(defn_file)
 
     expect_equal(result %>% map_chr(~ .$name) %>% sort(), c("f", "g"))
     expect_equivalent(
@@ -49,9 +47,10 @@ test_that("Workspace Symbol works", {
     client %>% did_save(defn2_file)
 
     expected_names <- c("f1", "f2")
-    result <- client %>% respond(
-        "workspace/symbol", list(query = "f"),
-        retry_when = function(result) length(result) < 2)
+    result <- client %>% respond_workspace_symbol(
+        query = "f",
+        retry_when = function(result) length(result) < 2
+    )
 
     result_names <- result %>% map_chr(~ .$name) %>% sort()
     expect_equal(result_names, expected_names)
