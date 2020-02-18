@@ -84,6 +84,38 @@ test_that("Completion of user function works", {
 
 })
 
+test_that("Completion of symbols in scope works", {
+    skip_on_cran()
+    client <- language_client()
+
+    withr::local_tempfile(c("temp_file"), fileext = ".R")
+    writeLines(
+        c(
+            "xvar0 <- rnorm(10)",
+            "my_fun <- function(xvar1) {",
+            "    xvar2 <- 1",
+            "    for (xvar3 in 1:10) {",
+            "        xvar",
+            "    }",
+            "}"
+        ),
+        temp_file
+    )
+
+    client %>% did_save(temp_file)
+
+    result <- client %>% respond_completion(
+        temp_file, c(3, 12),
+        retry_when = function(result) length(result) == 0 || length(result$items) == 0
+    )
+
+    expect_length(result$items, 4)
+    expect_length(result$items %>% keep(~ .$label == "xvar0"), 1)
+    expect_length(result$items %>% keep(~ .$label == "xvar1"), 1)
+    expect_length(result$items %>% keep(~ .$label == "xvar2"), 1)
+    expect_length(result$items %>% keep(~ .$label == "xvar3"), 1)
+})
+
 test_that("Completion inside a package works", {
     skip_on_cran()
     wd <- path_real(path_package("languageserver", "projects", "mypackage"))
