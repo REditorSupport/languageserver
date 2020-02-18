@@ -6,29 +6,34 @@ test_that("Document link works", {
     dir <- tempdir()
     client <- language_client(dir)
 
-    withr::local_tempfile(c("source_file", "temp_file"), tmpdir = dir, fileext = ".R")
+    withr::local_tempfile(c("src_file", "temp_file"), tmpdir = dir, fileext = ".R")
     writeLines(
         c(
             "x <- 1"
         ),
-        source_file
+        src_file
     )
-    client %>% did_save(source_file)
 
     writeLines(
         c(
-            "source('source_file.R')",
+            sprintf("source('%s')", src_file),
+            sprintf("source('%s')", basename(src_file)),
             "source('non_exist_file.R')"
         ),
         temp_file
     )
 
+    client %>% did_save(src_file)
     client %>% did_save(temp_file)
 
     result <- client %>% respond_document_link(temp_file)
 
-    expect_length(result, 1)
+    expect_length(result, 2)
     expect_equal(result[[1]]$range$start, list(line = 0, character = 8))
     expect_equal(result[[1]]$range$end, list(line = 0, character = 21))
-    expect_equal(result[[1]]$target, path_to_uri(file.path(dir, temp_file)))
+    expect_equal(result[[1]]$target, path_to_uri(src_file))
+
+    expect_equal(result[[2]]$range$start, list(line = 1, character = 8))
+    expect_equal(result[[2]]$range$end, list(line = 1, character = 21))
+    expect_equal(result[[2]]$target, path_to_uri(src_file))
 })
