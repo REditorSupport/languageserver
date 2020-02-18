@@ -105,3 +105,28 @@ test_that("On type formatting works", {
         "}"
     ))
 })
+
+test_that("Formatting in Rmarkdown works", {
+    skip_on_cran()
+    client <- language_client()
+
+    withr::local_tempfile(c("single_file"), fileext = ".Rmd")
+    writeLines(
+        c(
+            "```{r}",
+            "my_fn= function(x) {x + 1; x}",
+            "```"
+        ),
+        single_file
+    )
+
+    client %>% did_save(single_file)
+
+    # first query a known function to make sure the file is processed
+    result <- client %>% respond_formatting(single_file)
+
+    expect_length(result, 1)
+    expect_equal(result[[1]]$range$start, list(line = 1, character = 0))
+    expect_equal(result[[1]]$range$end, list(line = 1, character = 29))
+    expect_equal(result[[1]]$newText, "my_fn <- function(x) {\n    x + 1\n    x\n}")
+})

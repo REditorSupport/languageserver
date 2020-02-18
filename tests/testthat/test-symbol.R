@@ -114,3 +114,62 @@ test_that("Workspace Symbol works", {
     result_names <- result %>% map_chr(~ .$name) %>% sort()
     expect_equal(result_names, expected_names)
 })
+
+test_that("Document section symbol works in Rmarkdown", {
+    skip_on_cran()
+    client <- language_client(capabilities = list(
+        textDocument = list(
+            documentSymbol = list(
+                hierarchicalDocumentSymbolSupport = TRUE
+            )
+        )
+    ))
+
+    withr::local_tempfile(c("defn_file"), fileext = ".Rmd")
+    writeLines(c(
+        "---",
+        "title: r markdown",
+        "# author: me",
+        "---",
+        "## section1",
+        "Some text here",
+        "### subsection1",
+        "```{r}",
+        "f <- function(x) {",
+        "  x + 1",
+        "}",
+        "```",
+        "## section2",
+        "```{r}",
+        "g <- function(x) { x - 1 }",
+        "```"
+    ), defn_file)
+
+    client %>% did_save(defn_file)
+    result <- client %>% respond_document_symbol(defn_file)
+
+    expect_equal(
+        result %>% map_chr(~ .$name) %>% sort(),
+        c("section1", "subsection1", "f", "section2", "g") %>% sort()
+    )
+    expect_equivalent(
+        result %>% detect(~ .$name == "section1") %>% pluck("location", "range"),
+        range(position(4, 0), position(11, 3))
+    )
+    expect_equivalent(
+        result %>% detect(~ .$name == "subsection1") %>% pluck("location", "range"),
+        range(position(6, 0), position(11, 3))
+    )
+    expect_equivalent(
+        result %>% detect(~ .$name == "f") %>% pluck("location", "range"),
+        range(position(8, 0), position(10, 1))
+    )
+    expect_equivalent(
+        result %>% detect(~ .$name == "section2") %>% pluck("location", "range"),
+        range(position(12, 0), position(15, 3))
+    )
+    expect_equivalent(
+        result %>% detect(~ .$name == "g") %>% pluck("location", "range"),
+        range(position(14, 0), position(14, 26))
+    )
+})
