@@ -4,7 +4,7 @@ test_that("Completion in Rmarkdown works", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("temp_file"), fileext = ".R")
+    withr::local_tempfile(c("temp_file"), fileext = ".Rmd")
     writeLines(
         c(
             "Title",
@@ -15,6 +15,8 @@ test_that("Completion in Rmarkdown works", {
             "fs::path",
             "foo$sol",
             ".Mac",
+            "grDev",
+            "TRU",
             "```",
             "str"
         ),
@@ -40,7 +42,16 @@ test_that("Completion in Rmarkdown works", {
     result <- client %>% respond_completion(temp_file, c(7, 4))
     expect_length(result$items %>% keep(~.$label == ".Machine"), 1)
 
-    result <- client %>% respond_completion(temp_file, c(8, 3))
+    result <- client %>% respond_completion(temp_file, c(8, 5))
+    expect_length(result$items %>% keep(~ .$label == "grDevices"), 1)
+    
+    result <- client %>% respond_completion(temp_file, c(9, 3))
+    expect_length(result$items %>% keep(~ .$label == "TRUE"), 1)
+
+    result <- client %>% respond_completion(temp_file, c(10, 3))
+    expect_length(result$items, 0)
+
+    result <- client %>% respond_completion(temp_file, c(11, 3))
     expect_length(result$items, 0)
 })
 
@@ -77,7 +88,7 @@ test_that("Signature in Rmarkdown works", {
 
 
 
-test_that("Go to Definition works for in Rmarkdown", {
+test_that("Go to Definition in Rmarkdown works", {
     skip_on_cran()
     client <- language_client()
 
@@ -110,7 +121,7 @@ test_that("Go to Definition works for in Rmarkdown", {
 })
 
 
-test_that("Formatting works for in Rmarkdown", {
+test_that("Formatting in Rmarkdown works", {
     skip_on_cran()
     client <- language_client()
 
