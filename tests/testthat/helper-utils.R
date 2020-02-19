@@ -8,7 +8,7 @@ suppressPackageStartupMessages({
 # a hack to make withr::defer_parent to work, see https://github.com/r-lib/withr/issues/123
 defer <- withr::defer
 
-language_client <- function(working_dir = getwd(), debug = FALSE, diagnostics = FALSE) {
+language_client <- function(working_dir = getwd(), debug = FALSE, diagnostics = FALSE, capabilities = NULL) {
 
     if (nzchar(Sys.getenv("DEBUGLSP"))) {
         script <- "languageserver::run(debug = '/tmp/lsp')"
@@ -27,7 +27,7 @@ language_client <- function(working_dir = getwd(), debug = FALSE, diagnostics = 
         }
     )
 
-    client$start(working_dir = working_dir)
+    client$start(working_dir = working_dir, capabilities = capabilities)
     client$catch_callback_error <- FALSE
     # initialize request
     data <- client$fetch(blocking = TRUE)
