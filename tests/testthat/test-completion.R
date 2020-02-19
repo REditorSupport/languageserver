@@ -36,7 +36,7 @@ test_that("Simple completion works", {
 
     result <- client %>% respond_completion(temp_file, c(4, 4))
     expect_length(result$items %>% keep(~ .$label == ".Machine"), 1)
-    
+
     result <- client %>% respond_completion(temp_file, c(5, 5))
     expect_length(result$items %>% keep(~ .$label == "grDevices"), 1)
 
