@@ -94,8 +94,8 @@ test_that("Workspace Symbol works", {
         "g <- function(x) { x - 1 }"
     ), defn_file)
     writeLines(c(
-        "f2 <- function(x) {", 
-        "  x + 1", 
+        "f2 <- function(x) {",
+        "  x + 1",
         "}"
     ), defn2_file)
 
@@ -108,7 +108,9 @@ test_that("Workspace Symbol works", {
         retry_when = function(result) length(result) < 2
     )
 
-    result_names <- result %>% map_chr(~ .$name) %>% sort()
+    result_names <- result %>%
+        map_chr(~ .$name) %>%
+        sort()
     expect_equal(result_names, expected_names)
 })
 

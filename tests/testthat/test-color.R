@@ -24,7 +24,7 @@ test_that("Document color works", {
 
     result <- client %>% respond_document_color(temp_file)
     expect_length(result, 5)
-    
+
     expect_equal(result[[1]]$range$start, list(line = 0, character = 24))
     expect_equal(result[[1]]$range$end, list(line = 0, character = 27))
     expect_equal(result[[1]]$color, get_color("red"))

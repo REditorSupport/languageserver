@@ -10,7 +10,8 @@ test_that("Simple hover works", {
             "    strsplit",
             "fs::path_real"
         ),
-        temp_file)
+        temp_file
+    )
 
     client %>% did_save(temp_file)
 
@@ -35,7 +36,8 @@ test_that("Hover on user function works", {
             "test1 <- function(x, y) x + 1",
             "test1"
         ),
-        temp_file)
+        temp_file
+    )
 
     client %>% did_save(temp_file)
 
@@ -70,7 +72,7 @@ test_that("Hover on variable works", {
     expect_equal(result$range$start, list(line = 0, character = 0))
     expect_equal(result$range$end, list(line = 0, character = 4))
     expect_equal(result$contents, "```r\nvar1 <- 1:10\n```")
-    
+
     result <- client %>% respond_hover(temp_file, c(1, 3))
     expect_equal(result$range$start, list(line = 1, character = 2))
     expect_equal(result$range$end, list(line = 1, character = 6))
@@ -104,7 +106,7 @@ test_that("Hover on function argument works", {
         ),
         temp_file
     )
-    
+
     client %>% did_save(temp_file)
 
     result <- client %>% respond_hover(temp_file, c(0, 30))
@@ -140,7 +142,8 @@ test_that("Simple hover works in Rmarkdown", {
             "fs::path_real",
             "```"
         ),
-        temp_file)
+        temp_file
+    )
 
     client %>% did_save(temp_file)
 
@@ -171,7 +174,8 @@ test_that("Hover on user function works in Rmarkdown", {
             "test1",
             "```"
         ),
-        temp_file)
+        temp_file
+    )
 
     client %>% did_save(temp_file)
 
@@ -212,7 +216,7 @@ test_that("Hover on variable works in Rmarkdown", {
     expect_equal(result$range$start, list(line = 5, character = 0))
     expect_equal(result$range$end, list(line = 5, character = 4))
     expect_equal(result$contents, "```r\nvar1 <- 1:10\n```")
-    
+
     result <- client %>% respond_hover(temp_file, c(6, 3))
     expect_equal(result$range$start, list(line = 6, character = 2))
     expect_equal(result$range$end, list(line = 6, character = 6))
@@ -252,7 +256,7 @@ test_that("Hover on function argument works in Rmarkdown", {
         ),
         temp_file
     )
-    
+
     client %>% did_save(temp_file)
 
     result <- client %>% respond_hover(temp_file, c(5, 30))
