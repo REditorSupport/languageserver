@@ -17,20 +17,6 @@ test_that("lintr works", {
     expect_equal(data$diagnostics[[1]]$message, "Use <-, not =, for assignment.")
 })
 
-test_that("lintr is disabled with temp files in non-temp workspace", {
-    skip_on_cran()
-
-    dir <- normalizePath("~")
-    client <- language_client(dir, diagnostics = TRUE)
-
-    withr::local_tempfile(c("temp_file"), fileext = ".R")
-    writeLines("a = 1", temp_file)
-
-    client %>% did_open(temp_file)
-    data <- client %>% wait_for("textDocument/publishDiagnostics", timeout = runif(1, 1, 3))
-    expect_equal(client$diagnostics$size(), 0)
-})
-
 test_that("lintr is disabled", {
     skip_on_cran()
     client <- language_client(diagnostics = FALSE)
