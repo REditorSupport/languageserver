@@ -28,14 +28,13 @@ test_that("Document Symbol works", {
 
 test_that("Document section symbol works", {
     skip_on_cran()
-    client <- language_client()
-    client$ClientCapabilities <- list(
+    client <- language_client(capabilities = list(
         textDocument = list(
             documentSymbol = list(
                 hierarchicalDocumentSymbolSupport = TRUE
             )
         )
-    )
+    ))
 
     withr::local_tempfile(c("defn_file"), fileext = ".R")
     writeLines(c(
@@ -52,8 +51,6 @@ test_that("Document section symbol works", {
 
     client %>% did_save(defn_file)
     result <- client %>% respond_document_symbol(defn_file)
-
-    print(str(result))
 
     expect_equal(
         result %>% map_chr(~ .$name) %>% sort(),
