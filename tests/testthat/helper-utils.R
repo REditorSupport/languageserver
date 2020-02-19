@@ -11,7 +11,9 @@ defer <- withr::defer
 language_client <- function(working_dir = getwd(), diagnostics = FALSE, capabilities = NULL) {
 
     if (nzchar(Sys.getenv("R_LANGSVR_LOG"))) {
-        script <- sprintf("languageserver::run(debug = '%s')", Sys.getenv("R_LANGSVR_LOG"))
+        script <- sprintf(
+            "languageserver::run(debug = '%s')",
+            normalizePath(Sys.getenv("R_LANGSVR_LOG"), "/", mustWork = FALSE))
     } else {
         script <- "languageserver::run()"
     }
