@@ -31,7 +31,7 @@ test_that("Document link works", {
     expect_length(result, 2)
     expect_equal(result[[1]]$range$start, list(line = 0, character = 8))
     expect_equal(result[[1]]$range$end, list(line = 0, character = 8 + nchar(src_file)))
-    expect_equal(result[[1]]$target, path_to_uri(normalizePath(src_file, "/", mustWork = FALSE)))
+    expect_equal(result[[1]]$target, path_to_uri(src_file))
 
     expect_equal(result[[2]]$range$start, list(line = 1, character = 8))
     expect_equal(result[[2]]$range$end, list(line = 1, character = 8 + nchar(basename(src_file))))
@@ -77,7 +77,7 @@ test_that("Document link works in Rmarkdown", {
     expect_length(result, 2)
     expect_equal(result[[1]]$range$start, list(line = 5, character = 8))
     expect_equal(result[[1]]$range$end, list(line = 5, character = 8 + nchar(src_file)))
-    expect_equal(result[[1]]$target, path_to_uri(normalizePath(src_file, "/", mustWork = FALSE)))
+    expect_equal(result[[1]]$target, path_to_uri(src_file))
 
     expect_equal(result[[2]]$range$start, list(line = 6, character = 8))
     expect_equal(result[[2]]$range$end, list(line = 6, character = 8 + nchar(basename(src_file))))

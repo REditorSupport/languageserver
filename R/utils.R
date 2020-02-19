@@ -73,6 +73,7 @@ path_to_uri <- function(path) {
         return(character())
     }
     prefix <- if (.Platform$OS.type == "windows") "file:///" else "file://"
+    path <- normalizePath(path, "/", mustWork = FALSE)
     paste0(prefix, utils::URLencode(path))
 }
 
