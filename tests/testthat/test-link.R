@@ -26,6 +26,9 @@ test_that("Document link works", {
     client %>% did_save(src_file)
     client %>% did_save(temp_file)
 
+    print(str(src_file))
+    print(str(path_to_uri(src_file)))
+
     result <- client %>% respond_document_link(temp_file)
 
     expect_length(result, 2)
