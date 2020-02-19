@@ -28,7 +28,7 @@ test_that("lintr is disabled with temp files in non-temp workspace", {
 
     client %>% did_open(temp_file)
     data <- client %>% wait_for("textDocument/publishDiagnostics", timeout = runif(1, 1, 3))
-    expect_null(data)
+    expect_equal(client$diagnostics$size(), 0)
 })
 
 test_that("lintr is disabled", {
