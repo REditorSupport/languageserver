@@ -94,7 +94,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     diagnostics_task(self, uri, document)
                 )
             }
-            
+
             if (parse) {
                 self$parse_task_manager$add_task(
                     uri,

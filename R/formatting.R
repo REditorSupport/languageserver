@@ -191,7 +191,7 @@ on_type_formatting_reply <- function(id, uri, document, point, ch, options) {
         # ))
 
         style <- get_style(options)
-        
+
         # disable assignment operator fix since end_line could be function parameter
         style$token$force_assignment_op <- NULL
 

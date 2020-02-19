@@ -6,8 +6,8 @@ test_that("Formatting document works", {
 
     withr::local_tempfile(c("temp_file"), fileext = ".R")
     writeLines(c(
-        "my_fn<-function(x){", 
-        "f(x+1,x-1)+x", 
+        "my_fn<-function(x){",
+        "f(x+1,x-1)+x",
         "}"
     ), temp_file)
 
@@ -55,9 +55,9 @@ test_that("Formatting selection works for partial line", {
 
     withr::local_tempfile(c("temp_file"), fileext = ".R")
     writeLines(c(
-        "my_fn <- function(x) {", 
-        "    y =x+ 1", 
-        "    y+3", 
+        "my_fn <- function(x) {",
+        "    y =x+ 1",
+        "    y+3",
         "}"
     ), temp_file)
 
