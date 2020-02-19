@@ -7,6 +7,8 @@ test_that("Document link works", {
     client <- language_client(dir)
 
     withr::local_tempfile(c("src_file", "temp_file"), tmpdir = dir, fileext = ".R")
+    src_file <- normalizePath(src_file, "/", mustWork = FALSE)
+
     writeLines(
         c(
             "x <- 1"
@@ -46,6 +48,7 @@ test_that("Document link works in Rmarkdown", {
 
     withr::local_tempfile("src_file", tmpdir = dir, fileext = ".R")
     withr::local_tempfile("temp_file", tmpdir = dir, fileext = ".Rmd")
+    src_file <- normalizePath(src_file, "/", mustWork = FALSE)
 
     writeLines(
         c(
