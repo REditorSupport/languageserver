@@ -90,6 +90,10 @@ text_document_did_save <- function(self, params) {
 text_document_did_close <- function(self, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
+    # remove diagnostics if file is not from workspace
+    if (!startsWith(uri, self$rootUri)) {
+        diagnostics_callback(self, uri, NULL, list())
+    }
     # do not remove document in package
     if (!(is_package(self$rootUri) && startsWith(uri, self$rootUri))) {
         self$workspace$documents$remove(uri)
