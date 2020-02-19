@@ -36,8 +36,8 @@ to_string <- function(...) {
 #'
 #' @keywords internal
 log_write <- function(..., file = stderr()) {
-    # cat(to_string(...), file = "/tmp/rls")
-    cat("[", format(Sys.time(), "%Y-%m-%d %H:%M:%OS3"), "] ", to_string(...), sep = "", file = file)
+    cat("[", format(Sys.time(), "%Y-%m-%d %H:%M:%OS3"), "] ", to_string(...),
+        sep = "", file = file, append = TRUE)
 }
 
 #' A basic logger class
