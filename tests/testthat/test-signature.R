@@ -46,3 +46,35 @@ test_that("Signature of user function works", {
     expect_length(result$signatures, 1)
     expect_equal(result$signatures[[1]]$label, "foo(x, y = 3)")
 })
+
+test_that("Signature in Rmarkdown works", {
+    skip_on_cran()
+    client <- language_client()
+
+    withr::local_tempfile(c("temp_file"), fileext = ".Rmd")
+    writeLines(
+        c(
+            "Title",
+            "",
+            "```{r}",
+            "file.path(",
+            "fs::path_home('foo', ",
+            "```",
+            "file.path("
+        ),
+        temp_file
+    )
+
+    client %>% did_save(temp_file)
+
+    result <- client %>% respond_signature(temp_file, c(3, 10))
+    expect_length(result$signatures, 1)
+    expect_match(result$signatures[[1]]$label, "file\\.path\\(.*")
+
+    result <- client %>% respond_signature(temp_file, c(4, 21))
+    expect_length(result$signatures, 1)
+    expect_match(result$signatures[[1]]$label, "path_home\\(.*")
+
+    result <- client %>% respond_signature(temp_file, c(5, 10))
+    expect_length(result$signatures, 0)
+})

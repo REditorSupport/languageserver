@@ -100,3 +100,36 @@ test_that("Go to Definition works when package is specified", {
     result <- client %>% respond_definition(query_file, c(1, 9))
     expect_true(endsWith(result$uri, "print.R"))
 })
+
+test_that("Go to Definition in Rmarkdown works", {
+    skip_on_cran()
+    client <- language_client()
+
+    withr::local_tempfile(c("single_file"), fileext = ".Rmd")
+    writeLines(
+        c(
+            "```{r}",
+            "my_fn <- function(x) {x + 1}",
+            "```",
+            "",
+            "```{r}",
+            "my_fn",
+            ".nonexistent",
+            "```"
+        ),
+        single_file
+    )
+
+    client %>% did_save(single_file)
+
+    # first query a known function to make sure the file is processed
+    result <- client %>% respond_definition(single_file, c(5, 0))
+
+    expect_equal(result$range$start, list(line = 1, character = 0))
+    expect_equal(result$range$end, list(line = 1, character = 28))
+
+    # then query the missing function. The file is processed, don't need to retry
+    result <- client %>% respond_definition(single_file, c(6, 0), retry = FALSE)
+
+    expect_equal(length(result), 0)
+})

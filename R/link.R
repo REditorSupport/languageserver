@@ -19,8 +19,8 @@ document_link_reply <- function(id, uri, workspace, document, rootUri) {
 
         root_path <- path_from_uri(rootUri)
         paths <- str_texts
-        paths[is_abs_path] <- normalizePath(str_texts[is_abs_path], "/", mustWork = FALSE)
         paths[!is_abs_path] <- file.path(root_path, str_texts[!is_abs_path])
+        paths <- normalizePath(paths, "/", mustWork = FALSE)
 
         sel <- file.exists(paths) & !dir.exists(paths)
         str_tokens <- str_tokens[sel]
@@ -28,9 +28,7 @@ document_link_reply <- function(id, uri, workspace, document, rootUri) {
         paths <- paths[sel]
         is_abs_path <- is_abs_path[sel]
 
-        uris <- paths
-        uris[is_abs_path] <- path_to_uri(paths[is_abs_path])
-        uris[!is_abs_path] <- file.path(rootUri, str_texts[!is_abs_path])
+        uris <- path_to_uri(paths)
 
         str_line1 <- as.integer(xml_attr(str_tokens, "line1"))
         str_col1 <- as.integer(xml_attr(str_tokens, "col1"))
