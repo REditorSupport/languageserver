@@ -51,7 +51,7 @@ test_that("Document link works", {
     expect_equal(result[[3]]$range$start, list(line = 2, character = 8))
     expect_equal(result[[3]]$range$end, list(line = 2, character = 8 + nchar(src_file2)))
     expect_equal(result[[3]]$target, path_to_uri(src_file2))
-    
+
     expect_equal(result[[4]]$range$start, list(line = 3, character = 8))
     expect_equal(result[[4]]$range$end, list(line = 3, character = 8 + nchar(basename(src_file2))))
     expect_equal(result[[4]]$target, path_to_uri(src_file2))
@@ -74,7 +74,7 @@ test_that("Document link works in Rmarkdown", {
         ),
         src_file1
     )
-    
+
     writeLines(
         c(
             "x <- 2"
@@ -115,7 +115,7 @@ test_that("Document link works in Rmarkdown", {
     expect_equal(result[[3]]$range$start, list(line = 7, character = 8))
     expect_equal(result[[3]]$range$end, list(line = 7, character = 8 + nchar(src_file2)))
     expect_equal(result[[3]]$target, path_to_uri(src_file2))
-    
+
     expect_equal(result[[4]]$range$start, list(line = 8, character = 8))
     expect_equal(result[[4]]$range$end, list(line = 8, character = 8 + nchar(basename(src_file2))))
     expect_equal(result[[4]]$target, path_to_uri(src_file2))
