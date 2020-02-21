@@ -61,6 +61,9 @@ path_from_uri <- function(uri) {
     if (length(uri) == 0) {
         return(character())
     }
+    if (!startsWith(uri, "file:///")) {
+        return("")
+    }
     start_char <- if (.Platform$OS.type == "windows") 9 else 8
     utils::URLdecode(substr(uri, start_char, nchar(uri)))
 }
