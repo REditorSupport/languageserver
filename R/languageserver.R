@@ -89,7 +89,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             }
 
             if (run_lintr && self$run_lintr) {
-                temp_root <- dirname(tempdir())
+                temp_root <- paste0(path_to_uri(dirname(tempdir())), "/")
                 if (startsWith(self$rootUri, temp_root) || !startsWith(uri, temp_root)) {
                     self$diagnostics_task_manager$add_task(
                         uri,
