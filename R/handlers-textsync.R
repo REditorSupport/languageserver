@@ -90,15 +90,20 @@ text_document_did_save <- function(self, params) {
 text_document_did_close <- function(self, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
+    path <- path_from_uri(uri)
+    is_from_workspace <- fs::path_has_parent(path, self$rootPath)
+
     # remove diagnostics if file is not from workspace
-    if (!startsWith(uri, self$rootUri)) {
+    if (!is_from_workspace) {
         diagnostics_callback(self, uri, NULL, list())
     }
+
     # do not remove document in package
-    if (!(is_package(self$rootUri) && startsWith(uri, self$rootUri))) {
+    if (!(is_package(self$rootPath) && is_from_workspace)) {
         self$workspace$documents$remove(uri)
         self$workspace$update_loaded_packages()
     }
+
     self$pending_replies$remove(uri)
 }
 
