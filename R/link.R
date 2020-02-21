@@ -21,7 +21,7 @@ document_link_reply <- function(id, uri, workspace, document, rootUri) {
 
         sel <- file.exists(paths) & !dir.exists(paths)
         str_tokens <- str_tokens[sel]
-        paths <- fs::path_expand(paths[sel])
+        paths <- path.expand(paths[sel])
         uris <- vapply(paths, path_to_uri, character(1))
 
         str_line1 <- as.integer(xml_attr(str_tokens, "line1"))
