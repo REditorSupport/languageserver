@@ -1,7 +1,7 @@
 #' The response to a textDocument/documentLink Request
 #'
 #' @keywords internal
-document_link_reply <- function(id, uri, workspace, document, rootUri) {
+document_link_reply <- function(id, uri, workspace, document, rootPath) {
     result <- NULL
 
     parse_data <- workspace$get_parse_data(uri)
@@ -15,20 +15,13 @@ document_link_reply <- function(id, uri, workspace, document, rootUri) {
         str_tokens <- xml_find_all(xdoc, "//STR_CONST[@line1=@line2 and @col2 > @col1 + 1]")
         str_texts <- xml_text(str_tokens)
         str_texts <- substr(str_texts, 2, nchar(str_texts) - 1)
-        is_abs_path <- grepl("^(~|/+|[A-Za-z]:)", str_texts)
 
-        root_path <- path_from_uri(rootUri)
-        paths <- str_texts
-        paths[!is_abs_path] <- file.path(root_path, str_texts[!is_abs_path])
-        paths <- normalizePath(paths, "/", mustWork = FALSE)
+        paths <- fs::path_abs(str_texts, rootPath)
 
         sel <- file.exists(paths) & !dir.exists(paths)
         str_tokens <- str_tokens[sel]
-        str_texts <- str_texts[sel]
-        paths <- paths[sel]
-        is_abs_path <- is_abs_path[sel]
-
-        uris <- path_to_uri(paths)
+        paths <- path.expand(paths[sel])
+        uris <- vapply(paths, path_to_uri, character(1))
 
         str_line1 <- as.integer(xml_attr(str_tokens, "line1"))
         str_col1 <- as.integer(xml_attr(str_tokens, "col1"))

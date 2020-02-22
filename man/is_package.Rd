@@ -2,14 +2,14 @@
 % Please edit documentation in R/utils.R
 \name{is_package}
 \alias{is_package}
-\title{check if an URI is a package folder}
+\title{check if a path is a package folder}
 \usage{
-is_package(rootUri)
+is_package(rootPath)
 }
 \arguments{
-\item{rootUri}{a character representing a URI}
+\item{rootPath}{a character representing a path}
 }
 \description{
-check if an URI is a package folder
+check if a path is a package folder
 }
 \keyword{internal}

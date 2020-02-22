@@ -23,9 +23,8 @@ on_initialize <- function(self, id, params) {
 #' @keywords internal
 on_initialized <- function(self, params) {
     logger$info("on_initialized")
-    if (is_package(self$rootUri)) {
-
-        project_root <- path_from_uri(self$rootUri)
+    project_root <- self$rootPath
+    if (is_package(project_root)) {
         source_dir <- file.path(project_root, "R")
         files <- list.files(source_dir)
         for (f in files) {

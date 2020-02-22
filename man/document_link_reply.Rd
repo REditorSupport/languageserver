@@ -4,7 +4,7 @@
 \alias{document_link_reply}
 \title{The response to a textDocument/documentLink Request}
 \usage{
-document_link_reply(id, uri, workspace, document, rootUri)
+document_link_reply(id, uri, workspace, document, rootPath)
 }
 \description{
 The response to a textDocument/documentLink Request

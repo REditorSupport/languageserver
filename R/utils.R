@@ -61,6 +61,9 @@ path_from_uri <- function(uri) {
     if (length(uri) == 0) {
         return(character())
     }
+    if (!startsWith(uri, "file:///")) {
+        return("")
+    }
     start_char <- if (.Platform$OS.type == "windows") 9 else 8
     utils::URLdecode(substr(uri, start_char, nchar(uri)))
 }
@@ -228,13 +231,14 @@ find_package <- function(path = getwd()) {
     normalizePath(prev_path)
 }
 
-#' check if an URI is a package folder
+#' check if a path is a package folder
 #'
-#' @param rootUri a character representing a URI
+#' @param rootPath a character representing a path
 #'
 #' @keywords internal
-is_package <- function(rootUri) {
-    file.exists(file.path(path_from_uri(rootUri), "DESCRIPTION"))
+is_package <- function(rootPath) {
+    file <- file.path(rootPath, "DESCRIPTION")
+    file.exists(file) && !dir.exists(file)
 }
 
 #' read a character from stdin
