@@ -1,7 +1,7 @@
 #' The response to a textDocument/documentLink Request
 #'
 #' @keywords internal
-document_link_reply <- function(id, uri, workspace, document, rootUri) {
+document_link_reply <- function(id, uri, workspace, document, rootPath) {
     result <- NULL
 
     parse_data <- workspace$get_parse_data(uri)
@@ -16,8 +16,7 @@ document_link_reply <- function(id, uri, workspace, document, rootUri) {
         str_texts <- xml_text(str_tokens)
         str_texts <- substr(str_texts, 2, nchar(str_texts) - 1)
 
-        root_path <- path_from_uri(rootUri)
-        paths <- fs::path_abs(str_texts, root_path)
+        paths <- fs::path_abs(str_texts, rootPath)
 
         sel <- file.exists(paths) & !dir.exists(paths)
         str_tokens <- str_tokens[sel]
