@@ -1,3 +1,25 @@
+languageserver 0.3.4
+   - on-type-formatting
+   - documentLinkProvider
+   - textDocument/documentColor
+   - use writeLines to write raw data in Windows
+   - Support section/subsection in document symbols
+   - make sure the output are UTF8
+   - set O_BINARY for stdin/stdout
+   - allows user to override ServerCapabilities
+   - Incremental resolving packages
+   - Disable lintr for temp files
+
+   and a lot of minor fixes and improvements
+
+  Contributors:
+   - Kun Ren
+   - Randy Lai
+   - Seong Yong-ju
+   - Yasuhiro Matsumoto
+   - Michał Krassowski
+
+
 languageserver 0.3.3
 
    - xml based parsing which provides more information on hovering, definitions and completions
