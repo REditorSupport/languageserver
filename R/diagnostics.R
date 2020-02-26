@@ -5,6 +5,13 @@
 #' @name diagnostics
 NULL
 
+DiagnosticSeverity <- list(
+    Error = 1,
+    Warning = 2,
+    Information = 3,
+    Hint = 4
+)
+
 #' @rdname diagnostics
 #' @keywords internal
 diagnostic_range <- function(result, content) {
@@ -29,16 +36,11 @@ diagnostic_range <- function(result, content) {
 #' @rdname diagnostics
 #' @keywords internal
 diagnostic_severity <- function(result) {
-    if (result$type == "error") {
-        severity <- 1
-    } else if (result$type == "warning") {
-        severity <- 2
-    } else if (result$type == "style") {
-        severity <- 3
-    } else {
-        severity <- 3
-    }
-    severity
+    switch(result$type,
+        error = DiagnosticSeverity$Error,
+        warning = DiagnosticSeverity$Warning,
+        style = DiagnosticSeverity$Information,
+        DiagnosticSeverity$Information)
 }
 
 #' @rdname diagnostics
@@ -47,7 +49,7 @@ diagnostic_from_lint <- function(result, content) {
     list(
         range = diagnostic_range(result, content),
         severity = diagnostic_severity(result),
-        source = "lintr",
+        source = result$linter,
         message = result$message
     )
 }
@@ -117,5 +119,16 @@ diagnostics_task <- function(self, uri, document) {
         package_call(diagnose_file),
         list(uri = uri, content = content),
         callback = function(result) diagnostics_callback(self, uri, version, result),
-        error = function(e) logger$info("diagnostics_task:", e))
+        error = function(e) {
+            logger$info("diagnostics_task:", e)
+            diagnostics_callback(self, uri, version, list(list(
+                range = range(
+                    start = position(0, 0),
+                    end = position(0, 0)
+                ),
+                severity = DiagnosticSeverity$Error,
+                source = "lintr",
+                message = "Failed to run diagnostics"
+            )))
+        })
 }
