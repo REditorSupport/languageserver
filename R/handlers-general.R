@@ -24,7 +24,7 @@ on_initialize <- function(self, id, params) {
 on_initialized <- function(self, params) {
     logger$info("on_initialized")
     project_root <- self$rootPath
-    if (is_package(project_root)) {
+    if (length(project_root) && is_package(project_root)) {
         source_dir <- file.path(project_root, "R")
         files <- list.files(source_dir)
         for (f in files) {
