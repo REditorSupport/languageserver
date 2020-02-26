@@ -149,7 +149,8 @@ text_document_document_link  <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- textDocument$uri
     document <- self$workspace$documents$get(uri)
-    reply <- document_link_reply(id, uri, self$workspace, document, self$rootPath)
+    rootPath <- if (length(self$rootPath)) self$rootPath else dirname(path_from_uri(uri))
+    reply <- document_link_reply(id, uri, self$workspace, document, rootPath)
     if (is.null(reply)) {
         queue <- self$pending_replies$get(uri)[["textDocument/documentLink"]]
         queue$push(list(
