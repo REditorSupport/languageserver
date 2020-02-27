@@ -9,7 +9,7 @@ test_that("Formatting document works", {
         "my_fn<-function(x){",
         "f(x+1,x-1)+x",
         "}"
-    ), temp_file)
+    ), temp_file)  # nolint
 
     client %>% did_save(temp_file)
 
@@ -72,6 +72,7 @@ test_that("Formatting selection works for partial line", {
 })
 
 
+# nolint start
 test_that("On type formatting works", {
     skip_on_cran()
     client <- language_client()
@@ -82,7 +83,7 @@ test_that("On type formatting works", {
         "f(x+1,x-1)",
         "data[x,y]",
         "}"
-    ), temp_file)
+    ), temp_file)  # nolint
 
     client %>% did_save(temp_file)
 
