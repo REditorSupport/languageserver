@@ -74,24 +74,20 @@ diagnose_file <- function(uri, content) {
         linters <- NULL
     }
 
-    if (length(content) <= 1 && file.exists(path)) {
-        # lintr::lint doesn't work with one line text
-        content <- readr::read_lines(path)
-        diagnostics <- lapply(
-            lintr::lint(path, linters = linters), diagnostic_from_lint, content = content)
-    } else {
-        if (is_rmarkdown(path)) {
-            # make sure Rmarkdown file has at least one block
-            if (!any(stringr::str_detect(content, "```\\{r[ ,\\}]"))) {
-                return(list())
-            }
+    if (is_rmarkdown(uri)) {
+        # make sure Rmarkdown file has at least one block
+        if (!any(stringr::str_detect(content, "```\\{r[ ,\\}]"))) {
+            return(list())
         }
-        # use inline data
-        text <- paste0(content, collapse = "\n")
-        diagnostics <- lapply(
-            lintr::lint(text, linters = linters), diagnostic_from_lint, content = content)
-
     }
+
+    if (length(content) <= 1) {
+        content <- c(content, "")
+    }
+
+    text <- paste0(content, collapse = "\n")
+    diagnostics <- lapply(
+        lintr::lint(text, linters = linters), diagnostic_from_lint, content = content)
     names(diagnostics) <- NULL
     diagnostics
 }
