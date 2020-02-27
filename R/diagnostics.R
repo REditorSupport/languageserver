@@ -67,11 +67,8 @@ find_config <- function(filename) {
 #' Lint and diagnose problems in a file.
 #' @keywords internal
 diagnose_file <- function(uri, content) {
-    path <- path_from_uri(uri)
-    if (is.null(find_config(path))) {
-        linters <- getOption("languageserver.default_linters", NULL)
-    } else {
-        linters <- NULL
+    if (length(content) == 0) {
+        return(list())
     }
 
     if (is_rmarkdown(uri)) {
@@ -81,7 +78,14 @@ diagnose_file <- function(uri, content) {
         }
     }
 
-    if (length(content) <= 1) {
+    path <- path_from_uri(uri)
+    if (is.null(find_config(path))) {
+        linters <- getOption("languageserver.default_linters", NULL)
+    } else {
+        linters <- NULL
+    }
+
+    if (length(content) == 1) {
         content <- c(content, "")
     }
 
