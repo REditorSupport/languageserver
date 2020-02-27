@@ -6,10 +6,10 @@ test_that("Formatting document works", {
 
     withr::local_tempfile(c("temp_file"), fileext = ".R")
     writeLines(c(
-        "my_fn<-function(x){",
+        "my_fn<-function(x){",  # nolint
         "f(x+1,x-1)+x",
         "}"
-    ), temp_file)  # nolint
+    ), temp_file)
 
     client %>% did_save(temp_file)
 
@@ -72,18 +72,17 @@ test_that("Formatting selection works for partial line", {
 })
 
 
-# nolint start
 test_that("On type formatting works", {
     skip_on_cran()
     client <- language_client()
 
     withr::local_tempfile(c("temp_file"), fileext = ".R")
     writeLines(c(
-        "my_fn<-function(x){",
+        "my_fn<-function(x){",  # nolint
         "f(x+1,x-1)",
         "data[x,y]",
         "}"
-    ), temp_file)  # nolint
+    ), temp_file)
 
     client %>% did_save(temp_file)
 
