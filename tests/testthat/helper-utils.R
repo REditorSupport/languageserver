@@ -58,7 +58,7 @@ notify <- function(client, method, params = NULL) {
 
 
 did_open <- function(client, path) {
-    text <- paste0(readr::read_lines(path), collapse = "\n")
+    text <- paste0(stringi::stri_read_lines(path), collapse = "\n")
     notify(
         client,
         "textDocument/didOpen",
@@ -81,7 +81,7 @@ did_save <- function(client, path) {
         error = function(e) FALSE
     )
     if (includeText) {
-        text <- paste0(readr::read_lines(path), collapse = "\n")
+        text <- paste0(stringi::stri_read_lines(path), collapse = "\n")
         params <- list(textDocument = list(uri = path_to_uri(path)), text = text)
     } else {
         params <- list(textDocument = list(uri = path_to_uri(path)))
