@@ -17,12 +17,12 @@ test_that("Simple hover works", {
 
     result <- client %>% respond_hover(temp_file, c(0, 7))
     expect_length(result$contents, 1)
-    expect_true(stringr::str_detect(result$contents[1], "strsplit"))
+    expect_true(stringi::stri_detect_fixed(result$contents[1], "strsplit"))
     expect_equal(result$range$end$character, 12)
 
     result <- client %>% respond_hover(temp_file, c(1, 7))
     expect_length(result$contents, 1)
-    expect_true(stringr::str_detect(result$contents[1], "path_real"))
+    expect_true(stringi::stri_detect_fixed(result$contents[1], "path_real"))
     expect_equal(result$range$end$character, 13)
 })
 
@@ -149,12 +149,12 @@ test_that("Simple hover works in Rmarkdown", {
 
     result <- client %>% respond_hover(temp_file, c(5, 7))
     expect_length(result$contents, 1)
-    expect_true(stringr::str_detect(result$contents[1], "strsplit"))
+    expect_true(stringi::stri_detect_fixed(result$contents[1], "strsplit"))
     expect_equal(result$range$end$character, 12)
 
     result <- client %>% respond_hover(temp_file, c(6, 7))
     expect_length(result$contents, 1)
-    expect_true(stringr::str_detect(result$contents[1], "path_real"))
+    expect_true(stringi::stri_detect_fixed(result$contents[1], "path_real"))
     expect_equal(result$range$end$character, 13)
 })
 

@@ -101,7 +101,7 @@ hover_reply <- function(id, uri, workspace, document, point) {
                         if (is.null(sig)) {
                             contents <- doc_string
                         } else {
-                            sig <- stringr::str_trunc(sig, 300)
+                            sig <- str_trunc(sig, 300)
                             contents <- c(
                                 sprintf("```r\n%s\n```", sig),
                                 sprintf("`%s` - %s", token_text, doc_string))
