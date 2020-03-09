@@ -31,7 +31,7 @@ on_initialized <- function(self, params) {
             logger$info("load ", f)
             path <- file.path(source_dir, f)
             uri <- path_to_uri(path)
-            doc <- Document$new(uri, NULL, readr::read_lines(path))
+            doc <- Document$new(uri, NULL, stringi::stri_read_lines(path))
             self$workspace$documents$set(uri, doc)
             self$text_sync(uri, document = doc, parse = TRUE)
         }

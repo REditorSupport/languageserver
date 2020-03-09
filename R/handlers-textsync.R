@@ -12,7 +12,7 @@ text_document_did_open <- function(self, params) {
     if (!is.null(text)) {
         content <- stringr::str_split(text, "\r\n|\n")[[1]]
     } else if (file.exists(path)) {
-        content <- readr::read_lines(path)
+        content <- stringi::stri_read_lines(path)
     } else {
         content <- NULL
     }
@@ -69,7 +69,7 @@ text_document_did_save <- function(self, params) {
     if (!is.null(text)) {
         content <- stringr::str_split(text, "\r\n|\n")[[1]]
     } else if (file.exists(path)) {
-        content <- readr::read_lines(path)
+        content <- stringi::stri_read_lines(path)
     } else {
         content <- NULL
     }
