@@ -73,7 +73,7 @@ diagnose_file <- function(uri, content) {
 
     if (is_rmarkdown(uri)) {
         # make sure Rmarkdown file has at least one block
-        if (!any(stringr::str_detect(content, "```\\{r[ ,\\}]"))) {
+        if (!any(stringi::stri_detect_regex(content, "```\\{r[ ,\\}]"))) {
             return(list())
         }
     }

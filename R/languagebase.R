@@ -67,7 +67,7 @@ LanguageBase <- R6::R6Class("LanguageBase",
                     if (!startsWith(header, "Content")) {
                         stop("Unexpected non-empty line")
                     }
-                    matches <- stringr::str_match(header, "Content-Length: ([0-9]+)")
+                    matches <- stringi::stri_match_first_regex(header, "Content-Length: ([0-9]+)")
                     if (!is.na(matches[2])) {
                         bytes <- as.integer(matches[2])
                     }

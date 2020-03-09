@@ -106,7 +106,7 @@ range_formatting_reply <- function(id, uri, document, range, options) {
     }
 
     selection <- document$content[(row1:row2) + 1]
-    indentation <- stringr::str_extract(selection[1], "^\\s*")
+    indentation <- stringi::stri_extract_first_regex(selection[1], "^\\s*")
     new_text <- style_text(selection, style, indentation = indentation)
     if (is.null(new_text)) {
         return(Response$new(id, list()))
@@ -195,7 +195,7 @@ on_type_formatting_reply <- function(id, uri, document, point, ch, options) {
         # disable assignment operator fix since end_line could be function parameter
         style$token$force_assignment_op <- NULL
 
-        indentation <- stringr::str_extract(content[start_line], "^\\s*")
+        indentation <- stringi::stri_extract_first_regex(content[start_line], "^\\s*")
         new_text <- tryCatchTimeout(
             style_text(content[start_line:end_line], style, indentation = indentation),
             timeout = 1,

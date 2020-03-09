@@ -106,7 +106,7 @@ check_scope <- function(uri, document, point) {
             document$content[1:(row + 1)], startsWith, logical(1), "```", USE.NAMES = FALSE)
         if (any(flags)) {
             last_match <- document$content[max(which(flags))]
-            stringr::str_detect(last_match, "```\\{r[ ,\\}]") &&
+            stringi::stri_detect_regex(last_match, "```\\{r[ ,\\}]") &&
                 !identical(sum(flags) %% 2, 0) &&
                 !enclosed_by_quotes(document, point)
         } else {
@@ -134,8 +134,8 @@ seq_safe <- function(a, b) {
 #' Extract the R code blocks of a Rmarkdown file
 #' @keywords internal
 extract_blocks <- function(content) {
-    begins_or_ends <- which(stringr::str_detect(content, "```"))
-    begins <- which(stringr::str_detect(content, "```\\{r[ ,\\}]"))
+    begins_or_ends <- which(stringi::stri_detect_fixed(content, "```"))
+    begins <- which(stringi::stri_detect_regex(content, "```\\{r[ ,\\}]"))
     ends <- setdiff(begins_or_ends, begins)
     blocks <- list()
     for (begin in begins) {
@@ -287,21 +287,21 @@ throttle <- function(fun, t = 1) {
 #'
 #' @keywords internal
 sanitize_names <- function(objects) {
-    objects[stringr::str_detect(objects, "^(?:[^\\W_]|\\.)(?:[^\\W]|\\.)*$")]
+    objects[stringi::stri_detect_regex(objects, "^(?:[^\\W_]|\\.)(?:[^\\W]|\\.)*$")]
 }
 
 na_to_empty_string <- function(x) if (is.na(x)) "" else x
 empty_string_to_null <- function(x) if (nzchar(x)) x else NULL
 
 look_forward <- function(text) {
-    matches <- stringr::str_match(text, "^(?:[^\\W]|\\.)*\\b")[1]
+    matches <- stringi::stri_match_first_regex(text, "^(?:[^\\W]|\\.)*\\b")[1]
     list(
         token = na_to_empty_string(matches[1])
     )
 }
 
 look_backward <- function(text) {
-    matches <- stringr::str_match(
+    matches <- stringi::stri_match_first_regex(
         text, "(?<!\\$)(?:\\b|(?=\\.))(?:([a-zA-Z][a-zA-Z0-9.]+)(:::?))?((?:[^\\W_]|\\.)(?:[^\\W]|\\.)*)?$")
     list(
         full_token = na_to_empty_string(matches[1]),
@@ -309,6 +309,16 @@ look_backward <- function(text) {
         accessor = na_to_empty_string(matches[3]),
         token = na_to_empty_string(matches[4])
     )
+}
+
+str_trunc <- function(string, width, ellipsis = "...") {
+    trunc <- !is.na(string) && nchar(string) > width
+    if (trunc) {
+        width2 <- width - nchar(ellipsis)
+        paste0(substr(string, 1, width2), ellipsis)
+    } else {
+        string
+    }
 }
 
 uncomment <- function(x) gsub("^\\s*#+'?\\s*", "", x)

@@ -10,7 +10,7 @@ text_document_did_open <- function(self, params) {
     logger$info("did open:", list(uri = uri, version = version))
     path <- path_from_uri(uri)
     if (!is.null(text)) {
-        content <- stringr::str_split(text, "\r\n|\n")[[1]]
+        content <- stringi::stri_split_lines1(text)
     } else if (file.exists(path)) {
         content <- stringi::stri_read_lines(path)
     } else {
@@ -37,7 +37,7 @@ text_document_did_change <- function(self, params) {
     version <- textDocument$version
     text <- contentChanges[[1]]$text
     logger$info("did change:", list(uri = uri, version = version))
-    content <- stringr::str_split(text, "\r\n|\n")[[1]]
+    content <- stringi::stri_split_lines1(text)
     if (self$workspace$documents$has(uri)) {
         doc <- self$workspace$documents$get(uri)
         doc$set_content(version, content)
@@ -67,7 +67,7 @@ text_document_did_save <- function(self, params) {
     logger$info("did save:", list(uri = uri))
     path <- path_from_uri(uri)
     if (!is.null(text)) {
-        content <- stringr::str_split(text, "\r\n|\n")[[1]]
+        content <- stringi::stri_split_lines1(text)
     } else if (file.exists(path)) {
         content <- stringi::stri_read_lines(path)
     } else {
