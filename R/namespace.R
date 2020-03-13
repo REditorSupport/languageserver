@@ -172,6 +172,7 @@ PackageNamespace <- R6::R6Class("PackageNamespace",
 WORKSPACE <- "_workspace_"
 
 #' A class for storing global environment information
+#' @keywords internal
 GlobalEnv <- R6::R6Class("GlobalEnv",
     public = list(
         documents = NULL,

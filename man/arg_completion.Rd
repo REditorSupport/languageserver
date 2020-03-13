@@ -4,8 +4,7 @@
 \alias{arg_completion}
 \title{Complete a function argument}
 \usage{
-arg_completion(workspace, token, funct, package = NULL,
-  exported_only = TRUE)
+arg_completion(workspace, token, funct, package = NULL, exported_only = TRUE)
 }
 \description{
 Complete a function argument
