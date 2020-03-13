@@ -5,7 +5,7 @@
 \title{Complete any object in the workspace}
 \usage{
 workspace_completion(workspace, token, package = NULL,
-  exported_only = TRUE)
+  exported_only = TRUE, capabilities = NULL)
 }
 \description{
 Complete any object in the workspace

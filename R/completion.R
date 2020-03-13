@@ -90,7 +90,8 @@ arg_completion <- function(workspace, token, funct, package = NULL, exported_onl
 
 #' Complete any object in the workspace
 #' @keywords internal
-workspace_completion <- function(workspace, token, package = NULL, exported_only = TRUE) {
+workspace_completion <- function(workspace, token,
+    package = NULL, exported_only = TRUE, capabilities = NULL) {
     completions <- list()
 
     if (is.null(package)) {
@@ -112,17 +113,31 @@ workspace_completion <- function(workspace, token, package = NULL, exported_only
             }
             functs <- ns$get_symbols(want_functs = TRUE, exported_only = TRUE)
             functs <- functs[startsWith(functs, token)]
-            functs_completions <- lapply(functs, function(object) {
-                list(label = object,
-                     kind = CompletionItemKind$Function,
-                     detail = tag,
-                     insertText = paste0(object, "($0)"),
-                     insertTextFormat = InsertTextFormat$Snippet,
-                     data = list(
-                         type = "function",
-                         package = nsname
-                     ))
-            })
+
+            if (isTRUE(capabilities$completionItem$snippetSupport)) {
+                functs_completions <- lapply(functs, function(object) {
+                    list(label = object,
+                        kind = CompletionItemKind$Function,
+                        detail = tag,
+                        insertText = paste0(object, "($0)"),
+                        insertTextFormat = InsertTextFormat$Snippet,
+                        data = list(
+                            type = "function",
+                            package = nsname
+                    ))
+                })
+            } else {
+                functs_completions <- lapply(functs, function(object) {
+                    list(label = object,
+                        kind = CompletionItemKind$Function,
+                        detail = tag,
+                        data = list(
+                            type = "function",
+                            package = nsname
+                    ))
+                })
+            }
+
             nonfuncts <- ns$get_symbols(want_functs = FALSE, exported_only = TRUE)
             nonfuncts <- nonfuncts[startsWith(nonfuncts, token)]
             nonfuncts_completions <- lapply(nonfuncts, function(object) {
@@ -156,17 +171,31 @@ workspace_completion <- function(workspace, token, package = NULL, exported_only
             tag <- paste0("{", package, "}")
             functs <- ns$get_symbols(want_functs = TRUE, exported_only = FALSE)
             functs <- functs[startsWith(functs, token)]
-            functs_completions <- lapply(functs, function(object) {
-                list(label = object,
-                     kind = CompletionItemKind$Function,
-                     detail = tag,
-                     insertText = paste0(object, "($0)"),
-                     insertTextFormat = InsertTextFormat$Snippet,
-                     data = list(
-                         type = "function",
-                         package = package
-                     ))
-            })
+
+            if (isTRUE(capabilities$completionItem$snippetSupport)) {
+                functs_completions <- lapply(functs, function(object) {
+                    list(label = object,
+                        kind = CompletionItemKind$Function,
+                        detail = tag,
+                        insertText = paste0(object, "($0)"),
+                        insertTextFormat = InsertTextFormat$Snippet,
+                        data = list(
+                            type = "function",
+                            package = package
+                    ))
+                })
+            } else {
+                functs_completions <- lapply(functs, function(object) {
+                    list(label = object,
+                        kind = CompletionItemKind$Function,
+                        detail = tag,
+                        data = list(
+                            type = "function",
+                            package = package
+                    ))
+                })
+            }
+
             nonfuncts <- ns$get_symbols(want_functs = FALSE, exported_only = FALSE)
             nonfuncts <- nonfuncts[startsWith(nonfuncts, token)]
             nonfuncts_completions <- lapply(nonfuncts, function(object) {
@@ -201,7 +230,7 @@ scope_completion_functs_xpath <- paste(
     "equal_assign/EQ_ASSIGN[following-sibling::expr/FUNCTION]/preceding-sibling::expr[count(*)=1]/SYMBOL",
     sep = "|")
 
-scope_completion <- function(uri, workspace, token, point) {
+scope_completion <- function(uri, workspace, token, point, capabilities = NULL) {
     xdoc <- workspace$get_parse_data(uri)$xml_doc
     if (is.null(xdoc)) {
         return(list())
@@ -210,35 +239,45 @@ scope_completion <- function(uri, workspace, token, point) {
     enclosing_scopes <- xdoc_find_enclosing_scopes(xdoc,
         point$row + 1, point$col + 1)
 
-    completions <- list()
     scope_symbols <- unique(xml_text(xml_find_all(enclosing_scopes, scope_completion_symbols_xpath)))
     scope_symbols <- scope_symbols[startsWith(scope_symbols, token)]
-    completions <- c(completions, lapply(scope_symbols, function(symbol) {
+    scope_symbol_completions <- lapply(scope_symbols, function(symbol) {
         list(
             label = symbol,
             kind = CompletionItemKind$Field,
             detail = "[scope]"
         )
-    }))
+    })
 
     scope_functs <- unique(xml_text(xml_find_all(enclosing_scopes, scope_completion_functs_xpath)))
     scope_functs <- scope_functs[startsWith(scope_functs, token)]
-    completions <- c(completions, lapply(scope_functs, function(symbol) {
-        list(
-            label = symbol,
-            kind = CompletionItemKind$Function,
-            detail = "[scope]",
-            insertText = paste0(symbol, "($0)"),
-            insertTextFormat = InsertTextFormat$Snippet
-        )
-    }))
+    if (isTRUE(capabilities$completionItem$snippetSupport)) {
+        scope_funct_completions <- lapply(scope_functs, function(symbol) {
+            list(
+                label = symbol,
+                kind = CompletionItemKind$Function,
+                detail = "[scope]",
+                insertText = paste0(symbol, "($0)"),
+                insertTextFormat = InsertTextFormat$Snippet
+            )
+        })
+    } else {
+        scope_funct_completions <- lapply(scope_functs, function(symbol) {
+            list(
+                label = symbol,
+                kind = CompletionItemKind$Function,
+                detail = "[scope]"
+            )
+        })
+    }
 
+    completions <- c(scope_symbol_completions, scope_funct_completions)
     completions
 }
 
 #' The response to a textDocument/completion request
 #' @keywords internal
-completion_reply <- function(id, uri, workspace, document, point) {
+completion_reply <- function(id, uri, workspace, document, point, capabilities) {
     if (!check_scope(uri, document, point)) {
         return(Response$new(
             id,
@@ -260,12 +299,12 @@ completion_reply <- function(id, uri, workspace, document, point) {
                 completions,
                 constant_completion(token),
                 package_completion(token),
-                scope_completion(uri, workspace, token, point))
+                scope_completion(uri, workspace, token, point, capabilities))
         }
         completions <- c(
             completions,
             workspace_completion(
-                workspace, token, package, token_result$accessor == "::"))
+                workspace, token, package, token_result$accessor == "::", capabilities))
     }
 
     call_result <- document$detect_call(point)

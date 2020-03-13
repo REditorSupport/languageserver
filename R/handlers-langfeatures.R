@@ -7,7 +7,8 @@ text_document_completion  <- function(self, id, params) {
     uri <- textDocument$uri
     document <- self$workspace$documents$get(uri)
     point <- document$from_lsp_position(params$position)
-    self$deliver(completion_reply(id, uri, self$workspace, document, point))
+    self$deliver(completion_reply(id, uri, self$workspace, document, point,
+        self$ClientCapabilities$textDocument$completion))
 }
 
 #' `completionItem/resolve` request handler
