@@ -7,6 +7,6 @@
 sanitize_names(objects)
 }
 \description{
-Remove unwanted objects, \emph{e.g.} \code{names<-}, \code{\%>\%}, etc.
+Remove unwanted objects, \emph{e.g.} \verb{names<-}, \verb{\%>\%}, etc.
 }
 \keyword{internal}
