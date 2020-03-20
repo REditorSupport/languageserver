@@ -79,10 +79,13 @@ diagnose_file <- function(uri, content) {
     }
 
     path <- path_from_uri(uri)
-    if (is.null(find_config(path))) {
+    linter_file <- find_config(path)
+    if (is.null(linter_file)) {
         linters <- getOption("languageserver.default_linters", NULL)
     } else {
         linters <- NULL
+        op <- options(lintr.linter_file = linter_file)
+        on.exit(options(op))
     }
 
     if (length(content) == 1) {
