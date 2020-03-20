@@ -131,7 +131,7 @@ diagnostics_task <- function(self, uri, document) {
                 ),
                 severity = DiagnosticSeverity$Error,
                 source = "lintr",
-                message = "Failed to run diagnostics"
+                message = paste0("Failed to run diagnostics: ", conditionMessage(e))
             )))
         })
 }
