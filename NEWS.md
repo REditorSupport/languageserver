@@ -1,3 +1,16 @@
+languageserver v0.3.5
+
+   - Remove dependency on readr
+   - Use stringi to replace stringr
+   - Respect snippetSupport
+   - Respect linter_file in diagnostics
+
+  Contributors:
+   - Kun Ren
+   - Randy Lai
+   - Jozef Hajnala
+
+
 languageserver 0.3.4
    - on-type-formatting
    - documentLinkProvider
