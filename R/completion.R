@@ -91,7 +91,7 @@ arg_completion <- function(workspace, token, funct, package = NULL, exported_onl
 #' Complete any object in the workspace
 #' @keywords internal
 workspace_completion <- function(workspace, token,
-    package = NULL, exported_only = TRUE, capabilities = NULL) {
+    package = NULL, exported_only = TRUE, snippet_support = NULL) {
     completions <- list()
 
     if (is.null(package)) {
@@ -114,7 +114,7 @@ workspace_completion <- function(workspace, token,
             functs <- ns$get_symbols(want_functs = TRUE, exported_only = TRUE)
             functs <- functs[startsWith(functs, token)]
 
-            if (isTRUE(capabilities$completionItem$snippetSupport)) {
+            if (isTRUE(snippet_support)) {
                 functs_completions <- lapply(functs, function(object) {
                     list(label = object,
                         kind = CompletionItemKind$Function,
@@ -172,7 +172,7 @@ workspace_completion <- function(workspace, token,
             functs <- ns$get_symbols(want_functs = TRUE, exported_only = FALSE)
             functs <- functs[startsWith(functs, token)]
 
-            if (isTRUE(capabilities$completionItem$snippetSupport)) {
+            if (isTRUE(snippet_support)) {
                 functs_completions <- lapply(functs, function(object) {
                     list(label = object,
                         kind = CompletionItemKind$Function,
@@ -230,7 +230,7 @@ scope_completion_functs_xpath <- paste(
     "equal_assign/EQ_ASSIGN[following-sibling::expr/FUNCTION]/preceding-sibling::expr[count(*)=1]/SYMBOL",
     sep = "|")
 
-scope_completion <- function(uri, workspace, token, point, capabilities = NULL) {
+scope_completion <- function(uri, workspace, token, point, snippet_support = NULL) {
     xdoc <- workspace$get_parse_data(uri)$xml_doc
     if (is.null(xdoc)) {
         return(list())
@@ -251,7 +251,7 @@ scope_completion <- function(uri, workspace, token, point, capabilities = NULL) 
 
     scope_functs <- unique(xml_text(xml_find_all(enclosing_scopes, scope_completion_functs_xpath)))
     scope_functs <- scope_functs[startsWith(scope_functs, token)]
-    if (isTRUE(capabilities$completionItem$snippetSupport)) {
+    if (isTRUE(snippet_support)) {
         scope_funct_completions <- lapply(scope_functs, function(symbol) {
             list(
                 label = symbol,
@@ -286,6 +286,8 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
                 items = list()
             )))
     }
+    snippet_support <- getOption("languageserver.snippet_support",
+                                 capabilities$completionItem$snippetSupport)
     completions <- list()
     token_result <- document$detect_token(point, forward = FALSE)
 
@@ -299,12 +301,12 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
                 completions,
                 constant_completion(token),
                 package_completion(token),
-                scope_completion(uri, workspace, token, point, capabilities))
+                scope_completion(uri, workspace, token, point, snippet_support))
         }
         completions <- c(
             completions,
             workspace_completion(
-                workspace, token, package, token_result$accessor == "::", capabilities))
+                workspace, token, package, token_result$accessor == "::", snippet_support))
     }
 
     call_result <- document$detect_call(point)
