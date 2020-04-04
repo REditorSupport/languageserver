@@ -144,8 +144,8 @@ find_unbalanced_bracket <- function(content, row, column, skip_empty_line = FALS
 #' @keywords internal
 enclosed_by_quotes <- function(document, point) {
     text <- document$line0(point$row)
-    col <- point$line
-    .Call("enclosed_by_quotes", PACKAGE = "languageserver", text, col)
+    col <- point$col
+    .Call("enclosed_by_quotes", PACKAGE = "languageserver", text, col - 1)
 }
 
 detect_comments <- function(content, row) {
