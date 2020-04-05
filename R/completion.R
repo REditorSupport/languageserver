@@ -286,8 +286,9 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
                 items = list()
             )))
     }
-    snippet_support <- getOption("languageserver.snippet_support",
-                                 capabilities$completionItem$snippetSupport)
+    snippet_support <- isTRUE(capabilities$completionItem$snippetSupport) &&
+        getOption("languageserver.snippet_support", TRUE)
+
     completions <- list()
     token_result <- document$detect_token(point, forward = FALSE)
 
