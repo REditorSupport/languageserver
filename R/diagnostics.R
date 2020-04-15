@@ -103,7 +103,7 @@ diagnose_file <- function(uri, content) {
 diagnostics_callback <- function(self, uri, version, diagnostics) {
     if (is.null(diagnostics)) return(NULL)
     logger$info("diagnostics_callback called:", list(uri = uri, version = version))
-    logger$info("diagnostics:", diagnostics)
+    # logger$info("diagnostics:", diagnostics)
     self$deliver(
         Notification$new(
             method = "textDocument/publishDiagnostics",
