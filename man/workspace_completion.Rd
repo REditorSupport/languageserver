@@ -9,7 +9,7 @@ workspace_completion(
   token,
   package = NULL,
   exported_only = TRUE,
-  capabilities = NULL
+  snippet_support = NULL
 )
 }
 \description{
