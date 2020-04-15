@@ -181,7 +181,9 @@ code_point_from_unit <- function(line, units) {
     offsets <- cumsum(ncodeunit(strsplit(line, "")[[1]]))
     loc_map <- match(seq_len(utils::tail(offsets, 1)), offsets)
     result <- c(0, loc_map)[units + 1]
-    result[is.infinite(units)] <- nchar(line)
+    n <- nchar(line)
+    result[units > length(loc_map)] <- n
+    result[is.infinite(units)] <- n
     result
 }
 
@@ -195,7 +197,10 @@ code_point_to_unit <- function(line, pts) {
     if (!nzchar(line)) return(pts)
     offsets <- c(0, cumsum(ncodeunit(strsplit(line, "")[[1]])))
     result <- offsets[pts + 1]
-    result[is.infinite(pts)] <- offsets[length(offsets)]
+    n <- length(offsets)
+    m <- offsets[n]
+    result[pts >= n] <- m
+    result[is.infinite(pts)] <- m
     result
 }
 
