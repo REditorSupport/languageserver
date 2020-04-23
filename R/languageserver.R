@@ -58,7 +58,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$parse_task_manager <- TaskManager$new()
             self$resolve_task_manager <- TaskManager$new()
 
-            self$pending_replies <- collections::Dict()
+            self$pending_replies <- collections::dict()
 
             super$initialize()
         },
@@ -82,9 +82,9 @@ LanguageServer <- R6::R6Class("LanguageServer",
 
             if (!self$pending_replies$has(uri)) {
                 self$pending_replies$set(uri, list(
-                    `textDocument/documentSymbol` = collections::Queue(),
-                    `textDocument/documentLink` = collections::Queue(),
-                    `textDocument/documentColor` = collections::Queue()
+                    `textDocument/documentSymbol` = collections::queue(),
+                    `textDocument/documentLink` = collections::queue(),
+                    `textDocument/documentColor` = collections::queue()
                 ))
             }
 

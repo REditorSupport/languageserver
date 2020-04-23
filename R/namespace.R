@@ -28,7 +28,7 @@ PackageNamespace <- R6::R6Class("PackageNamespace",
             private$exported_nonfuncts <- private$objects[is_exported & !is_function]
             private$lazydata <- if (length(ns$.__NAMESPACE__.$lazydata))
                 objects(ns$.__NAMESPACE__.$lazydata) else character()
-            private$documentation <- collections::Dict()
+            private$documentation <- collections::dict()
         },
 
         exists = function(objname, exported_only = TRUE) {

@@ -51,7 +51,7 @@ jobs:
       R_LANGSVR_LOG: /tmp/languageserver/log
     steps:
     - uses: actions/checkout@v1
-    - uses: r-lib/actions/setup-r@master
+    - uses: r-lib/actions/setup-r@v1
       with:
         r-version: ${{ matrix.r }}
     - name: Install languagesever
@@ -80,7 +80,7 @@ jobs:
       R_LANGSVR_LOG: C:/tmp/languageserver/log
     steps:
     - uses: actions/checkout@v1
-    - uses: r-lib/actions/setup-r@master
+    - uses: r-lib/actions/setup-r@v1
       with:
         r-version: ${{ matrix.r }}
     - name: Install dependencies

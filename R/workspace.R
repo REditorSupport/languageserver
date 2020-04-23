@@ -14,9 +14,9 @@ Workspace <- R6::R6Class("Workspace",
         loaded_packages = startup_packages,
 
         initialize = function() {
-            self$documents <- collections::Dict()
+            self$documents <- collections::dict()
             self$global_env <- GlobalEnv$new(self$documents)
-            self$namespaces <- collections::Dict()
+            self$namespaces <- collections::dict()
             for (pkgname in self$loaded_packages) {
                 self$namespaces$set(pkgname, PackageNamespace$new(pkgname))
             }
