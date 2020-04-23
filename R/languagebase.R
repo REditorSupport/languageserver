@@ -13,7 +13,7 @@ LanguageBase <- R6::R6Class("LanguageBase",
 
         initialize = function() {
             self$register_handlers()
-            self$request_callbacks <- collections::Dict()
+            self$request_callbacks <- collections::dict()
         },
 
         finalize = function() {
