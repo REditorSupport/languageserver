@@ -49,19 +49,21 @@ Task <- R6::R6Class("Task",
 
 TaskManager <- R6::R6Class("TaskManager",
     private = list(
+        cpus = NULL,
         pending_tasks = NULL,
         running_tasks = NULL
     ),
     public = list(
         initialize = function() {
+            private$cpus <- parallel::detectCores()
             private$pending_tasks <- collections::ordered_dict()
             private$running_tasks <- collections::ordered_dict()
         },
         add_task = function(id, task) {
             private$pending_tasks$set(id, task)
         },
-        run_tasks = function(n = 8, delay = 0.5) {
-            n <- max(n - private$running_tasks$size(), 0)
+        run_tasks = function(cpu_load = 0.5, delay = 0.5) {
+            n <- max(max(private$cpus * cpu_load, 1) - private$running_tasks$size(), 0)
             ids <- private$pending_tasks$keys()
             if (length(ids) > n) {
                 ids <- ids[seq_len(n)]
