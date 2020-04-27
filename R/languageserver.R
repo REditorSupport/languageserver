@@ -73,7 +73,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$diagnostics_task_manager$check_tasks()
             self$parse_task_manager$run_tasks()
             self$parse_task_manager$check_tasks()
-            self$resolve_task_manager$run_tasks()
+            self$resolve_task_manager$run_tasks(delay = 0)
             self$resolve_task_manager$check_tasks()
         },
 

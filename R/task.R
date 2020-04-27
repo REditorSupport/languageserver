@@ -7,7 +7,9 @@ Task <- R6::R6Class("Task",
         error = NULL
     ),
     public = list(
+        time = NULL,
         initialize = function(target, args, callback = NULL, error = NULL) {
+            self$time <- Sys.time()
             private$target <- target
             private$args <- args
             private$callback <- callback
@@ -54,14 +56,11 @@ TaskManager <- R6::R6Class("TaskManager",
         initialize = function() {
             private$pending_tasks <- collections::ordered_dict()
             private$running_tasks <- collections::ordered_dict()
-            self$run_tasks <- throttle(self$run_tasks_, 0.1)
-            # self$run_tasks <- self$run_tasks_
         },
         add_task = function(id, task) {
             private$pending_tasks$set(id, task)
         },
-        run_tasks = NULL,
-        run_tasks_ = function(n = 8) {
+        run_tasks = function(n = 8, delay = 0.5) {
             n <- max(n - private$running_tasks$size(), 0)
             ids <- private$pending_tasks$keys()
             if (length(ids) > n) {
@@ -72,9 +71,12 @@ TaskManager <- R6::R6Class("TaskManager",
                     task <- private$running_tasks$pop(id)
                     task$kill()
                 }
-                task <- private$pending_tasks$pop(id)
-                private$running_tasks$set(id, task)
-                task$start()
+                task <- private$pending_tasks$get(id)
+                if (Sys.time() - task$time >= delay) {
+                    task <- private$pending_tasks$pop(id)
+                    private$running_tasks$set(id, task)
+                    task$start()
+                }
             }
         },
         check_tasks = function() {
