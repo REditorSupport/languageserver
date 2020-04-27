@@ -67,12 +67,12 @@ TaskManager <- R6::R6Class("TaskManager",
                 ids <- ids[seq_len(n)]
             }
             for (id in ids) {
-                if (private$running_tasks$has(id)) {
-                    task <- private$running_tasks$pop(id)
-                    task$kill()
-                }
                 task <- private$pending_tasks$get(id)
                 if (Sys.time() - task$time >= delay) {
+                    if (private$running_tasks$has(id)) {
+                        task <- private$running_tasks$pop(id)
+                        task$kill()
+                    }
                     task <- private$pending_tasks$pop(id)
                     private$running_tasks$set(id, task)
                     task$start()
