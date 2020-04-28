@@ -8,12 +8,14 @@ Task <- R6::R6Class("Task",
     ),
     public = list(
         time = NULL,
-        initialize = function(target, args, callback = NULL, error = NULL) {
-            self$time <- Sys.time()
+        delay = NULL,
+        initialize = function(target, args, callback = NULL, error = NULL, delay = 0) {
             private$target <- target
             private$args <- args
             private$callback <- callback
             private$error <- error
+            self$time <- Sys.time()
+            self$delay <- delay
         },
         start = function() {
             private$process <- callr::r_bg(
@@ -62,7 +64,7 @@ TaskManager <- R6::R6Class("TaskManager",
         add_task = function(id, task) {
             private$pending_tasks$set(id, task)
         },
-        run_tasks = function(cpu_load = 0.5, delay = 0.5) {
+        run_tasks = function(cpu_load = 0.5) {
             n <- max(max(private$cpus * cpu_load, 1) - private$running_tasks$size(), 0)
             ids <- private$pending_tasks$keys()
             if (length(ids) > n) {
@@ -70,7 +72,7 @@ TaskManager <- R6::R6Class("TaskManager",
             }
             for (id in ids) {
                 task <- private$pending_tasks$get(id)
-                if (Sys.time() - task$time >= delay) {
+                if (Sys.time() - task$time >= task$delay) {
                     if (private$running_tasks$has(id)) {
                         task <- private$running_tasks$pop(id)
                         task$kill()
@@ -101,11 +103,12 @@ package_call <- function(target) {
     target
 }
 
-create_task <- function(target, args, callback = NULL, error = NULL) {
+create_task <- function(target, args, callback = NULL, error = NULL, delay = 0) {
     Task$new(
         target = target,
         args = args,
         callback = callback,
-        error = error
+        error = error,
+        delay = delay
     )
 }

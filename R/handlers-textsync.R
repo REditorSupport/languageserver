@@ -45,7 +45,7 @@ text_document_did_change <- function(self, params) {
         doc <- Document$new(uri, version, content)
         self$workspace$documents$set(uri, doc)
     }
-    self$text_sync(uri, document = doc, run_lintr = TRUE, parse = TRUE)
+    self$text_sync(uri, document = doc, run_lintr = TRUE, parse = TRUE, delay = 0.5)
 }
 
 #' `textDocument/willSave` notification handler
