@@ -116,7 +116,7 @@ diagnostics_callback <- function(self, uri, version, diagnostics) {
 }
 
 
-diagnostics_task <- function(self, uri, document, ...) {
+diagnostics_task <- function(self, uri, document, delay = 0) {
     version <- document$version
     content <- document$content
     create_task(
@@ -134,5 +134,7 @@ diagnostics_task <- function(self, uri, document, ...) {
                 source = "lintr",
                 message = paste0("Failed to run diagnostics: ", conditionMessage(e))
             )))
-        }, ...)
+        },
+        delay = delay
+    )
 }

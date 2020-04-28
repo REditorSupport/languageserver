@@ -315,7 +315,7 @@ parse_callback <- function(self, uri, version, parse_data) {
     }
 }
 
-parse_task <- function(self, uri, document, ...) {
+parse_task <- function(self, uri, document, delay = 0) {
     version <- document$version
     content <- document$content
     create_task(
@@ -323,7 +323,8 @@ parse_task <- function(self, uri, document, ...) {
         args = list(uri = uri, content = content),
         callback = function(result) parse_callback(self, uri, version, result),
         error = function(e) logger$info("parse_task:", e),
-        ...)
+        delay = delay
+    )
 }
 
 resolve_callback <- function(self, uri, version, packages) {
@@ -335,12 +336,13 @@ resolve_callback <- function(self, uri, version, packages) {
     self$workspace$update_loaded_packages()
 }
 
-resolve_task <- function(self, uri, document, packages, ...) {
+resolve_task <- function(self, uri, document, packages, delay = 0) {
     version <- document$version
     create_task(
         target = resolve_attached_packages,
         args = list(pkgs = packages),
         callback = function(result) resolve_callback(self, uri, version, result),
         error = function(e) logger$info("resolve_task:", e),
-        ...)
+        delay = 0
+    )
 }
