@@ -7,11 +7,15 @@ Task <- R6::R6Class("Task",
         error = NULL
     ),
     public = list(
-        initialize = function(target, args, callback = NULL, error = NULL) {
+        time = NULL,
+        delay = NULL,
+        initialize = function(target, args, callback = NULL, error = NULL, delay = 0) {
             private$target <- target
             private$args <- args
             private$callback <- callback
             private$error <- error
+            self$time <- Sys.time()
+            self$delay <- delay
         },
         start = function() {
             private$process <- callr::r_bg(
@@ -47,34 +51,36 @@ Task <- R6::R6Class("Task",
 
 TaskManager <- R6::R6Class("TaskManager",
     private = list(
+        cpus = NULL,
         pending_tasks = NULL,
         running_tasks = NULL
     ),
     public = list(
         initialize = function() {
+            private$cpus <- parallel::detectCores()
             private$pending_tasks <- collections::ordered_dict()
             private$running_tasks <- collections::ordered_dict()
-            self$run_tasks <- throttle(self$run_tasks_, 0.1)
-            # self$run_tasks <- self$run_tasks_
         },
         add_task = function(id, task) {
             private$pending_tasks$set(id, task)
         },
-        run_tasks = NULL,
-        run_tasks_ = function(n = 8) {
-            n <- max(n - private$running_tasks$size(), 0)
+        run_tasks = function(cpu_load = 0.5) {
+            n <- max(max(private$cpus * cpu_load, 1) - private$running_tasks$size(), 0)
             ids <- private$pending_tasks$keys()
             if (length(ids) > n) {
                 ids <- ids[seq_len(n)]
             }
             for (id in ids) {
-                if (private$running_tasks$has(id)) {
-                    task <- private$running_tasks$pop(id)
-                    task$kill()
+                task <- private$pending_tasks$get(id)
+                if (Sys.time() - task$time >= task$delay) {
+                    if (private$running_tasks$has(id)) {
+                        task <- private$running_tasks$pop(id)
+                        task$kill()
+                    }
+                    task <- private$pending_tasks$pop(id)
+                    private$running_tasks$set(id, task)
+                    task$start()
                 }
-                task <- private$pending_tasks$pop(id)
-                private$running_tasks$set(id, task)
-                task$start()
             }
         },
         check_tasks = function() {
@@ -97,11 +103,12 @@ package_call <- function(target) {
     target
 }
 
-create_task <- function(target, args, callback = NULL, error = NULL) {
+create_task <- function(target, args, callback = NULL, error = NULL, delay = 0) {
     Task$new(
         target = target,
         args = args,
         callback = callback,
-        error = error
+        error = error,
+        delay = delay
     )
 }
