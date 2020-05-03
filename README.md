@@ -9,6 +9,16 @@
 
 `languageserver` is an implement of the Microsoft's [Language Server Protocol](https://microsoft.github.io/language-server-protocol) for the language of R.
 
+- [Installation](#installation)
+- [Language Clients](#language-clients)
+- [Services Implemented](#services-implemented)
+- [Settings](#settings)
+- [FAQ](#faq)
+  - [Linters](#linters)
+  - [Customizing server capabilities](#customizing-server-capabilities)
+  - [Customizing formatting style](#customizing-formatting-style)
+  - [Using persistent cache for formatting by styler](#using-persistent-cache-for-formatting-by-styler)
+
 ## Installation
 
 A few dependencies are required beforehand
