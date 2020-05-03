@@ -10,12 +10,14 @@
 `languageserver` is an implement of the Microsoft's [Language Server Protocol](https://microsoft.github.io/language-server-protocol) for the language of R.
 
 It is released on CRAN and can be easily installed by
-```
+
+```r
 install.packages("languageserver")
 ```
 
 The development version of `languageserver` could be installed by running the following in R
-```
+
+```r
 source("https://install-github.me/REditorSupport/languageserver")
 ```
 
@@ -30,12 +32,13 @@ These editors are supported by installing the corresponding package.
 - Sublime Text: [R-IDE](https://github.com/REditorSupport/sublime-ide-r)
 
 - Vim/NeoVim: [LanguageClient-neovim](https://github.com/autozimu/LanguageClient-neovim) with settings
+
     ```vim
     let g:LanguageClient_serverCommands = {
         \ 'r': ['R', '--slave', '-e', 'languageserver::run()'],
         \ }
     ```
-    
+
     or use [coc-r-lsp](https://github.com/neoclide/coc-r-lsp) with [coc.nvim](https://github.com/neoclide/coc.nvim)
 
 - Emacs: [lsp-mode](https://github.com/emacs-lsp/lsp-mode)
@@ -95,9 +98,9 @@ These editors are supported by installing the corresponding package.
 
 With [lintr](https://github.com/jimhester/lintr) v2.0.0, the linters can be specified by creating the `.lintr` file at the project or home directory. Details can be found at lintr [documentation](https://github.com/jimhester/lintr#project-configuration). The option `languageserver.default_linters` is now deprecated in favor of the `.lintr` approach.
 
-### Customizing server capbabilities
+### Customizing server capabilities
 
-Server capabilities are defined in [capabilities.R](https://github.com/REditorSupport/languageserver/blob/master/R/capabilities.R). Users could override the settings by specifiying `languageserver.server_capabilities` option in `.Rprofile`. For example,
+Server capabilities are defined in [capabilities.R](https://github.com/REditorSupport/languageserver/blob/master/R/capabilities.R). Users could override the settings by specifying `languageserver.server_capabilities` option in `.Rprofile`. For example,
 the following code will turn off `definitionProvider`,
 
 ```r
