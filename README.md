@@ -9,7 +9,22 @@
 
 `languageserver` is an implement of the Microsoft's [Language Server Protocol](https://microsoft.github.io/language-server-protocol) for the language of R.
 
-It is released on CRAN and can be easily installed by
+## Installation
+
+A few dependencies are required beforehand
+
+```bash
+# On Alpine
+apk add --no-cache curl-dev g++ gcc libxml2-dev linux-headers make R R-dev
+
+# On Debian, Ubuntu, etc.
+apt install --assume-yes --no-install-recommends build-essential libcurl4-openssl-dev libssl-dev libxml2-dev r-base
+
+# On Fedora, Centos, etc.
+dnf install --assumeyes --setopt=install_weak_deps=False @development-tools libcurl-devel libxml2-devel openssl-devel R
+```
+
+`languageserver` is released on CRAN and can be easily installed by
 
 ```r
 install.packages("languageserver")
