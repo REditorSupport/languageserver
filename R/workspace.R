@@ -11,10 +11,16 @@ Workspace <- R6::R6Class("Workspace",
         namespaces = NULL,
         global_env = NULL,
         documents = NULL,
+        # from NAMESPACE importFrom()
+        imported_objects = NULL,
+        # from NAMESPACE import()
+        imported_packages = NULL,
         loaded_packages = startup_packages,
 
         initialize = function() {
             self$documents <- collections::dict()
+            self$imported_objects <- collections::dict()
+            self$imported_packages <- character(0)
             self$global_env <- GlobalEnv$new(self$documents)
             self$namespaces <- collections::dict()
             for (pkgname in self$loaded_packages) {
@@ -55,6 +61,12 @@ Workspace <- R6::R6Class("Workspace",
                         return(pkgname)
                     }
                 }
+            }
+
+            if (self$imported_objects$has(object)) {
+                pkgname <- self$imported_objects$get(object)
+                logger$info("object from:", pkgname)
+                return(pkgname)
             }
             NULL
         },
@@ -177,7 +189,7 @@ Workspace <- R6::R6Class("Workspace",
         },
 
         update_loaded_packages = function() {
-            loaded_packages <- startup_packages
+            loaded_packages <- union(startup_packages, self$imported_packages)
             for (doc in self$documents$values()) {
                 loaded_packages <- union(loaded_packages, doc$loaded_packages)
             }
@@ -190,6 +202,17 @@ Workspace <- R6::R6Class("Workspace",
                     xml2::read_xml(parse_data$xml_data), error = function(e) NULL)
             }
             self$documents$get(uri)$update_parse_data(parse_data)
+        },
+
+        update_import_packages = function(packages) {
+            self$load_packages(packages)
+            self$imported_packages <- c(self$imported_packages, packages)
+        },
+
+        update_import_from = function(package, objects) {
+            for (object in objects) {
+                self$imported_objects$set(object, package)
+            }
         }
     )
 )
