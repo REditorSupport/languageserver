@@ -12,10 +12,13 @@ Workspace <- R6::R6Class("Workspace",
         namespaces = NULL,
         global_env = NULL,
         documents = NULL,
+
         # from NAMESPACE importFrom()
         imported_objects = NULL,
         # from NAMESPACE import()
         imported_packages = NULL,
+        NAMESPACE_mt = NULL,
+
         loaded_packages = startup_packages,
 
         initialize = function(root) {
@@ -23,7 +26,6 @@ Workspace <- R6::R6Class("Workspace",
             self$documents <- collections::dict()
             self$imported_objects <- collections::dict()
             self$imported_packages <- character(0)
-            # self$namespace_mt <- file.mtime(file.path(root, "NAMESPACE"))
             self$global_env <- GlobalEnv$new(self$documents)
             self$namespaces <- collections::dict()
             for (pkgname in self$loaded_packages) {
@@ -231,6 +233,11 @@ Workspace <- R6::R6Class("Workspace",
             if (!file.exists(namespace_file)) {
                 return(NULL)
             }
+            NAMESPACE_mt <- file.mtime(namespace_file)
+            if (is.na(NAMESPACE_mt)) {
+                return(NULL)
+            }
+            self$NAMESPACE_mt <- NAMESPACE_mt
             exprs <- tryCatch(
                 parse(namespace_file),
                 error = function(e) list())
@@ -254,6 +261,24 @@ Workspace <- R6::R6Class("Workspace",
                         self$imported_objects$set(object, package)
                     }
                 }
+            }
+            self$update_loaded_packages()
+        },
+
+        check_NAMESPACE = function() {
+            namespace_file <- file.path(self$root, "NAMESPACE")
+            if (!file.exists(namespace_file)) {
+                return(NULL)
+            }
+            NAMESPACE_mt <- file.mtime(namespace_file)
+            # avoid change that is too recent
+            if (is.na(NAMESPACE_mt) || Sys.time() - NAMESPACE_mt < 1) {
+                return(NULL)
+            }
+            if (is.null(self$NAMESPACE_mt) || self$NAMESPACE_mt < NAMESPACE_mt) {
+                self$imported_objects$clear()
+                self$imported_packages <- character(0)
+                self$import_from_NAMESPACE()
             }
         }
     )
