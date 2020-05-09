@@ -136,7 +136,7 @@ imported_object_completion <- function(workspace, token, snippet_support) {
             next
         }
         if (ns$exists_funct(object)) {
-            if (snippet_support) {
+            if (isTRUE(snippet_support)) {
                 item <- list(label = object,
                     kind = CompletionItemKind$Function,
                     detail = paste0("{", nsname, "}"),
