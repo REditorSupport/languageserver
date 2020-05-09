@@ -46,27 +46,29 @@ Workspace <- R6::R6Class("Workspace",
         },
 
         guess_namespace = function(object, isf = FALSE) {
-            packages <- c(WORKSPACE, rev(self$loaded_packages))
+            if (nzchar(object)) {
+                packages <- c(WORKSPACE, rev(self$loaded_packages))
 
-            for (pkgname in packages) {
-                ns <- self$get_namespace(pkgname)
-                if (isf) {
-                    if (!is.null(ns) && ns$exists_funct(object)) {
-                        logger$info("guess namespace:", pkgname)
-                        return(pkgname)
-                    }
-                } else {
-                    if (!is.null(ns) && ns$exists(object)) {
-                        logger$info("guess namespace:", pkgname)
-                        return(pkgname)
+                for (pkgname in packages) {
+                    ns <- self$get_namespace(pkgname)
+                    if (isf) {
+                        if (!is.null(ns) && ns$exists_funct(object)) {
+                            logger$info("guess namespace:", pkgname)
+                            return(pkgname)
+                        }
+                    } else {
+                        if (!is.null(ns) && ns$exists(object)) {
+                            logger$info("guess namespace:", pkgname)
+                            return(pkgname)
+                        }
                     }
                 }
-            }
 
-            if (self$imported_objects$has(object)) {
-                pkgname <- self$imported_objects$get(object)
-                logger$info("object from:", pkgname)
-                return(pkgname)
+                if (self$imported_objects$has(object)) {
+                    pkgname <- self$imported_objects$get(object)
+                    logger$info("object from:", pkgname)
+                    return(pkgname)
+                }
             }
             NULL
         },
