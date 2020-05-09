@@ -8,6 +8,7 @@ startup_packages <- c("base", "methods", "datasets", "utils", "grDevices", "grap
 #' @keywords internal
 Workspace <- R6::R6Class("Workspace",
     public = list(
+        root = NULL,
         namespaces = NULL,
         global_env = NULL,
         documents = NULL,
@@ -17,10 +18,12 @@ Workspace <- R6::R6Class("Workspace",
         imported_packages = NULL,
         loaded_packages = startup_packages,
 
-        initialize = function() {
+        initialize = function(root) {
+            self$root <- root
             self$documents <- collections::dict()
             self$imported_objects <- collections::dict()
             self$imported_packages <- character(0)
+            # self$namespace_mt <- file.mtime(file.path(root, "NAMESPACE"))
             self$global_env <- GlobalEnv$new(self$documents)
             self$namespaces <- collections::dict()
             for (pkgname in self$loaded_packages) {
@@ -208,14 +211,49 @@ Workspace <- R6::R6Class("Workspace",
             self$documents$get(uri)$update_parse_data(parse_data)
         },
 
-        update_import_packages = function(packages) {
-            self$load_packages(packages)
-            self$imported_packages <- c(self$imported_packages, packages)
+        load_all = function(langserver) {
+            source_dir <- file.path(self$root, "R")
+            files <- list.files(source_dir)
+            for (f in files) {
+                logger$info("load ", f)
+                path <- file.path(source_dir, f)
+                uri <- path_to_uri(path)
+                doc <- Document$new(uri, NULL, stringi::stri_read_lines(path))
+                self$documents$set(uri, doc)
+                # TODO: move text_sync to Workspace!?
+                langserver$text_sync(uri, document = doc, parse = TRUE)
+            }
+            self$import_from_NAMESPACE()
         },
 
-        update_import_from = function(package, objects) {
-            for (object in objects) {
-                self$imported_objects$set(object, package)
+        import_from_NAMESPACE = function() {
+            namespace_file <- file.path(self$root, "NAMESPACE")
+            if (!file.exists(namespace_file)) {
+                return(NULL)
+            }
+            exprs <- tryCatch(
+                parse(namespace_file),
+                error = function(e) list())
+            for (expr in exprs) {
+                if (expr[[1]] == "import") {
+                    packages <- as.list(expr[-1])
+                    if (is.null(names(packages))) {
+                        packages <- as.character(packages)
+                    } else {
+                        # handle import(foo, except = c(bar))
+                        packages <- as.character(packages[names(packages) == ""])
+                    }
+                    logger$info("load packages:", packages)
+                    self$load_packages(packages)
+                    self$imported_packages <- c(self$imported_packages, packages)
+                } else if (expr[[1]] == "importFrom") {
+                    package <- as.character(expr[[2]])
+                    objects <- as.character(expr[3:length(expr)])
+                    logger$info("load package objects:", package, objects)
+                    for (object in objects) {
+                        self$imported_objects$set(object, package)
+                    }
+                }
             }
         }
     )

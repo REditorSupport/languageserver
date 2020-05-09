@@ -8,6 +8,7 @@ on_initialize <- function(self, id, params) {
     self$processId <- params$processId
     self$rootUri <- params$rootUri
     self$rootPath <- path_from_uri(self$rootUri)
+    self$workspace <- Workspace$new(self$rootPath)
     self$initializationOptions <- params$initializationOptions
     self$ClientCapabilities <- params$capabilities
     ServerCapabilities <- merge_list(
@@ -26,7 +27,7 @@ on_initialized <- function(self, params) {
     project_root <- self$rootPath
     if (length(project_root) && is_package(project_root)) {
         # a bit like devtools::load_all()
-        package_load_all(self)
+        self$workspace$load_all(self)
         # TODO: result lint result of the package
         # lint_result <- lintr::lint_package(rootPath)
     }
