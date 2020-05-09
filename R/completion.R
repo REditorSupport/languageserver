@@ -89,7 +89,7 @@ arg_completion <- function(workspace, token, funct, package = NULL, exported_onl
 }
 
 
-ns_functs_completions <- function(ns, token, snippet_support) {
+ns_function_completion <- function(ns, token, snippet_support) {
     nsname <- ns$package_name
     functs <- ns$get_symbols(want_functs = TRUE, exported_only = TRUE)
     functs <- functs[startsWith(functs, token)]
@@ -186,7 +186,7 @@ workspace_completion <- function(workspace, token,
                 tag <- paste0("{", nsname, "}")
             }
 
-            functs_completions <- ns_functs_completions(ns, token, snippet_support)
+            functs_completions <- ns_function_completion(ns, token, snippet_support)
 
             nonfuncts <- ns$get_symbols(want_functs = FALSE, exported_only = TRUE)
             nonfuncts <- nonfuncts[startsWith(nonfuncts, token)]
@@ -222,7 +222,7 @@ workspace_completion <- function(workspace, token,
             functs <- ns$get_symbols(want_functs = TRUE, exported_only = FALSE)
             functs <- functs[startsWith(functs, token)]
 
-            functs_completions <- ns_functs_completions(ns, token, snippet_support)
+            functs_completions <- ns_function_completion(ns, token, snippet_support)
 
             nonfuncts <- ns$get_symbols(want_functs = FALSE, exported_only = FALSE)
             nonfuncts <- nonfuncts[startsWith(nonfuncts, token)]
