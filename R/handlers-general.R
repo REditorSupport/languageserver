@@ -26,7 +26,7 @@ on_initialized <- function(self, params) {
     project_root <- self$rootPath
     if (length(project_root) && is_package(project_root)) {
         # a bit like devtools::load_all()
-        package_load_all(self, project_root)
+        package_load_all(self)
         # TODO: result lint result of the package
         # lint_result <- lintr::lint_package(rootPath)
     }

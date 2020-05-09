@@ -1,5 +1,6 @@
 # a bit like devtools::load_all()
-package_load_all <- function(self, project_root) {
+package_load_all <- function(self) {
+    project_root <- self$rootPath
     source_dir <- file.path(project_root, "R")
     files <- list.files(source_dir)
     for (f in files) {
@@ -10,16 +11,17 @@ package_load_all <- function(self, project_root) {
         self$workspace$documents$set(uri, doc)
         self$text_sync(uri, document = doc, parse = TRUE)
     }
+    package_imports(self)
+}
 
-    deps <- tryCatch(desc::desc_get_deps(project_root), error = function(e) NULL)
-    if (!is.null(deps)) {
-        packages <- Filter(function(x) x != "R", deps$package[deps$type == "Depends"])
-        self$workspace$update_import_packages(packages)
-    }
+package_imports <- function(self) {
+    project_root <- self$rootPath
     namespace_file <- file.path(project_root, "NAMESPACE")
 
     if (file.exists(namespace_file)) {
-        exprs <- parse(namespace_file)
+        exprs <- tryCatch(
+            parse(namespace_file),
+            error = function(e) list())
         for (expr in exprs) {
             if (expr[[1]] == "import") {
                 packages <- as.list(expr[-1])
