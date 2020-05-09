@@ -14,7 +14,7 @@ package_load_all <- function(self, project_root) {
     deps <- tryCatch(desc::desc_get_deps(project_root), error = function(e) NULL)
     if (!is.null(deps)) {
         packages <- Filter(function(x) x != "R", deps$package[deps$type == "Depends"])
-        self$workspace$load_packages(packages)
+        self$workspace$update_import_packages(packages)
     }
     namespace_file <- file.path(project_root, "NAMESPACE")
 
