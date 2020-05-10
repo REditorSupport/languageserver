@@ -242,6 +242,9 @@ Workspace <- R6::R6Class("Workspace",
                 parse(namespace_file),
                 error = function(e) list())
             for (expr in exprs) {
+                if (!is.call(expr) || !is.name(expr[[1]])) {
+                    next
+                }
                 if (expr[[1]] == "import") {
                     packages <- as.list(expr[-1])
                     if (is.null(names(packages))) {
