@@ -8,13 +8,24 @@ startup_packages <- c("base", "methods", "datasets", "utils", "grDevices", "grap
 #' @keywords internal
 Workspace <- R6::R6Class("Workspace",
     public = list(
+        root = NULL,
         namespaces = NULL,
         global_env = NULL,
         documents = NULL,
+
+        # from NAMESPACE importFrom()
+        imported_objects = NULL,
+        # from NAMESPACE import()
+        imported_packages = NULL,
+        namespace_file_mt = NULL,
+
         loaded_packages = startup_packages,
 
-        initialize = function() {
+        initialize = function(root) {
+            self$root <- root
             self$documents <- collections::dict()
+            self$imported_objects <- collections::dict()
+            self$imported_packages <- character(0)
             self$global_env <- GlobalEnv$new(self$documents)
             self$namespaces <- collections::dict()
             for (pkgname in self$loaded_packages) {
@@ -40,6 +51,10 @@ Workspace <- R6::R6Class("Workspace",
         },
 
         guess_namespace = function(object, isf = FALSE) {
+            if (!nzchar(object)) {
+                return(NULL)
+            }
+
             packages <- c(WORKSPACE, rev(self$loaded_packages))
 
             for (pkgname in packages) {
@@ -55,6 +70,12 @@ Workspace <- R6::R6Class("Workspace",
                         return(pkgname)
                     }
                 }
+            }
+
+            if (self$imported_objects$has(object)) {
+                pkgname <- self$imported_objects$get(object)
+                logger$info("object from:", pkgname)
+                return(pkgname)
             }
             NULL
         },
@@ -177,7 +198,7 @@ Workspace <- R6::R6Class("Workspace",
         },
 
         update_loaded_packages = function() {
-            loaded_packages <- startup_packages
+            loaded_packages <- union(startup_packages, self$imported_packages)
             for (doc in self$documents$values()) {
                 loaded_packages <- union(loaded_packages, doc$loaded_packages)
             }
@@ -190,6 +211,78 @@ Workspace <- R6::R6Class("Workspace",
                     xml2::read_xml(parse_data$xml_data), error = function(e) NULL)
             }
             self$documents$get(uri)$update_parse_data(parse_data)
+        },
+
+        load_all = function(langserver) {
+            source_dir <- file.path(self$root, "R")
+            files <- list.files(source_dir)
+            for (f in files) {
+                logger$info("load ", f)
+                path <- file.path(source_dir, f)
+                uri <- path_to_uri(path)
+                doc <- Document$new(uri, NULL, stringi::stri_read_lines(path))
+                self$documents$set(uri, doc)
+                # TODO: move text_sync to Workspace!?
+                langserver$text_sync(uri, document = doc, parse = TRUE)
+            }
+            self$import_from_namespace_file()
+        },
+
+        import_from_namespace_file = function() {
+            namespace_file <- file.path(self$root, "NAMESPACE")
+            if (!file.exists(namespace_file)) {
+                return(NULL)
+            }
+            namespace_file_mt <- file.mtime(namespace_file)
+            if (is.na(namespace_file_mt)) {
+                return(NULL)
+            }
+            self$namespace_file_mt <- namespace_file_mt
+            exprs <- tryCatch(
+                parse(namespace_file),
+                error = function(e) list())
+            for (expr in exprs) {
+                if (!is.call(expr) || !is.name(expr[[1]])) {
+                    next
+                }
+                if (expr[[1]] == "import") {
+                    packages <- as.list(expr[-1])
+                    if (is.null(names(packages))) {
+                        packages <- as.character(packages)
+                    } else {
+                        # handle import(foo, except = c(bar))
+                        packages <- as.character(packages[names(packages) == ""])
+                    }
+                    logger$info("load packages:", packages)
+                    self$load_packages(packages)
+                    self$imported_packages <- c(self$imported_packages, packages)
+                } else if (expr[[1]] == "importFrom") {
+                    package <- as.character(expr[[2]])
+                    objects <- as.character(expr[3:length(expr)])
+                    logger$info("load package objects:", package, objects)
+                    for (object in objects) {
+                        self$imported_objects$set(object, package)
+                    }
+                }
+            }
+            self$update_loaded_packages()
+        },
+
+        poll_namespace_file = function() {
+            namespace_file <- file.path(self$root, "NAMESPACE")
+            if (!file.exists(namespace_file)) {
+                return(NULL)
+            }
+            namespace_file_mt <- file.mtime(namespace_file)
+            # avoid change that is too recent
+            if (is.na(namespace_file_mt) || Sys.time() - namespace_file_mt < 1) {
+                return(NULL)
+            }
+            if (is.null(self$namespace_file_mt) || self$namespace_file_mt < namespace_file_mt) {
+                self$imported_objects$clear()
+                self$imported_packages <- character(0)
+                self$import_from_namespace_file()
+            }
         }
     )
 )

@@ -129,6 +129,7 @@ respond <- function(client, method, params, timeout, retry = TRUE,
             fail("timeout when obtaining desired response")
             return(NULL)
         }
+        Sys.sleep(0.2)
         return(Recall(client, method, params, remaining, retry, retry_when))
     }
     return(result)

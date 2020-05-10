@@ -88,6 +88,80 @@ arg_completion <- function(workspace, token, funct, package = NULL, exported_onl
     }
 }
 
+
+ns_function_completion <- function(ns, token, snippet_support) {
+    nsname <- ns$package_name
+    functs <- ns$get_symbols(want_functs = TRUE, exported_only = TRUE)
+    functs <- functs[startsWith(functs, token)]
+    if (nsname == WORKSPACE) {
+        tag <- "[workspace]"
+    } else {
+        tag <- paste0("{", nsname, "}")
+    }
+    if (isTRUE(snippet_support)) {
+        completions <- lapply(functs, function(object) {
+            list(label = object,
+                kind = CompletionItemKind$Function,
+                detail = tag,
+                insertText = paste0(object, "($0)"),
+                insertTextFormat = InsertTextFormat$Snippet,
+                data = list(
+                    type = "function",
+                    package = nsname
+            ))
+        })
+    } else {
+        completions <- lapply(functs, function(object) {
+            list(label = object,
+                kind = CompletionItemKind$Function,
+                detail = tag,
+                data = list(
+                    type = "function",
+                    package = nsname
+            ))
+        })
+    }
+    completions
+}
+
+imported_object_completion <- function(workspace, token, snippet_support) {
+    completions <- NULL
+    for (object in workspace$imported_objects$keys()) {
+        if (!startsWith(object, token)) {
+            next
+        }
+        nsname <- workspace$imported_objects$get(object)
+        ns <- workspace$get_namespace(nsname)
+        if (is.null(ns)) {
+            next
+        }
+        if (ns$exists_funct(object)) {
+            if (isTRUE(snippet_support)) {
+                item <- list(label = object,
+                    kind = CompletionItemKind$Function,
+                    detail = paste0("{", nsname, "}"),
+                    insertText = paste0(object, "($0)"),
+                    insertTextFormat = InsertTextFormat$Snippet,
+                    data = list(
+                        type = "function",
+                        package = nsname
+                ))
+            } else {
+                item <- list(label = object,
+                    kind = CompletionItemKind$Function,
+                    detail = paste0("{", nsname, "}"),
+                    data = list(
+                        type = "function",
+                        package = nsname
+                ))
+            }
+            completions <- append(completions, list(item))
+        }
+    }
+    completions
+}
+
+
 #' Complete any object in the workspace
 #' @keywords internal
 workspace_completion <- function(workspace, token,
@@ -111,32 +185,8 @@ workspace_completion <- function(workspace, token,
             } else {
                 tag <- paste0("{", nsname, "}")
             }
-            functs <- ns$get_symbols(want_functs = TRUE, exported_only = TRUE)
-            functs <- functs[startsWith(functs, token)]
 
-            if (isTRUE(snippet_support)) {
-                functs_completions <- lapply(functs, function(object) {
-                    list(label = object,
-                        kind = CompletionItemKind$Function,
-                        detail = tag,
-                        insertText = paste0(object, "($0)"),
-                        insertTextFormat = InsertTextFormat$Snippet,
-                        data = list(
-                            type = "function",
-                            package = nsname
-                    ))
-                })
-            } else {
-                functs_completions <- lapply(functs, function(object) {
-                    list(label = object,
-                        kind = CompletionItemKind$Function,
-                        detail = tag,
-                        data = list(
-                            type = "function",
-                            package = nsname
-                    ))
-                })
-            }
+            functs_completions <- ns_function_completion(ns, token, snippet_support)
 
             nonfuncts <- ns$get_symbols(want_functs = FALSE, exported_only = TRUE)
             nonfuncts <- nonfuncts[startsWith(nonfuncts, token)]
@@ -172,29 +222,7 @@ workspace_completion <- function(workspace, token,
             functs <- ns$get_symbols(want_functs = TRUE, exported_only = FALSE)
             functs <- functs[startsWith(functs, token)]
 
-            if (isTRUE(snippet_support)) {
-                functs_completions <- lapply(functs, function(object) {
-                    list(label = object,
-                        kind = CompletionItemKind$Function,
-                        detail = tag,
-                        insertText = paste0(object, "($0)"),
-                        insertTextFormat = InsertTextFormat$Snippet,
-                        data = list(
-                            type = "function",
-                            package = package
-                    ))
-                })
-            } else {
-                functs_completions <- lapply(functs, function(object) {
-                    list(label = object,
-                        kind = CompletionItemKind$Function,
-                        detail = tag,
-                        data = list(
-                            type = "function",
-                            package = package
-                    ))
-                })
-            }
+            functs_completions <- ns_function_completion(ns, token, snippet_support)
 
             nonfuncts <- ns$get_symbols(want_functs = FALSE, exported_only = FALSE)
             nonfuncts <- nonfuncts[startsWith(nonfuncts, token)]
@@ -212,6 +240,12 @@ workspace_completion <- function(workspace, token,
                 nonfuncts_completions)
         }
     }
+
+    imported_object <- imported_object_completion(workspace, token, snippet_support)
+
+    completions <- c(
+        completions,
+        imported_object)
 
     completions
 }

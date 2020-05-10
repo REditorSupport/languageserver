@@ -52,8 +52,6 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$inputcon <- inputcon
             self$outputcon <- outputcon
 
-            self$workspace <- Workspace$new()
-
             self$diagnostics_task_manager <- TaskManager$new()
             self$parse_task_manager <- TaskManager$new()
             self$resolve_task_manager <- TaskManager$new()
@@ -75,9 +73,13 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$parse_task_manager$check_tasks()
             self$resolve_task_manager$run_tasks()
             self$resolve_task_manager$check_tasks()
+            if (!is.null(self$workspace)) {
+                self$workspace$poll_namespace_file()
+            }
         },
 
         text_sync = function(
+            # TODO: move it to Workspace!?
                 uri, document, run_lintr = FALSE, parse = FALSE, delay = 0) {
 
             if (!self$pending_replies$has(uri)) {
