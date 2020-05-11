@@ -73,7 +73,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$parse_task_manager$check_tasks()
             self$resolve_task_manager$run_tasks()
             self$resolve_task_manager$check_tasks()
-            if (!is.null(self$workspace)) {
+            if (length(self$rootPath) && !is.null(self$workspace)) {
                 self$workspace$poll_namespace_file()
             }
         },
