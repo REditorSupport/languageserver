@@ -5,17 +5,19 @@
 [![Github Action](https://github.com/REditorSupport/languageserver/workflows/build/badge.svg?branch=master)](https://github.com/REditorSupport/languageserver)
 [![codecov](https://codecov.io/gh/REditorSupport/languageserver/branch/master/graph/badge.svg)](https://codecov.io/gh/REditorSupport/languageserver)
 [![CRAN\_Status\_Badge](http://www.r-pkg.org/badges/version/languageserver)](https://cran.r-project.org/package=languageserver)
-[![](http://cranlogs.r-pkg.org/badges/grand-total/languageserver)](https://cran.r-project.org/package=languageserver)
+[![CRAN Downloads](http://cranlogs.r-pkg.org/badges/grand-total/languageserver)](https://cran.r-project.org/package=languageserver)
 
-`languageserver` is an implement of the Microsoft's [Language Server Protocol](https://microsoft.github.io/language-server-protocol) for the language of R.
+`languageserver` is an implementation of the Microsoft's [Language Server Protocol](https://microsoft.github.io/language-server-protocol) for the language of R.
 
 It is released on CRAN and can be easily installed by
-```
+
+```r
 install.packages("languageserver")
 ```
 
-The development version of `languageserver` could be installed by running the following in R
-```
+The development version of `languageserver` could be installed by running the following in R:
+
+```r
 source("https://install-github.me/REditorSupport/languageserver")
 ```
 
@@ -30,12 +32,13 @@ These editors are supported by installing the corresponding package.
 - Sublime Text: [R-IDE](https://github.com/REditorSupport/sublime-ide-r)
 
 - Vim/NeoVim: [LanguageClient-neovim](https://github.com/autozimu/LanguageClient-neovim) with settings
+
     ```vim
     let g:LanguageClient_serverCommands = {
         \ 'r': ['R', '--slave', '-e', 'languageserver::run()'],
         \ }
     ```
-    
+
     or use [coc-r-lsp](https://github.com/neoclide/coc-r-lsp) with [coc.nvim](https://github.com/neoclide/coc.nvim)
 
 - Emacs: [lsp-mode](https://github.com/emacs-lsp/lsp-mode)
@@ -74,7 +77,7 @@ These editors are supported by installing the corresponding package.
 
 `languageserver` exposes the following settings via `workspace/didChangeConfiguration`
 
-```js
+```json
 {
     "r.lsp.debug": {
       "type": "boolean",
