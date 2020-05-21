@@ -133,6 +133,35 @@ test_that("Completion inside a package works", {
     expect_length(result$items %>% keep(~.$label == "nothing"), 1)
 })
 
+test_that("Completion of imported objects works inside a package", {
+    skip_on_cran()
+    wd <- path_real(path_package("languageserver", "projects", "mypackage"))
+    client <- language_client(working_dir = wd)
+
+    withr::local_tempfile(c("temp_file"), fileext = ".R")
+    writeLines(c("dic"), temp_file)
+
+    # client %>% did_save(path(wd, "R", "mypackage.R"))
+    client %>% did_save(temp_file)
+    result <- client %>% respond_completion(
+        temp_file, c(0, 3),
+        retry_when = function(result) length(result) == 0 || length(result$items) == 0)
+
+    expect_length(result$items %>% keep(~.$label == "dict"), 1)
+
+    withr::local_tempfile(c("temp_file"), fileext = ".R")
+    writeLines(c("lint_p"), temp_file)
+
+    # client %>% did_save(path(wd, "R", "mypackage.R"))
+    client %>% did_save(temp_file)
+    result <- client %>% respond_completion(
+        temp_file, c(0, 6),
+        retry_when = function(result) length(result) == 0 || length(result$items) == 0)
+
+    expect_length(result$items %>% keep(~.$label == "lint_package"), 1)
+})
+
+
 test_that("Completion item resolve works", {
     skip_on_cran()
     client <- language_client()

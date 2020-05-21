@@ -8,6 +8,7 @@ on_initialize <- function(self, id, params) {
     self$processId <- params$processId
     self$rootUri <- params$rootUri
     self$rootPath <- path_from_uri(self$rootUri)
+    self$workspace <- Workspace$new(self$rootPath)
     self$initializationOptions <- params$initializationOptions
     self$ClientCapabilities <- params$capabilities
     ServerCapabilities <- merge_list(
@@ -25,24 +26,11 @@ on_initialized <- function(self, params) {
     logger$info("on_initialized")
     project_root <- self$rootPath
     if (length(project_root) && is_package(project_root)) {
-        source_dir <- file.path(project_root, "R")
-        files <- list.files(source_dir)
-        for (f in files) {
-            logger$info("load ", f)
-            path <- file.path(source_dir, f)
-            uri <- path_to_uri(path)
-            doc <- Document$new(uri, NULL, stringi::stri_read_lines(path))
-            self$workspace$documents$set(uri, doc)
-            self$text_sync(uri, document = doc, parse = TRUE)
-        }
-        deps <- tryCatch(desc::desc_get_deps(project_root), error = function(e) NULL)
-        if (!is.null(deps)) {
-            packages <- Filter(function(x) x != "R", deps$package[deps$type == "Depends"])
-            self$workspace$load_packages(packages)
-        }
+        # a bit like devtools::load_all()
+        self$workspace$load_all(self)
+        # TODO: result lint result of the package
+        # lint_result <- lintr::lint_package(rootPath)
     }
-    # TODO: result lint result of the package
-    # lint_result <- lintr::lint_package(rootPath)
 }
 
 #' `shutdown` request handler

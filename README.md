@@ -5,9 +5,9 @@
 [![Github Action](https://github.com/REditorSupport/languageserver/workflows/build/badge.svg?branch=master)](https://github.com/REditorSupport/languageserver)
 [![codecov](https://codecov.io/gh/REditorSupport/languageserver/branch/master/graph/badge.svg)](https://codecov.io/gh/REditorSupport/languageserver)
 [![CRAN\_Status\_Badge](http://www.r-pkg.org/badges/version/languageserver)](https://cran.r-project.org/package=languageserver)
-[![](http://cranlogs.r-pkg.org/badges/grand-total/languageserver)](https://cran.r-project.org/package=languageserver)
+[![CRAN Downloads](http://cranlogs.r-pkg.org/badges/grand-total/languageserver)](https://cran.r-project.org/package=languageserver)
 
-`languageserver` is an implement of the Microsoft's [Language Server Protocol](https://microsoft.github.io/language-server-protocol) for the language of R.
+`languageserver` is an implementation of the Microsoft's [Language Server Protocol](https://microsoft.github.io/language-server-protocol) for the language of R.
 
 - [Installation](#installation)
 - [Language Clients](#language-clients)
@@ -40,7 +40,7 @@ dnf install --assumeyes --setopt=install_weak_deps=False @development-tools libc
 install.packages("languageserver")
 ```
 
-The development version of `languageserver` could be installed by running the following in R
+The development version of `languageserver` could be installed by running the following in R:
 
 ```r
 source("https://install-github.me/REditorSupport/languageserver")
@@ -102,7 +102,7 @@ These editors are supported by installing the corresponding package.
 
 `languageserver` exposes the following settings via `workspace/didChangeConfiguration`
 
-```js
+```json
 {
     "r.lsp.debug": {
       "type": "boolean",
