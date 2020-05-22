@@ -13,7 +13,8 @@ test_that("Simple completion works", {
             "foo$sol",
             ".Mac",
             "grDev",
-            "TRU"
+            "TRU",
+            "utils:::.getHelp"
         ),
         temp_file)
 
@@ -42,6 +43,9 @@ test_that("Simple completion works", {
 
     result <- client %>% respond_completion(temp_file, c(6, 3))
     expect_length(result$items %>% keep(~ .$label == "TRUE"), 1)
+
+    result <- client %>% respond_completion(temp_file, c(7, 16))
+    expect_length(result$items %>% keep(~ .$label == ".getHelpFile"), 1)
 })
 
 test_that("Completion of function arguments works", {
