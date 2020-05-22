@@ -100,6 +100,29 @@ test_that("Completion of user function works", {
 
 })
 
+test_that("Completion of user function contains no duplicate symbols", {
+    skip_on_cran()
+    client <- language_client()
+
+    withr::local_tempfile(c("temp_file"), fileext = ".R")
+    writeLines(
+        c(
+            "my_fun <- function(x) {}",
+            "my_fun <- function(x) {}",
+            "my_f"
+        ),
+        temp_file)
+
+    client %>% did_save(temp_file)
+
+    result <- client %>% respond_completion(
+        temp_file, c(2, 4),
+        retry_when = function(result) length(result) == 0 || length(result$items) == 0)
+
+    expect_length(result$items %>% keep(~ .$label == "my_fun"), 1)
+
+})
+
 test_that("Completion of symbols in scope works", {
     skip_on_cran()
     client <- language_client()
