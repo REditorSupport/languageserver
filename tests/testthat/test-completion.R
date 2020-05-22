@@ -14,7 +14,10 @@ test_that("Simple completion works", {
             ".Mac",
             "grDev",
             "TRU",
-            "utils:::.getHelp"
+            "utils:::.getHelp",
+            "utils::.getHelp",
+            "utils::osVer",
+            "datasets::mtcar"
         ),
         temp_file)
 
@@ -46,6 +49,15 @@ test_that("Simple completion works", {
 
     result <- client %>% respond_completion(temp_file, c(7, 16))
     expect_length(result$items %>% keep(~ .$label == ".getHelpFile"), 1)
+
+    result <- client %>% respond_completion(temp_file, c(8, 15))
+    expect_length(result$items, 0)
+
+    result <- client %>% respond_completion(temp_file, c(9, 12))
+    expect_length(result$items %>% keep(~ .$label == "osVersion"), 1)
+
+    result <- client %>% respond_completion(temp_file, c(10, 15))
+    expect_length(result$items %>% keep(~ .$label == "mtcars"), 1)
 })
 
 test_that("Completion of function arguments works", {
