@@ -212,9 +212,9 @@ GlobalEnv <- R6::R6Class("GlobalEnv",
             for (doc in self$documents$values()) {
                 if (!is.null(doc$parse_data)) {
                     if (want_functs) {
-                        symbols <- c(symbols, doc$parse_data$functs)
+                        symbols <- union(symbols, doc$parse_data$functs)
                     } else {
-                        symbols <- c(symbols, doc$parse_data$nonfuncts)
+                        symbols <- union(symbols, doc$parse_data$nonfuncts)
                     }
                 }
             }
