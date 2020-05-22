@@ -218,7 +218,7 @@ GlobalEnv <- R6::R6Class("GlobalEnv",
                     }
                 }
             }
-            symbols
+            unique(symbols)
         },
 
         get_lazydata = function() {
