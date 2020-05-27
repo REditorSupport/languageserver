@@ -52,9 +52,13 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$inputcon <- inputcon
             self$outputcon <- outputcon
 
-            self$diagnostics_task_manager <- TaskManager$new()
-            self$parse_task_manager <- TaskManager$new()
-            self$resolve_task_manager <- TaskManager$new()
+            cpus <- parallel::detectCores()
+            pool_size <- min(max(cpus + 1, 2), 4)
+            session_pool <- SessionPool$new(pool_size)
+
+            self$diagnostics_task_manager <- TaskManager$new(session_pool)
+            self$parse_task_manager <- TaskManager$new(session_pool)
+            self$resolve_task_manager <- TaskManager$new(session_pool)
 
             self$pending_replies <- collections::dict()
 
