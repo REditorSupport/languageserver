@@ -56,9 +56,9 @@ LanguageServer <- R6::R6Class("LanguageServer",
             pool_size <- min(max(cpus + 1, 2), 4)
             session_pool <- SessionPool$new(pool_size)
 
-            self$diagnostics_task_manager <- TaskManager$new(session_pool)
-            self$parse_task_manager <- TaskManager$new(session_pool)
-            self$resolve_task_manager <- TaskManager$new(session_pool)
+            self$diagnostics_task_manager <- TaskManager$new("diagnostics", session_pool)
+            self$parse_task_manager <- TaskManager$new("parse", session_pool)
+            self$resolve_task_manager <- TaskManager$new("resolve", session_pool)
 
             self$pending_replies <- collections::dict()
 

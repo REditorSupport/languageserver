@@ -52,13 +52,15 @@ TaskManager <- R6::R6Class("TaskManager",
     private = list(
         pending_tasks = NULL,
         running_tasks = NULL,
-        session_pool = NULL
+        session_pool = NULL,
+        name = NULL
     ),
     public = list(
-        initialize = function(session_pool) {
+        initialize = function(name, session_pool) {
             private$pending_tasks <- collections::ordered_dict()
             private$running_tasks <- collections::ordered_dict()
             private$session_pool <- session_pool
+            private$name <- name
         },
         add_task = function(id, task) {
             private$pending_tasks$set(id, task)
@@ -94,7 +96,7 @@ TaskManager <- R6::R6Class("TaskManager",
                 task <- running_tasks$get(key)
                 if (task$check()) {
                     # FIXME: debug
-                    logger$info("task timing: ", Sys.time() - task$time, " ", key)
+                    logger$info(private$name, "task timing:", Sys.time() - task$time, " ", key)
                     running_tasks$remove(key)
                 }
             }
