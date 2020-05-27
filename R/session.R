@@ -1,3 +1,11 @@
+# FIXME: remove document
+
+#' R Session for Session Pool
+#'
+#' @examples
+#' \dontrun{
+#' pool <- Session$new("session id")
+#' }
 Session <- R6::R6Class("Session",
     private = list(
         # parent session poll - dependency injection
@@ -14,7 +22,7 @@ Session <- R6::R6Class("Session",
         result = NULL
     ),
     public = list(
-        initialize = function(parent_pool, id) {
+        initialize = function(id, parent_pool = NULL) {
             private$parent_pool <- parent_pool
             private$id <- id
 
@@ -121,11 +129,19 @@ Session <- R6::R6Class("Session",
         },
         # release current session from session pool
         release = function() {
-            private$parent_pool$release(private$id)
+            if (!is.null(private$parent_pool)) {
+                private$parent_pool$release(private$id)
+            }
         }
     )
 )
 
+#' R Session Pool
+#'
+#' @examples
+#' \dontrun{
+#' pool <- SessionPool$new(3)
+#' }
 SessionPool <- R6::R6Class("SessionPool",
     private = list(
         idle_keys = NULL,
@@ -143,7 +159,7 @@ SessionPool <- R6::R6Class("SessionPool",
                 private$size <- size
                 for (i in seq_len(size)) {
                     istr <- as.character(i)
-                    private$sessions$set(istr, Session$new(self, istr))
+                    private$sessions$set(istr, Session$new(istr, self))
                     private$idle_keys$push(istr)
                     private$idle_size <- private$idle_size + 1
                 }
