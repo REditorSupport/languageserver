@@ -54,8 +54,10 @@ LanguageServer <- R6::R6Class("LanguageServer",
 
             cpus <- parallel::detectCores()
             pool_size <- min(max(cpus + 1, 2), 4)
+            # shared session pool by three managers
             session_pool <- SessionPool$new(pool_size)
 
+            # diagnostics is slower than parse
             self$diagnostics_task_manager <- TaskManager$new("diagnostics", session_pool)
             self$parse_task_manager <- TaskManager$new("parse", session_pool)
             self$resolve_task_manager <- TaskManager$new("resolve", session_pool)
