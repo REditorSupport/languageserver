@@ -5,54 +5,108 @@ Session <- R6::R6Class("Session",
         # session id - be released by parent
         id = NULL,
         session = NULL,
-        # prev function call is running
-        running = FALSE,
-        result = NULL
+        # prev task is running
+        is_running = FALSE,
+        result = NULL,
+        # r session is ready
+        is_ready = FALSE,
+        # initial task before r session is ready
+        init_task = NULL
     ),
     public = list(
         initialize = function(parent_pool, id) {
             private$parent_pool <- parent_pool
             private$id <- id
-            private$session <- callr::r_session$new(callr::r_session_options(system_profile = TRUE, user_profile = TRUE))
+
+            private$session <- callr::r_session$new(
+                callr::r_session_options(system_profile = TRUE, user_profile = TRUE),
+                # skip waiting
+                wait = FALSE
+            )
         },
         start = function(target, args) {
-            if (private$running) {
+            if (private$is_running) {
                 logger$info("warning: prev function call is running in session", private$id)
             }
+            private$is_running <- TRUE
+            private$result <- NULL
+
             # FIXME: check session is alive or create new session for dead session
-            private$running <- TRUE
-            private$session$call(target, args)
+            if (private$is_ready) {
+                private$session$call(target, args)
+            } else {
+                private$init_task <- list(target = target, args = args)
+            }
         },
         # TRUE for running process, FALSE for compeletion
         is_alive = function() {
-            if (private$running) {
-                data <- private$session$read()
-                if (!is.null(data)) {
-                    # FIXME: check data$code == 200
-                    # https://callr.r-lib.org/reference/r_session.html#method-read
-                    private$running <- FALSE
+            if (!private$is_running) {
+                # FALSE for compeletion
+                return(FALSE)
+            }
+
+            # FIXME: handle data$code != 200
+            # https://callr.r-lib.org/reference/r_session.html#method-read
+            data <- private$session$read()
+            if (!is.null(data)) {
+                # session is not ready
+                if (!private$is_ready) {
+                    if (data$code == 201) {
+                        logger$info("session ready", private$id, Sys.time())
+
+                        private$is_ready <- TRUE
+                        private$session$call(private$init_task$target, private$init_task$args)
+                        private$init_task <- NULL
+                    } else {
+                        logger$info("session init error", private$id, data)
+                        # maybe restart on error?
+                        # self$restart()
+                    }
+                    # continue running
+                    return(TRUE)
+                }
+
+                # session is ready
+                if (data$code == 200) {
                     if (!is.null(data$error)) {
                         private$result <- data$error
                     } else {
                         private$result <- data$result
                     }
-                    # FALSE for compeletion
-                    return(FALSE)
+                } else {
+                    # error data code 301, 500, 501, 502
+                    logger$info("session error", private$id, data)
+                    # maybe restart on error?
+                    # self$restart()
                 }
+                private$is_running <- FALSE
+                # FALSE for compeletion
+                return(FALSE)
             }
+
             # TRUE for running process
-            return(TRUE)
+            return(private$is_running)
         },
         get_result = function() {
             private$result
         },
+        restart = function(should_release = FALSE) {
+            logger$info("session restart", private$id)
+            private$session$close(grace = 100)
+            private$session <- callr::r_session$new(
+                callr::r_session_options(system_profile = TRUE, user_profile = TRUE),
+                wait = FALSE
+            )
+            private$is_ready <- FALSE
+
+            if (should_release) {
+                private$is_running <- FALSE
+                self$release()
+            }
+        },
         kill = function() {
             logger$info("session kill", private$id)
-
-            private$session$close(grace = 100)
-            private$session <- callr::r_session$new(callr::r_session_options(system_profile = TRUE, user_profile = TRUE))
-            private$running <- FALSE
-            self$release()
+            self$restart(should_release = TRUE)
         },
         # release current session from session pool
         release = function() {
