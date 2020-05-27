@@ -90,6 +90,8 @@ TaskManager <- R6::R6Class("TaskManager",
             for (key in keys) {
                 task <- running_tasks$get(key)
                 if (task$check()) {
+                    # FIXME: debug
+                    logger$info("task timing: ", Sys.time() - task$time, " ", key)
                     running_tasks$remove(key)
                 }
             }
