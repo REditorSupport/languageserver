@@ -34,7 +34,8 @@ Session <- R6::R6Class("Session",
         },
         start = function(target, args) {
             if (private$is_running) {
-                logger$info("warning: prev function call is running in session", private$id)
+                # session must stop running before release
+                logger$error("session race condition: prev function call is running in session", private$id)
             }
             private$is_running <- TRUE
             private$result <- NULL
