@@ -1,6 +1,6 @@
 # FIXME: remove document
 
-#' R Session for Session Pool
+#' Single R Session for Session Pool
 #'
 #' @examples
 #' \dontrun{
@@ -78,8 +78,8 @@ Session <- R6::R6Class("Session",
                         private$init_task <- NULL
                     } else {
                         logger$error("session init error", private$id, data)
-                        # maybe restart on error?
-                        # self$restart()
+                        # restart on init error
+                        self$restart()
                     }
                     # continue running
                     return(TRUE)
@@ -95,8 +95,8 @@ Session <- R6::R6Class("Session",
                 } else {
                     # error data code 301, 500, 501, 502
                     logger$error("session error", private$id, data)
-                    # maybe restart on error?
-                    # self$restart()
+                    # restart on error
+                    self$restart()
                 }
                 private$is_running <- FALSE
                 # FALSE for compeletion
@@ -134,7 +134,7 @@ Session <- R6::R6Class("Session",
     )
 )
 
-#' R Session Pool
+#' Session Pool with Many R Sessions
 #'
 #' @examples
 #' \dontrun{
