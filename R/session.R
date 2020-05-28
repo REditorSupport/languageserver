@@ -10,6 +10,7 @@ Session <- R6::R6Class("Session",
     private = list(
         # parent session poll - dependency injection
         parent_pool = NULL,
+        pool_name = NULL,
         # session id - be released by parent
         id = NULL,
         session = NULL,
@@ -22,8 +23,9 @@ Session <- R6::R6Class("Session",
         result = NULL
     ),
     public = list(
-        initialize = function(id, parent_pool) {
+        initialize = function(id, parent_pool, pool_name) {
             private$parent_pool <- parent_pool
+            private$pool_name <- pool_name
             private$id <- id
 
             private$session <- callr::r_session$new(
@@ -35,7 +37,7 @@ Session <- R6::R6Class("Session",
         start = function(target, args) {
             if (private$is_running) {
                 # session must stop running before release
-                logger$error("session race condition: prev function call is running in session", private$id)
+                logger$error(private$pool_name, "session race condition: prev function call is running in session", private$id)
             }
             private$is_running <- TRUE
             private$result <- NULL
@@ -53,7 +55,7 @@ Session <- R6::R6Class("Session",
             }, error = function(e) e)
             if (inherits(ret, "error")) {
                 private$result <- ret
-                logger$error("session call error", private$id, ret)
+                logger$error(private$pool_name, "session call error", private$id, ret)
                 # on call error, skip current task and restart
                 self$restart()
                 private$is_running <- FALSE
@@ -73,13 +75,13 @@ Session <- R6::R6Class("Session",
                 # session is not ready
                 if (!private$is_ready) {
                     if (data$code == 201) {
-                        logger$info("session ready", private$id, Sys.time())
+                        logger$info(private$pool_name, "session ready", private$id, Sys.time())
 
                         private$is_ready <- TRUE
                         self$call(private$init_task$target, private$init_task$args)
                         private$init_task <- NULL
                     } else {
-                        logger$error("session init error", private$id, data)
+                        logger$error(private$pool_name, "session init error", private$id, data)
                         # restart on init error, task is perserved in init_task
                         self$restart()
                     }
@@ -96,7 +98,7 @@ Session <- R6::R6Class("Session",
                     }
                 } else {
                     # error data code 301, 500, 501, 502
-                    logger$error("session read error", private$id, data)
+                    logger$error(private$pool_name, "session read error", private$id, data)
                     # on read error, skip current task and restart
                     self$restart()
                 }
@@ -112,7 +114,7 @@ Session <- R6::R6Class("Session",
             private$result
         },
         restart = function(should_release = FALSE) {
-            logger$info("session restart", private$id)
+            logger$info(private$pool_name, "session restart", private$id)
             private$session$close(grace = 100)
             private$session <- callr::r_session$new(
                 callr::r_session_options(system_profile = TRUE, user_profile = TRUE),
@@ -126,7 +128,7 @@ Session <- R6::R6Class("Session",
             }
         },
         kill = function() {
-            logger$info("session kill", private$id)
+            logger$info(private$pool_name, "session kill", private$id)
             self$restart(should_release = TRUE)
         },
         # release current session from session pool
@@ -144,6 +146,7 @@ Session <- R6::R6Class("Session",
 #' }
 SessionPool <- R6::R6Class("SessionPool",
     private = list(
+        pool_name = NULL,
         idle_keys = NULL,
         sessions = NULL,
         pending_size = 0,
@@ -151,7 +154,8 @@ SessionPool <- R6::R6Class("SessionPool",
         size = 0
     ),
     public = list(
-        initialize = function(size) {
+        initialize = function(size, name) {
+            private$pool_name <- name
             private$sessions <- collections::ordered_dict()
             private$idle_keys <- collections::queue()
 
@@ -159,7 +163,7 @@ SessionPool <- R6::R6Class("SessionPool",
                 private$size <- size
                 for (i in seq_len(size)) {
                     istr <- as.character(i)
-                    private$sessions$set(istr, Session$new(istr, self))
+                    private$sessions$set(istr, Session$new(istr, self, name))
                     private$idle_keys$push(istr)
                     private$idle_size <- private$idle_size + 1
                 }
@@ -174,7 +178,7 @@ SessionPool <- R6::R6Class("SessionPool",
                 session_id <- private$idle_keys$pop()
                 if (!is.null(session_id)) {
                     # FIXME: remove debug
-                    logger$info("session acquired session_id =", session_id, "remain pool size =", private$idle_size)
+                    logger$info(private$pool_name, "session acquired session_id =", session_id, "remain pool size =", private$idle_size)
                     return(private$sessions$get(session_id))
                 }
             }
@@ -185,7 +189,7 @@ SessionPool <- R6::R6Class("SessionPool",
             private$idle_keys$push(id)
             private$idle_size <- private$idle_size + 1
             # FIXME: remove debug
-            logger$info("session released session_id =", id, "remain pool size =", private$idle_size)
+            logger$info(private$pool_name, "session released session_id =", id, "remain pool size =", private$idle_size)
         }
     )
 )
