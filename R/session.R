@@ -4,7 +4,7 @@
 #'
 #' @examples
 #' \dontrun{
-#' pool <- Session$new("session id")
+#' pool <- Session$new("session id", parent_pool)
 #' }
 Session <- R6::R6Class("Session",
     private = list(
@@ -22,7 +22,7 @@ Session <- R6::R6Class("Session",
         result = NULL
     ),
     public = list(
-        initialize = function(id, parent_pool = NULL) {
+        initialize = function(id, parent_pool) {
             private$parent_pool <- parent_pool
             private$id <- id
 
@@ -129,9 +129,7 @@ Session <- R6::R6Class("Session",
         },
         # release current session from session pool
         release = function() {
-            if (!is.null(private$parent_pool)) {
-                private$parent_pool$release(private$id)
-            }
+            private$parent_pool$release(private$id)
         }
     )
 )
