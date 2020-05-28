@@ -17,7 +17,7 @@ Session <- R6::R6Class("Session",
         is_running = FALSE,
         # r session is inited and will run call
         is_ready = FALSE,
-        # initial task before r session is ready
+        #  before r session is_ready, task is saved in init_task
         init_task = NULL,
         result = NULL
     ),
