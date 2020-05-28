@@ -4,7 +4,7 @@
 #'
 #' @examples
 #' \dontrun{
-#' # create a session and bind to a asession pool
+#' # create a session and bind to a session pool
 #' # this step is done in SessionPool$new()
 #' session <- Session$new("session id", parent_pool_ptr, pool_name)
 #'

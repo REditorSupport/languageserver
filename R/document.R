@@ -285,7 +285,7 @@ parse_callback <- function(self, uri, version, parse_data) {
 
     if (!identical(old_parse_data$packages, parse_data$packages)) {
         if (length(parse_data$packages)) {
-            self$parse_task_manager$add_task(
+            self$resolve_task_manager$add_task(
                 uri,
                 resolve_task(self, uri, doc, parse_data$packages)
             )
