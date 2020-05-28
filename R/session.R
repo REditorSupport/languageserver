@@ -4,7 +4,9 @@
 #'
 #' @examples
 #' \dontrun{
-#' pool <- Session$new("session id", parent_pool)
+#' # create a session and bind to a asession pool
+#' pool <- Session$new("session id", parent_pool_ptr, parent_name)
+#'
 #' }
 Session <- R6::R6Class("Session",
     private = list(
@@ -20,7 +22,20 @@ Session <- R6::R6Class("Session",
         is_ready = FALSE,
         #  before r session is_ready, task is saved in init_task
         init_task = NULL,
-        result = NULL
+        result = NULL,
+        # safe call with try catch
+        call = function(target, args) {
+            ret <- tryCatch({
+                private$session$call(target, args)
+            }, error = function(e) e)
+            if (inherits(ret, "error")) {
+                private$result <- ret
+                logger$error(private$pool_name, "session call error", private$id, ret)
+                # on call error, skip current task and restart
+                self$restart()
+                private$is_running <- FALSE
+            }
+        }
     ),
     public = list(
         initialize = function(id, parent_pool, pool_name) {
@@ -43,22 +58,9 @@ Session <- R6::R6Class("Session",
             private$result <- NULL
 
             if (private$is_ready) {
-                self$call(target, args)
+                private$call(target, args)
             } else {
                 private$init_task <- list(target = target, args = args)
-            }
-        },
-        # safe call with try catch
-        call = function(target, args) {
-            ret <- tryCatch({
-                private$session$call(target, args)
-            }, error = function(e) e)
-            if (inherits(ret, "error")) {
-                private$result <- ret
-                logger$error(private$pool_name, "session call error", private$id, ret)
-                # on call error, skip current task and restart
-                self$restart()
-                private$is_running <- FALSE
             }
         },
         # TRUE for running process, FALSE for compeletion
@@ -78,7 +80,7 @@ Session <- R6::R6Class("Session",
                         logger$info(private$pool_name, "session ready", private$id, Sys.time())
 
                         private$is_ready <- TRUE
-                        self$call(private$init_task$target, private$init_task$args)
+                        private$call(private$init_task$target, private$init_task$args)
                         private$init_task <- NULL
                     } else {
                         logger$error(private$pool_name, "session init error", private$id, data)
