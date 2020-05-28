@@ -40,7 +40,6 @@ Session <- R6::R6Class("Session",
             private$is_running <- TRUE
             private$result <- NULL
 
-            # FIXME: check session is alive or create new session for dead session
             if (private$is_ready) {
                 self$call(target, args)
             } else {
