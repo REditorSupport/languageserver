@@ -56,7 +56,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             pool_size <- min(max(cpus, 2), 3)
             # shared session pool by parse and resolve
             common_pool <- SessionPool$new(pool_size, "common")
-            # diagnostics is slower, so use a seperate pool
+            # diagnostics is slower, so use a seperated pool
             diagnostics_pool <- SessionPool$new(pool_size, "diagnostics")
 
             self$diagnostics_task_manager <- TaskManager$new("diagnostics", diagnostics_pool)
