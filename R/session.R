@@ -5,8 +5,38 @@
 #' @examples
 #' \dontrun{
 #' # create a session and bind to a asession pool
-#' pool <- Session$new("session id", parent_pool_ptr, parent_name)
+#' # this step is done in SessionPool$new()
+#' session <- Session$new("session id", parent_pool_ptr, pool_name)
 #'
+#' # task acquire a session from session pool
+#' # this step is done in SessionPool$acquire()
+#'
+#' # start task
+#' session$start(target, args)
+#'
+#' # check session result with is_alive
+#' session$is_alive()
+#'
+#' # when task is running
+#' session$is_alive() == TRUE
+#'
+#' # when task is done
+#' session$is_alive() == FALSE
+#'
+#' # get result when task is done
+#' session$get_result()
+#'
+#' # session must be released when task is done
+#' session$release()
+#'
+#' #' # use restart() to restart session
+#' session$restart()
+#'
+#' # use kill() to restart and release session
+#' session$kill()
+#'
+#' # session will be restarted on error
+#' # you can manually “kill” the process in bash to test this behavior
 #' }
 Session <- R6::R6Class("Session",
     private = list(
@@ -144,7 +174,23 @@ Session <- R6::R6Class("Session",
 #'
 #' @examples
 #' \dontrun{
-#' pool <- SessionPool$new(3)
+#' # create 3 cached r sessions in the pool
+#' pool_size <- 3
+#' pool_name <- "common"
+#' pool <- SessionPool$new(pool_size, pool_name)
+#'
+#' # check idle_size before acquiring session
+#' n <- pool$get_idle_size()
+#'
+#' # if there are idle sessions, acquire session
+#' session <- pool$acquire()
+#'
+#' # check session is not null and then use session
+#' is.null(session)
+#'
+#' # use session
+#' # please read R6 Class `Session` documentation
+#'
 #' }
 SessionPool <- R6::R6Class("SessionPool",
     private = list(

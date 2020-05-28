@@ -2,12 +2,44 @@
 % Please edit documentation in R/session.R
 \name{Session}
 \alias{Session}
-\title{R Session for Session Pool}
+\title{Single R Session for Session Pool}
 \description{
-R Session for Session Pool
+Single R Session for Session Pool
 }
 \examples{
 \dontrun{
-pool <- Session$new("session id")
+# create a session and bind to a asession pool
+# this step is done in SessionPool$new()
+session <- Session$new("session id", parent_pool_ptr, pool_name)
+
+# task acquire a session from session pool
+# this step is done in SessionPool$acquire()
+
+# start task
+session$start(target, args)
+
+# check session result with is_alive
+session$is_alive()
+
+# when task is running
+session$is_alive() == TRUE
+
+# when task is done
+session$is_alive() == FALSE
+
+# get result when task is done
+session$get_result()
+
+# session must be released when task is done
+session$release()
+
+#' # use restart() to restart session
+session$restart()
+
+# use kill() to restart and release session
+session$kill()
+
+# session will be restarted on error
+# you can manually “kill” the process in bash to test this behavior
 }
 }

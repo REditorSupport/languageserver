@@ -2,12 +2,28 @@
 % Please edit documentation in R/session.R
 \name{SessionPool}
 \alias{SessionPool}
-\title{R Session Pool}
+\title{Session Pool with Many R Sessions}
 \description{
-R Session Pool
+Session Pool with Many R Sessions
 }
 \examples{
 \dontrun{
-pool <- SessionPool$new(3)
+# create 3 cached r sessions in the pool
+pool_size <- 3
+pool_name <- "common"
+pool <- SessionPool$new(pool_size, pool_name)
+
+# check idle_size before acquiring session
+n <- pool$get_idle_size()
+
+# if there are idle sessions, acquire session
+session <- pool$acquire()
+
+# check session is not null and then use session
+is.null(session)
+
+# use session
+# please read R6 Class `Session` documentation
+
 }
 }
