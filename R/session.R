@@ -52,9 +52,11 @@ Session <- R6::R6Class("Session",
                 private$session$call(target, args)
             }, error = function(e) e)
             if (inherits(ret, "error")) {
-                private$is_running <- FALSE
                 private$result <- ret
-                logger$error("session error", private$id, ret)
+                logger$error("session call error", private$id, ret)
+                # on call error, skip current task and restart
+                self$restart()
+                private$is_running <- FALSE
             }
         },
         # TRUE for running process, FALSE for compeletion
@@ -78,7 +80,7 @@ Session <- R6::R6Class("Session",
                         private$init_task <- NULL
                     } else {
                         logger$error("session init error", private$id, data)
-                        # restart on init error
+                        # restart on init error, task is perserved in init_task
                         self$restart()
                     }
                     # continue running
@@ -94,8 +96,8 @@ Session <- R6::R6Class("Session",
                     }
                 } else {
                     # error data code 301, 500, 501, 502
-                    logger$error("session error", private$id, data)
-                    # restart on error
+                    logger$error("session read error", private$id, data)
+                    # on read error, skip current task and restart
                     self$restart()
                 }
                 private$is_running <- FALSE
