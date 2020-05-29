@@ -27,3 +27,4 @@ is.null(session)
 
 }
 }
+\keyword{internal}
