@@ -146,7 +146,13 @@ Session <- R6::R6Class("Session",
         },
         restart = function(should_release = FALSE) {
             logger$info(private$pool_name, "session restart", private$id)
-            private$session$close(grace = 100)
+            ret <- tryCatch({
+                private$session$close(grace = 100)
+            }, error = function(e) e)
+            if (inherits(ret, "error")) {
+                logger$error(private$pool_name, "session kill error", ret)
+            }
+
             private$session <- callr::r_session$new(
                 callr::r_session_options(system_profile = TRUE, user_profile = TRUE),
                 wait = FALSE
