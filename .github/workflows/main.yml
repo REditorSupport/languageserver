@@ -28,7 +28,6 @@ jobs:
         Rscript -e "install.packages(c('remotes', 'rcmdcheck'), repos = 'https://cloud.r-project.org')"
         Rscript -e "remotes::install_deps(dependencies = TRUE)"
     - name: Running Tests
-      timeout-minutes: 10
       run: |
         Rscript -e "rcmdcheck::rcmdcheck(args = c('--as-cran', '--no-manual', '--timings'), error_on = 'error')"
     - uses: actions/upload-artifact@v1
@@ -62,7 +61,6 @@ jobs:
         Rscript -e "install.packages(c('remotes', 'rcmdcheck'), repos = 'https://cloud.r-project.org', type = 'mac.binary.el-capitan')"
         Rscript -e "remotes::install_deps(dependencies = TRUE, type = 'mac.binary.el-capitan')"
     - name: Running Tests
-      timeout-minutes: 10
       run: |
         mkdir -p /tmp/languageserver
         Rscript -e "rcmdcheck::rcmdcheck(args = c('--as-cran', '--no-manual', '--timings'), error_on = 'error')"
@@ -95,7 +93,6 @@ jobs:
         # in Windows, we need to install a seperate copy for spawning server in the tests
         Rscript -e "devtools::install(type = 'win.binary')"
     - name: Running Tests
-      timeout-minutes: 10
       run: |
         New-Item -ItemType directory -Path C:/tmp/languageserver
         Rscript -e "rcmdcheck::rcmdcheck(args = c('--as-cran', '--no-manual', '--timings'), error_on = 'error')"
