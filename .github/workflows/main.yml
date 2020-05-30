@@ -92,9 +92,7 @@ jobs:
     - name: Running Tests
       run: |
         New-Item -ItemType directory -Path C:/tmp/languageserver
-        # rcmdcheck is not working very well with the task session
-        # Rscript -e "rcmdcheck::rcmdcheck(args = c('--as-cran', '--no-manual', '--timings'), error_on = 'error')"
-        Rscript -e "devtools::test()"
+        Rscript -e "rcmdcheck::rcmdcheck(args = c('--as-cran', '--no-manual', '--timings'), error_on = 'error')"
     - uses: actions/upload-artifact@v1
       if: failure()
       with:
