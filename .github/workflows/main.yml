@@ -5,7 +5,6 @@ on: [push, pull_request]
 jobs:
   linux:
     if: contains(github.event.head_commit.message, '[ci skip]') == false
-    timeout-minutes: 15
     strategy:
       matrix:
         r: [latest]
@@ -30,7 +29,7 @@ jobs:
         Rscript -e "remotes::install_deps(dependencies = TRUE)"
     - name: Running Tests
       run: |
-        Rscript -e "rcmdcheck::rcmdcheck(args = c('--as-cran', '--no-manual', '--timings'), error_on = 'error')"
+        Rscript -e "rcmdcheck::rcmdcheck(args = c('--as-cran', '--no-manual', '--timings'), timeout = 600, error_on = 'error')"
     - uses: actions/upload-artifact@v1
       if: failure()
       with:
@@ -43,7 +42,6 @@ jobs:
 
   macos:
     if: contains(github.event.head_commit.message, '[ci skip]') == false
-    timeout-minutes: 15
     strategy:
       matrix:
         r: [latest]
@@ -65,7 +63,7 @@ jobs:
     - name: Running Tests
       run: |
         mkdir -p /tmp/languageserver
-        Rscript -e "rcmdcheck::rcmdcheck(args = c('--as-cran', '--no-manual', '--timings'), error_on = 'error')"
+        Rscript -e "rcmdcheck::rcmdcheck(args = c('--as-cran', '--no-manual', '--timings'), timeout = 600, error_on = 'error')"
     - uses: actions/upload-artifact@v1
       if: failure()
       with:
@@ -74,7 +72,6 @@ jobs:
 
   windows:
     if: contains(github.event.head_commit.message, '[ci skip]') == false
-    timeout-minutes: 15
     strategy:
       matrix:
         r: [latest]
@@ -98,7 +95,7 @@ jobs:
     - name: Running Tests
       run: |
         New-Item -ItemType directory -Path C:/tmp/languageserver
-        Rscript -e "rcmdcheck::rcmdcheck(args = c('--as-cran', '--no-manual', '--timings'), error_on = 'error')"
+        Rscript -e "rcmdcheck::rcmdcheck(args = c('--as-cran', '--no-manual', '--timings'), timeout = 600, error_on = 'error')"
     - uses: actions/upload-artifact@v1
       if: failure()
       with:
