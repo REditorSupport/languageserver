@@ -53,7 +53,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$outputcon <- outputcon
 
             cpus <- parallel::detectCores()
-            pool_size <- min(max(cpus, 2), 3)
+            pool_size <- min(max(floor(cpus / 2), 1), 3)
             # parse pool
             parse_pool <- SessionPool$new(pool_size, "parse")
             # diagnostics is slower, so use a seperated pool
