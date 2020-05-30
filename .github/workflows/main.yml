@@ -92,9 +92,9 @@ jobs:
     - name: Running Tests
       run: |
         New-Item -ItemType directory -Path C:/tmp/languageserver
-        # it runs indefinitely, use devtools::test instead
-        # Rscript -e "rcmdcheck::rcmdcheck(args = c('--as-cran', '--no-manual', '--timings'), error_on = 'error')"
-        Rscript -e "devtools::test()"
+        # it runs indefinitely, use devtools::check instead
+        Rscript -e "rcmdcheck::rcmdcheck(args = c('--as-cran', '--no-manual', '--timings'), error_on = 'error')"
+        # Rscript -e "devtools::check()"
     - uses: actions/upload-artifact@v1
       if: failure()
       with:
