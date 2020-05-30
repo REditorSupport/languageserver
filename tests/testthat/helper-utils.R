@@ -44,11 +44,11 @@ language_client <- function(working_dir = getwd(), diagnostics = FALSE, capabili
             client %>% respond("shutdown", NULL, retry = FALSE)
             client$process$wait(30)
             if (client$process$is_alive()) {
-                client$stop()
+                client$process$kill_tree()
                 fail("server did not shutdown peacefully")
             }
         } else {
-            client$stop()
+            client$process$kill_tree()
         }
     })
     client
