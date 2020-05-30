@@ -38,13 +38,17 @@ language_client <- function(working_dir = getwd(), diagnostics = FALSE, capabili
     client %>% notify(
         "workspace/didChangeConfiguration", list(settings = list(diagnostics = diagnostics)))
     withr::defer_parent({
-        # it is necessary to shutdown the server in covr
+        # it is sometimes necessary to shutdown the server probably
         # we skip this for other times for speed
-        client %>% respond("shutdown", NULL, retry = FALSE)
-        client$process$wait(30)
-        if (client$process$is_alive()) {
+        if (Sys.getenv("R_LANGSVR_TEST_FAST", "YES") == "NO") {
+            client %>% respond("shutdown", NULL, retry = FALSE)
+            client$process$wait(30)
+            if (client$process$is_alive()) {
+                client$stop()
+                fail("server did not shutdown peacefully")
+            }
+        } else {
             client$stop()
-            fail("server did not shutdown peacefully")
         }
     })
     client
