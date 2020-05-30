@@ -52,19 +52,9 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$inputcon <- inputcon
             self$outputcon <- outputcon
 
-            cpus <- parallel::detectCores()
-            pool_size <- min(max(cpus, 2), 3)
-            # parse pool
-            parse_pool <- SessionPool$new(pool_size, "parse")
-            # diagnostics is slower, so use a seperated pool
-            diagnostics_pool <- SessionPool$new(pool_size, "diagnostics")
-
-            self$parse_task_manager <- TaskManager$new("parse", parse_pool)
-            self$diagnostics_task_manager <- TaskManager$new("diagnostics", diagnostics_pool)
-
-            # no pool for resolve task
-            # resolve task require a new session for every task
-            self$resolve_task_manager <- TaskManager$new("resolve", NULL)
+            self$diagnostics_task_manager <- TaskManager$new()
+            self$parse_task_manager <- TaskManager$new()
+            self$resolve_task_manager <- TaskManager$new()
 
             self$pending_replies <- collections::dict()
 
