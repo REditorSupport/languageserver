@@ -23,7 +23,7 @@ LanguageClient <- R6::R6Class("LanguageClient",
 
         finalize = function() {
             if (!is.null(self$process)) {
-                self$process$kill()
+                self$process$kill_tree()
             }
             super$finalize()
         },

@@ -73,7 +73,8 @@ Session <- R6::R6Class("Session",
             private$id <- id
 
             private$session <- callr::r_session$new(
-                callr::r_session_options(system_profile = TRUE, user_profile = TRUE),
+                callr::r_session_options(
+                    system_profile = TRUE, user_profile = TRUE, supervise = TRUE),
                 # skip waiting
                 wait = FALSE
             )
