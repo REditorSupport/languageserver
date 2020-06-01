@@ -24,20 +24,31 @@ style_text <- function(text, style, indentation = 0L) {
             error = function(e) e
         )
     } else {
-        style$indention$apply_initial_indention <- function(pd_nested) {
-            if (2L %in% pd_nested$pos_id) {
-                pd_nested[pd_nested$token == "expr", "indent"] <- indentation
+        if (length(style$indention)) {
+            style$indention$apply_initial_indention <- function(pd_nested) {
+                if (2L %in% pd_nested$pos_id) {
+                    pd_nested[pd_nested$token == "expr", "indent"] <- indentation
+                }
+                pd_nested
             }
-            pd_nested
+            new_text <- tryCatch({
+                out <- styler::style_text(
+                    c("{", text, "}"),
+                    transformers = style
+                )
+                out <- out[-c(1, length(out))]
+            }, error = function(e) e)
+        } else {
+            new_text <- tryCatch({
+                out <- styler::style_text(
+                    text,
+                    transformers = style
+                )
+                paste0(strrep(" ", indentation), out)
+            }, error = function(e) e)
         }
-        new_text <- tryCatch({
-            out <- styler::style_text(
-                c("{", text, "}"),
-                transformers = style
-            )
-            out <- out[-c(1, length(out))]
-        }, error = function(e) e)
     }
+    logger$info("style_text: ", list(text = text, new_text = new_text))
     if (inherits(new_text, "error")) {
         logger$info("formatting error:", new_text$message)
         return(NULL)
