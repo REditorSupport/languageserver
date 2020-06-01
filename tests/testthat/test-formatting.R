@@ -71,6 +71,53 @@ test_that("Formatting selection works for partial line", {
     expect_equal(lines[2], "    y + 3")
 })
 
+test_that("Formatting selection preserves initial indentation", {
+    skip_on_cran()
+    client <- language_client()
+
+    withr::local_tempfile(c("temp_file"), fileext = ".R")
+    writeLines(c(
+        "  my_fn <- function(x) {",
+        "      y =x+ 1",
+        "      y+3",
+        "  }"
+    ), temp_file)
+
+    client %>% did_save(temp_file)
+
+    result <- client %>% respond_range_formatting(temp_file, c(0, 0), c(3, 3))
+
+    expect_length(result, 1)
+    lines <- strsplit(result[[1]]$newText, "\n")[[1]]
+    expect_equal(lines[1], "  my_fn <- function(x) {")
+    expect_equal(lines[2], "      y <- x + 1")
+    expect_equal(lines[3], "      y + 3")
+    expect_equal(lines[4], "  }")
+})
+
+test_that("Formatting selection does not add indentation to multi-line string", {
+    skip_on_cran()
+    client <- language_client()
+
+    withr::local_tempfile(c("temp_file"), fileext = ".R")
+    writeLines(c(
+        "my_fun <- function() {",
+        "  query(con,\"select group, date, time",
+        "    from some_table",
+        "    where group > 10\")",
+        "}"
+    ), temp_file)
+
+    client %>% did_save(temp_file)
+
+    result <- client %>% respond_range_formatting(temp_file, c(1, 0), c(3, 23))
+
+    expect_length(result, 1)
+    lines <- strsplit(result[[1]]$newText, "\n")[[1]]
+    expect_equal(lines[1], "  query(con, \"select group, date, time")
+    expect_equal(lines[2], "    from some_table")
+    expect_equal(lines[3], "    where group > 10\")")
+})
 
 test_that("On type formatting works", {
     skip_on_cran()
