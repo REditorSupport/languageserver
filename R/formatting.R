@@ -48,7 +48,6 @@ style_text <- function(text, style, indentation = 0L) {
             }, error = function(e) e)
         }
     }
-    logger$info("style_text: ", list(text = text, new_text = new_text))
     if (inherits(new_text, "error")) {
         logger$info("formatting error:", new_text$message)
         return(NULL)
