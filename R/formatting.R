@@ -27,7 +27,8 @@ style_text <- function(text, style, indentation = 0L) {
         if (length(style$indention)) {
             style$indention$apply_initial_indention <- function(pd_nested) {
                 if (2L %in% pd_nested$pos_id) {
-                    pd_nested[pd_nested$token == "expr", "indent"] <- indentation
+                    braces <- pd_nested$token %in% c("{", "}")
+                    pd_nested[!braces, "indent"] <- indentation
                 }
                 pd_nested
             }
