@@ -57,7 +57,7 @@ test_that("Document link works", {
     expect_equal(result[[4]]$target, path_to_uri(src_file2))
 })
 
-test_that("Document link works work raw strings", {
+test_that("Document link works with raw strings", {
     skip_on_cran()
     skip_if(getRversion() < "4.0.0")
 
