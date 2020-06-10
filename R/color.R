@@ -22,7 +22,6 @@ document_color_reply <- function(id, uri, workspace, document) {
         is_color <- !grepl("^[rR]", str_expr) &
             (grepl("^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$", str_texts) |
                 str_texts %in% grDevices::colors())
-        color_tokens <- str_tokens[is_color]
         color_texts <- str_texts[is_color]
         color_line1 <- str_line1[is_color]
         color_col1 <- str_col1[is_color]

@@ -22,20 +22,19 @@ document_link_reply <- function(id, uri, workspace, document, rootPath) {
         paths <- fs::path_abs(str_texts, rootPath)
 
         is_link <- file.exists(paths) & !dir.exists(paths)
-        link_tokens <- str_tokens[is_link]
         link_paths <- path.expand(paths[is_link])
         link_expr <- str_expr[is_link]
         is_raw_string <- grepl("^[rR]", link_expr)
         link_line1 <- str_line1[is_link]
         link_col1 <- str_col1[is_link] + is_raw_string
-        link_col2 <- str_col2[is_link] - 1
+        link_col2 <- str_col2[is_link]
         uris <- vapply(link_paths, path_to_uri, character(1))
 
         result <- .mapply(function(line, col1, col2, uri) {
             list(
                 range = range(
                     start = document$to_lsp_position(line - 1, col1),
-                    end = document$to_lsp_position(line - 1, col2)
+                    end = document$to_lsp_position(line - 1, col2 - 1)
                 ),
                 target = uri
             )
