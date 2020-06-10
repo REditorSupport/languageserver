@@ -13,26 +13,31 @@ document_color_reply <- function(id, uri, workspace, document) {
     xdoc <- parse_data$xml_doc
     if (!is.null(xdoc)) {
         str_tokens <- xml_find_all(xdoc, "//STR_CONST[@line1=@line2 and @col2 > @col1 + 1]")
-        str_texts <- xml_text(str_tokens)
-        str_texts <- substr(str_texts, 2, nchar(str_texts) - 1)
-
-        is_color <- grepl("^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$", str_texts) | str_texts %in% grDevices::colors()
-        str_tokens <- str_tokens[is_color]
-        str_texts <- str_texts[is_color]
-        str_colors <- grDevices::col2rgb(str_texts, alpha = TRUE) / 255
-
         str_line1 <- as.integer(xml_attr(str_tokens, "line1"))
         str_col1 <- as.integer(xml_attr(str_tokens, "col1"))
         str_col2 <- as.integer(xml_attr(str_tokens, "col2"))
+        str_expr <- substr(document$content[str_line1], str_col1, str_col2)
+        str_texts <- as.character(parse(text = str_expr, keep.source = FALSE))
+
+        is_color <- !grepl("^[rR]", str_expr) &
+            (grepl("^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$", str_texts) |
+                str_texts %in% grDevices::colors())
+        color_tokens <- str_tokens[is_color]
+        color_texts <- str_texts[is_color]
+        color_line1 <- str_line1[is_color]
+        color_col1 <- str_col1[is_color]
+        color_col2 <- str_col2[is_color]
+        color_rgb <- grDevices::col2rgb(color_texts, alpha = TRUE) / 255
+
         result <- .mapply(function(line, col1, col2, i) {
             list(
                 range = range(
                     start = document$to_lsp_position(line - 1, col1),
                     end = document$to_lsp_position(line - 1, col2 - 1)
                 ),
-                color = as.list(str_colors[, i])
+                color = as.list(color_rgb[, i])
             )
-        }, list(str_line1, str_col1, str_col2, seq_along(str_texts)), NULL)
+        }, list(color_line1, color_col1, color_col2, seq_along(color_texts)), NULL)
     }
 
     if (is.null(result)) {
