@@ -29,20 +29,23 @@ LanguageClient <- R6::R6Class("LanguageClient",
         },
 
         check_connection = function() {
-            if (!self$process$is_alive())
+            if (!is.null(self$process) && !self$process$is_alive())
                 stop("Server is dead.")
         },
 
         write_text = function(text) {
+            self$check_connection()
             self$process$write_input(text)
         },
 
         read_output_lines = function() {
-            if (!self$process$is_alive() || self$process$poll_io(1)[1] != "ready") return(NULL)
+            self$check_connection()
+            if (self$process$is_alive() && self$process$poll_io(1)[1] != "ready") return(NULL)
             self$process$read_output_lines(1)
         },
 
         read_line = function() {
+            self$check_connection()
             buf <- private$read_char_buf
             if (length(buf) > 0 && as.raw(10) %in% buf) {
                 first_match <- min(which(buf == charToRaw("\n")))
@@ -66,6 +69,7 @@ LanguageClient <- R6::R6Class("LanguageClient",
         },
 
         read_char = function(n) {
+            self$check_connection()
             if (length(private$read_char_buf) < n) {
                 data <- c(private$read_char_buf, charToRaw(self$read_output(n - length(private$read_char_buf))))
             } else {
@@ -81,6 +85,7 @@ LanguageClient <- R6::R6Class("LanguageClient",
         },
 
         read_error = function() {
+            self$check_connection()
             paste0(self$process$read_error_lines(), collapse = "\n")
         },
 
