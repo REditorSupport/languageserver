@@ -65,7 +65,10 @@ path_from_uri <- function(uri) {
         return("")
     }
     start_char <- if (.Platform$OS.type == "windows") 9 else 8
-    utils::URLdecode(substr(uri, start_char, nchar(uri)))
+    uri <- utils::URLencode(uri)
+    path <- utils::URLdecode(substr(uri, start_char, nchar(uri)))
+    Encoding(path) <- "UTF-8"
+    path
 }
 
 
