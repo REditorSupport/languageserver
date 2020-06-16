@@ -36,8 +36,12 @@ to_string <- function(...) {
 #'
 #' @keywords internal
 log_write <- function(..., file = stderr()) {
-    cat("[", format(Sys.time(), "%Y-%m-%d %H:%M:%OS3"), "] ", to_string(...),
-        sep = "", file = file, append = TRUE)
+    txt <- paste0("[", format(Sys.time(), "%Y-%m-%d %H:%M:%OS3"), "] ", to_string(...))
+    if (.Platform$OS.type == "windows" && identical(file, stderr())) {
+        writeLines(txt, file, sep = "", useBytes = TRUE)
+    } else {
+        cat(txt, file = file, append = TRUE)
+    }
 }
 
 #' A basic logger class
