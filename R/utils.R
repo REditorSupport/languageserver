@@ -55,6 +55,14 @@ capture_print <- function(x) {
     paste0(utils::capture.output(print(x)), collapse = "\n")
 }
 
+
+uri_escape_unicode <- function(uri) {
+    if (length(uri) == 0) {
+        return(character())
+    }
+    utils::URLencode(uri)
+}
+
 #' Paths and uris
 #' @keywords internal
 path_from_uri <- function(uri) {
