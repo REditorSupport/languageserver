@@ -64,11 +64,11 @@ path_from_uri <- function(uri) {
     if (!startsWith(uri, "file:///")) {
         return("")
     }
-    start_char <- if (.Platform$OS.type == "windows") 9 else 8
+    # escape unicodes first
     uri <- utils::URLencode(uri)
-    path <- utils::URLdecode(substr(uri, start_char, nchar(uri)))
-    Encoding(path) <- "UTF-8"
-    path
+    # URLdecode gives unknown encoding, we need to mark them as UTF-8
+    start_char <- if (.Platform$OS.type == "windows") 9 else 8
+    enc2utf8(utils::URLdecode(substr(uri, start_char, nchar(uri))))
 }
 
 
