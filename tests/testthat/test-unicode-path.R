@@ -3,6 +3,7 @@ context("Test Unicode path")
 test_that("Works with unicode path", {
     skip_on_cran()
     if (.Platform$OS.type == "windows") {
+        skip_if_not(Sys.getenv("CI", "false") == "true")
         Sys.setlocale(locale = "chinese")
     }
 
