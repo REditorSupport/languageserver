@@ -2,15 +2,15 @@ context("Test Unicode path")
 
 test_that("Works with unicode path", {
     skip_on_cran()
+    if (.Platform$OS.type == "windows") {
+        Sys.setlocale(locale = "chinese")
+    }
 
-    dir <- file.path(tempdir(), "中文 にほんご 한국어")
+    dir <- file.path(tempdir(), "中 文")
     dir.create(dir, showWarnings = FALSE, recursive = TRUE)
     client <- language_client(dir)
 
-    withr::local_tempfile("defn_file", pattern = "中文", tmpdir = dir, fileext = ".R")
-    withr::local_tempfile("defn2_file", pattern = "にほんご", tmpdir = dir, fileext = ".R")
-    withr::local_tempfile("query_file", pattern = "한국어", tmpdir = dir, fileext = ".R")
-
+    withr::local_tempfile(c("defn_file", "defn2_file", "query_file"), pattern = "中文", fileext = ".R")
     writeLines(c("my_fn <- function(x) {", "  x + 1", "}"), defn_file)
     writeLines(c("my_fn"), query_file)
 
