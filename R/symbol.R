@@ -145,15 +145,12 @@ get_rmd_document_section_symbols <- function(uri, document) {
     chunk_symbols <- lapply(seq_len(length(block_lines) / 2), function(i) {
         start_line <- block_lines[[2 * i - 1]]
         end_line <- block_lines[[2 * i]]
-        name <- NULL
+        label <- stringi::stri_match_first_regex(content[[start_line]],
+            "^\\s*```+\\s*\\{[a-zA-Z0-9_]+\\s*(([^,'\"]+)|'(.+)'|\"(.+)\")\\s*(,.+)?\\}\\s*$"
+        )[1, 3:5]
+        name <- label[!is.na(label)]
 
-        args_text <- stringi::stri_match_first_regex(document$line(start_line),
-            "^\\s*```+\\s*\\{([a-zA-Z0-9_]+( *[ ,].*)?)\\}\\s*$")[1, 3]
-        if (!is.na(args_text)) {
-            name <- trimws(args_text)
-        }
-
-        if (is.null(name)) {
+        if (length(name) == 0) {
             unnamed_chunks <<- unnamed_chunks + 1
             name <- sprintf("unnamed-chunk-%d", unnamed_chunks)
         }
@@ -165,7 +162,7 @@ get_rmd_document_section_symbols <- function(uri, document) {
                 uri = uri,
                 range = range(
                     start = document$to_lsp_position(row = start_line - 1, col = 0),
-                    end = document$to_lsp_position(row = end_line - 1, col = nchar(document$line(end_line)))
+                    end = document$to_lsp_position(row = end_line - 1, col = nchar(content[[end_line]]))
                 )
             )
         )
