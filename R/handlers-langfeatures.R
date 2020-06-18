@@ -4,7 +4,7 @@
 #' @keywords internal
 text_document_completion  <- function(self, id, params) {
     textDocument <- params$textDocument
-    uri <- textDocument$uri
+    uri <- uri_escape_unicode(textDocument$uri)
     document <- self$workspace$documents$get(uri)
     point <- document$from_lsp_position(params$position)
     self$deliver(completion_reply(id, uri, self$workspace, document, point,
@@ -27,7 +27,7 @@ completion_item_resolve  <- function(self, id, params) {
 #' @keywords internal
 text_document_hover  <- function(self, id, params) {
     textDocument <- params$textDocument
-    uri <- textDocument$uri
+    uri <- uri_escape_unicode(textDocument$uri)
     document <- self$workspace$documents$get(uri)
     point <- document$from_lsp_position(params$position)
     self$deliver(hover_reply(id, uri, self$workspace, document, point))
@@ -40,7 +40,7 @@ text_document_hover  <- function(self, id, params) {
 #' @keywords internal
 text_document_signature_help  <- function(self, id, params) {
     textDocument <- params$textDocument
-    uri <- textDocument$uri
+    uri <- uri_escape_unicode(textDocument$uri)
     document <- self$workspace$documents$get(uri)
     point <- document$from_lsp_position(params$position)
     self$deliver(signature_reply(id, uri, self$workspace, document, point))
@@ -52,7 +52,7 @@ text_document_signature_help  <- function(self, id, params) {
 #' @keywords internal
 text_document_definition  <- function(self, id, params) {
     textDocument <- params$textDocument
-    uri <- textDocument$uri
+    uri <- uri_escape_unicode(textDocument$uri)
     document <- self$workspace$documents$get(uri)
     point <- document$from_lsp_position(params$position)
     self$deliver(definition_reply(id, uri, self$workspace, document, point))
@@ -89,7 +89,7 @@ text_document_references  <- function(self, id, params) {
 #' @keywords internal
 text_document_document_highlight  <- function(self, id, params) {
     textDocument <- params$textDocument
-    uri <- textDocument$uri
+    uri <- uri_escape_unicode(textDocument$uri)
     document <- self$workspace$documents$get(uri)
     point <- document$from_lsp_position(params$position)
     self$deliver(document_highlight_reply(id, uri, self$workspace, document, point))
@@ -101,7 +101,7 @@ text_document_document_highlight  <- function(self, id, params) {
 #' @keywords internal
 text_document_document_symbol  <- function(self, id, params) {
     textDocument <- params$textDocument
-    uri <- textDocument$uri
+    uri <- uri_escape_unicode(textDocument$uri)
     document <- self$workspace$documents$get(uri)
     reply <- document_symbol_reply(id, uri, self$workspace, document,
         self$ClientCapabilities$textDocument$documentSymbol)
@@ -148,7 +148,7 @@ code_lens_resolve  <- function(self, id, params) {
 #' @keywords internal
 text_document_document_link  <- function(self, id, params) {
     textDocument <- params$textDocument
-    uri <- textDocument$uri
+    uri <- uri_escape_unicode(textDocument$uri)
     document <- self$workspace$documents$get(uri)
     rootPath <- if (length(self$rootPath)) self$rootPath else dirname(path_from_uri(uri))
     reply <- document_link_reply(id, uri, self$workspace, document, rootPath)
@@ -178,7 +178,7 @@ document_link_resolve  <- function(self, id, params) {
 #' @keywords internal
 text_document_document_color  <- function(self, id, params) {
     textDocument <- params$textDocument
-    uri <- textDocument$uri
+    uri <- uri_escape_unicode(textDocument$uri)
     document <- self$workspace$documents$get(uri)
     reply <- document_color_reply(id, uri, self$workspace, document)
     if (is.null(reply)) {
@@ -199,7 +199,7 @@ text_document_document_color  <- function(self, id, params) {
 #' @keywords internal
 text_document_color_presentation  <- function(self, id, params) {
     textDocument <- params$textDocument
-    uri <- textDocument$uri
+    uri <- uri_escape_unicode(textDocument$uri)
     document <- self$workspace$documents$get(uri)
     color <- params$color
     self$deliver(color_presentation_reply(id, uri, self$workspace, document, color))
@@ -211,7 +211,7 @@ text_document_color_presentation  <- function(self, id, params) {
 #' @keywords internal
 text_document_formatting  <- function(self, id, params) {
     textDocument <- params$textDocument
-    uri <- textDocument$uri
+    uri <- uri_escape_unicode(textDocument$uri)
     options <- params$options
     self$deliver(formatting_reply(id, uri, self$workspace$documents$get(uri), options))
 }
@@ -222,7 +222,7 @@ text_document_formatting  <- function(self, id, params) {
 #' @keywords internal
 text_document_range_formatting  <- function(self, id, params) {
     textDocument <- params$textDocument
-    uri <- textDocument$uri
+    uri <- uri_escape_unicode(textDocument$uri)
     document <- self$workspace$documents$get(uri)
     range <- list(
         start = document$from_lsp_position(params$range$start),
@@ -239,7 +239,7 @@ text_document_range_formatting  <- function(self, id, params) {
 #' @keywords internal
 text_document_on_type_formatting  <- function(self, id, params) {
     textDocument <- params$textDocument
-    uri <- textDocument$uri
+    uri <- uri_escape_unicode(textDocument$uri)
     document <- self$workspace$documents$get(uri)
     point <- document$from_lsp_position(params$position)
     ch <- params$ch

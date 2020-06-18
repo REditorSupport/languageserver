@@ -4,7 +4,7 @@
 #' @keywords internal
 text_document_did_open <- function(self, params) {
     textDocument <- params$textDocument
-    uri <- textDocument$uri
+    uri <- uri_escape_unicode(textDocument$uri)
     version <- textDocument$version
     text <- textDocument$text
     logger$info("did open:", list(uri = uri, version = version))
@@ -33,7 +33,7 @@ text_document_did_open <- function(self, params) {
 text_document_did_change <- function(self, params) {
     textDocument <- params$textDocument
     contentChanges <- params$contentChanges
-    uri <- textDocument$uri
+    uri <- uri_escape_unicode(textDocument$uri)
     version <- textDocument$version
     text <- contentChanges[[1]]$text
     logger$info("did change:", list(uri = uri, version = version))
@@ -63,7 +63,7 @@ text_document_will_save <- function(self, params) {
 text_document_did_save <- function(self, params) {
     textDocument <- params$textDocument
     text <- params$text
-    uri <- textDocument$uri
+    uri <- uri_escape_unicode(textDocument$uri)
     logger$info("did save:", list(uri = uri))
     path <- path_from_uri(uri)
     if (!is.null(text)) {
@@ -89,9 +89,9 @@ text_document_did_save <- function(self, params) {
 #' @keywords internal
 text_document_did_close <- function(self, params) {
     textDocument <- params$textDocument
-    uri <- textDocument$uri
+    uri <- uri_escape_unicode(textDocument$uri)
     path <- path_from_uri(uri)
-    is_from_workspace <- fs::path_has_parent(path, self$rootPath)
+    is_from_workspace <- path_has_parent(path, self$rootPath)
 
     # remove diagnostics if file is not from workspace
     if (!is_from_workspace) {

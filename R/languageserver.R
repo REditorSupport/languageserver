@@ -103,8 +103,8 @@ LanguageServer <- R6::R6Class("LanguageServer",
 
             if (run_lintr && self$run_lintr) {
                 temp_root <- dirname(tempdir())
-                if (fs::path_has_parent(self$rootPath, temp_root) ||
-                    !fs::path_has_parent(path_from_uri(uri), temp_root)) {
+                if (path_has_parent(self$rootPath, temp_root) ||
+                    !path_has_parent(path_from_uri(uri), temp_root)) {
                     self$diagnostics_task_manager$add_task(
                         uri,
                         diagnostics_task(self, uri, document, delay = delay)

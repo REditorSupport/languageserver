@@ -6,7 +6,7 @@
 on_initialize <- function(self, id, params) {
     logger$info("initialization config: ", params)
     self$processId <- params$processId
-    self$rootUri <- params$rootUri
+    self$rootUri <- uri_escape_unicode(params$rootUri)
     self$rootPath <- path_from_uri(self$rootUri)
     self$workspace <- Workspace$new(self$rootPath)
     self$initializationOptions <- params$initializationOptions
