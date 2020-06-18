@@ -150,7 +150,7 @@ get_rmd_document_section_symbols <- function(uri, document) {
         args_text <- stringi::stri_match_first_regex(document$line(start_line),
             "^\\s*```+\\s*\\{([a-zA-Z0-9_]+( *[ ,].*)?)\\}\\s*$")[1, 3]
         if (!is.na(args_text)) {
-            name <- args_text
+            name <- trimws(args_text)
         }
 
         if (is.null(name)) {
@@ -160,7 +160,7 @@ get_rmd_document_section_symbols <- function(uri, document) {
 
         symbol_information(
             name = name,
-            kind = SymbolKind$String,
+            kind = SymbolKind$Key,
             location = list(
                 uri = uri,
                 range = range(
