@@ -92,19 +92,19 @@ get_rmd_document_section_symbols <- function(uri, document) {
         return(NULL)
     }
 
+    section_lines <- grepl("^#+\\s+\\S+", content)
     if (grepl("^---\\s*$", content[[1]])) {
         front_start <- 1L
         front_end <- 2L
         while (front_end <= document$nline) {
             if (grepl("^---\\s*$", content[[front_end]])) {
-                block_lines <- c(front_start, front_end, block_lines)
                 break
             }
             front_end <- front_end + 1L
         }
+        section_lines[seq.int(front_start, front_end)] <- FALSE
     }
 
-    section_lines <- grepl("^#+\\s+\\S+", content)
     for (i in seq_len(length(block_lines) / 2)) {
         section_lines[seq.int(block_lines[[2 * i - 1]], block_lines[[2 * i]])] <- FALSE
     }
@@ -141,7 +141,34 @@ get_rmd_document_section_symbols <- function(uri, document) {
         )
     })
 
-    section_symbols
+    unnamed_chunks <- 0
+    chunk_symbols <- lapply(seq_len(length(block_lines) / 2), function(i) {
+        start_line <- block_lines[[2 * i - 1]]
+        end_line <- block_lines[[2 * i]]
+        label <- stringi::stri_match_first_regex(content[[start_line]],
+            "^\\s*```+\\s*\\{[a-zA-Z0-9_]+\\s*(([^,'\"]+)|'(.+)'|\"(.+)\")\\s*(,.+)?\\}\\s*$"
+        )[1, 3:5]
+        name <- label[!is.na(label)]
+
+        if (length(name) == 0) {
+            unnamed_chunks <<- unnamed_chunks + 1
+            name <- sprintf("unnamed-chunk-%d", unnamed_chunks)
+        }
+
+        symbol_information(
+            name = name,
+            kind = SymbolKind$Key,
+            location = list(
+                uri = uri,
+                range = range(
+                    start = document$to_lsp_position(row = start_line - 1, col = 0),
+                    end = document$to_lsp_position(row = end_line - 1, col = nchar(content[[end_line]]))
+                )
+            )
+        )
+    })
+
+    c(section_symbols, chunk_symbols)
 }
 
 get_document_section_symbols <- function(uri, document) {
