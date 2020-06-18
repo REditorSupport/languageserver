@@ -91,7 +91,7 @@ text_document_did_close <- function(self, params) {
     textDocument <- params$textDocument
     uri <- uri_escape_unicode(textDocument$uri)
     path <- path_from_uri(uri)
-    is_from_workspace <- fs::path_has_parent(path, self$rootPath)
+    is_from_workspace <- path_has_parent(path, self$rootPath)
 
     # remove diagnostics if file is not from workspace
     if (!is_from_workspace) {

@@ -60,7 +60,13 @@ uri_escape_unicode <- function(uri) {
     if (length(uri) == 0) {
         return(character())
     }
-    utils::URLencode(uri)
+    if (.Platform$OS.type == "windows") {
+        uri <- utils::URLdecode(uri)
+        Encoding(uri) <- "UTF-8"
+        utils::URLencode(uri)
+    } else {
+        utils::URLencode(uri)
+    }
 }
 
 #' Paths and uris
@@ -74,7 +80,9 @@ path_from_uri <- function(uri) {
     }
     # URLdecode gives unknown encoding, we need to mark them as UTF-8
     start_char <- if (.Platform$OS.type == "windows") 9 else 8
-    enc2utf8(utils::URLdecode(substr(uri, start_char, nchar(uri))))
+    path <- utils::URLdecode(substr(uri, start_char, nchar(uri)))
+    Encoding(path) <- "UTF-8"
+    path
 }
 
 
@@ -92,6 +100,22 @@ path_to_uri <- function(path) {
         prefix <- "file://"
     }
     paste0(prefix, utils::URLencode(path))
+}
+
+
+path_has_parent <- function(x, y) {
+    if (.Platform$OS.type == "windows") {
+        tryCatch(
+            # https://github.com/REditorSupport/languageserver/issues/279
+            fs::path_has_parent(x, y),
+            error = function(e) {
+                # try encode to native encoding
+                fs::path_has_parent(enc2native(x), enc2native(y))
+            }
+        )
+    } else {
+        fs::path_has_parent(x, y)
+    }
 }
 
 #' Check if a file is an RMarkdown file
