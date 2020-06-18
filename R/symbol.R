@@ -92,19 +92,19 @@ get_rmd_document_section_symbols <- function(uri, document) {
         return(NULL)
     }
 
+    section_lines <- grepl("^#+\\s+\\S+", content)
     if (grepl("^---\\s*$", content[[1]])) {
         front_start <- 1L
         front_end <- 2L
         while (front_end <= document$nline) {
             if (grepl("^---\\s*$", content[[front_end]])) {
-                block_lines <- c(front_start, front_end, block_lines)
                 break
             }
             front_end <- front_end + 1L
         }
+        section_lines[seq.int(front_start, front_end)] <- FALSE
     }
 
-    section_lines <- grepl("^#+\\s+\\S+", content)
     for (i in seq_len(length(block_lines) / 2)) {
         section_lines[seq.int(block_lines[[2 * i - 1]], block_lines[[2 * i]])] <- FALSE
     }
