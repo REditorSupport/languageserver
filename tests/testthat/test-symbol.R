@@ -141,6 +141,30 @@ test_that("Document section symbol works in Rmarkdown", {
         "## section2",
         "```{r}",
         "g <- function(x) { x - 1 }",
+        "```",
+        "```{r,eval=FALSE}",
+        "x0 <- 0",
+        "```",
+        "```{r chunk1}",
+        "x1 <- 1",
+        "```",
+        "```{r chunk1a, eval=FALSE}",
+        "x1 <- 1",
+        "```",
+        "```{r 'chunk2'}",
+        "x2 <- 2",
+        "```",
+        "```{r 'chunk2a', eval=TRUE}",
+        "x2 <- 2",
+        "```",
+        "```{r \"chunk3\"}",
+        "x3 <- 3",
+        "```",
+        "```{r \"chunk3a\", eval=FALSE}",
+        "x3 <- 3",
+        "```",
+        "```{r \"chunk4, new\", eval=FALSE}",
+        "x3 <- 3",
         "```"
     ), defn_file)
 
@@ -149,7 +173,11 @@ test_that("Document section symbol works in Rmarkdown", {
 
     expect_equal(
         result %>% map_chr(~ .$name) %>% sort(),
-        c("section1", "subsection1", "f", "section2", "g") %>% sort()
+        c("section1", "subsection1", "unnamed-chunk-1",
+            "f", "section2", "unnamed-chunk-2", "g",
+            "unnamed-chunk-3", "chunk1", "chunk1a", "chunk2", "chunk2a",
+            "chunk3", "chunk3a", "chunk4, new"
+        ) %>% sort()
     )
     expect_equivalent(
         result %>% detect(~ .$name == "section1") %>% pluck("location", "range"),
@@ -165,10 +193,50 @@ test_that("Document section symbol works in Rmarkdown", {
     )
     expect_equivalent(
         result %>% detect(~ .$name == "section2") %>% pluck("location", "range"),
-        range(position(12, 0), position(15, 3))
+        range(position(12, 0), position(39, 3))
     )
     expect_equivalent(
         result %>% detect(~ .$name == "g") %>% pluck("location", "range"),
         range(position(14, 0), position(14, 26))
+    )
+    expect_equivalent(
+        result %>% detect(~ .$name == "unnamed-chunk-1") %>% pluck("location", "range"),
+        range(position(7, 0), position(11, 3))
+    )
+    expect_equivalent(
+        result %>% detect(~ .$name == "unnamed-chunk-2") %>% pluck("location", "range"),
+        range(position(13, 0), position(15, 3))
+    )
+    expect_equivalent(
+        result %>% detect(~ .$name == "unnamed-chunk-3") %>% pluck("location", "range"),
+        range(position(16, 0), position(18, 3))
+    )
+    expect_equivalent(
+        result %>% detect(~ .$name == "chunk1") %>% pluck("location", "range"),
+        range(position(19, 0), position(21, 3))
+    )
+    expect_equivalent(
+        result %>% detect(~ .$name == "chunk1a") %>% pluck("location", "range"),
+        range(position(22, 0), position(24, 3))
+    )
+    expect_equivalent(
+        result %>% detect(~ .$name == "chunk2") %>% pluck("location", "range"),
+        range(position(25, 0), position(27, 3))
+    )
+    expect_equivalent(
+        result %>% detect(~ .$name == "chunk2a") %>% pluck("location", "range"),
+        range(position(28, 0), position(30, 3))
+    )
+    expect_equivalent(
+        result %>% detect(~ .$name == "chunk3") %>% pluck("location", "range"),
+        range(position(31, 0), position(33, 3))
+    )
+    expect_equivalent(
+        result %>% detect(~ .$name == "chunk3a") %>% pluck("location", "range"),
+        range(position(34, 0), position(36, 3))
+    )
+    expect_equivalent(
+        result %>% detect(~ .$name == "chunk4, new") %>% pluck("location", "range"),
+        range(position(37, 0), position(39, 3))
     )
 })
