@@ -4,14 +4,18 @@ test_that("Works with unicode path", {
     skip_on_cran()
     if (.Platform$OS.type == "windows") {
         skip_if_not(Sys.getenv("CI", "false") == "true")
+        old_locale <- Sys.getlocale("LC_CTYPE")
         Sys.setlocale(locale = "chinese")
+        on.exit({
+            Sys.setlocale(locale = old_locale)
+        })
     }
 
-    dir <- file.path(tempdir(), "中 文")
+    dir <- file.path(tempdir(), "\U4E2D \U6587")
     dir.create(dir, showWarnings = FALSE, recursive = TRUE)
     client <- language_client(dir)
 
-    withr::local_tempfile(c("defn_file", "defn2_file", "query_file"), pattern = "中文", fileext = ".R")
+    withr::local_tempfile(c("defn_file", "defn2_file", "query_file"), pattern = "\U4E2D\U6587", fileext = ".R")
     writeLines(c("my_fn <- function(x) {", "  x + 1", "}"), defn_file)
     writeLines(c("my_fn"), query_file)
 
