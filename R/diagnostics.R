@@ -66,7 +66,7 @@ find_config <- function(filename) {
 #'
 #' Lint and diagnose problems in a file.
 #' @keywords internal
-diagnose_file <- function(uri, content) {
+diagnose_file <- function(uri, content, wd) {
     if (length(content) == 0) {
         return(list())
     }
@@ -79,22 +79,33 @@ diagnose_file <- function(uri, content) {
     }
 
     path <- path_from_uri(uri)
-    linter_file <- find_config(path)
-    if (is.null(linter_file)) {
-        linters <- getOption("languageserver.default_linters", NULL)
-    } else {
-        linters <- NULL
-        op <- options(lintr.linter_file = linter_file)
-        on.exit(options(op))
-    }
 
     if (length(content) == 1) {
         content <- c(content, "")
     }
 
+    linter_file <- find_config(path)
+    linters <- NULL
+    lint_text_support <- "text" %in% names(formals(lintr::lint))
+
+    if (is.null(linter_file)) {
+        linters <- getOption("languageserver.default_linters", NULL)
+    } else if (!lint_text_support) {
+        op <- options(lintr.linter_file = linter_file)
+        on.exit(options(op))
+    }
+
+    old_wd <- setwd(wd)
+    on.exit(setwd(old_wd))
+
     text <- paste0(content, collapse = "\n")
-    diagnostics <- lapply(
-        lintr::lint(text, linters = linters), diagnostic_from_lint, content = content)
+    lints <- if (lint_text_support) {
+        lintr::lint(path, linters = linters, text = text)
+    } else {
+        lintr::lint(text, linters = linters)
+    }
+    
+    diagnostics <- lapply(lints, diagnostic_from_lint, content = content)
     names(diagnostics) <- NULL
     diagnostics
 }
@@ -121,7 +132,7 @@ diagnostics_task <- function(self, uri, document, delay = 0) {
     content <- document$content
     create_task(
         target = package_call(diagnose_file),
-        args = list(uri = uri, content = content),
+        args = list(uri = uri, content = content, wd = self$rootPath),
         callback = function(result) diagnostics_callback(self, uri, version, result),
         error = function(e) {
             logger$info("diagnostics_task:", e)
