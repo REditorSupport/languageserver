@@ -45,7 +45,7 @@ constant_completion <- function(token) {
     completions <- lapply(consts, function(const) {
         list(label = const,
             kind = CompletionItemKind$Constant,
-            sortText = paste0("3-", const),
+            sortText = paste0("4-", const),
             data = list(type = "constant")
         )
     })
@@ -59,7 +59,7 @@ package_completion <- function(token) {
     completions <- lapply(token_packages, function(package) {
         list(label = package,
             kind = CompletionItemKind$Module,
-            sortText = paste0("3-", package),
+            sortText = paste0("4-", package),
             data = list(type = "package")
         )
     })
@@ -101,10 +101,10 @@ ns_function_completion <- function(ns, token, exported_only, snippet_support) {
     functs <- functs[startsWith(functs, token)]
     if (nsname == WORKSPACE) {
         tag <- "[workspace]"
-        sort_prefix <- "1-"
+        sort_prefix <- "2-"
     } else {
         tag <- paste0("{", nsname, "}")
-        sort_prefix <- "3-"
+        sort_prefix <- "4-"
     }
     if (isTRUE(snippet_support)) {
         completions <- lapply(functs, function(object) {
@@ -150,7 +150,7 @@ imported_object_completion <- function(workspace, token, snippet_support) {
                 item <- list(label = object,
                     kind = CompletionItemKind$Function,
                     detail = paste0("{", nsname, "}"),
-                    sortText = paste0("2-", object),
+                    sortText = paste0("3-", object),
                     insertText = paste0(object, "($0)"),
                     insertTextFormat = InsertTextFormat$Snippet,
                     data = list(
@@ -161,7 +161,7 @@ imported_object_completion <- function(workspace, token, snippet_support) {
                 item <- list(label = object,
                     kind = CompletionItemKind$Function,
                     detail = paste0("{", nsname, "}"),
-                    sortText = paste0("2-", object),
+                    sortText = paste0("3-", object),
                     data = list(
                         type = "function",
                         package = nsname
@@ -194,10 +194,10 @@ workspace_completion <- function(workspace, token,
             }
             if (nsname == WORKSPACE) {
                 tag <- "[workspace]"
-                sort_prefix <- "1-"
+                sort_prefix <- "2-"
             } else {
                 tag <- paste0("{", nsname, "}")
-                sort_prefix <- "3-"
+                sort_prefix <- "4-"
             }
 
             functs_completions <- ns_function_completion(ns, token,
@@ -245,7 +245,7 @@ workspace_completion <- function(workspace, token,
                 list(label = object,
                      kind = CompletionItemKind$Field,
                      detail = tag,
-                     sortText = paste0("3-", object),
+                     sortText = paste0("4-", object),
                      data = list(
                          type = "nonfunction",
                          package = package
