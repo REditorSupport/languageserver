@@ -104,7 +104,7 @@ diagnose_file <- function(uri, content, rootPath) {
     } else {
         lintr::lint(text, linters = linters)
     }
-    
+
     diagnostics <- lapply(lints, diagnostic_from_lint, content = content)
     names(diagnostics) <- NULL
     diagnostics
