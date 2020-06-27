@@ -34,6 +34,14 @@ InsertTextFormat <- list(
     Snippet = 2
 )
 
+sort_prefixes <- list(
+    arg = "0-",
+    scope = "1-",
+    workspace = "2-",
+    imported = "3-",
+    global = "4-"
+)
+
 constants <- c("TRUE", "FALSE", "NULL",
     "NA", "NA_integer_", "NA_real_", "NA_complex_", "NA_character_",
     "Inf", "NaN")
@@ -43,8 +51,11 @@ constants <- c("TRUE", "FALSE", "NULL",
 constant_completion <- function(token) {
     consts <- constants[startsWith(constants, token)]
     completions <- lapply(consts, function(const) {
-        list(label = const, kind = CompletionItemKind$Constant,
-            data = list(type = "constant"))
+        list(label = const,
+            kind = CompletionItemKind$Constant,
+            sortText = paste0(sort_prefixes$global, const),
+            data = list(type = "constant")
+        )
     })
 }
 
@@ -54,8 +65,11 @@ package_completion <- function(token) {
     installed_packages <- .packages(all.available = TRUE)
     token_packages <- installed_packages[startsWith(installed_packages, token)]
     completions <- lapply(token_packages, function(package) {
-        list(label = package, kind = CompletionItemKind$Module,
-            data = list(type = "package"))
+        list(label = package,
+            kind = CompletionItemKind$Module,
+            sortText = paste0(sort_prefixes$global, package),
+            data = list(type = "package")
+        )
     })
     completions
 }
@@ -74,7 +88,7 @@ arg_completion <- function(workspace, token, funct, package = NULL, exported_onl
                 list(label = arg,
                     kind = CompletionItemKind$Variable,
                     detail = "parameter",
-                    preselect = TRUE,
+                    sortText = paste0(sort_prefixes$arg, arg),
                     insertText = paste0(arg, " = "),
                     insertTextFormat = InsertTextFormat$PlainText,
                     data = list(
@@ -95,14 +109,17 @@ ns_function_completion <- function(ns, token, exported_only, snippet_support) {
     functs <- functs[startsWith(functs, token)]
     if (nsname == WORKSPACE) {
         tag <- "[workspace]"
+        sort_prefix <- sort_prefixes$workspace
     } else {
         tag <- paste0("{", nsname, "}")
+        sort_prefix <- sort_prefixes$global
     }
     if (isTRUE(snippet_support)) {
         completions <- lapply(functs, function(object) {
             list(label = object,
                 kind = CompletionItemKind$Function,
                 detail = tag,
+                sortText = paste0(sort_prefix, object),
                 insertText = paste0(object, "($0)"),
                 insertTextFormat = InsertTextFormat$Snippet,
                 data = list(
@@ -115,6 +132,7 @@ ns_function_completion <- function(ns, token, exported_only, snippet_support) {
             list(label = object,
                 kind = CompletionItemKind$Function,
                 detail = tag,
+                sortText = paste0(sort_prefix, object),
                 data = list(
                     type = "function",
                     package = nsname
@@ -140,6 +158,7 @@ imported_object_completion <- function(workspace, token, snippet_support) {
                 item <- list(label = object,
                     kind = CompletionItemKind$Function,
                     detail = paste0("{", nsname, "}"),
+                    sortText = paste0(sort_prefixes$imported, object),
                     insertText = paste0(object, "($0)"),
                     insertTextFormat = InsertTextFormat$Snippet,
                     data = list(
@@ -150,6 +169,7 @@ imported_object_completion <- function(workspace, token, snippet_support) {
                 item <- list(label = object,
                     kind = CompletionItemKind$Function,
                     detail = paste0("{", nsname, "}"),
+                    sortText = paste0(sort_prefixes$imported, object),
                     data = list(
                         type = "function",
                         package = nsname
@@ -182,8 +202,10 @@ workspace_completion <- function(workspace, token,
             }
             if (nsname == WORKSPACE) {
                 tag <- "[workspace]"
+                sort_prefix <- sort_prefixes$workspace
             } else {
                 tag <- paste0("{", nsname, "}")
+                sort_prefix <- sort_prefixes$global
             }
 
             functs_completions <- ns_function_completion(ns, token,
@@ -195,6 +217,7 @@ workspace_completion <- function(workspace, token,
                 list(label = object,
                      kind = CompletionItemKind$Field,
                      detail = tag,
+                     sortText = paste0(sort_prefix, object),
                      data = list(
                          type = "nonfunction",
                          package = nsname
@@ -206,6 +229,7 @@ workspace_completion <- function(workspace, token,
                 list(label = object,
                      kind = CompletionItemKind$Field,
                      detail = tag,
+                     sortText = paste0(sort_prefix, object),
                      data = list(
                          type = "lazydata",
                          package = nsname
@@ -229,6 +253,7 @@ workspace_completion <- function(workspace, token,
                 list(label = object,
                      kind = CompletionItemKind$Field,
                      detail = tag,
+                     sortText = paste0(sort_prefixes$global, object),
                      data = list(
                          type = "nonfunction",
                          package = package
@@ -278,6 +303,7 @@ scope_completion <- function(uri, workspace, token, point, snippet_support = NUL
         list(
             label = symbol,
             kind = CompletionItemKind$Field,
+            sortText = paste0(sort_prefixes$scope, symbol),
             detail = "[scope]"
         )
     })
@@ -290,6 +316,7 @@ scope_completion <- function(uri, workspace, token, point, snippet_support = NUL
                 label = symbol,
                 kind = CompletionItemKind$Function,
                 detail = "[scope]",
+                sortText = paste0(sort_prefixes$scope, symbol),
                 insertText = paste0(symbol, "($0)"),
                 insertTextFormat = InsertTextFormat$Snippet
             )
@@ -299,6 +326,7 @@ scope_completion <- function(uri, workspace, token, point, snippet_support = NUL
             list(
                 label = symbol,
                 kind = CompletionItemKind$Function,
+                sortText = paste0(sort_prefixes$scope, symbol),
                 detail = "[scope]"
             )
         })
