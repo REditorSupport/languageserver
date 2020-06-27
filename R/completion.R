@@ -101,15 +101,17 @@ ns_function_completion <- function(ns, token, exported_only, snippet_support) {
     functs <- functs[startsWith(functs, token)]
     if (nsname == WORKSPACE) {
         tag <- "[workspace]"
+        sort_prefix <- "1-"
     } else {
         tag <- paste0("{", nsname, "}")
+        sort_prefix <- "3-"
     }
     if (isTRUE(snippet_support)) {
         completions <- lapply(functs, function(object) {
             list(label = object,
                 kind = CompletionItemKind$Function,
                 detail = tag,
-                sortText = paste0("3-", object),
+                sortText = paste0(sort_prefix, object),
                 insertText = paste0(object, "($0)"),
                 insertTextFormat = InsertTextFormat$Snippet,
                 data = list(
@@ -122,7 +124,7 @@ ns_function_completion <- function(ns, token, exported_only, snippet_support) {
             list(label = object,
                 kind = CompletionItemKind$Function,
                 detail = tag,
-                sortText = paste0("3-", object),
+                sortText = paste0(sort_prefix, object),
                 data = list(
                     type = "function",
                     package = nsname
