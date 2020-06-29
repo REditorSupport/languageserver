@@ -61,9 +61,9 @@ text_document_will_save <- function(self, params) {
 #' Handler to the `textDocument/didSave` [Notification].
 #' @keywords internal
 text_document_did_save <- function(self, params) {
-    textDocument <- params$textDocument
-    text <- params$text
-    uri <- uri_escape_unicode(textDocument$uri)
+    textDocument <- params[["textDocument"]]
+    text <- params[["text"]]
+    uri <- uri_escape_unicode(textDocument[["uri"]])
     logger$info("did save:", list(uri = uri))
     path <- path_from_uri(uri)
     if (!is.null(text)) {
