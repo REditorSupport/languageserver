@@ -60,8 +60,8 @@ jobs:
         r-version: ${{ matrix.r }}
     - name: Install languagesever
       run: |
-        Rscript -e "install.packages(c('remotes', 'rcmdcheck'), repos = 'https://cloud.r-project.org', type = 'mac.binary.el-capitan')"
-        Rscript -e "remotes::install_deps(dependencies = TRUE, type = 'mac.binary.el-capitan')"
+        Rscript -e "install.packages(c('remotes', 'rcmdcheck'), repos = 'https://cloud.r-project.org', type = 'mac.binary')"
+        Rscript -e "remotes::install_deps(dependencies = TRUE, type = 'mac.binary')"
     - name: Running Tests
       run: |
         mkdir -p /tmp/languageserver
