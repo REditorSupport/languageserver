@@ -62,7 +62,7 @@ ServerCapabilities <- list(
     # renameProvider = FALSE,
     documentLinkProvider = DocumentLinkOptions,
     colorProvider = TRUE,
-    foldingRangeProvider = TRUE,
+    foldingRangeProvider = TRUE
     # selectionRangeProvider = FALSE,
     # executeCommandProvider = ExecuteCommandOptions,
     # workspace = list()
