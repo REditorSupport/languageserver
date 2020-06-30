@@ -6,7 +6,7 @@ FoldingRangeKind <- list(
 
 #' Get all the folding ranges in the document
 #' @keywords internal
-document_folding_range_reply <- function(id, uri, workspace, document) {
+document_folding_range_reply <- function(id, uri, document) {
     result <- NULL
     section_symbols <- NULL
     section_lines <- seq_len(document$nline)
