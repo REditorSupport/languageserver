@@ -183,10 +183,10 @@ extract_blocks <- function(content) {
     blocks
 }
 
-get_r_document_sections <- function(uri, document, type = c("sections", "subsections")) {
+get_r_document_sections <- function(uri, document, type = c("section", "subsections")) {
     sections <- NULL
 
-    if ("sections" %in% type) {
+    if ("section" %in% type) {
         section_lines <- seq_len(document$nline)
         section_lines <- section_lines[
             grep("^\\#+\\s*(.+?)\\s*(\\#{4,}|\\+{4,}|\\-{4,}|\\={4,})\\s*$",
@@ -208,7 +208,7 @@ get_r_document_sections <- function(uri, document, type = c("sections", "subsect
 
     subsections <- NULL
 
-    if ("subsections" %in% type) {
+    if ("subsection" %in% type) {
         subsection_lines <- seq_len(document$nline)
         subsection_lines <- subsection_lines[
             grep("^\\s+\\#+\\s*(.+?)\\s*(\\#{4,}|\\+{4,}|\\-{4,}|\\={4,})\\s*$",
@@ -316,11 +316,12 @@ get_rmd_document_sections <- function(uri, document, type = c("section", "chunk"
     c(sections, chunks)
 }
 
-get_document_sections <- function(uri, document) {
+get_document_sections <- function(uri, document,
+    type = c("section", "subsection", "chunk")) {
     if (document$is_rmarkdown) {
-        get_rmd_document_sections(uri, document)
+        get_rmd_document_sections(uri, document, type)
     } else {
-        get_r_document_sections(uri, document)
+        get_r_document_sections(uri, document, type)
     }
 }
 
