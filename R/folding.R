@@ -8,7 +8,7 @@ FoldingRangeKind <- list(
 #' @keywords internal
 document_folding_range_reply <- function(id, uri, workspace, document) {
     result <- NULL
-    
+
     parse_data <- workspace$get_parse_data(uri)
     if (is.null(parse_data) ||
         (!is.null(parse_data$version) && parse_data$version != document$version)) {
@@ -43,6 +43,7 @@ document_folding_range_reply <- function(id, uri, workspace, document) {
         result <- c(result, section_folding_ranges)
     }
 
+    result <- unique(result)
     if (length(result) == 0) {
         Response$new(id)
     } else {
