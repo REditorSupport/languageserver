@@ -60,7 +60,7 @@ get_expr_type <- function(expr) {
         func <- deparse(expr[[1]], nlines = 1)
         if (func == "function") {
             "function"
-        } else if (func == "c") {
+        } else if (func %in% c("c", "matrix", "array")) {
             "array"
         } else if (func == "list") {
             "list"
