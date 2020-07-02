@@ -28,6 +28,19 @@ SymbolKind <- list(
     TypeParameter = 26
 )
 
+get_document_symbol_kind <- function(type) {
+    switch(type,
+        logical = SymbolKind$Boolean,
+        integer = SymbolKind$Number,
+        double = SymbolKind$Number,
+        complex = SymbolKind$Number,
+        character = SymbolKind$String,
+        `function` = SymbolKind$Function,
+        `NULL` = SymbolKind$Null,
+        SymbolKind$Variable
+    )
+}
+
 #' Get all the symbols in the document
 #' @keywords internal
 document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
@@ -39,16 +52,16 @@ document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
 
     defns <- workspace$get_definitions_for_uri(uri)
     logger$info("document definitions found: ", length(defns))
-    definition_symbols <- lapply(names(defns),
-        function(funct) {
-            symbol_information(
-                name = funct,
-                kind = SymbolKind$Function,
-                location = location(
-                    uri = uri,
-                    range = defns[[funct]]
-                )
+    definition_symbols <- lapply(names(defns), function(name) {
+        def <- defns[[name]]
+        symbol_information(
+            name = name,
+            kind = get_document_symbol_kind(def$type),
+            location = location(
+                uri = uri,
+                range = def$range
             )
+        )
     })
     result <- definition_symbols
 
@@ -60,7 +73,8 @@ document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
                 kind = switch(section$type,
                     section = SymbolKind$String,
                     subsection = SymbolKind$String,
-                    chunk = SymbolKind$Key
+                    chunk = SymbolKind$Key,
+                    SymbolKind$String
                 ),
                 location = list(
                     uri = uri,
@@ -81,14 +95,7 @@ document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
         result <- c(result, section_symbols)
     }
 
-    if (length(result) == 0) {
-        Response$new(id)
-    } else {
-        Response$new(
-            id,
-            result = result
-        )
-    }
+    Response$new(id, result = result)
 }
 
 #' Get all the symbols in the workspace matching a query
@@ -96,20 +103,16 @@ document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
 workspace_symbol_reply <- function(id, workspace, query) {
     defns <- workspace$get_definitions_for_query(query)
     logger$info("workspace symbols found: ", length(defns))
-    result <- lapply(names(defns),
-        function(funct) {
-            symbol_information(
-                name = funct,
-                kind = SymbolKind[["Function"]],
-                location = defns[[funct]]
+    result <- lapply(defns, function(def) {
+        symbol_information(
+            name = def$name,
+            kind = get_document_symbol_kind(def$type),
+            location = location(
+                uri = def$uri,
+                range = def$range
             )
-    })
-    if (is.null(result)) {
-        Response$new(id)
-    } else {
-        Response$new(
-            id,
-            result = result
         )
-    }
+    })
+
+    Response$new(id, result = result)
 }

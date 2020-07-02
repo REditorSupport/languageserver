@@ -55,6 +55,17 @@ capture_print <- function(x) {
     paste0(utils::capture.output(print(x)), collapse = "\n")
 }
 
+get_expr_type <- function(expr) {
+    if (is.call(expr)) {
+        if (is.symbol(expr[[1]]) && expr[[1]] == "function") {
+            "function"
+        } else {
+            "object"
+        }
+    } else {
+        typeof(expr)
+    }
+}
 
 uri_escape_unicode <- function(uri) {
     if (length(uri) == 0) {
