@@ -222,12 +222,7 @@ parse_expr <- function(content, expr, env, level = 0L, srcref = attr(expr, "srcr
             if (type == "function") {
                 env$functs <- c(env$functs, symbol)
                 env$formals[[symbol]] <- value[[2L]]
-
-                signature <- format(value[1:2])
-                signature <- paste0(trimws(signature, which = "left"), collapse = "")
-                signature <- gsub("^function\\s*", symbol, signature)
-                signature <- gsub("\\s*NULL$", "", signature)
-                env$signatures[[symbol]] <- signature
+                env$signatures[[symbol]] <- get_signature(symbol, value)
             } else {
                 env$nonfuncts <- c(env$nonfuncts, symbol)
             }

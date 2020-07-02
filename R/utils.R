@@ -201,6 +201,14 @@ extract_blocks <- function(content) {
     blocks
 }
 
+get_signature <- function(symbol, expr) {
+    signature <- format(expr[1:2])
+    signature <- paste0(trimws(signature, which = "left"), collapse = "")
+    signature <- gsub("^function\\s*", symbol, signature)
+    signature <- gsub("\\s*NULL$", "", signature)
+    signature
+}
+
 get_r_document_sections <- function(uri, document, type = c("section", "subsections")) {
     sections <- NULL
 
