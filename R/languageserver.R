@@ -96,6 +96,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             if (!self$pending_replies$has(uri)) {
                 self$pending_replies$set(uri, list(
                     `textDocument/documentSymbol` = collections::queue(),
+                    `textDocument/foldingRange` = collections::queue(),
                     `textDocument/documentLink` = collections::queue(),
                     `textDocument/documentColor` = collections::queue()
                 ))
@@ -205,6 +206,7 @@ LanguageServer$set("public", "register_handlers", function() {
         `textDocument/documentLink` = text_document_document_link,
         `textDocument/documentColor` = text_document_document_color,
         `textDocument/colorPresentation` = text_document_color_presentation,
+        `textDocument/foldingRange` = text_document_folding_range,
         `workspace/symbol` = workspace_symbol
     )
 

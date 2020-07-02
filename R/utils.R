@@ -183,6 +183,148 @@ extract_blocks <- function(content) {
     blocks
 }
 
+get_r_document_sections <- function(uri, document, type = c("section", "subsections")) {
+    sections <- NULL
+
+    if ("section" %in% type) {
+        section_lines <- seq_len(document$nline)
+        section_lines <- section_lines[
+            grep("^\\#+\\s*(.+?)\\s*(\\#{4,}|\\+{4,}|\\-{4,}|\\={4,})\\s*$",
+                document$content[section_lines], perl = TRUE)]
+        if (length(section_lines)) {
+            section_names <- gsub("^\\#+\\s*(.+?)\\s*(\\#{4,}|\\+{4,}|\\-{4,}|\\={4,})\\s*$",
+                "\\1", document$content[section_lines], perl = TRUE)
+            section_end_lines <- c(section_lines[-1] - 1, document$nline)
+            sections <- .mapply(function(name, start_line, end_line) {
+                list(
+                    name = name,
+                    type = "section",
+                    start_line = start_line,
+                    end_line = end_line
+                )
+            }, list(section_names, section_lines, section_end_lines), NULL)
+        }
+    }
+
+    subsections <- NULL
+
+    if ("subsection" %in% type) {
+        subsection_lines <- seq_len(document$nline)
+        subsection_lines <- subsection_lines[
+            grep("^\\s+\\#+\\s*(.+?)\\s*(\\#{4,}|\\+{4,}|\\-{4,}|\\={4,})\\s*$",
+                document$content[subsection_lines], perl = TRUE)]
+        if (length(subsection_lines)) {
+            subsection_names <- gsub("^\\s+\\#+\\s*(.+?)\\s*(\\#{4,}|\\+{4,}|\\-{4,}|\\={4,})\\s*$",
+                "\\1", document$content[subsection_lines], perl = TRUE)
+            subsections <- .mapply(function(name, line) {
+                list(
+                    name = name,
+                    type = "subsection",
+                    start_line = line,
+                    end_line = line
+                )
+            }, list(subsection_names, subsection_lines), NULL)
+        }
+    }
+
+    c(sections, subsections)
+}
+
+get_rmd_document_sections <- function(uri, document, type = c("section", "chunk")) {
+    content <- document$content
+    if (length(content) == 0) {
+        return(NULL)
+    }
+
+    block_lines <- grep("^\\s*```", content)
+    if (length(block_lines) %% 2 != 0) {
+        return(NULL)
+    }
+
+    sections <- NULL
+    if ("section" %in% type) {
+        section_lines <- grepl("^#+\\s+\\S+", content)
+        if (grepl("^---\\s*$", content[[1]])) {
+            front_start <- 1L
+            front_end <- 2L
+            while (front_end <= document$nline) {
+                if (grepl("^---\\s*$", content[[front_end]])) {
+                    break
+                }
+                front_end <- front_end + 1L
+            }
+            section_lines[seq.int(front_start, front_end)] <- FALSE
+        }
+
+        for (i in seq_len(length(block_lines) / 2)) {
+            section_lines[seq.int(block_lines[[2 * i - 1]], block_lines[[2 * i]])] <- FALSE
+        }
+
+        section_lines <- which(section_lines)
+        section_num <- length(section_lines)
+        section_texts <- content[section_lines]
+        section_hashes <- gsub("^(#+)\\s+.+$", "\\1", section_texts)
+        section_levels <- nchar(section_hashes)
+        section_names <- gsub("^#+\\s+(.+?)(\\s+#+)?\\s*$", "\\1", section_texts, perl = TRUE)
+
+        sections <- lapply(seq_len(section_num), function(i) {
+            start_line <- section_lines[[i]]
+            end_line <- document$nline
+            level <- section_levels[[i]]
+            j <- i + 1
+            while (j <= section_num) {
+                if (section_levels[[j]] <= level) {
+                    end_line <- section_lines[[j]] - 1
+                    break
+                }
+                j <- j + 1
+            }
+            list(
+                name = section_names[[i]],
+                type = "section",
+                start_line = start_line,
+                end_line = end_line
+            )
+        })
+    }
+
+    chunks <- NULL
+    if ("chunk" %in% type) {
+        unnamed_chunks <- 0
+        chunks <- lapply(seq_len(length(block_lines) / 2), function(i) {
+            start_line <- block_lines[[2 * i - 1]]
+            end_line <- block_lines[[2 * i]]
+            label <- stringi::stri_match_first_regex(content[[start_line]],
+                "^\\s*```+\\s*\\{[a-zA-Z0-9_]+\\s*(([^,'\"]+)|'(.+)'|\"(.+)\")\\s*(,.+)?\\}\\s*$"
+            )[1, 3:5]
+            name <- label[!is.na(label)]
+
+            if (length(name) == 0) {
+                unnamed_chunks <<- unnamed_chunks + 1
+                name <- sprintf("unnamed-chunk-%d", unnamed_chunks)
+            }
+
+            list(
+                name = name,
+                type = "chunk",
+                start_line = start_line,
+                end_line = end_line
+            )
+        })
+    }
+
+    c(sections, chunks)
+}
+
+get_document_sections <- function(uri, document,
+    type = c("section", "subsection", "chunk")) {
+    if (document$is_rmarkdown) {
+        get_rmd_document_sections(uri, document, type)
+    } else {
+        get_r_document_sections(uri, document, type)
+    }
+}
+
 #' Strip out all the non R blocks in a R markdown file
 #' @param content a character vector
 #' @keywords internal

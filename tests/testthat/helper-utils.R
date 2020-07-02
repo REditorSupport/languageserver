@@ -318,6 +318,17 @@ respond_document_color <- function(client, path, ...) {
     )
 }
 
+respond_document_folding_range <- function(client, path, ...) {
+    respond(
+        client,
+        "textDocument/foldingRange",
+        list(
+            textDocument = list(uri = path_to_uri(path))
+        ),
+        ...
+    )
+}
+
 wait_for <- function(client, method, timeout = 5) {
     storage <- new.env(parent = .GlobalEnv)
     start_time <- Sys.time()

@@ -269,7 +269,20 @@ text_document_prepare_rename  <- function(self, id, params) {
 #' Handler to the `textDocument/foldingRange` [Request].
 #' @keywords internal
 text_document_folding_range  <- function(self, id, params) {
-
+    textDocument <- params$textDocument
+    uri <- uri_escape_unicode(textDocument$uri)
+    document <- self$workspace$documents$get(uri)
+    reply <- document_folding_range_reply(id, uri, self$workspace, document)
+    if (is.null(reply)) {
+        queue <- self$pending_replies$get(uri)[["textDocument/foldingRange"]]
+        queue$push(list(
+            id = id,
+            version = document$version,
+            params = params
+        ))
+    } else {
+        self$deliver(reply)
+    }
 }
 
 #' `textDocument/selectionRange` request handler
