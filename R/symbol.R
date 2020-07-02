@@ -35,6 +35,8 @@ get_document_symbol_kind <- function(type) {
         double = SymbolKind$Number,
         complex = SymbolKind$Number,
         character = SymbolKind$String,
+        array = SymbolKind$Array,
+        list = SymbolKind$Struct,
         `function` = SymbolKind$Function,
         `NULL` = SymbolKind$Null,
         `class` = SymbolKind$Class,

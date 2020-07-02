@@ -57,12 +57,17 @@ capture_print <- function(x) {
 
 get_expr_type <- function(expr) {
     if (is.call(expr)) {
-        if (is.symbol(expr[[1]]) && expr[[1]] == "function") {
+        func <- deparse(expr[[1]], nlines = 1)
+        if (func == "function") {
             "function"
-        } else if (grepl("(R6:::?)?R6Class", deparse(expr[[1]], nlines = 1))) {
+        } else if (func == "c") {
+            "array"
+        } else if (func == "list") {
+            "list"
+        } else if (grepl("(R6:::?)?R6Class", func)) {
             "class"
         } else {
-            "object"
+            "variable"
         }
     } else {
         typeof(expr)
