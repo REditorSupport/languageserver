@@ -18,7 +18,6 @@ document_folding_range_reply <- function(id, uri, workspace, document) {
     xdoc <- parse_data$xml_doc
     if (!is.null(xdoc)) {
         exprs <- xml_find_all(xdoc, "//expr[@line2 > @line1]")
-        logger$info("expr_folding_range: ", length(exprs))
         expr_line1 <- as.integer(xml_attr(exprs, "line1"))
         expr_line2 <- as.integer(xml_attr(exprs, "line2"))
         expr_folding_ranges <- .mapply(function(line1, line2) {
