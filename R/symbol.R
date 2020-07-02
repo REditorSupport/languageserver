@@ -37,6 +37,7 @@ get_document_symbol_kind <- function(type) {
         character = SymbolKind$String,
         `function` = SymbolKind$Function,
         `NULL` = SymbolKind$Null,
+        `class` = SymbolKind$Class,
         SymbolKind$Variable
     )
 }

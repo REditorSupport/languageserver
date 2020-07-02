@@ -59,6 +59,8 @@ get_expr_type <- function(expr) {
     if (is.call(expr)) {
         if (is.symbol(expr[[1]]) && expr[[1]] == "function") {
             "function"
+        } else if (grepl("(R6:::?)?R6Class", deparse(expr[[1]], nlines = 1))) {
+            "class"
         } else {
             "object"
         }
