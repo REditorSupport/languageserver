@@ -17,35 +17,32 @@ document_color_reply <- function(id, uri, workspace, document) {
         str_col1 <- as.integer(xml_attr(str_tokens, "col1"))
         str_col2 <- as.integer(xml_attr(str_tokens, "col2"))
         str_expr <- substr(document$content[str_line1], str_col1, str_col2)
-        str_texts <- vapply(str_expr, function(expr) {
-            tryCatch(parse(expr, keep.source = FALSE), error = function(e) "")
-        }, character(1))
+        str_texts <- tryCatch(as.character(parse(expr, keep.source = FALSE)),
+            error = function(e) NULL)
 
-        is_color <- !grepl("^[rR]", str_expr) &
-            (grepl("^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$", str_texts) |
-                str_texts %in% grDevices::colors())
-        color_texts <- str_texts[is_color]
-        color_line1 <- str_line1[is_color]
-        color_col1 <- str_col1[is_color]
-        color_col2 <- str_col2[is_color]
-        color_rgb <- grDevices::col2rgb(color_texts, alpha = TRUE) / 255
+        if (length(str_texts)) {
+            is_color <- !grepl("^[rR]", str_expr) &
+                (grepl("^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$", str_texts) |
+                    str_texts %in% grDevices::colors())
+            color_texts <- str_texts[is_color]
+            color_line1 <- str_line1[is_color]
+            color_col1 <- str_col1[is_color]
+            color_col2 <- str_col2[is_color]
+            color_rgb <- grDevices::col2rgb(color_texts, alpha = TRUE) / 255
 
-        result <- .mapply(function(line, col1, col2, i) {
-            list(
-                range = range(
-                    start = document$to_lsp_position(line - 1, col1),
-                    end = document$to_lsp_position(line - 1, col2 - 1)
-                ),
-                color = as.list(color_rgb[, i])
-            )
-        }, list(color_line1, color_col1, color_col2, seq_along(color_texts)), NULL)
+            result <- .mapply(function(line, col1, col2, i) {
+                list(
+                    range = range(
+                        start = document$to_lsp_position(line - 1, col1),
+                        end = document$to_lsp_position(line - 1, col2 - 1)
+                    ),
+                    color = as.list(color_rgb[, i])
+                )
+            }, list(color_line1, color_col1, color_col2, seq_along(color_texts)), NULL)
+        }
     }
 
-    if (is.null(result)) {
-        Response$new(id)
-    } else {
-        Response$new(id, result = result)
-    }
+    Response$new(id, result = result)
 }
 
 #' The response to a textDocument/colorPresentation Request
