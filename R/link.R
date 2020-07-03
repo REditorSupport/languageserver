@@ -17,7 +17,9 @@ document_link_reply <- function(id, uri, workspace, document, rootPath) {
         str_col1 <- as.integer(xml_attr(str_tokens, "col1"))
         str_col2 <- as.integer(xml_attr(str_tokens, "col2"))
         str_expr <- substr(document$content[str_line1], str_col1, str_col2)
-        str_texts <- as.character(parse(text = str_expr, keep.source = FALSE))
+        str_texts <- vapply(str_expr, function(expr) {
+            tryCatch(parse(expr, keep.source = FALSE), error = function(e) "")
+        }, character(1))
 
         paths <- fs::path_abs(str_texts, rootPath)
 
