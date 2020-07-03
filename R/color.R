@@ -17,7 +17,7 @@ document_color_reply <- function(id, uri, workspace, document) {
         str_col1 <- as.integer(xml_attr(str_tokens, "col1"))
         str_col2 <- as.integer(xml_attr(str_tokens, "col2"))
         str_expr <- substr(document$content[str_line1], str_col1, str_col2)
-        str_texts <- tryCatch(as.character(parse(expr, keep.source = FALSE)),
+        str_texts <- tryCatch(as.character(parse(str_expr, keep.source = FALSE)),
             error = function(e) NULL)
 
         if (length(str_texts)) {
