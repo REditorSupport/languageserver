@@ -173,24 +173,25 @@ Workspace <- R6::R6Class("Workspace",
             if (is.null(parse_data)) {
                 return(list())
             }
-            parse_data$definition_ranges
+            parse_data$definitions
         },
 
         get_definitions_for_query = function(pattern) {
-            ranges <- list()
+            result <- list()
             for (doc in self$documents$values()) {
                 parse_data <- doc$parse_data
                 if (is.null(parse_data)) next
-                doc_ranges <- lapply(
-                        parse_data$definition_ranges,
-                        function(r) list(
-                            uri = doc$uri,
-                            range = r
-                        )
+                symbols <- names(parse_data$definitions)
+                matches <- symbols[fuzzy_find(symbols, pattern)]
+                result <- c(result, lapply(
+                    unname(parse_data$definitions[matches]),
+                    function(def) c(
+                        uri = doc$uri,
+                        def
                     )
-                ranges <- append(ranges, doc_ranges[fuzzy_find(names(doc_ranges), pattern)])
+                ))
             }
-            ranges
+            result
         },
 
         get_parse_data = function(uri) {

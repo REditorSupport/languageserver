@@ -250,7 +250,7 @@ GlobalEnv <- R6::R6Class("GlobalEnv",
         get_documentation = function(topic) {
             for (doc in self$documents$values()) {
                 if (!is.null(doc$parse_data)) {
-                    if (topic %in% doc$parse_data$functs) {
+                    if (topic %in% doc$parse_data$objects) {
                         return(doc$parse_data$documentation[[topic]])
                     }
                 }
@@ -261,10 +261,10 @@ GlobalEnv <- R6::R6Class("GlobalEnv",
         get_definition = function(symbol, exported_only = TRUE) {
             for (doc in self$documents$values()) {
                 if (!is.null(doc$parse_data)) {
-                    if (symbol %in% doc$parse_data$functs) {
+                    if (symbol %in% doc$parse_data$objects) {
                         def <- location(
                             uri = doc$uri,
-                            range = doc$parse_data$definition_ranges[[symbol]]
+                            range = doc$parse_data$definitions[[symbol]]$range
                         )
                         return(def)
                     }

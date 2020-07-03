@@ -55,6 +55,24 @@ capture_print <- function(x) {
     paste0(utils::capture.output(print(x)), collapse = "\n")
 }
 
+get_expr_type <- function(expr) {
+    if (is.call(expr)) {
+        func <- deparse(expr[[1]], nlines = 1)
+        if (func == "function") {
+            "function"
+        } else if (func %in% c("c", "matrix", "array")) {
+            "array"
+        } else if (func == "list") {
+            "list"
+        } else if (grepl("(R6:::?)?R6Class", func)) {
+            "class"
+        } else {
+            "variable"
+        }
+    } else {
+        typeof(expr)
+    }
+}
 
 uri_escape_unicode <- function(uri) {
     if (length(uri) == 0) {
@@ -181,6 +199,14 @@ extract_blocks <- function(content) {
         }
     }
     blocks
+}
+
+get_signature <- function(symbol, expr) {
+    signature <- format(expr[1:2])
+    signature <- paste0(trimws(signature, which = "left"), collapse = "")
+    signature <- gsub("^function\\s*", symbol, signature)
+    signature <- gsub("\\s*NULL$", "", signature)
+    signature
 }
 
 get_r_document_sections <- function(uri, document, type = c("section", "subsections")) {

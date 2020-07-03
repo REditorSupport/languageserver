@@ -199,33 +199,32 @@ parse_expr <- function(content, expr, env, level = 0L, srcref = attr(expr, "srcr
         } else if (f == "repeat") {
             Recall(content, e[[2L]], env, level + 1L, cur_srcref)
         } else if (f %in% c("<-", "=") && length(e) == 3L && is.symbol(e[[2L]])) {
-            funct <- as.character(e[[2L]])
-            env$objects <- c(env$objects, funct)
-            if (is.call(e[[3L]]) && e[[3L]][[1L]] == "function") {
-                # functions
-                env$functs <- c(env$functs, funct)
-                func <- e[[3L]]
-                env$formals[[funct]] <- func[[2L]]
+            symbol <- as.character(e[[2L]])
+            value <- e[[3L]]
+            type <- get_expr_type(value)
 
-                signature <- func
-                signature <- format(signature[1:2])
-                signature <- paste0(trimws(signature, which = "left"), collapse = "")
-                signature <- gsub("^function\\s*", funct, signature)
-                signature <- gsub("\\s*NULL$", "", signature)
-                env$signatures[[funct]] <- signature
+            env$objects <- c(env$objects, symbol)
 
-                expr_range <- expr_range(cur_srcref)
-                env$definition_ranges[[funct]] <- expr_range
+            expr_range <- expr_range(cur_srcref)
+            env$definitions[[symbol]] <- list(
+                name = symbol,
+                type = type,
+                range = expr_range
+            )
 
-                doc_line1 <- detect_comments(content, expr_range$start$line) + 1
-                if (doc_line1 <= expr_range$start$line) {
-                    env$documentation[[funct]] <- paste0(uncomment(
-                        content[seq.int(doc_line1, expr_range$start$line)]),
-                            collapse = "  \n")
-                }
+            doc_line1 <- detect_comments(content, expr_range$start$line) + 1
+            if (doc_line1 <= expr_range$start$line) {
+                env$documentation[[symbol]] <- paste0(uncomment(
+                    content[seq.int(doc_line1, expr_range$start$line)]),
+                collapse = "  \n")
+            }
+
+            if (type == "function") {
+                env$functs <- c(env$functs, symbol)
+                env$formals[[symbol]] <- value[[2L]]
+                env$signatures[[symbol]] <- get_signature(symbol, value)
             } else {
-                # symbols
-                env$nonfuncts <- c(env$nonfuncts, funct)
+                env$nonfuncts <- c(env$nonfuncts, symbol)
             }
         } else if (f %in% c("library", "require") && length(e) == 2L) {
             pkg <- as.character(e[[2L]])
@@ -259,7 +258,7 @@ parse_document <- function(uri, content) {
             env$functs <- character()
             env$formals <- list()
             env$signatures <- list()
-            env$definition_ranges <- list()
+            env$definitions <- list()
             env$documentation <- list()
             env$xml_data <- NULL
             env$xml_doc <- NULL
