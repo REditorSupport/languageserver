@@ -321,7 +321,7 @@ get_rmd_document_sections <- function(uri, document, type = c("section", "chunk"
             start_line <- block_lines[[2 * i - 1]]
             end_line <- block_lines[[2 * i]]
             label <- stringi::stri_match_first_regex(content[[start_line]],
-                "^\\s*```+\\s*\\{[a-zA-Z0-9_]+\\s*(([^,'\"]+)|'(.+)'|\"(.+)\")\\s*(,.+)?\\}\\s*$"
+                "^\\s*```+\\s*\\{[a-zA-Z0-9_]+\\s*(([^,='\"]+)|'(.+)'|\"(.+)\")\\s*(,.+)?\\}\\s*$"
             )[1, 3:5]
             name <- label[!is.na(label)]
 
