@@ -283,15 +283,11 @@ parse_callback <- function(self, uri, version, parse_data) {
     self$workspace$update_parse_data(uri, parse_data)
 
     if (!identical(old_parse_data$packages, parse_data$packages)) {
-        if (length(parse_data$packages)) {
-            self$resolve_task_manager$add_task(
-                uri,
-                resolve_task(self, uri, doc, parse_data$packages)
-            )
-            doc$loaded_packages <- parse_data$packages
-        } else {
-            doc$loaded_packages <- character()
-        }
+        self$resolve_task_manager$add_task(
+            uri,
+            resolve_task(self, uri, doc, parse_data$packages)
+        )
+        doc$loaded_packages <- parse_data$packages
         self$workspace$update_loaded_packages()
     }
 

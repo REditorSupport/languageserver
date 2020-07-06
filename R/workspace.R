@@ -1,5 +1,3 @@
-startup_packages <- c("base", "methods", "datasets", "utils", "grDevices", "graphics", "stats")
-
 #' A data structure for a session workspace
 #'
 #' A `Workspace` is initialized at the start of a session, when the language
@@ -19,7 +17,8 @@ Workspace <- R6::R6Class("Workspace",
         imported_packages = NULL,
         namespace_file_mt = NULL,
 
-        loaded_packages = startup_packages,
+        startup_packages = NULL,
+        loaded_packages = NULL,
 
         initialize = function(root) {
             self$root <- root
@@ -28,6 +27,9 @@ Workspace <- R6::R6Class("Workspace",
             self$imported_packages <- character(0)
             self$global_env <- GlobalEnv$new(self$documents)
             self$namespaces <- collections::dict()
+            self$startup_packages <- callr::r(resolve_attached_packages,
+                system_profile = TRUE, user_profile = TRUE)
+            self$startup_packages <- self$startup_packages
             for (pkgname in self$loaded_packages) {
                 self$namespaces$set(pkgname, PackageNamespace$new(pkgname))
             }
@@ -199,7 +201,7 @@ Workspace <- R6::R6Class("Workspace",
         },
 
         update_loaded_packages = function() {
-            loaded_packages <- union(startup_packages, self$imported_packages)
+            loaded_packages <- union(self$startup_packages, self$imported_packages)
             for (doc in self$documents$values()) {
                 loaded_packages <- union(loaded_packages, doc$loaded_packages)
             }
