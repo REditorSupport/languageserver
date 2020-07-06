@@ -1,5 +1,4 @@
-startup_packages <- c("base", "methods", "datasets", "utils",
-    "grDevices", "graphics", "stats")
+startup_packages <- c("base", "methods", "datasets", "utils", "grDevices", "graphics", "stats")
 
 #' A data structure for a session workspace
 #'
