@@ -29,7 +29,7 @@ Workspace <- R6::R6Class("Workspace",
             self$namespaces <- collections::dict()
             self$startup_packages <- callr::r(resolve_attached_packages,
                 system_profile = TRUE, user_profile = TRUE)
-            self$startup_packages <- self$startup_packages
+            self$loaded_packages <- self$startup_packages
             for (pkgname in self$loaded_packages) {
                 self$namespaces$set(pkgname, PackageNamespace$new(pkgname))
             }
