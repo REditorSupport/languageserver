@@ -1,3 +1,6 @@
+startup_packages <- c("base", "methods", "datasets", "utils",
+    "grDevices", "graphics", "stats")
+
 #' A data structure for a session workspace
 #'
 #' A `Workspace` is initialized at the start of a session, when the language
@@ -27,8 +30,14 @@ Workspace <- R6::R6Class("Workspace",
             self$imported_packages <- character(0)
             self$global_env <- GlobalEnv$new(self$documents)
             self$namespaces <- collections::dict()
-            self$startup_packages <- callr::r(resolve_attached_packages,
-                system_profile = TRUE, user_profile = TRUE)
+            self$startup_packages <- tryCatch(
+                callr::r(resolve_attached_packages,
+                    system_profile = TRUE, user_profile = TRUE, timeout = 3),
+                error = function(e) {
+                    logger$info("workspace initialize error: ", e)
+                    startup_packages
+                }
+            )
             self$loaded_packages <- self$startup_packages
             for (pkgname in self$loaded_packages) {
                 self$namespaces$set(pkgname, PackageNamespace$new(pkgname))
