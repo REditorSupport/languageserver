@@ -572,6 +572,7 @@ format_roxy_tag <- function(item) {
         tag <- sprintf("`@%s` ", item$tag)
         content <- switch(item$tag,
             param = sprintf("`%s` %s", item$val$name, format_roxy_text(item$val$description)),
+            example = ,
             examples = sprintf("\n```r\n%s\n```", item$val),
             format_roxy_text(item$raw)
         )
