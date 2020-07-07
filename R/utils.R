@@ -529,6 +529,42 @@ str_trunc <- function(string, width, ellipsis = "...") {
 
 uncomment <- function(x) gsub("^\\s*#+'?\\s*", "", x)
 
+convert_comment_to_documentation <- function(comment) {
+    result <- NULL
+    if (requireNamespace("roxygen2", quietly = TRUE)) {
+        roxy <- roxygen2::parse_text(c(
+            comment,
+            "NULL"
+        ), env = NULL)
+        if (length(roxy)) {
+            title <- NULL
+            description <- NULL
+            arguments <- list()
+            for (item in roxy[[1]]$tag) {
+                if (item$tag == "title") {
+                    title <- gsub("\n", "  \n", item$val)
+                } else if (item$tag == "description") {
+                    description <- gsub("\n", "  \n", item$val)
+                } else if (item$tag == "param") {
+                    arguments[[item$val$name]] <- gsub("\n", "  \n", item$val$description)
+                }
+            }
+            if (is.null(description)) {
+                description <- title
+            }
+            result <- list(
+                title = title,
+                description = description,
+                arguments = arguments
+            )
+        }
+    }
+    if (is.null(result)) {
+        result <- paste0(uncomment(comment), collapse = "  \n")
+    }
+    result
+}
+
 find_doc_item <- function(doc, tag) {
     for (item in doc) {
         if (attr(item, "Rd_tag") == tag) {
