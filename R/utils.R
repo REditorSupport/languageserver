@@ -531,34 +531,32 @@ uncomment <- function(x) gsub("^\\s*#+'?\\s*", "", x)
 
 convert_comment_to_documentation <- function(comment) {
     result <- NULL
-    if (requireNamespace("roxygen2", quietly = TRUE)) {
-        roxy <- roxygen2::parse_text(c(
-            comment,
-            "NULL"
-        ), env = NULL)
-        if (length(roxy)) {
-            result <- list(
-                title = NULL,
-                description = NULL,
-                arguments = list(),
-                markdown = NULL
-            )
-            items <- lapply(roxy[[1]]$tags, function(item) {
-                if (item$tag == "title") {
-                    result$title <<- item$val
-                } else if (item$tag == "description") {
-                    result$description <<- item$val
-                } else if (item$tag == "param") {
-                    result$arguments[[item$val$name]] <<- item$val$description
-                }
-
-                format_roxy_tag(item)
-            })
-            if (is.null(result$description)) {
-                result$description <- result$title
+    roxy <- tryCatch(roxygen2::parse_text(c(
+        comment,
+        "NULL"
+    ), env = NULL), error = function(e) NULL)
+    if (length(roxy)) {
+        result <- list(
+            title = NULL,
+            description = NULL,
+            arguments = list(),
+            markdown = NULL
+        )
+        items <- lapply(roxy[[1]]$tags, function(item) {
+            if (item$tag == "title") {
+                result$title <<- item$val
+            } else if (item$tag == "description") {
+                result$description <<- item$val
+            } else if (item$tag == "param") {
+                result$arguments[[item$val$name]] <<- item$val$description
             }
-            result$markdown <- paste0(items, collapse = "\n")
+
+            format_roxy_tag(item)
+        })
+        if (is.null(result$description)) {
+            result$description <- result$title
         }
+        result$markdown <- paste0(items, collapse = "\n")
     }
     if (is.null(result)) {
         result <- paste0(uncomment(comment), collapse = "  \n")
