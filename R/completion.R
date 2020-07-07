@@ -424,7 +424,7 @@ completion_item_resolve_reply <- function(id, workspace, params) {
             doc_string <- NULL
             if (is.character(doc)) {
                 doc_string <- doc
-            } else if (is.list(doc) && is.character(doc$description)) {
+            } else if (is.list(doc)) {
                 doc_string <- doc$description
             }
 

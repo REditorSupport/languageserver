@@ -537,32 +537,51 @@ convert_comment_to_documentation <- function(comment) {
             "NULL"
         ), env = NULL)
         if (length(roxy)) {
-            title <- NULL
-            description <- NULL
-            arguments <- list()
-            for (item in roxy[[1]]$tag) {
-                if (item$tag == "title") {
-                    title <- gsub("\n", "  \n", item$val)
-                } else if (item$tag == "description") {
-                    description <- gsub("\n", "  \n", item$val)
-                } else if (item$tag == "param") {
-                    arguments[[item$val$name]] <- gsub("\n", "  \n", item$val$description)
-                }
-            }
-            if (is.null(description)) {
-                description <- title
-            }
             result <- list(
-                title = title,
-                description = description,
-                arguments = arguments
+                title = NULL,
+                description = NULL,
+                arguments = list(),
+                markdown = NULL
             )
+            items <- lapply(roxy[[1]]$tags, function(item) {
+                if (item$tag == "title") {
+                    result$title <<- item$val
+                } else if (item$tag == "description") {
+                    result$description <<- item$val
+                } else if (item$tag == "param") {
+                    result$arguments[[item$val$name]] <<- item$val$description
+                }
+
+                format_roxy_tag(item)
+            })
+            if (is.null(result$description)) {
+                result$description <- result$title
+            }
+            result$markdown <- paste0(items, collapse = "\n")
         }
     }
     if (is.null(result)) {
         result <- paste0(uncomment(comment), collapse = "  \n")
     }
     result
+}
+
+format_roxy_tag <- function(item) {
+    if (item$tag == "title") {
+        tag <- ""
+        content <- sprintf("**%s**\n", item$val)
+    } else if (item$tag == "description") {
+        tag <- ""
+        content <- sprintf("%s\n", item$val)
+    } else {
+        tag <- sprintf("`@%s` ", item$tag)
+        content <- switch(item$tag,
+            param = sprintf("`%s` %s", item$val$name, item$val$description),
+            examples = sprintf("\n```r\n%s\n```", item$val),
+            item$raw
+        )
+    }
+    paste0(tag, content, "  \n")
 }
 
 find_doc_item <- function(doc, tag) {
