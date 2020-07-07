@@ -565,21 +565,22 @@ convert_comment_to_documentation <- function(comment) {
 }
 
 format_roxy_tag <- function(item) {
-    if (item$tag == "title") {
+    if (item$tag %in% c("title", "description")) {
         tag <- ""
-        content <- sprintf("**%s**\n", item$val)
-    } else if (item$tag == "description") {
-        tag <- ""
-        content <- sprintf("%s\n", item$val)
+        content <- format_roxy_text(item$val)
     } else {
         tag <- sprintf("`@%s` ", item$tag)
         content <- switch(item$tag,
-            param = sprintf("`%s` %s", item$val$name, item$val$description),
+            param = sprintf("`%s` %s", item$val$name, format_roxy_text(item$val$description)),
             examples = sprintf("\n```r\n%s\n```", item$val),
-            item$raw
+            format_roxy_text(item$raw)
         )
     }
     paste0(tag, content, "  \n")
+}
+
+format_roxy_text <- function(text) {
+    gsub("\n", "  \n", text, fixed = TRUE)
 }
 
 find_doc_item <- function(doc, tag) {
