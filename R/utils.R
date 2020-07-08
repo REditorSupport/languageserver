@@ -570,10 +570,12 @@ format_roxy_tag <- function(item) {
         content <- format_roxy_text(item$val)
     } else {
         tag <- sprintf("`@%s` ", item$tag)
-        content <- if (item$tag == "param") {
-            sprintf("`%s` %s", item$val$name, format_roxy_text(item$val$description))
-        } else if (item$tag %in% c("example", "examples", "usage")) {
+        content <- if (item$tag %in% c("usage", "example", "examples", "eval", "evalRd")) {
             sprintf("\n```r\n%s\n```", item$val)
+        } else if (is.character(item$val) && length(item$val) > 1) {
+            paste0(sprintf("`%s`", item$val), collapse = " ")
+        } else if (is.list(item$val)) {
+            sprintf("`%s` %s", item$val$name, format_roxy_text(item$val$description))
         } else {
             format_roxy_text(item$raw)
         }
