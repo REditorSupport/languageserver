@@ -45,7 +45,7 @@ get_comment_folding_ranges <- function(xdoc) {
         })
     })
     comm_ranges <- unlist(comm_ranges, recursive = FALSE, use.names = FALSE)
-    comm_ranges <- comm_ranges[vapply(comm_ranges, length, integer(1)) > 0]
+    comm_ranges <- comm_ranges[lengths(comm_ranges) > 0]
     comm_folding_ranges <- lapply(comm_ranges, function(item) {
         list(
             startLine = item[1] - 1,
