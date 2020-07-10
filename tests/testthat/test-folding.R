@@ -1,6 +1,6 @@
 context("Test Folding Range")
 
-test_that("Document folding rage works", {
+test_that("Expression folding rage works", {
     skip_on_cran()
     client <- language_client()
 
@@ -21,15 +21,9 @@ test_that("Document folding rage works", {
     expect_equivalent(result[[1]]$endLine, 2)
 })
 
-test_that("Document section folding range works", {
+test_that("Section folding range works", {
     skip_on_cran()
-    client <- language_client(capabilities = list(
-        textDocument = list(
-            documentSymbol = list(
-                hierarchicalDocumentSymbolSupport = TRUE
-            )
-        )
-    ))
+    client <- language_client()
 
     withr::local_tempfile(c("defn_file"), fileext = ".R")
     writeLines(c(
@@ -59,15 +53,9 @@ test_that("Document section folding range works", {
     expect_equal(result[[3]]$endLine, 8)
 })
 
-test_that("Document comment folding range works", {
+test_that("Comment folding range works", {
     skip_on_cran()
-    client <- language_client(capabilities = list(
-        textDocument = list(
-            documentSymbol = list(
-                hierarchicalDocumentSymbolSupport = TRUE
-            )
-        )
-    ))
+    client <- language_client()
 
     withr::local_tempfile(c("defn_file"), fileext = ".R")
     writeLines(c(
@@ -98,15 +86,9 @@ test_that("Document comment folding range works", {
     expect_equal(result[[3]]$endLine, 8)
 })
 
-test_that("Document folding range works in Rmarkdown", {
+test_that("Folding range works in Rmarkdown", {
     skip_on_cran()
-    client <- language_client(capabilities = list(
-        textDocument = list(
-            documentSymbol = list(
-                hierarchicalDocumentSymbolSupport = TRUE
-            )
-        )
-    ))
+    client <- language_client()
 
     withr::local_tempfile(c("defn_file"), fileext = ".Rmd")
     writeLines(c(
@@ -117,6 +99,11 @@ test_that("Document folding range works in Rmarkdown", {
         "f <- function(x) {",
         "  x + 1",
         "}",
+        "# title",
+        "# description",
+        "g <- function(x) {",
+        "  x - 1",
+        "}",
         "```"
     ), defn_file)
 
@@ -124,13 +111,17 @@ test_that("Document folding range works in Rmarkdown", {
     result <- client %>% respond_document_folding_range(defn_file)
     result <- result[order(sapply(result, "[[", "startLine"))]
 
-    expect_equal(length(result), 4)
+    expect_equal(length(result), 6)
     expect_equal(result[[1]]$startLine, 0)
-    expect_equal(result[[1]]$endLine, 7)
+    expect_equal(result[[1]]$endLine, 12)
     expect_equal(result[[2]]$startLine, 2)
-    expect_equal(result[[2]]$endLine, 7)
+    expect_equal(result[[2]]$endLine, 12)
     expect_equal(result[[3]]$startLine, 3)
-    expect_equal(result[[3]]$endLine, 7)
+    expect_equal(result[[3]]$endLine, 12)
     expect_equal(result[[4]]$startLine, 4)
     expect_equal(result[[4]]$endLine, 6)
+    expect_equal(result[[5]]$startLine, 7)
+    expect_equal(result[[5]]$endLine, 8)
+    expect_equal(result[[6]]$startLine, 9)
+    expect_equal(result[[6]]$endLine, 11)
 })
