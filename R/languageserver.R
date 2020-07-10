@@ -223,10 +223,10 @@ LanguageServer$set("public", "register_handlers", function() {
 
 
 #' Run the R language server
-#' @param debug set \code{TRUE} to show debug information in stderr;
+#' @param debug set `TRUE` to show debug information in stderr;
 #'              or it could be a character string specifying the log file
-#' @param host the hostname used to create the tcp server, not used when \code{port} is \code{NULL}
-#' @param port the port used to create the tcp server. If \code{NULL}, use stdio instead.
+#' @param host the hostname used to create the tcp server, not used when `port` is `NULL`
+#' @param port the port used to create the tcp server. If `NULL`, use stdio instead.
 #' @examples
 #' \dontrun{
 #' # to use stdio
