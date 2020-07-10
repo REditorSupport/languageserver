@@ -31,20 +31,25 @@ get_comment_folding_ranges <- function(xdoc) {
     comm_runs <- c(1L, diff(comm_col1) != 0)
     comm_groups <- cumsum(comm_runs)
     comm_max_group <- comm_groups[[length(comm_groups)]]
-    comm_lines <- lapply(seq_len(comm_max_group), function(i) {
+    comm_ranges <- lapply(seq_len(comm_max_group), function(i) {
         lines <- comm_line1[comm_groups == i]
         sub_groups <- cumsum(c(0L, diff(lines)) != 1L)
         max_sub_group <- sub_groups[[length(sub_groups)]]
         lapply(seq_len(max_sub_group), function(j) {
-            lines[sub_groups == j]
+            lns <- lines[sub_groups == j]
+            start_line <- lns[1]
+            end_line <- lns[length(lns)]
+            if (end_line > start_line) {
+                c(start_line, end_line)
+            }
         })
     })
-    comm_lines <- unlist(comm_lines,
-        recursive = FALSE, use.names = FALSE)
-    comm_folding_ranges <- lapply(comm_lines, function(item) {
+    comm_ranges <- unlist(comm_ranges, recursive = FALSE, use.names = FALSE)
+    comm_ranges <- comm_ranges[vapply(comm_ranges, length, integer(1)) > 0]
+    comm_folding_ranges <- lapply(comm_ranges, function(item) {
         list(
             startLine = item[1] - 1,
-            endLine = item[length(item)] - 1,
+            endLine = item[2] - 1,
             kind = FoldingRangeKind$Comment
         )
     })
