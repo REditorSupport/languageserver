@@ -66,14 +66,22 @@ hover_reply <- function(id, uri, workspace, document, point) {
                         }
                         def_text <- trimws(paste0(document$line(seq.int(def_line1, def_line2)),
                             collapse = "\n"))
-                        doc_text <- NULL
+                        doc_string <- NULL
                         doc_line1 <- detect_comments(document$content, def_line1 - 1) + 1
                         if (doc_line1 < def_line1) {
-                            doc_text <- paste0(
-                                uncomment(document$line(seq.int(doc_line1, def_line1 - 1))),
-                                    collapse = "  \n")
+                            comment <- document$line(seq.int(doc_line1, def_line1 - 1))
+                            doc <- convert_comment_to_documentation(comment)
+                            if (is.character(doc)) {
+                                doc_string <- doc
+                            } else if (is.list(doc)) {
+                                if (is.null(doc$markdown)) {
+                                    doc_string <- doc$description
+                                } else {
+                                    doc_string <- doc$markdown
+                                }
+                            }
                         }
-                        contents <- c(sprintf("```r\n%s\n```", def_text), doc_text)
+                        contents <- c(sprintf("```r\n%s\n```", def_text), doc_string)
                         resolved <- TRUE
                     }
                 }
@@ -138,6 +146,12 @@ hover_reply <- function(id, uri, workspace, document, point) {
             doc_string <- NULL
             if (is.character(doc)) {
                 doc_string <- doc
+            } else if (is.list(doc)) {
+                if (is.null(doc$markdown)) {
+                    doc_string <- doc$description
+                } else {
+                    doc_string <- doc$markdown
+                }
             }
             contents <- c(sprintf("```r\n%s\n```", sig), doc_string)
         }

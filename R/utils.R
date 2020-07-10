@@ -529,6 +529,64 @@ str_trunc <- function(string, width, ellipsis = "...") {
 
 uncomment <- function(x) gsub("^\\s*#+'?\\s*", "", x)
 
+convert_comment_to_documentation <- function(comment) {
+    result <- NULL
+    roxy <- tryCatch(roxygen2::parse_text(c(
+        comment,
+        "NULL"
+    ), env = NULL), error = function(e) NULL)
+    if (length(roxy)) {
+        result <- list(
+            title = NULL,
+            description = NULL,
+            arguments = list(),
+            markdown = NULL
+        )
+        items <- lapply(roxy[[1]]$tags, function(item) {
+            if (item$tag == "title") {
+                result$title <<- item$val
+            } else if (item$tag == "description") {
+                result$description <<- item$val
+            } else if (item$tag == "param") {
+                result$arguments[[item$val$name]] <<- item$val$description
+            }
+
+            format_roxy_tag(item)
+        })
+        if (is.null(result$description)) {
+            result$description <- result$title
+        }
+        result$markdown <- paste0(items, collapse = "\n")
+    }
+    if (is.null(result)) {
+        result <- paste0(uncomment(comment), collapse = "  \n")
+    }
+    result
+}
+
+format_roxy_tag <- function(item) {
+    if (item$tag %in% c("title", "description")) {
+        tag <- ""
+        content <- format_roxy_text(item$val)
+    } else {
+        tag <- sprintf("`@%s` ", item$tag)
+        content <- if (item$tag %in% c("usage", "example", "examples", "eval", "evalRd")) {
+            sprintf("\n```r\n%s\n```", item$val)
+        } else if (is.character(item$val) && length(item$val) > 1) {
+            paste0(sprintf("`%s`", item$val), collapse = " ")
+        } else if (is.list(item$val)) {
+            sprintf("`%s` %s", item$val$name, format_roxy_text(item$val$description))
+        } else {
+            format_roxy_text(item$raw)
+        }
+    }
+    paste0(tag, content, "  \n")
+}
+
+format_roxy_text <- function(text) {
+    gsub("\n", "  \n", text, fixed = TRUE)
+}
+
 find_doc_item <- function(doc, tag) {
     for (item in doc) {
         if (attr(item, "Rd_tag") == tag) {

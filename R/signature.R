@@ -24,7 +24,7 @@ signature_reply <- function(id, uri, workspace, document, point) {
             doc_string <- ""
             if (is.character(doc)) {
                 doc_string <- doc
-            } else if (is.list(doc) && is.character(doc$description)) {
+            } else if (is.list(doc)) {
                 doc_string <- doc$description
             }
             documentation <- list(kind = "markdown", value = doc_string)

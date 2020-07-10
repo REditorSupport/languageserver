@@ -214,9 +214,8 @@ parse_expr <- function(content, expr, env, level = 0L, srcref = attr(expr, "srcr
 
             doc_line1 <- detect_comments(content, expr_range$start$line) + 1
             if (doc_line1 <= expr_range$start$line) {
-                env$documentation[[symbol]] <- paste0(uncomment(
-                    content[seq.int(doc_line1, expr_range$start$line)]),
-                collapse = "  \n")
+                comment <- content[seq.int(doc_line1, expr_range$start$line)]
+                env$documentation[[symbol]] <- convert_comment_to_documentation(comment)
             }
 
             if (type == "function") {
