@@ -24,7 +24,8 @@ jobs:
         apt-get install git ssh curl bzip2 libffi-dev -y
     - name: Install languagesever
       run: |
-        Rscript -e "install.packages(c('remotes', 'rcmdcheck'), repos = 'https://cloud.r-project.org')"
+        Rscript -e "install.packages(c('remotes'), repos = 'https://cloud.r-project.org')"
+        Rscript -e "remotes::install_deps(dependencies = TRUE)"
         Rscript -e "remotes::install_local()"
     - name: Codecov
       run: Rscript -e "covr::codecov()"
@@ -49,7 +50,8 @@ jobs:
         r-version: ${{ matrix.r }}
     - name: Install languagesever
       run: |
-        Rscript -e "install.packages(c('remotes', 'rcmdcheck'), repos = 'https://cloud.r-project.org', type = 'mac.binary')"
+        Rscript -e "install.packages(c('remotes'), repos = 'https://cloud.r-project.org', type = 'mac.binary')"
+        Rscript -e "remotes::install_deps(dependencies = TRUE)"
         Rscript -e "remotes::install_local()"
     - name: Codecov
       run: Rscript -e "covr::codecov()"
