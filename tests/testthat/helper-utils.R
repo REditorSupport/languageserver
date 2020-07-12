@@ -329,7 +329,7 @@ respond_document_folding_range <- function(client, path, ...) {
     )
 }
 
-wait_for <- function(client, method, timeout = 5) {
+wait_for <- function(client, method, timeout = 30) {
     storage <- new.env(parent = .GlobalEnv)
     start_time <- Sys.time()
     remaining <- timeout
