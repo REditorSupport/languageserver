@@ -79,6 +79,9 @@ Session <- R6::R6Class("Session",
                 wait = FALSE
             )
         },
+        finalize = function() {
+            private$session$close()
+        },
         start = function(target, args) {
             if (private$is_running) {
                 # session must stop running before release
