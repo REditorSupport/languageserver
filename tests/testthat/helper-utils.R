@@ -42,10 +42,10 @@ language_client <- function(working_dir = getwd(), diagnostics = FALSE, capabili
         # we skip this for other times for speed
         if (Sys.getenv("R_LANGSVR_TEST_FAST", "YES") == "NO") {
             client %>% respond("shutdown", NULL, retry = FALSE)
-            client$process$wait(30)
+            client$process$wait(10 * 1000)  # 10 sec
             if (client$process$is_alive()) {
+                cat("server did not shutdown peacefully\n")
                 client$process$kill_tree()
-                fail("server did not shutdown peacefully")
             }
         } else {
             client$process$kill_tree()
@@ -329,7 +329,7 @@ respond_document_folding_range <- function(client, path, ...) {
     )
 }
 
-wait_for <- function(client, method, timeout = 5) {
+wait_for <- function(client, method, timeout = 30) {
     storage <- new.env(parent = .GlobalEnv)
     start_time <- Sys.time()
     remaining <- timeout
