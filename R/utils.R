@@ -633,17 +633,17 @@ glue <- function(.x, ...) {
 xdoc_find_enclosing_scopes <- function(x, line, col, top = FALSE) {
     if (top) {
         xpath <- "/exprlist | //expr[(@line1 < {line} or (@line1 = {line} and @col1 <= {col})) and
-                (@line2 > {line} or (@line2 = {line} and @col2 >= {col}))]"
+                (@line2 > {line} or (@line2 = {line} and @col2 >= {col}-1))]"
     } else {
         xpath <- "//expr[(@line1 < {line} or (@line1 = {line} and @col1 <= {col})) and
-                (@line2 > {line} or (@line2 = {line} and @col2 >= {col}))]"
+                (@line2 > {line} or (@line2 = {line} and @col2 >= {col}-1))]"
     }
     xpath <- glue(xpath, line = line, col = col)
     xml_find_all(x, xpath)
 }
 
 xdoc_find_token <- function(x, line, col) {
-    xpath <- glue("//*[not(*)][(@line1 < {line} or (@line1 = {line} and @col1 <= {col})) and (@line2 > {line} or (@line2 = {line} and @col2 >= {col}))]",
+    xpath <- glue("//*[not(*)][(@line1 < {line} or (@line1 = {line} and @col1 <= {col})) and (@line2 > {line} or (@line2 = {line} and @col2 >= {col}-1))]",
         line = line, col = col)
     xml_find_first(x, xpath)
 }

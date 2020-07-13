@@ -11,7 +11,20 @@ test_that("Go to Definition works for functions in files", {
     client %>% did_save(defn_file)
     client %>% did_save(query_file)
 
+    # query at the beginning of token
     result <- client %>% respond_definition(query_file, c(0, 0))
+
+    expect_equal(result$range$start, list(line = 0, character = 0))
+    expect_equal(result$range$end, list(line = 2, character = 1))
+
+    # query in the middle of token
+    result <- client %>% respond_definition(query_file, c(0, 3))
+
+    expect_equal(result$range$start, list(line = 0, character = 0))
+    expect_equal(result$range$end, list(line = 2, character = 1))
+
+    # query at the end of token
+    result <- client %>% respond_definition(query_file, c(0, 5))
 
     expect_equal(result$range$start, list(line = 0, character = 0))
     expect_equal(result$range$end, list(line = 2, character = 1))
