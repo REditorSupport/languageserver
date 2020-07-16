@@ -400,8 +400,7 @@ completion_item_resolve_reply <- function(id, workspace, params) {
         if (params$data$type == "package") {
             if (length(find.package(params$label))) {
                 desc <- utils::packageDescription(params$label, fields = c("Title", "Description"))
-                description <- paste0(trimws(
-                    strsplit(desc$Description, split = "\n")[[1]]), collapse = " ")
+                description <- gsub("\\s*\n\\s*", " ", desc$Description)
                 params$documentation <- list(
                     kind = "markdown",
                     value = sprintf("**%s**\n\n%s", desc$Title, description)
