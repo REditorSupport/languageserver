@@ -121,6 +121,16 @@ hover_reply <- function(id, uri, workspace, document, point) {
                 # function formals
                 # contents <- "function parameter"
                 resolved <- TRUE
+            } else if (token_name == "SYMBOL_PACKAGE") {
+                # package
+                if (length(find.package(token_text, quiet = TRUE))) {
+                    desc <- utils::packageDescription(token_text, fields = c("Title", "Description"))
+                    description <- gsub("\\s*\n\\s*", " ", desc$Description)
+                    contents <- sprintf("**%s**\n\n%s", desc$Title, description)
+                } else {
+                    contents <- sprintf("Package `%s` is not installed.", token_text)
+                }
+                resolved <- TRUE
             } else if (token_name == "SLOT") {
                 # S4 slot
                 resolved <- TRUE

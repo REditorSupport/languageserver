@@ -398,7 +398,7 @@ completion_item_resolve_reply <- function(id, workspace, params) {
     if (is.null(params$data) || is.null(params$data$type)) {
     } else {
         if (params$data$type == "package") {
-            if (length(find.package(params$label))) {
+            if (length(find.package(params$label, quiet = TRUE))) {
                 desc <- utils::packageDescription(params$label, fields = c("Title", "Description"))
                 description <- gsub("\\s*\n\\s*", " ", desc$Description)
                 params$documentation <- list(
