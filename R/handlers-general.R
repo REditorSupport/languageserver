@@ -4,6 +4,12 @@
 #'
 #' @keywords internal
 on_initialize <- function(self, id, params) {
+    logger$info("session: ", list(
+        pid = Sys.getpid(),
+        wd = getwd(),
+        args = commandArgs(),
+        env = as.list(Sys.getenv())
+    ))
     logger$info("initialization config: ", params)
     self$processId <- params$processId
     self$rootUri <- uri_escape_unicode(params$rootUri)
