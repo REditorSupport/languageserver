@@ -12,7 +12,7 @@ document_link_reply <- function(id, uri, workspace, document, rootPath) {
 
     xdoc <- parse_data$xml_doc
     if (!is.null(xdoc)) {
-        str_tokens <- xml_find_all(xdoc, "//STR_CONST[@line1=@line2 and @col2 > @col1 + 1]")
+        str_tokens <- xml_find_all(xdoc, "//STR_CONST[@line1=@line2 and @col2>@col1+1 and @col2<=@col1+256]")
         str_line1 <- as.integer(xml_attr(str_tokens, "line1"))
         str_col1 <- as.integer(xml_attr(str_tokens, "col1"))
         str_col2 <- as.integer(xml_attr(str_tokens, "col2"))
@@ -22,7 +22,6 @@ document_link_reply <- function(id, uri, workspace, document, rootPath) {
 
         if (length(str_texts)) {
             paths <- fs::path_abs(str_texts, rootPath)
-
             is_link <- file.exists(paths) & !dir.exists(paths)
             link_paths <- path.expand(paths[is_link])
             link_expr <- str_expr[is_link]
