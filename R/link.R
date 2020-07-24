@@ -12,6 +12,9 @@ document_link_reply <- function(id, uri, workspace, document, rootPath) {
 
     xdoc <- parse_data$xml_doc
     if (!is.null(xdoc)) {
+        # String length: `@col2-@col1-1`
+        # Limit string length to 255 to avoid potential PATH_MAX error on Windows
+        # On macOS and Linux, PATH_MAX is much larger but we ignore the long strings at the moment.
         str_tokens <- xml_find_all(xdoc, "//STR_CONST[@line1=@line2 and @col2>@col1+1 and @col2<=@col1+256]")
         str_line1 <- as.integer(xml_attr(str_tokens, "line1"))
         str_col1 <- as.integer(xml_attr(str_tokens, "col1"))
