@@ -12,7 +12,10 @@ document_color_reply <- function(id, uri, workspace, document) {
 
     xdoc <- parse_data$xml_doc
     if (!is.null(xdoc)) {
-        str_tokens <- xml_find_all(xdoc, "//STR_CONST[@line1=@line2 and @col2 > @col1 + 1]")
+        # String length: `@col2-@col1-1`
+        # Shortest color length: 3 (red, tan)
+        # Longest color length: 20 (lightgoldenrodyellow)
+        str_tokens <- xml_find_all(xdoc, "//STR_CONST[@line1=@line2 and @col2>@col1+3 and @col2<@col1+22]")
         str_line1 <- as.integer(xml_attr(str_tokens, "line1"))
         str_col1 <- as.integer(xml_attr(str_tokens, "col1"))
         str_col2 <- as.integer(xml_attr(str_tokens, "col2"))
