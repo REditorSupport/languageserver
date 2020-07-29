@@ -571,7 +571,7 @@ format_roxy_tag <- function(item) {
     } else {
         tag <- sprintf("`@%s` ", item$tag)
         content <- if (item$tag %in% c("usage", "example", "examples", "eval", "evalRd")) {
-            sprintf("\n```r\n%s\n```", item$val)
+            sprintf("\n```r\n%s\n```", trimws(item$raw))
         } else if (is.character(item$val) && length(item$val) > 1) {
             paste0(sprintf("`%s`", item$val), collapse = " ")
         } else if (is.list(item$val)) {
