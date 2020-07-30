@@ -64,12 +64,12 @@ hover_reply <- function(id, uri, workspace, document, point) {
                             def_line1 <- as.integer(xml_attr(last_def, "line1"))
                             def_line2 <- def_line1
                         }
-                        def_text <- trimws(paste0(document$line(seq.int(def_line1, def_line2)),
+                        def_text <- trimws(paste0(document$content[def_line1:def_line2],
                             collapse = "\n"))
                         doc_string <- NULL
                         doc_line1 <- detect_comments(document$content, def_line1 - 1) + 1
                         if (doc_line1 < def_line1) {
-                            comment <- document$line(seq.int(doc_line1, def_line1 - 1))
+                            comment <- document$content[doc_line1:(def_line1 - 1)]
                             doc <- convert_comment_to_documentation(comment)
                             if (is.character(doc)) {
                                 doc_string <- doc
