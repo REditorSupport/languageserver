@@ -55,10 +55,11 @@ LanguageServer <- R6::R6Class("LanguageServer",
             cpus <- parallel::detectCores()
             pool_size <- as.integer(
                 Sys.getenv("R_LANGSVR_POOL_SIZE", min(max(floor(cpus / 2), 1), 3)))
+
             # parse pool
-            parse_pool <- SessionPool$new(pool_size, "parse")
-            # diagnostics is slower, so use a seperated pool
-            diagnostics_pool <- SessionPool$new(pool_size, "diagnostics")
+            parse_pool <- if (pool_size > 0) SessionPool$new(pool_size, "parse") else NULL
+            # diagnostics is slower, so use a separate pool
+            diagnostics_pool <- if (pool_size > 0) SessionPool$new(pool_size, "diagnostics") else NULL
 
             self$parse_task_manager <- TaskManager$new("parse", parse_pool)
             self$diagnostics_task_manager <- TaskManager$new("diagnostics", diagnostics_pool)
