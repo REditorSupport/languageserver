@@ -4,29 +4,29 @@ FoldingRangeKind <- list(
   Region = "region"
 )
 
-get_expr_folding_ranges <- function(xdoc) {
-    exprs <- xml_find_all(xdoc, "//expr[@line1 < @line2 and
+get_block_folding_ranges <- function(xdoc) {
+    blocks <- xml_find_all(xdoc, "//expr[@line1 < @line2 and
         (OP-LEFT-PAREN | OP-LEFT-BRACKET | OP-LEFT-BRACE)/@line1 <
         (OP-RIGHT-PAREN | OP-RIGHT-BRACKET | OP-RIGHT-BRACE)/@line1]"
     )
-    if (length(exprs) == 0) {
+    if (length(blocks) == 0) {
         return(NULL)
     }
 
-    block_open <- xml_find_first(exprs, "OP-LEFT-PAREN | OP-LEFT-BRACKET | OP-LEFT-BRACE")
-    block_close <- xml_find_first(exprs, "OP-RIGHT-PAREN | OP-RIGHT-BRACKET | OP-RIGHT-BRACE")
+    block_start <- xml_find_first(blocks, "OP-LEFT-PAREN | OP-LEFT-BRACKET | OP-LEFT-BRACE")
+    block_end <- xml_find_first(blocks, "OP-RIGHT-PAREN | OP-RIGHT-BRACKET | OP-RIGHT-BRACE")
 
-    block_open_line <- as.integer(xml_attr(block_open, "line1"))
-    block_close_line <- as.integer(xml_attr(block_close, "line1"))
+    block_start_line <- as.integer(xml_attr(block_start, "line1"))
+    block_end_line <- as.integer(xml_attr(block_end, "line1"))
 
-    expr_folding_ranges <- .mapply(function(line1, line2) {
+    block_folding_ranges <- .mapply(function(start_line, end_line) {
         list(
-            startLine = line1 - 1,
-            endLine = line2 - 2,
+            startLine = start_line - 1,
+            endLine = end_line - 2,
             kind = FoldingRangeKind$Region
         )
-    }, list(block_open_line, block_close_line), NULL)
-    expr_folding_ranges
+    }, list(block_start_line, block_end_line), NULL)
+    block_folding_ranges
 }
 
 get_comment_folding_ranges <- function(xdoc) {
@@ -64,7 +64,7 @@ get_comment_folding_ranges <- function(xdoc) {
     comm_folding_ranges
 }
 
-get_document_section_folding_ranges <- function(uri, document) {
+get_section_folding_ranges <- function(uri, document) {
     sections <- get_document_sections(uri, document, type = c("section", "chunk"))
     if (length(sections) == 0) {
         return(NULL)
@@ -93,12 +93,12 @@ document_folding_range_reply <- function(id, uri, workspace, document) {
     xdoc <- parse_data$xml_doc
     if (!is.null(xdoc)) {
         result <- c(result,
-            get_expr_folding_ranges(xdoc),
+            get_block_folding_ranges(xdoc),
             get_comment_folding_ranges(xdoc)
         )
     }
 
-    result <- c(result, get_document_section_folding_ranges(uri, document))
+    result <- c(result, get_section_folding_ranges(uri, document))
 
     result <- unique(result)
     if (length(result) == 0) {
