@@ -5,19 +5,27 @@ FoldingRangeKind <- list(
 )
 
 get_expr_folding_ranges <- function(xdoc) {
-    exprs <- xml_find_all(xdoc, "//expr[@line2 > @line1]")
+    exprs <- xml_find_all(xdoc, "//expr[@line1 < @line2 and
+        (OP-LEFT-PAREN | OP-LEFT-BRACKET | OP-LEFT-BRACE)/@line1 <
+        (OP-RIGHT-PAREN | OP-RIGHT-BRACKET | OP-RIGHT-BRACE)/@line1]"
+    )
     if (length(exprs) == 0) {
         return(NULL)
     }
-    expr_line1 <- as.integer(xml_attr(exprs, "line1"))
-    expr_line2 <- as.integer(xml_attr(exprs, "line2"))
+
+    block_open <- xml_find_first(exprs, "OP-LEFT-PAREN | OP-LEFT-BRACKET | OP-LEFT-BRACE")
+    block_close <- xml_find_first(exprs, "OP-RIGHT-PAREN | OP-RIGHT-BRACKET | OP-RIGHT-BRACE")
+
+    block_open_line <- as.integer(xml_attr(block_open, "line1"))
+    block_close_line <- as.integer(xml_attr(block_close, "line1"))
+
     expr_folding_ranges <- .mapply(function(line1, line2) {
         list(
             startLine = line1 - 1,
-            endLine = line2 - 1,
+            endLine = line2 - 2,
             kind = FoldingRangeKind$Region
         )
-    }, list(expr_line1, expr_line2), NULL)
+    }, list(block_open_line, block_close_line), NULL)
     expr_folding_ranges
 }
 
