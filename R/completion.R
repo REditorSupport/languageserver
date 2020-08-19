@@ -265,11 +265,10 @@ workspace_completion <- function(workspace, token,
         }
     }
 
-    imported_object <- imported_object_completion(workspace, token, snippet_support)
-
-    completions <- c(
-        completions,
-        imported_object)
+    if (is.null(package)) {
+        imported_completions <- imported_object_completion(workspace, token, snippet_support)
+        completions <- c(completions, imported_completions)
+    }
 
     completions
 }
