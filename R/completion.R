@@ -373,7 +373,7 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
     token <- token_result$token
     package <- token_result$package
 
-    completions <- token_completion(uri, workspace, token)
+    completions <- list()
 
     if (nzchar(full_token)) {
         if (is.null(package)) {
@@ -398,7 +398,12 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
                 exported_only = call_result$accessor != ":::"))
     }
 
-    logger$info("completions: ", length(completions))
+    if (!(token_result$accessor %in% c("::", ":::"))) {
+        completions <- c(
+            completions,
+            token_completion(uri, workspace, token)
+        )
+    }
 
     Response$new(
         id,
