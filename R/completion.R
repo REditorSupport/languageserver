@@ -398,7 +398,7 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
                 exported_only = call_result$accessor != ":::"))
     }
 
-    if (!(token_result$accessor %in% c("::", ":::"))) {
+    if (is.null(token_result$package)) {
         completions <- c(
             completions,
             token_completion(uri, workspace, token)
