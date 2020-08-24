@@ -342,7 +342,7 @@ token_completion <- function(uri, workspace, token) {
         return(list())
     }
 
-    symbols <- unique(xml_text(xml_find_all(xdoc, "//SYMBOL | //SYMBOL_SUB")))
+    symbols <- unique(xml_text(xml_find_all(xdoc, "//SYMBOL | //SYMBOL_SUB | //SYMBOL_FUNCTION_CALL")))
     symbols <- symbols[startsWith(symbols, token)]
     token_completions <- lapply(symbols, function(symbol) {
         list(
