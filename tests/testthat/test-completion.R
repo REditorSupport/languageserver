@@ -212,6 +212,31 @@ test_that("Completion of imported objects works inside a package", {
     expect_length(result$items %>% keep(~.$label == "lint_package"), 1)
 })
 
+test_that("Completion of tokens in document works", {
+    skip_on_cran()
+    client <- language_client()
+
+    withr::local_tempfile(c("temp_file"), fileext = ".R")
+    writeLines(
+        c(
+            "df1 <- data.frame(var1 = 1:10, var2 = 10:1)",
+            "df1$var3 <- rnorm(10)",
+            "df1$var"
+        ),
+        temp_file
+    )
+
+    client %>% did_save(temp_file)
+
+    result <- client %>% respond_completion(
+        temp_file, c(2, 7),
+        retry_when = function(result) length(result) == 0 || length(result$items) == 0
+    )
+
+    expect_length(result$items %>% keep(~ .$label == "var1"), 1)
+    expect_length(result$items %>% keep(~ .$label == "var2"), 1)
+    expect_length(result$items %>% keep(~ .$label == "var3"), 1)
+})
 
 test_that("Completion item resolve works", {
     skip_on_cran()
