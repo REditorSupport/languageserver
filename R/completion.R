@@ -39,7 +39,8 @@ sort_prefixes <- list(
     scope = "1-",
     workspace = "2-",
     imported = "3-",
-    global = "4-"
+    global = "4-",
+    token = "5-"
 )
 
 constants <- c("TRUE", "FALSE", "NULL",
@@ -335,6 +336,23 @@ scope_completion <- function(uri, workspace, token, point, snippet_support = NUL
     completions
 }
 
+token_completion <- function(uri, workspace, token) {
+    xdoc <- workspace$get_parse_data(uri)$xml_doc
+    if (is.null(xdoc)) {
+        return(list())
+    }
+
+    symbols <- unique(xml_text(xml_find_all(xdoc, "//SYMBOL | //SYMBOL_SUB | //SYMBOL_FUNCTION_CALL")))
+    symbols <- symbols[startsWith(symbols, token)]
+    token_completions <- lapply(symbols, function(symbol) {
+        list(
+            label = symbol,
+            kind = CompletionItemKind$Text,
+            sortText = paste0(sort_prefixes$token, symbol)
+        )
+    })
+}
+
 #' The response to a textDocument/completion request
 #' @keywords internal
 completion_reply <- function(id, uri, workspace, document, point, capabilities) {
@@ -349,12 +367,13 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
     snippet_support <- isTRUE(capabilities$completionItem$snippetSupport) &&
         getOption("languageserver.snippet_support", TRUE)
 
-    completions <- list()
     token_result <- document$detect_token(point, forward = FALSE)
 
     full_token <- token_result$full_token
     token <- token_result$token
     package <- token_result$package
+
+    completions <- list()
 
     if (nzchar(full_token)) {
         if (is.null(package)) {
@@ -379,7 +398,12 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
                 exported_only = call_result$accessor != ":::"))
     }
 
-    logger$info("completions: ", length(completions))
+    if (is.null(token_result$package)) {
+        completions <- c(
+            completions,
+            token_completion(uri, workspace, token)
+        )
+    }
 
     Response$new(
         id,

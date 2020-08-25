@@ -36,7 +36,7 @@ test_that("Simple completion works", {
     expect_true("path_real" %in% (result$items %>% map_chr(~.$label)))
 
     result <- client %>% respond_completion(temp_file, c(3, 7))
-    expect_length(result$items, 0)
+    expect_length(result$items %>% discard(~.$kind == CompletionItemKind$Text), 0)
 
     result <- client %>% respond_completion(temp_file, c(4, 4))
     expect_length(result$items %>% keep(~ .$label == ".Machine"), 1)
@@ -96,7 +96,9 @@ test_that("Completion of user function works", {
         temp_file, c(1, 4),
         retry_when = function(result) length(result) == 0 || length(result$items) == 0)
 
-    expect_length(result$items %>% keep(~.$label == "my_fun"), 1)
+    expect_length(result$items %>%
+        keep(~ .$label == "my_fun") %>%
+        discard(~ .$kind == CompletionItemKind$Text), 1)
 
 })
 
@@ -119,7 +121,9 @@ test_that("Completion of user function contains no duplicate symbols", {
         temp_file, c(2, 4),
         retry_when = function(result) length(result) == 0 || length(result$items) == 0)
 
-    expect_length(result$items %>% keep(~ .$label == "my_fun"), 1)
+    expect_length(result$items %>%
+        keep(~ .$label == "my_fun") %>%
+        discard(~ .$kind == CompletionItemKind$Text), 1)
 
 })
 
@@ -148,11 +152,19 @@ test_that("Completion of symbols in scope works", {
         retry_when = function(result) length(result) == 0 || length(result$items) == 0
     )
 
-    expect_length(result$items, 4)
-    expect_length(result$items %>% keep(~ .$label == "xvar0"), 1)
-    expect_length(result$items %>% keep(~ .$label == "xvar1"), 1)
-    expect_length(result$items %>% keep(~ .$label == "xvar2"), 1)
-    expect_length(result$items %>% keep(~ .$label == "xvar3"), 1)
+    expect_length(result$items %>% discard(~ .$kind == CompletionItemKind$Text), 4)
+    expect_length(result$items %>%
+        keep(~ .$label == "xvar0") %>%
+        discard(~ .$kind == CompletionItemKind$Text), 1)
+    expect_length(result$items %>%
+        keep(~ .$label == "xvar1") %>%
+        discard(~ .$kind == CompletionItemKind$Text), 1)
+    expect_length(result$items %>%
+        keep(~ .$label == "xvar2") %>%
+        discard(~ .$kind == CompletionItemKind$Text), 1)
+    expect_length(result$items %>%
+        keep(~ .$label == "xvar3") %>%
+        discard(~ .$kind == CompletionItemKind$Text), 1)
 })
 
 test_that("Completion inside a package works", {
@@ -200,6 +212,31 @@ test_that("Completion of imported objects works inside a package", {
     expect_length(result$items %>% keep(~.$label == "lint_package"), 1)
 })
 
+test_that("Completion of tokens in document works", {
+    skip_on_cran()
+    client <- language_client()
+
+    withr::local_tempfile(c("temp_file"), fileext = ".R")
+    writeLines(
+        c(
+            "df1 <- data.frame(var1 = 1:10, var2 = 10:1)",
+            "df1$var3 <- rnorm(10)",
+            "df1$var"
+        ),
+        temp_file
+    )
+
+    client %>% did_save(temp_file)
+
+    result <- client %>% respond_completion(
+        temp_file, c(2, 7),
+        retry_when = function(result) length(result) == 0 || length(result$items) == 0
+    )
+
+    expect_length(result$items %>% keep(~ .$label == "var1"), 1)
+    expect_length(result$items %>% keep(~ .$label == "var2"), 1)
+    expect_length(result$items %>% keep(~ .$label == "var3"), 1)
+})
 
 test_that("Completion item resolve works", {
     skip_on_cran()
@@ -299,7 +336,7 @@ test_that("Completion in Rmarkdown works", {
     expect_true("path_real" %in% (result$items %>% map_chr(~ .$label)))
 
     result <- client %>% respond_completion(temp_file, c(6, 7))
-    expect_length(result$items, 0)
+    expect_length(result$items %>% discard(~ .$kind == CompletionItemKind$Text), 0)
 
     result <- client %>% respond_completion(temp_file, c(7, 4))
     expect_length(result$items %>% keep(~ .$label == ".Machine"), 1)
