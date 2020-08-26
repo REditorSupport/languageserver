@@ -336,7 +336,7 @@ scope_completion <- function(uri, workspace, token, point, snippet_support = NUL
     completions
 }
 
-token_completion <- function(uri, workspace, token) {
+token_completion <- function(uri, workspace, token, exclude = NULL) {
     xdoc <- workspace$get_parse_data(uri)$xml_doc
     if (is.null(xdoc)) {
         return(list())
@@ -344,6 +344,7 @@ token_completion <- function(uri, workspace, token) {
 
     symbols <- unique(xml_text(xml_find_all(xdoc, "//SYMBOL | //SYMBOL_SUB | //SYMBOL_FUNCTION_CALL")))
     symbols <- symbols[startsWith(symbols, token)]
+    symbols <- setdiff(symbols, exclude)
     token_completions <- lapply(symbols, function(symbol) {
         list(
             label = symbol,
@@ -399,9 +400,10 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
     }
 
     if (is.null(token_result$package)) {
+        existing_symbols <- vapply(completions, "[[", character(1), "label")
         completions <- c(
             completions,
-            token_completion(uri, workspace, token)
+            token_completion(uri, workspace, token, existing_symbols)
         )
     }
 
