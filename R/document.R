@@ -170,6 +170,15 @@ expr_range <- function(srcref) {
     )
 }
 
+get_range_text <- function(content, line1, col1, line2, col2) {
+    text <- content[line1:line2]
+    text[[1]] <- substr(text[[1]], col1, nchar(text[[1]]))
+    if (line2 > line1) {
+        nlines <- length(text)
+        text[[nlines]] <- substr(text[[nlines]], col2, nchar(text[[nlines]]))
+    }
+    text
+}
 
 parse_expr <- function(content, expr, env, level = 0L, srcref = attr(expr, "srcref")) {
     if (length(expr) == 0L || is.symbol(expr)) {
