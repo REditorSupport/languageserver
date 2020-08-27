@@ -277,15 +277,15 @@ workspace_completion <- function(workspace, token,
 scope_completion_symbols_xpath <- paste(
     "FUNCTION/following-sibling::SYMBOL_FORMALS",
     "forcond/SYMBOL",
-    "expr/LEFT_ASSIGN[not(following-sibling::expr/FUNCTION)]/preceding-sibling::expr[count(*)=1]/SYMBOL",
-    "expr/RIGHT_ASSIGN[not(preceding-sibling::expr/FUNCTION)]/following-sibling::expr[count(*)=1]/SYMBOL",
-    "equal_assign/EQ_ASSIGN[not(following-sibling::expr/FUNCTION)]/preceding-sibling::expr[count(*)=1]/SYMBOL",
+    "*/LEFT_ASSIGN[not(following-sibling::expr/FUNCTION)]/preceding-sibling::expr[count(*)=1]/SYMBOL",
+    "*/RIGHT_ASSIGN[not(preceding-sibling::expr/FUNCTION)]/following-sibling::expr[count(*)=1]/SYMBOL",
+    "*/EQ_ASSIGN[not(following-sibling::expr/FUNCTION)]/preceding-sibling::expr[count(*)=1]/SYMBOL",
     sep = "|")
 
 scope_completion_functs_xpath <- paste(
-    "expr/LEFT_ASSIGN[following-sibling::expr/FUNCTION]/preceding-sibling::expr[count(*)=1]/SYMBOL",
-    "expr/RIGHT_ASSIGN[preceding-sibling::expr/FUNCTION]/following-sibling::expr[count(*)=1]/SYMBOL",
-    "equal_assign/EQ_ASSIGN[following-sibling::expr/FUNCTION]/preceding-sibling::expr[count(*)=1]/SYMBOL",
+    "*/LEFT_ASSIGN[following-sibling::expr/FUNCTION]/preceding-sibling::expr[count(*)=1]/SYMBOL",
+    "*/RIGHT_ASSIGN[preceding-sibling::expr/FUNCTION]/following-sibling::expr[count(*)=1]/SYMBOL",
+    "*/EQ_ASSIGN[following-sibling::expr/FUNCTION]/preceding-sibling::expr[count(*)=1]/SYMBOL",
     sep = "|")
 
 scope_completion <- function(uri, workspace, token, point, snippet_support = NULL) {

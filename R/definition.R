@@ -1,8 +1,8 @@
 definition_xpath <- paste(
     "FUNCTION/following-sibling::SYMBOL_FORMALS[text() = '{token_quote}' and @line1 <= {row}]",
-    "expr[LEFT_ASSIGN/preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]]",
-    "expr[RIGHT_ASSIGN/following-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]]",
-    "equal_assign[EQ_ASSIGN/preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]]",
+    "*[LEFT_ASSIGN/preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]]",
+    "*[RIGHT_ASSIGN/following-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]]",
+    "*[EQ_ASSIGN/preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]]",
     "forcond/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]",
     sep = "|")
 
