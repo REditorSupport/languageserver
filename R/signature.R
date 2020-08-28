@@ -28,8 +28,8 @@ signature_reply <- function(id, uri, workspace, document, point) {
             col <- point$col + 1
             enclosing_scopes <- xdoc_find_enclosing_scopes(xdoc,
                 row, col, top = TRUE)
-            token_quote <- xml_single_quote(result$token)
-            xpath <- glue(signature_xpath, row = row, token_quote = token_quote)
+            xpath <- glue(signature_xpath, row = row,
+                token_quote = xml_single_quote(result$token))
             all_defs <- xml_find_all(enclosing_scopes, xpath)
             if (length(all_defs)) {
                 last_def <- all_defs[[length(all_defs)]]

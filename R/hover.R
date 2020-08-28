@@ -49,8 +49,8 @@ hover_reply <- function(id, uri, workspace, document, point) {
                 if (length(preceding_dollar) == 0 && (is.null(signs) || signs != WORKSPACE || is.null(sig))) {
                     enclosing_scopes <- xdoc_find_enclosing_scopes(xdoc,
                         row, col, top = TRUE)
-                    token_quote <- xml_single_quote(token_text)
-                    xpath <- glue(hover_xpath, row = row, token_quote = token_quote)
+                    xpath <- glue(hover_xpath, row = row,
+                        token_quote = xml_single_quote(token_text))
                     all_defs <- xml_find_all(enclosing_scopes, xpath)
                     if (length(all_defs)) {
                         last_def <- all_defs[[length(all_defs)]]
@@ -105,28 +105,68 @@ hover_reply <- function(id, uri, workspace, document, point) {
                         "preceding-sibling::expr/SYMBOL_PACKAGE/text()"))
                     if (is.na(package)) {
                         package <- NULL
-                    }
-                    doc <- workspace$get_documentation(funct, package, isf = TRUE)
-                    doc_string <- NULL
-                    if (is.list(doc)) {
-                        doc_string <- doc$arguments[[token_text]]
-                        if (is.null(doc_string)) {
-                            doc_string <- doc$arguments$...
-                            token_text <- "..."
+                        enclosing_scopes <- xdoc_find_enclosing_scopes(xdoc,
+                            row, col, top = TRUE)
+                        xpath <- glue(signature_xpath, row = row,
+                            token_quote = xml_single_quote(funct))
+                        all_defs <- xml_find_all(enclosing_scopes, xpath)
+                        if (length(all_defs)) {
+                            last_def <- all_defs[[length(all_defs)]]
+                            func_line1 <- as.integer(xml_attr(last_def, "line1"))
+                            func_col1 <- as.integer(xml_attr(last_def, "col1"))
+                            func_line2 <- as.integer(xml_attr(last_def, "line2"))
+                            func_col2 <- as.integer(xml_attr(last_def, "col2"))
+                            func_text <- get_range_text(document$content,
+                                line1 = func_line1,
+                                col1 = func_col1,
+                                line2 = func_line2,
+                                col2 = func_col2
+                            )
+                            func_expr <- parse(text = func_text, keep.source = FALSE)
+                            sig <- get_signature(funct, func_expr[[1]])
+                            doc_string <- NULL
+
+                            doc_line1 <- detect_comments(document$content, func_line1 - 1) + 1
+                            if (doc_line1 < func_line1) {
+                                comment <- document$content[doc_line1:(func_line1 - 1)]
+                                doc <- convert_comment_to_documentation(comment)
+                                if (is.list(doc)) {
+                                    doc_string <- doc$arguments[[token_text]]
+                                    if (!is.null(doc_string)) {
+                                        contents <- c(
+                                            sprintf("```r\n%s\n```", sig),
+                                            sprintf("`%s` - %s", token_text, doc_string))
+                                    }
+                                }
+                            }
+
+                            resolved <- TRUE
                         }
                     }
-                    if (!is.null(doc_string)) {
-                        sig <- workspace$get_signature(funct, package)
-                        if (is.null(sig)) {
-                            contents <- doc_string
-                        } else {
-                            sig <- str_trunc(sig, 300)
-                            contents <- c(
-                                sprintf("```r\n%s\n```", sig),
-                                sprintf("`%s` - %s", token_text, doc_string))
+
+                    if (!resolved) {
+                        doc <- workspace$get_documentation(funct, package, isf = TRUE)
+                        doc_string <- NULL
+                        if (is.list(doc)) {
+                            doc_string <- doc$arguments[[token_text]]
+                            if (is.null(doc_string)) {
+                                doc_string <- doc$arguments$...
+                                token_text <- "..."
+                            }
                         }
+                        if (!is.null(doc_string)) {
+                            sig <- workspace$get_signature(funct, package)
+                            if (is.null(sig)) {
+                                contents <- doc_string
+                            } else {
+                                sig <- str_trunc(sig, 300)
+                                contents <- c(
+                                    sprintf("```r\n%s\n```", sig),
+                                    sprintf("`%s` - %s", token_text, doc_string))
+                            }
+                        }
+                        resolved <- TRUE
                     }
-                    resolved <- TRUE
                 }
             } else if (token_name == "SYMBOL_FORMALS") {
                 # function formals
