@@ -54,18 +54,29 @@ hover_reply <- function(id, uri, workspace, document, point) {
                     all_defs <- xml_find_all(enclosing_scopes, xpath)
                     if (length(all_defs)) {
                         last_def <- all_defs[[length(all_defs)]]
-                        def_funct <- xml_find_first(last_def, "FUNCTION")
-                        if (length(def_funct)) {
-                            def_funct_end <- xml_find_first(last_def,
-                                glue("SYMBOL_FORMALS[text() = '{token_quote}']", token_quote = token_quote))
-                            def_line1 <- as.integer(xml_attr(def_funct, "line1"))
-                            def_line2 <- as.integer(xml_attr(def_funct_end, "line2"))
+                        def_func <- xml_find_first(last_def, "expr[FUNCTION]")
+                        if (length(def_func)) {
+                            func_line1 <- as.integer(xml_attr(def_func, "line1"))
+                            func_col1 <- as.integer(xml_attr(def_func, "col1"))
+                            func_line2 <- as.integer(xml_attr(def_func, "line2"))
+                            func_col2 <- as.integer(xml_attr(def_func, "col2"))
+                            func_text <- get_range_text(document$content,
+                                line1 = func_line1,
+                                col1 = func_col1,
+                                line2 = func_line2,
+                                col2 = func_col2
+                            )
+                            func_expr <- parse(text = func_text, keep.source = FALSE)
+                            def_text <- get_signature(token_text, func_expr[[1]])
+                            def_line1 <- func_line1
                         } else {
                             def_line1 <- as.integer(xml_attr(last_def, "line1"))
                             def_line2 <- def_line1
+                            def_text <- trimws(
+                                paste0(document$content[def_line1:def_line2],
+                                    collapse = "\n")
+                            )
                         }
-                        def_text <- trimws(paste0(document$content[def_line1:def_line2],
-                            collapse = "\n"))
                         doc_string <- NULL
                         doc_line1 <- detect_comments(document$content, def_line1 - 1) + 1
                         if (doc_line1 < def_line1) {
