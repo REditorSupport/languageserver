@@ -126,6 +126,43 @@ test_that("Hover on function argument works", {
     ))
 })
 
+test_that("Hover works with local function", {
+    skip_on_cran()
+    client <- language_client()
+
+    withr::local_tempfile(c("temp_file"), fileext = ".R")
+    writeLines(
+        c(
+            "local({",
+            "  #' test function",
+            "  #' @param var1 a number",
+            "  test <- function(var1, var2=1) {",
+            "    var1 + var2",
+            "  }",
+            "  test(var1 = 1, var2 = 2)",
+            "})"
+        ),
+        temp_file)
+
+    client %>% did_save(temp_file)
+
+    result <- client %>% respond_hover(temp_file, c(6, 4))
+    expect_equal(result$range$start, list(line = 6, character = 2))
+    expect_equal(result$range$end, list(line = 6, character = 6))
+    expect_equal(result$contents, list(
+        "```r\ntest(var1, var2 = 1)\n```",
+        "test function  \n\n`@param` `var1` a number  \n"
+    ))
+
+    result <- client %>% respond_hover(temp_file, c(6, 9))
+    expect_equal(result$range$start, list(line = 6, character = 7))
+    expect_equal(result$range$end, list(line = 6, character = 11))
+    expect_equal(result$contents, list(
+        "```r\ntest(var1, var2 = 1)\n```",
+        "`var1` - a number"
+    ))
+})
+
 test_that("Simple hover works in Rmarkdown", {
     skip_on_cran()
     client <- language_client()
