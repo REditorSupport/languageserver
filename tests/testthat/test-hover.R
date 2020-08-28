@@ -146,7 +146,10 @@ test_that("Hover works with local function", {
 
     client %>% did_save(temp_file)
 
-    result <- client %>% respond_hover(temp_file, c(6, 4))
+    result <- client %>% respond_hover(
+        temp_file, c(6, 4),
+        retry_when = function(result) length(result) == 0 || length(result$items) == 0
+    )
     expect_equal(result$range$start, list(line = 6, character = 2))
     expect_equal(result$range$end, list(line = 6, character = 6))
     expect_equal(result$contents, list(
@@ -154,7 +157,10 @@ test_that("Hover works with local function", {
         "test function  \n\n`@param` `var1` a number  \n"
     ))
 
-    result <- client %>% respond_hover(temp_file, c(6, 9))
+    result <- client %>% respond_hover(
+        temp_file, c(6, 9),
+        retry_when = function(result) length(result) == 0 || length(result$items) == 0
+    )
     expect_equal(result$range$start, list(line = 6, character = 7))
     expect_equal(result$range$end, list(line = 6, character = 11))
     expect_equal(result$contents, list(
