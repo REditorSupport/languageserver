@@ -94,6 +94,56 @@ test_that("Hover on variable works", {
     expect_equal(result$contents, "```r\nvar1 <- 0\n```")
 })
 
+test_that("Hover works in scope with different assignment operators", {
+    skip_on_cran()
+    client <- language_client()
+
+    withr::local_tempfile(c("temp_file"), fileext = ".R")
+    writeLines(c(
+        "my_fn <- function(var1) {",
+        "  var2 <- 1",
+        "  var3 = 2",
+        "  3 -> var4",
+        "  for (var5 in 1:10) {",
+        "    var1 + var2 + var3 + var4 + var5",
+        "  }",
+        "}",
+        "my_fn(1)"
+    ), temp_file)
+
+    client %>% did_save(temp_file)
+
+    result <- client %>% respond_hover(temp_file, c(8, 0))
+    expect_equal(result$range$start, list(line = 8, character = 0))
+    expect_equal(result$range$end, list(line = 8, character = 5))
+    expect_equal(result$contents, "```r\nmy_fn(var1)\n```")
+
+    result <- client %>% respond_hover(temp_file, c(5, 5))
+    expect_equal(result$range$start, list(line = 5, character = 4))
+    expect_equal(result$range$end, list(line = 5, character = 8))
+    expect_equal(result$contents, "```r\nmy_fn <- function(var1) {\n```")
+
+    result <- client %>% respond_hover(temp_file, c(5, 12))
+    expect_equal(result$range$start, list(line = 5, character = 11))
+    expect_equal(result$range$end, list(line = 5, character = 15))
+    expect_equal(result$contents, "```r\nvar2 <- 1\n```")
+
+    result <- client %>% respond_hover(temp_file, c(5, 20))
+    expect_equal(result$range$start, list(line = 5, character = 18))
+    expect_equal(result$range$end, list(line = 5, character = 22))
+    expect_equal(result$contents, "```r\nvar3 = 2\n```")
+
+    result <- client %>% respond_hover(temp_file, c(5, 26))
+    expect_equal(result$range$start, list(line = 5, character = 25))
+    expect_equal(result$range$end, list(line = 5, character = 29))
+    expect_equal(result$contents, "```r\n3 -> var4\n```")
+
+    result <- client %>% respond_hover(temp_file, c(5, 34))
+    expect_equal(result$range$start, list(line = 5, character = 32))
+    expect_equal(result$range$end, list(line = 5, character = 36))
+    expect_equal(result$contents, "```r\nfor (var5 in 1:10) {\n```")
+})
+
 test_that("Hover on function argument works", {
     skip_on_cran()
     client <- language_client()

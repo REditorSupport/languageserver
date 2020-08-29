@@ -86,7 +86,7 @@ test_that("Go to Definition works in single file", {
     expect_equal(length(result), 0)
 })
 
-test_that("Go to Definition works in scope", {
+test_that("Go to Definition works in scope with different assignment operators", {
     skip_on_cran()
     client <- language_client()
 
