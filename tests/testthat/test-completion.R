@@ -136,8 +136,9 @@ test_that("Completion of symbols in scope works", {
         c(
             "xvar0 <- rnorm(10)",
             "my_fun <- function(xvar1) {",
-            "    xvar2 <- 1",
-            "    for (xvar3 in 1:10) {",
+            "    xvar2 = 1",
+            "    2 -> xvar3",
+            "    for (xvar4 in 1:10) {",
             "        xvar",
             "    }",
             "}"
@@ -148,11 +149,11 @@ test_that("Completion of symbols in scope works", {
     client %>% did_save(temp_file)
 
     result <- client %>% respond_completion(
-        temp_file, c(3, 12),
+        temp_file, c(5, 12),
         retry_when = function(result) length(result) == 0 || length(result$items) == 0
     )
 
-    expect_length(result$items %>% discard(~ .$kind == CompletionItemKind$Text), 4)
+    expect_length(result$items %>% discard(~ .$kind == CompletionItemKind$Text), 5)
     expect_length(result$items %>%
         keep(~ .$label == "xvar0") %>%
         discard(~ .$kind == CompletionItemKind$Text), 1)
@@ -164,6 +165,9 @@ test_that("Completion of symbols in scope works", {
         discard(~ .$kind == CompletionItemKind$Text), 1)
     expect_length(result$items %>%
         keep(~ .$label == "xvar3") %>%
+        discard(~ .$kind == CompletionItemKind$Text), 1)
+    expect_length(result$items %>%
+        keep(~ .$label == "xvar4") %>%
         discard(~ .$kind == CompletionItemKind$Text), 1)
 })
 
