@@ -28,6 +28,7 @@ jobs:
       run: |
         Rscript -e "install.packages(c('remotes', 'rcmdcheck'), repos = 'https://cloud.r-project.org')"
         Rscript -e "remotes::install_deps(dependencies = TRUE)"
+        Rscript -e "remotes::install_local()"
     - name: Running Tests
       run: |
         Rscript -e "rcmdcheck::rcmdcheck(args = c('--as-cran', '--no-manual', '--timings'), error_on = 'error')"
@@ -58,6 +59,7 @@ jobs:
       run: |
         Rscript -e "install.packages(c('remotes', 'rcmdcheck'), repos = 'https://cloud.r-project.org', type = 'mac.binary')"
         Rscript -e "remotes::install_deps(dependencies = TRUE, type = 'mac.binary')"
+        Rscript -e "remotes::install_local()"
     - name: Running Tests
       run: |
         mkdir -p /tmp/languageserver
