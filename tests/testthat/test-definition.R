@@ -63,7 +63,7 @@ test_that("Go to Definition works for functions in packages", {
     expect_true(endsWith(result$uri, "print.R"))
 })
 
-test_that("Go to Definition works for in single file", {
+test_that("Go to Definition works in single file", {
     skip_on_cran()
     client <- language_client()
 
@@ -84,6 +84,57 @@ test_that("Go to Definition works for in single file", {
     result <- client %>% respond_definition(single_file, c(2, 0), retry = FALSE)
 
     expect_equal(length(result), 0)
+})
+
+test_that("Go to Definition works in scope", {
+    skip_on_cran()
+    client <- language_client()
+
+    withr::local_tempfile(c("single_file"), fileext = ".R")
+    writeLines(c(
+        "my_fn <- function(var1) {",
+        "  var2 <- 1",
+        "  var3 = 2",
+        "  3 -> var4",
+        "  for (var5 in 1:10) {",
+        "    var1 + var2 + var3 + var4 + var5",
+        "  }",
+        "}",
+        "my_fn(1)"
+    ), single_file)
+
+    client %>% did_save(single_file)
+
+    # first query a known function to make sure the file is processed
+    result <- client %>% respond_definition(single_file, c(8, 0))
+
+    expect_equal(result$range$start, list(line = 0, character = 0))
+    expect_equal(result$range$end, list(line = 7, character = 1))
+
+    result <- client %>% respond_definition(single_file, c(5, 5))
+
+    expect_equal(result$range$start, list(line = 0, character = 18))
+    expect_equal(result$range$end, list(line = 0, character = 22))
+
+    result <- client %>% respond_definition(single_file, c(5, 12))
+
+    expect_equal(result$range$start, list(line = 1, character = 2))
+    expect_equal(result$range$end, list(line = 1, character = 11))
+
+    result <- client %>% respond_definition(single_file, c(5, 20))
+
+    expect_equal(result$range$start, list(line = 2, character = 2))
+    expect_equal(result$range$end, list(line = 2, character = 10))
+
+    result <- client %>% respond_definition(single_file, c(5, 26))
+
+    expect_equal(result$range$start, list(line = 3, character = 2))
+    expect_equal(result$range$end, list(line = 3, character = 11))
+
+    result <- client %>% respond_definition(single_file, c(5, 34))
+
+    expect_equal(result$range$start, list(line = 4, character = 7))
+    expect_equal(result$range$end, list(line = 4, character = 11))
 })
 
 test_that("Go to Definition works when package is specified", {
