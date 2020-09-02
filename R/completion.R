@@ -77,30 +77,63 @@ package_completion <- function(token) {
 
 #' Complete a function argument
 #' @keywords internal
-arg_completion <- function(workspace, token, funct, package = NULL, exported_only = TRUE) {
+arg_completion <- function(uri, workspace, point, token, funct, package = NULL, exported_only = TRUE) {
+    token_args <- NULL
+    token_data <- NULL
+
     if (is.null(package)) {
-        package <- workspace$guess_namespace(funct, isf = TRUE)
+        xdoc <- workspace$get_parse_data(uri)$xml_doc
+        if (!is.null(xdoc)) {
+            row <- point$row + 1
+            col <- point$col + 1
+            enclosing_scopes <- xdoc_find_enclosing_scopes(xdoc,
+                row, col, top = TRUE)
+            xpath <- glue(signature_xpath, row = row,
+                token_quote = xml_single_quote(funct))
+            all_defs <- xml_find_all(enclosing_scopes, xpath)
+            if (length(all_defs)) {
+                last_def <- all_defs[[length(all_defs)]]
+                func_line1 <- as.integer(xml_attr(last_def, "line1"))
+                args <- xml_text(xml_find_all(last_def, "SYMBOL_FORMALS"))
+                token_args <- args[startsWith(args, token)]
+                token_data <- list(
+                    type = "parameter",
+                    funct = funct,
+                    uri = uri,
+                    line = func_line1
+                )
+            }
+        }
+
+        if (is.null(token_args)) {
+            package <- workspace$guess_namespace(funct, isf = TRUE)
+        }
     }
+
     if (!is.null(package)) {
         args <- names(workspace$get_formals(funct, package, exported_only = exported_only))
         if (is.character(args)) {
             token_args <- args[startsWith(args, token)]
-            completions <- lapply(token_args, function(arg) {
-                list(label = arg,
-                    kind = CompletionItemKind$Variable,
-                    detail = "parameter",
-                    sortText = paste0(sort_prefixes$arg, arg),
-                    insertText = paste0(arg, " = "),
-                    insertTextFormat = InsertTextFormat$PlainText,
-                    data = list(
-                        type = "parameter",
-                        funct = funct,
-                        package = package
-                ))
-            })
-            completions
+            token_data <- list(
+                type = "parameter",
+                funct = funct,
+                package = package
+            )
         }
     }
+
+    completions <- lapply(token_args, function(arg) {
+        list(label = arg,
+            kind = CompletionItemKind$Variable,
+            detail = "parameter",
+            sortText = paste0(sort_prefixes$arg, arg),
+            insertText = paste0(arg, " = "),
+            insertTextFormat = InsertTextFormat$PlainText,
+            data = token_data
+        )
+    })
+
+    completions
 }
 
 
@@ -297,39 +330,74 @@ scope_completion <- function(uri, workspace, token, point, snippet_support = NUL
     enclosing_scopes <- xdoc_find_enclosing_scopes(xdoc,
         point$row + 1, point$col + 1)
 
-    scope_symbols <- unique(xml_text(xml_find_all(enclosing_scopes, scope_completion_symbols_xpath)))
-    scope_symbols <- scope_symbols[startsWith(scope_symbols, token)]
-    scope_symbol_completions <- lapply(scope_symbols, function(symbol) {
+    scope_symbol_nodes <- xml_find_all(enclosing_scopes, scope_completion_symbols_xpath)
+    scope_symbol_names <- xml_text(scope_symbol_nodes)
+    scope_symbol_lines <- as.integer(xml_attr(scope_symbol_nodes, "line1"))
+    scope_symbol_selector <- startsWith(scope_symbol_names, token)
+
+    scope_symbol_names <- rev(scope_symbol_names[scope_symbol_selector])
+    scope_symbol_lines <- rev(scope_symbol_lines[scope_symbol_selector])
+    scope_symbol_selector <- !duplicated(scope_symbol_names)
+
+    scope_symbol_names <- scope_symbol_names[scope_symbol_selector]
+    scope_symbol_lines <- scope_symbol_lines[scope_symbol_selector]
+
+    scope_symbol_completions <- .mapply(function(symbol, line) {
         list(
             label = symbol,
             kind = CompletionItemKind$Field,
             sortText = paste0(sort_prefixes$scope, symbol),
-            detail = "[scope]"
+            detail = "[scope]",
+            data = list(
+                type = "nonfunction",
+                uri = uri,
+                line = line
+            )
         )
-    })
+    }, list(scope_symbol_names, scope_symbol_lines), NULL)
 
-    scope_functs <- unique(xml_text(xml_find_all(enclosing_scopes, scope_completion_functs_xpath)))
-    scope_functs <- scope_functs[startsWith(scope_functs, token)]
+    scope_funct_nodes <- xml_find_all(enclosing_scopes, scope_completion_functs_xpath)
+    scope_funct_names <- xml_text(scope_funct_nodes)
+    scope_funct_lines <- as.integer(xml_attr(scope_funct_nodes, "line1"))
+    scope_funct_selector <- startsWith(scope_funct_names, token)
+
+    scope_funct_names <- rev(scope_funct_names[scope_funct_selector])
+    scope_funct_lines <- rev(scope_funct_lines[scope_funct_selector])
+    scope_funct_selector <- !duplicated(scope_funct_names)
+
+    scope_funct_names <- scope_funct_names[scope_funct_selector]
+    scope_funct_lines <- scope_funct_lines[scope_funct_selector]
+
     if (isTRUE(snippet_support)) {
-        scope_funct_completions <- lapply(scope_functs, function(symbol) {
+        scope_funct_completions <- .mapply(function(symbol, line) {
             list(
                 label = symbol,
                 kind = CompletionItemKind$Function,
                 detail = "[scope]",
                 sortText = paste0(sort_prefixes$scope, symbol),
                 insertText = paste0(symbol, "($0)"),
-                insertTextFormat = InsertTextFormat$Snippet
+                insertTextFormat = InsertTextFormat$Snippet,
+                data = list(
+                    type = "function",
+                    uri = uri,
+                    line = line
+                )
             )
-        })
+        }, list(scope_funct_names, scope_funct_lines), NULL)
     } else {
-        scope_funct_completions <- lapply(scope_functs, function(symbol) {
+        scope_funct_completions <- .mapply(function(symbol, line) {
             list(
                 label = symbol,
                 kind = CompletionItemKind$Function,
                 sortText = paste0(sort_prefixes$scope, symbol),
-                detail = "[scope]"
+                detail = "[scope]",
+                data = list(
+                    type = "function",
+                    uri = uri,
+                    line = line
+                )
             )
-        })
+        }, list(scope_funct_names, scope_funct_lines), NULL)
     }
 
     completions <- c(scope_symbol_completions, scope_funct_completions)
@@ -394,7 +462,7 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
     if (nzchar(call_result$token)) {
         completions <- c(
             completions,
-            arg_completion(workspace, token,
+            arg_completion(uri, workspace, point, token,
                 call_result$token, call_result$package,
                 exported_only = call_result$accessor != ":::"))
     }
@@ -433,19 +501,42 @@ completion_item_resolve_reply <- function(id, workspace, params) {
                 resolved <- TRUE
             }
         } else if (params$data$type == "parameter") {
-            doc <- workspace$get_documentation(params$data$funct, params$data$package, isf = TRUE)
+            doc <- NULL
             doc_string <- NULL
+            if (is.null(params$data$uri)) {
+                doc <- workspace$get_documentation(params$data$funct, params$data$package, isf = TRUE)
+            } else {
+                document <- workspace$documents$get(params$data$uri)
+                func_line1 <- params$data$line
+                doc_line1 <- detect_comments(document$content, func_line1 - 1) + 1
+                if (doc_line1 < func_line1) {
+                    comment <- document$content[doc_line1:(func_line1 - 1)]
+                    doc <- convert_comment_to_documentation(comment)
+                }
+            }
             if (is.list(doc)) {
                 doc_string <- doc$arguments[[params$label]]
-            }
-            if (!is.null(doc_string)) {
-                params$documentation <- list(kind = "markdown", value = doc_string)
-                resolved <- TRUE
+                if (!is.null(doc_string)) {
+                    params$documentation <- list(kind = "markdown", value = doc_string)
+                    resolved <- TRUE
+                }
             }
         } else if (params$data$type %in% c("constant", "function", "nonfunction", "lazydata")) {
-            doc <- workspace$get_documentation(params$label, params$data$package,
-                isf = params$data$type == "function")
+            doc <- NULL
             doc_string <- NULL
+            if (is.null(params$data$uri)) {
+                doc <- workspace$get_documentation(params$label, params$data$package,
+                    isf = params$data$type == "function")
+            } else {
+                document <- workspace$documents$get(params$data$uri)
+                token_line1 <- params$data$line
+                doc_line1 <- detect_comments(document$content, token_line1 - 1) + 1
+                if (doc_line1 < token_line1) {
+                    comment <- document$content[doc_line1:(token_line1 - 1)]
+                    doc <- convert_comment_to_documentation(comment)
+                }
+            }
+
             if (is.character(doc)) {
                 doc_string <- doc
             } else if (is.list(doc)) {
