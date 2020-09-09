@@ -458,13 +458,15 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
                 workspace, token, package, token_result$accessor == "::", snippet_support))
     }
 
-    call_result <- document$detect_call(point)
-    if (nzchar(call_result$token)) {
-        completions <- c(
-            completions,
-            arg_completion(uri, workspace, point, token,
-                call_result$token, call_result$package,
-                exported_only = call_result$accessor != ":::"))
+    if (token_result$accessor == "") {
+        call_result <- document$detect_call(point)
+        if (nzchar(call_result$token)) {
+            completions <- c(
+                completions,
+                arg_completion(uri, workspace, point, token,
+                    call_result$token, call_result$package,
+                    exported_only = call_result$accessor != ":::"))
+        }
     }
 
     if (is.null(token_result$package)) {
