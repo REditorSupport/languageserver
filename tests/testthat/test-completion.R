@@ -67,7 +67,9 @@ test_that("Completion of function arguments works", {
     withr::local_tempfile(c("temp_file"), fileext = ".R")
     writeLines(
         c(
-            "str(obj"
+            "str(obj",
+            "utils::str(obj",
+            "str(stats::o"
         ),
         temp_file)
 
@@ -76,6 +78,14 @@ test_that("Completion of function arguments works", {
     result <- client %>% respond_completion(temp_file, c(0, 6))
     arg_items <- result$items %>% keep(~.$label == "object")
     expect_length(arg_items, 1)
+
+    result <- client %>% respond_completion(temp_file, c(1, 14))
+    arg_items <- result$items %>% keep(~.$label == "object")
+    expect_length(arg_items, 1)
+
+    result <- client %>% respond_completion(temp_file, c(2, 12))
+    arg_items <- result$items %>% keep(~.$label == "object")
+    expect_length(arg_items, 0)
 })
 
 test_that("Completion of local function arguments works", {
