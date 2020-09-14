@@ -15,7 +15,7 @@ Authors@R:
 Description: An implementation of the Language Server Protocol
     for R. The Language Server protocol is used by an editor client to
     integrate features like auto completion. See
-    <https://microsoft.github.io/language-server-protocol> for details.
+    <https://microsoft.github.io/language-server-protocol/> for details.
 License: MIT + file LICENSE
 URL: https://github.com/REditorSupport/languageserver/
 Depends:
