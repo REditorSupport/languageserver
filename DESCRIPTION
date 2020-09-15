@@ -1,8 +1,8 @@
 Type: Package
 Package: languageserver
 Title: Language Server Protocol
-Version: 0.3.6
-Date: 2020-05-24
+Version: 0.3.7
+Date: 2020-9-12
 Authors@R: 
     c(person(given = "Randy",
              family = "Lai",
@@ -15,9 +15,9 @@ Authors@R:
 Description: An implementation of the Language Server Protocol
     for R. The Language Server protocol is used by an editor client to
     integrate features like auto completion. See
-    <https://microsoft.github.io/language-server-protocol> for details.
+    <https://microsoft.github.io/language-server-protocol/> for details.
 License: MIT + file LICENSE
-URL: https://github.com/REditorSupport/languageserver
+URL: https://github.com/REditorSupport/languageserver/
 Depends:
     R (>= 3.4.0)
 Imports:

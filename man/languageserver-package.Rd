@@ -9,7 +9,7 @@
 An implementation of the Language Server Protocol
     for R. The Language Server protocol is used by an editor client to
     integrate features like auto completion. See
-    <https://microsoft.github.io/language-server-protocol> for details.
+    <https://microsoft.github.io/language-server-protocol/> for details.
 }
 \details{
 An implementation of the Language Server Protocol for R
@@ -17,7 +17,7 @@ An implementation of the Language Server Protocol for R
 \seealso{
 Useful links:
 \itemize{
-  \item \url{https://github.com/REditorSupport/languageserver}
+  \item \url{https://github.com/REditorSupport/languageserver/}
 }
 
 }
