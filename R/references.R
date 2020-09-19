@@ -1,3 +1,5 @@
+references_xpath <- "//*[(self::SYMBOL or self::SYMBOL_FUNCTION_CALL or self::SYMBOL_FORMALS) and text() = '{token_quote}']"
+
 #' @keywords internal
 references_reply <- function(id, uri, workspace, document, point) {
 
@@ -18,9 +20,7 @@ references_reply <- function(id, uri, workspace, document, point) {
       doc <- workspace$documents$get(doc_uri)
       xdoc <- workspace$get_parse_data(doc_uri)$xml_doc
       if (!is.null(xdoc)) {
-        symbols <- xml_find_all(xdoc,
-          glue("//*[(self::SYMBOL or self::SYMBOL_FUNCTION_CALL or self::SYMBOL_FORMALS) and text() = '{token_quote}']",
-            token_quote = token_quote))
+        symbols <- xml_find_all(xdoc, glue(references_xpath, token_quote = token_quote))
         line1 <- as.integer(xml_attr(symbols, "line1"))
         col1 <- as.integer(xml_attr(symbols, "col1"))
         line2 <- as.integer(xml_attr(symbols, "line2"))
