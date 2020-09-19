@@ -209,6 +209,19 @@ respond_references <- function(client, path, pos, ...) {
     )
 }
 
+respond_rename <- function(client, path, pos, newName, ...) {
+    respond(
+        client,
+        "textDocument/rename",
+        list(
+            textDocument = list(uri = path_to_uri(path)),
+            position = list(line = pos[1], character = pos[2]),
+            newName = newName
+        ),
+        ...
+    )
+}
+
 
 respond_formatting <- function(client, path, ...) {
     respond(
