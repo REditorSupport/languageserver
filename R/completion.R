@@ -410,7 +410,8 @@ token_completion <- function(uri, workspace, token, exclude = NULL) {
         return(list())
     }
 
-    symbols <- unique(xml_text(xml_find_all(xdoc, "//SYMBOL | //SYMBOL_SUB | //SYMBOL_FUNCTION_CALL")))
+    symbols <- unique(xml_text(xml_find_all(xdoc,
+        "//SYMBOL | //SYMBOL_SUB | //SYMBOL_FORMALS | //SYMBOL_FUNCTION_CALL")))
     symbols <- symbols[startsWith(symbols, token)]
     symbols <- setdiff(symbols, exclude)
     token_completions <- lapply(symbols, function(symbol) {
