@@ -197,6 +197,18 @@ respond_definition <- function(client, path, pos, ...) {
     )
 }
 
+respond_references <- function(client, path, pos, ...) {
+    respond(
+        client,
+        "textDocument/references",
+        list(
+            textDocument = list(uri = path_to_uri(path)),
+            position = list(line = pos[1], character = pos[2])
+        ),
+        ...
+    )
+}
+
 
 respond_formatting <- function(client, path, ...) {
     respond(
