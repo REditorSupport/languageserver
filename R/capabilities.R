@@ -59,7 +59,7 @@ ServerCapabilities <- list(
     documentFormattingProvider = TRUE,
     documentRangeFormattingProvider = TRUE,
     documentOnTypeFormattingProvider = DocumentOnTypeFormattingOptions,
-    # renameProvider = FALSE,
+    renameProvider = TRUE,
     documentLinkProvider = DocumentLinkOptions,
     colorProvider = TRUE,
     foldingRangeProvider = TRUE
