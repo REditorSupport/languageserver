@@ -1,61 +1,57 @@
 #' @keywords internal
 references_reply <- function(id, uri, workspace, document, point) {
 
-  token_result <- document$detect_token(point)
-  resolved <- FALSE
-  result <- NULL
+  token <- document$detect_token(point)
+  defn <- definition_reply(NULL, uri, workspace, document, point)
+  token_quote <- xml_single_quote(token$token)
 
-  xdoc <- workspace$get_parse_data(uri)$xml_doc
-  if (token_result$accessor == "" && !is.null(xdoc)) {
-    row <- point$row + 1
-    col <- point$col + 1
-    token <- xdoc_find_token(xdoc, row, col)
-    if (length(token)) {
-      token_name <- xml_name(token)
-      token_text <- xml_text(token)
-      logger$info("definition: ", token_name, token_text)
-      if (token_name %in% c("SYMBOL", "SYMBOL_FUNCTION_CALL")) {
-        # symbol
-        preceding_dollar <- xml_find_first(token, "preceding-sibling::OP-DOLLAR")
-        if (length(preceding_dollar) == 0) {
-          enclosing_scopes <- xdoc_find_enclosing_scopes(xdoc,
-            row, col, top = TRUE)
-          token_quote <- xml_single_quote(token_text)
-          xpath <- glue(definition_xpath, row = row, token_quote = token_quote)
-          all_defs <- xml_find_all(enclosing_scopes, xpath)
-          if (length(all_defs)) {
-            last_def <- all_defs[[length(all_defs)]]
-            result <- list(
-              uri = uri,
+  logger$info("references_reply: ", list(
+    uri = uri,
+    token = token,
+    defn = defn$result
+  ))
+
+  result <- list()
+
+  if (length(defn$result)) {
+    for (doc_uri in workspace$documents$keys()) {
+      doc <- workspace$documents$get(doc_uri)
+      xdoc <- workspace$get_parse_data(doc_uri)$xml_doc
+      if (!is.null(xdoc)) {
+        symbols <- xml_find_all(xdoc,
+          glue("//*[(self::SYMBOL or self::SYMBOL_FUNCTION_CALL) and text() = '{token_quote}']",
+            token_quote = token_quote))
+        line1 <- as.integer(xml_attr(symbols, "line1"))
+        col1 <- as.integer(xml_attr(symbols, "col1"))
+        line2 <- as.integer(xml_attr(symbols, "line2"))
+        col2 <- as.integer(xml_attr(symbols, "col2"))
+        for (i in seq_len(length(symbols))) {
+          symbol_point <- list(row = line1[[i]] - 1, col = col1[[i]])
+          symbol_defn <- definition_reply(NULL, doc_uri, workspace, doc, symbol_point)
+          if (identical(symbol_defn$result, defn$result)) {
+            result <- c(result, list(list(
+              uri = doc_uri,
               range = range(
-                start = document$to_lsp_position(
-                  row = as.integer(xml_attr(last_def, "line1")) - 1,
-                  col = as.integer(xml_attr(last_def, "col1")) - 1),
-                end = document$to_lsp_position(
-                  row = as.integer(xml_attr(last_def, "line2")) - 1,
-                  col = as.integer(xml_attr(last_def, "col2")))
+                start = doc$to_lsp_position(
+                  row = line1[[i]] - 1,
+                  col = col1[[i]] - 1
+                ),
+                end = doc$to_lsp_position(
+                  row = line2[[i]] - 1,
+                  col = col2[[i]]
+                )
               )
-            )
-            resolved <- TRUE
+            )))
           }
         }
-      } else {
-        resolved <- TRUE
       }
     }
   }
 
-  if (!resolved) {
-    result <- workspace$get_definition(token_result$token, token_result$package,
-      exported_only = token_result$accessor != ":::")
-  }
+  logger$info("references_reply: ", result)
 
-  if (is.null(result)) {
-    Response$new(id)
-  } else {
-    Response$new(
-      id,
-      result = list(result)
-    )
-  }
+  Response$new(
+    id,
+    result = result
+  )
 }
