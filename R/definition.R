@@ -28,7 +28,7 @@ definition_reply <- function(id, uri, workspace, document, point) {
             token_name <- xml_name(token)
             token_text <- xml_text(token)
             logger$info("definition: ", token_name, token_text)
-            if (token_name %in% c("SYMBOL", "SYMBOL_FUNCTION_CALL")) {
+            if (token_name %in% c("SYMBOL", "SYMBOL_FUNCTION_CALL", "SYMBOL_FORMALS")) {
                 # symbol
                 preceding_dollar <- xml_find_first(token, "preceding-sibling::OP-DOLLAR")
                 if (length(preceding_dollar) == 0) {
