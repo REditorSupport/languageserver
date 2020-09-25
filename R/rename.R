@@ -1,5 +1,5 @@
 prepare_rename_reply <- function(id, uri, workspace, document, point, newName) {
-  defn <- definition_reply(id, uri, workspace, document, point)
+  defn <- definition_reply(NULL, uri, workspace, document, point)
 
   if (length(defn$result)) {
     xdoc <- workspace$get_parse_data(uri)$xml_doc
