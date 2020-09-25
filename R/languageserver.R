@@ -210,6 +210,7 @@ LanguageServer$set("public", "register_handlers", function() {
         `textDocument/foldingRange` = text_document_folding_range,
         `textDocument/references` = text_document_references,
         `textDocument/rename` = text_document_rename,
+        `textDocument/prepareRename` = text_document_prepare_rename,
         `workspace/symbol` = workspace_symbol
     )
 
