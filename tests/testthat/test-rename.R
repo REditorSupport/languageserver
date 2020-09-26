@@ -269,3 +269,30 @@ test_that("Rename in Rmarkdown works", {
     result <- client %>% respond_rename(single_file, c(6, 0), "new_fn", retry = FALSE)
     expect_length(result$changes, 0)
 })
+
+test_that("Prepare rename works in single file", {
+    skip_on_cran()
+    client <- language_client()
+
+    withr::local_tempfile(c("single_file"), fileext = ".R")
+    writeLines(
+        c("my_fn <- function(x) {x + 123}", "my_fn", "new_fn"),
+        single_file)
+
+    client %>% did_save(single_file)
+
+    result <- client %>% respond_prepare_rename(single_file, c(1, 0))
+    expect_equal(result$start, list(line = 1, character = 0))
+    expect_equal(result$end, list(line = 1, character = 5))
+
+    result <- client %>% respond_prepare_rename(single_file, c(0, 0))
+    expect_equal(result$start, list(line = 0, character = 0))
+    expect_equal(result$end, list(line = 0, character = 5))
+
+    result <- client %>% respond_prepare_rename(single_file, c(2, 0))
+    expect_null(result)
+
+    result <- client %>% respond_prepare_rename(single_file, c(0, 27))
+    expect_null(result)
+
+})
