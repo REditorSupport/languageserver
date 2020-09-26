@@ -20,10 +20,10 @@ prepare_rename_reply <- function(id, uri, workspace, document, point) {
       )
     )
   } else {
-    Response$new(
+    ResponseErrorMessage$new(
       id,
-      result = NULL,
-      error = list(message = "Cannot rename the symbol")
+      errortype = "RequestCancelled",
+      message = "Cannot rename the symbol"
     )
   }
 }
