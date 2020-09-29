@@ -289,10 +289,9 @@ test_that("Prepare rename works in single file", {
     expect_equal(result$start, list(line = 0, character = 0))
     expect_equal(result$end, list(line = 0, character = 5))
 
-    result <- client %>% respond_prepare_rename(single_file, c(2, 0))
-    expect_null(result)
+    error <- client %>% respond_prepare_rename(single_file, c(2, 0), allow_error = TRUE)
+    expect_equal(error$message, "Cannot rename the symbol")
 
-    result <- client %>% respond_prepare_rename(single_file, c(0, 27))
-    expect_null(result)
-
+    error <- client %>% respond_prepare_rename(single_file, c(0, 27), allow_error = TRUE)
+    expect_equal(error$message, "Cannot rename the symbol")
 })
