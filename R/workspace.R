@@ -226,7 +226,7 @@ Workspace <- R6::R6Class("Workspace",
 
         load_all = function(langserver) {
             source_dir <- file.path(self$root, "R")
-            files <- list.files(source_dir)
+            files <- list.files(source_dir, pattern = "\\.r$", ignore.case = TRUE)
             for (f in files) {
                 logger$info("load ", f)
                 path <- file.path(source_dir, f)
