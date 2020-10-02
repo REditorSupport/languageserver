@@ -1,8 +1,8 @@
 hover_xpath <- paste(
     "FUNCTION[following-sibling::SYMBOL_FORMALS[text() = '{token_quote}' and @line1 <= {row}]]/parent::expr",
-    "*[LEFT_ASSIGN/preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]]",
-    "*[RIGHT_ASSIGN/following-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]]",
-    "*[EQ_ASSIGN/preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]]",
+    "*[LEFT_ASSIGN/preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}] and LEFT_ASSIGN/following-sibling::expr[@start > {start} or @end < {end}]]",
+    "*[RIGHT_ASSIGN/following-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}] and RIGHT_ASSIGN/preceding-sibling::expr[@start > {start} or @end < {end}]]",
+    "*[EQ_ASSIGN/preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}] and EQ_ASSIGN/following-sibling::expr[@start > {start} or @end < {end}]]",
     "forcond/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]",
     sep = "|")
 
@@ -42,6 +42,8 @@ hover_reply <- function(id, uri, workspace, document, point) {
         if (length(token)) {
             token_name <- xml_name(token)
             token_text <- xml_text(token)
+            token_start <- as.integer(xml_attr(token, "start"))
+            token_end <- as.integer(xml_attr(token, "end"))
             logger$info(token_name, token_text)
             if (token_name %in% c("SYMBOL", "SYMBOL_FUNCTION_CALL")) {
                 # symbol
@@ -49,7 +51,8 @@ hover_reply <- function(id, uri, workspace, document, point) {
                 if (length(preceding_dollar) == 0 && (is.null(signs) || signs != WORKSPACE || is.null(sig))) {
                     enclosing_scopes <- xdoc_find_enclosing_scopes(xdoc,
                         row, col, top = TRUE)
-                    xpath <- glue(hover_xpath, row = row,
+                    xpath <- glue(hover_xpath,
+                        row = row, start = token_start, end = token_end,
                         token_quote = xml_single_quote(token_text))
                     all_defs <- xml_find_all(enclosing_scopes, xpath)
                     if (length(all_defs)) {
