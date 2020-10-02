@@ -154,7 +154,7 @@ Workspace <- R6::R6Class("Workspace",
 
         get_documentation = function(topic, pkgname = NULL, isf = FALSE) {
             if (is.null(pkgname)) {
-                pkgname <- self$guess_namespace(topic, isf = TRUE)
+                pkgname <- self$guess_namespace(topic, isf = isf)
                 if (is.null(pkgname)) {
                     return(NULL)
                 }

@@ -19,14 +19,6 @@ hover_reply <- function(id, uri, workspace, document, point) {
     token_result <- document$detect_token(point)
     range <- token_result$range
 
-    if (is.null(token_result$package)) {
-        signs <- workspace$guess_namespace(token_result$token)
-    } else {
-        signs <- token_result$package
-    }
-
-    sig <- workspace$get_signature(token_result$token, signs,
-        exported_only = token_result$accessor != ":::")
     contents <- NULL
     resolved <- FALSE
 
@@ -48,7 +40,7 @@ hover_reply <- function(id, uri, workspace, document, point) {
             if (token_name %in% c("SYMBOL", "SYMBOL_FUNCTION_CALL")) {
                 # symbol
                 preceding_dollar <- xml_find_first(token, "preceding-sibling::OP-DOLLAR")
-                if (length(preceding_dollar) == 0 && (is.null(signs) || signs != WORKSPACE || is.null(sig))) {
+                if (length(preceding_dollar) == 0) {
                     enclosing_scopes <- xdoc_find_enclosing_scopes(xdoc,
                         row, col, top = TRUE)
                     xpath <- glue(hover_xpath,
@@ -205,8 +197,30 @@ hover_reply <- function(id, uri, workspace, document, point) {
 
     if (!resolved) {
         contents <- workspace$get_help(token_result$token, token_result$package)
-        if (is.null(contents) && !is.null(sig)) {
+        if (is.null(contents)) {
+            def_text <- NULL
+
             doc <- workspace$get_documentation(token_result$token, token_result$package)
+            signs <- if (is.null(token_result$package)) {
+                workspace$guess_namespace(token_result$token)
+            } else {
+                token_result$package
+            }
+            sig <- workspace$get_signature(token_result$token, signs,
+                exported_only = token_result$accessor != ":::")
+
+            if (is.null(sig)) {
+                def <- workspace$get_definition(token_result$token, token_result$package,
+                    exported_only = token_result$accessor != ":::")
+                if (!is.null(def)) {
+                    def_doc <- workspace$documents$get(def$uri)
+                    def_line1 <- def$range$start$line + 1
+                    def_text <- def_doc$line(def_line1)
+                }
+            } else {
+                def_text <- sig
+            }
+
             doc_string <- NULL
             if (is.character(doc)) {
                 doc_string <- doc
@@ -217,7 +231,10 @@ hover_reply <- function(id, uri, workspace, document, point) {
                     doc_string <- doc$markdown
                 }
             }
-            contents <- c(sprintf("```r\n%s\n```", sig), doc_string)
+            contents <- c(
+                if (!is.null(def_text)) sprintf("```r\n%s\n```", def_text),
+                doc_string
+            )
         }
     }
 

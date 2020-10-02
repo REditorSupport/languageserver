@@ -275,6 +275,24 @@ test_that("Hover works with local function", {
     ))
 })
 
+test_that("Hover works across multiple files", {
+    skip_on_cran()
+    client <- language_client()
+
+    withr::local_tempfile(c("defn_file", "query_file"), fileext = ".R")
+    writeLines(c("test <- 1"), defn_file)
+    writeLines(c("test + 1"), query_file)
+
+    client %>% did_save(defn_file)
+    client %>% did_save(query_file)
+
+    result <- client %>% respond_hover(query_file, c(0, 0))
+
+    expect_equal(result$range$start, list(line = 0, character = 0))
+    expect_equal(result$range$end, list(line = 0, character = 4))
+    expect_equal(result$contents, "```r\ntest <- 1\n```")
+})
+
 test_that("Simple hover works in Rmarkdown", {
     skip_on_cran()
     client <- language_client()
