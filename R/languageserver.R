@@ -27,6 +27,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
         rootPath = NULL,
         initializationOptions = NULL,
         ClientCapabilities = NULL,
+        ServerCapabilities = NULL,
 
         diagnostics_task_manager = NULL,
         parse_task_manager = NULL,

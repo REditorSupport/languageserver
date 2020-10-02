@@ -22,6 +22,7 @@ on_initialize <- function(self, id, params) {
     server_capabilities <- merge_list(
         server_capabilities,
         getOption("languageserver.server_capabilities"))
+    self$ServerCapabilities <- server_capabilities
     self$deliver(Response$new(id = id, result = list(capabilities = server_capabilities)))
 }
 
