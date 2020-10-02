@@ -49,7 +49,8 @@ hover_reply <- function(id, uri, workspace, document, point) {
                     all_defs <- xml_find_all(enclosing_scopes, xpath)
                     if (length(all_defs)) {
                         last_def <- all_defs[[length(all_defs)]]
-                        def_func <- xml_find_first(last_def, "expr[FUNCTION]")
+                        def_func <- xml_find_first(last_def,
+                            "self::expr[LEFT_ASSIGN | RIGHT_ASSIGN | EQ_ASSIGN]/expr[FUNCTION]")
                         if (length(def_func)) {
                             func_line1 <- as.integer(xml_attr(def_func, "line1"))
                             func_col1 <- as.integer(xml_attr(def_func, "col1"))

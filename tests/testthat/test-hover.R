@@ -238,6 +238,36 @@ test_that("Hover on function argument works", {
     ))
 })
 
+test_that("Hover on user function with function argument works", {
+    skip_on_cran()
+    client <- language_client()
+
+    withr::local_tempfile(c("temp_file"), fileext = ".R")
+    writeLines(
+        c(
+            "test <- function(var1, var2 = function(x) x + 1) {",
+            "  var1",
+            "  var2",
+            "}"
+        ),
+        temp_file
+    )
+
+    client %>% did_save(temp_file)
+
+    result <- client %>% respond_hover(temp_file, c(1, 3))
+    expect_length(result$contents, 1)
+    expect_equal(result$contents[1], "```r\ntest <- function(var1, var2 = function(x) x + 1) {\n```")
+    expect_equal(result$range$start, list(line = 1, character = 2))
+    expect_equal(result$range$end, list(line = 1, character = 6))
+
+    result <- client %>% respond_hover(temp_file, c(2, 3))
+    expect_length(result$contents, 1)
+    expect_equal(result$contents[1], "```r\ntest <- function(var1, var2 = function(x) x + 1) {\n```")
+    expect_equal(result$range$start, list(line = 2, character = 2))
+    expect_equal(result$range$end, list(line = 2, character = 6))
+})
+
 test_that("Hover works with local function", {
     skip_on_cran()
     client <- language_client()
