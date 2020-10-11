@@ -256,8 +256,13 @@ text_document_on_type_formatting  <- function(self, id, params) {
 #'
 #' Handler to the `textDocument/rename` [Request].
 #' @keywords internal
-text_document_rename  <- function(self, id, params) {
-
+text_document_rename <- function(self, id, params) {
+    textDocument <- params$textDocument
+    uri <- uri_escape_unicode(textDocument$uri)
+    document <- self$workspace$documents$get(uri)
+    point <- document$from_lsp_position(params$position)
+    newName <- params$newName
+    self$deliver(rename_reply(id, uri, self$workspace, document, point, newName))
 }
 
 #' `textDocument/prepareRename` request handler
@@ -265,7 +270,11 @@ text_document_rename  <- function(self, id, params) {
 #' Handler to the `textDocument/prepareRename` [Request].
 #' @keywords internal
 text_document_prepare_rename  <- function(self, id, params) {
-
+    textDocument <- params$textDocument
+    uri <- uri_escape_unicode(textDocument$uri)
+    document <- self$workspace$documents$get(uri)
+    point <- document$from_lsp_position(params$position)
+    self$deliver(prepare_rename_reply(id, uri, self$workspace, document, point))
 }
 
 #' `textDocument/foldingRange` request handler

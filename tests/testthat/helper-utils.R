@@ -94,12 +94,13 @@ did_save <- function(client, path) {
         client,
         "textDocument/didSave",
         params)
+    Sys.sleep(0.5)
     invisible(client)
 }
 
 
-respond <- function(client, method, params, timeout, retry = TRUE,
-                            retry_when = function(result) length(result) == 0) {
+respond <- function(client, method, params, timeout, allow_error = FALSE,
+    retry = TRUE, retry_when = function(result) length(result) == 0) {
     if (missing(timeout)) {
         if (Sys.getenv("R_COVR", "") == "true") {
             # we give more time to covr
@@ -109,9 +110,14 @@ respond <- function(client, method, params, timeout, retry = TRUE,
         }
     }
     storage <- new.env(parent = .GlobalEnv)
-    cb <- function(self, result) {
-        storage$done <- TRUE
-        storage$result <- result
+    cb <- function(self, result, error = NULL) {
+        if (is.null(error)) {
+            storage$done <- TRUE
+            storage$result <- result
+        } else if (allow_error) {
+            storage$done <- TRUE
+            storage$result <- error
+        }
     }
 
     start_time <- Sys.time()
@@ -134,7 +140,7 @@ respond <- function(client, method, params, timeout, retry = TRUE,
             return(NULL)
         }
         Sys.sleep(0.2)
-        return(Recall(client, method, params, remaining, retry, retry_when))
+        return(Recall(client, method, params, remaining, allow_error, retry, retry_when))
     }
     return(result)
 }
@@ -201,6 +207,31 @@ respond_references <- function(client, path, pos, ...) {
     respond(
         client,
         "textDocument/references",
+        list(
+            textDocument = list(uri = path_to_uri(path)),
+            position = list(line = pos[1], character = pos[2])
+        ),
+        ...
+    )
+}
+
+respond_rename <- function(client, path, pos, newName, ...) {
+    respond(
+        client,
+        "textDocument/rename",
+        list(
+            textDocument = list(uri = path_to_uri(path)),
+            position = list(line = pos[1], character = pos[2]),
+            newName = newName
+        ),
+        ...
+    )
+}
+
+respond_prepare_rename <- function(client, path, pos, ...) {
+    respond(
+        client,
+        "textDocument/prepareRename",
         list(
             textDocument = list(uri = path_to_uri(path)),
             position = list(line = pos[1], character = pos[2])

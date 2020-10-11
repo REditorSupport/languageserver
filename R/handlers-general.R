@@ -17,10 +17,13 @@ on_initialize <- function(self, id, params) {
     self$workspace <- Workspace$new(self$rootPath)
     self$initializationOptions <- params$initializationOptions
     self$ClientCapabilities <- params$capabilities
-    ServerCapabilities <- merge_list(
-        ServerCapabilities,
+    server_capabilities <- update_server_capabilities(
+        ServerCapabilities, self$ClientCapabilities)
+    server_capabilities <- merge_list(
+        server_capabilities,
         getOption("languageserver.server_capabilities"))
-    self$deliver(Response$new(id = id, result = list(capabilities = ServerCapabilities)))
+    self$ServerCapabilities <- server_capabilities
+    self$deliver(Response$new(id = id, result = list(capabilities = server_capabilities)))
 }
 
 #' `initialized` handler
