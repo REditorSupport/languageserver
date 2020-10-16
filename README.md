@@ -48,17 +48,25 @@ These editors are supported by installing the corresponding package.
       :CocInstall coc-r-lsp
       ```
 
-    - or add the following to your Coc config:
+    - or install the languageserver package in R 
 
-      ```json
-      "languageserver": {
-          "R": {
-              "command": "/usr/bin/R",
-              "args" : [ "--slave", "-e", "languageserver::run()"],
-              "filetypes" : ["r"]
-          }
-      }
-      ```
+        ```r
+        install.packages("languageserver")
+        # or install the developement version
+        # devtools::install_github("REditorSupport/languageserver")
+        ```
+      
+      Then add the following to your Coc config:
+
+        ```json
+        "languageserver": {
+            "R": {
+                "command": "/usr/bin/R",
+                "args" : [ "--slave", "-e", "languageserver::run()"],
+                "filetypes" : ["r"]
+            }
+        }
+        ```
 
 - Emacs: [lsp-mode](https://github.com/emacs-lsp/lsp-mode)
 
