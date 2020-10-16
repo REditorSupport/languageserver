@@ -40,25 +40,25 @@ These editors are supported by installing the corresponding package.
         \ }
     ```
 
-    or, if you use [coc.nvim](https://github.com/neoclide/coc.nvim), you can do one of two things:
+  or, if you use [coc.nvim](https://github.com/neoclide/coc.nvim), you can do one of two things:
 
-      - Install [coc-r-lsp](https://github.com/neoclide/coc-r-lsp) with:
+    - Install [coc-r-lsp](https://github.com/neoclide/coc-r-lsp) with:
 
-        ```vim
-        :CocInstall coc-r-lsp
-        ```
+      ```vim
+      :CocInstall coc-r-lsp
+      ```
 
-      - or add the following to your Coc config:
+    - or add the following to your Coc config:
 
-        ```json
-        "languageserver": {
-            "R": {
-                "command": "/usr/bin/R",
-                "args" : [ "--slave", "-e", "languageserver::run()"],
-                "filetypes" : ["r"]
-            }
-        }
-        ```
+      ```json
+      "languageserver": {
+          "R": {
+              "command": "/usr/bin/R",
+              "args" : [ "--slave", "-e", "languageserver::run()"],
+              "filetypes" : ["r"]
+          }
+      }
+      ```
 
 - Emacs: [lsp-mode](https://github.com/emacs-lsp/lsp-mode)
 
