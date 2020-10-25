@@ -40,7 +40,33 @@ These editors are supported by installing the corresponding package.
         \ }
     ```
 
-    or use [coc-r-lsp](https://github.com/neoclide/coc-r-lsp) with [coc.nvim](https://github.com/neoclide/coc.nvim)
+  or, if you use [coc.nvim](https://github.com/neoclide/coc.nvim), you can do one of two things:
+
+    - Install [coc-r-lsp](https://github.com/neoclide/coc-r-lsp) with:
+
+      ```vim
+      :CocInstall coc-r-lsp
+      ```
+
+    - or install the languageserver package in R 
+
+        ```r
+        install.packages("languageserver")
+        # or install the developement version
+        # devtools::install_github("REditorSupport/languageserver")
+        ```
+      
+      Then add the following to your Coc config:
+
+        ```json
+        "languageserver": {
+            "R": {
+                "command": "/usr/bin/R",
+                "args" : [ "--slave", "-e", "languageserver::run()"],
+                "filetypes" : ["r"]
+            }
+        }
+        ```
 
 - Emacs: [lsp-mode](https://github.com/emacs-lsp/lsp-mode)
 
