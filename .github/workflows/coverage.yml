@@ -25,23 +25,9 @@ jobs:
         Rscript -e "install.packages(c('remotes'), repos = 'https://cloud.r-project.org')"
         Rscript -e "remotes::install_deps(dependencies = TRUE)"
         Rscript -e "remotes::install_local()"
-    - name: Covr (to be removed)
-      id: package_coverage
-      continue-on-error: true
+    - name: Codecov
       run: |
         mkdir -p /tmp/languageserver
-        Rscript -e "cat(paste0('::set-output ', 'name=COVRTD::', tempdir(), '\n'))" -e "covr::package_coverage(quiet = FALSE, clean = FALSE)"
-    - uses: actions/upload-artifact@v1
-      if: steps.package_coverage.outcome == 'failure'
-      with:
-        name: tempdir
-        path: ${{ steps.package_coverage.outputs.COVRTD }}
-    - uses: actions/upload-artifact@v1
-      if: steps.package_coverage.outcome == 'failure'
-      with:
-        name: log
-        path: /tmp/languageserver
-    # - name: Codecov
-    #   run: Rscript -e "covr::codecov(quiet = FALSE, clean = FALSE)"
-    #   env:
-    #     CODECOV_TOKEN: ${{secrets.CODECOV_TOKEN}}
+        Rscript -e "covr::codecov(quiet = FALSE, clean = FALSE)"
+      env:
+        CODECOV_TOKEN: ${{secrets.CODECOV_TOKEN}}
