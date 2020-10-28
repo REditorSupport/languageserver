@@ -285,6 +285,11 @@ test_that("Prepare rename works in single file", {
 
     client %>% did_save(single_file)
 
+    # first make sure the file is processed
+    result <- client %>% respond_references(
+        single_file, c(0, 0), retry_when = function(result) length(result) < 2)
+    expect_length(result, 2)
+
     result <- client %>% respond_prepare_rename(single_file, c(1, 0))
     expect_equal(result$start, list(line = 1, character = 0))
     expect_equal(result$end, list(line = 1, character = 5))

@@ -32,16 +32,16 @@ jobs:
         mkdir -p /tmp/languageserver
         Rscript -e "cat(paste0('::set-output ', 'name=COVRTD::', tempdir(), '\n'))" -e "covr::package_coverage(quiet = FALSE, clean = FALSE)"
     - uses: actions/upload-artifact@v1
-      if: steps.package_coverage.conclusion == 'failure'
+      if: steps.package_coverage.outcome == 'failure'
       with:
-        name: macos-log
+        name: tempdir
         path: ${{ steps.package_coverage.outputs.COVRTD }}
     - uses: actions/upload-artifact@v1
-      if: steps.package_coverage.conclusion == 'failure'
+      if: steps.package_coverage.outcome == 'failure'
       with:
-        name: macos-log
+        name: log
         path: /tmp/languageserver
     # - name: Codecov
-    #   run: Rscript -e "covr::codecov(quiet = FALSE)"
+    #   run: Rscript -e "covr::codecov(quiet = FALSE, clean = FALSE)"
     #   env:
     #     CODECOV_TOKEN: ${{secrets.CODECOV_TOKEN}}
