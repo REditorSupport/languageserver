@@ -28,6 +28,6 @@ jobs:
         Rscript -e "remotes::install_deps(dependencies = TRUE)"
         Rscript -e "remotes::install_local()"
     - name: Codecov
-      run: Rscript -e "covr::codecov()"
+      run: Rscript -e "covr::codecov(quiet = FALSE)"
       env:
         CODECOV_TOKEN: ${{secrets.CODECOV_TOKEN}}
