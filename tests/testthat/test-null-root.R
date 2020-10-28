@@ -4,7 +4,7 @@ test_that("Null-root workspace works", {
   skip_on_cran()
   client <- language_client(NULL)
 
-  withr::local_tempfile(c("temp_file"), fileext = ".R")
+  temp_file <- withr::local_tempfile(fileext = ".R")
   writeLines(
     c(
       "file.path("

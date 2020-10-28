@@ -4,7 +4,9 @@ test_that("Find References works for functions in files", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("defn_file", "defn2_file", "query_file"), fileext = ".R")
+    defn_file <- withr::local_tempfile(fileext = ".R")
+    defn2_file <- withr::local_tempfile(fileext = ".R")
+    query_file <- withr::local_tempfile(fileext = ".R")
     writeLines(c("my_fn <- function(x) {", "  x + 1", "}"), defn_file)
     writeLines(c("my_fn"), query_file)
 
@@ -86,7 +88,7 @@ test_that("Find References works in single file", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("single_file"), fileext = ".R")
+    single_file <- withr::local_tempfile(fileext = ".R")
     writeLines(
         c("my_fn <- function(x) {x + 1}", "my_fn", ".nonexistent"),
         single_file)
@@ -113,7 +115,7 @@ test_that("Find References works in scope with different assignment operators", 
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("single_file"), fileext = ".R")
+    single_file <- withr::local_tempfile(fileext = ".R")
     writeLines(c(
         "my_fn <- function(var1) {",
         "  var2 <- 1",
@@ -190,7 +192,7 @@ test_that("Find References in Rmarkdown works", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("single_file"), fileext = ".Rmd")
+    single_file <- withr::local_tempfile(fileext = ".Rmd")
     writeLines(
         c(
             "```{r}",

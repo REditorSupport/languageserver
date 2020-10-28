@@ -4,7 +4,7 @@ test_that("Document Symbol works", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("defn_file"), fileext = ".R")
+    defn_file <- withr::local_tempfile(fileext = ".R")
     writeLines(c(
         "f <- function(x) {",
         "  x + 1",
@@ -48,7 +48,7 @@ test_that("Document section symbol works", {
         )
     ))
 
-    withr::local_tempfile(c("defn_file"), fileext = ".R")
+    defn_file <- withr::local_tempfile(fileext = ".R")
     writeLines(c(
         "# section1 ####",
         "f <- function(x) {",
@@ -110,7 +110,8 @@ test_that("Workspace Symbol works", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("defn_file", "defn2_file"), fileext = ".R")
+    defn_file <- withr::local_tempfile(fileext = ".R")
+    defn2_file <- withr::local_tempfile(fileext = ".R")
     writeLines(c(
         "f1 <- function(x) {",
         "  x + 1",
@@ -167,7 +168,7 @@ test_that("Document section symbol works in Rmarkdown", {
         )
     ))
 
-    withr::local_tempfile(c("defn_file"), fileext = ".Rmd")
+    defn_file <- withr::local_tempfile(fileext = ".Rmd")
     writeLines(c(
         "---",
         "title: r markdown",

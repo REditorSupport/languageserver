@@ -4,7 +4,9 @@ test_that("Go to Definition works for functions in files", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("defn_file", "defn2_file", "query_file"), fileext = ".R")
+    defn_file <- withr::local_tempfile(fileext = ".R")
+    defn2_file <- withr::local_tempfile(fileext = ".R")
+    query_file <- withr::local_tempfile(fileext = ".R")
     writeLines(c("my_fn <- function(x) {", "  x + 1", "}"), defn_file)
     writeLines(c("my_fn"), query_file)
 
@@ -53,7 +55,7 @@ test_that("Go to Definition works for functions in packages", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("query_file"), fileext = ".R")
+    query_file <- withr::local_tempfile(fileext = ".R")
     writeLines(c("print"), query_file)
 
     client %>% did_save(query_file)
@@ -67,7 +69,7 @@ test_that("Go to Definition works in single file", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("single_file"), fileext = ".R")
+    single_file <- withr::local_tempfile(fileext = ".R")
     writeLines(
         c("my_fn <- function(x) {x + 1}", "my_fn", ".nonexistent"),
         single_file)
@@ -90,7 +92,7 @@ test_that("Go to Definition works in scope with different assignment operators",
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("single_file"), fileext = ".R")
+    single_file <- withr::local_tempfile(fileext = ".R")
     writeLines(c(
         "my_fn <- function(var1) {",
         "  var2 <- 1",
@@ -142,7 +144,7 @@ test_that("Go to Definition works on both sides of assignment", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("single_file"), fileext = ".R")
+    single_file <- withr::local_tempfile(fileext = ".R")
     writeLines(c(
         "var1 <- 1",
         "var1 <- var1 + 1",
@@ -208,7 +210,8 @@ test_that("Go to Definition works when package is specified", {
 
     client <- language_client()
 
-    withr::local_tempfile(c("defn_file", "query_file"), fileext = ".R")
+    defn_file <- withr::local_tempfile(fileext = ".R")
+    query_file <- withr::local_tempfile(fileext = ".R")
     writeLines(c("print <- function(x) {", "# Not base::print", "}"), defn_file)
     writeLines(c("print", "base::print"), query_file)
 
@@ -232,7 +235,7 @@ test_that("Go to Definition in Rmarkdown works", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("single_file"), fileext = ".Rmd")
+    single_file <- withr::local_tempfile(fileext = ".Rmd")
     writeLines(
         c(
             "```{r}",
