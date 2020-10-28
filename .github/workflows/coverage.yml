@@ -25,6 +25,9 @@ jobs:
         Rscript -e "install.packages(c('remotes'), repos = 'https://cloud.r-project.org')"
         Rscript -e "remotes::install_deps(dependencies = TRUE)"
         Rscript -e "remotes::install_local()"
+    - name: Covr (to be removed)
+      run: Rscript -e "covr::package_coverage(quiet = FALSE)"
+
     - name: Codecov
       run: Rscript -e "covr::codecov(quiet = FALSE)"
       env:

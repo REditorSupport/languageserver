@@ -14,7 +14,8 @@ test_that("Find References works for functions in files", {
     client %>% did_save(query_file)
 
     # query at the beginning of token
-    result <- client %>% respond_references(query_file, c(0, 0))
+    result <- client %>% respond_references(
+        query_file, c(0, 0), retry_when = function(result) length(result) < 2)
     expect_length(result, 2)
 
     result1 <- result %>% keep(~ .$uri == path_to_uri(defn_file))
@@ -96,7 +97,8 @@ test_that("Find References works in single file", {
     client %>% did_save(single_file)
 
     # first query a known function to make sure the file is processed
-    result <- client %>% respond_references(single_file, c(1, 0))
+    result <- client %>% respond_references(
+        single_file, c(1, 0), , retry_when = function(result) length(result) < 2)
     expect_length(result, 2)
 
     expect_equal(result[[1]]$range$start, list(line = 0, character = 0))
@@ -131,7 +133,8 @@ test_that("Find References works in scope with different assignment operators", 
     client %>% did_save(single_file)
 
     # first query a known function to make sure the file is processed
-    result <- client %>% respond_references(single_file, c(8, 0))
+    result <- client %>% respond_references(
+        single_file, c(8, 0), retry_when = function(result) length(result) < 2)
     expect_length(result, 2)
 
     expect_equal(result[[1]]$range$start, list(line = 0, character = 0))

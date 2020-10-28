@@ -14,7 +14,8 @@ test_that("Rename works for functions in files", {
     client %>% did_save(query_file)
 
     # query at the beginning of token
-    result <- client %>% respond_rename(query_file, c(0, 0), "new_fn")
+    result <- client %>% respond_rename(
+        query_file, c(0, 0), "new_fn", retry_when = function(result) length(result$changes) < 2)
     expect_length(result$changes, 2)
 
     result1 <- result$changes[[path_to_uri(defn_file)]]
@@ -144,7 +145,8 @@ test_that("Rename works in scope with different assignment operators", {
     client %>% did_save(single_file)
 
     # first query a known function to make sure the file is processed
-    result <- client %>% respond_rename(single_file, c(8, 0), "new_fn")
+    result <- client %>% respond_rename(
+        single_file, c(8, 0), "new_fn", retry_when = function(result) length(result$changes) == 0)
     expect_length(result$changes, 1)
 
     result <- result$changes[[path_to_uri(single_file)]]
