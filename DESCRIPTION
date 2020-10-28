@@ -44,7 +44,7 @@ Suggests:
     processx (>= 3.4.1),
     purrr (>= 0.3.3),
     testthat (>= 2.1.0),
-    withr (>= 2.1.2)
+    withr (>= 2.3.0)
 ByteCompile: yes
 Encoding: UTF-8
 LazyData: true
