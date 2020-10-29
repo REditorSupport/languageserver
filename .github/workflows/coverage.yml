@@ -12,7 +12,7 @@ jobs:
     runs-on: macOS-latest
     env:
       NOT_CRAN: true
-      R_LANGSVR_LOG: /tmp/languageserver/log
+      R_LANGSVR_LOG: /tmp/languageserver/coverage-log
       R_LANGSVR_POOL_SIZE: 1
       R_LANGSVR_TEST_FAST: NO
     steps:
@@ -31,3 +31,8 @@ jobs:
         Rscript -e "covr::codecov(quiet = FALSE, clean = FALSE)"
       env:
         CODECOV_TOKEN: ${{secrets.CODECOV_TOKEN}}
+    - uses: actions/upload-artifact@v1
+      if: failure()
+      with:
+        name: linux-log
+        path: /tmp/languageserver

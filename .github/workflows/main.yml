@@ -15,7 +15,7 @@ jobs:
       options: -v /tmp/languageserver:/tmp/languageserver
     env:
       NOT_CRAN: true
-      R_LANGSVR_LOG: /tmp/languageserver/log
+      R_LANGSVR_LOG: /tmp/languageserver/linux-log
       R_LANGSVR_POOL_SIZE: 1
       R_LANGSVR_TEST_FAST: NO
     steps:
@@ -46,7 +46,7 @@ jobs:
     runs-on: macOS-latest
     env:
       NOT_CRAN: true
-      R_LANGSVR_LOG: /tmp/languageserver/log
+      R_LANGSVR_LOG: /tmp/languageserver/macos-log
       R_LANGSVR_POOL_SIZE: 1
       R_LANGSVR_TEST_FAST: NO
     steps:
@@ -77,7 +77,7 @@ jobs:
     runs-on: windows-latest
     env:
       NOT_CRAN: true
-      R_LANGSVR_LOG: C:/tmp/languageserver/log
+      R_LANGSVR_LOG: C:/tmp/languageserver/windows-log
       R_LANGSVR_POOL_SIZE: 1
       R_LANGSVR_TEST_FAST: NO
     steps:
