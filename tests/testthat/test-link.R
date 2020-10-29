@@ -6,7 +6,9 @@ test_that("Document link works", {
     dir <- tempdir()
     client <- language_client(dir)
 
-    withr::local_tempfile(c("src_file1", "src_file2", "temp_file"), tmpdir = dir, fileext = ".R")
+    src_file1 <- withr::local_tempfile(tmpdir = dir, fileext = ".R")
+    src_file2 <- withr::local_tempfile(tmpdir = dir, fileext = ".R")
+    temp_file <- withr::local_tempfile(tmpdir = dir, fileext = ".R")
     src_file1 <- fs::path(src_file1)
     src_file2 <- fs::path(src_file2)
 
@@ -64,7 +66,9 @@ test_that("Document link works with raw strings", {
     dir <- tempdir()
     client <- language_client(dir)
 
-    withr::local_tempfile(c("src_file1", "src_file2", "temp_file"), tmpdir = dir, fileext = ".R")
+    src_file1 <- withr::local_tempfile(tmpdir = dir, fileext = ".R")
+    src_file2 <- withr::local_tempfile(tmpdir = dir, fileext = ".R")
+    temp_file <- withr::local_tempfile(tmpdir = dir, fileext = ".R")
     src_file1 <- fs::path(src_file1)
     src_file2 <- fs::path(src_file2)
 
@@ -121,8 +125,9 @@ test_that("Document link works in Rmarkdown", {
     dir <- tempdir()
     client <- language_client(working_dir = dir)
 
-    withr::local_tempfile(c("src_file1", "src_file2"), tmpdir = dir, fileext = ".R")
-    withr::local_tempfile("temp_file", tmpdir = dir, fileext = ".Rmd")
+    src_file1 <- withr::local_tempfile(tmpdir = dir, fileext = ".R")
+    src_file2 <- withr::local_tempfile(tmpdir = dir, fileext = ".R")
+    temp_file <- withr::local_tempfile(tmpdir = dir, fileext = ".Rmd")
     src_file1 <- fs::path(src_file1)
     src_file2 <- fs::path(src_file2)
 

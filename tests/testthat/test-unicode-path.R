@@ -15,7 +15,9 @@ test_that("Works with unicode path", {
     dir.create(dir, showWarnings = FALSE, recursive = TRUE)
     client <- language_client(dir)
 
-    withr::local_tempfile(c("defn_file", "defn2_file", "query_file"), pattern = "\U4E2D\U6587", fileext = ".R")
+    defn_file <- withr::local_tempfile(pattern = "\U4E2D\U6587", fileext = ".R")
+    defn2_file <- withr::local_tempfile(pattern = "\U4E2D\U6587", fileext = ".R")
+    query_file <- withr::local_tempfile(pattern = "\U4E2D\U6587", fileext = ".R")
     writeLines(c("my_fn <- function(x) {", "  x + 1", "}"), defn_file)
     writeLines(c("my_fn"), query_file)
 

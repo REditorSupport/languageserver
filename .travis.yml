@@ -9,4 +9,4 @@ env:
   - NOT_CRAN=true R_LANGSVR_POOL_SIZE=1 R_LANGSVR_TEST_FAST=NO
 
 after_success:
-  - Rscript -e 'covr::codecov()'
+  - travis_wait 30 Rscript -e 'covr::codecov()'

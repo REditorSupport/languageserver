@@ -4,7 +4,9 @@ test_that("Rename works for functions in files", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("defn_file", "defn2_file", "query_file"), fileext = ".R")
+    defn_file <- withr::local_tempfile(fileext = ".R")
+    defn2_file <- withr::local_tempfile(fileext = ".R")
+    query_file <- withr::local_tempfile(fileext = ".R")
     writeLines(c("my_fn <- function(x) {", "  x + 1", "}"), defn_file)
     writeLines(c("my_fn"), query_file)
 
@@ -12,7 +14,8 @@ test_that("Rename works for functions in files", {
     client %>% did_save(query_file)
 
     # query at the beginning of token
-    result <- client %>% respond_rename(query_file, c(0, 0), "new_fn")
+    result <- client %>% respond_rename(
+        query_file, c(0, 0), "new_fn", retry_when = function(result) length(result$changes) < 2)
     expect_length(result$changes, 2)
 
     result1 <- result$changes[[path_to_uri(defn_file)]]
@@ -94,7 +97,7 @@ test_that("Rename works in single file", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("single_file"), fileext = ".R")
+    single_file <- withr::local_tempfile(fileext = ".R")
     writeLines(
         c("my_fn <- function(x) {x + 1}", "my_fn", ".nonexistent"),
         single_file)
@@ -126,7 +129,7 @@ test_that("Rename works in scope with different assignment operators", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("single_file"), fileext = ".R")
+    single_file <- withr::local_tempfile(fileext = ".R")
     writeLines(c(
         "my_fn <- function(var1) {",
         "  var2 <- 1",
@@ -142,7 +145,8 @@ test_that("Rename works in scope with different assignment operators", {
     client %>% did_save(single_file)
 
     # first query a known function to make sure the file is processed
-    result <- client %>% respond_rename(single_file, c(8, 0), "new_fn")
+    result <- client %>% respond_rename(
+        single_file, c(8, 0), "new_fn", retry_when = function(result) length(result$changes) == 0)
     expect_length(result$changes, 1)
 
     result <- result$changes[[path_to_uri(single_file)]]
@@ -233,7 +237,7 @@ test_that("Rename in Rmarkdown works", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("single_file"), fileext = ".Rmd")
+    single_file <- withr::local_tempfile(fileext = ".Rmd")
     writeLines(
         c(
             "```{r}",
@@ -274,12 +278,17 @@ test_that("Prepare rename works in single file", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("single_file"), fileext = ".R")
+    single_file <- withr::local_tempfile(fileext = ".R")
     writeLines(
         c("my_fn <- function(x) {x + 123}", "my_fn", "new_fn"),
         single_file)
 
     client %>% did_save(single_file)
+
+    # first make sure the file is processed
+    result <- client %>% respond_references(
+        single_file, c(0, 0), retry_when = function(result) length(result) < 2)
+    expect_length(result, 2)
 
     result <- client %>% respond_prepare_rename(single_file, c(1, 0))
     expect_equal(result$start, list(line = 1, character = 0))

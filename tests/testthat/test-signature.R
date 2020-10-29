@@ -4,7 +4,7 @@ test_that("Simple signature works", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("temp_file"), fileext = ".R")
+    temp_file <- withr::local_tempfile(fileext = ".R")
     writeLines(
         c(
             "file.path(",
@@ -33,7 +33,8 @@ test_that("Signature of user function works", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("defn_file", "temp_file"), fileext = ".R")
+    defn_file <- withr::local_tempfile(fileext = ".R")
+    temp_file <- withr::local_tempfile(fileext = ".R")
 
     writeLines(c("foo <- function(x, y = 3) { x + y }"), defn_file)
     writeLines(c("foo(3, "), temp_file)
@@ -51,7 +52,7 @@ test_that("Signature in Rmarkdown works", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("temp_file"), fileext = ".Rmd")
+    temp_file <- withr::local_tempfile(fileext = ".Rmd")
     writeLines(
         c(
             "Title",

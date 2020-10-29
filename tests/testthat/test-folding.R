@@ -4,7 +4,7 @@ test_that("Expression folding rage works", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("defn_file"), fileext = ".R")
+    defn_file <- withr::local_tempfile(fileext = ".R")
     writeLines(c(
         "f <- function(x) {",
         "  x + 1",
@@ -25,7 +25,7 @@ test_that("Section folding range works", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("defn_file"), fileext = ".R")
+    defn_file <- withr::local_tempfile(fileext = ".R")
     writeLines(c(
         "# section1 ####",
         "f <- function(x) {",
@@ -57,7 +57,7 @@ test_that("Comment folding range works", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("defn_file"), fileext = ".R")
+    defn_file <- withr::local_tempfile(fileext = ".R")
     writeLines(c(
         "# test 1",
         "# test 2",
@@ -90,7 +90,7 @@ test_that("Folding range works in Rmarkdown", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("defn_file"), fileext = ".Rmd")
+    defn_file <- withr::local_tempfile(fileext = ".Rmd")
     writeLines(c(
         "## section1",
         "Some text here",

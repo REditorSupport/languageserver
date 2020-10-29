@@ -3,31 +3,36 @@ name: coverage
 on: [push, pull_request]
 
 jobs:
-  linux:
+  macos:
     if: contains(github.event.head_commit.message, '[ci skip]') == false
     strategy:
       matrix:
         r: [latest]
-        # r: [3.5, latest, devel]
-    runs-on: ubuntu-latest
-    container:
-      image: rocker/tidyverse:${{ matrix.r }}
+        # r: [3.5, 3.6, devel]
+    runs-on: macOS-latest
     env:
       NOT_CRAN: true
+      R_LANGSVR_LOG: /tmp/languageserver/coverage-log
       R_LANGSVR_POOL_SIZE: 1
       R_LANGSVR_TEST_FAST: NO
     steps:
     - uses: actions/checkout@v1
-    - name: Install apt-get dependencies
-      run: |
-        apt-get update
-        apt-get install git ssh curl bzip2 libffi-dev -y
+    - uses: r-lib/actions/setup-r@v1
+      with:
+        r-version: ${{ matrix.r }}
     - name: Install languagesever
       run: |
         Rscript -e "install.packages(c('remotes'), repos = 'https://cloud.r-project.org')"
         Rscript -e "remotes::install_deps(dependencies = TRUE)"
         Rscript -e "remotes::install_local()"
     - name: Codecov
-      run: Rscript -e "covr::codecov()"
+      run: |
+        mkdir -p /tmp/languageserver
+        Rscript -e "covr::codecov(quiet = FALSE, clean = FALSE)"
       env:
         CODECOV_TOKEN: ${{secrets.CODECOV_TOKEN}}
+    - uses: actions/upload-artifact@v1
+      if: failure()
+      with:
+        name: linux-log
+        path: /tmp/languageserver

@@ -123,6 +123,10 @@ respond <- function(client, method, params, timeout, allow_error = FALSE,
     start_time <- Sys.time()
     remaining <- timeout
     client$deliver(client$request(method, params), callback = cb)
+    if (method == "shutdown") {
+        # do not expect the server returns anything
+        return(NULL)
+    }
     while (!isTRUE(storage$done)) {
         if (remaining < 0) {
             fail("timeout when obtaining response")

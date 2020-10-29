@@ -4,7 +4,7 @@ test_that("Simple completion works", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("temp_file"), fileext = ".R")
+    temp_file <- withr::local_tempfile(fileext = ".R")
     writeLines(
         c(
             "str",
@@ -64,7 +64,7 @@ test_that("Completion of function arguments works", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("temp_file"), fileext = ".R")
+    temp_file <- withr::local_tempfile(fileext = ".R")
     writeLines(
         c(
             "str(obj",
@@ -92,7 +92,7 @@ test_that("Completion of local function arguments works", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("temp_file"), fileext = ".R")
+    temp_file <- withr::local_tempfile(fileext = ".R")
     writeLines(
         c(
             "local({",
@@ -122,7 +122,7 @@ test_that("Completion of user function works", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("temp_file"), fileext = ".R")
+    temp_file <- withr::local_tempfile(fileext = ".R")
     writeLines(
         c(
             "my_fun <- function(x) {}",
@@ -146,7 +146,7 @@ test_that("Completion of user function contains no duplicate symbols", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("temp_file"), fileext = ".R")
+    temp_file <- withr::local_tempfile(fileext = ".R")
     writeLines(
         c(
             "my_fun <- function(x) {}",
@@ -171,7 +171,7 @@ test_that("Completion of symbols in scope works", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("temp_file"), fileext = ".R")
+    temp_file <- withr::local_tempfile(fileext = ".R")
     writeLines(
         c(
             "xvar0 <- rnorm(10)",
@@ -216,7 +216,7 @@ test_that("Completion inside a package works", {
     wd <- path_real(path_package("languageserver", "projects", "mypackage"))
     client <- language_client(working_dir = wd)
 
-    withr::local_tempfile(c("temp_file"), fileext = ".R")
+    temp_file <- withr::local_tempfile(fileext = ".R")
     writeLines(c("noth"), temp_file)
 
     # client %>% did_save(path(wd, "R", "mypackage.R"))
@@ -233,7 +233,7 @@ test_that("Completion of imported objects works inside a package", {
     wd <- path_real(path_package("languageserver", "projects", "mypackage"))
     client <- language_client(working_dir = wd)
 
-    withr::local_tempfile(c("temp_file"), fileext = ".R")
+    temp_file <- withr::local_tempfile(fileext = ".R")
     writeLines(c("dic"), temp_file)
 
     # client %>% did_save(path(wd, "R", "mypackage.R"))
@@ -244,7 +244,7 @@ test_that("Completion of imported objects works inside a package", {
 
     expect_length(result$items %>% keep(~.$label == "dict"), 1)
 
-    withr::local_tempfile(c("temp_file"), fileext = ".R")
+    temp_file <- withr::local_tempfile(fileext = ".R")
     writeLines(c("lint_p"), temp_file)
 
     # client %>% did_save(path(wd, "R", "mypackage.R"))
@@ -260,7 +260,7 @@ test_that("Completion of tokens in document works", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("temp_file"), fileext = ".R")
+    temp_file <- withr::local_tempfile(fileext = ".R")
     writeLines(
         c(
             "df1 <- data.frame(var1 = 1:10, var2 = 10:1)",
@@ -286,7 +286,7 @@ test_that("Completion item resolve works", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("temp_file"), fileext = ".R")
+    temp_file <- withr::local_tempfile(fileext = ".R")
     writeLines(
         c(
             "bas", # package: base
@@ -346,7 +346,7 @@ test_that("Completion item resolve extracts symbol documentation", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("temp_file"), fileext = ".R")
+    temp_file <- withr::local_tempfile(fileext = ".R")
     writeLines(
         c(
             "# comment",
@@ -373,7 +373,7 @@ test_that("Completion item resolve extracts function documentation", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("temp_file"), fileext = ".R")
+    temp_file <- withr::local_tempfile(fileext = ".R")
     writeLines(
         c(
             "#' test",
@@ -415,7 +415,7 @@ test_that("Completion item resolve extracts local function documentation", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("temp_file"), fileext = ".R")
+    temp_file <- withr::local_tempfile(fileext = ".R")
     writeLines(
         c(
             "local({",
@@ -459,7 +459,7 @@ test_that("Completion in Rmarkdown works", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("temp_file"), fileext = ".Rmd")
+    temp_file <- withr::local_tempfile(fileext = ".Rmd")
     writeLines(
         c(
             "Title",

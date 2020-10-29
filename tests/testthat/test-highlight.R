@@ -4,7 +4,7 @@ test_that("Document highlight works", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("temp_file"), fileext = ".R")
+    temp_file <- withr::local_tempfile(fileext = ".R")
     writeLines(
         c(
             "my_fn <- 3",
@@ -58,7 +58,7 @@ test_that("Document highlight works in Rmarkdown", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("temp_file"), fileext = ".Rmd")
+    temp_file <- withr::local_tempfile(fileext = ".Rmd")
     writeLines(
         c(
             "---",
