@@ -137,7 +137,10 @@ PackageNamespace <- R6::R6Class("PackageNamespace",
 
             # if the function exists in the workspace, write the code to a file
             temp_file <- file.path(tempdir(), paste0(symbol, ".R"))
-            stringi::stri_write_lines(code, temp_file)
+            stringi::stri_write_lines(c(
+                "# Generated from function body. Editing this file has no effect.",
+                code
+            ), temp_file)
             list(
                 uri = path_to_uri(temp_file),
                 range = range(
