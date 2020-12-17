@@ -1,3 +1,27 @@
+# languageserver 0.3.89
+
+- skip tests on solaris 
+
+# languageserver 0.3.8
+
+- When closing a file, "Problems" should be removed (#348)
+- Implement renameProvider (#337)
+- Hover on symbol in a function with functional argument causes parse error (#345)
+Hover on non-function symbol in other document should show definition and - documentation (#343)
+- Check if symbol on rhs of assignment in definition (#341)
+- Implement referencesProvider (#336)
+- Add comment of notice above temp code of definition (#353)
+- Implement renameProvider (#339)
+- Fix tests (#351)
+- Update coc help in README (#350)
+- Remove diagnostics of closed files in non-package workspace (#349)
+- Fix hover func arg (#346)
+- Fix hover on non-function symbol (#344)
+- Fix checking symbol on rhs of assignment expression (#342)
+- Implement referencesProvider (#338)
+- Do not load sysdata.rda (#347)
+- release v0.3.7 (#335)
+
 # languageserver 0.3.7
 
 - Local function support (#330)
