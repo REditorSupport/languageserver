@@ -1,4 +1,4 @@
-# languageserver 0.3.89
+# languageserver 0.3.9
 
 - skip tests on solaris 
 
