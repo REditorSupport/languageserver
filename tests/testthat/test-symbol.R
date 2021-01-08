@@ -13,13 +13,22 @@ test_that("Document Symbol works", {
         "p <- 1",
         "m <- list(",
         "  x = p + 1",
+        ")",
+        "delayedAssign('d1', 1)",
+        "delayedAssign(value = function() 2, x = 'd2')",
+        "base::delayedAssign(value = '3', 'd3')",
+        "makeActiveBinding('a1', function() 1, environment())",
+        "makeActiveBinding(function() '2', sym = 'a2')",
+        "base::makeActiveBinding(",
+        "   fun = function() stop('3'),",
+        "   sym = 'a3'",
         ")"
     ), defn_file)
 
     client %>% did_save(defn_file)
     result <- client %>% respond_document_symbol(defn_file)
 
-    expect_equal(result %>% map_chr(~ .$name) %>% sort(), c("f", "g", "p", "m") %>% sort())
+    expect_equal(result %>% map_chr(~ .$name) %>% sort(), c("f", "g", "p", "m", "d1", "d2", "d3", "a1", "a2", "a3") %>% sort())
     expect_equivalent(
         result %>% detect(~ .$name == "f") %>% pluck("location", "range"),
         range(position(0, 0), position(2, 1))
@@ -35,6 +44,18 @@ test_that("Document Symbol works", {
     expect_equivalent(
         result %>% detect(~ .$name == "m") %>% pluck("location", "range"),
         range(position(5, 0), position(7, 1))
+    )
+    expect_equivalent(
+        result %>% detect(~ .$name == "m") %>% pluck("location", "range"),
+        range(position(5, 0), position(7, 1))
+    )
+    expect_equivalent(
+        result %>% detect(~ .$name == "d3") %>% pluck("location", "range"),
+        range(position(10, 0), position(10, 38))
+    )
+    expect_equivalent(
+        result %>% detect(~ .$name == "a3") %>% pluck("location", "range"),
+        range(position(13, 0), position(16, 1))
     )
 })
 
