@@ -219,7 +219,7 @@ parse_expr <- function(content, expr, env, level = 0L, srcref = attr(expr, "srcr
         } else if (f == "repeat") {
             Recall(content, e[[2L]], env, level + 1L, cur_srcref)
         } else if (
-            (f %in% c("<-", "=") && length(e) == 3L && is.symbol(e[[2L]])) |
+            (f %in% c("<-", "=") && length(e) == 3L && is.symbol(e[[2L]])) ||
             f %in% c("delayedAssign", "makeActiveBinding")
         ) {
             if (f %in% c("<-", "=")) {
