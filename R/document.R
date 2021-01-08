@@ -181,10 +181,24 @@ parse_expr <- function(content, expr, env, level = 0L, srcref = attr(expr, "srcr
     if (length(expr) == 0L || is.symbol(expr)) {
           return(env)
     }
+    # We should handle base function specially as users may use base::fun form
+    # The reason that we only take care of `base` (not `utils`) is that only `base` calls can generate symbols
+    # Check if the lang is in base::fun form
+    is_base_call <- function(x) {
+        length(x) == 3L && as.character(x[[1L]]) %in% c("::", ":::") && as.character(x[[2L]]) == "base"
+    }
+    # Be able to handle `pkg::name` case (note `::` is a function)
+    is_symbol <- function(x) {
+        is.symbol(x) || is_base_call(x)
+    }
+    # Handle `base` function specically by removing the `base::` prefix
+    fun_string <- function(x) {
+        if (is_base_call(x)) as.character(x[[3L]]) else as.character(x)
+    }
     for (i in seq_along(expr)) {
         e <- expr[[i]]
-        if (missing(e) || !is.call(e) || !is.symbol(e[[1L]])) next
-        f <- as.character(e[[1L]])
+        if (missing(e) || !is.call(e) || !is_symbol(e[[1L]])) next
+        f <- fun_string(e[[1L]])
         cur_srcref <- if (level == 0L) srcref[[i]] else srcref
         if (f %in% c("{", "(")) {
             Recall(content, e[-1L], env, level + 1L, cur_srcref)
@@ -204,9 +218,23 @@ parse_expr <- function(content, expr, env, level = 0L, srcref = attr(expr, "srcr
             Recall(content, e[[3L]], env, level + 1L, cur_srcref)
         } else if (f == "repeat") {
             Recall(content, e[[2L]], env, level + 1L, cur_srcref)
-        } else if (f %in% c("<-", "=") && length(e) == 3L && is.symbol(e[[2L]])) {
-            symbol <- as.character(e[[2L]])
-            value <- e[[3L]]
+        } else if (
+            (f %in% c("<-", "=") && length(e) == 3L && is.symbol(e[[2L]])) |
+            f %in% c("delayedAssign", "makeActiveBinding")
+        ) {
+            if (f %in% c("<-", "=")) {
+                symbol <- as.character(e[[2L]])
+                value <- e[[3L]]
+            } else if (f == "delayedAssign") {
+                call <- match.call(base::delayedAssign, as.call(e))
+                symbol <- call$x
+                value <- call$value
+            } else if (f == "makeActiveBinding") {
+                call <- match.call(base::makeActiveBinding, as.call(e))
+                symbol <- call$sym
+                value <- call$fun
+            }
+
             type <- get_expr_type(value)
 
             env$objects <- c(env$objects, symbol)
