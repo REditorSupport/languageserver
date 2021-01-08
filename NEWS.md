@@ -1,6 +1,7 @@
 # languageserver 0.3.9
 
 - skip tests on solaris 
+- Recongize promise and active binding symbols (#362)
 
 # languageserver 0.3.8
 
