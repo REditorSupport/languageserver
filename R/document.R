@@ -227,10 +227,12 @@ parse_expr <- function(content, expr, env, level = 0L, srcref = attr(expr, "srcr
                 value <- e[[3L]]
             } else if (f == "delayedAssign") {
                 call <- match.call(base::delayedAssign, as.call(e))
+                if (!is.character(call$x)) next
                 symbol <- call$x
                 value <- call$value
             } else if (f == "makeActiveBinding") {
                 call <- match.call(base::makeActiveBinding, as.call(e))
+                if (!is.character(call$sym)) next
                 symbol <- call$sym
                 value <- call$fun
             }
