@@ -1,14 +1,17 @@
+# languageserver 0.3.10
+
+- Recongize promise and active binding symbols (#362)
+
 # languageserver 0.3.9
 
 - skip tests on solaris 
-- Recongize promise and active binding symbols (#362)
 
 # languageserver 0.3.8
 
 - When closing a file, "Problems" should be removed (#348)
 - Implement renameProvider (#337)
 - Hover on symbol in a function with functional argument causes parse error (#345)
-Hover on non-function symbol in other document should show definition and - documentation (#343)
+- Hover on non-function symbol in other document should show definition and - documentation (#343)
 - Check if symbol on rhs of assignment in definition (#341)
 - Implement referencesProvider (#336)
 - Add comment of notice above temp code of definition (#353)
