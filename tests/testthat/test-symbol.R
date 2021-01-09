@@ -25,7 +25,7 @@ test_that("Document Symbol works", {
         ")",
         "delayedAssign(('d4'), 4)",
         "makeActiveBinding(('a4'), function() 4, environment())",
-        "assgin(value = '1', x = 'assign1')"
+        "assign(value = '1', x = 'assign1')"
     ), defn_file)
 
     client %>% did_save(defn_file)
