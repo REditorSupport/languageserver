@@ -24,13 +24,14 @@ test_that("Document Symbol works", {
         "   sym = 'a3'",
         ")",
         "delayedAssign(('d4'), 4)",
-        "makeActiveBinding(('a4'), function() 4, environment())"
+        "makeActiveBinding(('a4'), function() 4, environment())",
+        "assgin(value = '1', x = 'assign1')"
     ), defn_file)
 
     client %>% did_save(defn_file)
     result <- client %>% respond_document_symbol(defn_file)
 
-    expect_equal(result %>% map_chr(~ .$name) %>% sort(), c("f", "g", "p", "m", "d1", "d2", "d3", "a1", "a2", "a3") %>% sort())
+    expect_equal(result %>% map_chr(~ .$name) %>% sort(), c("f", "g", "p", "m", "d1", "d2", "d3", "a1", "a2", "a3", "assign1") %>% sort())
     expect_equivalent(
         result %>% detect(~ .$name == "f") %>% pluck("location", "range"),
         range(position(0, 0), position(2, 1))
