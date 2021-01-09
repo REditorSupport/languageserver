@@ -22,7 +22,9 @@ test_that("Document Symbol works", {
         "base::makeActiveBinding(",
         "   fun = function() stop('3'),",
         "   sym = 'a3'",
-        ")"
+        ")",
+        "delayedAssign(('d4'), 4)",
+        "makeActiveBinding(('a4'), function() 4, environment())"
     ), defn_file)
 
     client %>% did_save(defn_file)
