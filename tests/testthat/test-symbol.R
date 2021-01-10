@@ -25,13 +25,24 @@ test_that("Document Symbol works", {
         ")",
         "delayedAssign(('d4'), 4)",
         "makeActiveBinding(('a4'), function() 4, environment())",
-        "assign(value = '1', x = 'assign1')"
+        "assign(value = '1', x = 'assign1')",
+        "delayedAssign('d6', 6, assign.env = globalenv())",
+        "delayedAssign('d7', 7, assign.env = emptyenv())",
+        "delayedAssign('d8', 8, assign.env = parent.frame(1))",
+        "makeActiveBinding('a5', function() 5, .GlobalEnv)",
+        "makeActiveBinding('a6', function() 6, new.env())",
+        "assign('assign2', 2, pos = -1L)",
+        "assign('assign3', 3, pos = environment())",
+        "assign('assign4', 4, pos = new.env())"
     ), defn_file)
 
     client %>% did_save(defn_file)
     result <- client %>% respond_document_symbol(defn_file)
 
-    expect_equal(result %>% map_chr(~ .$name) %>% sort(), c("f", "g", "p", "m", "d1", "d2", "d3", "a1", "a2", "a3", "assign1") %>% sort())
+    expect_equal(
+        result %>% map_chr(~ .$name) %>% sort(),
+        c("f", "g", "p", "m", "d1", "d2", "d3", "a1", "a2", "a3", "assign1", "d6", "d8", "a5", "assign2", "assign3") %>% sort()
+    )
     expect_equivalent(
         result %>% detect(~ .$name == "f") %>% pluck("location", "range"),
         range(position(0, 0), position(2, 1))
