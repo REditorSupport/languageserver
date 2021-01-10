@@ -224,7 +224,13 @@ parse_expr <- function(content, expr, env, level = 0L, srcref = attr(expr, "srcr
             # if set, we should compare to a vector of known "top-level" candidates
             is_top_level <- function(arg_env, ...) {
                 if (is.null(arg_env)) return(TRUE)
-                top_level_envs <- substitute(list(...))[-1L]
+                default <- list(
+                    quote(parent.frame(1)), quote(parent.frame(1L)),
+                    quote(environment()),
+                    quote(.GlobalEnv), quote(globalenv())
+                )
+                extra <- substitute(list(...))[-1L]
+                top_level_envs <- c(default, as.list(extra))
                 any(vapply(top_level_envs, identical, x = arg_env, FUN.VALUE = logical(1L)))
             }
             if (f %in% c("<-", "=")) {
@@ -234,21 +240,20 @@ parse_expr <- function(content, expr, env, level = 0L, srcref = attr(expr, "srcr
             } else if (f == "delayedAssign") {
                 call <- match.call(base::delayedAssign, as.call(e))
                 if (!is.character(call$x)) next
-                if (any(c("assign.env") %in% names(call))) next
-                if (!is_top_level(assign.env, environment(), .GlobalEnv, globalenv())) next
+                if (!is_top_level(call$assign.env)) next
                 symbol <- call$x
                 value <- call$value
             } else if (f == "assign") {
                 call <- match.call(base::assign, as.call(e))
                 if (!is.character(call$x)) next
-                if (!is_top_level(call$pos, -1L, -1, environment(), .GlobalEnv, globalenv())) next
-                if (!is_top_level(call$envir, environment(), .GlobalEnv, globalenv())) next
+                if (!is_top_level(call$pos, -1L, -1)) next # -1 is the default
+                if (!is_top_level(call$envir)) next
                 symbol <- call$x
                 value <- call$value
             } else if (f == "makeActiveBinding") {
                 call <- match.call(base::makeActiveBinding, as.call(e))
                 if (!is.character(call$sym)) next
-                if (!is_top_level(call$env, environment(), .GlobalEnv, globalenv())) next
+                if (!is_top_level(call$env)) next
                 symbol <- call$sym
                 value <- call$fun
             }
