@@ -219,6 +219,14 @@ parse_expr <- function(content, expr, env, level = 0L, srcref = attr(expr, "srcr
         } else if (f == "repeat") {
             Recall(content, e[[2L]], env, level + 1L, cur_srcref)
         } else if (f %in% c("<-", "=", "delayedAssign", "makeActiveBinding", "assign")) {
+            # to see the pos/env/assign.env of assigning functions is set or not
+            # if unset, it means using the default value, which is top-level
+            # if set, we should compare to a vector of known "top-level" candidates
+            is_top_level <- function(arg_env, ...) {
+                if (is.null(arg_env)) return(TRUE)
+                top_level_envs <- substitute(list(...))[-1L]
+                any(vapply(top_level_envs, identical, x = arg_env, FUN.VALUE = logical(1L)))
+            }
             if (f %in% c("<-", "=")) {
                 if (length(e) != 3L || !is.symbol(e[[2L]])) next
                 symbol <- as.character(e[[2L]])
@@ -226,16 +234,21 @@ parse_expr <- function(content, expr, env, level = 0L, srcref = attr(expr, "srcr
             } else if (f == "delayedAssign") {
                 call <- match.call(base::delayedAssign, as.call(e))
                 if (!is.character(call$x)) next
+                if (any(c("assign.env") %in% names(call))) next
+                if (!is_top_level(assign.env, environment(), .GlobalEnv, globalenv())) next
                 symbol <- call$x
                 value <- call$value
             } else if (f == "assign") {
                 call <- match.call(base::assign, as.call(e))
                 if (!is.character(call$x)) next
+                if (!is_top_level(call$pos, -1L, -1, environment(), .GlobalEnv, globalenv())) next
+                if (!is_top_level(call$envir, environment(), .GlobalEnv, globalenv())) next
                 symbol <- call$x
                 value <- call$value
             } else if (f == "makeActiveBinding") {
                 call <- match.call(base::makeActiveBinding, as.call(e))
                 if (!is.character(call$sym)) next
+                if (!is_top_level(call$env, environment(), .GlobalEnv, globalenv())) next
                 symbol <- call$sym
                 value <- call$fun
             }
