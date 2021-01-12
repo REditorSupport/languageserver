@@ -233,6 +233,9 @@ parse_expr <- function(content, expr, env, level = 0L, srcref = attr(expr, "srcr
                 top_level_envs <- c(default, as.list(extra))
                 any(vapply(top_level_envs, identical, x = arg_env, FUN.VALUE = logical(1L)))
             }
+
+            type <- NULL
+
             if (f %in% c("<-", "=")) {
                 if (length(e) != 3L || !is.symbol(e[[2L]])) next
                 symbol <- as.character(e[[2L]])
@@ -256,9 +259,12 @@ parse_expr <- function(content, expr, env, level = 0L, srcref = attr(expr, "srcr
                 if (!is_top_level(call$env)) next
                 symbol <- call$sym
                 value <- call$fun
+                type <- "variable"
             }
 
-            type <- get_expr_type(value)
+            if (is.null(type)) {
+                type <- get_expr_type(value)
+            }
 
             env$objects <- c(env$objects, symbol)
 
