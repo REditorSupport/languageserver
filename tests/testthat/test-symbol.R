@@ -38,6 +38,43 @@ test_that("Document Symbol works", {
     )
 })
 
+test_that("Recognize symbols created by delayedAssign()/assign()/makeActiveBinding()", {
+    skip_on_cran()
+    client <- language_client()
+
+    defn_file <- withr::local_tempfile(fileext = ".R")
+    writeLines(c(
+        "delayedAssign('d1', 1)",
+        "delayedAssign(value = function() 2, x = 'd2')",
+        "base::delayedAssign(value = '3', 'd3')",
+        "delayedAssign(('d4'), 4)",
+        "delayedAssign('d5', 5, assign.env = globalenv())",
+        "delayedAssign('d6', 6, assign.env = emptyenv())",
+        "delayedAssign('d7', 7, assign.env = parent.frame(1))",
+        "makeActiveBinding('a1', function() 1, environment())",
+        "makeActiveBinding(function() '2', sym = 'a2')",
+        "base::makeActiveBinding(",
+        "   fun = function() stop('3'),",
+        "   sym = 'a3'",
+        ")",
+        "makeActiveBinding(('a4'), function() 4, environment())",
+        "makeActiveBinding('a5', function() 5, .GlobalEnv)",
+        "makeActiveBinding('a6', function() 6, new.env())",
+        "assign(value = '1', x = 'assign1')",
+        "assign('assign2', 2, pos = -1L)",
+        "assign('assign3', 3, pos = environment())",
+        "assign('assign4', 4, pos = new.env())"
+    ), defn_file)
+
+    client %>% did_save(defn_file)
+    result <- client %>% respond_document_symbol(defn_file)
+
+    expect_setequal(
+        result %>% map_chr(~ .$name),
+        c("d1", "d2", "d3", "d5", "d7", "a1", "a2", "a3", "a5", "assign1", "assign2", "assign3")
+    )
+})
+
 test_that("Document section symbol works", {
     skip_on_cran()
     client <- language_client(capabilities = list(
