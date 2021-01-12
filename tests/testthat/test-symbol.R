@@ -19,7 +19,7 @@ test_that("Document Symbol works", {
     client %>% did_save(defn_file)
     result <- client %>% respond_document_symbol(defn_file)
 
-    expect_equal(result %>% map_chr(~ .$name) %>% sort(), c("f", "g", "p", "m") %>% sort())
+    expect_setequal(result %>% map_chr(~ .$name), c("f", "g", "p", "m"))
     expect_equivalent(
         result %>% detect(~ .$name == "f") %>% pluck("location", "range"),
         range(position(0, 0), position(2, 1))
@@ -105,9 +105,9 @@ test_that("Document section symbol works", {
     client %>% did_save(defn_file)
     result <- client %>% respond_document_symbol(defn_file)
 
-    expect_equal(
-        result %>% map_chr(~ .$name) %>% sort(),
-        c("section1", "f", "step1", "step2", "section2", "g", "p", "m") %>% sort()
+    expect_setequal(
+        result %>% map_chr(~ .$name),
+        c("section1", "f", "step1", "step2", "section2", "g", "p", "m")
     )
     expect_equivalent(
         result %>% detect(~ .$name == "section1") %>% pluck("location", "range"),
@@ -172,27 +172,25 @@ test_that("Workspace Symbol works", {
     client %>% did_save(defn_file)
     client %>% did_save(defn2_file)
 
-    expected_names <- c("f1", "f2") %>% sort()
+    expected_names <- c("f1", "f2")
     result <- client %>% respond_workspace_symbol(
         query = "f",
         retry_when = function(result) length(result) < 2
     )
 
     result_names <- result %>%
-        map_chr(~ .$name) %>%
-        sort()
-    expect_equal(result_names, expected_names)
+        map_chr(~ .$name)
+    expect_setequal(result_names, expected_names)
 
-    expected_names <- c("p1", "p2") %>% sort()
+    expected_names <- c("p1", "p2")
     result <- client %>% respond_workspace_symbol(
         query = "p",
         retry_when = function(result) length(result) < 2
     )
 
     result_names <- result %>%
-        map_chr(~ .$name) %>%
-        sort()
-    expect_equal(result_names, expected_names)
+        map_chr(~ .$name)
+    expect_setequal(result_names, expected_names)
 })
 
 test_that("Document section symbol works in Rmarkdown", {
@@ -255,13 +253,13 @@ test_that("Document section symbol works in Rmarkdown", {
     client %>% did_save(defn_file)
     result <- client %>% respond_document_symbol(defn_file)
 
-    expect_equal(
-        result %>% map_chr(~ .$name) %>% sort(),
+    expect_setequal(
+        result %>% map_chr(~ .$name),
         c("section1", "subsection1", "unnamed-chunk-1",
             "f", "section2", "unnamed-chunk-2", "g",
             "unnamed-chunk-3", "chunk1", "p", "chunk1a", "chunk2", "chunk2a",
             "chunk3", "chunk3a", "chunk4, new", "unnamed-chunk-4"
-        ) %>% sort()
+        )
     )
     expect_equivalent(
         result %>% detect(~ .$name == "section1") %>% pluck("location", "range"),
