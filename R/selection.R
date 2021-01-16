@@ -1,7 +1,7 @@
 #' The response to a textDocument/selectionRange Request
 #'
 #' @keywords internal
-selection_range_reply <- function(id, uri, workspace, document, positions) {
+selection_range_reply <- function(id, uri, workspace, document, points) {
   result <- NULL
 
   parse_data <- workspace$get_parse_data(uri)
@@ -12,9 +12,9 @@ selection_range_reply <- function(id, uri, workspace, document, positions) {
 
   xdoc <- parse_data$xml_doc
   if (!is.null(xdoc)) {
-    result <- lapply(positions, function(point) {
-      row <- point$line + 1
-      col <- point$character + 1
+    result <- lapply(points, function(point) {
+      row <- point$row + 1
+      col <- point$col + 1
       token <- xdoc_find_token(xdoc, row, col)
       nodes <- xml_find_all(token, "self::*[@line1] | ancestor::*[@line1]")
       ranges <- lapply(nodes, function(token) {
