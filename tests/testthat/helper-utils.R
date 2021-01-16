@@ -289,7 +289,7 @@ respond_selection_range <- function(client, path, positions, ...) {
         "textDocument/selectionRange",
         list(
             textDocument = list(uri = path_to_uri(path)),
-            positions),
+            positions = positions),
         ...
     )
 }
