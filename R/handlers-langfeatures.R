@@ -303,5 +303,9 @@ text_document_folding_range  <- function(self, id, params) {
 #' Handler to the `textDocument/selectionRange` [Request].
 #' @keywords internal
 text_document_selection_range <- function(self, id, params) {
-
+    textDocument <- params$textDocument
+    uri <- uri_escape_unicode(textDocument$uri)
+    document <- self$workspace$documents$get(uri)
+    positions <- params$positions
+    self$deliver(selection_range_reply(id, uri, self$workspace, document, positions))
 }
