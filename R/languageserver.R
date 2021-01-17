@@ -212,6 +212,7 @@ LanguageServer$set("public", "register_handlers", function() {
         `textDocument/references` = text_document_references,
         `textDocument/rename` = text_document_rename,
         `textDocument/prepareRename` = text_document_prepare_rename,
+        `textDocument/selectionRange` = text_document_selection_range,
         `workspace/symbol` = workspace_symbol
     )
 
