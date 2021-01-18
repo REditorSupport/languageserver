@@ -333,4 +333,3 @@ call_hierarchy_incoming_calls <- function(self, id, params) {
 call_hierarchy_outgoing_calls <- function(self, id, params) {
 
 }
-
