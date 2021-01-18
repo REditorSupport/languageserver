@@ -213,6 +213,10 @@ LanguageServer$set("public", "register_handlers", function() {
         `textDocument/rename` = text_document_rename,
         `textDocument/prepareRename` = text_document_prepare_rename,
         `textDocument/selectionRange` = text_document_selection_range,
+        `textDocument/prepareCallHierarchy` = text_document_prepare_call_hierarchy,
+        `callHierarchy/incomingCalls` = call_hierarchy_incoming_calls,
+        `callHierarchy/outgoingCalls` = call_hierarchy_outgoing_calls,
+        `textDocument/linkedEditingRange` = text_document_linked_editing_range,
         `workspace/symbol` = workspace_symbol
     )
 

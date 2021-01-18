@@ -309,3 +309,35 @@ text_document_selection_range <- function(self, id, params) {
     points <- lapply(params$positions, document$from_lsp_position)
     self$deliver(selection_range_reply(id, uri, self$workspace, document, points))
 }
+
+#' `textDocument/prepareCallHierarchy` request handler
+#'
+#' Handler to the `textDocument/prepareCallHierarchy` [Request].
+#' @keywords internal
+text_document_prepare_call_hierarchy <- function(self, id, params) {
+
+}
+
+#' `callHierarchy/incomingCalls` request handler
+#'
+#' Handler to the `callHierarchy/incomingCalls` [Request].
+#' @keywords internal
+call_hierarchy_incoming_calls <- function(self, id, params) {
+
+}
+
+#' `callHierarchy/outgoingCalls` request handler
+#'
+#' Handler to the `callHierarchy/outgoingCalls` [Request].
+#' @keywords internal
+call_hierarchy_outgoing_calls <- function(self, id, params) {
+
+}
+
+#' `textDocument/linkedEditingRange` request handler
+#'
+#' Handler to the `textDocument/linkedEditingRange` [Request].
+#' @keywords internal
+text_document_linked_editing_range <- function(self, id, params) {
+
+}
