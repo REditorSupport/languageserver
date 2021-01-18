@@ -333,3 +333,11 @@ call_hierarchy_incoming_calls <- function(self, id, params) {
 call_hierarchy_outgoing_calls <- function(self, id, params) {
 
 }
+
+#' `textDocument/linkedEditingRange` request handler
+#'
+#' Handler to the `textDocument/linkedEditingRange` [Request].
+#' @keywords internal
+text_document_linked_editing_range <- function(self, id, params) {
+
+}
