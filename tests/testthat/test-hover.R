@@ -288,6 +288,13 @@ test_that("Hover works with local function", {
 
     client %>% did_save(temp_file)
 
+    result <- client %>% respond_hover(temp_file, c(3, 20))
+    expect_equal(result$range$start, list(line = 3, character = 19))
+    expect_equal(result$range$end, list(line = 3, character = 23))
+    expect_equal(result$contents, list(
+        "`var1` - a number"
+    ))
+
     result <- client %>% respond_hover(temp_file, c(6, 4))
     expect_equal(result$range$start, list(line = 6, character = 2))
     expect_equal(result$range$end, list(line = 6, character = 6))
