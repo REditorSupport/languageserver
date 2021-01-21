@@ -166,7 +166,21 @@ hover_reply <- function(id, uri, workspace, document, point) {
                 }
             } else if (token_name == "SYMBOL_FORMALS") {
                 # function formals
-                # contents <- "function parameter"
+                funct <- xml_find_first(token, "preceding-sibling::FUNCTION/parent::expr")
+                func_line1 <- as.integer(xml_attr(funct, "line1"))
+                doc_line1 <- detect_comments(document$content, func_line1 - 1) + 1
+
+                if (doc_line1 < func_line1) {
+                    comment <- document$content[doc_line1:(func_line1 - 1)]
+                    doc <- convert_comment_to_documentation(comment)
+                    if (is.list(doc)) {
+                        doc_string <- doc$arguments[[token_text]]
+                        if (!is.null(doc_string)) {
+                            contents <- sprintf("`%s` - %s", token_text, doc_string)
+                        }
+                    }
+                }
+
                 resolved <- TRUE
             } else if (token_name == "SYMBOL_PACKAGE") {
                 # package
