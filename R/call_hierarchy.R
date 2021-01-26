@@ -2,15 +2,13 @@
 prepare_call_hierarchy_reply <- function(id, uri, workspace, document, point) {
 
   token <- document$detect_token(point)
-  defn <- definition_reply(NULL, uri, workspace, document, point)
   token_quote <- xml_single_quote(token$token)
 
   result <- NULL
 
   logger$info("prepare_call_hierarchy_reply: ", list(
     uri = uri,
-    token = token,
-    defn = defn$result
+    token = token
   ))
 
   logger$info("prepare_call_hierarchy_reply: ", result)
