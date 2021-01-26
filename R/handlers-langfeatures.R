@@ -327,7 +327,9 @@ text_document_prepare_call_hierarchy <- function(self, id, params) {
 #' Handler to the `callHierarchy/incomingCalls` [Request].
 #' @keywords internal
 call_hierarchy_incoming_calls <- function(self, id, params) {
-
+    self$deliver(
+        call_hierarchy_incoming_calls_reply(id, self$workspace, params$item)
+    )
 }
 
 #' `callHierarchy/outgoingCalls` request handler
@@ -335,7 +337,9 @@ call_hierarchy_incoming_calls <- function(self, id, params) {
 #' Handler to the `callHierarchy/outgoingCalls` [Request].
 #' @keywords internal
 call_hierarchy_outgoing_calls <- function(self, id, params) {
-
+    self$deliver(
+        call_hierarchy_outgoing_calls_reply(id, self$workspace, params$item)
+    )
 }
 
 #' `textDocument/linkedEditingRange` request handler

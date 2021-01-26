@@ -18,9 +18,9 @@ prepare_call_hierarchy_reply <- function(id, uri, workspace, document, point) {
       list(
         name = token$token,
         kind =  SymbolKind$Function,
-        uri = defn$uri,
-        range = defn$range,
-        selectionRange = defn$range
+        uri = defn$result$uri,
+        range = defn$result$range,
+        selectionRange = defn$result$range
       )
     )
   }
@@ -31,4 +31,14 @@ prepare_call_hierarchy_reply <- function(id, uri, workspace, document, point) {
     id,
     result = result
   )
+}
+
+call_hierarchy_incoming_calls_reply <- function(id, workspace, item) {
+  logger$info(item)
+  Response$new(id)
+}
+
+call_hierarchy_outgoing_calls_reply <- function(id, workspace, item) {
+  logger$info(item)
+  Response$new(id)
 }
