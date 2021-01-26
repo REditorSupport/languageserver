@@ -122,16 +122,16 @@ arg_completion <- function(uri, workspace, point, token, funct, package = NULL, 
         }
     }
 
-    completions <- lapply(token_args, function(arg) {
+    completions <- .mapply(function(arg, sort_text) {
         list(label = arg,
             kind = CompletionItemKind$Variable,
             detail = "parameter",
-            sortText = paste0(sort_prefixes$arg, arg),
+            sortText = sort_text,
             insertText = paste0(arg, " = "),
             insertTextFormat = InsertTextFormat$PlainText,
             data = token_data
         )
-    })
+    }, list(token_args, sprintf("%s%03d", sort_prefixes$arg, seq_along(token_args))), NULL)
 
     completions
 }
