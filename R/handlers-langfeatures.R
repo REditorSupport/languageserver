@@ -315,7 +315,11 @@ text_document_selection_range <- function(self, id, params) {
 #' Handler to the `textDocument/prepareCallHierarchy` [Request].
 #' @keywords internal
 text_document_prepare_call_hierarchy <- function(self, id, params) {
-
+    textDocument <- params$textDocument
+    uri <- uri_escape_unicode(textDocument$uri)
+    document <- self$workspace$documents$get(uri)
+    point <- document$from_lsp_position(params$position)
+    self$deliver(prepare_call_hierarchy_reply(id, uri, self$workspace, document, point))
 }
 
 #' `callHierarchy/incomingCalls` request handler
