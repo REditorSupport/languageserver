@@ -82,5 +82,16 @@ call_hierarchy_incoming_calls_reply <- function(id, workspace, item) {
 
 call_hierarchy_outgoing_calls_reply <- function(id, workspace, item) {
   logger$info("call_hierarchy_outgoing_calls_reply: ", item)
+
+  token_quote <- xml_single_quote(item$name)
+  result <- list()
+
+  doc <- workspace$documents$get(item$uri)
+  xdoc <- workspace$get_parse_data(item$uri)$xml_doc
+
+  if (is.null(xdoc)) {
+    return(Response$new(id))
+  }
+
   Response$new(id)
 }
