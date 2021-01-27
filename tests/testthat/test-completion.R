@@ -88,6 +88,40 @@ test_that("Completion of function arguments works", {
     expect_length(arg_items, 0)
 })
 
+test_that("Completion of function arguments preserves the order of arguments", {
+    skip_on_cran()
+    client <- language_client()
+
+    temp_file <- withr::local_tempfile(fileext = ".R")
+    writeLines(
+        c(
+            "eval(",
+            "formatC(",
+            "print.default("
+        ),
+        temp_file)
+
+    client %>% did_save(temp_file)
+
+    result <- client %>% respond_completion(temp_file, c(0, 5))
+    arg_items <- result$items %>%
+        keep(~ identical(.$data$type, "parameter")) %>%
+        map_chr(~ .$label)
+    expect_identical(arg_items, names(formals(eval)))
+
+    result <- client %>% respond_completion(temp_file, c(1, 8))
+    arg_items <- result$items %>%
+        keep(~ identical(.$data$type, "parameter")) %>%
+        map_chr(~ .$label)
+    expect_identical(arg_items, names(formals(formatC)))
+
+    result <- client %>% respond_completion(temp_file, c(2, 14))
+    arg_items <- result$items %>%
+        keep(~ identical(.$data$type, "parameter")) %>%
+        map_chr(~ .$label)
+    expect_identical(arg_items, names(formals(print.default)))
+})
+
 test_that("Completion of local function arguments works", {
     skip_on_cran()
     client <- language_client()
@@ -117,6 +151,34 @@ test_that("Completion of local function arguments works", {
     arg_items <- result$items %>% keep(~ .$label == "vararg2")
     expect_length(arg_items, 1)
 })
+
+test_that("Completion of user function arguments preserves the order of arguments", {
+    skip_on_cran()
+    client <- language_client()
+
+    temp_file <- withr::local_tempfile(fileext = ".R")
+    writeLines(
+        c(
+            "test <- function(var3, var2, var1) {",
+            "  var1 + var2 + var3",
+            "}",
+            "test(",
+            ")"
+        ),
+        temp_file)
+
+    client %>% did_save(temp_file)
+
+    result <- client %>% respond_completion(
+        temp_file, c(3, 5),
+        retry_when = function(result) length(result) == 0 || length(result$items) == 0
+    )
+    arg_items <- result$items %>%
+        keep(~ identical(.$data$type, "parameter")) %>%
+        map_chr(~ .$label)
+    expect_identical(arg_items, c("var3", "var2", "var1"))
+})
+
 
 test_that("Completion of user function works", {
     skip_on_cran()
