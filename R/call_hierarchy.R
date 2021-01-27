@@ -83,15 +83,34 @@ call_hierarchy_incoming_calls_reply <- function(id, workspace, item) {
 call_hierarchy_outgoing_calls_reply <- function(id, workspace, item) {
   logger$info("call_hierarchy_outgoing_calls_reply: ", item)
 
-  token_quote <- xml_single_quote(item$name)
-  result <- list()
-
   doc <- workspace$documents$get(item$uri)
   xdoc <- workspace$get_parse_data(item$uri)$xml_doc
 
   if (is.null(xdoc)) {
     return(Response$new(id))
   }
+
+  result <- list()
+  token_quote <- xml_single_quote(item$name)
+  start_point <- doc$from_lsp_position(item$range$start)
+  end_point <- doc$from_lsp_position(item$range$end)
+  line1 <- start_point$row
+  col1 <- start_point$col
+  line2 <- end_point$row
+  col2 <- end_point$col
+
+  calls <- xml_find_all(xdoc,
+    glue("//SYMBOL_FUNCTION_CALL[
+        ((@line1 = {line1} and @col1 >= {col1}) or @line1 > {line1}) and
+        ((@line2 < {line2} or (@line2 = {line2} and @col2 <= {col2})) and
+        text() = '{token_quote}']",
+        line1 = line1, col1 = col1, line2 = line2, col2 = col2,
+        token_quote = token_quote
+    )
+  )
+
+  # for each call, find definition
+  # for range of all calls of each definition
 
   Response$new(id)
 }
