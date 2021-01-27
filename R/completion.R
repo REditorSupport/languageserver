@@ -422,8 +422,7 @@ token_completion <- function(uri, workspace, token, exclude = NULL) {
         list(
             label = symbol,
             kind = CompletionItemKind$Text,
-            sortText = paste0(sort_prefixes$token, symbol),
-            detail = "[token]"
+            sortText = paste0(sort_prefixes$token, symbol)
         )
     })
 }
