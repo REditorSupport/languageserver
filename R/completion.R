@@ -404,39 +404,26 @@ scope_completion <- function(uri, workspace, token, point, snippet_support = NUL
     completions
 }
 
-token_completion <- function(uri, workspace, token, point, exclude = NULL) {
+token_completion <- function(uri, workspace, token, exclude = NULL) {
     xdoc <- workspace$get_parse_data(uri)$xml_doc
     if (is.null(xdoc)) {
         return(list())
     }
 
-    expr_symbols <- character()
-    doc_symbols <- character()
-
-    enclosing_scopes <- xdoc_find_enclosing_scopes(xdoc,
-        point$row + 1, point$col + 1)
-    exprs <- xml_find_all(enclosing_scopes,
-        "self::expr[preceding-sibling::OP-LEFT-BRACE or parent::exprlist]")
-    if (length(exprs)) {
-        expr <- exprs[[length(exprs)]]
-        expr_symbols <- unique(xml_text(xml_find_all(expr,
-            "descendant::*[self::SYMBOL or self::SYMBOL_SUB or self::SYMBOL_FORMALS or self::SYMBOL_FUNCTION_CALL]")))
-        expr_symbols <- expr_symbols[startsWith(expr_symbols, token)]
-    }
-
-    if (nzchar(token)) {
-        doc_symbols <- unique(xml_text(xml_find_all(xdoc,
-            "//SYMBOL | //SYMBOL_SUB | //SYMBOL_FORMALS | //SYMBOL_FUNCTION_CALL")))
-        doc_symbols <- doc_symbols[startsWith(doc_symbols, token)]
-    }
-
-    symbols <- sanitize_names(c(expr_symbols, doc_symbols))
+    symbols <- unique(xml_text(xml_find_all(xdoc,
+        glue("//*[
+            (self::SYMBOL[preceding-sibling::OP-DOLLAR] or self::SYMBOL_SUB) and
+            starts-with(text(),'{token_quote}')]",
+            token_quote = xml_single_quote(token)
+        )
+    )))
     symbols <- setdiff(symbols, exclude)
     token_completions <- lapply(symbols, function(symbol) {
         list(
             label = symbol,
             kind = CompletionItemKind$Text,
-            sortText = paste0(sort_prefixes$token, symbol)
+            sortText = paste0(sort_prefixes$token, symbol),
+            detail = "[token]"
         )
     })
 }
@@ -492,7 +479,7 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
         existing_symbols <- vapply(completions, "[[", character(1), "label")
         completions <- c(
             completions,
-            token_completion(uri, workspace, token, point, existing_symbols)
+            token_completion(uri, workspace, token, existing_symbols)
         )
     }
 
