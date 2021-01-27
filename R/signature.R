@@ -45,7 +45,7 @@ signature_reply <- function(id, uri, workspace, document, point) {
                 )
                 func_expr <- parse(text = func_text, keep.source = FALSE)
                 sig <- get_signature(result$token, func_expr[[1]])
-                documentation <- NULL
+                documentation <- ""
 
                 doc_line1 <- detect_comments(document$content, func_line1 - 1) + 1
                 if (doc_line1 < func_line1) {
