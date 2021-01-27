@@ -169,7 +169,10 @@ test_that("Completion of user function arguments preserves the order of argument
 
     client %>% did_save(temp_file)
 
-    result <- client %>% respond_completion(temp_file, c(3, 5))
+    result <- client %>% respond_completion(
+        temp_file, c(3, 5),
+        retry_when = function(result) length(result) == 0 || length(result$items) == 0
+    )
     arg_items <- result$items %>%
         keep(~ identical(.$data$type, "parameter")) %>%
         map_chr(~ .$label)
