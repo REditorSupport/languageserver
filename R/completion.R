@@ -410,9 +410,25 @@ token_completion <- function(uri, workspace, token, exclude = NULL) {
         return(list())
     }
 
-    symbols <- unique(xml_text(xml_find_all(xdoc,
-        "//SYMBOL | //SYMBOL_SUB | //SYMBOL_FORMALS | //SYMBOL_FUNCTION_CALL")))
-    symbols <- symbols[startsWith(symbols, token)]
+    token_quote <- xml_single_quote(token)
+
+    symbols <- xml_text(xml_find_all(xdoc,
+        glue("//*[
+            (self::SYMBOL[preceding-sibling::OP-DOLLAR] or self::SYMBOL_SUB) and
+            starts-with(text(),'{token_quote}')]",
+            token_quote = token_quote
+        )
+    ))
+
+    if (nzchar(token)) {
+        symbols <- c(symbols, xml_text(xml_find_all(xdoc,
+            glue("//*[(self::SYMBOL or self::SYMBOL_SUB or self::SYMBOL_FORMALS or self::SYMBOL_FUNCTION_CALL) and
+                starts-with(text(),'{token_quote}')]",
+                token_quote = token_quote
+            )
+        )))
+    }
+
     symbols <- setdiff(symbols, exclude)
     token_completions <- lapply(symbols, function(symbol) {
         list(
