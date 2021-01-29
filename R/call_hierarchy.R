@@ -112,8 +112,59 @@ call_hierarchy_outgoing_calls_reply <- function(id, workspace, item) {
     symbols = xml_text(symbols)
   ))
 
-  # for each call, find definition
-  # for range of all calls of each definition
+  out_calls <- new.env()
 
-  Response$new(id)
+  symbol_names <- xml_name(symbols)
+  symbol_text <- xml_text(symbols)
+  symbol_line1 <- as.integer(xml_attr(symbols, "line1"))
+  symbol_col1 <- as.integer(xml_attr(symbols, "col1"))
+  symbol_line2 <- as.integer(xml_attr(symbols, "line2"))
+  symbol_col2 <- as.integer(xml_attr(symbols, "col2"))
+
+  for (i in seq_along(symbols)) {
+    symbol_point <- list(row = symbol_line1[[i]] - 1, col = symbol_col1[[i]])
+    symbol_defn <- definition_reply(NULL, item$uri, workspace, doc, symbol_point)$result
+    if (is.null(symbol_defn) || identical(symbol_defn, item$data$definition)) {
+      next
+    }
+
+    defn_hash <- digest::digest(symbol_defn)
+    if (is.null(out_calls[[defn_hash]])) {
+      out_calls[[defn_hash]] <- list(
+        to = list(
+          name = symbol_text[[i]],
+          kind =  SymbolKind$Function,
+          uri = symbol_defn$uri,
+          range = symbol_defn$range,
+          selectionRange = symbol_defn$range,
+          data = list(
+            definition = symbol_defn
+          )
+        ),
+        fromRangess = list()
+      )
+    }
+
+    out_calls[[defn_hash]]$fromRanges <- c(
+      out_calls[[defn_hash]]$fromRanges,
+      list(
+        range(
+          start = doc$to_lsp_position(
+            row = symbol_line1[[i]] - 1,
+            col = symbol_col1[[i]] - 1
+          ),
+          end = doc$to_lsp_position(
+            row = symbol_line2[[i]] - 1,
+            col = symbol_col2[[i]]
+          )
+        )
+      )
+    )
+  }
+
+  result <- unname(as.list.environment(out_calls))
+
+  logger$info("call_hierarchy_outgoing_calls_reply: ", result)
+
+  Response$new(id, result = result)
 }
