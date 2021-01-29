@@ -51,7 +51,20 @@ call_hierarchy_incoming_calls_reply <- function(id, workspace, item) {
 
     defns <- workspace$get_definitions_for_uri(doc_uri)
 
+    logger$info("call_hierarchy_incoming_calls_reply: ", list(
+      uri = doc_uri,
+      defns = defns
+    ))
+
     for (defn in defns) {
+      if (defn$type != "function") {
+        next
+      }
+
+      if (doc_uri == item$uri && equal_range(defn$range, item$data$definition$range)) {
+        next
+      }
+
       start_point <- doc$from_lsp_position(defn$range$start)
       end_point <- doc$from_lsp_position(defn$range$end)
       line1 <- start_point$row + 1
@@ -73,7 +86,7 @@ call_hierarchy_incoming_calls_reply <- function(id, workspace, item) {
         next
       }
 
-      defn_hash <- digest::digest(defn)
+      defn_hash <- digest::digest(list(uri = doc_uri, definition = defn))
 
       symbol_names <- xml_name(symbols)
       symbol_text <- xml_text(symbols)
@@ -85,7 +98,14 @@ call_hierarchy_incoming_calls_reply <- function(id, workspace, item) {
       for (i in seq_along(symbols)) {
         symbol_point <- list(row = symbol_line1[[i]] - 1, col = symbol_col1[[i]])
         symbol_defn <- definition_reply(NULL, doc_uri, workspace, doc, symbol_point)$result
-        if (!identical(symbol_defn, item$data$definition)) {
+
+        logger$info("call_hierarchy_incoming_calls_reply: ", list(
+          symbol_defn = symbol_defn,
+          target_defn = item$data$definition,
+          equal = equal_definition(symbol_defn, item$data$definition)
+        ))
+
+        if (!equal_definition(symbol_defn, item$data$definition)) {
           next
         }
 
@@ -98,7 +118,10 @@ call_hierarchy_incoming_calls_reply <- function(id, workspace, item) {
               range = defn$range,
               selectionRange = defn$range,
               data = list(
-                definition = defn
+                definition = list(
+                  uri = doc_uri,
+                  range = defn$range
+                )
               )
             ),
             fromRanges = list()
@@ -175,7 +198,11 @@ call_hierarchy_outgoing_calls_reply <- function(id, workspace, item) {
   for (i in seq_along(symbols)) {
     symbol_point <- list(row = symbol_line1[[i]] - 1, col = symbol_col1[[i]])
     symbol_defn <- definition_reply(NULL, item$uri, workspace, doc, symbol_point)$result
-    if (is.null(symbol_defn) || identical(symbol_defn, item$data$definition)) {
+    if (is.null(symbol_defn)) {
+      next
+    }
+
+    if (equal_definition(symbol_defn, item$data$definition)) {
       next
     }
 
@@ -192,7 +219,7 @@ call_hierarchy_outgoing_calls_reply <- function(id, workspace, item) {
             definition = symbol_defn
           )
         ),
-        fromRangess = list()
+        fromRanges = list()
       )
     }
 
