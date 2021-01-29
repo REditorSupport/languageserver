@@ -91,7 +91,7 @@ call_hierarchy_incoming_calls_reply <- function(id, workspace, item) {
 
         if (is.null(in_calls[[defn_hash]])) {
           in_calls[[defn_hash]] <- list(
-            to = list(
+            from = list(
               name = defn$name,
               kind = SymbolKind$Function,
               uri = doc_uri,
@@ -101,7 +101,7 @@ call_hierarchy_incoming_calls_reply <- function(id, workspace, item) {
                 definition = defn
               )
             ),
-            fromRangess = list()
+            fromRanges = list()
           )
         }
 
