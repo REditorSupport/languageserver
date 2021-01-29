@@ -51,11 +51,6 @@ call_hierarchy_incoming_calls_reply <- function(id, workspace, item) {
 
     defns <- workspace$get_definitions_for_uri(doc_uri)
 
-    logger$info("call_hierarchy_incoming_calls_reply: ", list(
-      uri = doc_uri,
-      defns = defns
-    ))
-
     for (defn in defns) {
       if (defn$type != "function") {
         next
@@ -73,10 +68,10 @@ call_hierarchy_incoming_calls_reply <- function(id, workspace, item) {
       col2 <- end_point$col
 
       symbols <- xml_find_all(xdoc,
-        glue("//*[(self::SYMBOL or self::SYMBOL_FUNCTION_CALL) and
-        ((@line1 = {line1} and @col1 >= {col1}) or @line1 > {line1}) and
-        ((@line2 = {line2} and @col2 <= {col2}) or @line2 < {line2}) and
-        text() = '{token_quote}']",
+        glue("//SYMBOL_FUNCTION_CALL[
+          ((@line1 = {line1} and @col1 >= {col1}) or @line1 > {line1}) and
+          ((@line2 = {line2} and @col2 <= {col2}) or @line2 < {line2}) and
+          text() = '{token_quote}']",
           line1 = line1, col1 = col1, line2 = line2, col2 = col2,
           token_quote = token_quote
         )
@@ -98,12 +93,6 @@ call_hierarchy_incoming_calls_reply <- function(id, workspace, item) {
       for (i in seq_along(symbols)) {
         symbol_point <- list(row = symbol_line1[[i]] - 1, col = symbol_col1[[i]])
         symbol_defn <- definition_reply(NULL, doc_uri, workspace, doc, symbol_point)$result
-
-        logger$info("call_hierarchy_incoming_calls_reply: ", list(
-          symbol_defn = symbol_defn,
-          target_defn = item$data$definition,
-          equal = equal_definition(symbol_defn, item$data$definition)
-        ))
 
         if (!equal_definition(symbol_defn, item$data$definition)) {
           next
@@ -173,18 +162,12 @@ call_hierarchy_outgoing_calls_reply <- function(id, workspace, item) {
   col2 <- end_point$col
 
   symbols <- xml_find_all(xdoc,
-    glue("//*[(self::SYMBOL or self::SYMBOL_FUNCTION_CALL) and
+    glue("//SYMBOL_FUNCTION_CALL[
         ((@line1 = {line1} and @col1 >= {col1}) or @line1 > {line1}) and
         ((@line2 = {line2} and @col2 <= {col2}) or @line2 < {line2})]",
       line1 = line1, col1 = col1, line2 = line2, col2 = col2
     )
   )
-
-  logger$info("call_hierarchy_outgoing_calls_reply", list(
-    start_point = start_point,
-    end_point = end_point,
-    symbols = xml_text(symbols)
-  ))
 
   out_calls <- new.env()
 
@@ -198,11 +181,8 @@ call_hierarchy_outgoing_calls_reply <- function(id, workspace, item) {
   for (i in seq_along(symbols)) {
     symbol_point <- list(row = symbol_line1[[i]] - 1, col = symbol_col1[[i]])
     symbol_defn <- definition_reply(NULL, item$uri, workspace, doc, symbol_point)$result
-    if (is.null(symbol_defn)) {
-      next
-    }
 
-    if (equal_definition(symbol_defn, item$data$definition)) {
+    if (is.null(symbol_defn) || equal_definition(symbol_defn, item$data$definition)) {
       next
     }
 
