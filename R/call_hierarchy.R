@@ -2,27 +2,27 @@
 prepare_call_hierarchy_reply <- function(id, uri, workspace, document, point) {
 
   token <- document$detect_token(point)
-  defn <- definition_reply(NULL, uri, workspace, document, point)
+  defn <- definition_reply(NULL, uri, workspace, document, point)$result
   token_quote <- xml_single_quote(token$token)
 
   logger$info("prepare_call_hierarchy_reply: ", list(
     uri = uri,
     token = token,
-    defn = defn$result
+    defn = defn
   ))
 
-  result <- list()
+  result <- NULL
 
-  if (length(defn$result)) {
+  if (length(defn)) {
     result <- list(
       list(
         name = token$token,
         kind =  SymbolKind$Function,
-        uri = defn$result$uri,
-        range = defn$result$range,
-        selectionRange = defn$result$range,
+        uri = defn$uri,
+        range = defn$range,
+        selectionRange = defn$range,
         data = list(
-          definition = defn$result
+          definition = defn
         )
       )
     )
@@ -185,11 +185,14 @@ call_hierarchy_outgoing_calls_reply <- function(id, workspace, item) {
     }
 
     if (!out_calls$has(symbol_defn)) {
+      namespace <- attr(symbol_defn, "namespace")
+      detail <- if (!is.null(namespace)) sprintf("{%s}", namespace)
       out_calls$set(symbol_defn, list(
         to = list(
           name = symbol_text[[i]],
           kind = SymbolKind$Function,
           uri = symbol_defn$uri,
+          detail = detail,
           range = symbol_defn$range,
           selectionRange = symbol_defn$range,
           data = list(
