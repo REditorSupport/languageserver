@@ -52,10 +52,6 @@ call_hierarchy_incoming_calls_reply <- function(id, workspace, item) {
     defns <- workspace$get_definitions_for_uri(doc_uri)
 
     for (defn in defns) {
-      if (defn$type != "function") {
-        next
-      }
-
       if (doc_uri == item$uri && equal_range(defn$range, item$data$definition$range)) {
         next
       }
@@ -102,7 +98,7 @@ call_hierarchy_incoming_calls_reply <- function(id, workspace, item) {
           in_calls$set(defn, list(
             from = list(
               name = defn$name,
-              kind = SymbolKind$Function,
+              kind = get_document_symbol_kind(defn$type),
               uri = doc_uri,
               range = defn$range,
               selectionRange = defn$range,
