@@ -42,7 +42,7 @@ call_hierarchy_incoming_calls_reply <- function(id, workspace, item) {
   token_quote <- xml_single_quote(item$name)
   result <- list()
 
-  in_calls <- new.env()
+  in_calls <- collections::dict()
 
   for (doc_uri in workspace$documents$keys()) {
     doc <- workspace$documents$get(doc_uri)
@@ -81,7 +81,7 @@ call_hierarchy_incoming_calls_reply <- function(id, workspace, item) {
         next
       }
 
-      defn_hash <- digest::digest(list(uri = doc_uri, definition = defn))
+      defn$uri <- doc_uri
 
       symbol_names <- xml_name(symbols)
       symbol_text <- xml_text(symbols)
@@ -98,8 +98,8 @@ call_hierarchy_incoming_calls_reply <- function(id, workspace, item) {
           next
         }
 
-        if (is.null(in_calls[[defn_hash]])) {
-          in_calls[[defn_hash]] <- list(
+        if (!in_calls$has(defn)) {
+          in_calls$set(defn, list(
             from = list(
               name = defn$name,
               kind = SymbolKind$Function,
@@ -114,11 +114,12 @@ call_hierarchy_incoming_calls_reply <- function(id, workspace, item) {
               )
             ),
             fromRanges = list()
-          )
+          ))
         }
 
-        in_calls[[defn_hash]]$fromRanges <- c(
-          in_calls[[defn_hash]]$fromRanges,
+        defn_item <- in_calls$get(defn)
+        defn_item$fromRanges <- c(
+          defn_item$fromRanges,
           list(
             range(
               start = doc$to_lsp_position(
@@ -132,12 +133,13 @@ call_hierarchy_incoming_calls_reply <- function(id, workspace, item) {
             )
           )
         )
+
+        in_calls$set(defn, defn_item)
       }
     }
   }
 
-  result <- unname(as.list.environment(in_calls))
-
+  result <- in_calls$values()
   logger$info("call_hierarchy_incoming_calls_reply: ", result)
 
   Response$new(id, result = result)
@@ -169,7 +171,7 @@ call_hierarchy_outgoing_calls_reply <- function(id, workspace, item) {
     )
   )
 
-  out_calls <- new.env()
+  out_calls <- collections::dict()
 
   symbol_names <- xml_name(symbols)
   symbol_text <- xml_text(symbols)
@@ -186,12 +188,11 @@ call_hierarchy_outgoing_calls_reply <- function(id, workspace, item) {
       next
     }
 
-    defn_hash <- digest::digest(symbol_defn)
-    if (is.null(out_calls[[defn_hash]])) {
-      out_calls[[defn_hash]] <- list(
+    if (!out_calls$has(symbol_defn)) {
+      out_calls$set(symbol_defn, list(
         to = list(
           name = symbol_text[[i]],
-          kind =  SymbolKind$Function,
+          kind = SymbolKind$Function,
           uri = symbol_defn$uri,
           range = symbol_defn$range,
           selectionRange = symbol_defn$range,
@@ -200,11 +201,13 @@ call_hierarchy_outgoing_calls_reply <- function(id, workspace, item) {
           )
         ),
         fromRanges = list()
-      )
+      ))
     }
 
-    out_calls[[defn_hash]]$fromRanges <- c(
-      out_calls[[defn_hash]]$fromRanges,
+    defn_item <- out_calls$get(symbol_defn)
+
+    defn_item$fromRanges <- c(
+      defn_item$fromRanges,
       list(
         range(
           start = doc$to_lsp_position(
@@ -218,9 +221,11 @@ call_hierarchy_outgoing_calls_reply <- function(id, workspace, item) {
         )
       )
     )
+
+    out_calls$set(symbol_defn, defn_item)
   }
 
-  result <- unname(as.list.environment(out_calls))
+  result <- out_calls$values()
 
   logger$info("call_hierarchy_outgoing_calls_reply: ", result)
 
