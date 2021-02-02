@@ -376,6 +376,40 @@ respond_document_folding_range <- function(client, path, ...) {
     )
 }
 
+respond_prepare_call_hierarchy <- function(client, path, pos, ...) {
+    respond(
+        client,
+        "textDocument/prepareCallHierarchy",
+        list(
+            textDocument = list(uri = path_to_uri(path)),
+            position = list(line = pos[1], character = pos[2])
+        ),
+        ...
+    )
+}
+
+respond_call_hierarchy_incoming_calls <- function(client, item, ...) {
+    respond(
+        client,
+        "callHierarchy/incomingCalls",
+        list(
+            item = item
+        ),
+        ...
+    )
+}
+
+respond_call_hierarchy_outgoing_calls <- function(client, item, ...) {
+    respond(
+        client,
+        "callHierarchy/outgoingCalls",
+        list(
+            item = item
+        ),
+        ...
+    )
+}
+
 wait_for <- function(client, method, timeout = 30) {
     storage <- new.env(parent = .GlobalEnv)
     start_time <- Sys.time()

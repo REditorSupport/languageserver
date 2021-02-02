@@ -68,7 +68,7 @@ ServerCapabilities <- list(
     colorProvider = TRUE,
     foldingRangeProvider = TRUE,
     selectionRangeProvider = TRUE,
-    callHierarchyProvider = FALSE
+    callHierarchyProvider = TRUE
     # linkedEditingRangeProvider = FALSE,
     # semanticTokensProvider = FALSE,
     # monikerProvider = FALSE,

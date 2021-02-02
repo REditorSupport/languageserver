@@ -136,6 +136,18 @@ path_has_parent <- function(x, y) {
     }
 }
 
+equal_position <- function(x, y) {
+    x$line == y$line && x$character == y$character
+}
+
+equal_range <- function(x, y) {
+    equal_position(x$start, y$start) && equal_position(x$end, y$end)
+}
+
+equal_definition <- function(x, y) {
+    x$uri == y$uri && equal_range(x$range, y$range)
+}
+
 #' Check if a file is an RMarkdown file
 #' @keywords internal
 is_rmarkdown <- function(uri) {

@@ -141,13 +141,15 @@ PackageNamespace <- R6::R6Class("PackageNamespace",
                 "# Generated from function body. Editing this file has no effect.",
                 code
             ), temp_file)
-            list(
+            def <- list(
                 uri = path_to_uri(temp_file),
                 range = range(
                     start = position(line = 0, character = 0),
                     end = position(line = length(code) + 1, character = 0)
                 )
             )
+            attr(def, "namespace") <- self$package_name
+            def
         },
 
         get_body = function(funct, exported_only = TRUE) {
