@@ -293,6 +293,11 @@ parse_expr <- function(content, expr, env, level = 0L, srcref = attr(expr, "srcr
             if (!(pkg %in% env$packages)) {
                 env$packages <- c(env$packages, pkg)
             }
+        } else if (f %in% "source") {
+            call <- match.call(base::source, as.call(e))
+            if (!is.character(call$file)) next
+            if (!is.null(call$local) && !identical(call$local, FALSE)) next
+            env$sources <- c(env$sources, call$file)
         }
     }
     env
@@ -316,6 +321,7 @@ parse_document <- function(uri, content) {
         parse_env <- function() {
             env <- new.env(parent = .GlobalEnv)
             env$packages <- character()
+            env$sources <- character()
             env$nonfuncts <- character()
             env$functs <- character()
             env$formals <- list()
