@@ -376,6 +376,18 @@ parse_callback <- function(self, uri, version, parse_data) {
             }
         }
     }
+
+    for (source_file in parse_data$sources) {
+        source_path <- fs::path_abs(source_file, self$rootPath)
+        if (!file.exists(source_path)) next
+        source_uri <- path_to_uri(source_path)
+        if (self$workspace$documents$has(source_uri)) next
+        source_doc <- Document$new(source_uri, NULL, stringi::stri_read_lines(source_path))
+        self$workspace$documents$set(source_uri, source_doc)
+        self$text_sync(source_uri, document = source_doc, parse = TRUE)
+    }
+
+    NULL
 }
 
 parse_task <- function(self, uri, document, delay = 0) {

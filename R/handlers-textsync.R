@@ -98,8 +98,26 @@ text_document_did_close <- function(self, params) {
         diagnostics_callback(self, uri, NULL, list())
     }
 
+    # do not remove document if sourced by other open documents
+    is_sourced <- FALSE
+    for (doc_uri in self$workspace$documents$keys()) {
+        if (doc_uri == uri) next
+        doc <- self$workspace$documents$get(doc_uri)
+        for (source_file in doc$parse_data$sources) {
+            source_path <- fs::path_abs(source_file, self$rootPath)
+            source_uri <- path_to_uri(source_path)
+            if (source_uri == uri) {
+                is_sourced <- TRUE
+                break
+            }
+        }
+        if (is_sourced) {
+            break
+        }
+    }
+
     # do not remove document in package
-    if (!(is_package(self$rootPath) && is_from_workspace)) {
+    if (!(is_package(self$rootPath) && is_from_workspace) && !is_sourced) {
         diagnostics_callback(self, uri, NULL, list())
         self$workspace$documents$remove(uri)
         self$workspace$update_loaded_packages()
