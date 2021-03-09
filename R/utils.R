@@ -664,3 +664,13 @@ xml_single_quote <- function(x) {
     x <- gsub("'", "&apos;", x, fixed = TRUE)
     x
 }
+
+html_to_markdown <- function(html){
+    temp_file <- paste(tempdir(), 'tempHelpFile.html', sep = '\\')
+    temp_file_md <- paste(tempdir(), 'tempHelpFile.md', sep = '\\')
+    cat(html, file = temp_file)
+    rmarkdown::pandoc_convert(temp_file, to = 'gfm', output = temp_file_md)
+    md <- paste(readLines(temp_file_md), collapse = '\n')
+    return(md)
+}
+

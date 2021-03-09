@@ -146,7 +146,9 @@ Workspace <- R6::R6Class("Workspace",
             )
 
             if (length(hfile) > 0) {
-                enc2utf8(repr::repr_text(hfile))
+                # enc2utf8(repr::repr_text(hfile))
+                html <- enc2utf8(repr::repr_html(hfile))
+                html_to_markdown(html)
             } else {
                 NULL
             }
