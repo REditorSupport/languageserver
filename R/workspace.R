@@ -21,6 +21,7 @@ Workspace <- R6::R6Class("Workspace",
 
         startup_packages = NULL,
         loaded_packages = NULL,
+        help_cache = NULL,
 
         initialize = function(root) {
             self$root <- root
@@ -41,6 +42,7 @@ Workspace <- R6::R6Class("Workspace",
             for (pkgname in self$loaded_packages) {
                 self$namespaces$set(pkgname, PackageNamespace$new(pkgname))
             }
+            self$help_cache <- collections::dict()
         },
 
         load_package = function(pkgname) {
@@ -146,12 +148,18 @@ Workspace <- R6::R6Class("Workspace",
             )
 
             if (length(hfile) > 0) {
-                # enc2utf8(repr::repr_text(hfile))
-                html <- enc2utf8(repr::repr_html(hfile))
-                md <- html_to_markdown(html)
-                if (is.null(md)) html else md
-            } else {
-                NULL
+                key <- as.character(hfile)
+                if (self$help_cache$has(key)) {
+                    return(self$help_cache$get(key))
+                } else {
+                    html <- enc2utf8(repr::repr_html(hfile))
+                    md <- html_to_markdown(html)
+                    result <- if (is.null(md)) html else md
+                    if (!is.null(result)) {
+                        self$help_cache$set(key, result)
+                    }
+                    return(result)
+                }
             }
         },
 
