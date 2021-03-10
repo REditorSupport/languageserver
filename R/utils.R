@@ -669,9 +669,15 @@ html_to_markdown <- function(html) {
     if (!rmarkdown::pandoc_available()) {
         return(NULL)
     }
-    html_file <- tempfile(fileext = ".html")
-    md_file <- tempfile(fileext = ".md")
+    html_file <- file.path(tempdir(), "temp.html")
+    md_file <- file.path(tempdir(), "temp.md")
     stringi::stri_write_lines(html, html_file)
-    rmarkdown::pandoc_convert(html_file, to = "gfm", output = md_file)
-    paste0(stringi::stri_read_lines(md_file), collapse = "\n")
+    result <- tryCatch({
+        rmarkdown::pandoc_convert(html_file, to = "gfm", output = md_file)
+        paste0(stringi::stri_read_lines(md_file), collapse = "\n")
+    }, error = function(e) {
+        logger$info("html_to_markdown failed: ", conditionMessage(e))
+        NULL
+    })
+    result
 }
