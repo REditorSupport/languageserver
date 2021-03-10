@@ -152,9 +152,18 @@ Workspace <- R6::R6Class("Workspace",
                 if (self$help_cache$has(key)) {
                     return(self$help_cache$get(key))
                 } else {
-                    html <- enc2utf8(repr::repr_html(hfile))
-                    md <- html_to_markdown(html)
-                    result <- if (is.null(md)) html else md
+                    result <- NULL
+
+                    if (requireNamespace("rmarkdown", quietly = TRUE) &&
+                        rmarkdown::pandoc_available()) {
+                        html <- enc2utf8(repr::repr_html(hfile))
+                        result <- html_to_markdown(html)
+                    }
+
+                    if (is.null(result)) {
+                        result <- enc2utf8(repr::repr_text(hfile))
+                    }
+
                     if (!is.null(result)) {
                         self$help_cache$set(key, result)
                     }

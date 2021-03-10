@@ -666,9 +666,6 @@ xml_single_quote <- function(x) {
 }
 
 html_to_markdown <- function(html) {
-    if (!rmarkdown::pandoc_available()) {
-        return(NULL)
-    }
     html_file <- file.path(tempdir(), "temp.html")
     md_file <- file.path(tempdir(), "temp.md")
     stringi::stri_write_lines(html, html_file)
