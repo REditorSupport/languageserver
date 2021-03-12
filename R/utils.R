@@ -671,7 +671,7 @@ html_to_markdown <- function(html) {
     stringi::stri_write_lines(html, html_file)
     result <- tryCatch({
         rmarkdown::pandoc_convert(html_file, to = "gfm", output = md_file)
-        paste0(stringi::stri_read_lines(md_file, encoding = 'utf-8'), collapse = "\n")
+        paste0(stringi::stri_read_lines(md_file, encoding = "utf-8"), collapse = "\n")
     }, error = function(e) {
         logger$info("html_to_markdown failed: ", conditionMessage(e))
         NULL
