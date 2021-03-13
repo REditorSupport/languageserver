@@ -88,6 +88,33 @@ test_that("Completion of function arguments works", {
     expect_length(arg_items, 0)
 })
 
+test_that("Completion of options works", {
+    skip_on_cran()
+    client <- language_client()
+
+    temp_file <- withr::local_tempfile(fileext = ".R")
+    writeLines(
+        c(
+            "options(sci",
+            "options(scipen = 999, useFancy"
+        ),
+        temp_file)
+
+    client %>% did_save(temp_file)
+
+    result <- client %>% respond_completion(temp_file, c(0, 11))
+    arg_items <- result$items %>%
+        keep(~ identical(.$data$type, "parameter")) %>%
+        map_chr(~ .$label)
+    expect_identical(arg_items, "scipen")
+
+    result <- client %>% respond_completion(temp_file, c(1, 30))
+    arg_items <- result$items %>%
+        keep(~ identical(.$data$type, "parameter")) %>%
+        map_chr(~ .$label)
+    expect_identical(arg_items, "useFancyQuotes")
+})
+
 test_that("Completion of function arguments preserves the order of arguments", {
     skip_on_cran()
     client <- language_client()
