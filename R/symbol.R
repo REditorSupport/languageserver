@@ -29,19 +29,23 @@ SymbolKind <- list(
 )
 
 get_document_symbol_kind <- function(type) {
-    switch(type,
-        logical = SymbolKind$Boolean,
-        integer = SymbolKind$Number,
-        double = SymbolKind$Number,
-        complex = SymbolKind$Number,
-        character = SymbolKind$String,
-        array = SymbolKind$Array,
-        list = SymbolKind$Struct,
-        `function` = SymbolKind$Function,
-        `NULL` = SymbolKind$Null,
-        `class` = SymbolKind$Class,
+    if (is.character(type) && length(type) == 1) {
+        switch(type,
+            logical = SymbolKind$Boolean,
+            integer = SymbolKind$Number,
+            double = SymbolKind$Number,
+            complex = SymbolKind$Number,
+            character = SymbolKind$String,
+            array = SymbolKind$Array,
+            list = SymbolKind$Struct,
+            `function` = SymbolKind$Function,
+            `NULL` = SymbolKind$Null,
+            `class` = SymbolKind$Class,
+            SymbolKind$Variable
+        )
+    } else {
         SymbolKind$Variable
-    )
+    }
 }
 
 #' Get all the symbols in the document
