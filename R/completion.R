@@ -114,7 +114,7 @@ arg_completion <- function(uri, workspace, point, token, funct, package = NULL, 
         args <- names(workspace$get_formals(funct, package, exported_only = exported_only))
 
         if (package == "base" && funct == "options") {
-            args <- c(args, names(options()))
+            args <- c(args, names(.Options))
         }
 
         if (is.character(args)) {
