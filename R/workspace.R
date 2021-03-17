@@ -157,6 +157,10 @@ Workspace <- R6::R6Class("Workspace",
                     if (requireNamespace("rmarkdown", quietly = TRUE) &&
                         rmarkdown::pandoc_available()) {
                         html <- enc2utf8(repr::repr_html(hfile))
+                        # Make header look prettier:
+                        pattern <- '<table.*?{(.*?)}.*?<\\/table>\\n*<h2>(.*?)<\\/h2>'
+                        replacement <- '<h2>\\2 {\\1}</h2>'
+                        html <- gsub(pattern, replacement, html, perl=TRUE)
                         result <- html_to_markdown(html)
                     }
 
