@@ -158,8 +158,8 @@ Workspace <- R6::R6Class("Workspace",
                         rmarkdown::pandoc_available()) {
                         html <- enc2utf8(repr::repr_html(hfile))
                         # Make header look prettier:
-                        pattern <- '<table.*?{(.*?)}.*?<\\/table>\\n*<h2>(.*?)<\\/h2>'
-                        replacement <- '<h2>\\2 {\\1}</h2>'
+                        pattern <- "<table.*?<td>(.*?)\\s*{(.*?)}<\\/td>.*?<\\/table>\\n*<h2>\\s*(.*?)\\s*<\\/h2>"
+                        replacement <- "<b>\\1</b> <i>{\\2}</i><br/>\\3<hr/>"
                         html <- gsub(pattern, replacement, html, perl=TRUE)
                         result <- html_to_markdown(html)
                     }
