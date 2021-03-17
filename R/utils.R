@@ -668,6 +668,7 @@ xml_single_quote <- function(x) {
 html_to_markdown <- function(html) {
     html_file <- file.path(tempdir(), "temp.html")
     md_file <- file.path(tempdir(), "temp.md")
+    logger$info("Converting html to markdown using", html_file, md_file)
     stringi::stri_write_lines(html, html_file)
     result <- tryCatch({
         format <- if (rmarkdown::pandoc_version() >= "2.0") "gfm" else "markdown_github"
