@@ -112,6 +112,11 @@ arg_completion <- function(uri, workspace, point, token, funct, package = NULL, 
 
     if (!is.null(package)) {
         args <- names(workspace$get_formals(funct, package, exported_only = exported_only))
+
+        if (package == "base" && funct == "options") {
+            args <- c(args, names(.Options))
+        }
+
         if (is.character(args)) {
             token_args <- args[startsWith(args, token)]
             token_data <- list(
