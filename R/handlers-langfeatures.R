@@ -173,7 +173,7 @@ text_document_document_link  <- function(self, id, params) {
 #' Handler to the `documentLink/resolve` [Request].
 #' @keywords internal
 document_link_resolve  <- function(self, id, params) {
-
+    self$deliver(document_link_resolve_reply(id, self$workspace, params))
 }
 
 #' `textDocument/documentColor` request handler

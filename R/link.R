@@ -32,19 +32,41 @@ document_link_reply <- function(id, uri, workspace, document, rootPath) {
             link_line1 <- str_line1[is_link]
             link_col1 <- str_col1[is_link] + is_raw_string
             link_col2 <- str_col2[is_link]
-            uris <- vapply(link_paths, path_to_uri, character(1))
 
-            result <- .mapply(function(line, col1, col2, uri) {
+            result <- .mapply(function(line, col1, col2, path) {
                 list(
                     range = range(
                         start = document$to_lsp_position(line - 1, col1),
                         end = document$to_lsp_position(line - 1, col2 - 1)
                     ),
-                    target = uri
+                    tooltip = path,
+                    data = list(
+                        path = path
+                    )
                 )
-            }, list(link_line1, link_col1, link_col2, uris), NULL)
+            }, list(link_line1, link_col1, link_col2, link_paths), NULL)
         }
     }
 
     Response$new(id, result = result)
+}
+
+document_link_resolve_reply <- function(id, workspace, params) {
+    path <- params$data$path
+    file_size <- file.size(path)
+    if (is.finite(file_size) &&
+        file_size <= getOption("languageserver.link_max_file_size", 16 * 1024^2)) {
+        params$target <- path_to_uri(path)
+        params$data <- NULL
+        Response$new(
+            id,
+            result = params
+        )
+    } else {
+        ResponseErrorMessage$new(
+            id,
+            errortype = "RequestCancelled",
+            message = "File is too large"
+        )
+    }
 }
