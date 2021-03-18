@@ -354,6 +354,15 @@ respond_document_link <- function(client, path, ...) {
     )
 }
 
+respond_document_link_resolve <- function(client, params, ...) {
+    respond(
+        client,
+        "documentLink/resolve",
+        params,
+        ...
+    )
+}
+
 respond_document_color <- function(client, path, ...) {
     respond(
         client,
