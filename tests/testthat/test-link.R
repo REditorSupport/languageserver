@@ -9,6 +9,8 @@ test_that("Document link works", {
     src_file1 <- withr::local_tempfile(tmpdir = dir, fileext = ".R")
     src_file2 <- withr::local_tempfile(tmpdir = dir, fileext = ".R")
     temp_file <- withr::local_tempfile(tmpdir = dir, fileext = ".R")
+    src_file1 <- format(fs::path(src_file1))
+    src_file2 <- format(fs::path(src_file2))
 
     writeLines(
         c(
@@ -79,6 +81,8 @@ test_that("Document link works with raw strings", {
     src_file1 <- withr::local_tempfile(tmpdir = dir, fileext = ".R")
     src_file2 <- withr::local_tempfile(tmpdir = dir, fileext = ".R")
     temp_file <- withr::local_tempfile(tmpdir = dir, fileext = ".R")
+    src_file1 <- format(fs::path(src_file1))
+    src_file2 <- format(fs::path(src_file2))
 
     writeLines(
         c(
@@ -148,6 +152,8 @@ test_that("Document link works in Rmarkdown", {
     src_file1 <- withr::local_tempfile(tmpdir = dir, fileext = ".R")
     src_file2 <- withr::local_tempfile(tmpdir = dir, fileext = ".R")
     temp_file <- withr::local_tempfile(tmpdir = dir, fileext = ".Rmd")
+    src_file1 <- format(fs::path(src_file1))
+    src_file2 <- format(fs::path(src_file2))
 
     writeLines(
         c(
