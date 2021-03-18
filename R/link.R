@@ -55,7 +55,7 @@ document_link_resolve_reply <- function(id, workspace, params) {
     path <- params$data$path
     file_size <- file.size(path)
     if (is.finite(file_size) &&
-        file_size <= getOption("languageserver.link_max_file_size", 16 * 1024^2)) {
+        file_size <= getOption("languageserver.link_file_size_limit", 16 * 1024^2)) {
         params$target <- path_to_uri(path)
         params$data <- NULL
         Response$new(
