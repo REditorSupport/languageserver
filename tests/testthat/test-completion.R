@@ -1,5 +1,3 @@
-context("Test Completion")
-
 test_that("Simple completion works", {
     skip_on_cran()
     client <- language_client()

@@ -1,5 +1,3 @@
-context("Test Signature")
-
 test_that("Simple signature works", {
     skip_on_cran()
     client <- language_client()

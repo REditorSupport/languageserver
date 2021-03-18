@@ -1,5 +1,3 @@
-context("Test Formatting")
-
 test_that("Formatting document works", {
     skip_on_cran()
     client <- language_client()

@@ -1,5 +1,3 @@
-context("Test Hover")
-
 test_that("Simple hover works", {
     skip_on_cran()
     client <- language_client()

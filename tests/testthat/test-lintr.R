@@ -1,5 +1,3 @@
-context("Test Diagnostics")
-
 test_that("lintr works", {
     skip_on_cran()
 

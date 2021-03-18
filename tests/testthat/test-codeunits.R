@@ -1,5 +1,3 @@
-context("Test Multi Bytes Characters")
-
 test_that("Code units are correctly calculated", {
     skip_on_os("solaris")
     expect_equal(ncodeunit("a"), 1)

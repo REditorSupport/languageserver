@@ -1,5 +1,3 @@
-context("Test Folding Range")
-
 test_that("Expression folding rage works", {
     skip_on_cran()
     client <- language_client()
@@ -17,8 +15,8 @@ test_that("Expression folding rage works", {
     result <- result[order(sapply(result, "[[", "startLine"))]
 
     expect_equal(length(result), 1)
-    expect_equivalent(result[[1]]$startLine, 0)
-    expect_equivalent(result[[1]]$endLine, 1)
+    expect_equal(result[[1]]$startLine, 0)
+    expect_equal(result[[1]]$endLine, 1)
 })
 
 test_that("Section folding range works", {
