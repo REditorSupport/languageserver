@@ -159,7 +159,7 @@ Workspace <- R6::R6Class("Workspace",
                         html <- enc2utf8(repr::repr_html(hfile))
                         # Make header look prettier:
                         pattern <- "<table.*?<td>(.*?)\\s*{(.*?)}<\\/td>.*?<\\/table>\\n*<h2>\\s*(.*?)\\s*<\\/h2>"
-                        replacement <- "<b>\\1</b> <i>{\\2}</i><br/>\\3<hr/>"
+                        replacement <- "<b>\\1</b> <i>{\\2}</i><p>\\3</p><hr/>"
                         html <- gsub(pattern, replacement, html, perl = TRUE)
                         result <- html_to_markdown(html)
                     }
