@@ -54,19 +54,30 @@ document_link_reply <- function(id, uri, workspace, document, rootPath) {
 document_link_resolve_reply <- function(id, workspace, params) {
     path <- params$data$path
     file_size <- file.size(path)
-    if (is.finite(file_size) &&
-        file_size <= getOption("languageserver.link_file_size_limit", 16 * 1024^2)) {
-        params$target <- path_to_uri(path)
-        params$data <- NULL
-        Response$new(
-            id,
-            result = params
-        )
+    if (is.finite(file_size)) {
+        link_file_size_limit <- getOption("languageserver.link_file_size_limit", 16 * 1024^2)
+        if (file_size <= link_file_size_limit) {
+            params$target <- path_to_uri(path)
+            params$data <- NULL
+            Response$new(
+                id,
+                result = params
+            )
+        } else {
+            ResponseErrorMessage$new(
+                id,
+                errortype = "RequestCancelled",
+                message = sprintf("File size (%s) exceeds the limit (%s).\nThe limit could be changed via \"languageserver.link_file_size_limit\" option.",
+                    format_file_size(file_size),
+                    format_file_size(link_file_size_limit)
+                )
+            )
+        }
     } else {
         ResponseErrorMessage$new(
             id,
             errortype = "RequestCancelled",
-            message = "File is too large"
+            message = "File is missing."
         )
     }
 }

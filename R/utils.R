@@ -680,3 +680,12 @@ html_to_markdown <- function(html) {
     })
     result
 }
+
+format_file_size <- function(bytes) {
+    if (bytes == 0) {
+        return("0.00 B")
+    }
+    e <- floor(log(bytes) / log(1024))
+    u <- substr("KMGTP", e, e)
+    sprintf("%.2f %sB", bytes / 1024^e, u)
+}
