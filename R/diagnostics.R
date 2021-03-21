@@ -50,7 +50,10 @@ diagnostic_from_lint <- function(result, content) {
         range = diagnostic_range(result, content),
         severity = diagnostic_severity(result),
         source = result$linter,
-        message = result$message
+        message = result$message,
+        data = list(
+            fix = result$fix
+        )
     )
 }
 
@@ -103,12 +106,12 @@ diagnose_file <- function(uri, content) {
 diagnostics_callback <- function(self, uri, version, diagnostics) {
     if (is.null(diagnostics) || !self$workspace$documents$has(uri)) return(NULL)
     logger$info("diagnostics_callback called:", list(uri = uri, version = version))
-    # logger$info("diagnostics:", diagnostics)
     self$deliver(
         Notification$new(
             method = "textDocument/publishDiagnostics",
             params = list(
                 uri = uri,
+                version = version,
                 diagnostics = diagnostics
             )
         )

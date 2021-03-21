@@ -58,7 +58,7 @@ ServerCapabilities <- list(
     documentHighlightProvider = TRUE,
     documentSymbolProvider = TRUE,
     workspaceSymbolProvider = TRUE,
-    # codeActionProvider = FALSE,
+    codeActionProvider = TRUE,
     # codeLensProvider = CodeLensOptions,
     documentFormattingProvider = TRUE,
     documentRangeFormattingProvider = TRUE,

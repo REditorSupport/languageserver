@@ -126,7 +126,16 @@ text_document_document_symbol  <- function(self, id, params) {
 #' Handler to the `textDocument/codeAction` [Request].
 #' @keywords internal
 text_document_code_action  <- function(self, id, params) {
-
+    logger$info("text_document_code_action: ", params)
+    textDocument <- params$textDocument
+    uri <- uri_escape_unicode(textDocument$uri)
+    document <- self$workspace$documents$get(uri)
+    range <- list(
+        start = document$from_lsp_position(params$range$start),
+        end = document$from_lsp_position(params$range$end)
+    )
+    context <- params$context
+    self$deliver(document_code_action_reply(id, uri, self$workspace, document, range, context))
 }
 
 #' `textDocument/codeLens` request handler
