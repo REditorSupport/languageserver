@@ -1,5 +1,3 @@
-context("Test Null-root Workspace")
-
 test_that("Null-root workspace works", {
   skip_on_cran()
   client <- language_client(NULL)

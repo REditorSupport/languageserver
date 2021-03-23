@@ -1,5 +1,3 @@
-context("Test Link")
-
 test_that("Document link works", {
     skip_on_cran()
 

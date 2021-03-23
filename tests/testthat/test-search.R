@@ -1,5 +1,3 @@
-context("Test Search")
-
 test_that("enclosed_by_quotes works as expected", {
     enclosed <- function(text, col) {
           .Call("enclosed_by_quotes", PACKAGE = "languageserver", text, col)

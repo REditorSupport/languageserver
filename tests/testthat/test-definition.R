@@ -1,5 +1,3 @@
-context("Test Definition")
-
 test_that("Go to Definition works for functions in files", {
     skip_on_cran()
     client <- language_client()

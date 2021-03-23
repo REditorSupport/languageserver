@@ -1,5 +1,3 @@
-context("Test Color")
-
 get_color <- function(color) {
     rgba <- grDevices::col2rgb(color, alpha = TRUE) / 255
     as.list(rgba[, 1])

@@ -8,6 +8,10 @@ suppressPackageStartupMessages({
 # a hack to make withr::defer_parent to work, see https://github.com/r-lib/withr/issues/123
 defer <- withr::defer
 
+expect_equivalent <- function(x, y) {
+    expect_equal(x, y, ignore_attr = TRUE)
+}
+
 language_client <- function(working_dir = getwd(), diagnostics = FALSE, capabilities = NULL) {
 
     if (nzchar(Sys.getenv("R_LANGSVR_LOG"))) {
