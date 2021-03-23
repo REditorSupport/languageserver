@@ -680,3 +680,8 @@ html_to_markdown <- function(html) {
     })
     result
 }
+
+format_file_size <- function(bytes) {
+    obj_size <- structure(bytes, class = "object_size")
+    format(obj_size, units = "auto")
+}
