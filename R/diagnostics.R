@@ -98,10 +98,10 @@ diagnose_file <- function(uri, content, rootPath) {
     old_wd <- setwd(rootPath)
     on.exit(setwd(old_wd))
 
-    text <- paste0(content, collapse = "\n")
     lints <- if (lint_text_support) {
-        lintr::lint(path, linters = linters, text = text)
+        lintr::lint(path, linters = linters, text = content)
     } else {
+        text <- paste0(content, collapse = "\n")
         lintr::lint(text, linters = linters)
     }
 
