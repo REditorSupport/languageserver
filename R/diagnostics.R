@@ -98,18 +98,18 @@ diagnose_file <- function(uri, content, rootPath) {
     old_wd <- setwd(rootPath)
     on.exit(setwd(old_wd))
 
+    lint_cache <- getOption("languageserver.lint_cache", TRUE)
     lints <- if (lint_text_support) {
-        lintr::lint(path, linters = linters, text = content)
+        lintr::lint(path, linters = linters, cache = lint_cache, text = content)
     } else {
         text <- paste0(content, collapse = "\n")
-        lintr::lint(text, linters = linters)
+        lintr::lint(text, linters = linters, cache = lint_cache)
     }
 
     diagnostics <- lapply(lints, diagnostic_from_lint, content = content)
     names(diagnostics) <- NULL
     diagnostics
 }
-
 
 diagnostics_callback <- function(self, uri, version, diagnostics) {
     if (is.null(diagnostics) || !self$workspace$documents$has(uri)) return(NULL)
