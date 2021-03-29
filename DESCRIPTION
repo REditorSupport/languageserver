@@ -1,8 +1,8 @@
 Type: Package
 Package: languageserver
 Title: Language Server Protocol
-Version: 0.3.6
-Date: 2020-05-24
+Version: 0.3.9
+Date: 2020-12-17
 Authors@R: 
     c(person(given = "Randy",
              family = "Lai",
@@ -15,9 +15,9 @@ Authors@R:
 Description: An implementation of the Language Server Protocol
     for R. The Language Server protocol is used by an editor client to
     integrate features like auto completion. See
-    <https://microsoft.github.io/language-server-protocol> for details.
+    <https://microsoft.github.io/language-server-protocol/> for details.
 License: MIT + file LICENSE
-URL: https://github.com/REditorSupport/languageserver
+URL: https://github.com/REditorSupport/languageserver/
 Depends:
     R (>= 3.4.0)
 Imports:
@@ -30,6 +30,7 @@ Imports:
     parallel,
     R6 (>= 2.4.1),
     repr (>= 1.1.0),
+    roxygen2 (>= 7.0.0),
     stringi (>= 1.1.7),
     styler (>= 1.2.0),
     tools,
@@ -43,10 +44,12 @@ Suggests:
     processx (>= 3.4.1),
     purrr (>= 0.3.3),
     testthat (>= 2.1.0),
-    withr (>= 2.1.2)
+    withr (>= 2.3.0),
+    rmarkdown (>= 2.0)
 ByteCompile: yes
 Encoding: UTF-8
 LazyData: true
 NeedsCompilation: yes
 Roxygen: list(markdown = TRUE, r6 = FALSE)
-RoxygenNote: 7.1.0
+RoxygenNote: 7.1.1
+Config/testthat/edition: 3

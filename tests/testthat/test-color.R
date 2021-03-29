@@ -1,5 +1,3 @@
-context("Test Color")
-
 get_color <- function(color) {
     rgba <- grDevices::col2rgb(color, alpha = TRUE) / 255
     as.list(rgba[, 1])
@@ -9,7 +7,7 @@ test_that("Document color works", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile("temp_file", fileext = ".R")
+    temp_file <- withr::local_tempfile(fileext = ".R")
     writeLines(
         c(
             "plot(rnorm(100), col = \"red\")",
@@ -50,7 +48,7 @@ test_that("Document color works in Rmarkdown", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile("temp_file", fileext = ".Rmd")
+    temp_file <- withr::local_tempfile(fileext = ".Rmd")
     writeLines(
         c(
             "---",

@@ -19,7 +19,9 @@ Workspace <- R6::R6Class("Workspace",
         imported_packages = NULL,
         namespace_file_mt = NULL,
 
-        loaded_packages = startup_packages,
+        startup_packages = NULL,
+        loaded_packages = NULL,
+        help_cache = NULL,
 
         initialize = function(root) {
             self$root <- root
@@ -28,9 +30,19 @@ Workspace <- R6::R6Class("Workspace",
             self$imported_packages <- character(0)
             self$global_env <- GlobalEnv$new(self$documents)
             self$namespaces <- collections::dict()
+            self$startup_packages <- tryCatch(
+                callr::r(resolve_attached_packages,
+                    system_profile = TRUE, user_profile = TRUE, timeout = 3),
+                error = function(e) {
+                    logger$info("workspace initialize error: ", e)
+                    startup_packages
+                }
+            )
+            self$loaded_packages <- self$startup_packages
             for (pkgname in self$loaded_packages) {
                 self$namespaces$set(pkgname, PackageNamespace$new(pkgname))
             }
+            self$help_cache <- collections::dict()
         },
 
         load_package = function(pkgname) {
@@ -136,15 +148,37 @@ Workspace <- R6::R6Class("Workspace",
             )
 
             if (length(hfile) > 0) {
-                enc2utf8(repr::repr_text(hfile))
-            } else {
-                NULL
+                key <- as.character(hfile)
+                if (self$help_cache$has(key)) {
+                    return(self$help_cache$get(key))
+                } else {
+                    result <- NULL
+
+                    if (requireNamespace("rmarkdown", quietly = TRUE) &&
+                        rmarkdown::pandoc_available()) {
+                        html <- enc2utf8(repr::repr_html(hfile))
+                        # Make header look prettier:
+                        pattern <- "<table.*?<td>(.*?)\\s*{(.*?)}<\\/td>.*?<\\/table>\\n*<h2>\\s*(.*?)\\s*<\\/h2>"
+                        replacement <- "<b>\\1</b> <i>{\\2}</i><p>\\3</p><hr/>"
+                        html <- gsub(pattern, replacement, html, perl = TRUE)
+                        result <- html_to_markdown(html)
+                    }
+
+                    if (is.null(result)) {
+                        result <- enc2utf8(repr::repr_text(hfile))
+                    }
+
+                    if (!is.null(result)) {
+                        self$help_cache$set(key, result)
+                    }
+                    return(result)
+                }
             }
         },
 
         get_documentation = function(topic, pkgname = NULL, isf = FALSE) {
             if (is.null(pkgname)) {
-                pkgname <- self$guess_namespace(topic, isf = TRUE)
+                pkgname <- self$guess_namespace(topic, isf = isf)
                 if (is.null(pkgname)) {
                     return(NULL)
                 }
@@ -157,7 +191,7 @@ Workspace <- R6::R6Class("Workspace",
 
         get_definition = function(symbol, pkgname = NULL, exported_only = TRUE) {
             if (is.null(pkgname)) {
-                pkgname <- self$guess_namespace(symbol, isf = TRUE)
+                pkgname <- self$guess_namespace(symbol, isf = FALSE)
                 if (is.null(pkgname)) {
                     return(NULL)
                 }
@@ -173,24 +207,25 @@ Workspace <- R6::R6Class("Workspace",
             if (is.null(parse_data)) {
                 return(list())
             }
-            parse_data$definition_ranges
+            parse_data$definitions
         },
 
         get_definitions_for_query = function(pattern) {
-            ranges <- list()
+            result <- list()
             for (doc in self$documents$values()) {
                 parse_data <- doc$parse_data
                 if (is.null(parse_data)) next
-                doc_ranges <- lapply(
-                        parse_data$definition_ranges,
-                        function(r) list(
-                            uri = doc$uri,
-                            range = r
-                        )
+                symbols <- names(parse_data$definitions)
+                matches <- symbols[fuzzy_find(symbols, pattern)]
+                result <- c(result, lapply(
+                    unname(parse_data$definitions[matches]),
+                    function(def) c(
+                        uri = doc$uri,
+                        def
                     )
-                ranges <- append(ranges, doc_ranges[fuzzy_find(names(doc_ranges), pattern)])
+                ))
             }
-            ranges
+            result
         },
 
         get_parse_data = function(uri) {
@@ -198,7 +233,7 @@ Workspace <- R6::R6Class("Workspace",
         },
 
         update_loaded_packages = function() {
-            loaded_packages <- union(startup_packages, self$imported_packages)
+            loaded_packages <- union(self$startup_packages, self$imported_packages)
             for (doc in self$documents$values()) {
                 loaded_packages <- union(loaded_packages, doc$loaded_packages)
             }
@@ -215,7 +250,7 @@ Workspace <- R6::R6Class("Workspace",
 
         load_all = function(langserver) {
             source_dir <- file.path(self$root, "R")
-            files <- list.files(source_dir)
+            files <- list.files(source_dir, pattern = "\\.r$", ignore.case = TRUE)
             for (f in files) {
                 logger$info("load ", f)
                 path <- file.path(source_dir, f)

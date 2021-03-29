@@ -27,6 +27,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
         rootPath = NULL,
         initializationOptions = NULL,
         ClientCapabilities = NULL,
+        ServerCapabilities = NULL,
 
         diagnostics_task_manager = NULL,
         parse_task_manager = NULL,
@@ -55,10 +56,11 @@ LanguageServer <- R6::R6Class("LanguageServer",
             cpus <- parallel::detectCores()
             pool_size <- as.integer(
                 Sys.getenv("R_LANGSVR_POOL_SIZE", min(max(floor(cpus / 2), 1), 3)))
+
             # parse pool
-            parse_pool <- SessionPool$new(pool_size, "parse")
-            # diagnostics is slower, so use a seperated pool
-            diagnostics_pool <- SessionPool$new(pool_size, "diagnostics")
+            parse_pool <- if (pool_size > 0) SessionPool$new(pool_size, "parse") else NULL
+            # diagnostics is slower, so use a separate pool
+            diagnostics_pool <- if (pool_size > 0) SessionPool$new(pool_size, "diagnostics") else NULL
 
             self$parse_task_manager <- TaskManager$new("parse", parse_pool)
             self$diagnostics_task_manager <- TaskManager$new("diagnostics", diagnostics_pool)
@@ -96,6 +98,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             if (!self$pending_replies$has(uri)) {
                 self$pending_replies$set(uri, list(
                     `textDocument/documentSymbol` = collections::queue(),
+                    `textDocument/foldingRange` = collections::queue(),
                     `textDocument/documentLink` = collections::queue(),
                     `textDocument/documentColor` = collections::queue()
                 ))
@@ -203,8 +206,18 @@ LanguageServer$set("public", "register_handlers", function() {
         `textDocument/documentSymbol` = text_document_document_symbol,
         `textDocument/documentHighlight` = text_document_document_highlight,
         `textDocument/documentLink` = text_document_document_link,
+        `documentLink/resolve` = document_link_resolve,
         `textDocument/documentColor` = text_document_document_color,
         `textDocument/colorPresentation` = text_document_color_presentation,
+        `textDocument/foldingRange` = text_document_folding_range,
+        `textDocument/references` = text_document_references,
+        `textDocument/rename` = text_document_rename,
+        `textDocument/prepareRename` = text_document_prepare_rename,
+        `textDocument/selectionRange` = text_document_selection_range,
+        `textDocument/prepareCallHierarchy` = text_document_prepare_call_hierarchy,
+        `callHierarchy/incomingCalls` = call_hierarchy_incoming_calls,
+        `callHierarchy/outgoingCalls` = call_hierarchy_outgoing_calls,
+        `textDocument/linkedEditingRange` = text_document_linked_editing_range,
         `workspace/symbol` = workspace_symbol
     )
 
@@ -221,10 +234,10 @@ LanguageServer$set("public", "register_handlers", function() {
 
 
 #' Run the R language server
-#' @param debug set \code{TRUE} to show debug information in stderr;
+#' @param debug set `TRUE` to show debug information in stderr;
 #'              or it could be a character string specifying the log file
-#' @param host the hostname used to create the tcp server, not used when \code{port} is \code{NULL}
-#' @param port the port used to create the tcp server. If \code{NULL}, use stdio instead.
+#' @param host the hostname used to create the tcp server, not used when `port` is `NULL`
+#' @param port the port used to create the tcp server. If `NULL`, use stdio instead.
 #' @examples
 #' \dontrun{
 #' # to use stdio

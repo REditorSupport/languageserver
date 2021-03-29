@@ -1,10 +1,8 @@
-context("Test Formatting")
-
 test_that("Formatting document works", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("temp_file"), fileext = ".R")
+    temp_file <- withr::local_tempfile(fileext = ".R")
     writeLines(c(
         "my_fn<-function(x){",  # nolint
         "f(x+1,x-1)+x",
@@ -30,7 +28,7 @@ test_that("Formatting selection works for complete line", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("temp_file"), fileext = ".R")
+    temp_file <- withr::local_tempfile(fileext = ".R")
     writeLines(c(
         "my_fn <- function(x) {",
         "    y =x+ 1",
@@ -53,7 +51,7 @@ test_that("Formatting selection works for partial line", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("temp_file"), fileext = ".R")
+    temp_file <- withr::local_tempfile(fileext = ".R")
     writeLines(c(
         "my_fn <- function(x) {",
         "    y =x+ 1",
@@ -75,7 +73,7 @@ test_that("Formatting selection preserves initial indentation", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("temp_file"), fileext = ".R")
+    temp_file <- withr::local_tempfile(fileext = ".R")
     writeLines(c(
         "  my_fn <- function(x) {",
         "      y =x+ 1",
@@ -99,7 +97,7 @@ test_that("Formatting selection does not add indentation to multi-line string", 
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("temp_file"), fileext = ".R")
+    temp_file <- withr::local_tempfile(fileext = ".R")
     writeLines(c(
         "my_fun <- function() {",
         "  query(con,\"select group, date, time",
@@ -123,7 +121,7 @@ test_that("On type formatting works", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("temp_file"), fileext = ".R")
+    temp_file <- withr::local_tempfile(fileext = ".R")
     writeLines(c(
         "my_fn<-function(x){",  # nolint
         "f(x+1,x-1)",
@@ -157,7 +155,7 @@ test_that("Formatting in Rmarkdown works", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("single_file"), fileext = ".Rmd")
+    single_file <- withr::local_tempfile(fileext = ".Rmd")
     writeLines(
         c(
             "```{r}",

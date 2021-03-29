@@ -94,7 +94,7 @@ print.location <- function(x, ...) {
 
 #' A document URI
 #'
-#' A Uniform Resource Identifier as defined by [RFC 3986](http://tools.ietf.org/html/rfc3986).
+#' A Uniform Resource Identifier as defined by [RFC 3986](https://tools.ietf.org/html/rfc3986).
 #'
 #' @param uri a character
 #' @keywords internal

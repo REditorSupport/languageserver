@@ -8,6 +8,10 @@ suppressPackageStartupMessages({
 # a hack to make withr::defer_parent to work, see https://github.com/r-lib/withr/issues/123
 defer <- withr::defer
 
+expect_equivalent <- function(x, y) {
+    expect_equal(x, y, ignore_attr = TRUE)
+}
+
 language_client <- function(working_dir = getwd(), diagnostics = FALSE, capabilities = NULL) {
 
     if (nzchar(Sys.getenv("R_LANGSVR_LOG"))) {
@@ -42,10 +46,10 @@ language_client <- function(working_dir = getwd(), diagnostics = FALSE, capabili
         # we skip this for other times for speed
         if (Sys.getenv("R_LANGSVR_TEST_FAST", "YES") == "NO") {
             client %>% respond("shutdown", NULL, retry = FALSE)
-            client$process$wait(30)
+            client$process$wait(10 * 1000)  # 10 sec
             if (client$process$is_alive()) {
+                cat("server did not shutdown peacefully\n")
                 client$process$kill_tree()
-                fail("server did not shutdown peacefully")
             }
         } else {
             client$process$kill_tree()
@@ -94,12 +98,13 @@ did_save <- function(client, path) {
         client,
         "textDocument/didSave",
         params)
+    Sys.sleep(0.5)
     invisible(client)
 }
 
 
-respond <- function(client, method, params, timeout, retry = TRUE,
-                            retry_when = function(result) length(result) == 0) {
+respond <- function(client, method, params, timeout, allow_error = FALSE,
+    retry = TRUE, retry_when = function(result) length(result) == 0) {
     if (missing(timeout)) {
         if (Sys.getenv("R_COVR", "") == "true") {
             # we give more time to covr
@@ -109,14 +114,23 @@ respond <- function(client, method, params, timeout, retry = TRUE,
         }
     }
     storage <- new.env(parent = .GlobalEnv)
-    cb <- function(self, result) {
-        storage$done <- TRUE
-        storage$result <- result
+    cb <- function(self, result, error = NULL) {
+        if (is.null(error)) {
+            storage$done <- TRUE
+            storage$result <- result
+        } else if (allow_error) {
+            storage$done <- TRUE
+            storage$result <- error
+        }
     }
 
     start_time <- Sys.time()
     remaining <- timeout
     client$deliver(client$request(method, params), callback = cb)
+    if (method == "shutdown") {
+        # do not expect the server returns anything
+        return(NULL)
+    }
     while (!isTRUE(storage$done)) {
         if (remaining < 0) {
             fail("timeout when obtaining response")
@@ -134,7 +148,7 @@ respond <- function(client, method, params, timeout, retry = TRUE,
             return(NULL)
         }
         Sys.sleep(0.2)
-        return(Recall(client, method, params, remaining, retry, retry_when))
+        return(Recall(client, method, params, remaining, allow_error, retry, retry_when))
     }
     return(result)
 }
@@ -197,6 +211,43 @@ respond_definition <- function(client, path, pos, ...) {
     )
 }
 
+respond_references <- function(client, path, pos, ...) {
+    respond(
+        client,
+        "textDocument/references",
+        list(
+            textDocument = list(uri = path_to_uri(path)),
+            position = list(line = pos[1], character = pos[2])
+        ),
+        ...
+    )
+}
+
+respond_rename <- function(client, path, pos, newName, ...) {
+    respond(
+        client,
+        "textDocument/rename",
+        list(
+            textDocument = list(uri = path_to_uri(path)),
+            position = list(line = pos[1], character = pos[2]),
+            newName = newName
+        ),
+        ...
+    )
+}
+
+respond_prepare_rename <- function(client, path, pos, ...) {
+    respond(
+        client,
+        "textDocument/prepareRename",
+        list(
+            textDocument = list(uri = path_to_uri(path)),
+            position = list(line = pos[1], character = pos[2])
+        ),
+        ...
+    )
+}
+
 
 respond_formatting <- function(client, path, ...) {
     respond(
@@ -242,7 +293,7 @@ respond_selection_range <- function(client, path, positions, ...) {
         "textDocument/selectionRange",
         list(
             textDocument = list(uri = path_to_uri(path)),
-            positions),
+            positions = positions),
         ...
     )
 }
@@ -307,6 +358,15 @@ respond_document_link <- function(client, path, ...) {
     )
 }
 
+respond_document_link_resolve <- function(client, params, ...) {
+    respond(
+        client,
+        "documentLink/resolve",
+        params,
+        ...
+    )
+}
+
 respond_document_color <- function(client, path, ...) {
     respond(
         client,
@@ -318,7 +378,52 @@ respond_document_color <- function(client, path, ...) {
     )
 }
 
-wait_for <- function(client, method, timeout = 5) {
+respond_document_folding_range <- function(client, path, ...) {
+    respond(
+        client,
+        "textDocument/foldingRange",
+        list(
+            textDocument = list(uri = path_to_uri(path))
+        ),
+        ...
+    )
+}
+
+respond_prepare_call_hierarchy <- function(client, path, pos, ...) {
+    respond(
+        client,
+        "textDocument/prepareCallHierarchy",
+        list(
+            textDocument = list(uri = path_to_uri(path)),
+            position = list(line = pos[1], character = pos[2])
+        ),
+        ...
+    )
+}
+
+respond_call_hierarchy_incoming_calls <- function(client, item, ...) {
+    respond(
+        client,
+        "callHierarchy/incomingCalls",
+        list(
+            item = item
+        ),
+        ...
+    )
+}
+
+respond_call_hierarchy_outgoing_calls <- function(client, item, ...) {
+    respond(
+        client,
+        "callHierarchy/outgoingCalls",
+        list(
+            item = item
+        ),
+        ...
+    )
+}
+
+wait_for <- function(client, method, timeout = 30) {
     storage <- new.env(parent = .GlobalEnv)
     start_time <- Sys.time()
     remaining <- timeout

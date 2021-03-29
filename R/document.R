@@ -170,15 +170,35 @@ expr_range <- function(srcref) {
     )
 }
 
+get_range_text <- function(content, line1, col1, line2, col2) {
+    lines <- content[line1:line2]
+    lines[length(lines)] <- substr(lines[length(lines)], 1L, col2)
+    lines[1] <- substr(lines[1], col1, nchar(lines[1]))
+    lines
+}
 
 parse_expr <- function(content, expr, env, level = 0L, srcref = attr(expr, "srcref")) {
     if (length(expr) == 0L || is.symbol(expr)) {
           return(env)
     }
+    # We should handle base function specially as users may use base::fun form
+    # The reason that we only take care of `base` (not `utils`) is that only `base` calls can generate symbols
+    # Check if the lang is in base::fun form
+    is_base_call <- function(x) {
+        length(x) == 3L && as.character(x[[1L]]) %in% c("::", ":::") && as.character(x[[2L]]) == "base"
+    }
+    # Be able to handle `pkg::name` case (note `::` is a function)
+    is_symbol <- function(x) {
+        is.symbol(x) || is_base_call(x)
+    }
+    # Handle `base` function specically by removing the `base::` prefix
+    fun_string <- function(x) {
+        if (is_base_call(x)) as.character(x[[3L]]) else as.character(x)
+    }
     for (i in seq_along(expr)) {
         e <- expr[[i]]
-        if (missing(e) || !is.call(e) || !is.symbol(e[[1L]])) next
-        f <- as.character(e[[1L]])
+        if (missing(e) || !is.call(e) || !is_symbol(e[[1L]])) next
+        f <- fun_string(e[[1L]])
         cur_srcref <- if (level == 0L) srcref[[i]] else srcref
         if (f %in% c("{", "(")) {
             Recall(content, e[-1L], env, level + 1L, cur_srcref)
@@ -198,34 +218,75 @@ parse_expr <- function(content, expr, env, level = 0L, srcref = attr(expr, "srcr
             Recall(content, e[[3L]], env, level + 1L, cur_srcref)
         } else if (f == "repeat") {
             Recall(content, e[[2L]], env, level + 1L, cur_srcref)
-        } else if (f %in% c("<-", "=") && length(e) == 3L && is.symbol(e[[2L]])) {
-            funct <- as.character(e[[2L]])
-            env$objects <- c(env$objects, funct)
-            if (is.call(e[[3L]]) && e[[3L]][[1L]] == "function") {
-                # functions
-                env$functs <- c(env$functs, funct)
-                func <- e[[3L]]
-                env$formals[[funct]] <- func[[2L]]
+        } else if (f %in% c("<-", "=", "delayedAssign", "makeActiveBinding", "assign")) {
+            # to see the pos/env/assign.env of assigning functions is set or not
+            # if unset, it means using the default value, which is top-level
+            # if set, we should compare to a vector of known "top-level" candidates
+            is_top_level <- function(arg_env, ...) {
+                if (is.null(arg_env)) return(TRUE)
+                default <- list(
+                    quote(parent.frame(1)), quote(parent.frame(1L)),
+                    quote(environment()),
+                    quote(.GlobalEnv), quote(globalenv())
+                )
+                extra <- substitute(list(...))[-1L]
+                top_level_envs <- c(default, as.list(extra))
+                any(vapply(top_level_envs, identical, x = arg_env, FUN.VALUE = logical(1L)))
+            }
 
-                signature <- func
-                signature <- format(signature[1:2])
-                signature <- paste0(trimws(signature, which = "left"), collapse = "")
-                signature <- gsub("^function\\s*", funct, signature)
-                signature <- gsub("\\s*NULL$", "", signature)
-                env$signatures[[funct]] <- signature
+            type <- NULL
 
-                expr_range <- expr_range(cur_srcref)
-                env$definition_ranges[[funct]] <- expr_range
+            if (f %in% c("<-", "=")) {
+                if (length(e) != 3L || !is.symbol(e[[2L]])) next
+                symbol <- as.character(e[[2L]])
+                value <- e[[3L]]
+            } else if (f == "delayedAssign") {
+                call <- match.call(base::delayedAssign, as.call(e))
+                if (!is.character(call$x)) next
+                if (!is_top_level(call$assign.env)) next
+                symbol <- call$x
+                value <- call$value
+            } else if (f == "assign") {
+                call <- match.call(base::assign, as.call(e))
+                if (!is.character(call$x)) next
+                if (!is_top_level(call$pos, -1L, -1)) next # -1 is the default
+                if (!is_top_level(call$envir)) next
+                symbol <- call$x
+                value <- call$value
+            } else if (f == "makeActiveBinding") {
+                call <- match.call(base::makeActiveBinding, as.call(e))
+                if (!is.character(call$sym)) next
+                if (!is_top_level(call$env)) next
+                symbol <- call$sym
+                value <- call$fun
+                type <- "variable"
+            }
 
-                doc_line1 <- detect_comments(content, expr_range$start$line) + 1
-                if (doc_line1 <= expr_range$start$line) {
-                    env$documentation[[funct]] <- paste0(uncomment(
-                        content[seq.int(doc_line1, expr_range$start$line)]),
-                            collapse = "  \n")
-                }
+            if (is.null(type)) {
+                type <- get_expr_type(value)
+            }
+
+            env$objects <- c(env$objects, symbol)
+
+            expr_range <- expr_range(cur_srcref)
+            env$definitions[[symbol]] <- list(
+                name = symbol,
+                type = type,
+                range = expr_range
+            )
+
+            doc_line1 <- detect_comments(content, expr_range$start$line) + 1
+            if (doc_line1 <= expr_range$start$line) {
+                comment <- content[seq.int(doc_line1, expr_range$start$line)]
+                env$documentation[[symbol]] <- convert_comment_to_documentation(comment)
+            }
+
+            if (type == "function") {
+                env$functs <- c(env$functs, symbol)
+                env$formals[[symbol]] <- value[[2L]]
+                env$signatures[[symbol]] <- get_signature(symbol, value)
             } else {
-                # symbols
-                env$nonfuncts <- c(env$nonfuncts, funct)
+                env$nonfuncts <- c(env$nonfuncts, symbol)
             }
         } else if (f %in% c("library", "require") && length(e) == 2L) {
             pkg <- as.character(e[[2L]])
@@ -259,7 +320,7 @@ parse_document <- function(uri, content) {
             env$functs <- character()
             env$formals <- list()
             env$signatures <- list()
-            env$definition_ranges <- list()
+            env$definitions <- list()
             env$documentation <- list()
             env$xml_data <- NULL
             env$xml_doc <- NULL
@@ -284,15 +345,11 @@ parse_callback <- function(self, uri, version, parse_data) {
     self$workspace$update_parse_data(uri, parse_data)
 
     if (!identical(old_parse_data$packages, parse_data$packages)) {
-        if (length(parse_data$packages)) {
-            self$resolve_task_manager$add_task(
-                uri,
-                resolve_task(self, uri, doc, parse_data$packages)
-            )
-            doc$loaded_packages <- parse_data$packages
-        } else {
-            doc$loaded_packages <- character()
-        }
+        self$resolve_task_manager$add_task(
+            uri,
+            resolve_task(self, uri, doc, parse_data$packages)
+        )
+        doc$loaded_packages <- parse_data$packages
         self$workspace$update_loaded_packages()
     }
 

@@ -10,6 +10,6 @@ document_uri(uri)
 \item{uri}{a character}
 }
 \description{
-A Uniform Resource Identifier as defined by \href{http://tools.ietf.org/html/rfc3986}{RFC 3986}.
+A Uniform Resource Identifier as defined by \href{https://tools.ietf.org/html/rfc3986}{RFC 3986}.
 }
 \keyword{internal}

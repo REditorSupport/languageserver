@@ -1,3 +1,68 @@
+# languageserver 0.3.10
+
+- Recongize promise and active binding symbols (#362)
+
+# languageserver 0.3.9
+
+- skip tests on solaris 
+
+# languageserver 0.3.8
+
+- When closing a file, "Problems" should be removed (#348)
+- Implement renameProvider (#337)
+- Hover on symbol in a function with functional argument causes parse error (#345)
+- Hover on non-function symbol in other document should show definition and - documentation (#343)
+- Check if symbol on rhs of assignment in definition (#341)
+- Implement referencesProvider (#336)
+- Add comment of notice above temp code of definition (#353)
+- Implement renameProvider (#339)
+- Fix tests (#351)
+- Update coc help in README (#350)
+- Remove diagnostics of closed files in non-package workspace (#349)
+- Fix hover func arg (#346)
+- Fix hover on non-function symbol (#344)
+- Fix checking symbol on rhs of assignment expression (#342)
+- Implement referencesProvider (#338)
+- Do not load sysdata.rda (#347)
+- release v0.3.7 (#335)
+
+# languageserver 0.3.7
+
+- Local function support (#330)
+- Update xpaths to adapt to token change in parse data in R 4.0 (#328)
+- Exclude existing completion items in token_completion (#326)
+- Add token completion (#324)
+- Only provide imported completions without package (#323)
+- Improve folding (#317)
+- More robust rmd chunk pattern (#318)
+- Limit string length to provide color and link (#314)
+- Minor improvements (#312)
+- Improve xpath to work with cursor on token ending (#311)
+- Support folding ranges for comments (#309)
+- fix covr test (#310)
+- Not trigger on-type-formatting on comment line (#308)
+- Convert roxygen comments to documentation (#305)
+- Support all symbols in definitions (#295)
+- Use isf=FALSE (#303)
+- Support startup library specified in profile (#302)
+- Fix rmd chunk pattern (#297)
+- Try parsing string in link and color (#300)
+- Implement foldingRangeProvider (#294)
+- Check uri in diagnostics_callback (#292)
+- Fix for #283 - "unexpected '/'" on save (#291)
+- use mac.binary instead of mac.binary.el-capitan (#293)
+- Change dev version download script in the README (#287)
+- Use sortText in completions (#286)
+- Rmd chunk symbol (#280)
+- make sure the path is UTF-8 (#278)
+- make sure process is alive (#275)
+- Fix handling raw string in link and color (#274)
+- Indent all elements except braces in apply_initial_indention (#271)
+- Use old behavior if formatting scope < indention (#269)
+- Fix range formatting handling initial indentation (#268)
+- Use more conservative pool_size (#267)
+- add session pool for task manager (#265)
+
 # languageserver 0.3.6
 
 - Show error message when diagnostics failed

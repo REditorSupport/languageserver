@@ -55,6 +55,24 @@ capture_print <- function(x) {
     paste0(utils::capture.output(print(x)), collapse = "\n")
 }
 
+get_expr_type <- function(expr) {
+    if (is.call(expr)) {
+        func <- deparse(expr[[1]], nlines = 1)
+        if (func == "function") {
+            "function"
+        } else if (func %in% c("c", "matrix", "array")) {
+            "array"
+        } else if (func == "list") {
+            "list"
+        } else if (grepl("(R6:::?)?R6Class", func)) {
+            "class"
+        } else {
+            "variable"
+        }
+    } else {
+        typeof(expr)
+    }
+}
 
 uri_escape_unicode <- function(uri) {
     if (length(uri) == 0) {
@@ -118,6 +136,18 @@ path_has_parent <- function(x, y) {
     }
 }
 
+equal_position <- function(x, y) {
+    x$line == y$line && x$character == y$character
+}
+
+equal_range <- function(x, y) {
+    equal_position(x$start, y$start) && equal_position(x$end, y$end)
+}
+
+equal_definition <- function(x, y) {
+    x$uri == y$uri && equal_range(x$range, y$range)
+}
+
 #' Check if a file is an RMarkdown file
 #' @keywords internal
 is_rmarkdown <- function(uri) {
@@ -139,7 +169,7 @@ check_scope <- function(uri, document, point) {
             document$content[1:(row + 1)], startsWith, logical(1), "```", USE.NAMES = FALSE)
         if (any(flags)) {
             last_match <- document$content[max(which(flags))]
-            stringi::stri_detect_regex(last_match, "`{3,}\\s*\\{r[ ,\\}]") &&
+            stringi::stri_detect_regex(last_match, "```+\\s*\\{[rR][ ,\\}]") &&
                 !identical(sum(flags) %% 2, 0) &&
                 !enclosed_by_quotes(document, point)
         } else {
@@ -152,7 +182,7 @@ check_scope <- function(uri, document, point) {
 
 
 fuzzy_find <- function(x, pattern) {
-    subsequence_regex <- paste0(strsplit(pattern, "")[[1]], collapse = ".*")
+    subsequence_regex <- gsub("(.)", "\\1.*", pattern)
     grepl(subsequence_regex, x, ignore.case = TRUE)
 }
 
@@ -168,7 +198,7 @@ seq_safe <- function(a, b) {
 #' @keywords internal
 extract_blocks <- function(content) {
     begins_or_ends <- which(stringi::stri_detect_fixed(content, "```"))
-    begins <- which(stringi::stri_detect_regex(content, "`{3,}\\s*\\{r[ ,\\}]"))
+    begins <- which(stringi::stri_detect_regex(content, "```+\\s*\\{[rR][ ,\\}]"))
     ends <- setdiff(begins_or_ends, begins)
     blocks <- list()
     for (begin in begins) {
@@ -181,6 +211,156 @@ extract_blocks <- function(content) {
         }
     }
     blocks
+}
+
+get_signature <- function(symbol, expr) {
+    signature <- format(expr[1:2])
+    signature <- paste0(trimws(signature, which = "left"), collapse = "")
+    signature <- gsub("^function\\s*", symbol, signature)
+    signature <- gsub("\\s*NULL$", "", signature)
+    signature
+}
+
+get_r_document_sections <- function(uri, document, type = c("section", "subsections")) {
+    sections <- NULL
+
+    if ("section" %in% type) {
+        section_lines <- seq_len(document$nline)
+        section_lines <- section_lines[
+            grep("^\\#+\\s*(.+?)\\s*(\\#{4,}|\\+{4,}|\\-{4,}|\\={4,})\\s*$",
+                document$content[section_lines], perl = TRUE)]
+        if (length(section_lines)) {
+            section_names <- gsub("^\\#+\\s*(.+?)\\s*(\\#{4,}|\\+{4,}|\\-{4,}|\\={4,})\\s*$",
+                "\\1", document$content[section_lines], perl = TRUE)
+            section_end_lines <- c(section_lines[-1] - 1, document$nline)
+            sections <- .mapply(function(name, start_line, end_line) {
+                list(
+                    name = name,
+                    type = "section",
+                    start_line = start_line,
+                    end_line = end_line
+                )
+            }, list(section_names, section_lines, section_end_lines), NULL)
+        }
+    }
+
+    subsections <- NULL
+
+    if ("subsection" %in% type) {
+        subsection_lines <- seq_len(document$nline)
+        subsection_lines <- subsection_lines[
+            grep("^\\s+\\#+\\s*(.+?)\\s*(\\#{4,}|\\+{4,}|\\-{4,}|\\={4,})\\s*$",
+                document$content[subsection_lines], perl = TRUE)]
+        if (length(subsection_lines)) {
+            subsection_names <- gsub("^\\s+\\#+\\s*(.+?)\\s*(\\#{4,}|\\+{4,}|\\-{4,}|\\={4,})\\s*$",
+                "\\1", document$content[subsection_lines], perl = TRUE)
+            subsections <- .mapply(function(name, line) {
+                list(
+                    name = name,
+                    type = "subsection",
+                    start_line = line,
+                    end_line = line
+                )
+            }, list(subsection_names, subsection_lines), NULL)
+        }
+    }
+
+    c(sections, subsections)
+}
+
+get_rmd_document_sections <- function(uri, document, type = c("section", "chunk")) {
+    content <- document$content
+    if (length(content) == 0) {
+        return(NULL)
+    }
+
+    block_lines <- grep("^\\s*```", content)
+    if (length(block_lines) %% 2 != 0) {
+        return(NULL)
+    }
+
+    sections <- NULL
+    if ("section" %in% type) {
+        section_lines <- grepl("^#+\\s+\\S+", content)
+        if (grepl("^---\\s*$", content[[1]])) {
+            front_start <- 1L
+            front_end <- 2L
+            while (front_end <= document$nline) {
+                if (grepl("^---\\s*$", content[[front_end]])) {
+                    break
+                }
+                front_end <- front_end + 1L
+            }
+            section_lines[seq.int(front_start, front_end)] <- FALSE
+        }
+
+        for (i in seq_len(length(block_lines) / 2)) {
+            section_lines[seq.int(block_lines[[2 * i - 1]], block_lines[[2 * i]])] <- FALSE
+        }
+
+        section_lines <- which(section_lines)
+        section_num <- length(section_lines)
+        section_texts <- content[section_lines]
+        section_hashes <- gsub("^(#+)\\s+.+$", "\\1", section_texts)
+        section_levels <- nchar(section_hashes)
+        section_names <- gsub("^#+\\s+(.+?)(\\s+#+)?\\s*$", "\\1", section_texts, perl = TRUE)
+
+        sections <- lapply(seq_len(section_num), function(i) {
+            start_line <- section_lines[[i]]
+            end_line <- document$nline
+            level <- section_levels[[i]]
+            j <- i + 1
+            while (j <= section_num) {
+                if (section_levels[[j]] <= level) {
+                    end_line <- section_lines[[j]] - 1
+                    break
+                }
+                j <- j + 1
+            }
+            list(
+                name = section_names[[i]],
+                type = "section",
+                start_line = start_line,
+                end_line = end_line
+            )
+        })
+    }
+
+    chunks <- NULL
+    if ("chunk" %in% type) {
+        unnamed_chunks <- 0
+        chunks <- lapply(seq_len(length(block_lines) / 2), function(i) {
+            start_line <- block_lines[[2 * i - 1]]
+            end_line <- block_lines[[2 * i]]
+            label <- stringi::stri_match_first_regex(content[[start_line]],
+                "^\\s*```+\\s*\\{[a-zA-Z0-9_]+\\s*(([^,='\"]+)|'(.+)'|\"(.+)\")\\s*(,.+)?\\}\\s*$"
+            )[1, 3:5]
+            name <- label[!is.na(label)]
+
+            if (length(name) == 0) {
+                unnamed_chunks <<- unnamed_chunks + 1
+                name <- sprintf("unnamed-chunk-%d", unnamed_chunks)
+            }
+
+            list(
+                name = name,
+                type = "chunk",
+                start_line = start_line,
+                end_line = end_line
+            )
+        })
+    }
+
+    c(sections, chunks)
+}
+
+get_document_sections <- function(uri, document,
+    type = c("section", "subsection", "chunk")) {
+    if (document$is_rmarkdown) {
+        get_rmd_document_sections(uri, document, type)
+    } else {
+        get_r_document_sections(uri, document, type)
+    }
 }
 
 #' Strip out all the non R blocks in a R markdown file
@@ -361,6 +541,64 @@ str_trunc <- function(string, width, ellipsis = "...") {
 
 uncomment <- function(x) gsub("^\\s*#+'?\\s*", "", x)
 
+convert_comment_to_documentation <- function(comment) {
+    result <- NULL
+    roxy <- tryCatch(roxygen2::parse_text(c(
+        comment,
+        "NULL"
+    ), env = NULL), error = function(e) NULL)
+    if (length(roxy)) {
+        result <- list(
+            title = NULL,
+            description = NULL,
+            arguments = list(),
+            markdown = NULL
+        )
+        items <- lapply(roxy[[1]]$tags, function(item) {
+            if (item$tag == "title") {
+                result$title <<- item$val
+            } else if (item$tag == "description") {
+                result$description <<- item$val
+            } else if (item$tag == "param") {
+                result$arguments[[item$val$name]] <<- item$val$description
+            }
+
+            format_roxy_tag(item)
+        })
+        if (is.null(result$description)) {
+            result$description <- result$title
+        }
+        result$markdown <- paste0(items, collapse = "\n")
+    }
+    if (is.null(result)) {
+        result <- paste0(uncomment(comment), collapse = "  \n")
+    }
+    result
+}
+
+format_roxy_tag <- function(item) {
+    if (item$tag %in% c("title", "description")) {
+        tag <- ""
+        content <- format_roxy_text(item$val)
+    } else {
+        tag <- sprintf("`@%s` ", item$tag)
+        content <- if (item$tag %in% c("usage", "example", "examples", "eval", "evalRd")) {
+            sprintf("\n```r\n%s\n```", trimws(item$raw))
+        } else if (is.character(item$val) && length(item$val) > 1) {
+            paste0(sprintf("`%s`", item$val), collapse = " ")
+        } else if (is.list(item$val)) {
+            sprintf("`%s` %s", item$val$name, format_roxy_text(item$val$description))
+        } else {
+            format_roxy_text(item$raw)
+        }
+    }
+    paste0(tag, content, "  \n")
+}
+
+format_roxy_text <- function(text) {
+    gsub("\n", "  \n", text, fixed = TRUE)
+}
+
 find_doc_item <- function(doc, tag) {
     for (item in doc) {
         if (attr(item, "Rd_tag") == tag) {
@@ -407,17 +645,17 @@ glue <- function(.x, ...) {
 xdoc_find_enclosing_scopes <- function(x, line, col, top = FALSE) {
     if (top) {
         xpath <- "/exprlist | //expr[(@line1 < {line} or (@line1 = {line} and @col1 <= {col})) and
-                (@line2 > {line} or (@line2 = {line} and @col2 >= {col}))]"
+                (@line2 > {line} or (@line2 = {line} and @col2 >= {col}-1))]"
     } else {
         xpath <- "//expr[(@line1 < {line} or (@line1 = {line} and @col1 <= {col})) and
-                (@line2 > {line} or (@line2 = {line} and @col2 >= {col}))]"
+                (@line2 > {line} or (@line2 = {line} and @col2 >= {col}-1))]"
     }
     xpath <- glue(xpath, line = line, col = col)
     xml_find_all(x, xpath)
 }
 
 xdoc_find_token <- function(x, line, col) {
-    xpath <- glue("//*[not(*)][(@line1 < {line} or (@line1 = {line} and @col1 <= {col})) and (@line2 > {line} or (@line2 = {line} and @col2 >= {col}))]",
+    xpath <- glue("//*[not(*)][(@line1 < {line} or (@line1 = {line} and @col1 <= {col})) and (@line2 > {line} or (@line2 = {line} and @col2 >= {col}-1))]",
         line = line, col = col)
     xml_find_first(x, xpath)
 }
@@ -425,4 +663,25 @@ xdoc_find_token <- function(x, line, col) {
 xml_single_quote <- function(x) {
     x <- gsub("'", "&apos;", x, fixed = TRUE)
     x
+}
+
+html_to_markdown <- function(html) {
+    html_file <- file.path(tempdir(), "temp.html")
+    md_file <- file.path(tempdir(), "temp.md")
+    logger$info("Converting html to markdown using", html_file, md_file)
+    stringi::stri_write_lines(html, html_file)
+    result <- tryCatch({
+        format <- if (rmarkdown::pandoc_version() >= "2.0") "gfm" else "markdown_github"
+        rmarkdown::pandoc_convert(html_file, to = format, output = md_file)
+        paste0(stringi::stri_read_lines(md_file, encoding = "utf-8"), collapse = "\n")
+    }, error = function(e) {
+        logger$info("html_to_markdown failed: ", conditionMessage(e))
+        NULL
+    })
+    result
+}
+
+format_file_size <- function(bytes) {
+    obj_size <- structure(bytes, class = "object_size")
+    format(obj_size, units = "auto")
 }

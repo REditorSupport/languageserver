@@ -112,7 +112,7 @@ diagnose_file <- function(uri, content, rootPath) {
 
 
 diagnostics_callback <- function(self, uri, version, diagnostics) {
-    if (is.null(diagnostics)) return(NULL)
+    if (is.null(diagnostics) || !self$workspace$documents$has(uri)) return(NULL)
     logger$info("diagnostics_callback called:", list(uri = uri, version = version))
     # logger$info("diagnostics:", diagnostics)
     self$deliver(
