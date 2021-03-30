@@ -66,7 +66,7 @@ find_config <- function(filename) {
 #'
 #' Lint and diagnose problems in a file.
 #' @keywords internal
-diagnose_file <- function(uri, content, rootPath) {
+diagnose_file <- function(uri, content) {
     if (length(content) == 0) {
         return(list())
     }
@@ -94,9 +94,6 @@ diagnose_file <- function(uri, content, rootPath) {
         op <- options(lintr.linter_file = linter_file)
         on.exit(options(op))
     }
-
-    old_wd <- setwd(rootPath)
-    on.exit(setwd(old_wd))
 
     lint_cache <- getOption("languageserver.lint_cache", TRUE)
     lints <- if (lint_text_support) {
@@ -132,7 +129,7 @@ diagnostics_task <- function(self, uri, document, delay = 0) {
     content <- document$content
     create_task(
         target = package_call(diagnose_file),
-        args = list(uri = uri, content = content, rootPath = self$rootPath),
+        args = list(uri = uri, content = content),
         callback = function(result) diagnostics_callback(self, uri, version, result),
         error = function(e) {
             logger$info("diagnostics_task:", e)
