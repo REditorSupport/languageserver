@@ -32,7 +32,7 @@ Imports:
     repr (>= 1.1.0),
     roxygen2 (>= 7.0.0),
     stringi (>= 1.1.7),
-    styler (>= 1.4.0.9000),
+    styler (>= 1.4.1),
     tools,
     utils,
     xml2 (>= 1.2.2),
@@ -46,8 +46,6 @@ Suggests:
     testthat (>= 2.1.0),
     withr (>= 2.3.0),
     rmarkdown (>= 2.0)
-Remotes:
-    r-lib/styler#764
 ByteCompile: yes
 Encoding: UTF-8
 LazyData: true
