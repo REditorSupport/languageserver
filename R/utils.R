@@ -180,6 +180,9 @@ check_scope <- function(uri, document, point) {
     }
 }
 
+match_with <- function(x, pattern) {
+    grepl(pattern, x, ignore.case = TRUE)
+}
 
 fuzzy_find <- function(x, pattern) {
     subsequence_regex <- gsub("(.)", "\\1.*", pattern)

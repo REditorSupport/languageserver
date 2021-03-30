@@ -50,7 +50,7 @@ constants <- c("TRUE", "FALSE", "NULL",
 #' Complete language constants
 #' @keywords internal
 constant_completion <- function(token) {
-    consts <- constants[startsWith(constants, token)]
+    consts <- constants[match_with(constants, token)]
     completions <- lapply(consts, function(const) {
         list(label = const,
             kind = CompletionItemKind$Constant,
@@ -64,7 +64,7 @@ constant_completion <- function(token) {
 #' @keywords internal
 package_completion <- function(token) {
     installed_packages <- .packages(all.available = TRUE)
-    token_packages <- installed_packages[startsWith(installed_packages, token)]
+    token_packages <- installed_packages[match_with(installed_packages, token)]
     completions <- lapply(token_packages, function(package) {
         list(label = package,
             kind = CompletionItemKind$Module,
@@ -95,7 +95,7 @@ arg_completion <- function(uri, workspace, point, token, funct, package = NULL, 
                 last_def <- all_defs[[length(all_defs)]]
                 func_line1 <- as.integer(xml_attr(last_def, "line1"))
                 args <- xml_text(xml_find_all(last_def, "SYMBOL_FORMALS"))
-                token_args <- args[startsWith(args, token)]
+                token_args <- args[match_with(args, token)]
                 token_data <- list(
                     type = "parameter",
                     funct = funct,
@@ -118,7 +118,7 @@ arg_completion <- function(uri, workspace, point, token, funct, package = NULL, 
         }
 
         if (is.character(args)) {
-            token_args <- args[startsWith(args, token)]
+            token_args <- args[match_with(args, token)]
             token_data <- list(
                 type = "parameter",
                 funct = funct,
@@ -145,7 +145,7 @@ arg_completion <- function(uri, workspace, point, token, funct, package = NULL, 
 ns_function_completion <- function(ns, token, exported_only, snippet_support) {
     nsname <- ns$package_name
     functs <- ns$get_symbols(want_functs = TRUE, exported_only = exported_only)
-    functs <- functs[startsWith(functs, token)]
+    functs <- functs[match_with(functs, token)]
     if (nsname == WORKSPACE) {
         tag <- "[workspace]"
         sort_prefix <- sort_prefixes$workspace
@@ -184,7 +184,7 @@ ns_function_completion <- function(ns, token, exported_only, snippet_support) {
 imported_object_completion <- function(workspace, token, snippet_support) {
     completions <- NULL
     for (object in workspace$imported_objects$keys()) {
-        if (!startsWith(object, token)) {
+        if (!match_with(object, token)) {
             next
         }
         nsname <- workspace$imported_objects$get(object)
@@ -251,7 +251,7 @@ workspace_completion <- function(workspace, token,
                 exported_only = TRUE, snippet_support = snippet_support)
 
             nonfuncts <- ns$get_symbols(want_functs = FALSE, exported_only = TRUE)
-            nonfuncts <- nonfuncts[startsWith(nonfuncts, token)]
+            nonfuncts <- nonfuncts[match_with(nonfuncts, token)]
             nonfuncts_completions <- lapply(nonfuncts, function(object) {
                 list(label = object,
                      kind = CompletionItemKind$Field,
@@ -263,7 +263,7 @@ workspace_completion <- function(workspace, token,
                      ))
             })
             lazydata <- ns$get_lazydata()
-            lazydata <- lazydata[startsWith(lazydata, token)]
+            lazydata <- lazydata[match_with(lazydata, token)]
             lazydata_completions <- lapply(lazydata, function(object) {
                 list(label = object,
                      kind = CompletionItemKind$Field,
@@ -287,7 +287,7 @@ workspace_completion <- function(workspace, token,
                 exported_only = FALSE, snippet_support = snippet_support)
 
             nonfuncts <- ns$get_symbols(want_functs = FALSE, exported_only = FALSE)
-            nonfuncts <- nonfuncts[startsWith(nonfuncts, token)]
+            nonfuncts <- nonfuncts[match_with(nonfuncts, token)]
             nonfuncts_completions <- lapply(nonfuncts, function(object) {
                 list(label = object,
                      kind = CompletionItemKind$Field,
@@ -338,7 +338,7 @@ scope_completion <- function(uri, workspace, token, point, snippet_support = NUL
     scope_symbol_nodes <- xml_find_all(enclosing_scopes, scope_completion_symbols_xpath)
     scope_symbol_names <- xml_text(scope_symbol_nodes)
     scope_symbol_lines <- as.integer(xml_attr(scope_symbol_nodes, "line1"))
-    scope_symbol_selector <- startsWith(scope_symbol_names, token)
+    scope_symbol_selector <- match_with(scope_symbol_names, token)
 
     scope_symbol_names <- rev(scope_symbol_names[scope_symbol_selector])
     scope_symbol_lines <- rev(scope_symbol_lines[scope_symbol_selector])
@@ -364,7 +364,7 @@ scope_completion <- function(uri, workspace, token, point, snippet_support = NUL
     scope_funct_nodes <- xml_find_all(enclosing_scopes, scope_completion_functs_xpath)
     scope_funct_names <- xml_text(scope_funct_nodes)
     scope_funct_lines <- as.integer(xml_attr(scope_funct_nodes, "line1"))
-    scope_funct_selector <- startsWith(scope_funct_names, token)
+    scope_funct_selector <- match_with(scope_funct_names, token)
 
     scope_funct_names <- rev(scope_funct_names[scope_funct_selector])
     scope_funct_lines <- rev(scope_funct_lines[scope_funct_selector])
