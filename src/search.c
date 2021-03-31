@@ -14,11 +14,13 @@ static int is_empty(const char *s) {
 }
 
 SEXP find_unbalanced_bracket(SEXP content, SEXP _row, SEXP _col, SEXP _skip_el) {
+    int ncontent = Rf_length(content);
     int row = Rf_asInteger(_row);
     int col = Rf_asInteger(_col);
     int skip = Rf_asInteger(_skip_el);
 
-    int i, j, k;
+    int i, j;
+    int k = 0;
     int n;
     const char* c;
     unsigned char cj;
@@ -29,7 +31,7 @@ SEXP find_unbalanced_bracket(SEXP content, SEXP _row, SEXP _col, SEXP _skip_el) 
     int nunbalanced = 0;
     char brac[2] = " \x00";
 
-    for (i = row; i >= 0; i--) {
+    for (i = row; i >= 0 && i < ncontent; i--) {
         c = Rf_translateCharUTF8(STRING_ELT(content, i));
         if (skip && i < row && is_empty(c)) {
             // skip empty row when search backward
