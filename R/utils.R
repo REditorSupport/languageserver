@@ -504,11 +504,11 @@ throttle <- function(fun, t = 1) {
 
 #' sanitize package objects names
 #'
-#' Remove unwanted objects, _e.g._ `names<-`, `%>%`, etc.
+#' Remove unwanted objects, _e.g._ `names<-`, `%>%`, `.__C_` etc.
 #'
 #' @keywords internal
 sanitize_names <- function(objects) {
-    objects[stringi::stri_detect_regex(objects, "^(?:[^\\W_]|\\.)(?:[^\\W]|\\.)*$")]
+    objects[stringi::stri_detect_regex(objects, "^([^\\W_]|\\.(?!_))(\\w|\\.)*$")]
 }
 
 na_to_empty_string <- function(x) if (is.na(x)) "" else x
