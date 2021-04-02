@@ -4,7 +4,7 @@
 \alias{style_text}
 \title{Edit code style}
 \usage{
-style_text(text, style, indentation = 0L)
+style_text(text, style, indention = 0L)
 }
 \description{
 This functions formats a list of text using \code{\link[styler:style_text]{styler::style_text()}} with the
