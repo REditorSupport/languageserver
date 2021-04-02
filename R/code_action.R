@@ -24,10 +24,9 @@ document_code_action_reply <- function(id, uri, workspace, document, range, cont
 
         if (item_range$start$row == item_range$end$row &&
             item_range$start$col < item_range$end$col) {
-
             position <- document$to_lsp_position(
                 item_range$end$row,
-                nchar(document$line(item_range$end$row - 1))
+                nchar(document$line(item_range$end$row + 1))
             )
             changes <- list(
                 list(
