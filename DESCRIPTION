@@ -46,8 +46,6 @@ Suggests:
     testthat (>= 2.1.0),
     withr (>= 2.3.0),
     rmarkdown (>= 2.0)
-Remotes:
-    jimhester/lintr#503
 ByteCompile: yes
 Encoding: UTF-8
 LazyData: true
