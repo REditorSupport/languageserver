@@ -35,8 +35,6 @@ void fsm_feed(fsm_state* state, const char c) {
                 return;
             } else {
                 state->raw_parse_state = 0;
-                state->double_quoted = 0;
-                state->single_quoted = 0;
             }
         } else if (state->raw_parse_state == 2) {
             if (c == '(' || c == '[' || c == '{') {
@@ -48,8 +46,6 @@ void fsm_feed(fsm_state* state, const char c) {
                 state->raw_dashes_running++;
             } else {
                 state->raw_parse_state = 0;
-                state->double_quoted = 0;
-                state->single_quoted = 0;
             }
             return;
         }
@@ -104,9 +100,7 @@ void fsm_feed(fsm_state* state, const char c) {
         return;
     }
 
-    if (c == 'R' || c == 'r') {
-        state->raw_parse_state = 1;
-    } else if (c == '\\') {
+    if (c == '\\') {
         state->escaped = 1;
     } else if (state->single_quoted || state->double_quoted || state->backticked) {
         // inside string or backticks
@@ -116,5 +110,7 @@ void fsm_feed(fsm_state* state, const char c) {
         state->single_quoted = 1;
     } else if (c == '"') {
         state->double_quoted = 1;
+    } else if (c == 'R' || c == 'r') {
+        state->raw_parse_state = 1;
     }
 }
