@@ -46,6 +46,8 @@ void fsm_feed(fsm_state* state, const char c) {
                 state->raw_dashes_running++;
             } else {
                 state->raw_parse_state = 0;
+                state->double_quoted = 0;
+                state->single_quoted = 0;
             }
             return;
         }
