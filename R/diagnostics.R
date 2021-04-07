@@ -86,6 +86,10 @@ diagnose_file <- function(uri, content) {
 
     linter_file <- find_config(path)
     linters <- NULL
+
+    # In the upcoming lintr 3.0.0, lint(text=) is supported so that
+    # we could supply both filename and text and the text will be
+    # regarded as the content of the file.
     lint_text_support <- "text" %in% names(formals(lintr::lint))
 
     if (is.null(linter_file)) {
