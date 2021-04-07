@@ -17,6 +17,9 @@ test_that("enclosed_by_quotes works as expected", {
     expect_true(enclosed("R\"-(a)\"hello_world", 9))
     expect_true(enclosed("'\\'hello_world", 4))
     expect_false(enclosed("'a'hello_world", 4))
+    #410
+    expect_true(enclosed("fun('free', )", 8))
+    expect_false(enclosed("fun('free', )", 9))
 })
 
 
