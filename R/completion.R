@@ -456,8 +456,6 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
             )))
     }
 
-    nmax <- getOption("languageserver.max_completions", 100)
-
     t0 <- Sys.time()
     snippet_support <- isTRUE(capabilities$completionItem$snippetSupport) &&
         getOption("languageserver.snippet_support", TRUE)
@@ -470,7 +468,7 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
 
     completions <- list()
 
-    if (length(completions) < nmax && token_result$accessor == "") {
+    if (token_result$accessor == "") {
         call_result <- document$detect_call(point)
         if (nzchar(call_result$token)) {
             completions <- c(
@@ -483,31 +481,20 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
 
     if (nzchar(full_token)) {
         if (is.null(package)) {
-            if (length(completions) < nmax) {
-                completions <- c(completions,
-                    constant_completion(token))
-            }
-
-            if (length(completions) < nmax) {
-                completions <- c(completions,
-                    package_completion(token))
-            }
-
-            if (length(completions) < nmax) {
-                completions <- c(completions,
-                    scope_completion(uri, workspace, token, point, snippet_support))
-            }
+            completions <- c(completions,
+                constant_completion(token),
+                package_completion(token),
+                scope_completion(uri, workspace, token, point, snippet_support)
+            )
         }
 
-        if (length(completions) < nmax) {
-            completions <- c(
-                completions,
-                workspace_completion(
-                    workspace, token, package, token_result$accessor == "::", snippet_support))
-        }
+        completions <- c(
+            completions,
+            workspace_completion(
+                workspace, token, package, token_result$accessor == "::", snippet_support))
     }
 
-    if (length(completions) < nmax && is.null(token_result$package)) {
+    if (is.null(token_result$package)) {
         existing_symbols <- vapply(completions, "[[", character(1), "label")
         completions <- c(
             completions,
@@ -515,23 +502,24 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
         )
     }
 
-    t1 <- Sys.time()
-    count <- length(completions)
+    init_count <- length(completions)
+    nmax <- getOption("languageserver.max_completions", 200)
 
     if (length(completions) >= nmax) {
         isIncomplete <- TRUE
         label_text <- vapply(completions, "[[", character(1), "label")
-        completions <- completions[startsWith(label_text, token)]
-        if (length(completions) >= nmax) {
-            sort_text <- vapply(completions, "[[", character(1), "sortText")
-            completions <- completions[order(sort_text)][seq_len(nmax)]
-        }
+        sort_text <- vapply(completions, "[[", character(1), "sortText")
+        order <- order(!startsWith(label_text, token), sort_text)
+        completions <- completions[order][seq_len(nmax)]
     } else {
         isIncomplete <- FALSE
     }
 
+    t1 <- Sys.time()
+
     logger$info("completions: ", list(
-        count = count,
+        init_count = init_count,
+        final_count = length(completions),
         time = as.numeric(t1 - t0),
         isIncomplete = isIncomplete
     ))
