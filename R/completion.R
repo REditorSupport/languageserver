@@ -504,7 +504,7 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
     init_count <- length(completions)
     nmax <- getOption("languageserver.max_completions", 200)
 
-    if (length(completions) > nmax) {
+    if (init_count > nmax) {
         isIncomplete <- TRUE
         label_text <- vapply(completions, "[[", character(1), "label")
         sort_text <- vapply(completions, "[[", character(1), "sortText")
