@@ -520,8 +520,12 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
 
     if (length(completions) >= nmax) {
         isIncomplete <- TRUE
-        sort_text <- vapply(completions, "[[", character(1), "sortText")
-        completions <- completions[order(sort_text)][seq_len(nmax)]
+        label_text <- vapply(completions, "[[", character(1), "label")
+        completions <- completions[startsWith(label_text, token)]
+        if (length(completions) >= nmax) {
+            sort_text <- vapply(completions, "[[", character(1), "sortText")
+            completions <- completions[order(sort_text)][seq_len(nmax)]
+        }
     } else {
         isIncomplete <- FALSE
     }
