@@ -470,13 +470,12 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
 
     if (nzchar(full_token)) {
         if (is.null(package)) {
-            completions <- c(completions,
+            completions <- c(
+                completions,
                 constant_completion(token),
                 package_completion(token),
-                scope_completion(uri, workspace, token, point, snippet_support)
-            )
+                scope_completion(uri, workspace, token, point, snippet_support))
         }
-
         completions <- c(
             completions,
             workspace_completion(
