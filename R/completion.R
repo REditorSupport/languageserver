@@ -455,6 +455,8 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
                 items = list()
             )))
     }
+
+    t0 <- Sys.time()
     snippet_support <- isTRUE(capabilities$completionItem$snippetSupport) &&
         getOption("languageserver.snippet_support", TRUE)
 
@@ -499,10 +501,24 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
         )
     }
 
+    t1 <- Sys.time()
+    logger$info("completions: ", list(
+        n = length(completions),
+        t = as.numeric(t1 - t0)
+    ))
+
+    if (length(completions) >= 200) {
+        isIncomplete <- TRUE
+        sort_text <- vapply(completions, "[[", character(1), "sortText")
+        completions <- utils::head(completions[order(sort_text)], 200)
+    } else {
+        isIncomplete <- FALSE
+    }
+
     Response$new(
         id,
         result = list(
-            isIncomplete = FALSE,
+            isIncomplete = isIncomplete,
             items = completions
         )
     )
