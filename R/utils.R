@@ -180,7 +180,8 @@ check_scope <- function(uri, document, point) {
     }
 }
 
-match_with <- function(x, pattern) {
+match_with <- function(x, token) {
+    pattern <- gsub(".", "\\.", token, fixed = TRUE)
     grepl(pattern, x, ignore.case = TRUE)
 }
 
