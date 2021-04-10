@@ -689,3 +689,9 @@ format_file_size <- function(bytes) {
     obj_size <- structure(bytes, class = "object_size")
     format(obj_size, units = "auto")
 }
+
+is_text_file <- function(path, n = 1000) {
+    bin <- readBin(path, "raw", n = n)
+    result <- tryCatch(rawToChar(bin), error = function(e) NULL)
+    !is.null(result)
+}

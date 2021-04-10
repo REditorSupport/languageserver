@@ -12,7 +12,7 @@ definition_xpath <- paste(
 #' writes the function definition to a temporary file and returns that
 #' as the location.
 #' @keywords internal
-definition_reply <- function(id, uri, workspace, document, point) {
+definition_reply <- function(id, uri, workspace, document, point, rootPath) {
 
     token_result <- document$detect_token(point)
     resolved <- FALSE
@@ -56,6 +56,29 @@ definition_reply <- function(id, uri, workspace, document, point) {
                         resolved <- TRUE
                     }
                 }
+            } else if (token_name == "STR_CONST") {
+                str_line1 <- as.integer(xml_attr(token, "line1"))
+                str_line2 <- as.integer(xml_attr(token, "line2"))
+                if (str_line1 == str_line2) {
+                    str_col1 <- as.integer(xml_attr(token, "col1"))
+                    str_col2 <- as.integer(xml_attr(token, "col2"))
+                    str_expr <- substr(document$content[str_line1], str_col1, str_col2)
+                    str_text <- tryCatch(as.character(parse(text = str_expr, keep.source = FALSE)),
+                        error = function(e) NULL)
+                    if (is.character(str_text)) {
+                        path <- fs::path_abs(str_text, rootPath)
+                        if (file.exists(path) && !dir.exists(path) && is_text_file(path)) {
+                            result <- list(
+                                uri = path_to_uri(path),
+                                range = range(
+                                    start = position(0, 0),
+                                    end = position(0, 0)
+                                )
+                            )
+                        }
+                    }
+                }
+                resolved <- TRUE
             } else {
                 resolved <- TRUE
             }
