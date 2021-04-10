@@ -103,7 +103,6 @@ path_from_uri <- function(uri) {
     path
 }
 
-
 #' @keywords internal
 #' @rdname path_from_uri
 path_to_uri <- function(path) {
