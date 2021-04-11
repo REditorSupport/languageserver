@@ -275,8 +275,8 @@ test_that("Go to Definition works for file paths", {
 
     writeLines(c("my_fn <- function(x) {", "  x + 1", "}"), defn_file)
     writeLines(c(
-        sprintf("source(\"%s\")", defn_file),
-        sprintf("source(\"%s\")", basename(defn_file))
+        sprintf("source('%s')", defn_file),
+        sprintf("source('%s')", basename(defn_file))
     ), query_file)
 
     client %>% did_save(defn_file)
