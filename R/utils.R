@@ -692,5 +692,15 @@ format_file_size <- function(bytes) {
 
 is_text_file <- function(path, n = 1000) {
     bin <- readBin(path, "raw", n = n)
-    stringi::stri_enc_isutf8(bin)
+    is_utf8 <- stringi::stri_enc_isutf8(bin)
+    if (is_utf8) {
+        return(TRUE)
+    } else {
+        result <- stringi::stri_enc_detect(bin)[[1]]
+        conf <- result$Confidence[1]
+        if (identical(conf, 1)) {
+            return(TRUE)
+        }
+    }
+    return(FALSE)
 }
