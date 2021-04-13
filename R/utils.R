@@ -692,6 +692,5 @@ format_file_size <- function(bytes) {
 
 is_text_file <- function(path, n = 1000) {
     bin <- readBin(path, "raw", n = n)
-    result <- tryCatch(rawToChar(bin), error = function(e) NULL)
-    !is.null(result)
+    stringi::stri_enc_isutf8(bin)
 }
