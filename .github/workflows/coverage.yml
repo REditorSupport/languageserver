@@ -9,7 +9,8 @@ jobs:
       matrix:
         r: [latest]
         # r: [3.5, 3.6, devel]
-    runs-on: macOS-latest
+    runs-on: ubuntu-latest
+    container: rocker/tidyverse:${{ matrix.r }}
     env:
       NOT_CRAN: true
       R_LANGSVR_LOG: /tmp/languageserver/coverage-log
