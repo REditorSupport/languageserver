@@ -272,6 +272,7 @@ test_that("Go to Definition works for file paths", {
     query_file <- withr::local_tempfile(tmpdir = dir, fileext = ".R")
 
     defn_file <- format(fs::path(defn_file))
+    query_file <- format(fs::path(query_file))
 
     writeLines(c("my_fn <- function(x) {", "  x + 1", "}"), defn_file)
     writeLines(c(
