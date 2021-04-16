@@ -6,6 +6,9 @@
 \usage{
 document_link_reply(id, uri, workspace, document, rootPath)
 }
+\arguments{
+\item{rootPath}{Path of workspace folder}
+}
 \description{
 The response to a textDocument/documentLink Request
 }
