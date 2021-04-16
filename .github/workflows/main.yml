@@ -43,7 +43,7 @@ jobs:
       matrix:
         r: [latest]
         # r: [3.5, 3.6, devel]
-    runs-on: macOS-latest
+    runs-on: macos-latest
     env:
       NOT_CRAN: true
       R_LANGSVR_LOG: /tmp/languageserver/macos-log
