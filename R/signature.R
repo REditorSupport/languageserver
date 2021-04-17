@@ -51,6 +51,8 @@ signature_reply <- function(id, uri, workspace, document, point) {
                 if (doc_line1 < func_line1) {
                     comment <- document$content[doc_line1:(func_line1 - 1)]
                     doc <- convert_comment_to_documentation(comment)
+                    doc_string <- NULL
+
                     if (is.character(doc)) {
                         doc_string <- doc
                     } else if (is.list(doc)) {
@@ -60,6 +62,11 @@ signature_reply <- function(id, uri, workspace, document, point) {
                             doc_string <- doc$markdown
                         }
                     }
+
+                    if (is.null(doc_string)) {
+                        doc_string <- ""
+                    }
+
                     documentation <- list(kind = "markdown", value = doc_string)
                 }
 
@@ -77,12 +84,18 @@ signature_reply <- function(id, uri, workspace, document, point) {
             logger$info("sig: ", sig)
             if (!is.null(sig)) {
                 doc <- workspace$get_documentation(result$token, result$package, isf = TRUE)
-                doc_string <- ""
+                doc_string <- NULL
+
                 if (is.character(doc)) {
                     doc_string <- doc
                 } else if (is.list(doc)) {
                     doc_string <- doc$description
                 }
+
+                if (is.null(doc_string)) {
+                    doc_string <- ""
+                }
+
                 documentation <- list(kind = "markdown", value = doc_string)
 
                 SignatureInformation <- list(list(

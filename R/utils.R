@@ -103,7 +103,6 @@ path_from_uri <- function(uri) {
     path
 }
 
-
 #' @keywords internal
 #' @rdname path_from_uri
 path_to_uri <- function(path) {
@@ -180,7 +179,8 @@ check_scope <- function(uri, document, point) {
     }
 }
 
-match_with <- function(x, pattern) {
+match_with <- function(x, token) {
+    pattern <- gsub(".", "\\.", token, fixed = TRUE)
     grepl(pattern, x, ignore.case = TRUE)
 }
 
@@ -687,4 +687,19 @@ html_to_markdown <- function(html) {
 format_file_size <- function(bytes) {
     obj_size <- structure(bytes, class = "object_size")
     format(obj_size, units = "auto")
+}
+
+is_text_file <- function(path, n = 1000) {
+    bin <- readBin(path, "raw", n = n)
+    is_utf8 <- stringi::stri_enc_isutf8(bin)
+    if (is_utf8) {
+        return(TRUE)
+    } else {
+        result <- stringi::stri_enc_detect(bin)[[1]]
+        conf <- result$Confidence[1]
+        if (identical(conf, 1)) {
+            return(TRUE)
+        }
+    }
+    return(FALSE)
 }
