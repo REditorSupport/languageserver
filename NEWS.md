@@ -1,6 +1,24 @@
 # languageserver 0.3.10
 
 - Recongize promise and active binding symbols (#362)
+- symbols now recongize delayedAssign and makeActiveBinding 
+- Implement selectionRangeProvider
+- Add hover to function symbol formals
+- Use empty string instead of NULL as default signature doc
+- Preserve argument order in argument completion
+- Scope and document token completion
+- Add prepare_call_hierarchy_reply 
+- Improve hover for function docs
+- Check pandoc version in html_to_markdown
+- Check type in get_document_symbol_kind (Closes #390)
+- Support options in arg completion
+- Make headers in help hover look prettier (#392)
+- Full testthat v3 compatibility
+- Limit link file size
+- Provide case-insensitive completion
+- support R 4.0 raw string search
+- Use styler base_indention
+- Return partial completions if there are too many
 
 # languageserver 0.3.9
 
