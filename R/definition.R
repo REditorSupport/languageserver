@@ -85,7 +85,7 @@ definition_reply <- function(id, uri, workspace, document, point, rootPath) {
         }
     }
 
-    if (!resolved) {
+    if (!resolved && check_scope(uri, document, point)) {
         result <- workspace$get_definition(token_result$token, token_result$package,
             exported_only = token_result$accessor != ":::")
     }
