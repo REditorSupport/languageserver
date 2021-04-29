@@ -84,28 +84,15 @@ diagnose_file <- function(uri, content) {
         content <- c(content, "")
     }
 
-    linter_file <- find_config(path)
     linters <- NULL
 
-    # In the upcoming lintr 3.0.0, lint(text=) is supported so that
-    # we could supply both filename and text and the text will be
-    # regarded as the content of the file.
-    lint_text_support <- "text" %in% names(formals(lintr::lint))
-
+    linter_file <- find_config(path)
     if (is.null(linter_file)) {
         linters <- getOption("languageserver.default_linters", NULL)
-    } else if (!lint_text_support) {
-        op <- options(lintr.linter_file = linter_file)
-        on.exit(options(op))
     }
 
     lint_cache <- getOption("languageserver.lint_cache", TRUE)
-    lints <- if (lint_text_support) {
-        lintr::lint(path, linters = linters, cache = lint_cache, text = content)
-    } else {
-        text <- paste0(content, collapse = "\n")
-        lintr::lint(text, linters = linters, cache = lint_cache)
-    }
+    lints <- lintr::lint(path, linters = linters, cache = lint_cache, text = content)
 
     diagnostics <- lapply(lints, diagnostic_from_lint, content = content)
     names(diagnostics) <- NULL
