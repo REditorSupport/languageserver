@@ -79,26 +79,25 @@ diagnose_file <- function(uri, content) {
     }
 
     path <- path_from_uri(uri)
-    linter_file <- find_config(path)
-    if (is.null(linter_file)) {
-        linters <- getOption("languageserver.default_linters", NULL)
-    } else {
-        linters <- NULL
-        op <- options(lintr.linter_file = linter_file)
-        on.exit(options(op))
-    }
 
     if (length(content) == 1) {
         content <- c(content, "")
     }
 
-    text <- paste0(content, collapse = "\n")
-    diagnostics <- lapply(
-        lintr::lint(text, linters = linters), diagnostic_from_lint, content = content)
+    linters <- NULL
+
+    linter_file <- find_config(path)
+    if (is.null(linter_file)) {
+        linters <- getOption("languageserver.default_linters", NULL)
+    }
+
+    lint_cache <- getOption("languageserver.lint_cache", TRUE)
+    lints <- lintr::lint(path, linters = linters, cache = lint_cache, text = content)
+
+    diagnostics <- lapply(lints, diagnostic_from_lint, content = content)
     names(diagnostics) <- NULL
     diagnostics
 }
-
 
 diagnostics_callback <- function(self, uri, version, diagnostics) {
     if (is.null(diagnostics) || !self$workspace$documents$has(uri)) return(NULL)
