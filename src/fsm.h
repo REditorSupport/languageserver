@@ -6,6 +6,11 @@ typedef struct {
     int double_quoted;
     int backticked;
     int escaped;
+    int raw_parse_state;  // 1: R/r; 2: "/'; 3: (
+    int raw_dashes;       // number of dashes in raw string
+    int raw_dashes_running;  // used to store number of dashes temporarily while parsing
+    char raw_string_token;
+    int raw_string;
 } fsm_state;
 
 

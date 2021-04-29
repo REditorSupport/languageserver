@@ -1,6 +1,46 @@
 # languageserver 0.3.10
 
-- Recongize promise and active binding symbols (#362)
+**Closed issues:**                                                   
+- definitionProvider should work with file path (#415)               
+- Null value in documentation does not trigger signature (#417)      
+- Improve completion performance (#412)                              
+- Completion not working before close parenthesis (#410)             
+- Use `styler::style_text(base_indention=)` for `styler > 1.4.0` (#400)                                                                   
+- Segfault on incorrect coordinates (#395)
+- Case-insensitive and fuzzy match in completion (#401)
+- Non-interactive setup of persistent {R.cache} cache for {styler} (#402)
+- Document link should work with limited file extensions or file size (#391)
+- get_document_symbol_kind error (#390)
+- Support Call Hierarchy (#361)
+- [FR] Display promise / active-binding objects in the OUTLINE (#362)
+
+**Merged pull requests:**
+- Definition provider works with file path (#416)
+- Fix null doc_string in signature (#418)
+- Faster completion (#413)
+- fix raw string detection (#411)
+- Use styler base_indention (#404)
+- support R 4.0 raw string search (#276)
+- fix a segfault issue (#407)
+- Remove symbols starting with `._` from namespace (#406)
+- Provide case-insensitive completion (#405)
+- Update README.md (#403)
+- fix missing whitespace (#399)
+- Limit link file size (#393)
+- Full testthat v3 compatibility (#394)
+- Make headers in help hover look prettier (#392)
+- Options completion (#389)
+- Improve hover for function docs (#387)
+- Implement Call Hierarchy provider (#373)
+- Remove '(' from completion trigger chars (#374)
+- Improve token completion (#372)
+- Preserve argument order in argument completion (#370)
+- Add '(' to completion trigger characters (#369)
+- Use empty string instead of NULL as default signature doc (#371)
+- Add hover to function symbol formals (#367)
+- Implement selectionRangeProvider (#366)
+- Recognize symbols created by delayedAssign / assign / makeActiveBinding (#364)
+- use expect_setequal() may fit better (#363)
 
 # languageserver 0.3.9
 

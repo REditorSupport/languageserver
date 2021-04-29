@@ -261,3 +261,31 @@ test_that("Go to Definition in Rmarkdown works", {
 
     expect_equal(length(result), 0)
 })
+
+test_that("Go to Definition works for file paths", {
+    skip_on_cran()
+
+    dir <- tempdir()
+    client <- language_client(dir)
+
+    defn_file <- withr::local_tempfile(tmpdir = dir, fileext = ".R")
+    query_file <- withr::local_tempfile(tmpdir = dir, fileext = ".R")
+
+    defn_file <- format(fs::path(defn_file))
+    query_file <- format(fs::path(query_file))
+
+    writeLines(c("my_fn <- function(x) {", "  x + 1", "}"), defn_file)
+    writeLines(c(
+        sprintf("source('%s')", defn_file),
+        sprintf("source('%s')", basename(defn_file))
+    ), query_file)
+
+    client %>% did_save(defn_file)
+    client %>% did_save(query_file)
+
+    result <- client %>% respond_definition(query_file, c(0, 9))
+    expect_equal(result$uri, path_to_uri(defn_file))
+
+    result <- client %>% respond_definition(query_file, c(1, 9))
+    expect_equal(result$uri, path_to_uri(defn_file))
+})
