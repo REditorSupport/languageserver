@@ -5,10 +5,20 @@
 #' @keywords internal
 on_initialize <- function(self, id, params) {
     logger$info("session: ", list(
+        system = as.list(Sys.info()),
         pid = Sys.getpid(),
         wd = getwd(),
         args = commandArgs(),
-        env = as.list(Sys.getenv())
+        ver = unclass(R.version),
+        locale = Sys.getlocale(),
+        env = as.list(Sys.getenv()),
+        namespaces = local({
+            nss <- loadedNamespaces()
+            vs <- lapply(nss, function(ns) format(packageVersion(ns)))
+            names(vs) <- nss
+            vs
+        }),
+        search = search()
     ))
     logger$info("initialization config: ", params)
     self$processId <- params$processId
