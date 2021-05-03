@@ -53,13 +53,14 @@ Logger <- R6::R6Class("Logger",
         file = stderr()
     ),
     public = list(
-        debug_mode = function(debug) {
-            if (isTRUE(debug) || is.character(debug)) {
-                private$debug <- TRUE
-                if (is.character(debug)) {
-                    private$file <- debug
-                }
+        enable_debug = function(file = NULL) {
+            private$debug <- TRUE
+            if (!is.null(file)) {
+                private$file <- file
             }
+        },
+        disable_debug = function() {
+            private$debug <- FALSE
         },
         error = function(...) {
             log_write(..., file = private$file)

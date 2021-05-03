@@ -18,8 +18,12 @@ workspace_did_change_configuration <- function(self, params) {
     settings <- if (is.null(vscode_setting)) settings else vscode_setting
 
     logger$info("settings ", settings)
-    logger$debug_mode(settings$debug)
-    logger$info(settings)
+
+    debug <- settings$debug
+    if (isTRUE(debug) || is.character(debug)) {
+        log_file <- if (is.character(debug)) debug else NULL
+        logger$enable_debug(file = log_file)
+    }
 
     if (!is.null(settings$diagnostics) && !isTRUE(settings$diagnostics)) {
         logger$info("disable diagnostics")
