@@ -4,6 +4,11 @@
 #'
 #' @keywords internal
 on_initialize <- function(self, id, params) {
+    trace <- params$trace
+    if (!is.null(trace) && trace %in% c("messages", "verbose")) {
+        logger$enable_debug()
+    }
+
     logger$info("session: ", list(
         system = as.list(Sys.info()),
         pid = Sys.getpid(),
