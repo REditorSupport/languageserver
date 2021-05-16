@@ -1,5 +1,3 @@
-context("Test Selection Range")
-
 test_that("Selection range works with single position", {
   skip_on_cran()
   client <- language_client()

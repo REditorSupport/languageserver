@@ -1,5 +1,3 @@
-context("Test languagecilent")
-
 test_that("read_line and read_char works", {
     cilent <- LanguageClient$new()
     stub(cilent$read_char, "self$read_output", mock("hello", "abc", "def", "pqr\nxyz\n"))

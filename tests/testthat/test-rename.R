@@ -1,5 +1,3 @@
-context("Test Rename")
-
 test_that("Rename works for functions in files", {
     skip_on_cran()
     client <- language_client()

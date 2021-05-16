@@ -1,5 +1,3 @@
-context("Test Symbol")
-
 test_that("Document Symbol works", {
     skip_on_cran()
     client <- language_client()

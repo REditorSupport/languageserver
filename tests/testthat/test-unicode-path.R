@@ -1,5 +1,3 @@
-context("Test Unicode path")
-
 test_that("Works with unicode path", {
     skip_on_cran()
     if (.Platform$OS.type == "windows") {

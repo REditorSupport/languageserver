@@ -1,5 +1,3 @@
-context("Test call hierarchy")
-
 test_that("Call hierarchy works in single file", {
     skip_on_cran()
     client <- language_client()
@@ -196,7 +194,6 @@ test_that("Call hierarchy outgoing calls works", {
     expect_length(result, 2)
 
     result1 <- result %>% keep(~ .$to$name == "foo")
-    print(result1)
 
     expect_equal(result1[[1]]$to$name, "foo")
     expect_equal(result1[[1]]$to$kind, SymbolKind$Function)

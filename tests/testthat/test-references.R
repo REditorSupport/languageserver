@@ -1,5 +1,3 @@
-context("Test References")
-
 test_that("Find References works for functions in files", {
     skip_on_cran()
     client <- language_client()

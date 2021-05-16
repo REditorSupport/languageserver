@@ -14,41 +14,15 @@ get_style <- function(options) {
 #' specified style.
 #'
 #' @keywords internal
-style_text <- function(text, style, indentation = 0L) {
-    if (indentation == 0L) {
-        new_text <- tryCatch(
-            styler::style_text(
-                text,
-                transformers = style
-            ),
-            error = function(e) e
-        )
-    } else {
-        if (length(style$indention)) {
-            style$indention$apply_initial_indention <- function(pd_nested) {
-                if (2L %in% pd_nested$pos_id) {
-                    braces <- pd_nested$token %in% c("{", "}")
-                    pd_nested[!braces, "indent"] <- indentation
-                }
-                pd_nested
-            }
-            new_text <- tryCatch({
-                out <- styler::style_text(
-                    c("{", text, "}"),
-                    transformers = style
-                )
-                out <- out[-c(1, length(out))]
-            }, error = function(e) e)
-        } else {
-            new_text <- tryCatch({
-                out <- styler::style_text(
-                    text,
-                    transformers = style
-                )
-                paste0(strrep(" ", indentation), out)
-            }, error = function(e) e)
-        }
-    }
+style_text <- function(text, style, indention = 0L) {
+    new_text <- tryCatch(
+        styler::style_text(
+            text,
+            transformers = style,
+            base_indention = indention
+        ),
+        error = function(e) e
+    )
     if (inherits(new_text, "error")) {
         logger$info("formatting error:", new_text$message)
         return(NULL)
@@ -133,8 +107,8 @@ range_formatting_reply <- function(id, uri, document, range, options) {
     }
 
     selection <- document$content[(row1:row2) + 1]
-    indentation <- nchar(stringi::stri_extract_first_regex(selection[1], "^\\s*"))
-    new_text <- style_text(selection, style, indentation = indentation)
+    indention <- nchar(stringi::stri_extract_first_regex(selection[1], "^\\s*"))
+    new_text <- style_text(selection, style, indention = indention)
     if (is.null(new_text)) {
         return(Response$new(id, list()))
     }
@@ -222,9 +196,9 @@ on_type_formatting_reply <- function(id, uri, document, point, ch, options) {
         # disable assignment operator fix since end_line could be function parameter
         style$token$force_assignment_op <- NULL
 
-        indentation <- nchar(stringi::stri_extract_first_regex(content[start_line], "^\\s*"))
+        indention <- nchar(stringi::stri_extract_first_regex(content[start_line], "^\\s*"))
         new_text <- tryCatchTimeout(
-            style_text(content[start_line:end_line], style, indentation = indentation),
+            style_text(content[start_line:end_line], style, indention = indention),
             timeout = 1,
             error = function(e) logger$info("on_type_formatting_reply:styler:", e)
         )

@@ -55,7 +55,8 @@ text_document_definition  <- function(self, id, params) {
     uri <- uri_escape_unicode(textDocument$uri)
     document <- self$workspace$documents$get(uri)
     point <- document$from_lsp_position(params$position)
-    self$deliver(definition_reply(id, uri, self$workspace, document, point))
+    rootPath <- if (length(self$rootPath)) self$rootPath else dirname(path_from_uri(uri))
+    self$deliver(definition_reply(id, uri, self$workspace, document, point, rootPath))
 }
 
 #' `textDocument/typeDefinition` request handler
@@ -182,7 +183,20 @@ text_document_document_link  <- function(self, id, params) {
 #' Handler to the `documentLink/resolve` [Request].
 #' @keywords internal
 document_link_resolve  <- function(self, id, params) {
+    reply <- document_link_resolve_reply(id, self$workspace, params)
+    self$deliver(reply)
 
+    if (!is.null(reply$error)) {
+        self$deliver(
+            Notification$new(
+                method = "window/showMessage",
+                params = list(
+                    type = MessageType$Error,
+                    message = reply$error$message
+                )
+            )
+        )
+    }
 }
 
 #' `textDocument/documentColor` request handler

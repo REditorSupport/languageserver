@@ -1,5 +1,3 @@
-context("Test Highlight")
-
 test_that("Document highlight works", {
     skip_on_cran()
     client <- language_client()

@@ -35,7 +35,7 @@ DocumentOnTypeFormattingOptions <- list(
 )
 
 DocumentLinkOptions <- list(
-    resolveProvider = FALSE
+    resolveProvider = TRUE
 )
 
 RenameOptions <- list(

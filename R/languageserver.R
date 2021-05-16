@@ -206,6 +206,7 @@ LanguageServer$set("public", "register_handlers", function() {
         `textDocument/documentSymbol` = text_document_document_symbol,
         `textDocument/documentHighlight` = text_document_document_highlight,
         `textDocument/documentLink` = text_document_document_link,
+        `documentLink/resolve` = document_link_resolve,
         `textDocument/documentColor` = text_document_document_color,
         `textDocument/codeAction` = text_document_code_action,
         `textDocument/colorPresentation` = text_document_color_presentation,
@@ -228,7 +229,8 @@ LanguageServer$set("public", "register_handlers", function() {
         `textDocument/didChange` = text_document_did_change,
         `textDocument/didSave` = text_document_did_save,
         `textDocument/didClose` = text_document_did_close,
-        `workspace/didChangeConfiguration` = workspace_did_change_configuration
+        `workspace/didChangeConfiguration` = workspace_did_change_configuration,
+        `$/setTrace` = protocol_set_trace
     )
 })
 
@@ -250,7 +252,10 @@ LanguageServer$set("public", "register_handlers", function() {
 run <- function(debug = FALSE, host = "localhost", port = NULL) {
     tools::Rd2txt_options(underline_titles = FALSE)
     tools::Rd2txt_options(itemBullet = "* ")
-    logger$debug_mode(debug)
+    if (isTRUE(debug) || is.character(debug)) {
+        log_file <- if (is.character(debug)) debug else NULL
+        logger$enable_debug(file = log_file)
+    }
     langserver <- LanguageServer$new(host, port)
     langserver$run()
 }
