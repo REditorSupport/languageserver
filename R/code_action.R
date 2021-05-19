@@ -20,7 +20,6 @@ document_code_action_reply <- function(id, uri, workspace, document, range, cont
             start = document$from_lsp_position(item$range$start),
             end = document$from_lsp_position(item$range$end)
         )
-        logger$info(item_range)
 
         if (item_range$start$row == item_range$end$row &&
             item_range$start$col < item_range$end$col) {
