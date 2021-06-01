@@ -1,5 +1,5 @@
 hover_xpath <- paste(
-    "FUNCTION[following-sibling::SYMBOL_FORMALS[text() = '{token_quote}' and @line1 <= {row}]]/parent::expr",
+    "*[self::FUNCTION or self::OP-LAMBDA][following-sibling::SYMBOL_FORMALS[text() = '{token_quote}' and @line1 <= {row}]]/parent::expr",
     "*[LEFT_ASSIGN/preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}] and LEFT_ASSIGN/following-sibling::expr[@start > {start} or @end < {end}]]",
     "*[RIGHT_ASSIGN/following-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}] and RIGHT_ASSIGN/preceding-sibling::expr[@start > {start} or @end < {end}]]",
     "*[EQ_ASSIGN/preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}] and EQ_ASSIGN/following-sibling::expr[@start > {start} or @end < {end}]]",
@@ -50,7 +50,7 @@ hover_reply <- function(id, uri, workspace, document, point) {
                     if (length(all_defs)) {
                         last_def <- all_defs[[length(all_defs)]]
                         def_func <- xml_find_first(last_def,
-                            "self::expr[LEFT_ASSIGN | RIGHT_ASSIGN | EQ_ASSIGN]/expr[FUNCTION]")
+                            "self::expr[LEFT_ASSIGN | RIGHT_ASSIGN | EQ_ASSIGN]/expr[FUNCTION | OP-LAMBDA]")
                         if (length(def_func)) {
                             func_line1 <- as.integer(xml_attr(def_func, "line1"))
                             func_col1 <- as.integer(xml_attr(def_func, "col1"))
@@ -166,7 +166,7 @@ hover_reply <- function(id, uri, workspace, document, point) {
                 }
             } else if (token_name == "SYMBOL_FORMALS") {
                 # function formals
-                funct <- xml_find_first(token, "preceding-sibling::FUNCTION/parent::expr")
+                funct <- xml_find_first(token, "preceding-sibling::*[self::FUNCTION or self::OP-LAMBDA]/parent::expr")
                 func_line1 <- as.integer(xml_attr(funct, "line1"))
                 doc_line1 <- detect_comments(document$content, func_line1 - 1) + 1
 
