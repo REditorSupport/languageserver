@@ -19,7 +19,7 @@ on_initialize <- function(self, id, params) {
         env = as.list(Sys.getenv()),
         namespaces = local({
             nss <- loadedNamespaces()
-            vs <- lapply(nss, function(ns) format(packageVersion(ns)))
+            vs <- lapply(nss, function(ns) format(utils::packageVersion(ns)))
             names(vs) <- nss
             vs
         }),
