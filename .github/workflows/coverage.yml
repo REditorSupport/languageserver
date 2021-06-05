@@ -36,6 +36,7 @@ jobs:
       _R_CHECK_CRAN_INCOMING_: false
       R_LANGSVR_LOG: ${{ matrix.log_file }}
       R_LANGSVR_POOL_SIZE: 1
+      R_LANGSVR_TEST_FAST: NO
     steps:
       - uses: actions/checkout@v1
       - uses: r-lib/actions/setup-r@v1
