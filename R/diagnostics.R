@@ -91,7 +91,7 @@ diagnose_file <- function(uri, content) {
         linters <- getOption("languageserver.default_linters", NULL)
     }
 
-    lint_cache <- getOption("languageserver.lint_cache", FALSE)
+    lint_cache <- getOption("languageserver.lint_cache", TRUE)
     lints <- lintr::lint(path, linters = linters, cache = lint_cache, text = content)
 
     diagnostics <- lapply(lints, diagnostic_from_lint, content = content)
