@@ -1,4 +1,4 @@
-name: main
+name: R-CMD-check
 
 on:
   push:
@@ -71,7 +71,7 @@ jobs:
           Rscript -e "remotes::install_deps(dependencies = TRUE)"
           Rscript -e "remotes::install_cran('rcmdcheck')"
       - name: Install a sperate copy on Windows
-        if:  runner.os == 'Windows'
+        if: runner.os == 'Windows'
         run: |
           Rscript -e "remotes::install_local()"
       - name: Running Tests
