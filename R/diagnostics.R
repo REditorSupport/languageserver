@@ -11,7 +11,7 @@ NULL
 lintr_is_new_enough <- function() {
     return(
         utils::packageVersion("lintr") >= "2.0.1.9000" &&
-            "text" %in% methods::formalArgs(lintr::lint)
+            "text" %in% names(formals(lintr::lint))
     )
 }
 
