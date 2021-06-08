@@ -458,7 +458,7 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
 
     t0 <- Sys.time()
     snippet_support <- isTRUE(capabilities$completionItem$snippetSupport) &&
-        getOption("languageserver.snippet_support", TRUE)
+        lsp_settings$get("snippet_support")
 
     token_result <- document$detect_token(point, forward = FALSE)
 
@@ -502,7 +502,7 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
     }
 
     init_count <- length(completions)
-    nmax <- getOption("languageserver.max_completions", 200)
+    nmax <- lsp_settings$get("max_completions")
 
     if (init_count > nmax) {
         isIncomplete <- TRUE

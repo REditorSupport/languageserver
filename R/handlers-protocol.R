@@ -1,8 +1,8 @@
 protocol_set_trace <- function(self, id, params) {
     value <- params$value
     if (value == "off") {
-        logger$disable_debug()
+        lsp_settings$set("debug", FALSE)
     } else {
-        logger$enable_debug()
+        lsp_settings$set("debug", TRUE)
     }
 }

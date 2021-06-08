@@ -95,7 +95,7 @@ diagnose_file <- function(uri, content) {
         content <- c(content, "")
     }
 
-    lint_cache <- getOption("languageserver.lint_cache", TRUE)
+    lint_cache <- lsp_settings$get("lint_cache")
     if (lintr_is_new_enough()) {
         lints <- lintr::lint(path, cache = lint_cache, text = content)
     } else {

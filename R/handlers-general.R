@@ -6,7 +6,7 @@
 on_initialize <- function(self, id, params) {
     trace <- params$trace
     if (!is.null(trace) && trace %in% c("messages", "verbose")) {
-        logger$enable_debug()
+        lsp_settings$set("debug", TRUE)
     }
 
     logger$info("session: ", list(
@@ -36,7 +36,7 @@ on_initialize <- function(self, id, params) {
         ServerCapabilities, self$ClientCapabilities)
     server_capabilities <- merge_list(
         server_capabilities,
-        getOption("languageserver.server_capabilities"))
+        lsp_settings$get("server_capabilities"))
     self$ServerCapabilities <- server_capabilities
     self$deliver(Response$new(id = id, result = list(capabilities = server_capabilities)))
 }

@@ -19,16 +19,7 @@ workspace_did_change_configuration <- function(self, params) {
 
     logger$info("settings ", settings)
 
-    debug <- settings$debug
-    if (isTRUE(debug) || is.character(debug)) {
-        log_file <- if (is.character(debug)) debug else NULL
-        logger$enable_debug(file = log_file)
-    }
-
-    if (!is.null(settings$diagnostics) && !isTRUE(settings$diagnostics)) {
-        logger$info("disable diagnostics")
-        self$run_lintr <- FALSE
-    }
+    lsp_settings$update_from_workspace(settings)
 }
 
 #' `workspace/didChangeWatchedFiles` notification handler
