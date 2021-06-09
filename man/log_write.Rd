@@ -4,7 +4,7 @@
 \alias{log_write}
 \title{Write to log}
 \usage{
-log_write(..., file = stderr())
+log_write(..., log_file = NULL)
 }
 \arguments{
 \item{...}{anything}
