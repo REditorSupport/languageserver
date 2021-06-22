@@ -7,7 +7,7 @@ Settings <- R6::R6Class("Settings",
             rich_documentation = TRUE,
             snippet_support = TRUE,
             max_completions = 200,
-            lint_cache = TRUE,
+            lint_cache = FALSE,
             server_capabilities = list(),
             link_file_size_limit = 16L * 1024L^2
         )
