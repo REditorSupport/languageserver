@@ -8,7 +8,7 @@
 #' The language server
 #'
 #' Describe the language server and how it interacts with clients.
-#' @keywords internal
+#' @noRd
 LanguageServer <- R6::R6Class("LanguageServer",
     inherit = LanguageBase,
     public = list(

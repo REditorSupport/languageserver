@@ -1,7 +1,7 @@
 #' `workspace/didChangeWorkspaceFolders` notification handler
 #'
 #' Handler to the `workspace/didChangeWorkspaceFolders` [Notification].
-#' @keywords internal
+#' @noRd
 workspace_did_change_workspace_folder_params <- function(self, params) {
 
 }
@@ -9,7 +9,7 @@ workspace_did_change_workspace_folder_params <- function(self, params) {
 #' `workspace/didChangeConfiguration` notification handler
 #'
 #' Handler to the `workspace/didChangeConfiguration` [Notification]
-#' @keywords internal
+#' @noRd
 workspace_did_change_configuration <- function(self, params) {
     settings <- params$settings
 
@@ -25,7 +25,7 @@ workspace_did_change_configuration <- function(self, params) {
 #' `workspace/didChangeWatchedFiles` notification handler
 #'
 #' Handler to the `workspace/didChangeWatchedFiles` [Notification].
-#' @keywords internal
+#' @noRd
 workspace_did_change_watched_files <- function(self, params) {
 
 }
@@ -33,7 +33,7 @@ workspace_did_change_watched_files <- function(self, params) {
 #' `workspace/symbol` request handler
 #'
 #' Handler to the `workspace/symbol` [Request].
-#' @keywords internal
+#' @noRd
 workspace_symbol <- function(self, id, params) {
     self$deliver(workspace_symbol_reply(
             id, self$workspace, params$query))
@@ -42,7 +42,7 @@ workspace_symbol <- function(self, id, params) {
 #' `workspace/executeCommand` request handler
 #'
 #' Handler to the `workspace/executeCommand` [Request].
-#' @keywords internal
+#' @noRd
 workspace_execute_command <- function(self, id, params) {
 
 }

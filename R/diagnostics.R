@@ -24,7 +24,7 @@ DiagnosticSeverity <- list(
 )
 
 #' @rdname diagnostics
-#' @keywords internal
+#' @noRd
 diagnostic_range <- function(result, content) {
     line <- result$line_number - 1
     column <- result$column_number - 1
@@ -45,7 +45,7 @@ diagnostic_range <- function(result, content) {
 }
 
 #' @rdname diagnostics
-#' @keywords internal
+#' @noRd
 diagnostic_severity <- function(result) {
     switch(result$type,
         error = DiagnosticSeverity$Error,
@@ -55,7 +55,7 @@ diagnostic_severity <- function(result) {
 }
 
 #' @rdname diagnostics
-#' @keywords internal
+#' @noRd
 diagnostic_from_lint <- function(result, content) {
     list(
         range = diagnostic_range(result, content),
@@ -66,7 +66,7 @@ diagnostic_from_lint <- function(result, content) {
 }
 
 #' Find the lintr config file
-#' @keywords internal
+#' @noRd
 find_config <- function(filename) {
     # instead of calling `lintr:::find_config` directly
     # since CRAN doesn't like :::.
@@ -76,7 +76,7 @@ find_config <- function(filename) {
 #' Run diagnostic on a file
 #'
 #' Lint and diagnose problems in a file.
-#' @keywords internal
+#' @noRd
 diagnose_file <- function(uri, content, cache = FALSE) {
     if (length(content) == 0) {
         return(list())

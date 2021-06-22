@@ -13,7 +13,7 @@ get_style <- function(options) {
 #' This functions formats a list of text using [styler::style_text()] with the
 #' specified style.
 #'
-#' @keywords internal
+#' @noRd
 style_text <- function(text, style, indention = 0L) {
     new_text <- tryCatch(
         styler::style_text(
@@ -32,7 +32,7 @@ style_text <- function(text, style, indention = 0L) {
 
 
 #' Format a document
-#' @keywords internal
+#' @noRd
 formatting_reply <- function(id, uri, document, options) {
     style <- get_style(options)
     nline <- document$nline
@@ -79,7 +79,7 @@ formatting_reply <- function(id, uri, document, options) {
 
 
 #' Format a part of a document
-#' @keywords internal
+#' @noRd
 range_formatting_reply <- function(id, uri, document, range, options) {
     row1 <- range$start$row
     col1 <- range$start$col
@@ -122,7 +122,7 @@ range_formatting_reply <- function(id, uri, document, range, options) {
 }
 
 #' Format on type
-#' @keywords internal
+#' @noRd
 on_type_formatting_reply <- function(id, uri, document, point, ch, options) {
     content <- document$content
     end_line <- point$row + 1

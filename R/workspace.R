@@ -5,7 +5,7 @@ startup_packages <- c("base", "methods", "datasets", "utils", "grDevices", "grap
 #' A `Workspace` is initialized at the start of a session, when the language
 #' server is started. Its goal is to contain the `Namespace`s of the packages
 #' that are loaded during the session for quick reference.
-#' @keywords internal
+#' @noRd
 Workspace <- R6::R6Class("Workspace",
     public = list(
         root = NULL,

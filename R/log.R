@@ -2,7 +2,7 @@
 #'
 #' @param ... anything
 #'
-#' @keywords internal
+#' @noRd
 to_string <- function(...) {
     dots <- list(...)
     if (length(dots) > 0) {
@@ -34,7 +34,7 @@ to_string <- function(...) {
 #'
 #' @param ... anything
 #'
-#' @keywords internal
+#' @noRd
 log_write <- function(..., log_file = NULL) {
     if (is.null(log_file)) {
         log_file <- stderr()
@@ -47,7 +47,7 @@ log_write <- function(..., log_file = NULL) {
 
 #' A basic logger class
 #'
-#' @keywords internal
+#' @noRd
 Logger <- R6::R6Class("Logger",
     public = list(
         error = function(...) {

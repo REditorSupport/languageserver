@@ -2,7 +2,7 @@
 #'
 #' Handler to the `initialize` [Request].
 #'
-#' @keywords internal
+#' @noRd
 on_initialize <- function(self, id, params) {
     trace <- params$trace
     if (!is.null(trace) && trace %in% c("messages", "verbose")) {
@@ -45,7 +45,7 @@ on_initialize <- function(self, id, params) {
 #'
 #' Handler to the `initialized` [Notification].
 #'
-#' @keywords internal
+#' @noRd
 on_initialized <- function(self, params) {
     logger$info("on_initialized")
     project_root <- self$rootPath
@@ -60,7 +60,7 @@ on_initialized <- function(self, params) {
 #' `shutdown` request handler
 #'
 #' Handler to the `shutdown` [Request].
-#' @keywords internal
+#' @noRd
 on_shutdown <- function(self, id, params) {
     self$exit_flag <- TRUE
     self$deliver(Response$new(id = id, result = list()))
@@ -70,7 +70,7 @@ on_shutdown <- function(self, id, params) {
 #' `exit` notification handler
 #'
 #' Handler to the `exit` [Notification].
-#' @keywords internal
+#' @noRd
 on_exit <- function(self, params) {
     self$exit_flag <- TRUE
 }
@@ -78,7 +78,7 @@ on_exit <- function(self, params) {
 #' `cancel` request notification handler
 #'
 #' Handler to the `cancelRequest` [Notification].
-#' @keywords internal
+#' @noRd
 cancel_request <- function(self, params) {
 
 }

@@ -1,6 +1,6 @@
 #' The response to a textDocument/documentLink Request
 #' @param rootPath Path of workspace folder
-#' @keywords internal
+#' @noRd
 document_link_reply <- function(id, uri, workspace, document, rootPath) {
     result <- NULL
 

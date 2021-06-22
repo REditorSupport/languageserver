@@ -2,18 +2,7 @@
 % Please edit documentation in R/diagnostics.R
 \name{diagnostics}
 \alias{diagnostics}
-\alias{diagnostic_range}
-\alias{diagnostic_severity}
-\alias{diagnostic_from_lint}
 \title{diagnostics}
-\usage{
-diagnostic_range(result, content)
-
-diagnostic_severity(result)
-
-diagnostic_from_lint(result, content)
-}
 \description{
 Diagnose problems in files after linting.
 }
-\keyword{internal}

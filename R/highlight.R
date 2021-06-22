@@ -8,7 +8,7 @@ document_highlight_xpath <- "//*[(self::SYMBOL or self::SYMBOL_FUNCTION_CALL or 
 
 #' The response to a textDocument/documentHighlight Request
 #'
-#' @keywords internal
+#' @noRd
 document_highlight_reply <- function(id, uri, workspace, document, point) {
     result <- NULL
     xdoc <- workspace$get_parse_data(uri)$xml_doc
