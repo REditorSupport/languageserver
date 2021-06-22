@@ -15,7 +15,7 @@ LanguageClient <- R6::R6Class("LanguageClient",
         initialize = function(cmd = NULL, args = NULL) {
             if (!is.null(cmd)) {
                 self$process <- processx::process$new(cmd, args,
-                    stdin = "|", stdout = "|", supervise = TRUE)
+                    stdin = "|", stdout = "|")
             }
             self$diagnostics <- collections::dict()
             super$initialize()

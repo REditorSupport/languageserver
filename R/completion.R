@@ -48,7 +48,7 @@ constants <- c("TRUE", "FALSE", "NULL",
     "Inf", "NaN")
 
 #' Complete language constants
-#' @keywords internal
+#' @noRd
 constant_completion <- function(token) {
     consts <- constants[match_with(constants, token)]
     completions <- lapply(consts, function(const) {
@@ -61,7 +61,7 @@ constant_completion <- function(token) {
 }
 
 #' Complete a package name
-#' @keywords internal
+#' @noRd
 package_completion <- function(token) {
     installed_packages <- .packages(all.available = TRUE)
     token_packages <- installed_packages[match_with(installed_packages, token)]
@@ -76,7 +76,7 @@ package_completion <- function(token) {
 }
 
 #' Complete a function argument
-#' @keywords internal
+#' @noRd
 arg_completion <- function(uri, workspace, point, token, funct, package = NULL, exported_only = TRUE) {
     token_args <- NULL
     token_data <- NULL
@@ -222,7 +222,7 @@ imported_object_completion <- function(workspace, token, snippet_support) {
 
 
 #' Complete any object in the workspace
-#' @keywords internal
+#' @noRd
 workspace_completion <- function(workspace, token,
     package = NULL, exported_only = TRUE, snippet_support = NULL) {
     completions <- list()
@@ -445,7 +445,7 @@ token_completion <- function(uri, workspace, token, exclude = NULL) {
 }
 
 #' The response to a textDocument/completion request
-#' @keywords internal
+#' @noRd
 completion_reply <- function(id, uri, workspace, document, point, capabilities) {
     if (!check_scope(uri, document, point)) {
         return(Response$new(
@@ -458,7 +458,7 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
 
     t0 <- Sys.time()
     snippet_support <- isTRUE(capabilities$completionItem$snippetSupport) &&
-        getOption("languageserver.snippet_support", TRUE)
+        lsp_settings$get("snippet_support")
 
     token_result <- document$detect_token(point, forward = FALSE)
 
@@ -502,7 +502,7 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
     }
 
     init_count <- length(completions)
-    nmax <- getOption("languageserver.max_completions", 200)
+    nmax <- lsp_settings$get("max_completions")
 
     if (init_count > nmax) {
         isIncomplete <- TRUE
@@ -533,7 +533,7 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
 }
 
 #' The response to a completionItem/resolve request
-#' @keywords internal
+#' @noRd
 completion_item_resolve_reply <- function(id, workspace, params) {
     resolved <- FALSE
     if (is.null(params$data) || is.null(params$data$type)) {

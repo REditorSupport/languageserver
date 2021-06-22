@@ -1,7 +1,7 @@
 #' `textDocument/didOpen` notification handler
 #'
 #' Handler to the `textDocument/didOpen` [Notification].
-#' @keywords internal
+#' @noRd
 text_document_did_open <- function(self, params) {
     textDocument <- params$textDocument
     uri <- uri_escape_unicode(textDocument$uri)
@@ -29,7 +29,7 @@ text_document_did_open <- function(self, params) {
 #' `textDocument/didChange` notification handler
 #'
 #' Handler to the `textDocument/didChange` [Notification].
-#' @keywords internal
+#' @noRd
 text_document_did_change <- function(self, params) {
     textDocument <- params$textDocument
     contentChanges <- params$contentChanges
@@ -51,7 +51,7 @@ text_document_did_change <- function(self, params) {
 #' `textDocument/willSave` notification handler
 #'
 #' Handler to the `textDocument/willSave` [Notification].
-#' @keywords internal
+#' @noRd
 text_document_will_save <- function(self, params) {
 
 }
@@ -59,7 +59,7 @@ text_document_will_save <- function(self, params) {
 #' `textDocument/didSave` notification handler
 #'
 #' Handler to the `textDocument/didSave` [Notification].
-#' @keywords internal
+#' @noRd
 text_document_did_save <- function(self, params) {
     textDocument <- params[["textDocument"]]
     text <- params[["text"]]
@@ -86,7 +86,7 @@ text_document_did_save <- function(self, params) {
 #' `textDocument/didClose` notification handler
 #'
 #' Handler to the `textDocument/didClose` [Notification].
-#' @keywords internal
+#' @noRd
 text_document_did_close <- function(self, params) {
     textDocument <- params$textDocument
     uri <- uri_escape_unicode(textDocument$uri)
@@ -111,7 +111,7 @@ text_document_did_close <- function(self, params) {
 #' `textDocument/willSaveWaitUntil` notification handler
 #'
 #' Handler to the `textDocument/willSaveWaitUntil` [Request].
-#' @keywords internal
+#' @noRd
 text_document_will_save_wait_until <- function(self, id, params) {
 
 }

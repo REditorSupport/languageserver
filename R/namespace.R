@@ -1,5 +1,5 @@
 #' A class for storing package information
-#' @keywords internal
+#' @noRd
 PackageNamespace <- R6::R6Class("PackageNamespace",
     private = list(
         documentation = NULL,
@@ -176,7 +176,7 @@ PackageNamespace <- R6::R6Class("PackageNamespace",
 WORKSPACE <- "_workspace_"
 
 #' A class for storing global environment information
-#' @keywords internal
+#' @noRd
 GlobalEnv <- R6::R6Class("GlobalEnv",
     public = list(
         documents = NULL,

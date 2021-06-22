@@ -1,6 +1,6 @@
 #' The response to a textDocument/selectionRange Request
 #'
-#' @keywords internal
+#' @noRd
 selection_range_reply <- function(id, uri, workspace, document, points) {
   result <- NULL
 

@@ -1,6 +1,6 @@
 #' The response to a textDocument/documentColor Request
 #'
-#' @keywords internal
+#' @noRd
 document_color_reply <- function(id, uri, workspace, document) {
     result <- NULL
 
@@ -50,7 +50,7 @@ document_color_reply <- function(id, uri, workspace, document) {
 
 #' The response to a textDocument/colorPresentation Request
 #'
-#' @keywords internal
+#' @noRd
 color_presentation_reply <- function(id, uri, workspace, document, color) {
     if (color$alpha == 1) {
         hex_color <- grDevices::rgb(color$red, color$green, color$blue)

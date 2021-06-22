@@ -11,7 +11,7 @@ definition_xpath <- paste(
 #' If the function is not found in a file but is found in a loaded package,
 #' writes the function definition to a temporary file and returns that
 #' as the location.
-#' @keywords internal
+#' @noRd
 definition_reply <- function(id, uri, workspace, document, point, rootPath) {
 
     token_result <- document$detect_token(point)

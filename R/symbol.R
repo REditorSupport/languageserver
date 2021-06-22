@@ -49,7 +49,7 @@ get_document_symbol_kind <- function(type) {
 }
 
 #' Get all the symbols in the document
-#' @keywords internal
+#' @noRd
 document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
     parse_data <- workspace$get_parse_data(uri)
     if (is.null(parse_data) ||
@@ -106,7 +106,7 @@ document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
 }
 
 #' Get all the symbols in the workspace matching a query
-#' @keywords internal
+#' @noRd
 workspace_symbol_reply <- function(id, workspace, query) {
     defns <- workspace$get_definitions_for_query(query)
     logger$info("workspace symbols found: ", length(defns))
