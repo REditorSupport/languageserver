@@ -113,14 +113,14 @@ These editors are supported by installing the corresponding package.
 
 settings | default | description
 ----     | -----   | -----
-`debug`  | `false` | increase verbosity for debug purpose
-`log_file` | `nil` | file to log debug messages, fallback to stderr if empty
-`diagnostics` | `true` | enable file diagnostics via [lintr](https://github.com/jimhester/lintr)
-`rich_documentation` | `true` | rich documentation with enhanced markdown features
-`snippet_support` | `true` | enable snippets in auto completion
-`max_completions` | 200 | maximum number of completion items
-`lint_cache` | `true` | toggle caching of lint results
-`server_capabilities` | `{}` | override server capabilities defined in [capabilities.R](https://github.com/REditorSupport/languageserver/blob/master/R/capabilities.R). See FAQ below.
+`r.lsp.debug`  | `false` | increase verbosity for debug purpose
+`r.lsp.log_file` | `nil` | file to log debug messages, fallback to stderr if empty
+`r.lsp.diagnostics` | `true` | enable file diagnostics via [lintr](https://github.com/jimhester/lintr)
+`r.lsp.rich_documentation` | `true` | rich documentation with enhanced markdown features
+`r.lsp.snippet_support` | `true` | enable snippets in auto completion
+`r.lsp.max_completions` | 200 | maximum number of completion items
+`r.lsp.lint_cache` | `false` | toggle caching of lint results
+`r.lsp.server_capabilities` | `{}` | override server capabilities defined in [capabilities.R](https://github.com/REditorSupport/languageserver/blob/master/R/capabilities.R). See FAQ below.
 `link_file_size_limit` | 16384 | maximum file size (in bytes) that supports document links
 
 These settings could also specified in `.Rprofile` file via `options(languageserver.<SETTING_NAME> =  <VALUE>)`. For example, 
@@ -145,8 +145,12 @@ Users could override the capabilities by specifying the LSP configuration settin
 `server_capabilities` or
 `options(languageserver.server_capabilities)` in `.Rprofile`. For example, to turn off `definitionProvider`, one could either use LSP configuration
 ```json
-"server_capabilities": {
-    "definitionProvider": false
+"r": {
+    "lsp": {
+        "server_capabilities": {
+            "definitionProvider": false
+        }
+    }
 }
 ```
 or R options 
