@@ -40,7 +40,9 @@ log_write <- function(..., log_file = NULL) {
         log_file <- stderr()
     }
     txt <- paste0("[", format(Sys.time(), "%Y-%m-%d %H:%M:%OS3"), "] ", to_string(...))
-    writeLines(txt, log_file, sep = "", useBytes = TRUE)
+    # writeLines doesn't support `append`
+    # writeLines(txt, log_file, sep = "", useBytes = TRUE)
+    cat(txt, file = log_file, append = TRUE)
 }
 
 #' A basic logger class
