@@ -121,7 +121,7 @@ settings | default | description
 `r.lsp.max_completions` | 200 | maximum number of completion items
 `r.lsp.lint_cache` | `false` | toggle caching of lint results
 `r.lsp.server_capabilities` | `{}` | override server capabilities defined in [capabilities.R](https://github.com/REditorSupport/languageserver/blob/master/R/capabilities.R). See FAQ below.
-`link_file_size_limit` | 16384 | maximum file size (in bytes) that supports document links
+`r.lsp.link_file_size_limit` | 16384 | maximum file size (in bytes) that supports document links
 
 These settings could also specified in `.Rprofile` file via `options(languageserver.<SETTING_NAME> =  <VALUE>)`. For example, 
 
