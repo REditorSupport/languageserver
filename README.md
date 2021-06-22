@@ -114,7 +114,7 @@ These editors are supported by installing the corresponding package.
 settings | default | description
 ----     | -----   | -----
 `r.lsp.debug`  | `false` | increase verbosity for debug purpose
-`r.lsp.log_file` | `nil` | file to log debug messages, fallback to stderr if empty
+`r.lsp.log_file` | `null` | file to log debug messages, fallback to stderr if empty
 `r.lsp.diagnostics` | `true` | enable file diagnostics via [lintr](https://github.com/jimhester/lintr)
 `r.lsp.rich_documentation` | `true` | rich documentation with enhanced markdown features
 `r.lsp.snippet_support` | `true` | enable snippets in auto completion
