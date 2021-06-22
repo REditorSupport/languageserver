@@ -77,7 +77,7 @@ find_config <- function(filename) {
 #'
 #' Lint and diagnose problems in a file.
 #' @keywords internal
-diagnose_file <- function(uri, content) {
+diagnose_file <- function(uri, content, cache = FALSE) {
     if (length(content) == 0) {
         return(list())
     }
@@ -95,9 +95,8 @@ diagnose_file <- function(uri, content) {
         content <- c(content, "")
     }
 
-    lint_cache <- lsp_settings$get("lint_cache")
     if (lintr_is_new_enough()) {
-        lints <- lintr::lint(path, cache = lint_cache, text = content)
+        lints <- lintr::lint(path, cache = cache, text = content)
     } else {
         # TODO: remove it once new version of lintr is released
         linter_file <- find_config(path)
@@ -106,7 +105,7 @@ diagnose_file <- function(uri, content) {
             on.exit(options(op))
         }
         text <- paste0(content, collapse = "\n")
-        lints <- lintr::lint(text, cache = lint_cache)
+        lints <- lintr::lint(text, cache = cache)
     }
 
     diagnostics <- lapply(lints, diagnostic_from_lint, content = content)
@@ -135,7 +134,7 @@ diagnostics_task <- function(self, uri, document, delay = 0) {
     content <- document$content
     create_task(
         target = package_call(diagnose_file),
-        args = list(uri = uri, content = content),
+        args = list(uri = uri, content = content, cache = lsp_settings$get("lint_cache")),
         callback = function(result) diagnostics_callback(self, uri, version, result),
         error = function(e) {
             logger$info("diagnostics_task:", e)

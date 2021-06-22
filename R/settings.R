@@ -47,4 +47,6 @@ Settings <- R6::R6Class("Settings",
 
 
 # create the settings object
+# note that this object should not be used in sessions created by callr because
+# settings may be updated from the lsp configuration
 lsp_settings <- Settings$new()
