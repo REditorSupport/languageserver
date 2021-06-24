@@ -423,6 +423,29 @@ respond_call_hierarchy_outgoing_calls <- function(client, item, ...) {
     )
 }
 
+respond_code_action <- function(client, path, start_pos, end_pos, ...) {
+    uri <- path_to_uri(path)
+    diagnostics <- client$diagnostics$get(uri)
+    range <- range(
+        start = position(start_pos[1], start_pos[2]),
+        end = position(end_pos[1], end_pos[2])
+    )
+    respond(
+        client,
+        "textDocument/codeAction",
+        list(
+            textDocument = list(uri = uri),
+            range = range,
+            context = list(
+                diagnostics = Filter(function(item) {
+                    range_overlap(item$range, range)
+                }, diagnostics)
+            )
+        ),
+        ...
+    )
+}
+
 wait_for <- function(client, method, timeout = 30) {
     storage <- new.env(parent = .GlobalEnv)
     start_time <- Sys.time()

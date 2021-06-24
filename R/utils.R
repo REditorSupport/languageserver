@@ -703,3 +703,24 @@ is_text_file <- function(path, n = 1000) {
     }
     return(FALSE)
 }
+
+compare_position <- function(position1, position2) {
+    if (position1$line < position2$line ||
+        (position1$line == position2$line &&
+            position1$character < position2$character)) {
+        -1L
+    } else if (position1$line > position2$line ||
+        (position1$line == position2$line &&
+            position1$character > position2$character)) {
+        1L
+    } else {
+        0L
+    }
+}
+
+range_overlap <- function(range1, range2) {
+    !(compare_position(range1$end, range2$start) < 0 ||
+        compare_position(range1$start, range2$end) > 0 ||
+        compare_position(range2$end, range1$start) < 0 ||
+        compare_position(range2$start, range1$end) > 0)
+}
