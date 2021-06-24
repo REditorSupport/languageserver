@@ -115,13 +115,17 @@ diagnose_file <- function(uri, content, cache = FALSE) {
 
 diagnostics_callback <- function(self, uri, version, diagnostics) {
     if (is.null(diagnostics) || !self$workspace$documents$has(uri)) return(NULL)
-    logger$info("diagnostics_callback called:", list(uri = uri, version = version))
-    # logger$info("diagnostics:", diagnostics)
+    logger$info("diagnostics_callback called:", list(
+        uri = uri,
+        version = version,
+        diagnostics = diagnostics
+    ))
     self$deliver(
         Notification$new(
             method = "textDocument/publishDiagnostics",
             params = list(
                 uri = uri,
+                version = version,
                 diagnostics = diagnostics
             )
         )
