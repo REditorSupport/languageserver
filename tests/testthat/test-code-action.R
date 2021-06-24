@@ -24,17 +24,13 @@ test_that("Code action works", {
 
   result <- client %>% respond_code_action(temp_file, c(0, 0), c(0, 1))
   expect_length(result, 1)
-  expect_equal(result[[1]]$title, "Disable all linters for this line")
 
   result <- client %>% respond_code_action(temp_file, c(1, 0), c(1, 5), retry = FALSE)
   expect_length(result, 0)
 
   result <- client %>% respond_code_action(temp_file, c(2, 3), c(2, 4))
   expect_length(result, 1)
-  expect_equal(result[[1]]$title, "Disable all linters for this line")
 
   result <- client %>% respond_code_action(temp_file, c(0, 0), c(3, 0))
   expect_length(result, 2)
-  expect_equal(result[[1]]$title, "Disable all linters for this line")
-  expect_equal(result[[2]]$title, "Disable all linters for this line")
 })
