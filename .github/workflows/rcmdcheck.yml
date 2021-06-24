@@ -73,7 +73,7 @@ jobs:
       - name: Install a sperate copy on Windows
         if: runner.os == 'Windows'
         run: |
-          Rscript -e "remotes::install_local()"
+          Rscript -e "remotes::install_local(force = TRUE)"
       - name: Running Tests
         id: rcmdcheck
         run: |
