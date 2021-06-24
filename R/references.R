@@ -1,6 +1,6 @@
 references_xpath <- "//*[(self::SYMBOL or self::SYMBOL_FUNCTION_CALL or self::SYMBOL_FORMALS) and text() = '{token_quote}']"
 
-#' @keywords internal
+#' @noRd
 references_reply <- function(id, uri, workspace, document, point) {
 
   token <- document$detect_token(point)

@@ -10,7 +10,7 @@ hover_xpath <- paste(
 #'
 #' When hovering on a symbol, if it is a function, return its help text
 #' if it exists in the current [Workspace].
-#' @keywords internal
+#' @noRd
 hover_reply <- function(id, uri, workspace, document, point) {
     if (!check_scope(uri, document, point)) {
         return(Response$new(id))

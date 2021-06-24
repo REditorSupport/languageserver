@@ -2,7 +2,7 @@
 #'
 #' @param ... anything
 #'
-#' @keywords internal
+#' @noRd
 to_string <- function(...) {
     dots <- list(...)
     if (length(dots) > 0) {
@@ -34,39 +34,27 @@ to_string <- function(...) {
 #'
 #' @param ... anything
 #'
-#' @keywords internal
-log_write <- function(..., file = stderr()) {
-    txt <- paste0("[", format(Sys.time(), "%Y-%m-%d %H:%M:%OS3"), "] ", to_string(...))
-    if (.Platform$OS.type == "windows" && identical(file, stderr())) {
-        writeLines(txt, file, sep = "", useBytes = TRUE)
-    } else {
-        cat(txt, file = file, append = TRUE)
+#' @noRd
+log_write <- function(..., log_file = NULL) {
+    if (is.null(log_file)) {
+        log_file <- stderr()
     }
+    txt <- paste0("[", format(Sys.time(), "%Y-%m-%d %H:%M:%OS3"), "] ", to_string(...))
+    # writeLines doesn't support `append`
+    # writeLines(txt, log_file, sep = "", useBytes = TRUE)
+    cat(txt, file = log_file, append = TRUE)
 }
 
 #' A basic logger class
 #'
-#' @keywords internal
+#' @noRd
 Logger <- R6::R6Class("Logger",
-    private = list(
-        debug = FALSE,
-        file = stderr()
-    ),
     public = list(
-        enable_debug = function(file = NULL) {
-            private$debug <- TRUE
-            if (!is.null(file)) {
-                private$file <- file
-            }
-        },
-        disable_debug = function() {
-            private$debug <- FALSE
-        },
         error = function(...) {
-            log_write(..., file = private$file)
+            log_write(..., log_file = lsp_settings$get("log_file"))
         },
         info = function(...) {
-            if (private$debug) log_write(..., file = private$file)
+            if (lsp_settings$get("debug")) log_write(..., log_file = lsp_settings$get("log_file"))
         }
     )
 )

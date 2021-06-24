@@ -1,6 +1,6 @@
 #' Merge two lists
 #'
-#' @keywords internal
+#' @noRd
 merge_list <- function(x, y) {
     x[names(y)] <- y
     x
@@ -8,7 +8,7 @@ merge_list <- function(x, y) {
 
 #' tryCatch with stack captured
 #'
-#' @keywords internal
+#' @noRd
 tryCatchStack <- function(expr, ...) {
     expr <- substitute(expr)
     env <- parent.frame()
@@ -88,7 +88,7 @@ uri_escape_unicode <- function(uri) {
 }
 
 #' Paths and uris
-#' @keywords internal
+#' @noRd
 path_from_uri <- function(uri) {
     if (length(uri) == 0) {
         return(character())
@@ -103,7 +103,7 @@ path_from_uri <- function(uri) {
     path
 }
 
-#' @keywords internal
+#' @noRd
 #' @rdname path_from_uri
 path_to_uri <- function(path) {
     if (length(path) == 0) {
@@ -148,7 +148,7 @@ equal_definition <- function(x, y) {
 }
 
 #' Check if a file is an RMarkdown file
-#' @keywords internal
+#' @noRd
 is_rmarkdown <- function(uri) {
     filename <- path_from_uri(uri)
     endsWith(tolower(filename), ".rmd") || endsWith(tolower(filename), ".rmarkdown")
@@ -160,7 +160,7 @@ is_rmarkdown <- function(uri) {
 #' in the text. This function will return `FALSE` if the token is in the text
 #' and `TRUE` if it is in a code block. For any other files, it always returns `TRUE`.
 #'
-#' @keywords internal
+#' @noRd
 check_scope <- function(uri, document, point) {
     if (is_rmarkdown(uri)) {
         row <- point$row
@@ -191,14 +191,14 @@ fuzzy_find <- function(x, pattern) {
 
 
 #' Safer version of `seq` which returns empty vector if b < a
-#' @keywords internal
+#' @noRd
 seq_safe <- function(a, b) {
     seq(a, b, length = max(0, b - a + 1))
 }
 
 
 #' Extract the R code blocks of a Rmarkdown file
-#' @keywords internal
+#' @noRd
 extract_blocks <- function(content) {
     begins_or_ends <- which(stringi::stri_detect_fixed(content, "```"))
     begins <- which(stringi::stri_detect_regex(content, "```+\\s*\\{[rR][ ,\\}]"))
@@ -368,7 +368,7 @@ get_document_sections <- function(uri, document,
 
 #' Strip out all the non R blocks in a R markdown file
 #' @param content a character vector
-#' @keywords internal
+#' @noRd
 purl <- function(content) {
     blocks <- extract_blocks(content)
     rmd_content <- rep("", length(content))
@@ -380,7 +380,7 @@ purl <- function(content) {
 
 
 #' Calculate character offset based on the protocol
-#' @keywords internal
+#' @noRd
 ncodeunit <- function(s) {
     lengths(iconv(s, from = "UTF-8", to = "UTF-16BE", toRaw = TRUE)) / 2
 }
@@ -391,7 +391,7 @@ ncodeunit <- function(s) {
 #' @param line a character of text
 #' @param units 0-indexed code points
 #'
-#' @keywords internal
+#' @noRd
 code_point_from_unit <- function(line, units) {
     if (!nzchar(line)) return(units)
     offsets <- cumsum(ncodeunit(strsplit(line, "")[[1]]))
@@ -408,7 +408,7 @@ code_point_from_unit <- function(line, units) {
 #' @param line a character of text
 #' @param units 0-indexed code units
 #'
-#' @keywords internal
+#' @noRd
 code_point_to_unit <- function(line, pts) {
     if (!nzchar(line)) return(pts)
     offsets <- c(0, cumsum(ncodeunit(strsplit(line, "")[[1]])))
@@ -422,7 +422,7 @@ code_point_to_unit <- function(line, pts) {
 
 
 #' Check if a path is a directory
-#' @keywords internal
+#' @noRd
 is_directory <- function(path) {
     is_dir <- file.info(path)$isdir
     !is.na(is_dir) && is_dir
@@ -433,7 +433,7 @@ is_directory <- function(path) {
 #' This function searches backwards in the folder structure until it finds
 #' a DESCRIPTION file or it reaches the top-level directory.
 #'
-#' @keywords internal
+#' @noRd
 find_package <- function(path = getwd()) {
     start_path <- getwd()
     on.exit(setwd(start_path))
@@ -456,7 +456,7 @@ find_package <- function(path = getwd()) {
 #'
 #' @param rootPath a character representing a path
 #'
-#' @keywords internal
+#' @noRd
 is_package <- function(rootPath) {
     file <- file.path(rootPath, "DESCRIPTION")
     file.exists(file) && !dir.exists(file)
@@ -464,21 +464,21 @@ is_package <- function(rootPath) {
 
 #' read a character from stdin
 #'
-#' @keywords internal
+#' @noRd
 stdin_read_char <- function(n) {
     .Call("stdin_read_char", PACKAGE = "languageserver", n)
 }
 
 #' read a line from stdin
 #'
-#' @keywords internal
+#' @noRd
 stdin_read_line <- function() {
     .Call("stdin_read_line", PACKAGE = "languageserver")
 }
 
 #' check if the current process becomes an orphan
 #'
-#' @keywords internal
+#' @noRd
 process_is_detached <- function() {
     .Call("process_is_detached", PACKAGE = "languageserver")
 }
@@ -491,7 +491,7 @@ process_is_detached <- function() {
 #' @param fun the function to execute
 #' @param t an integer, the threshold in seconds
 #'
-#' @keywords internal
+#' @noRd
 throttle <- function(fun, t = 1) {
     last_execution_time <- 0
     function(...) {
@@ -506,7 +506,7 @@ throttle <- function(fun, t = 1) {
 #'
 #' Remove unwanted objects, _e.g._ `names<-`, `%>%`, `.__C_` etc.
 #'
-#' @keywords internal
+#' @noRd
 sanitize_names <- function(objects) {
     objects[stringi::stri_detect_regex(objects, "^([^\\W_]|\\.(?!_))(\\w|\\.)*$")]
 }

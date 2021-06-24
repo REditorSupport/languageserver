@@ -36,7 +36,7 @@
 #' # session will be restarted on error
 #' # you can manually “kill” the process in bash to test this behavior
 #' }
-#' @keywords internal
+#' @noRd
 Session <- R6::R6Class("Session",
     private = list(
         # parent session poll - dependency injection
@@ -201,7 +201,7 @@ Session <- R6::R6Class("Session",
 #' # please read R6 Class `Session` documentation
 #'
 #' }
-#' @keywords internal
+#' @noRd
 SessionPool <- R6::R6Class("SessionPool",
     private = list(
         pool_name = NULL,

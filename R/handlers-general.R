@@ -2,11 +2,11 @@
 #'
 #' Handler to the `initialize` [Request].
 #'
-#' @keywords internal
+#' @noRd
 on_initialize <- function(self, id, params) {
     trace <- params$trace
     if (!is.null(trace) && trace %in% c("messages", "verbose")) {
-        logger$enable_debug()
+        lsp_settings$set("debug", TRUE)
     }
 
     logger$info("session: ", list(
@@ -19,7 +19,7 @@ on_initialize <- function(self, id, params) {
         env = as.list(Sys.getenv()),
         namespaces = local({
             nss <- loadedNamespaces()
-            vs <- lapply(nss, function(ns) format(packageVersion(ns)))
+            vs <- lapply(nss, function(ns) format(utils::packageVersion(ns)))
             names(vs) <- nss
             vs
         }),
@@ -36,7 +36,7 @@ on_initialize <- function(self, id, params) {
         ServerCapabilities, self$ClientCapabilities)
     server_capabilities <- merge_list(
         server_capabilities,
-        getOption("languageserver.server_capabilities"))
+        lsp_settings$get("server_capabilities"))
     self$ServerCapabilities <- server_capabilities
     self$deliver(Response$new(id = id, result = list(capabilities = server_capabilities)))
 }
@@ -45,7 +45,7 @@ on_initialize <- function(self, id, params) {
 #'
 #' Handler to the `initialized` [Notification].
 #'
-#' @keywords internal
+#' @noRd
 on_initialized <- function(self, params) {
     logger$info("on_initialized")
     project_root <- self$rootPath
@@ -60,7 +60,7 @@ on_initialized <- function(self, params) {
 #' `shutdown` request handler
 #'
 #' Handler to the `shutdown` [Request].
-#' @keywords internal
+#' @noRd
 on_shutdown <- function(self, id, params) {
     self$exit_flag <- TRUE
     self$deliver(Response$new(id = id, result = list()))
@@ -70,7 +70,7 @@ on_shutdown <- function(self, id, params) {
 #' `exit` notification handler
 #'
 #' Handler to the `exit` [Notification].
-#' @keywords internal
+#' @noRd
 on_exit <- function(self, params) {
     self$exit_flag <- TRUE
 }
@@ -78,7 +78,7 @@ on_exit <- function(self, params) {
 #' `cancel` request notification handler
 #'
 #' Handler to the `cancelRequest` [Notification].
-#' @keywords internal
+#' @noRd
 cancel_request <- function(self, params) {
 
 }

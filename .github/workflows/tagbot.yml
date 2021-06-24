@@ -1,4 +1,4 @@
-name: tagbot
+name: TagBot
 
 on:
   schedule:

@@ -8,7 +8,7 @@ signature_xpath <- paste(
 #' If the symbol at the current position is a function, return its arguments
 #' (as with [base::args()]).
 #'
-#' @keywords internal
+#' @noRd
 signature_reply <- function(id, uri, workspace, document, point) {
 
     if (!check_scope(uri, document, point)) {

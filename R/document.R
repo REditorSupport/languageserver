@@ -132,7 +132,7 @@ Document <- R6::R6Class(
 
 
 #' Search backwards in a document content for a specific character
-#' @keywords internal
+#' @noRd
 find_unbalanced_bracket <- function(content, row, column, skip_empty_line = FALSE) {
     .Call("find_unbalanced_bracket",
         PACKAGE = "languageserver",
@@ -141,7 +141,7 @@ find_unbalanced_bracket <- function(content, row, column, skip_empty_line = FALS
 }
 
 #' check if a position is inside quotes
-#' @keywords internal
+#' @noRd
 enclosed_by_quotes <- function(document, point) {
     text <- document$line0(point$row)
     col <- point$col
@@ -154,7 +154,7 @@ detect_comments <- function(content, row) {
 }
 
 #' Expression range in UTF-16 code units
-#' @keywords internal
+#' @noRd
 expr_range <- function(srcref) {
     lines <- attr(srcref, "srcfile")$lines
     # R is 1-indexed, language server is 0-indexed
@@ -303,7 +303,7 @@ parse_expr <- function(content, expr, env, level = 0L, srcref = attr(expr, "srcr
 #' Build the list of called packages, functions, variables, formals and
 #' signatures in the document in order to add them to the current [Workspace].
 #'
-#' @keywords internal
+#' @noRd
 parse_document <- function(uri, content) {
     if (length(content) == 0) {
         content <- ""

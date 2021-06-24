@@ -1,6 +1,6 @@
 #' The response to a textDocument/documentLink Request
 #' @param rootPath Path of workspace folder
-#' @keywords internal
+#' @noRd
 document_link_reply <- function(id, uri, workspace, document, rootPath) {
     result <- NULL
 
@@ -55,7 +55,7 @@ document_link_resolve_reply <- function(id, workspace, params) {
     path <- params$data$path
     file_size <- file.size(path)
     if (is.finite(file_size)) {
-        link_file_size_limit <- getOption("languageserver.link_file_size_limit", 16 * 1024^2)
+        link_file_size_limit <- lsp_settings$get("link_file_size_limit")
         if (file_size <= link_file_size_limit) {
             params$target <- path_to_uri(path)
             params$data <- NULL

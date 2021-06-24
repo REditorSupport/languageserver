@@ -28,7 +28,7 @@ prepare_rename_reply <- function(id, uri, workspace, document, point) {
   }
 }
 
-#' @keywords internal
+#' @noRd
 rename_reply <- function(id, uri, workspace, document, point, newName) {
   refs <- references_reply(NULL, uri, workspace, document, point)
   result <- list()

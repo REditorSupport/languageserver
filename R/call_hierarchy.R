@@ -1,4 +1,4 @@
-#' @keywords internal
+#' @noRd
 prepare_call_hierarchy_reply <- function(id, uri, workspace, document, point) {
 
   token <- document$detect_token(point)

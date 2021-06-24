@@ -5,7 +5,7 @@ startup_packages <- c("base", "methods", "datasets", "utils", "grDevices", "grap
 #' A `Workspace` is initialized at the start of a session, when the language
 #' server is started. Its goal is to contain the `Namespace`s of the packages
 #' that are loaded during the session for quick reference.
-#' @keywords internal
+#' @noRd
 Workspace <- R6::R6Class("Workspace",
     public = list(
         root = NULL,
@@ -154,8 +154,9 @@ Workspace <- R6::R6Class("Workspace",
                 } else {
                     result <- NULL
 
-                    if (requireNamespace("rmarkdown", quietly = TRUE) &&
-                        rmarkdown::pandoc_available()) {
+                    if (lsp_settings$get("rich_documentation") &&
+                            requireNamespace("rmarkdown", quietly = TRUE) &&
+                            rmarkdown::pandoc_available()) {
                         html <- enc2utf8(repr::repr_html(hfile))
                         # Make header look prettier:
                         pattern <- "<table.*?<td>(.*?)\\s*{(.*?)}<\\/td>.*?<\\/table>\\n*<h2>\\s*(.*?)\\s*<\\/h2>"

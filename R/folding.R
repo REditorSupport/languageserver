@@ -80,7 +80,7 @@ get_section_folding_ranges <- function(uri, document) {
 }
 
 #' Get all the folding ranges in the document
-#' @keywords internal
+#' @noRd
 document_folding_range_reply <- function(id, uri, workspace, document) {
     result <- NULL
 
