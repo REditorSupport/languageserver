@@ -37,13 +37,16 @@ test_that("Changes in non-open files in package workspace are handled", {
   ), file1)
 
   client <- language_client(dir)
-  Sys.sleep(0.5)
 
-  result <- client %>% respond_signature(file1, c(3, 5))
+  result <- client %>% respond_signature(file1, c(3, 5),
+    retry_when = function(result) {
+      length(result$signatures) > 0
+    })
+
   expect_length(result$signatures, 1)
   expect_match(result$signatures[[1]]$label, "fun1\\(x\\)")
 
-  result <- client %>% respond_signature(file1, c(1, 7), retry = FALSE)
+  result <- client %>% respond_signature(file1, c(1, 7))
   expect_length(result$signatures, 0)
 
   file2 <- file.path(source_dir, "test2.R")
@@ -63,8 +66,10 @@ test_that("Changes in non-open files in package workspace are handled", {
       )
     ))
 
-  Sys.sleep(0.5)
-  result <- client %>% respond_signature(file1, c(1, 7))
+  result <- client %>% respond_signature(file1, c(1, 7),
+    retry_when = function(result) {
+      length(result$signatures) > 0
+    })
   expect_length(result$signatures, 1)
   expect_match(result$signatures[[1]]$label, "fun3\\(x\\)")
 
@@ -84,8 +89,10 @@ test_that("Changes in non-open files in package workspace are handled", {
       )
   ))
 
-  Sys.sleep(0.5)
-  result <- client %>% respond_signature(file1, c(1, 7))
+  result <- client %>% respond_signature(file1, c(1, 7),
+    retry_when = function(result) {
+      length(result$signatures) > 0
+    })
   expect_length(result$signatures, 1)
   expect_match(result$signatures[[1]]$label, "fun3\\(z\\)")
 
