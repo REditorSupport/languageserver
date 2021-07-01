@@ -27,7 +27,7 @@ workspace_did_change_configuration <- function(self, params) {
 #' Handler to the `workspace/didChangeWatchedFiles` [Notification].
 #' @noRd
 workspace_did_change_watched_files <- function(self, params) {
-
+    logger$info("workspace_did_change_watched_files:", params)
 }
 
 #' `workspace/symbol` request handler
