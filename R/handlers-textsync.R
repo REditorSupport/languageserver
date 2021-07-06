@@ -101,14 +101,18 @@ text_document_did_close <- function(self, params) {
         diagnostics_callback(self, uri, NULL, list())
     }
 
+    # mark document as closed so that
+    # workspace_did_change_watched_files will not ignore it
+    if (self$workspace$documents$has(uri)) {
+        doc <- self$workspace$documents$get(uri)
+        doc$did_close()
+    }
+
     # do not remove document in package
     if (!(is_package(self$rootPath) && is_from_workspace)) {
         diagnostics_callback(self, uri, NULL, list())
         self$workspace$documents$remove(uri)
         self$workspace$update_loaded_packages()
-    } else if (self$workspace$documents$has(uri)) {
-        doc <- self$workspace$documents$get(uri)
-        doc$did_close()
     }
 
     self$pending_replies$remove(uri)
