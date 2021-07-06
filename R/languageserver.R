@@ -226,6 +226,7 @@ LanguageServer$set("public", "register_handlers", function() {
         `textDocument/didSave` = text_document_did_save,
         `textDocument/didClose` = text_document_did_close,
         `workspace/didChangeConfiguration` = workspace_did_change_configuration,
+        `workspace/didChangeWatchedFiles` = workspace_did_change_watched_files,
         `$/setTrace` = protocol_set_trace
     )
 })

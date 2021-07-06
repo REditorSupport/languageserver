@@ -3,6 +3,7 @@ Document <- R6::R6Class(
     public = list(
         uri = NULL,
         version = NULL,
+        is_open = FALSE,
         nline = 0,
         content = NULL,
         parse_data = NULL,
@@ -15,6 +16,14 @@ Document <- R6::R6Class(
             self$is_rmarkdown <- is_rmarkdown(self$uri)
             self$set_content(version, content)
             self$loaded_packages <- character()
+        },
+
+        did_open = function() {
+            self$is_open <- TRUE
+        },
+
+        did_close = function() {
+            self$is_open <- FALSE
         },
 
         set_content = function(version, content) {

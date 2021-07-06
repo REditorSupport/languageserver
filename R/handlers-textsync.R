@@ -23,6 +23,7 @@ text_document_did_open <- function(self, params) {
         doc <- Document$new(uri, version, content)
         self$workspace$documents$set(uri, doc)
     }
+    doc$did_open()
     self$text_sync(uri, document = doc, run_lintr = TRUE, parse = TRUE)
 }
 
@@ -45,6 +46,7 @@ text_document_did_change <- function(self, params) {
         doc <- Document$new(uri, version, content)
         self$workspace$documents$set(uri, doc)
     }
+    doc$did_open()
     self$text_sync(uri, document = doc, run_lintr = TRUE, parse = TRUE, delay = 0.5)
 }
 
@@ -80,6 +82,7 @@ text_document_did_save <- function(self, params) {
         doc <- Document$new(uri, NULL, content)
         self$workspace$documents$set(uri, doc)
     }
+    doc$did_open()
     self$text_sync(uri, document = doc, run_lintr = TRUE, parse = TRUE)
 }
 
@@ -103,6 +106,9 @@ text_document_did_close <- function(self, params) {
         diagnostics_callback(self, uri, NULL, list())
         self$workspace$documents$remove(uri)
         self$workspace$update_loaded_packages()
+    } else if (self$workspace$documents$has(uri)) {
+        doc <- self$workspace$documents$get(uri)
+        doc$did_close()
     }
 
     self$pending_replies$remove(uri)
