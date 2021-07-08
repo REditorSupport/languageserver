@@ -208,6 +208,21 @@ fun_string <- function(x) {
     if (is_base_call(x)) as.character(x[[3L]]) else deparse(x)
 }
 
+# to see the pos/env/assign.env of assigning functions is set or not
+# if unset, it means using the default value, which is top-level
+# if set, we should compare to a vector of known "top-level" candidates
+is_top_level <- function(arg_env, ...) {
+    if (is.null(arg_env)) return(TRUE)
+    default <- list(
+        quote(parent.frame(1)), quote(parent.frame(1L)),
+        quote(environment()),
+        quote(.GlobalEnv), quote(globalenv())
+    )
+    extra <- substitute(list(...))[-1L]
+    top_level_envs <- c(default, as.list(extra))
+    any(vapply(top_level_envs, identical, x = arg_env, FUN.VALUE = logical(1L)))
+}
+
 parse_config <- new.env()
 parse_config$unscoped_functions <- c(
     "system.time",
@@ -264,21 +279,6 @@ parse_expr <- function(content, expr, env, level = 0L, srcref = attr(expr, "srcr
                 Recall(content, e[[2L]], env, level + 1L, cur_srcref)
             }
         } else if (f %in% c("<-", "=", "delayedAssign", "makeActiveBinding", "assign")) {
-            # to see the pos/env/assign.env of assigning functions is set or not
-            # if unset, it means using the default value, which is top-level
-            # if set, we should compare to a vector of known "top-level" candidates
-            is_top_level <- function(arg_env, ...) {
-                if (is.null(arg_env)) return(TRUE)
-                default <- list(
-                    quote(parent.frame(1)), quote(parent.frame(1L)),
-                    quote(environment()),
-                    quote(.GlobalEnv), quote(globalenv())
-                )
-                extra <- substitute(list(...))[-1L]
-                top_level_envs <- c(default, as.list(extra))
-                any(vapply(top_level_envs, identical, x = arg_env, FUN.VALUE = logical(1L)))
-            }
-
             type <- NULL
 
             if (f %in% c("<-", "=")) {
