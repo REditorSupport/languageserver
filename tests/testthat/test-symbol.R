@@ -59,7 +59,7 @@ test_that("Recognize symbols created by delayedAssign()/assign()/makeActiveBindi
         "makeActiveBinding('a5', function() 5, .GlobalEnv)",
         "makeActiveBinding('a6', function() 6, new.env())",
         "assign(value = '1', x = 'assign1')",
-        "assign('assign2', 2, pos = -1L)",
+        "assign('assign2', 2, pos = -1)",
         "assign('assign3', 3, pos = environment())",
         "assign('assign4', 4, pos = new.env())"
     ), defn_file)

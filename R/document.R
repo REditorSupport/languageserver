@@ -330,7 +330,7 @@ parse_expr <- function(content, expr, env, srcref = attr(expr, "srcref")) {
             } else if (f == "assign") {
                 call <- match.call(base::assign, as.call(e))
                 if (!is.character(call$x)) return(env)
-                if (!is_top_level(call$pos, -1, -1)) return(env) # -1 is the default
+                if (!is_top_level(call$pos, -1L, -1)) return(env) # -1 is the default
                 if (!is_top_level(call$envir)) return(env)
                 symbol <- call$x
                 value <- call$value
