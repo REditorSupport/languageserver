@@ -118,6 +118,30 @@ test_that("Simple completion is case insensitive", {
     expect_length(result$items %>% keep(~ .$label == "mtcars"), 1)
 })
 
+test_that("Completion of functions in attached packages work", {
+    skip_on_cran()
+    client <- language_client()
+
+    temp_file <- withr::local_tempfile(fileext = ".R")
+    writeLines(
+        c(
+            "library(jsonlite)",
+            "require('xml2')",
+            "fromJS",
+            "read_xm"
+        ),
+        temp_file)
+
+    client %>% did_save(temp_file)
+
+    result <- client %>% respond_completion(temp_file, c(2, 6))
+
+    expect_length(result$items %>% keep(~ .$label == "fromJSON"), 1)
+
+    result <- client %>% respond_completion(temp_file, c(3, 7))
+    expect_length(result$items %>% keep(~ .$label == "read_xml"), 1)
+})
+
 test_that("Completion of function arguments works", {
     skip_on_cran()
     client <- language_client()
