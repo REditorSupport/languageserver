@@ -251,11 +251,13 @@ parse_config$library_functions <- c(
         }
     },
     "pacman::p_load" = function(call) {
-        if (requireNamespace("pacman")) {
-            call <- match.call(pacman::p_load, call, expand.dots = FALSE)
-            if (!isTRUE(call$character.only)) {
-                vapply(call[["..."]], as.character, character(1L))
-            }
+        fun <- if (requireNamespace("pacman")) pacman::p_load else
+            function(..., char, install = TRUE,
+                     update = getOption("pac_update"),
+                     character.only = FALSE) NULL
+        call <- match.call(fun, call, expand.dots = FALSE)
+        if (!isTRUE(call$character.only)) {
+            vapply(call[["..."]], as.character, character(1L))
         }
     }
 )
