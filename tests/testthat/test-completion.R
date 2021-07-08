@@ -167,6 +167,19 @@ test_that("Completion of package functions attached in unscoped functions works"
     temp_file <- withr::local_tempfile(fileext = ".R")
     writeLines(
         c(
+            "suppressPackageStartupMessages(library(jsonlite))",
+            "fromJS",
+        ),
+        temp_file)
+
+    client %>% did_save(temp_file)
+    Sys.sleep(1)
+
+    result <- client %>% respond_completion(temp_file, c(1, 6))
+    expect_length(result$items %>% keep(~ .$label == "fromJSON"), 1)
+
+    writeLines(
+        c(
             "suppressPackageStartupMessages({",
             "  library(jsonlite)",
             "  require('xml2')",
