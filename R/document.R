@@ -305,17 +305,20 @@ parse_expr <- function(content, expr, env, level = 0L, srcref = attr(expr, "srcr
             }
         } else if (f %in% c("<-", "=", "delayedAssign", "makeActiveBinding", "assign")) {
             type <- NULL
+            recall <- FALSE
 
             if (f %in% c("<-", "=")) {
                 if (length(e) != 3L || !is.symbol(e[[2L]])) next
                 symbol <- as.character(e[[2L]])
                 value <- e[[3L]]
+                recall <- TRUE
             } else if (f == "delayedAssign") {
                 call <- match.call(base::delayedAssign, as.call(e))
                 if (!is.character(call$x)) next
                 if (!is_top_level(call$assign.env)) next
                 symbol <- call$x
                 value <- call$value
+                recall <- TRUE
             } else if (f == "assign") {
                 call <- match.call(base::assign, as.call(e))
                 if (!is.character(call$x)) next
@@ -323,6 +326,7 @@ parse_expr <- function(content, expr, env, level = 0L, srcref = attr(expr, "srcr
                 if (!is_top_level(call$envir)) next
                 symbol <- call$x
                 value <- call$value
+                recall <- TRUE
             } else if (f == "makeActiveBinding") {
                 call <- match.call(base::makeActiveBinding, as.call(e))
                 if (!is.character(call$sym)) next
@@ -357,6 +361,10 @@ parse_expr <- function(content, expr, env, level = 0L, srcref = attr(expr, "srcr
                 env$signatures[[symbol]] <- get_signature(symbol, value)
             } else {
                 env$nonfuncts <- c(env$nonfuncts, symbol)
+            }
+
+            if (recall && is.call(value)) {
+                Recall(content, value, env, level + 1L, cur_srcref)
             }
         } else if (f %in% names(parse_config$library_functions) && length(e) >= 2L) {
             pkgs <- tryCatch(
