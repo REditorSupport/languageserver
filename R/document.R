@@ -186,27 +186,59 @@ get_range_text <- function(content, line1, col1, line2, col2) {
     lines
 }
 
+is_ns_call <- function(x) {
+    length(x) == 3L && is.symbol(x[[1L]]) && as.character(x[[1L]]) %in% c("::", ":::")
+}
+
+# Check if an expression is a simple call like `foo(bar)` or `pkg::foo(bar)`
+# This rules out anonymous function call like `(function(x) x + 1)(bar)`
+is_simple_call <- function(x) {
+    is.call(x) && (is.symbol(x[[1L]]) || is_ns_call(x[[1]]))
+}
+
+# We should handle base function specially as users may use base::fun form
+# The reason that we only take care of `base` (not `utils`) is that only `base` calls can generate symbols
+# Check if the lang is in base::fun form
+is_base_call <- function(x) {
+    is_ns_call(x) && as.character(x[[2L]]) == "base"
+}
+
+# Handle `base` function specically by removing the `base::` prefix
+fun_string <- function(x) {
+    if (is_base_call(x)) as.character(x[[3L]]) else deparse(x)
+}
+
+parse_config <- new.env()
+parse_config$unscoped_functions <- c(
+    "system.time",
+    "try",
+    "tryCatch",
+    "withCallingHandlers",
+    "withRestarts",
+    "allowInterrupts",
+    "suspendInterrupts",
+    "suppressPackageStartupMessages",
+    "suppressMessages",
+    "suppressWarnings",
+    "assertError",
+    "assertWarning",
+    "assertCondition"
+)
+
+parse_config$library_functions <- c(
+    "library",
+    "require",
+    "pacman::p_load"
+)
+
 parse_expr <- function(content, expr, env, level = 0L, srcref = attr(expr, "srcref")) {
     if (length(expr) == 0L || is.symbol(expr)) {
-          return(env)
+        return(env)
     }
-    # We should handle base function specially as users may use base::fun form
-    # The reason that we only take care of `base` (not `utils`) is that only `base` calls can generate symbols
-    # Check if the lang is in base::fun form
-    is_base_call <- function(x) {
-        length(x) == 3L && as.character(x[[1L]]) %in% c("::", ":::") && as.character(x[[2L]]) == "base"
-    }
-    # Be able to handle `pkg::name` case (note `::` is a function)
-    is_symbol <- function(x) {
-        is.symbol(x) || is_base_call(x)
-    }
-    # Handle `base` function specically by removing the `base::` prefix
-    fun_string <- function(x) {
-        if (is_base_call(x)) as.character(x[[3L]]) else as.character(x)
-    }
+
     for (i in seq_along(expr)) {
         e <- expr[[i]]
-        if (missing(e) || !is.call(e) || !is_symbol(e[[1L]])) next
+        if (missing(e) || !is_simple_call(e)) next
         f <- fun_string(e[[1L]])
         cur_srcref <- if (level == 0L) srcref[[i]] else srcref
         if (f %in% c("{", "(")) {
@@ -227,6 +259,10 @@ parse_expr <- function(content, expr, env, level = 0L, srcref = attr(expr, "srcr
             Recall(content, e[[3L]], env, level + 1L, cur_srcref)
         } else if (f == "repeat") {
             Recall(content, e[[2L]], env, level + 1L, cur_srcref)
+        } else if (f %in% parse_config$unscoped_functions) {
+            if (length(e) >= 2L) {
+                Recall(content, e[[2L]], env, level + 1L, cur_srcref)
+            }
         } else if (f %in% c("<-", "=", "delayedAssign", "makeActiveBinding", "assign")) {
             # to see the pos/env/assign.env of assigning functions is set or not
             # if unset, it means using the default value, which is top-level
@@ -297,7 +333,7 @@ parse_expr <- function(content, expr, env, level = 0L, srcref = attr(expr, "srcr
             } else {
                 env$nonfuncts <- c(env$nonfuncts, symbol)
             }
-        } else if (f %in% c("library", "require") && length(e) == 2L) {
+        } else if (f %in% parse_config$library_functions && length(e) == 2L) {
             pkg <- as.character(e[[2L]])
             if (!(pkg %in% env$packages)) {
                 env$packages <- c(env$packages, pkg)
