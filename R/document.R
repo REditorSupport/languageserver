@@ -237,7 +237,7 @@ parse_config$unscoped_functions <- list(
     suppressWarnings = "expr"
 )
 
-parse_config$library_functions <- c(
+parse_config$library_functions <- list(
     "library" = function(call) {
         call <- match.call(base::library, call)
         if (!isTRUE(call$character.only)) {
