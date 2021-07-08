@@ -262,120 +262,132 @@ parse_config$library_functions <- c(
     }
 )
 
-parse_expr <- function(content, expr, env, level = 0L, srcref = attr(expr, "srcref")) {
-    if (length(expr) == 0L || is.symbol(expr)) {
+parse_expr <- function(content, expr, env, srcref = attr(expr, "srcref")) {
+    if (length(expr) == 0L || is.symbol(expr) || is.atomic(expr)) {
         return(env)
     }
 
-    for (i in seq_along(expr)) {
-        e <- expr[[i]]
-        if (missing(e) || !is_simple_call(e)) next
-        f <- fun_string(e[[1L]])
-        cur_srcref <- if (level == 0L) srcref[[i]] else srcref
-        if (f %in% c("{", "(")) {
-            Recall(content, e[-1L], env, level + 1L, cur_srcref)
-        } else if (f == "if") {
-            Recall(content, e[[2L]], env, level + 1L, cur_srcref)
-            Recall(content, e[[3L]], env, level + 1L, cur_srcref)
-            if (length(e) == 4L) {
-                Recall(content, e[[4L]], env, level + 1L, cur_srcref)
-            }
-        } else if (f == "for") {
-            if (is.symbol(e[[2L]])) {
-                env$nonfuncts <- c(env$nonfuncts, as.character(e[[2L]]))
-            }
-            Recall(content, e[[4L]], env, level + 1L, cur_srcref)
-        } else if (f == "while") {
-            Recall(content, e[[2L]], env, level + 1L, cur_srcref)
-            Recall(content, e[[3L]], env, level + 1L, cur_srcref)
-        } else if (f == "repeat") {
-            Recall(content, e[[2L]], env, level + 1L, cur_srcref)
-        } else if (f %in% names(parse_config$unscoped_functions)) {
-            if (length(e) >= 2L) {
-                fun <- tryCatch(eval(e[[1L]], globalenv()), error = function(e) NULL)
-                if (is.function(fun)) {
-                    call <- match.call(fun, e, expand.dots = FALSE)
-                    captures <- parse_config$unscoped_functions[[f]]
-                    for (capture in captures) {
-                        if (is.call(call[[capture]])) {
-                            Recall(content, call[[capture]], env, level + 1L, cur_srcref)
+    if (is.expression(expr)) {
+        for (i in seq_along(expr)) {
+            Recall(content, expr[[i]], env, srcref[[i]])
+        }
+    } else if (is.list(expr)) {
+        for (i in seq_along(expr)) {
+            e <- expr[[i]]
+            if (missing(e)) next
+            Recall(content, e, env, srcref)
+        }
+    } else if (is.call(expr)) {
+        if (is_simple_call(expr)) {
+            e <- expr
+            f <- fun_string(e[[1]])
+            if (f %in% c("{", "(")) {
+                Recall(content, as.list(e)[-1L], env, srcref)
+            } else if (f == "if") {
+                Recall(content, e[[2L]], env, srcref)
+                Recall(content, e[[3L]], env, srcref)
+                if (length(e) == 4L) {
+                    Recall(content, e[[4L]], env, srcref)
+                }
+            } else if (f == "for") {
+                if (is.symbol(e[[2L]])) {
+                    env$nonfuncts <- c(env$nonfuncts, as.character(e[[2L]]))
+                }
+                Recall(content, e[[4L]], env, srcref)
+            } else if (f == "while") {
+                Recall(content, e[[2L]], env, srcref)
+                Recall(content, e[[3L]], env, srcref)
+            } else if (f == "repeat") {
+                Recall(content, e[[2L]], env, srcref)
+            } else if (f %in% names(parse_config$unscoped_functions)) {
+                if (length(e) >= 2L) {
+                    fun <- tryCatch(eval(e[[1L]], globalenv()), error = function(e) NULL)
+                    if (is.function(fun)) {
+                        call <- match.call(fun, e, expand.dots = FALSE)
+                        captures <- parse_config$unscoped_functions[[f]]
+                        for (capture in captures) {
+                            if (is.call(call[[capture]])) {
+                                Recall(content, call[[capture]], env, srcref)
+                            }
                         }
                     }
                 }
-            }
-        } else if (f %in% c("<-", "=", "delayedAssign", "makeActiveBinding", "assign")) {
-            type <- NULL
-            recall <- FALSE
+            } else if (f %in% c("<-", "=", "delayedAssign", "makeActiveBinding", "assign")) {
+                type <- NULL
+                recall <- FALSE
 
-            if (f %in% c("<-", "=")) {
-                if (length(e) != 3L || !is.symbol(e[[2L]])) next
-                symbol <- as.character(e[[2L]])
-                value <- e[[3L]]
-                recall <- TRUE
-            } else if (f == "delayedAssign") {
-                call <- match.call(base::delayedAssign, as.call(e))
-                if (!is.character(call$x)) next
-                if (!is_top_level(call$assign.env)) next
-                symbol <- call$x
-                value <- call$value
-                recall <- TRUE
-            } else if (f == "assign") {
-                call <- match.call(base::assign, as.call(e))
-                if (!is.character(call$x)) next
-                if (!is_top_level(call$pos, -1L, -1)) next # -1 is the default
-                if (!is_top_level(call$envir)) next
-                symbol <- call$x
-                value <- call$value
-                recall <- TRUE
-            } else if (f == "makeActiveBinding") {
-                call <- match.call(base::makeActiveBinding, as.call(e))
-                if (!is.character(call$sym)) next
-                if (!is_top_level(call$env)) next
-                symbol <- call$sym
-                value <- call$fun
-                type <- "variable"
-            }
+                if (f %in% c("<-", "=")) {
+                    if (length(e) != 3L || !is.symbol(e[[2L]])) return(env)
+                    symbol <- as.character(e[[2L]])
+                    value <- e[[3L]]
+                    recall <- TRUE
+                } else if (f == "delayedAssign") {
+                    call <- match.call(base::delayedAssign, as.call(e))
+                    if (!is.character(call$x)) return(env)
+                    if (!is_top_level(call$assign.env)) return(env)
+                    symbol <- call$x
+                    value <- call$value
+                    recall <- TRUE
+                } else if (f == "assign") {
+                    call <- match.call(base::assign, as.call(e))
+                    if (!is.character(call$x)) return(env)
+                    if (!is_top_level(call$pos, -1, -1)) return(env) # -1 is the default
+                    if (!is_top_level(call$envir)) return(env)
+                    symbol <- call$x
+                    value <- call$value
+                    recall <- TRUE
+                } else if (f == "makeActiveBinding") {
+                    call <- match.call(base::makeActiveBinding, as.call(e))
+                    if (!is.character(call$sym)) return(env)
+                    if (!is_top_level(call$env)) return(env)
+                    symbol <- call$sym
+                    value <- call$fun
+                    type <- "variable"
+                }
 
-            if (is.null(type)) {
-                type <- get_expr_type(value)
-            }
+                if (is.null(type)) {
+                    type <- get_expr_type(value)
+                }
 
-            env$objects <- c(env$objects, symbol)
+                env$objects <- c(env$objects, symbol)
 
-            expr_range <- expr_range(cur_srcref)
-            env$definitions[[symbol]] <- list(
-                name = symbol,
-                type = type,
-                range = expr_range
-            )
+                expr_range <- expr_range(srcref)
+                env$definitions[[symbol]] <- list(
+                    name = symbol,
+                    type = type,
+                    range = expr_range
+                )
 
-            doc_line1 <- detect_comments(content, expr_range$start$line) + 1
-            if (doc_line1 <= expr_range$start$line) {
-                comment <- content[seq.int(doc_line1, expr_range$start$line)]
-                env$documentation[[symbol]] <- convert_comment_to_documentation(comment)
-            }
+                doc_line1 <- detect_comments(content, expr_range$start$line) + 1
+                if (doc_line1 <= expr_range$start$line) {
+                    comment <- content[seq.int(doc_line1, expr_range$start$line)]
+                    env$documentation[[symbol]] <- convert_comment_to_documentation(comment)
+                }
 
-            if (type == "function") {
-                env$functs <- c(env$functs, symbol)
-                env$formals[[symbol]] <- value[[2L]]
-                env$signatures[[symbol]] <- get_signature(symbol, value)
-            } else {
-                env$nonfuncts <- c(env$nonfuncts, symbol)
-            }
+                if (type == "function") {
+                    env$functs <- c(env$functs, symbol)
+                    env$formals[[symbol]] <- value[[2L]]
+                    env$signatures[[symbol]] <- get_signature(symbol, value)
+                } else {
+                    env$nonfuncts <- c(env$nonfuncts, symbol)
+                }
 
-            if (recall && is.call(value)) {
-                Recall(content, value, env, level + 1L, cur_srcref)
-            }
-        } else if (f %in% names(parse_config$library_functions) && length(e) >= 2L) {
-            pkgs <- tryCatch(
-                parse_config$library_functions[[f]](e),
-                error = function(e) NULL
-            )
-            pkgs <- pkgs[nzchar(pkgs)]
-            if (length(pkgs)) {
-                env$packages <- union(env$packages, pkgs)
+                if (recall && is.call(value)) {
+                    Recall(content, value, env, srcref)
+                }
+            } else if (f %in% names(parse_config$library_functions) && length(e) >= 2L) {
+                pkgs <- tryCatch(
+                    parse_config$library_functions[[f]](e),
+                    error = function(e) NULL
+                )
+                pkgs <- pkgs[nzchar(pkgs)]
+                if (length(pkgs)) {
+                    env$packages <- union(env$packages, pkgs)
+                }
             }
         }
+    } else {
+        stop("Invalid type")
     }
     env
 }
