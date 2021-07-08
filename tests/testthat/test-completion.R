@@ -168,7 +168,7 @@ test_that("Completion of package functions attached in unscoped functions works"
     writeLines(
         c(
             "suppressPackageStartupMessages(library(jsonlite))",
-            "fromJS",
+            "fromJS"
         ),
         temp_file)
 
