@@ -118,7 +118,7 @@ test_that("Simple completion is case insensitive", {
     expect_length(result$items %>% keep(~ .$label == "mtcars"), 1)
 })
 
-test_that("Completion of functions in attached packages work", {
+test_that("Completion of attached package functions works", {
     skip_on_cran()
     client <- language_client()
 
@@ -133,12 +133,56 @@ test_that("Completion of functions in attached packages work", {
         temp_file)
 
     client %>% did_save(temp_file)
+    Sys.sleep(1)
 
     result <- client %>% respond_completion(temp_file, c(2, 6))
-
     expect_length(result$items %>% keep(~ .$label == "fromJSON"), 1)
 
     result <- client %>% respond_completion(temp_file, c(3, 7))
+    expect_length(result$items %>% keep(~ .$label == "read_xml"), 1)
+
+    temp_file <- withr::local_tempfile(fileext = ".R")
+    writeLines(
+        c(
+            "pacman::p_load(jsonlite, xml2)",
+            "fromJS",
+            "read_xm"
+        ),
+        temp_file)
+
+    client %>% did_save(temp_file)
+    Sys.sleep(1)
+
+    result <- client %>% respond_completion(temp_file, c(1, 6))
+    expect_length(result$items %>% keep(~ .$label == "fromJSON"), 1)
+
+    result <- client %>% respond_completion(temp_file, c(2, 7))
+    expect_length(result$items %>% keep(~ .$label == "read_xml"), 1)
+})
+
+test_that("Completion of package functions attached in unscoped functions works", {
+    skip_on_cran()
+    client <- language_client()
+
+    temp_file <- withr::local_tempfile(fileext = ".R")
+    writeLines(
+        c(
+            "suppressPackageStartupMessages({",
+            "  library(jsonlite)",
+            "  require('xml2')",
+            "})",
+            "fromJS",
+            "read_xm"
+        ),
+        temp_file)
+
+    client %>% did_save(temp_file)
+    Sys.sleep(1)
+
+    result <- client %>% respond_completion(temp_file, c(4, 6))
+    expect_length(result$items %>% keep(~ .$label == "fromJSON"), 1)
+
+    result <- client %>% respond_completion(temp_file, c(5, 7))
     expect_length(result$items %>% keep(~ .$label == "read_xml"), 1)
 })
 
