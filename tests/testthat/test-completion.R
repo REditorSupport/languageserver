@@ -151,12 +151,13 @@ test_that("Completion of attached package functions works", {
         temp_file)
 
     client %>% did_save(temp_file)
-    Sys.sleep(1)
 
-    result <- client %>% respond_completion(temp_file, c(1, 6))
+    result <- client %>% respond_completion(temp_file, c(1, 6),
+        retry_when = function(result) result$items %>% keep(~ .$label == "fromJSON") %>% length() == 0)
     expect_length(result$items %>% keep(~ .$label == "fromJSON"), 1)
 
-    result <- client %>% respond_completion(temp_file, c(2, 7))
+    result <- client %>% respond_completion(temp_file, c(2, 7),
+        retry_when = function(result) result$items %>% keep(~ .$label == "read_xml") %>% length() == 0)
     expect_length(result$items %>% keep(~ .$label == "read_xml"), 1)
 })
 
@@ -173,9 +174,9 @@ test_that("Completion of package functions attached in unscoped functions works"
         temp_file)
 
     client %>% did_save(temp_file)
-    Sys.sleep(1)
 
-    result <- client %>% respond_completion(temp_file, c(1, 6))
+    result <- client %>% respond_completion(temp_file, c(1, 6),
+        retry_when = function(result) result$items %>% keep(~ .$label == "fromJSON") %>% length() == 0)
     expect_length(result$items %>% keep(~ .$label == "fromJSON"), 1)
 
     writeLines(
@@ -192,10 +193,12 @@ test_that("Completion of package functions attached in unscoped functions works"
     client %>% did_save(temp_file)
     Sys.sleep(1)
 
-    result <- client %>% respond_completion(temp_file, c(4, 6))
+    result <- client %>% respond_completion(temp_file, c(4, 6),
+        retry_when = function(result) result$items %>% keep(~ .$label == "fromJSON") %>% length() == 0)
     expect_length(result$items %>% keep(~ .$label == "fromJSON"), 1)
 
-    result <- client %>% respond_completion(temp_file, c(5, 7))
+    result <- client %>% respond_completion(temp_file, c(5, 7),
+        retry_when = function(result) result$items %>% keep(~ .$label == "read_xml") %>% length() == 0)
     expect_length(result$items %>% keep(~ .$label == "read_xml"), 1)
 })
 
