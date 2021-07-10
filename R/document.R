@@ -387,7 +387,7 @@ parse_expr <- function(content, expr, env, srcref = attr(expr, "srcref")) {
                     }
                 }
             )
-            fun(expr, action)
+            tryCatch(fun(expr, action), error = function(e) NULL)
         }
     }
     env

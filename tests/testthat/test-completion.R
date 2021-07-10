@@ -202,6 +202,33 @@ test_that("Completion of package functions attached in unscoped functions works"
     expect_length(result$items %>% keep(~ .$label == "read_xml"), 1)
 })
 
+test_that("Completion is robust to invalid source", {
+    skip_on_cran()
+    client <- language_client()
+
+    temp_file <- withr::local_tempfile(fileext = ".R")
+    writeLines(
+        c(
+            "library(jsonlite)",
+            "require('xml2')",
+            "require('')",
+            "require('xml2', nonexist_arg = 0)",
+            "fromJS",
+            "read_xm"
+        ),
+        temp_file)
+
+    client %>% did_save(temp_file)
+
+    result <- client %>% respond_completion(temp_file, c(4, 6),
+        retry_when = function(result) result$items %>% keep(~ .$label == "fromJSON") %>% length() == 0)
+    expect_length(result$items %>% keep(~ .$label == "fromJSON"), 1)
+
+    result <- client %>% respond_completion(temp_file, c(5, 7),
+        retry_when = function(result) result$items %>% keep(~ .$label == "read_xml") %>% length() == 0)
+    expect_length(result$items %>% keep(~ .$label == "read_xml"), 1)
+})
+
 test_that("Completion of function arguments works", {
     skip_on_cran()
     client <- language_client()

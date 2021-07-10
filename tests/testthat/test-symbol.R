@@ -36,7 +36,7 @@ test_that("Document Symbol works", {
     )
 })
 
-test_that("Recognize symbols created by delayedAssign()/assign()/makeActiveBinding()", {
+test_that("Recognize symbols created by delayedAssign/assign/makeActiveBinding", {
     skip_on_cran()
     client <- language_client()
 
@@ -70,6 +70,32 @@ test_that("Recognize symbols created by delayedAssign()/assign()/makeActiveBindi
     expect_setequal(
         result %>% map_chr(~ .$name),
         c("d1", "d2", "d3", "d5", "d7", "a1", "a2", "a3", "a5", "assign1", "assign2", "assign3")
+    )
+})
+
+test_that("Document symbols are robust to invalid source", {
+    skip_on_cran()
+    client <- language_client()
+
+    defn_file <- withr::local_tempfile(fileext = ".R")
+    writeLines(c(
+        "'' <- 2",
+        "assign('', 3)",
+        "delayedAssign('', 1)",
+        "makeActiveBinding('', 2)",
+        "makeActiveBinding(x, 1)",
+        "assign('var1', 1, nonexist_arg = TRUE)",
+        "delayedAssign('var1', 1, nonexist_arg = TRUE)",
+        "makeActiveBinding('var1', 1, nonexist_arg = TRUE)",
+        "d1 <- 1"
+    ), defn_file)
+
+    client %>% did_save(defn_file)
+    result <- client %>% respond_document_symbol(defn_file)
+
+    expect_setequal(
+        result %>% map_chr(~ .$name),
+        c("d1")
     )
 })
 
