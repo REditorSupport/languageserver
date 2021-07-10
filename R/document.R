@@ -338,10 +338,16 @@ parse_expr <- function(content, expr, env, srcref = attr(expr, "srcref")) {
                 update = function(...) {
                     updates <- list(...)
                     for (name in names(updates)) {
-                        env[[name]] <- union(env[[name]], updates[[name]])
+                        values <- updates[[name]]
+                        values <- values[nzchar(values)]
+                        if (length(values)) {
+                            env[[name]] <- union(env[[name]], values)
+                        }
                     }
                 },
                 assign = function(symbol, value, type = get_expr_type(value)) {
+                    if (!nzchar(symbol)) return(NULL)
+
                     env$objects <- c(env$objects, symbol)
 
                     expr_range <- expr_range(srcref)
