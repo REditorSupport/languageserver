@@ -231,7 +231,7 @@ parser_hooks <- list(
         action$recall(as.list(expr)[-1L])
     },
     "if" = function(expr, action) {
-        action$recall(as.list(expr)[2:4])
+        action$recall(as.list(expr)[-1L])
     },
     "for" = function(expr, action) {
         if (is.symbol(e <- expr[[2L]])) {
@@ -240,7 +240,7 @@ parser_hooks <- list(
         action$recall(expr[[4L]])
     },
     "while" = function(expr, action) {
-        action$recall(as.list(expr)[2:3])
+        action$recall(as.list(expr)[-1L])
     },
     "repeat" = function(expr, action) {
         action$recall(expr[[2L]])
