@@ -223,43 +223,96 @@ is_top_level <- function(arg_env, ...) {
     any(vapply(top_level_envs, identical, x = arg_env, FUN.VALUE = logical(1L)))
 }
 
-parse_config <- new.env()
-parse_config$unscoped_functions <- list(
-    system.time = "expr",
-    try = "expr",
-    tryCatch = c("expr", "finally"),
-    withCallingHandlers = "expr",
-    withRestarts = "expr",
-    allowInterrupts = "expr",
-    suspendInterrupts = "expr",
-    suppressPackageStartupMessages = "expr",
-    suppressMessages = "expr",
-    suppressWarnings = "expr"
-)
-
-parse_config$library_functions <- list(
-    "library" = function(call) {
-        call <- match.call(base::library, call)
-        if (!isTRUE(call$character.only)) {
-            as.character(call$package)
+parser_hooks <- list(
+    "{" = function(expr, action) {
+        action$recall(as.list(expr)[-1L])
+    },
+    "(" = function(expr, action) {
+        action$recall(as.list(expr)[-1L])
+    },
+    "if" = function(expr, action) {
+        action$recall(as.list(expr)[2:4])
+    },
+    "for" = function(expr, action) {
+        if (is.symbol(e <- expr[[2L]])) {
+            action$update(nonfuncts = as.character(e))
+        }
+        action$recall(expr[[4L]])
+    },
+    "while" = function(expr, action) {
+        action$recall(as.list(expr)[2:3])
+    },
+    "repeat" = function(expr, action) {
+        action$recall(expr[[2L]])
+    },
+    "<-" = function(expr, action) {
+        if (length(expr) == 3L && is.symbol(expr[[2L]])) {
+            action$assign(symbol = as.character(expr[[2L]]), value = expr[[3L]])
+            action$recall(expr[[3L]])
         }
     },
-    "require" = function(call) {
-        call <- match.call(base::require, call)
-        if (!isTRUE(call$character.only)) {
-            as.character(call$package)
+    "=" = function(expr, action) {
+        if (length(expr) == 3L && is.symbol(expr[[2L]])) {
+            action$assign(symbol = as.character(expr[[2L]]), value = expr[[3L]])
+            action$recall(expr[[3L]])
         }
     },
-    "pacman::p_load" = function(call) {
+    "assign" = function(expr, action) {
+        call <- match.call(base::assign, expr)
+        if (is.character(call$x) && is_top_level(call$pos, -1L, -1) && is_top_level(call$envir)) {
+            action$assign(symbol = call$x, value = call$value)
+            action$recall(call$value)
+        }
+    },
+    "delayedAssign" = function(expr, action) {
+        call <- match.call(base::delayedAssign, expr)
+        if (is.character(call$x) && is_top_level(call$assign.env)) {
+            action$assign(symbol = call$x, value = call$value)
+            action$recall(call$value)
+        }
+    },
+    "makeActiveBinding" = function(expr, action) {
+        call <- match.call(base::makeActiveBinding, expr)
+        if (is.character(call$sym) && is_top_level(call$env)) {
+            action$assign(symbol = call$sym, value = call$fun, type = "variable")
+        }
+    },
+    "library" = function(expr, action) {
+        call <- match.call(base::library, expr)
+        if (!isTRUE(call$character.only)) {
+            action$update(packages = as.character(call$package))
+        }
+        NULL
+    },
+    "require" = function(expr, action) {
+        call <- match.call(base::require, expr)
+        if (!isTRUE(call$character.only)) {
+            action$update(packages = as.character(call$package))
+        }
+        NULL
+    },
+    "pacman::p_load" = function(expr, action) {
         fun <- if (requireNamespace("pacman")) pacman::p_load else
             function(..., char, install = TRUE,
                      update = getOption("pac_update"),
                      character.only = FALSE) NULL
-        call <- match.call(fun, call, expand.dots = FALSE)
+        call <- match.call(fun, expr, expand.dots = FALSE)
         if (!isTRUE(call$character.only)) {
-            vapply(call[["..."]], as.character, character(1L))
+            packages <- vapply(call[["..."]], as.character, character(1L))
+            action$update(packages = packages)
         }
-    }
+        NULL
+    },
+    "system.time" = function(expr, action) action$recall("expr"),
+    "try" = function(expr, action) action$recall("expr"),
+    "tryCatch" = function(expr, action) action$recall(c("expr", "finally")),
+    "withCallingHandlers" = function(expr, action) action$recall("expr"),
+    "withRestarts" = function(expr, action) action$recall("expr"),
+    "allowInterrupts" = function(expr, action) action$recall("expr"),
+    "suspendInterrupts" = function(expr, action) action$recall("expr"),
+    "suppressPackageStartupMessages" = function(expr, action) action$recall("expr"),
+    "suppressMessages" = function(expr, action) action$recall("expr"),
+    "suppressWarnings" = function(expr, action) action$recall("expr")
 )
 
 parse_expr <- function(content, expr, env, srcref = attr(expr, "srcref")) {
@@ -278,111 +331,57 @@ parse_expr <- function(content, expr, env, srcref = attr(expr, "srcref")) {
             Recall(content, e, env, srcref)
         }
     } else if (is_simple_call(expr)) {
-        e <- expr
-        f <- fun_string(e[[1]])
-        if (f %in% c("{", "(")) {
-            Recall(content, as.list(e)[-1L], env, srcref)
-        } else if (f == "if") {
-            Recall(content, e[[2L]], env, srcref)
-            Recall(content, e[[3L]], env, srcref)
-            if (length(e) == 4L) {
-                Recall(content, e[[4L]], env, srcref)
-            }
-        } else if (f == "for") {
-            if (is.symbol(e[[2L]])) {
-                env$nonfuncts <- c(env$nonfuncts, as.character(e[[2L]]))
-            }
-            Recall(content, e[[4L]], env, srcref)
-        } else if (f == "while") {
-            Recall(content, e[[2L]], env, srcref)
-            Recall(content, e[[3L]], env, srcref)
-        } else if (f == "repeat") {
-            Recall(content, e[[2L]], env, srcref)
-        } else if (f %in% names(parse_config$unscoped_functions)) {
-            if (length(e) >= 2L) {
-                fun <- tryCatch(eval(e[[1L]], globalenv()), error = function(e) NULL)
-                if (is.function(fun)) {
-                    call <- match.call(fun, e, expand.dots = FALSE)
-                    captures <- parse_config$unscoped_functions[[f]]
-                    for (capture in captures) {
-                        if (is.call(call[[capture]])) {
-                            Recall(content, call[[capture]], env, srcref)
+        f <- fun_string(expr[[1L]])
+        fun <- parser_hooks[[f]]
+        if (is.function(fun)) {
+            action <- list(
+                update = function(...) {
+                    updates <- list(...)
+                    for (name in names(updates)) {
+                        env[[name]] <- union(env[[name]], updates[[name]])
+                    }
+                },
+                assign = function(symbol, value, type = get_expr_type(value)) {
+                    env$objects <- c(env$objects, symbol)
+
+                    expr_range <- expr_range(srcref)
+                    env$definitions[[symbol]] <- list(
+                        name = symbol,
+                        type = type,
+                        range = expr_range
+                    )
+
+                    doc_line1 <- detect_comments(content, expr_range$start$line) + 1
+                    if (doc_line1 <= expr_range$start$line) {
+                        comment <- content[seq.int(doc_line1, expr_range$start$line)]
+                        env$documentation[[symbol]] <- convert_comment_to_documentation(comment)
+                    }
+
+                    if (type == "function") {
+                        env$functs <- c(env$functs, symbol)
+                        env$formals[[symbol]] <- value[[2L]]
+                        env$signatures[[symbol]] <- get_signature(symbol, value)
+                    } else {
+                        env$nonfuncts <- c(env$nonfuncts, symbol)
+                    }
+                },
+                recall = function(value) {
+                    if (is.character(value)) {
+                        fn <- tryCatch(eval(expr[[1L]], globalenv()), error = function(e) NULL)
+                        if (is.function(fn)) {
+                            call <- match.call(fn, expr, expand.dots = FALSE)
+                            for (arg in value) {
+                                if (is.call(call[[arg]])) {
+                                    parse_expr(content, call[[arg]], env, srcref)
+                                }
+                            }
                         }
+                    } else {
+                        parse_expr(content, value, env, srcref)
                     }
                 }
-            }
-        } else if (f %in% c("<-", "=", "delayedAssign", "makeActiveBinding", "assign")) {
-            type <- NULL
-            recall <- FALSE
-
-            if (f %in% c("<-", "=")) {
-                if (length(e) != 3L || !is.symbol(e[[2L]])) return(env)
-                symbol <- as.character(e[[2L]])
-                value <- e[[3L]]
-                recall <- TRUE
-            } else if (f == "delayedAssign") {
-                call <- match.call(base::delayedAssign, as.call(e))
-                if (!is.character(call$x)) return(env)
-                if (!is_top_level(call$assign.env)) return(env)
-                symbol <- call$x
-                value <- call$value
-                recall <- TRUE
-            } else if (f == "assign") {
-                call <- match.call(base::assign, as.call(e))
-                if (!is.character(call$x)) return(env)
-                if (!is_top_level(call$pos, -1L, -1)) return(env) # -1 is the default
-                if (!is_top_level(call$envir)) return(env)
-                symbol <- call$x
-                value <- call$value
-                recall <- TRUE
-            } else if (f == "makeActiveBinding") {
-                call <- match.call(base::makeActiveBinding, as.call(e))
-                if (!is.character(call$sym)) return(env)
-                if (!is_top_level(call$env)) return(env)
-                symbol <- call$sym
-                value <- call$fun
-                type <- "variable"
-            }
-
-            if (is.null(type)) {
-                type <- get_expr_type(value)
-            }
-
-            env$objects <- c(env$objects, symbol)
-
-            expr_range <- expr_range(srcref)
-            env$definitions[[symbol]] <- list(
-                name = symbol,
-                type = type,
-                range = expr_range
             )
-
-            doc_line1 <- detect_comments(content, expr_range$start$line) + 1
-            if (doc_line1 <= expr_range$start$line) {
-                comment <- content[seq.int(doc_line1, expr_range$start$line)]
-                env$documentation[[symbol]] <- convert_comment_to_documentation(comment)
-            }
-
-            if (type == "function") {
-                env$functs <- c(env$functs, symbol)
-                env$formals[[symbol]] <- value[[2L]]
-                env$signatures[[symbol]] <- get_signature(symbol, value)
-            } else {
-                env$nonfuncts <- c(env$nonfuncts, symbol)
-            }
-
-            if (recall && is.call(value)) {
-                Recall(content, value, env, srcref)
-            }
-        } else if (f %in% names(parse_config$library_functions) && length(e) >= 2L) {
-            pkgs <- tryCatch(
-                parse_config$library_functions[[f]](e),
-                error = function(e) NULL
-            )
-            pkgs <- pkgs[nzchar(pkgs)]
-            if (length(pkgs)) {
-                env$packages <- union(env$packages, pkgs)
-            }
+            fun(expr, action)
         }
     }
     env
