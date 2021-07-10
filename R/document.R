@@ -282,14 +282,12 @@ parser_hooks <- list(
         if (!isTRUE(call$character.only)) {
             action$update(packages = as.character(call$package))
         }
-        NULL
     },
     "require" = function(expr, action) {
         call <- match.call(base::require, expr)
         if (!isTRUE(call$character.only)) {
             action$update(packages = as.character(call$package))
         }
-        NULL
     },
     "pacman::p_load" = function(expr, action) {
         fun <- if (requireNamespace("pacman")) pacman::p_load else
@@ -301,7 +299,6 @@ parser_hooks <- list(
             packages <- vapply(call[["..."]], as.character, character(1L))
             action$update(packages = packages)
         }
-        NULL
     },
     "system.time" = function(expr, action) action$parse_args("expr"),
     "try" = function(expr, action) action$parse_args("expr"),
