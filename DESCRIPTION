@@ -32,7 +32,7 @@ Imports:
     repr (>= 1.1.0),
     roxygen2 (>= 7.0.0),
     stringi (>= 1.1.7),
-    styler (>= 1.4.1),
+    styler (>= 1.5.1),
     tools,
     utils,
     xml2 (>= 1.2.2),
