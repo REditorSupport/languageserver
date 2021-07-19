@@ -18,8 +18,8 @@ install.packages("languageserver")
 The development version of `languageserver` could be installed by running the following in R:
 
 ```r
-# install.packages("devtools")
-devtools::install_github("REditorSupport/languageserver")
+# install.packages("remotes")
+remotes::install_github("REditorSupport/languageserver")
 ```
 
 ## Language Clients
