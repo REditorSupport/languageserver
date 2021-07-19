@@ -189,10 +189,3 @@ options(languageserver.formatting_style = function(options) {
 ```
 
 To further customize the formatting style, please refer to [Customizing styler](https://styler.r-lib.org/articles/customizing_styler.html).
-
-### Using persistent cache for formatting by styler
-
-With [`styler`](https://github.com/r-lib/styler) v1.3, the formatting of top-level expressions
-can be cached by [`R.cache`](https://github.com/HenrikBengtsson/R.cache), which significantly improves the formatting performance by skipping the expressions that are known in cache to be already formatted. By default, the cache only works within the current session.
-
-To make it work across sessions, set the R option `R.cache.rootPath` or environment variable `R_CACHE_ROOTPATH` to an existent path. For more details, see [styler caching](https://styler.r-lib.org/reference/caching.html).
