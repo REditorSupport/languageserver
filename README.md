@@ -24,9 +24,9 @@ remotes::install_github("REditorSupport/languageserver")
 
 ## Language Clients
 
-These editors are supported by installing the corresponding package.
+The following editors are supported by installing the corresponding extensions:
 
-- VSCode: [vscode-r-lsp](https://github.com/REditorSupport/vscode-r-lsp)
+- VS Code: [vscode-R](https://github.com/REditorSupport/vscode-R)
 
 - Atom: [atom-ide-r](https://github.com/REditorSupport/atom-ide-r)
 
@@ -41,32 +41,32 @@ These editors are supported by installing the corresponding package.
     ```
 
   or, if you use [coc.nvim](https://github.com/neoclide/coc.nvim), you can do one of two things:
+  
+  - Install [coc-r-lsp](https://github.com/neoclide/coc-r-lsp) with:
 
-    - Install [coc-r-lsp](https://github.com/neoclide/coc-r-lsp) with:
+    ```vim
+    :CocInstall coc-r-lsp
+    ```
 
-      ```vim
-      :CocInstall coc-r-lsp
-      ```
+  - or install the languageserver package in R
 
-    - or install the languageserver package in R 
+    ```r
+    install.packages("languageserver")
+    # or install the developement version
+    # remotes::install_github("REditorSupport/languageserver")
+    ```
 
-        ```r
-        install.packages("languageserver")
-        # or install the developement version
-        # devtools::install_github("REditorSupport/languageserver")
-        ```
-      
-      Then add the following to your Coc config:
+    Then add the following to your Coc config:
 
-        ```json
-        "languageserver": {
-            "R": {
-                "command": "/usr/bin/R",
-                "args" : [ "--slave", "-e", "languageserver::run()"],
-                "filetypes" : ["r"]
-            }
+    ```json
+    "languageserver": {
+        "R": {
+            "command": "/usr/bin/R",
+            "args" : [ "--slave", "-e", "languageserver::run()"],
+            "filetypes" : ["r"]
         }
-        ```
+    }
+    ```
 
 - Emacs: [lsp-mode](https://github.com/emacs-lsp/lsp-mode)
 
@@ -123,13 +123,13 @@ settings | default | description
 `r.lsp.server_capabilities` | `{}` | override server capabilities defined in [capabilities.R](https://github.com/REditorSupport/languageserver/blob/master/R/capabilities.R). See FAQ below.
 `r.lsp.link_file_size_limit` | 16384 | maximum file size (in bytes) that supports document links
 
-These settings could also specified in `.Rprofile` file via `options(languageserver.<SETTING_NAME> =  <VALUE>)`. For example, 
+These settings could also specified in `.Rprofile` file via `options(languageserver.<SETTING_NAME> =  <VALUE>)`. For example,
 
 ```r
 options(languageserver.snippet_support = FALSE)
 ```
-will turn off snippet support globally. LSP configuration settings are always overriden by `options()`.
 
+will turn off snippet support globally. LSP configuration settings are always overriden by `options()`.
 
 ## FAQ
 
@@ -144,6 +144,7 @@ Server capabilities are defined in
 Users could override the capabilities by specifying the LSP configuration setting
 `server_capabilities` or
 `options(languageserver.server_capabilities)` in `.Rprofile`. For example, to turn off `definitionProvider`, one could either use LSP configuration
+
 ```json
 "r": {
     "lsp": {
@@ -153,7 +154,9 @@ Users could override the capabilities by specifying the LSP configuration settin
     }
 }
 ```
-or R options 
+
+or R options
+
 ```r
 options(
     languageserver.server_capabilities = list(
