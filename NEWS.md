@@ -1,3 +1,32 @@
+# languageserver 0.3.11
+
+**Closed issues:**                                                                     
+- documentation only loaded for packages named in a library() call, not with p_load() (#257)
+- Minimal {styler} version requirement (#457)
+- If load package via pacman::p_load(), the autocompletion will be not able to work well  (#426)
+- If I wrap library call in suppressPackageStartUpLanguages, autocompletion won't work (#451)
+- Handle `workspace/didChangeWatchedFiles` (#446)
+- Environment variable LANG (#435)
+- Support lambda as function (#427)
+- Support pipe operator in onTypeFormatting (#430)
+- Exclusions in .lintr not working (#282)
+- Packages not loaded prior to linting with coc-r-lsp (#238)
+- Provide diagnostics on non-installed packages (#80)
+
+**Merged pull requests:**
+- Require styler >= 1.5.1 (#458)
+- Support unscoped functions and library functions (#452)
+- Handle `workspace/didChangeWatchedFiles` (#447)
+- Add code action to disable linters (#408)
+- Improve handling configuration settings (#439)
+- check if lintr is new enough (#437)
+- Use lint text if supported (#284)
+- output text as is (#436)
+- consolidate github action jobs (#434)
+- Lambda support (#428)
+- Use a function call as the completer in on-type-formatting (#431)
+- support trace in InitializeParams (#423)
+
 # languageserver 0.3.10
 
 **Closed issues:**                                                   
