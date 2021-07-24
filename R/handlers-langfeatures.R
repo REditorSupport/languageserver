@@ -55,7 +55,7 @@ text_document_definition  <- function(self, id, params) {
     uri <- uri_escape_unicode(textDocument$uri)
     document <- self$workspace$documents$get(uri)
     point <- document$from_lsp_position(params$position)
-    rootPath <- if (length(self$rootPath)) self$rootPath else dirname(path_from_uri(uri))
+    rootPath <- get_root_path_for_uri(uri, self$rootPath)
     self$deliver(definition_reply(id, uri, self$workspace, document, point, rootPath))
 }
 
@@ -164,7 +164,7 @@ text_document_document_link  <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- uri_escape_unicode(textDocument$uri)
     document <- self$workspace$documents$get(uri)
-    rootPath <- if (length(self$rootPath)) self$rootPath else dirname(path_from_uri(uri))
+    rootPath <- get_root_path_for_uri(uri, self$rootPath)
     reply <- document_link_reply(id, uri, self$workspace, document, rootPath)
     if (is.null(reply)) {
         queue <- self$pending_replies$get(uri)[["textDocument/documentLink"]]
