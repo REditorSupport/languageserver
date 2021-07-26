@@ -462,6 +462,19 @@ is_package <- function(rootPath) {
     file.exists(file) && !dir.exists(file)
 }
 
+get_root_path_for_uri <- function(uri, rootPath) {
+    if (length(rootPath)) {
+        # valid workspace folder
+        rootPath
+    } else if (nzchar(path <- path_from_uri(uri))) {
+        # null workspace folder
+        dirname(path)
+    } else {
+        # untitled document
+        getwd()
+    }
+}
+
 #' read a character from stdin
 #'
 #' @noRd

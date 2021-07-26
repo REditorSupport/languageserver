@@ -86,6 +86,30 @@ test_that("Go to Definition works in single file", {
     expect_equal(length(result), 0)
 })
 
+test_that("Go to Definition works in untilted documents", {
+    skip_on_cran()
+    client <- language_client()
+
+    uri <- "untitled:Untitled-1"
+
+    client %>% did_open(uri = uri, text = c(
+        "my_fn <- function(x) {x + 1}",
+        "my_fn",
+        ".nonexistent"
+    ))
+
+    # first query a known function to make sure the file is processed
+    result <- client %>% respond_definition(NULL, c(1, 0), uri = uri)
+
+    expect_equal(result$range$start, list(line = 0, character = 0))
+    expect_equal(result$range$end, list(line = 0, character = 28))
+
+    # then query the missing function. The file is processed, don't need to retry
+    result <- client %>% respond_definition(NULL, c(2, 0), uri = uri, retry = FALSE)
+
+    expect_equal(length(result), 0)
+})
+
 test_that("Go to Definition works in scope with different assignment operators", {
     skip_on_cran()
     client <- language_client()

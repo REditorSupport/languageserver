@@ -1,4 +1,4 @@
-test_that("Null-root workspace works", {
+test_that("Null workspace folder works", {
   skip_on_cran()
   client <- language_client(NULL)
 
