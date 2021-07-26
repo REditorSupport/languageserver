@@ -376,6 +376,33 @@ test_that("Completion of local function arguments works", {
     expect_length(arg_items, 1)
 })
 
+test_that("Completion of local function arguments works in untitled documents", {
+    skip_on_cran()
+    client <- language_client()
+
+    uri <- "untitled:Untitled-1"
+
+    client %>% did_open(uri = uri, text = c(
+        "local({",
+        "  test <- function(vararg1, vararg2=1) {",
+        "    vararg1 + vararg2",
+        "  }",
+        "  test(vararg",
+        "  )",
+        "})"
+    ))
+
+    result <- client %>% respond_completion(
+        NULL, c(4, 13), uri = uri,
+        retry_when = function(result) length(result) == 0 || length(result$items) == 0
+    )
+    arg_items <- result$items %>% keep(~ .$label == "vararg1")
+    expect_length(arg_items, 1)
+
+    arg_items <- result$items %>% keep(~ .$label == "vararg2")
+    expect_length(arg_items, 1)
+})
+
 test_that("Completion of user function arguments preserves the order of arguments", {
     skip_on_cran()
     client <- language_client()
