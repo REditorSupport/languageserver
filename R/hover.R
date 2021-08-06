@@ -23,7 +23,7 @@ hover_reply <- function(id, uri, workspace, document, point) {
     resolved <- FALSE
 
     version <- workspace$get_parse_data(uri)$version
-    logger$info("hover:", list(uri = uri, version = version))
+    logger$info("hover:", list(uri = uri, version = version, token = token_result))
 
     xdoc <- workspace$get_parse_data(uri)$xml_doc
 
@@ -205,6 +205,9 @@ hover_reply <- function(id, uri, workspace, document, point) {
                 resolved <- TRUE
             } else if (token_name == "COMMENT") {
                 # comment
+                resolved <- TRUE
+            } else if (startsWith(token_name, "OP-")) {
+                # operators
                 resolved <- TRUE
             }
         }
