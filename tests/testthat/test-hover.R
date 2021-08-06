@@ -92,6 +92,38 @@ test_that("Hover on variable works", {
     expect_equal(result$contents, "```r\nvar1 <- 0\n```")
 })
 
+test_that("Hover on variable with leading tabs works", {
+    skip_on_cran()
+    client <- language_client()
+
+    temp_file <- withr::local_tempfile(fileext = ".R")
+    writeLines(
+        c(
+            "index1 <- 1:10",
+            "\tindex1 + 1",
+            "\t\tindex1 + 2"
+        ),
+        temp_file
+    )
+
+    client %>% did_save(temp_file)
+
+    result <- client %>% respond_hover(temp_file, c(0, 1))
+    expect_equal(result$range$start, list(line = 0, character = 0))
+    expect_equal(result$range$end, list(line = 0, character = 6))
+    expect_equal(result$contents, "```r\nindex1 <- 1:10\n```")
+
+    result <- client %>% respond_hover(temp_file, c(1, 4))
+    expect_equal(result$range$start, list(line = 1, character = 1))
+    expect_equal(result$range$end, list(line = 1, character = 7))
+    expect_equal(result$contents, "```r\nindex1 <- 1:10\n```")
+
+    result <- client %>% respond_hover(temp_file, c(2, 7))
+    expect_equal(result$range$start, list(line = 2, character = 2))
+    expect_equal(result$range$end, list(line = 2, character = 8))
+    expect_equal(result$contents, "```r\nindex1 <- 1:10\n```")
+})
+
 test_that("Hover works in scope with different assignment operators", {
     skip_on_cran()
     client <- language_client()
