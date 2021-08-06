@@ -340,6 +340,33 @@ test_that("Hover works with local function", {
     ))
 })
 
+test_that("Hover on operator is ignored", {
+    skip_on_cran()
+    client <- language_client()
+
+    temp_file <- withr::local_tempfile(fileext = ".R")
+    writeLines(
+        c(
+            "for (ll in 1:3){",
+            " p = ll",
+            " I = array(0:0, dim=c(p,p))",
+            "}"
+        ),
+        temp_file
+    )
+
+    client %>% did_save(temp_file)
+
+    result <- client %>% respond_hover(temp_file, c(2, 22),
+        retry_when = function(result) length(result) > 0)
+    expect_equal(result, NULL)
+
+    result <- client %>% respond_hover(temp_file, c(2, 23))
+    expect_equal(result$range$start, list(line = 2, character = 22))
+    expect_equal(result$range$end, list(line = 2, character = 23))
+    expect_equal(result$contents, "```r\np = ll\n```")
+})
+
 test_that("Hover works across multiple files", {
     skip_on_cran()
     client <- language_client()
