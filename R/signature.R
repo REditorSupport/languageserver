@@ -1,6 +1,6 @@
 signature_xpath <- paste(
-    "*[LEFT_ASSIGN/preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]]/expr[FUNCTION | OP-LAMBDA]",
-    "*[EQ_ASSIGN/preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]]/expr[FUNCTION | OP-LAMBDA]",
+    "(*|exprlist/*)[LEFT_ASSIGN/preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]]/expr[FUNCTION|OP-LAMBDA]",
+    "(*|exprlist/*)[EQ_ASSIGN/preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]]/expr[FUNCTION|OP-LAMBDA]",
     sep = "|")
 
 #' the response to a textDocument/signatureHelp Request
