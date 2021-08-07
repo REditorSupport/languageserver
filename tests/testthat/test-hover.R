@@ -124,6 +124,53 @@ test_that("Hover on variable with leading tabs works", {
     expect_equal(result$contents, "```r\nindex1 <- 1:10\n```")
 })
 
+test_that("Hover on variable works with semi-colons", {
+    skip_on_cran()
+    client <- language_client()
+
+    temp_file <- withr::local_tempfile(fileext = ".R")
+    writeLines(
+        c(
+            "var1 <- 1:10;",
+            "f(var1)",
+            "local({",
+            "   var2 <- 2:10;",
+            "   f(var1, var2)",
+            "   var1 <- 0;",
+            "   f(var1, var2)",
+            "})"
+        ),
+        temp_file
+    )
+
+    client %>% did_save(temp_file)
+
+    result <- client %>% respond_hover(temp_file, c(0, 1))
+    expect_equal(result$range$start, list(line = 0, character = 0))
+    expect_equal(result$range$end, list(line = 0, character = 4))
+    expect_equal(result$contents, "```r\nvar1 <- 1:10;\n```")
+
+    result <- client %>% respond_hover(temp_file, c(1, 3))
+    expect_equal(result$range$start, list(line = 1, character = 2))
+    expect_equal(result$range$end, list(line = 1, character = 6))
+    expect_equal(result$contents, "```r\nvar1 <- 1:10;\n```")
+
+    result <- client %>% respond_hover(temp_file, c(4, 6))
+    expect_equal(result$range$start, list(line = 4, character = 5))
+    expect_equal(result$range$end, list(line = 4, character = 9))
+    expect_equal(result$contents, "```r\nvar1 <- 1:10;\n```")
+
+    result <- client %>% respond_hover(temp_file, c(4, 13))
+    expect_equal(result$range$start, list(line = 4, character = 11))
+    expect_equal(result$range$end, list(line = 4, character = 15))
+    expect_equal(result$contents, "```r\nvar2 <- 2:10;\n```")
+
+    result <- client %>% respond_hover(temp_file, c(6, 6))
+    expect_equal(result$range$start, list(line = 6, character = 5))
+    expect_equal(result$range$end, list(line = 6, character = 9))
+    expect_equal(result$contents, "```r\nvar1 <- 0;\n```")
+})
+
 test_that("Hover works in scope with different assignment operators", {
     skip_on_cran()
     client <- language_client()
