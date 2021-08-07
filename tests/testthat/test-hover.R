@@ -347,7 +347,7 @@ test_that("Hover on operator is ignored", {
     temp_file <- withr::local_tempfile(fileext = ".R")
     writeLines(
         c(
-            "for (ll in 1:3){",
+            "for (ll in 1:3) {",
             " p = ll",
             " I = array(0:0, dim=c(p,p))",
             "}"
