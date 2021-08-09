@@ -402,6 +402,8 @@ parse_document <- function(uri, content) {
     if (is_rmarkdown(uri)) {
         content <- purl(content)
     }
+    # replace tab with a space since the width of a tab is 1 in LSP but 8 in getParseData().
+    content <- gsub("\t", " ", content, fixed = TRUE)
     expr <- tryCatch(parse(text = content, keep.source = TRUE), error = function(e) NULL)
     if (!is.null(expr)) {
         parse_env <- function() {

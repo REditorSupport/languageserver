@@ -1,8 +1,8 @@
 hover_xpath <- paste(
-    "*[self::FUNCTION or self::OP-LAMBDA][following-sibling::SYMBOL_FORMALS[text() = '{token_quote}' and @line1 <= {row}]]/parent::expr",
-    "*[LEFT_ASSIGN/preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}] and LEFT_ASSIGN/following-sibling::expr[@start > {start} or @end < {end}]]",
-    "*[RIGHT_ASSIGN/following-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}] and RIGHT_ASSIGN/preceding-sibling::expr[@start > {start} or @end < {end}]]",
-    "*[EQ_ASSIGN/preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}] and EQ_ASSIGN/following-sibling::expr[@start > {start} or @end < {end}]]",
+    "(*|descendant-or-self::exprlist/*)[self::FUNCTION or self::OP-LAMBDA][following-sibling::SYMBOL_FORMALS[text() = '{token_quote}' and @line1 <= {row}]]/parent::expr",
+    "(*|descendant-or-self::exprlist/*)[LEFT_ASSIGN[preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}] and following-sibling::expr[@start > {start} or @end < {end}]]]",
+    "(*|descendant-or-self::exprlist/*)[RIGHT_ASSIGN[following-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}] and preceding-sibling::expr[@start > {start} or @end < {end}]]]",
+    "(*|descendant-or-self::exprlist/*)[EQ_ASSIGN[preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}] and following-sibling::expr[@start > {start} or @end < {end}]]]",
     "forcond/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]",
     sep = "|")
 
@@ -23,7 +23,7 @@ hover_reply <- function(id, uri, workspace, document, point) {
     resolved <- FALSE
 
     version <- workspace$get_parse_data(uri)$version
-    logger$info("hover:", list(uri = uri, version = version))
+    logger$info("hover:", list(uri = uri, version = version, token = token_result))
 
     xdoc <- workspace$get_parse_data(uri)$xml_doc
 
@@ -205,6 +205,9 @@ hover_reply <- function(id, uri, workspace, document, point) {
                 resolved <- TRUE
             } else if (token_name == "COMMENT") {
                 # comment
+                resolved <- TRUE
+            } else if (startsWith(token_name, "OP-")) {
+                # operators
                 resolved <- TRUE
             }
         }
