@@ -32,7 +32,9 @@ test_that("Hover on user function works", {
     writeLines(
         c(
             "test1 <- function(x, y) x + 1",
-            "test1"
+            "test1",
+            "test2 = function(x, y) x - 1",
+            "test2"
         ),
         temp_file
     )
@@ -40,6 +42,37 @@ test_that("Hover on user function works", {
     client %>% did_save(temp_file)
 
     result <- client %>% respond_hover(temp_file, c(1, 3))
+    expect_length(result$contents, 1)
+    expect_equal(result$contents[1], "```r\ntest1(x, y)\n```")
+    expect_equal(result$range$end$character, 5)
+
+    result <- client %>% respond_hover(temp_file, c(3, 3))
+    expect_length(result$contents, 1)
+    expect_equal(result$contents[1], "```r\ntest2(x, y)\n```")
+    expect_equal(result$range$end$character, 5)
+})
+
+test_that("Hover on user function with multi-lined arguments works", {
+    skip_on_cran()
+    client <- language_client()
+
+    temp_file <- withr::local_tempfile(fileext = ".R")
+    writeLines(
+        c(
+            "test1 <- function(",
+            "  x, # arg 1",
+            "  y  # arg 2",
+            ") {",
+            "    x + y",
+            "}",
+            "test1"
+        ),
+        temp_file
+    )
+
+    client %>% did_save(temp_file)
+
+    result <- client %>% respond_hover(temp_file, c(6, 3))
     expect_length(result$contents, 1)
     expect_equal(result$contents[1], "```r\ntest1(x, y)\n```")
     expect_equal(result$range$end$character, 5)
