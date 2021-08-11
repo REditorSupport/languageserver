@@ -65,7 +65,14 @@ test_that("Hover on user function with multi-lined arguments works", {
             ") {",
             "    x + y",
             "}",
-            "test1"
+            "test1",
+            "test2 = function(",
+            "  x, # arg 1",
+            "  y  # arg 2",
+            ") {",
+            "    x + y",
+            "}",
+            "test2"
         ),
         temp_file
     )
@@ -75,6 +82,11 @@ test_that("Hover on user function with multi-lined arguments works", {
     result <- client %>% respond_hover(temp_file, c(6, 3))
     expect_length(result$contents, 1)
     expect_equal(result$contents[1], "```r\ntest1(x, y)\n```")
+    expect_equal(result$range$end$character, 5)
+
+    result <- client %>% respond_hover(temp_file, c(13, 3))
+    expect_length(result$contents, 1)
+    expect_equal(result$contents[1], "```r\ntest2(x, y)\n```")
     expect_equal(result$range$end$character, 5)
 })
 
