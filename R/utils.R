@@ -652,7 +652,7 @@ get_help <- function(hfile, format = c("html", "text")) {
         stop("Invalid format")
     }
 
-    result
+    enc2utf8(result)
 }
 
 convert_doc_to_markdown <- function(doc) {
