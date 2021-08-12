@@ -636,12 +636,14 @@ get_help <- function(hfile, format = c("html", "text")) {
     pkgname <- basename(dirname(dirname(paths[[1]])))
 
     if (format == "html") {
-        result <- paste0(capture.output(
+        result <- paste0(utils::capture.output(
             tools::Rd2HTML(rd, package = pkgname, outputEncoding = "UTF-8")
         ), collapse = "\n")
         result <- gsub(".*<body>\n*(.*)\n*</body>.*", "\\1", result)
     } else if (format == "text") {
-        result <- tools::Rd2txt(rd, package = pkgname, outputEncoding = "UTF-8")
+        result <- paste0(utils::capture.output(
+            tools::Rd2txt(rd, package = pkgname, outputEncoding = "UTF-8")
+        ), collapse = "\n")
     } else {
         stop("Invalid format")
     }
