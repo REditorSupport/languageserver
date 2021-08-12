@@ -29,7 +29,6 @@ Imports:
     lintr (>= 2.0.1),
     parallel,
     R6 (>= 2.4.1),
-    repr (>= 1.1.0),
     roxygen2 (>= 7.0.0),
     stringi (>= 1.1.7),
     styler (>= 1.5.1),

@@ -157,7 +157,7 @@ Workspace <- R6::R6Class("Workspace",
                     if (lsp_settings$get("rich_documentation") &&
                             requireNamespace("rmarkdown", quietly = TRUE) &&
                             rmarkdown::pandoc_available()) {
-                        html <- enc2utf8(repr::repr_html(hfile))
+                        html <- get_help(hfile, "html")
                         # Make header look prettier:
                         pattern <- "<table.*?<td>(.*?)\\s*{(.*?)}<\\/td>.*?<\\/table>\\n*<h2>\\s*(.*?)\\s*<\\/h2>"
                         replacement <- "<b>\\1</b> <i>{\\2}</i><p>\\3</p><hr/>"
@@ -166,7 +166,7 @@ Workspace <- R6::R6Class("Workspace",
                     }
 
                     if (is.null(result)) {
-                        result <- enc2utf8(repr::repr_text(hfile))
+                        result <- get_help(hfile, "text")
                     }
 
                     if (!is.null(result)) {

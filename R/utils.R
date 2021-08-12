@@ -623,6 +623,32 @@ find_doc_item <- function(doc, tag) {
     }
 }
 
+get_help <- function(hfile, format = c("html", "text")) {
+    format <- match.arg(format)
+
+    rd <- utils:::.getHelpFile(hfile)
+    paths <- as.character(hfile)
+
+    if (length(paths) == 0) {
+        return(NULL)
+    }
+
+    pkgname <- basename(dirname(dirname(paths[[1]])))
+
+    if (format == "html") {
+        result <- paste0(capture.output(
+            tools::Rd2HTML(rd, package = pkgname, outputEncoding = "UTF-8")
+        ), collapse = "\n")
+        result <- gsub(".*<body>\n*(.*)\n*</body>.*", "\\1", result)
+    } else if (format == "text") {
+        result <- tools::Rd2txt(rd, package = pkgname, outputEncoding = "UTF-8")
+    } else {
+        stop("Invalid format")
+    }
+
+    result
+}
+
 convert_doc_to_markdown <- function(doc) {
     unlist(lapply(doc, function(item) {
         tag <- attr(item, "Rd_tag")
