@@ -623,10 +623,14 @@ find_doc_item <- function(doc, tag) {
     }
 }
 
+get_help_rd <- function(hfile) {
+    getNamespace("utils")$.getHelpFile(hfile)
+}
+
 get_help <- function(hfile, format = c("html", "text")) {
     format <- match.arg(format)
 
-    rd <- utils:::.getHelpFile(hfile)
+    rd <- get_help_rd(hfile)
     paths <- as.character(hfile)
 
     if (length(paths) == 0) {
