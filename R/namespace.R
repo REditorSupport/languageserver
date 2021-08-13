@@ -97,7 +97,7 @@ PackageNamespace <- R6::R6Class("PackageNamespace",
             hfile <- utils::help((topic), (pkgname))
 
             if (length(hfile) > 0) {
-                doc <- utils:::.getHelpFile(hfile)
+                doc <- get_help_rd(hfile)
                 title_item <- find_doc_item(doc, "\\title")
                 description_item <- find_doc_item(doc, "\\description")
                 arguments_item <- find_doc_item(doc, "\\arguments")
