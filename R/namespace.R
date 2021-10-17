@@ -1,5 +1,5 @@
 #' A class for storing package information
-#' @keywords internal
+#' @noRd
 PackageNamespace <- R6::R6Class("PackageNamespace",
     private = list(
         documentation = NULL,
@@ -26,8 +26,7 @@ PackageNamespace <- R6::R6Class("PackageNamespace",
             private$exports <- private$objects[is_exported]
             private$exported_functs <- private$objects[is_exported & is_function]
             private$exported_nonfuncts <- private$objects[is_exported & !is_function]
-            private$lazydata <- if (length(ns$.__NAMESPACE__.$lazydata))
-                objects(ns$.__NAMESPACE__.$lazydata) else character()
+            private$lazydata <- as.character(names(.getNamespaceInfo(ns, "lazydata")))
             private$documentation <- collections::dict()
         },
 
@@ -98,7 +97,7 @@ PackageNamespace <- R6::R6Class("PackageNamespace",
             hfile <- utils::help((topic), (pkgname))
 
             if (length(hfile) > 0) {
-                doc <- utils:::.getHelpFile(hfile)
+                doc <- get_help_rd(hfile)
                 title_item <- find_doc_item(doc, "\\title")
                 description_item <- find_doc_item(doc, "\\description")
                 arguments_item <- find_doc_item(doc, "\\arguments")
@@ -138,14 +137,19 @@ PackageNamespace <- R6::R6Class("PackageNamespace",
 
             # if the function exists in the workspace, write the code to a file
             temp_file <- file.path(tempdir(), paste0(symbol, ".R"))
-            stringi::stri_write_lines(code, temp_file)
-            list(
+            stringi::stri_write_lines(c(
+                "# Generated from function body. Editing this file has no effect.",
+                code
+            ), temp_file)
+            def <- list(
                 uri = path_to_uri(temp_file),
                 range = range(
                     start = position(line = 0, character = 0),
                     end = position(line = length(code) + 1, character = 0)
                 )
             )
+            attr(def, "namespace") <- self$package_name
+            def
         },
 
         get_body = function(funct, exported_only = TRUE) {
@@ -172,7 +176,7 @@ PackageNamespace <- R6::R6Class("PackageNamespace",
 WORKSPACE <- "_workspace_"
 
 #' A class for storing global environment information
-#' @keywords internal
+#' @noRd
 GlobalEnv <- R6::R6Class("GlobalEnv",
     public = list(
         documents = NULL,
@@ -218,7 +222,7 @@ GlobalEnv <- R6::R6Class("GlobalEnv",
                     }
                 }
             }
-            symbols
+            unique(symbols)
         },
 
         get_lazydata = function() {
@@ -250,7 +254,7 @@ GlobalEnv <- R6::R6Class("GlobalEnv",
         get_documentation = function(topic) {
             for (doc in self$documents$values()) {
                 if (!is.null(doc$parse_data)) {
-                    if (topic %in% doc$parse_data$functs) {
+                    if (topic %in% doc$parse_data$objects) {
                         return(doc$parse_data$documentation[[topic]])
                     }
                 }
@@ -261,10 +265,10 @@ GlobalEnv <- R6::R6Class("GlobalEnv",
         get_definition = function(symbol, exported_only = TRUE) {
             for (doc in self$documents$values()) {
                 if (!is.null(doc$parse_data)) {
-                    if (symbol %in% doc$parse_data$functs) {
+                    if (symbol %in% doc$parse_data$objects) {
                         def <- location(
                             uri = doc$uri,
-                            range = doc$parse_data$definition_ranges[[symbol]]
+                            range = doc$parse_data$definitions[[symbol]]$range
                         )
                         return(def)
                     }
@@ -276,12 +280,11 @@ GlobalEnv <- R6::R6Class("GlobalEnv",
 )
 
 
-resolve_attached_packages <- function(pkgs) {
-    startup_packages <- .packages()
+resolve_attached_packages <- function(pkgs = NULL) {
     for (pkg in pkgs) {
         tryCatch(library(pkg, character.only = TRUE),
             error = function(e) NULL
         )
     }
-    rev(setdiff(.packages(), startup_packages))
+    rev(.packages())
 }

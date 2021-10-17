@@ -3,6 +3,7 @@ Document <- R6::R6Class(
     public = list(
         uri = NULL,
         version = NULL,
+        is_open = FALSE,
         nline = 0,
         content = NULL,
         parse_data = NULL,
@@ -15,6 +16,14 @@ Document <- R6::R6Class(
             self$is_rmarkdown <- is_rmarkdown(self$uri)
             self$set_content(version, content)
             self$loaded_packages <- character()
+        },
+
+        did_open = function() {
+            self$is_open <- TRUE
+        },
+
+        did_close = function() {
+            self$is_open <- FALSE
         },
 
         set_content = function(version, content) {
@@ -132,7 +141,7 @@ Document <- R6::R6Class(
 
 
 #' Search backwards in a document content for a specific character
-#' @keywords internal
+#' @noRd
 find_unbalanced_bracket <- function(content, row, column, skip_empty_line = FALSE) {
     .Call("find_unbalanced_bracket",
         PACKAGE = "languageserver",
@@ -141,7 +150,7 @@ find_unbalanced_bracket <- function(content, row, column, skip_empty_line = FALS
 }
 
 #' check if a position is inside quotes
-#' @keywords internal
+#' @noRd
 enclosed_by_quotes <- function(document, point) {
     text <- document$line0(point$row)
     col <- point$col
@@ -154,7 +163,7 @@ detect_comments <- function(content, row) {
 }
 
 #' Expression range in UTF-16 code units
-#' @keywords internal
+#' @noRd
 expr_range <- function(srcref) {
     lines <- attr(srcref, "srcfile")$lines
     # R is 1-indexed, language server is 0-indexed
@@ -170,68 +179,211 @@ expr_range <- function(srcref) {
     )
 }
 
+get_range_text <- function(content, line1, col1, line2, col2) {
+    lines <- content[line1:line2]
+    lines[length(lines)] <- substr(lines[length(lines)], 1L, col2)
+    lines[1] <- substr(lines[1], col1, nchar(lines[1]))
+    lines
+}
 
-parse_expr <- function(content, expr, env, level = 0L, srcref = attr(expr, "srcref")) {
-    if (length(expr) == 0L || is.symbol(expr)) {
-          return(env)
+is_ns_call <- function(x) {
+    length(x) == 3L && is.symbol(x[[1L]]) && as.character(x[[1L]]) %in% c("::", ":::")
+}
+
+# Check if an expression is a simple call like `foo(bar)` or `pkg::foo(bar)`
+# This rules out anonymous function call like `(function(x) x + 1)(bar)`
+is_simple_call <- function(x) {
+    is.call(x) && (is.symbol(x[[1L]]) || is_ns_call(x[[1]]))
+}
+
+# We should handle base function specially as users may use base::fun form
+# The reason that we only take care of `base` (not `utils`) is that only `base` calls can generate symbols
+# Check if the lang is in base::fun form
+is_base_call <- function(x) {
+    is_ns_call(x) && as.character(x[[2L]]) == "base"
+}
+
+# Handle `base` function specically by removing the `base::` prefix
+fun_string <- function(x) {
+    if (is_base_call(x)) as.character(x[[3L]]) else deparse(x)
+}
+
+# to see the pos/env/assign.env of assigning functions is set or not
+# if unset, it means using the default value, which is top-level
+# if set, we should compare to a vector of known "top-level" candidates
+is_top_level <- function(arg_env, ...) {
+    if (is.null(arg_env)) return(TRUE)
+    default <- list(
+        quote(parent.frame(1)), quote(parent.frame(1L)),
+        quote(environment()),
+        quote(.GlobalEnv), quote(globalenv())
+    )
+    extra <- substitute(list(...))[-1L]
+    top_level_envs <- c(default, as.list(extra))
+    any(vapply(top_level_envs, identical, x = arg_env, FUN.VALUE = logical(1L)))
+}
+
+parser_hooks <- list(
+    "{" = function(expr, action) {
+        action$parse(as.list(expr)[-1L])
+    },
+    "(" = function(expr, action) {
+        action$parse(as.list(expr)[-1L])
+    },
+    "if" = function(expr, action) {
+        action$parse(as.list(expr)[-1L])
+    },
+    "for" = function(expr, action) {
+        if (is.symbol(e <- expr[[2L]])) {
+            action$update(nonfuncts = as.character(e))
+        }
+        action$parse(expr[[4L]])
+    },
+    "while" = function(expr, action) {
+        action$parse(as.list(expr)[-1L])
+    },
+    "repeat" = function(expr, action) {
+        action$parse(expr[[2L]])
+    },
+    "<-" = function(expr, action) {
+        if (length(expr) == 3L && is.symbol(expr[[2L]])) {
+            action$assign(symbol = as.character(expr[[2L]]), value = expr[[3L]])
+            action$parse(expr[[3L]])
+        }
+    },
+    "=" = function(expr, action) {
+        if (length(expr) == 3L && is.symbol(expr[[2L]])) {
+            action$assign(symbol = as.character(expr[[2L]]), value = expr[[3L]])
+            action$parse(expr[[3L]])
+        }
+    },
+    "assign" = function(expr, action) {
+        call <- match.call(base::assign, expr)
+        if (is.character(call$x) && is_top_level(call$pos, -1L, -1) && is_top_level(call$envir)) {
+            action$assign(symbol = call$x, value = call$value)
+            action$parse(call$value)
+        }
+    },
+    "delayedAssign" = function(expr, action) {
+        call <- match.call(base::delayedAssign, expr)
+        if (is.character(call$x) && is_top_level(call$assign.env)) {
+            action$assign(symbol = call$x, value = call$value)
+            action$parse(call$value)
+        }
+    },
+    "makeActiveBinding" = function(expr, action) {
+        call <- match.call(base::makeActiveBinding, expr)
+        if (is.character(call$sym) && is_top_level(call$env)) {
+            action$assign(symbol = call$sym, value = call$fun, type = "variable")
+        }
+    },
+    "library" = function(expr, action) {
+        call <- match.call(base::library, expr)
+        if (!isTRUE(call$character.only)) {
+            action$update(packages = as.character(call$package))
+        }
+    },
+    "require" = function(expr, action) {
+        call <- match.call(base::require, expr)
+        if (!isTRUE(call$character.only)) {
+            action$update(packages = as.character(call$package))
+        }
+    },
+    "pacman::p_load" = function(expr, action) {
+        fun <- if (requireNamespace("pacman")) pacman::p_load else
+            function(..., char, install = TRUE,
+                     update = getOption("pac_update"),
+                     character.only = FALSE) NULL
+        call <- match.call(fun, expr, expand.dots = FALSE)
+        if (!isTRUE(call$character.only)) {
+            packages <- vapply(call[["..."]], as.character, character(1L))
+            action$update(packages = packages)
+        }
+    },
+    "system.time" = function(expr, action) action$parse_args("expr"),
+    "try" = function(expr, action) action$parse_args("expr"),
+    "tryCatch" = function(expr, action) action$parse_args(c("expr", "finally")),
+    "withCallingHandlers" = function(expr, action) action$parse_args("expr"),
+    "withRestarts" = function(expr, action) action$parse_args("expr"),
+    "allowInterrupts" = function(expr, action) action$parse_args("expr"),
+    "suspendInterrupts" = function(expr, action) action$parse_args("expr"),
+    "suppressPackageStartupMessages" = function(expr, action) action$parse_args("expr"),
+    "suppressMessages" = function(expr, action) action$parse_args("expr"),
+    "suppressWarnings" = function(expr, action) action$parse_args("expr")
+)
+
+parse_expr <- function(content, expr, env, srcref = attr(expr, "srcref")) {
+    if (length(expr) == 0L || is.symbol(expr) || is.atomic(expr)) {
+        return(env)
     }
-    for (i in seq_along(expr)) {
-        e <- expr[[i]]
-        if (missing(e) || !is.call(e) || !is.symbol(e[[1L]])) next
-        f <- as.character(e[[1L]])
-        cur_srcref <- if (level == 0L) srcref[[i]] else srcref
-        if (f %in% c("{", "(")) {
-            Recall(content, e[-1L], env, level + 1L, cur_srcref)
-        } else if (f == "if") {
-            Recall(content, e[[2L]], env, level + 1L, cur_srcref)
-            Recall(content, e[[3L]], env, level + 1L, cur_srcref)
-            if (length(e) == 4L) {
-                Recall(content, e[[4L]], env, level + 1L, cur_srcref)
-            }
-        } else if (f == "for") {
-            if (is.symbol(e[[2L]])) {
-                env$nonfuncts <- c(env$nonfuncts, as.character(e[[2L]]))
-            }
-            Recall(content, e[[4L]], env, level + 1L, cur_srcref)
-        } else if (f == "while") {
-            Recall(content, e[[2L]], env, level + 1L, cur_srcref)
-            Recall(content, e[[3L]], env, level + 1L, cur_srcref)
-        } else if (f == "repeat") {
-            Recall(content, e[[2L]], env, level + 1L, cur_srcref)
-        } else if (f %in% c("<-", "=") && length(e) == 3L && is.symbol(e[[2L]])) {
-            funct <- as.character(e[[2L]])
-            env$objects <- c(env$objects, funct)
-            if (is.call(e[[3L]]) && e[[3L]][[1L]] == "function") {
-                # functions
-                env$functs <- c(env$functs, funct)
-                func <- e[[3L]]
-                env$formals[[funct]] <- func[[2L]]
 
-                signature <- func
-                signature <- format(signature[1:2])
-                signature <- paste0(trimws(signature, which = "left"), collapse = "")
-                signature <- gsub("^function\\s*", funct, signature)
-                signature <- gsub("\\s*NULL$", "", signature)
-                env$signatures[[funct]] <- signature
+    if (is.expression(expr)) {
+        for (i in seq_along(expr)) {
+            Recall(content, expr[[i]], env, srcref[[i]])
+        }
+    } else if (is.list(expr)) {
+        for (i in seq_along(expr)) {
+            e <- expr[[i]]
+            if (missing(e)) next
+            Recall(content, e, env, srcref)
+        }
+    } else if (is_simple_call(expr)) {
+        f <- fun_string(expr[[1L]])
+        fun <- parser_hooks[[f]]
+        if (is.function(fun)) {
+            action <- list(
+                update = function(...) {
+                    updates <- list(...)
+                    for (name in names(updates)) {
+                        values <- updates[[name]]
+                        values <- values[nzchar(values)]
+                        if (length(values)) {
+                            env[[name]] <- union(env[[name]], values)
+                        }
+                    }
+                },
+                assign = function(symbol, value, type = get_expr_type(value)) {
+                    if (!nzchar(symbol)) return(NULL)
 
-                expr_range <- expr_range(cur_srcref)
-                env$definition_ranges[[funct]] <- expr_range
+                    env$objects <- c(env$objects, symbol)
 
-                doc_line1 <- detect_comments(content, expr_range$start$line) + 1
-                if (doc_line1 <= expr_range$start$line) {
-                    env$documentation[[funct]] <- paste0(uncomment(
-                        content[seq.int(doc_line1, expr_range$start$line)]),
-                            collapse = "  \n")
+                    expr_range <- expr_range(srcref)
+                    env$definitions[[symbol]] <- list(
+                        name = symbol,
+                        type = type,
+                        range = expr_range
+                    )
+
+                    doc_line1 <- detect_comments(content, expr_range$start$line) + 1
+                    if (doc_line1 <= expr_range$start$line) {
+                        comment <- content[seq.int(doc_line1, expr_range$start$line)]
+                        env$documentation[[symbol]] <- convert_comment_to_documentation(comment)
+                    }
+
+                    if (type == "function") {
+                        env$functs <- c(env$functs, symbol)
+                        env$formals[[symbol]] <- value[[2L]]
+                        env$signatures[[symbol]] <- get_signature(symbol, value)
+                    } else {
+                        env$nonfuncts <- c(env$nonfuncts, symbol)
+                    }
+                },
+                parse = function(expr) {
+                    parse_expr(content, expr, env, srcref)
+                },
+                parse_args = function(args) {
+                    fn <- tryCatch(eval(expr[[1L]], globalenv()), error = function(e) NULL)
+                    if (is.function(fn)) {
+                        call <- match.call(fn, expr, expand.dots = FALSE)
+                        for (arg in args) {
+                            if (is.call(call[[arg]])) {
+                                parse_expr(content, call[[arg]], env, srcref)
+                            }
+                        }
+                    }
                 }
-            } else {
-                # symbols
-                env$nonfuncts <- c(env$nonfuncts, funct)
-            }
-        } else if (f %in% c("library", "require") && length(e) == 2L) {
-            pkg <- as.character(e[[2L]])
-            if (!(pkg %in% env$packages)) {
-                env$packages <- c(env$packages, pkg)
-            }
+            )
+            tryCatch(fun(expr, action), error = function(e) NULL)
         }
     }
     env
@@ -242,7 +394,7 @@ parse_expr <- function(content, expr, env, level = 0L, srcref = attr(expr, "srcr
 #' Build the list of called packages, functions, variables, formals and
 #' signatures in the document in order to add them to the current [Workspace].
 #'
-#' @keywords internal
+#' @noRd
 parse_document <- function(uri, content) {
     if (length(content) == 0) {
         content <- ""
@@ -250,6 +402,8 @@ parse_document <- function(uri, content) {
     if (is_rmarkdown(uri)) {
         content <- purl(content)
     }
+    # replace tab with a space since the width of a tab is 1 in LSP but 8 in getParseData().
+    content <- gsub("\t", " ", content, fixed = TRUE)
     expr <- tryCatch(parse(text = content, keep.source = TRUE), error = function(e) NULL)
     if (!is.null(expr)) {
         parse_env <- function() {
@@ -259,7 +413,7 @@ parse_document <- function(uri, content) {
             env$functs <- character()
             env$formals <- list()
             env$signatures <- list()
-            env$definition_ranges <- list()
+            env$definitions <- list()
             env$documentation <- list()
             env$xml_data <- NULL
             env$xml_doc <- NULL
@@ -284,15 +438,11 @@ parse_callback <- function(self, uri, version, parse_data) {
     self$workspace$update_parse_data(uri, parse_data)
 
     if (!identical(old_parse_data$packages, parse_data$packages)) {
-        if (length(parse_data$packages)) {
-            self$parse_task_manager$add_task(
-                uri,
-                resolve_task(self, uri, doc, parse_data$packages)
-            )
-            doc$loaded_packages <- parse_data$packages
-        } else {
-            doc$loaded_packages <- character()
-        }
+        self$resolve_task_manager$add_task(
+            uri,
+            resolve_task(self, uri, doc, parse_data$packages)
+        )
+        doc$loaded_packages <- parse_data$packages
         self$workspace$update_loaded_packages()
     }
 

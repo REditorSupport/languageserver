@@ -181,17 +181,31 @@ LanguageBase <- R6::R6Class("LanguageBase",
                 self$request_callbacks$pop(as.character(id)),
                 error = function(e) NULL
             )
-            if ("error" %in% names(response)) {
-                logger$info("internal error:", response$error)
-            } else if (!is.null(callback)) {
-                logger$info("calling callback")
-                if (self$catch_callback_error) {
-                    tryCatchStack(
-                        callback(self, response$result),
-                        error = function(e) logger$info("callback error: ", e)
-                    )
-                } else {
-                    callback(self, response$result)
+            if (is.null(response$error)) {
+                if (!is.null(callback)) {
+                    logger$info("calling callback")
+                    if (self$catch_callback_error) {
+                        tryCatchStack(
+                            callback(self, result = response$result),
+                            error = function(e) logger$info("callback error: ", e)
+                        )
+                    } else {
+                        callback(self, result = response$result)
+                    }
+                }
+            } else {
+                logger$info("error:", response$error)
+                # only call callback if it handles error
+                if (!is.null(callback) && "error" %in% names(formals(callback))) {
+                    logger$info("calling callback")
+                    if (self$catch_callback_error) {
+                        tryCatchStack(
+                            callback(self, result = response$result, error = response$error),
+                            error = function(e) logger$info("callback error: ", e)
+                        )
+                    } else {
+                        callback(self, result = response$result, error = response$error)
+                    }
                 }
             }
         }

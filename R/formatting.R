@@ -13,12 +13,13 @@ get_style <- function(options) {
 #' This functions formats a list of text using [styler::style_text()] with the
 #' specified style.
 #'
-#' @keywords internal
-style_text <- function(text, style, indentation = "") {
+#' @noRd
+style_text <- function(text, style, indention = 0L) {
     new_text <- tryCatch(
         styler::style_text(
             text,
-            transformers = style
+            transformers = style,
+            base_indention = indention
         ),
         error = function(e) e
     )
@@ -26,12 +27,12 @@ style_text <- function(text, style, indentation = "") {
         logger$info("formatting error:", new_text$message)
         return(NULL)
     }
-    paste(indentation, new_text, sep = "", collapse = "\n")
+    paste0(new_text, collapse = "\n")
 }
 
 
 #' Format a document
-#' @keywords internal
+#' @noRd
 formatting_reply <- function(id, uri, document, options) {
     style <- get_style(options)
     nline <- document$nline
@@ -78,7 +79,7 @@ formatting_reply <- function(id, uri, document, options) {
 
 
 #' Format a part of a document
-#' @keywords internal
+#' @noRd
 range_formatting_reply <- function(id, uri, document, range, options) {
     row1 <- range$start$row
     col1 <- range$start$col
@@ -106,8 +107,8 @@ range_formatting_reply <- function(id, uri, document, range, options) {
     }
 
     selection <- document$content[(row1:row2) + 1]
-    indentation <- stringi::stri_extract_first_regex(selection[1], "^\\s*")
-    new_text <- style_text(selection, style, indentation = indentation)
+    indention <- nchar(stringi::stri_extract_first_regex(selection[1], "^\\s*"))
+    new_text <- style_text(selection, style, indention = indention)
     if (is.null(new_text)) {
         return(Response$new(id, list()))
     }
@@ -121,21 +122,21 @@ range_formatting_reply <- function(id, uri, document, range, options) {
 }
 
 #' Format on type
-#' @keywords internal
+#' @noRd
 on_type_formatting_reply <- function(id, uri, document, point, ch, options) {
     content <- document$content
     end_line <- point$row + 1
-    use_zero <- FALSE
+    use_completer <- FALSE
     if (ch == "\n") {
         start_line <- end_line - 1
-        if (grepl("^\\s*$", content[[start_line]])) {
+        if (grepl("^\\s*(#.*)?$", content[[start_line]])) {
             return(Response$new(id))
         }
-        if (grepl("^\\s*(#.+)?$", content[[end_line]])) {
-            # use "0" to complete the potentially incomplete expression
+        if (grepl("^\\s*(#.*)?$", content[[end_line]])) {
+            # use completer to complete the potentially incomplete expression
             last_line <- content[end_line]
-            content[end_line] <- "0"
-            use_zero <- TRUE
+            content[end_line] <- "f()"
+            use_completer <- TRUE
         }
     } else {
         start_line <- end_line
@@ -195,15 +196,16 @@ on_type_formatting_reply <- function(id, uri, document, point, ch, options) {
         # disable assignment operator fix since end_line could be function parameter
         style$token$force_assignment_op <- NULL
 
-        indentation <- stringi::stri_extract_first_regex(content[start_line], "^\\s*")
+        indention <- nchar(stringi::stri_extract_first_regex(content[start_line], "^\\s*"))
         new_text <- tryCatchTimeout(
-            style_text(content[start_line:end_line], style, indentation = indentation),
+            style_text(content[start_line:end_line], style, indention = indention),
             timeout = 1,
             error = function(e) logger$info("on_type_formatting_reply:styler:", e)
         )
         if (!is.null(new_text)) {
-            if (use_zero) {
-                new_text <- substr(new_text, 1, nchar(new_text) - 1)
+            if (use_completer) {
+                # remove completer from formatted text
+                new_text <- substr(new_text, 1, nchar(new_text) - 3)
                 new_text <- paste0(new_text, trimws(last_line))
             }
             range <- range(

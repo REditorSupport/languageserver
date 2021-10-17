@@ -8,7 +8,7 @@
 #' The language server
 #'
 #' Describe the language server and how it interacts with clients.
-#' @keywords internal
+#' @noRd
 LanguageServer <- R6::R6Class("LanguageServer",
     inherit = LanguageBase,
     public = list(
@@ -20,13 +20,12 @@ LanguageServer <- R6::R6Class("LanguageServer",
         documents = NULL,
         workspace = NULL,
 
-        run_lintr = TRUE,
-
         processId = NULL,
         rootUri = NULL,
         rootPath = NULL,
         initializationOptions = NULL,
         ClientCapabilities = NULL,
+        ServerCapabilities = NULL,
 
         diagnostics_task_manager = NULL,
         parse_task_manager = NULL,
@@ -52,9 +51,21 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$inputcon <- inputcon
             self$outputcon <- outputcon
 
-            self$diagnostics_task_manager <- TaskManager$new()
-            self$parse_task_manager <- TaskManager$new()
-            self$resolve_task_manager <- TaskManager$new()
+            cpus <- parallel::detectCores()
+            pool_size <- as.integer(
+                Sys.getenv("R_LANGSVR_POOL_SIZE", min(max(floor(cpus / 2), 1), 3)))
+
+            # parse pool
+            parse_pool <- if (pool_size > 0) SessionPool$new(pool_size, "parse") else NULL
+            # diagnostics is slower, so use a separate pool
+            diagnostics_pool <- if (pool_size > 0) SessionPool$new(pool_size, "diagnostics") else NULL
+
+            self$parse_task_manager <- TaskManager$new("parse", parse_pool)
+            self$diagnostics_task_manager <- TaskManager$new("diagnostics", diagnostics_pool)
+
+            # no pool for resolve task
+            # resolve task require a new session for every task
+            self$resolve_task_manager <- TaskManager$new("resolve", NULL)
 
             self$pending_replies <- collections::dict()
 
@@ -85,15 +96,16 @@ LanguageServer <- R6::R6Class("LanguageServer",
             if (!self$pending_replies$has(uri)) {
                 self$pending_replies$set(uri, list(
                     `textDocument/documentSymbol` = collections::queue(),
+                    `textDocument/foldingRange` = collections::queue(),
                     `textDocument/documentLink` = collections::queue(),
                     `textDocument/documentColor` = collections::queue()
                 ))
             }
 
-            if (run_lintr && self$run_lintr) {
+            if (run_lintr && lsp_settings$get("diagnostics")) {
                 temp_root <- dirname(tempdir())
-                if (fs::path_has_parent(self$rootPath, temp_root) ||
-                    !fs::path_has_parent(path_from_uri(uri), temp_root)) {
+                if (path_has_parent(self$rootPath, temp_root) ||
+                    !path_has_parent(path_from_uri(uri), temp_root)) {
                     self$diagnostics_task_manager$add_task(
                         uri,
                         diagnostics_task(self, uri, document, delay = delay)
@@ -121,11 +133,9 @@ LanguageServer <- R6::R6Class("LanguageServer",
         },
 
         write_text = function(text) {
-            if (.Platform$OS.type == "windows") {
-                writeLines(text, self$outputcon, sep = "", useBytes = TRUE)
-            } else  {
-                cat(text, file = self$outputcon)
-            }
+            # we have made effort to ensure that text is utf-8
+            # so text is printed as is
+            writeLines(text, self$outputcon, sep = "", useBytes = TRUE)
         },
 
         read_line = function() {
@@ -192,8 +202,19 @@ LanguageServer$set("public", "register_handlers", function() {
         `textDocument/documentSymbol` = text_document_document_symbol,
         `textDocument/documentHighlight` = text_document_document_highlight,
         `textDocument/documentLink` = text_document_document_link,
+        `documentLink/resolve` = document_link_resolve,
         `textDocument/documentColor` = text_document_document_color,
+        `textDocument/codeAction` = text_document_code_action,
         `textDocument/colorPresentation` = text_document_color_presentation,
+        `textDocument/foldingRange` = text_document_folding_range,
+        `textDocument/references` = text_document_references,
+        `textDocument/rename` = text_document_rename,
+        `textDocument/prepareRename` = text_document_prepare_rename,
+        `textDocument/selectionRange` = text_document_selection_range,
+        `textDocument/prepareCallHierarchy` = text_document_prepare_call_hierarchy,
+        `callHierarchy/incomingCalls` = call_hierarchy_incoming_calls,
+        `callHierarchy/outgoingCalls` = call_hierarchy_outgoing_calls,
+        `textDocument/linkedEditingRange` = text_document_linked_editing_range,
         `workspace/symbol` = workspace_symbol
     )
 
@@ -204,16 +225,18 @@ LanguageServer$set("public", "register_handlers", function() {
         `textDocument/didChange` = text_document_did_change,
         `textDocument/didSave` = text_document_did_save,
         `textDocument/didClose` = text_document_did_close,
-        `workspace/didChangeConfiguration` = workspace_did_change_configuration
+        `workspace/didChangeConfiguration` = workspace_did_change_configuration,
+        `workspace/didChangeWatchedFiles` = workspace_did_change_watched_files,
+        `$/setTrace` = protocol_set_trace
     )
 })
 
 
 #' Run the R language server
-#' @param debug set \code{TRUE} to show debug information in stderr;
+#' @param debug set `TRUE` to show debug information in stderr;
 #'              or it could be a character string specifying the log file
-#' @param host the hostname used to create the tcp server, not used when \code{port} is \code{NULL}
-#' @param port the port used to create the tcp server. If \code{NULL}, use stdio instead.
+#' @param host the hostname used to create the tcp server, not used when `port` is `NULL`
+#' @param port the port used to create the tcp server. If `NULL`, use stdio instead.
 #' @examples
 #' \dontrun{
 #' # to use stdio
@@ -226,7 +249,14 @@ LanguageServer$set("public", "register_handlers", function() {
 run <- function(debug = FALSE, host = "localhost", port = NULL) {
     tools::Rd2txt_options(underline_titles = FALSE)
     tools::Rd2txt_options(itemBullet = "* ")
-    logger$debug_mode(debug)
+    lsp_settings$update_from_options()
+    if (isTRUE(debug)) {
+        lsp_settings$set("debug", TRUE)
+        lsp_settings$set("log_file", NULL)
+    } else if (is.character(debug)) {
+        lsp_settings$set("debug", TRUE)
+        lsp_settings$set("log_file", debug)
+    }
     langserver <- LanguageServer$new(host, port)
     langserver$run()
 }

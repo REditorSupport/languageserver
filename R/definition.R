@@ -1,8 +1,8 @@
 definition_xpath <- paste(
-    "FUNCTION/following-sibling::SYMBOL_FORMALS[text() = '{token_quote}' and @line1 <= {row}]",
-    "expr[LEFT_ASSIGN/preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]]",
-    "expr[RIGHT_ASSIGN/following-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]]",
-    "equal_assign[EQ_ASSIGN/preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]]",
+    "(*|descendant-or-self::exprlist/*)[self::FUNCTION or self::OP-LAMBDA]/following-sibling::SYMBOL_FORMALS[text() = '{token_quote}' and @line1 <= {row}]",
+    "(*|descendant-or-self::exprlist/*)[LEFT_ASSIGN[preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}] and following-sibling::expr[@start > {start} or @end < {end}]]]",
+    "(*|descendant-or-self::exprlist/*)[RIGHT_ASSIGN[following-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}] and preceding-sibling::expr[@start > {start} or @end < {end}]]]",
+    "(*|descendant-or-self::exprlist/*)[EQ_ASSIGN[preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}] and following-sibling::expr[@start > {start} or @end < {end}]]]",
     "forcond/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]",
     sep = "|")
 
@@ -11,9 +11,8 @@ definition_xpath <- paste(
 #' If the function is not found in a file but is found in a loaded package,
 #' writes the function definition to a temporary file and returns that
 #' as the location.
-
-#' @keywords internal
-definition_reply <- function(id, uri, workspace, document, point) {
+#' @noRd
+definition_reply <- function(id, uri, workspace, document, point, rootPath) {
 
     token_result <- document$detect_token(point)
     resolved <- FALSE
@@ -27,15 +26,18 @@ definition_reply <- function(id, uri, workspace, document, point) {
         if (length(token)) {
             token_name <- xml_name(token)
             token_text <- xml_text(token)
+            token_start <- as.integer(xml_attr(token, "start"))
+            token_end <- as.integer(xml_attr(token, "end"))
             logger$info("definition: ", token_name, token_text)
-            if (token_name %in% c("SYMBOL", "SYMBOL_FUNCTION_CALL")) {
+            if (token_name %in% c("SYMBOL", "SYMBOL_FUNCTION_CALL", "SYMBOL_FORMALS")) {
                 # symbol
                 preceding_dollar <- xml_find_first(token, "preceding-sibling::OP-DOLLAR")
                 if (length(preceding_dollar) == 0) {
                     enclosing_scopes <- xdoc_find_enclosing_scopes(xdoc,
                         row, col, top = TRUE)
-                    token_quote <- xml_single_quote(token_text)
-                    xpath <- glue(definition_xpath, row = row, token_quote = token_quote)
+                    xpath <- glue(definition_xpath,
+                        row = row, start = token_start, end = token_end,
+                        token_quote = xml_single_quote(token_text))
                     all_defs <- xml_find_all(enclosing_scopes, xpath)
                     if (length(all_defs)) {
                         last_def <- all_defs[[length(all_defs)]]
@@ -54,13 +56,36 @@ definition_reply <- function(id, uri, workspace, document, point) {
                         resolved <- TRUE
                     }
                 }
+            } else if (token_name == "STR_CONST") {
+                str_line1 <- as.integer(xml_attr(token, "line1"))
+                str_line2 <- as.integer(xml_attr(token, "line2"))
+                if (str_line1 == str_line2) {
+                    str_col1 <- as.integer(xml_attr(token, "col1"))
+                    str_col2 <- as.integer(xml_attr(token, "col2"))
+                    str_expr <- substr(document$content[str_line1], str_col1, str_col2)
+                    str_text <- tryCatch(as.character(parse(text = str_expr, keep.source = FALSE)),
+                        error = function(e) NULL)
+                    if (is.character(str_text)) {
+                        path <- fs::path_abs(str_text, rootPath)
+                        if (file.exists(path) && !dir.exists(path) && is_text_file(path)) {
+                            result <- list(
+                                uri = path_to_uri(path),
+                                range = range(
+                                    start = position(0, 0),
+                                    end = position(0, 0)
+                                )
+                            )
+                        }
+                    }
+                }
+                resolved <- TRUE
             } else {
                 resolved <- TRUE
             }
         }
     }
 
-    if (!resolved) {
+    if (!resolved && check_scope(uri, document, point)) {
         result <- workspace$get_definition(token_result$token, token_result$package,
             exported_only = token_result$accessor != ":::")
     }

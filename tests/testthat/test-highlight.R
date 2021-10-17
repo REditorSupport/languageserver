@@ -1,10 +1,8 @@
-context("Test Highlight")
-
 test_that("Document highlight works", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("temp_file"), fileext = ".R")
+    temp_file <- withr::local_tempfile(fileext = ".R")
     writeLines(
         c(
             "my_fn <- 3",
@@ -16,7 +14,26 @@ test_that("Document highlight works", {
 
     client %>% did_save(temp_file)
 
+    # query at the beginning of token
     result <- client %>% respond_document_highlight(temp_file, c(1, 0))
+
+    expect_length(result, 2)
+    expect_equal(result[[1]]$range$start, list(line = 0, character = 0))
+    expect_equal(result[[1]]$range$end, list(line = 0, character = 5))
+    expect_equal(result[[2]]$range$start, list(line = 1, character = 0))
+    expect_equal(result[[2]]$range$end, list(line = 1, character = 5))
+
+    # query in the middle of token
+    result <- client %>% respond_document_highlight(temp_file, c(1, 3))
+
+    expect_length(result, 2)
+    expect_equal(result[[1]]$range$start, list(line = 0, character = 0))
+    expect_equal(result[[1]]$range$end, list(line = 0, character = 5))
+    expect_equal(result[[2]]$range$start, list(line = 1, character = 0))
+    expect_equal(result[[2]]$range$end, list(line = 1, character = 5))
+
+     # query at the end of token
+    result <- client %>% respond_document_highlight(temp_file, c(1, 5))
 
     expect_length(result, 2)
     expect_equal(result[[1]]$range$start, list(line = 0, character = 0))
@@ -39,7 +56,7 @@ test_that("Document highlight works in Rmarkdown", {
     skip_on_cran()
     client <- language_client()
 
-    withr::local_tempfile(c("temp_file"), fileext = ".Rmd")
+    temp_file <- withr::local_tempfile(fileext = ".Rmd")
     writeLines(
         c(
             "---",

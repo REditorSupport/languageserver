@@ -7,7 +7,7 @@
 #'
 #' @param line an integer
 #' @param character an integer
-#' @keywords internal
+#' @noRd
 position <- function(line, character) {
 
   if (!is.numeric(line) | !is.numeric(character)) {
@@ -34,7 +34,7 @@ print.position <- function(x, start_char = "", ...) {
 #'
 #' @param start a [position]
 #' @param end a [position]
-#' @keywords internal
+#' @noRd
 range <- function(start, end) {
 
   if (!inherits(start, "position") | !inherits(end, "position")) {
@@ -64,7 +64,7 @@ print.range <- function(x, start_char = "", ...) {
 #'
 #' @template uri
 #' @param range a [range]
-#' @keywords internal
+#' @noRd
 location <- function(uri, range) {
 
   if (!inherits(range, "range")) {
@@ -94,10 +94,10 @@ print.location <- function(x, ...) {
 
 #' A document URI
 #'
-#' A Uniform Resource Identifier as defined by [RFC 3986](http://tools.ietf.org/html/rfc3986).
+#' A Uniform Resource Identifier as defined by [RFC 3986](https://tools.ietf.org/html/rfc3986).
 #'
 #' @param uri a character
-#' @keywords internal
+#' @noRd
 document_uri  <- function(uri) {
 
   if (!is.character(uri)) {
@@ -119,7 +119,7 @@ print.document_uri <- function(x, start_char = "", ...) {
 #' @param name a character
 #' @param kind an integer
 #' @param location a [location]
-#' @keywords internal
+#' @noRd
 symbol_information <- function(name, kind, location) {
   structure(
     list(
@@ -133,7 +133,7 @@ symbol_information <- function(name, kind, location) {
 #'
 #' @param range a [range], the part of the document to replace
 #' @param new_text a character, the text to replace
-#' @keywords internal
+#' @noRd
 text_edit <- function(range, new_text) {
   structure(
     list(
@@ -148,7 +148,7 @@ text_edit <- function(range, new_text) {
 #'
 #' @template uri
 #' @template position
-#' @keywords internal
+#' @noRd
 text_document_position_params <- function(uri, position) {
   structure(
     list(
@@ -166,7 +166,7 @@ text_document_position_params <- function(uri, position) {
 #' @template uri
 #' @template position
 #' @param context a named list
-#' @keywords internal
+#' @noRd
 completion_params <- function(uri, position, context = NULL) {
   structure(
     list(
@@ -183,7 +183,7 @@ completion_params <- function(uri, position, context = NULL) {
 #' @template uri
 #' @template position
 #' @param context a named list
-#' @keywords internal
+#' @noRd
 reference_params <- function(uri, position, context = NULL) {
   structure(
     list(
@@ -198,7 +198,7 @@ reference_params <- function(uri, position, context = NULL) {
 #' Parameters for document symbol requests
 #'
 #' @template uri
-#' @keywords internal
+#' @noRd
 document_symbol_params <- function(uri) {
   structure(
     list(
@@ -213,7 +213,7 @@ document_symbol_params <- function(uri) {
 #' @template uri
 #' @param range a [range] object
 #' @param context a named list
-#' @keywords internal
+#' @noRd
 code_action_params <- function(uri, range, context = NULL) {
   structure(
     list(
@@ -228,7 +228,7 @@ code_action_params <- function(uri, range, context = NULL) {
 #' Parameters for code lens requests
 #'
 #' @template uri
-#' @keywords internal
+#' @noRd
 code_lens_params <- function(uri) {
   structure(
     list(
@@ -241,7 +241,7 @@ code_lens_params <- function(uri) {
 #' Parameters for document link requests
 #'
 #' @template uri
-#' @keywords internal
+#' @noRd
 document_link_params <- function(uri) {
   structure(
     list(
@@ -255,7 +255,7 @@ document_link_params <- function(uri) {
 #'
 #' @template uri
 #' @param options a named list
-#' @keywords internal
+#' @noRd
 document_formatting_params <- function(uri, options) {
   structure(
     list(
@@ -271,7 +271,7 @@ document_formatting_params <- function(uri, options) {
 #' @template uri
 #' @param range a [range] object
 #' @param options a named list
-#' @keywords internal
+#' @noRd
 document_range_formatting_params <- function(uri, range, options) {
   structure(
     list(
@@ -289,7 +289,7 @@ document_range_formatting_params <- function(uri, range, options) {
 #' @template position
 #' @param character a single character
 #' @param options a named list
-#' @keywords internal
+#' @noRd
 document_on_type_formatting_params <- function(uri, position, character, options) {
   structure(
     list(
@@ -307,7 +307,7 @@ document_on_type_formatting_params <- function(uri, position, character, options
 #' @template uri
 #' @template position
 #' @param new_name a character
-#' @keywords internal
+#' @noRd
 rename_params <- function(uri, position, new_name) {
   structure(
     list(
@@ -324,7 +324,7 @@ rename_params <- function(uri, position, new_name) {
 #' Parameters for didOpen notifications
 #'
 #' @template uri
-#' @keywords internal
+#' @noRd
 did_open_text_document_params <- function(uri) {
   structure(
     list(
@@ -338,7 +338,7 @@ did_open_text_document_params <- function(uri) {
 #'
 #' @template uri
 #' @param changes a list of text_document_content_change_event
-#' @keywords internal
+#' @noRd
 did_change_text_document_params <- function(uri, changes) {
   structure(
     list(
@@ -353,7 +353,7 @@ did_change_text_document_params <- function(uri, changes) {
 #'
 #' @template uri
 #' @param reason an integer, see TextDocumentSaveReason
-#' @keywords internal
+#' @noRd
 will_save_text_document_params <- function(uri, reason) {
   structure(
     list(
@@ -374,7 +374,7 @@ TextDocumentSaveReason <- list(
 #'
 #' @template uri
 #' @param text a character
-#' @keywords internal
+#' @noRd
 did_save_text_document_params <- function(uri, text) {
   structure(
     list(
@@ -388,7 +388,7 @@ did_save_text_document_params <- function(uri, text) {
 #' Parameters for didClose notifications
 #'
 #' @template uri
-#' @keywords internal
+#' @noRd
 did_close_text_document_params <- function(uri) {
   structure(
     list(
@@ -401,7 +401,7 @@ did_close_text_document_params <- function(uri) {
 #' Parameters for workspace/didChangeConfiguration notifications
 #'
 #' @param settings a named list
-#' @keywords internal
+#' @noRd
 did_change_configuration_params <- function(settings) {
   structure(
     settings,

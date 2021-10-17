@@ -1,0 +1,86 @@
+name: Coverage
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  cleanup:
+    name: Cancel Previous Runs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: styfle/cancel-workflow-action@0.9.0
+        with:
+          access_token: ${{ github.token }}
+
+  codecov:
+    if: contains(github.event.head_commit.message, '[ci skip]') == false
+    name: codecov ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # - os: ubuntu-latest
+            # log_file: /tmp/languageserver/ubuntu-log
+          - os: macos-latest
+            log_file: /tmp/languageserver/macos-log
+          # - os: windows-latest
+            # log_file: C:/tmp/languageserver/windows-log
+    runs-on: ${{ matrix.os }}
+    env:
+      NOT_CRAN: true
+      _R_CHECK_CRAN_INCOMING_: false
+      R_LANGSVR_LOG: ${{ matrix.log_file }}
+      R_LANGSVR_POOL_SIZE: 1
+      R_LANGSVR_TEST_FAST: NO
+    steps:
+      - uses: actions/checkout@v1
+      - uses: r-lib/actions/setup-r@v1
+        with:
+          r-version: latest
+      - name: Create log directory on Linux or macOS
+        if: runner.os != 'Windows'
+        run: mkdir -p $(dirname ${{ env.R_LANGSVR_LOG }})
+      - name: Create log directory on Windows
+        if: runner.os == 'Windows'
+        run: New-Item -ItemType directory -Path (Split-Path -Parent ${{ env.R_LANGSVR_LOG }})
+      - name: Query dependencies
+        run: |
+          install.packages('remotes')
+          saveRDS(remotes::dev_package_deps(dependencies = TRUE), ".github/depends.Rds", version = 2)
+          writeLines(sprintf("R-%i.%i", getRversion()$major, getRversion()$minor), ".github/R-version")
+        shell: Rscript {0}
+      - name: Restore R package cache
+        uses: actions/cache@v2
+        with:
+          path: ${{ env.R_LIBS_USER }}
+          key: ${{ runner.os }}-${{ hashFiles('.github/R-version') }}-1-${{ hashFiles('.github/depends.Rds') }}
+          restore-keys: ${{ runner.os }}-${{ hashFiles('.github/R-version') }}-1-
+      - name: Install system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          while read -r cmd
+          do
+            eval sudo $cmd
+          done < <(Rscript -e 'writeLines(remotes::system_requirements("ubuntu", "20.04"))')
+      - name: Install dependencies
+        run: |
+          Rscript -e "remotes::install_deps(dependencies = TRUE)"
+          Rscript -e "remotes::install_cran('covr')"
+      - name: Install a sperate copy on Windows
+        if:  runner.os == 'Windows'
+        run: |
+          Rscript -e "remotes::install_local()"
+      - name: Codecov
+        run: Rscript -e "covr::codecov()"
+        env:
+          CODECOV_TOKEN: ${{secrets.CODECOV_TOKEN}}
+      - uses: actions/upload-artifact@v1
+        if: failure()
+        with:
+          name: ${{ runner.os }}-log
+          path: ${{ env.R_LANGSVR_LOG }}
