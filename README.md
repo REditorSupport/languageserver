@@ -20,7 +20,7 @@
 
 ## Installation
 
-A few dependencies are required beforehand
+A few dependencies are required beforehand:
 
 ```bash
 # On Debian, Ubuntu, etc.
