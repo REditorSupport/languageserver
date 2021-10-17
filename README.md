@@ -9,13 +9,37 @@
 
 `languageserver` is an implementation of the Microsoft's [Language Server Protocol](https://microsoft.github.io/language-server-protocol/) for the language of R.
 
-It is released on CRAN and can be easily installed by
+- [Installation](#installation)
+- [Language Clients](#language-clients)
+- [Services Implemented](#services-implemented)
+- [Settings](#settings)
+- [FAQ](#faq)
+  - [Linters](#linters)
+  - [Customizing server capabilities](#customizing-server-capabilities)
+  - [Customizing formatting style](#customizing-formatting-style)
+
+## Installation
+
+A few dependencies are required beforehand:
+
+```bash
+# On Debian, Ubuntu, etc.
+apt install --assume-yes --no-install-recommends build-essential libcurl4-openssl-dev libssl-dev libxml2-dev r-base
+
+# On Fedora, Centos, etc.
+dnf install --assumeyes --setopt=install_weak_deps=False @development-tools libcurl-devel libxml2-devel openssl-devel R
+
+# On Alpine
+apk add --no-cache curl-dev g++ gcc libxml2-dev linux-headers make R R-dev
+```
+
+`languageserver` is released on CRAN and can be easily installed by
 
 ```r
 install.packages("languageserver")
 ```
 
-The development version of `languageserver` could be installed by running the following in R:
+The development version of `languageserver` could be installed by
 
 ```r
 # install.packages("remotes")
@@ -137,7 +161,7 @@ will turn off snippet support globally. LSP configuration settings are always ov
 
 With [lintr](https://github.com/jimhester/lintr) v2.0.0, the linters can be specified by creating the `.lintr` file at the project or home directory. Details can be found at lintr [documentation](https://github.com/jimhester/lintr#project-configuration).
 
-### Customizing server capbabilities
+### Customizing server capabilities
 
 Server capabilities are defined in
 [capabilities.R](https://github.com/REditorSupport/languageserver/blob/master/R/capabilities.R).
