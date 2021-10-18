@@ -1,3 +1,20 @@
+# languageserver 0.3.12
+
+**Closed issues:**                                                                         
+- Documentation not working with R 4.1.1 (#468)
+- Clean up dependencies (#470)
+- Documentation for functions assigned with `=` differs from functions assigned with `<-` (#466)
+- Bug when hovering variables (#463)
+- Null workspace folder not working with untitled documents (#460)
+
+**Merged pull requests:**
+- Add installation steps of OS-specific dependencies (#247)
+- Use internal `get_help` instead of repr (#469)
+- Remove desc from imports (#471)
+- Fix hover on function defined with `EQ_ASSIGN` (#467)
+- Fix several bugs (#464)
+- Fix handling null workspace folder and untitled document (#461)
+
 # languageserver 0.3.11
 
 **Closed issues:**                                                                     
