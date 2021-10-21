@@ -1,6 +1,7 @@
 # languageserver 0.3.12
 
-**Closed issues:**                                                                         
+**Closed issues:**
+
 - Documentation not working with R 4.1.1 (#468)
 - Clean up dependencies (#470)
 - Documentation for functions assigned with `=` differs from functions assigned with `<-` (#466)
@@ -8,6 +9,7 @@
 - Null workspace folder not working with untitled documents (#460)
 
 **Merged pull requests:**
+
 - Add installation steps of OS-specific dependencies (#247)
 - Use internal `get_help` instead of repr (#469)
 - Remove desc from imports (#471)
@@ -17,10 +19,11 @@
 
 # languageserver 0.3.11
 
-**Closed issues:**                                                                     
+**Closed issues:**
+
 - documentation only loaded for packages named in a library() call, not with p_load() (#257)
 - Minimal {styler} version requirement (#457)
-- If load package via pacman::p_load(), the autocompletion will be not able to work well  (#426)
+- If load package via pacman::p_load(), the autocompletion will be not able to work well (#426)
 - If I wrap library call in suppressPackageStartUpLanguages, autocompletion won't work (#451)
 - Handle `workspace/didChangeWatchedFiles` (#446)
 - Environment variable LANG (#435)
@@ -31,6 +34,7 @@
 - Provide diagnostics on non-installed packages (#80)
 
 **Merged pull requests:**
+
 - Require styler >= 1.5.1 (#458)
 - Support unscoped functions and library functions (#452)
 - Handle `workspace/didChangeWatchedFiles` (#447)
@@ -46,12 +50,13 @@
 
 # languageserver 0.3.10
 
-**Closed issues:**                                                   
-- definitionProvider should work with file path (#415)               
-- Null value in documentation does not trigger signature (#417)      
-- Improve completion performance (#412)                              
-- Completion not working before close parenthesis (#410)             
-- Use `styler::style_text(base_indention=)` for `styler > 1.4.0` (#400)                                                                   
+**Closed issues:**
+
+- definitionProvider should work with file path (#415)
+- Null value in documentation does not trigger signature (#417)
+- Improve completion performance (#412)
+- Completion not working before close parenthesis (#410)
+- Use `styler::style_text(base_indention=)` for `styler > 1.4.0` (#400)
 - Segfault on incorrect coordinates (#395)
 - Case-insensitive and fuzzy match in completion (#401)
 - Non-interactive setup of persistent {R.cache} cache for {styler} (#402)
@@ -61,6 +66,7 @@
 - [FR] Display promise / active-binding objects in the OUTLINE (#362)
 
 **Merged pull requests:**
+
 - Definition provider works with file path (#416)
 - Fix null doc_string in signature (#418)
 - Faster completion (#413)
