@@ -2,6 +2,7 @@ Settings <- R6::R6Class("Settings",
     private = list(
         settings = list(
             debug = FALSE,
+            trace = FALSE,
             log_file = NULL,
             diagnostics = TRUE,
             rich_documentation = TRUE,

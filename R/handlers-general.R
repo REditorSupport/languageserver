@@ -6,7 +6,7 @@
 on_initialize <- function(self, id, params) {
     trace <- params$trace
     if (!is.null(trace) && trace %in% c("messages", "verbose")) {
-        lsp_settings$set("debug", TRUE)
+        lsp_settings$set("trace", TRUE)
     }
 
     logger$info("session: ", list(

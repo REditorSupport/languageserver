@@ -26,6 +26,12 @@ workspace_did_change_configuration <- function(self, params) {
     logger$info("settings ", settings)
 
     lsp_settings$update_from_workspace(settings)
+
+    if (!lsp_settings$get("diagnostics")) {
+        for (uri in self$workspace$documents$keys()) {
+            diagnostics_callback(self, uri, NULL, list())
+        }
+    }
 }
 
 #' `workspace/didChangeWatchedFiles` notification handler

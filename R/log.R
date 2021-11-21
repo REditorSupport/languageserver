@@ -54,7 +54,14 @@ Logger <- R6::R6Class("Logger",
             log_write(..., log_file = lsp_settings$get("log_file"))
         },
         info = function(...) {
-            if (lsp_settings$get("debug")) log_write(..., log_file = lsp_settings$get("log_file"))
+            if (lsp_settings$get("debug") || lsp_settings$get("trace")) {
+                log_write(..., log_file = lsp_settings$get("log_file"))
+            }
+        },
+        trace = function(...) {
+            if (lsp_settings$get("trace")) {
+                log_write(..., log_file = lsp_settings$get("log_file"))
+            }
         }
     )
 )
