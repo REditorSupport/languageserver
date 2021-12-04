@@ -598,13 +598,9 @@ completion_item_resolve_reply <- function(id, workspace, params) {
         }
     }
 
-    if (resolved) {
-        params$data <- NULL
-        Response$new(
-            id,
-            result = params
-        )
-    } else {
-        Response$new(id)
-    }
+    params$data <- NULL
+    Response$new(
+        id,
+        result = params
+    )
 }
