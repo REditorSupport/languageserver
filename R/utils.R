@@ -135,6 +135,15 @@ path_has_parent <- function(x, y) {
     }
 }
 
+with_wd <- function(wd, expr) {
+    if (is.null(wd)) {
+        wd <- getwd()
+    }
+    oldwd <- setwd(wd)
+    on.exit(setwd(oldwd))
+    expr
+}
+
 equal_position <- function(x, y) {
     x$line == y$line && x$character == y$character
 }
