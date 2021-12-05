@@ -24,9 +24,8 @@ document_link_reply <- function(id, uri, workspace, document, rootPath) {
             error = function(e) NULL)
 
         if (length(str_texts)) {
-            paths <- fs::path_abs(str_texts, rootPath)
-            is_link <- file.exists(paths) & !dir.exists(paths)
-            link_paths <- path.expand(paths[is_link])
+            is_link <- with_wd(rootPath, file.exists(str_texts) & !dir.exists(str_texts))
+            link_paths <- path.expand(fs::path_abs(str_texts[is_link], rootPath))
             link_expr <- str_expr[is_link]
             is_raw_string <- grepl("^[rR]", link_expr)
             link_line1 <- str_line1[is_link]

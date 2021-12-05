@@ -66,8 +66,8 @@ definition_reply <- function(id, uri, workspace, document, point, rootPath) {
                     str_text <- tryCatch(as.character(parse(text = str_expr, keep.source = FALSE)),
                         error = function(e) NULL)
                     if (is.character(str_text)) {
-                        path <- fs::path_abs(str_text, rootPath)
-                        if (file.exists(path) && !dir.exists(path) && is_text_file(path)) {
+                        if (with_wd(rootPath, file.exists(str_text) && !dir.exists(str_text) && is_text_file(str_text))) {
+                            path <- fs::path_abs(str_text, rootPath)
                             result <- list(
                                 uri = path_to_uri(path),
                                 range = range(
