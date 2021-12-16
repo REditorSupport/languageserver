@@ -39,8 +39,6 @@ workspace_did_change_configuration <- function(self, params) {
 #' Handler to the `workspace/didChangeWatchedFiles` [Notification].
 #' @noRd
 workspace_did_change_watched_files <- function(self, params) {
-    logger$info("workspace_did_change_watched_files:", params)
-
     # All open documents will be automatically handled by lsp requests.
     # Only non-open documents in a package should be handled here.
 
