@@ -14,7 +14,7 @@ get_style <- function(options) {
 #' specified style.
 #'
 #' @noRd
-style_text <- function(text, style, indention = 0L) {
+style_text <- function(text, style, indention = 0L, trailing_empty_line = FALSE) {
     new_text <- tryCatch(
         styler::style_text(
             text,
@@ -26,6 +26,11 @@ style_text <- function(text, style, indention = 0L) {
     if (inherits(new_text, "error")) {
         logger$info("formatting error:", new_text$message)
         return(NULL)
+    }
+    if (isTRUE(trailing_empty_line)) {
+        if (new_text[[length(new_text)]] != "") {
+            new_text <- c(new_text, "")
+        }
     }
     paste0(new_text, collapse = "\n")
 }
@@ -59,7 +64,7 @@ formatting_reply <- function(id, uri, document, options) {
         }
     } else {
         logger$info("formatting R file")
-        new_text <- style_text(document$content, style)
+        new_text <- style_text(document$content, style, trailing_empty_line = TRUE)
         if (is.null(new_text)) {
             return(Response$new(id, list()))
         }
