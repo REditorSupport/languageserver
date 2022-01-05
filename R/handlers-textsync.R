@@ -5,6 +5,7 @@
 text_document_did_open <- function(self, params) {
     textDocument <- params$textDocument
     uri <- uri_escape_unicode(textDocument$uri)
+    language <- textDocument$languageId
     version <- textDocument$version
     text <- textDocument$text
     logger$info("did open:", list(uri = uri, version = version))
@@ -17,12 +18,10 @@ text_document_did_open <- function(self, params) {
         content <- NULL
     }
     if (self$workspace$documents$has(uri)) {
-        doc <- self$workspace$documents$get(uri)
-        doc$set_content(version, content)
-    } else {
-        doc <- Document$new(uri, version, content)
-        self$workspace$documents$set(uri, doc)
+        doc <- self$workspace$documents$remove(uri)
     }
+    doc <- Document$new(uri, language = language, version = version, content = content)
+    self$workspace$documents$set(uri, doc)
     doc$did_open()
     self$text_sync(uri, document = doc, run_lintr = TRUE, parse = TRUE)
 }
@@ -43,7 +42,7 @@ text_document_did_change <- function(self, params) {
         doc <- self$workspace$documents$get(uri)
         doc$set_content(version, content)
     } else {
-        doc <- Document$new(uri, version, content)
+        doc <- Document$new(uri, language = NULL, version = version, content = content)
         self$workspace$documents$set(uri, doc)
     }
     doc$did_open()
@@ -79,7 +78,7 @@ text_document_did_save <- function(self, params) {
         doc <- self$workspace$documents$get(uri)
         doc$set_content(doc$version, content)
     } else {
-        doc <- Document$new(uri, NULL, content)
+        doc <- Document$new(uri, language = NULL, version = NULL, content = content)
         self$workspace$documents$set(uri, doc)
     }
     doc$did_open()

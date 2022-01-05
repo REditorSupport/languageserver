@@ -77,12 +77,12 @@ find_config <- function(filename) {
 #'
 #' Lint and diagnose problems in a file.
 #' @noRd
-diagnose_file <- function(uri, content, cache = FALSE) {
+diagnose_file <- function(uri, is_rmarkdown, content, cache = FALSE) {
     if (length(content) == 0) {
         return(list())
     }
 
-    if (is_rmarkdown(uri)) {
+    if (is_rmarkdown) {
         # make sure Rmarkdown file has at least one block
         if (!any(stringi::stri_detect_regex(content, "```\\{r[ ,\\}]"))) {
             return(list())
@@ -138,7 +138,12 @@ diagnostics_task <- function(self, uri, document, delay = 0) {
     content <- document$content
     create_task(
         target = package_call(diagnose_file),
-        args = list(uri = uri, content = content, cache = lsp_settings$get("lint_cache")),
+        args = list(
+            uri = uri,
+            is_rmarkdown = document$is_rmarkdown,
+            content = content,
+            cache = lsp_settings$get("lint_cache")
+        ),
         callback = function(result) diagnostics_callback(self, uri, version, result),
         error = function(e) {
             logger$info("diagnostics_task:", e)
