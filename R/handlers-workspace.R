@@ -65,7 +65,7 @@ workspace_did_change_watched_files <- function(self, params) {
 
             if (type == FileChangeType$Created || type == FileChangeType$Changed) {
                 logger$info("load", path)
-                doc <- Document$new(uri, NULL, stringi::stri_read_lines(path))
+                doc <- Document$new(uri, language = "r", version = NULL, content = stringi::stri_read_lines(path))
                 self$workspace$documents$set(uri, doc)
                 self$text_sync(uri, document = doc, parse = TRUE)
             } else if (type == FileChangeType$Deleted) {

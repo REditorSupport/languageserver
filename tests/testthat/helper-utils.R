@@ -65,18 +65,23 @@ notify <- function(client, method, params = NULL) {
 }
 
 
-did_open <- function(client, path, uri = path_to_uri(path), text = NULL) {
+did_open <- function(client, path, uri = path_to_uri(path), text = NULL, languageId = NULL) {
     if (is.null(text)) {
         text <- stringi::stri_read_lines(path)
     }
     text <- paste0(text, collapse = "\n")
+
+    if (is.null(languageId)) {
+        languageId <- if (is_rmarkdown(uri)) "rmd" else "r"
+    }
+
     notify(
         client,
         "textDocument/didOpen",
         list(
             textDocument = list(
                 uri = uri,
-                languageId = "R",
+                languageId = languageId,
                 version = 1,
                 text = text
             )

@@ -171,7 +171,7 @@ is_rmarkdown <- function(uri) {
 #'
 #' @noRd
 check_scope <- function(uri, document, point) {
-    if (is_rmarkdown(uri)) {
+    if (document$is_rmarkdown) {
         row <- point$row
         flags <- vapply(
             document$content[1:(row + 1)], startsWith, logical(1), "```", USE.NAMES = FALSE)
