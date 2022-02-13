@@ -6,10 +6,7 @@
 \alias{languageserver-package}
 \title{languageserver: Language Server Protocol}
 \description{
-An implementation of the Language Server Protocol
-    for R. The Language Server protocol is used by an editor client to
-    integrate features like auto completion. See
-    <https://microsoft.github.io/language-server-protocol/> for details.
+An implementation of the Language Server Protocol for R. The Language Server protocol is used by an editor client to integrate features like auto completion. See <https://microsoft.github.io/language-server-protocol/> for details.
 }
 \details{
 An implementation of the Language Server Protocol for R
