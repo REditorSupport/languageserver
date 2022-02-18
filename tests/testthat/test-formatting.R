@@ -175,3 +175,43 @@ test_that("Formatting in Rmarkdown works", {
     expect_equal(result[[1]]$range$end, list(line = 1, character = 29))
     expect_equal(result[[1]]$newText, "my_fn <- function(x) {\n    x + 1\n    x\n}")
 })
+
+test_that("On type formatting works in Rmarkdown", {
+    skip_on_cran()
+    client <- language_client()
+
+    temp_file <- withr::local_tempfile(fileext = ".Rmd")
+    writeLines(c(
+        "---",
+        "title: 1+1",
+        "---",
+        "",
+        "1+1",
+        "",
+        "```{r}",
+        "my_fn<-function(x){",
+        "f(x+1,x-1)",
+        "data[x,y]",
+        "}",
+        "```"
+    ), temp_file)
+
+    client %>% did_save(temp_file)
+
+    result <- client %>% respond_on_type_formatting(temp_file, c(1, 10), ")", retry = FALSE)
+    expect_length(result, 0)
+
+    result <- client %>% respond_on_type_formatting(temp_file, c(4, 3), ")", retry = FALSE)
+    expect_length(result, 0)
+
+    result <- client %>% respond_on_type_formatting(temp_file, c(10, 1), "}")
+    expect_length(result, 1)
+    lines <- strsplit(result[[1]]$newText, "\n")[[1]]
+    expect_length(lines, 4)
+    expect_equal(lines, c(
+        "my_fn <- function(x) {",
+        "    f(x + 1, x - 1)",
+        "    data[x, y]",
+        "}"
+    ))
+})
