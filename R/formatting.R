@@ -129,6 +129,10 @@ range_formatting_reply <- function(id, uri, document, range, options) {
 #' Format on type
 #' @noRd
 on_type_formatting_reply <- function(id, uri, document, point, ch, options) {
+    if (!check_scope(uri, document, point)) {
+        return(Response$new(id))
+    }
+
     content <- document$content
     end_line <- point$row + 1
     use_completer <- FALSE

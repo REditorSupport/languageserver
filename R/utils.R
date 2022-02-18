@@ -173,8 +173,7 @@ is_rmarkdown <- function(uri) {
 check_scope <- function(uri, document, point) {
     if (document$is_rmarkdown) {
         row <- point$row
-        flags <- vapply(
-            document$content[1:(row + 1)], startsWith, logical(1), "```", USE.NAMES = FALSE)
+        flags <- startsWith(document$content[1:(row + 1)], "```")
         if (any(flags)) {
             last_match <- document$content[max(which(flags))]
             stringi::stri_detect_regex(last_match, "```+\\s*\\{[rR][ ,\\}]") &&
