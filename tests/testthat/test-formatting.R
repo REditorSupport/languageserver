@@ -189,7 +189,7 @@ test_that("On type formatting works in Rmarkdown", {
         "1+1",
         "",
         "```{r}",
-        "my_fn<-function(x){",
+        "my_fn<-function(x){",  # nolint
         "f(x+1,x-1)",
         "data[x,y]",
         "}",
