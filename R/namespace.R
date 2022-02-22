@@ -86,7 +86,7 @@ PackageNamespace <- R6::R6Class("PackageNamespace",
             pkgname <- self$package_name
             ns <- asNamespace(pkgname)
             fn <- get(funct, envir = ns)
-            formals(fn)
+            formals(if (is.primitive(fn)) args(fn) else fn)
         },
 
         get_documentation = function(topic) {

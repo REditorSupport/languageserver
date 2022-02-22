@@ -238,7 +238,8 @@ test_that("Completion of function arguments works", {
         c(
             "str(obj",
             "utils::str(obj",
-            "str(stats::o"
+            "str(stats::o",
+            "seq.int(fr"
         ),
         temp_file)
 
@@ -255,6 +256,10 @@ test_that("Completion of function arguments works", {
     result <- client %>% respond_completion(temp_file, c(2, 12))
     arg_items <- result$items %>% keep(~.$label == "object")
     expect_length(arg_items, 0)
+
+    result <- client %>% respond_completion(temp_file, c(3, 10))
+    arg_items <- result$items %>% keep(~ .$label == "from")
+    expect_length(arg_items, 1)
 })
 
 test_that("Completion of function arguments is case insensitive", {
@@ -321,7 +326,8 @@ test_that("Completion of function arguments preserves the order of arguments", {
         c(
             "eval(",
             "formatC(",
-            "print.default("
+            "print.default(",
+            "seq.int("
         ),
         temp_file)
 
@@ -344,6 +350,12 @@ test_that("Completion of function arguments preserves the order of arguments", {
         keep(~ identical(.$data$type, "parameter")) %>%
         map_chr(~ .$label)
     expect_identical(arg_items, names(formals(print.default)))
+
+    result <- client %>% respond_completion(temp_file, c(3, 8))
+    arg_items <- result$items %>%
+        keep(~ identical(.$data$type, "parameter")) %>%
+        map_chr(~ .$label)
+    expect_identical(arg_items, names(formals(args(seq.int))))
 })
 
 test_that("Completion of local function arguments works", {
