@@ -41,10 +41,10 @@ get_document_symbol_kind <- function(type) {
             `function` = SymbolKind$Function,
             `NULL` = SymbolKind$Null,
             `class` = SymbolKind$Class,
-            SymbolKind$Variable
+            SymbolKind$Field
         )
     } else {
-        SymbolKind$Variable
+        SymbolKind$Field
     }
 }
 
