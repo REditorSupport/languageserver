@@ -31,7 +31,21 @@ get_block_folding_ranges <- function(xdoc) {
 
 get_comment_folding_ranges <- function(xdoc) {
     comments <- xml_find_all(xdoc, "//COMMENT")
-    if (length(comments) == 0) {
+    if (identical(length(comments), 0L)) {
+        return(NULL)
+    }
+    comments <- comments[
+        !grepl(
+            paste0(
+                "^\\#.+", "(",
+                paste0("\\", section_suffix, "{4,}", collapse = "|"),
+                ")\\s*$"
+            ),
+            xml_text(comments, trim = FALSE),
+            perl = TRUE
+        )
+    ]
+    if (identical(length(comments), 0L)) {
         return(NULL)
     }
     comm_line1 <- as.integer(xml_attr(comments, "line1"))
