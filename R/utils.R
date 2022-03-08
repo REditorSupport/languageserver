@@ -237,7 +237,7 @@ get_signature <- function(symbol, expr) {
 section_suffix <- c("#", "+", "-", "=", "*") # at least 4
 sub_section_prefix <- c("*", "-", "+", "=")
 
-get_r_document_sections <- function(uri, document, type = c("section", "subsections")) {
+get_r_document_sections <- function(uri, document, type = c("section", "subsection")) {
 
     # derive all line number and document content in a vector
     line_seq <- seq_len(document$nline)
@@ -249,7 +249,7 @@ get_r_document_sections <- function(uri, document, type = c("section", "subsecti
     }
 
     label_section <- NULL
-    if (type %in% "subsections") {
+    if (type %in% "subsection") {
         label_section <- get_r_document_label_sections(line_seq, doc_content)
     }
 
@@ -372,7 +372,7 @@ get_r_document_label_sections <- function(line_seq, doc_content) {
         label_sections <- .mapply(function(name, line) {
             list(
                 name = name,
-                type = "subsections",
+                type = "subsection",
                 start_line = line,
                 end_line = line
             )
@@ -471,7 +471,7 @@ get_rmd_document_sections <- function(uri, document, type = c("section", "chunk"
 }
 
 get_document_sections <- function(uri, document,
-    type = c("section", "subsections", "chunk")) {
+    type = c("section", "subsection", "chunk")) {
 
     if (document$is_rmarkdown) {
         get_rmd_document_sections(uri, document, type)
