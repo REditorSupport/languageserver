@@ -232,51 +232,156 @@ get_signature <- function(symbol, expr) {
     signature
 }
 
+# define suffix labels and prefix labels for section
+# enable adding further labels easily
+section_suffix <- c("#", "+", "-", "=", "*") # at least 4
+sub_section_prefix <- c("*", "-", "+", "=")
+
 get_r_document_sections <- function(uri, document, type = c("section", "subsections")) {
-    sections <- NULL
 
-    if ("section" %in% type) {
-        section_lines <- seq_len(document$nline)
-        section_lines <- section_lines[
-            grep("^\\#+\\s*(.+?)\\s*(\\#{4,}|\\+{4,}|\\-{4,}|\\={4,})\\s*$",
-                document$content[section_lines], perl = TRUE)]
-        if (length(section_lines)) {
-            section_names <- gsub("^\\#+\\s*(.+?)\\s*(\\#{4,}|\\+{4,}|\\-{4,}|\\={4,})\\s*$",
-                "\\1", document$content[section_lines], perl = TRUE)
-            section_end_lines <- c(section_lines[-1] - 1, document$nline)
-            sections <- .mapply(function(name, start_line, end_line) {
-                list(
-                    name = name,
-                    type = "section",
-                    start_line = start_line,
-                    end_line = end_line
-                )
-            }, list(section_names, section_lines, section_end_lines), NULL)
-        }
+    # derive all line number and document content in a vector
+    line_seq <- seq_len(document$nline)
+    doc_content <- document$content[line_seq]
+
+    range_section <- NULL
+    if (type %in% "section") {
+        range_section <- get_r_document_range_sections(line_seq, doc_content)
     }
 
-    subsections <- NULL
-
-    if ("subsection" %in% type) {
-        subsection_lines <- seq_len(document$nline)
-        subsection_lines <- subsection_lines[
-            grep("^\\s+\\#+\\s*(.+?)\\s*(\\#{4,}|\\+{4,}|\\-{4,}|\\={4,})\\s*$",
-                document$content[subsection_lines], perl = TRUE)]
-        if (length(subsection_lines)) {
-            subsection_names <- gsub("^\\s+\\#+\\s*(.+?)\\s*(\\#{4,}|\\+{4,}|\\-{4,}|\\={4,})\\s*$",
-                "\\1", document$content[subsection_lines], perl = TRUE)
-            subsections <- .mapply(function(name, line) {
-                list(
-                    name = name,
-                    type = "subsection",
-                    start_line = line,
-                    end_line = line
-                )
-            }, list(subsection_names, subsection_lines), NULL)
-        }
+    label_section <- NULL
+    if (type %in% "subsections") {
+        label_section <- get_r_document_label_sections(line_seq, doc_content)
     }
 
-    c(sections, subsections)
+    c(range_section, label_section)
+}
+
+get_r_document_range_sections <- function(line_seq, doc_content) {
+
+    # extract comment line with at least 4 of one of c("#", "+", "-", "=", "*")
+    section_lines <- line_seq[
+        grepl(
+            paste0(
+                "^\\#.+", "(",
+                paste0("\\", section_suffix, "{4,}", collapse = "|"),
+                ")\\s*$"
+            ),
+            doc_content,
+            perl = TRUE
+        )
+    ]
+
+    if (length(section_lines)) {
+        section_prefix_and_names <- sub(
+            paste0(
+                "^\\#+\\s*(%%)?\\s*(.+?)\\s*", "(",
+                paste0("\\", section_suffix, "{4,}", collapse = "|"),
+                ")\\s*$"
+            ),
+            "\\2", doc_content[section_lines],
+            perl = TRUE
+        )
+
+        # define section levels based on the number of one of
+        # `sub_section_prefix`
+        section_prefix <- sub(
+            paste0(
+                "^(",
+                paste0("\\", sub_section_prefix, "*+", collapse = "|"),
+                ").*$"
+            ),
+            "\\1", section_prefix_and_names,
+            perl = TRUE
+        )
+        section_levels <- nchar(section_prefix)
+
+        # the section range end line should be the first occurence among
+        # following document where the section level is equal or lower than
+        # current section level, or the end line of this document
+        section_end_lines <- vapply(seq_along(section_lines), function(i) {
+            section_index_after_i <- setdiff(
+                seq_along(section_lines), seq_len(i)
+            )
+            if (identical(length(section_index_after_i), 0L)) {
+                return(length(doc_content))
+            }
+            section_range_end_index <- which(
+                section_levels[section_index_after_i] <= section_levels[[i]]
+            )
+            if (length(section_range_end_index)) {
+                section_range_end_index <- section_range_end_index[[1]]
+                return(
+                    section_lines[
+                        section_index_after_i[section_range_end_index]
+                    ] - 1L
+                )
+            } else {
+                return(length(doc_content))
+            }
+        }, integer(1L))
+
+        section_names <- sub(
+            paste0(
+                "^(",
+                paste0("\\", sub_section_prefix, "*+", collapse = "|"),
+                ")\\s*(.+?)\\s*$"
+            ),
+            "\\2", section_prefix_and_names,
+            perl = TRUE
+        )
+        sections <- .mapply(function(name, start_line, end_line) {
+            list(
+                name = name,
+                type = "section",
+                start_line = start_line,
+                end_line = end_line
+            )
+        }, list(section_names, section_lines, section_end_lines), NULL)
+
+        return(sections)
+    }
+
+    NULL
+}
+
+# indent can be indicative of symbol object in vscode outline
+get_r_document_label_sections <- function(line_seq, doc_content) {
+
+    label_lines <- line_seq[
+        grepl(
+            paste0(
+                "^\\s+\\#.+", "(",
+                paste0("\\", section_suffix, "{2,}", collapse = "|"),
+                ")\\s*$"
+            ),
+            doc_content,
+            perl = TRUE
+        )
+    ]
+
+    if (length(label_lines)) {
+        label_names <- sub(
+            paste0(
+                "^\\s+\\#+\\s*(%%)?\\s*(.+?)\\s*", "(",
+                paste0("\\", section_suffix, "{2,}", collapse = "|"),
+                ")\\s*$"
+            ),
+            "\\2", doc_content[label_lines],
+            perl = TRUE
+        )
+        label_sections <- .mapply(function(name, line) {
+            list(
+                name = name,
+                type = "subsections",
+                start_line = line,
+                end_line = line
+            )
+        }, list(label_names, label_lines), NULL)
+
+        return(label_sections)
+
+    }
+    NULL
 }
 
 get_rmd_document_sections <- function(uri, document, type = c("section", "chunk")) {
@@ -366,7 +471,8 @@ get_rmd_document_sections <- function(uri, document, type = c("section", "chunk"
 }
 
 get_document_sections <- function(uri, document,
-    type = c("section", "subsection", "chunk")) {
+    type = c("section", "subsections", "chunk")) {
+
     if (document$is_rmarkdown) {
         get_rmd_document_sections(uri, document, type)
     } else {
