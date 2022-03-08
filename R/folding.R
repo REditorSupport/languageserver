@@ -37,7 +37,7 @@ get_comment_folding_ranges <- function(xdoc) {
     comments <- comments[
         !grepl(
             paste0(
-                "^\\#.+", "(",
+                "(",
                 paste0("\\", section_suffix, "{4,}", collapse = "|"),
                 ")\\s*$"
             ),
