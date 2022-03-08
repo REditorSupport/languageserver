@@ -244,12 +244,12 @@ get_r_document_sections <- function(uri, document, type = c("section", "subsecti
     doc_content <- document$content[line_seq]
 
     range_section <- NULL
-    if (type %in% "section") {
+    if ("section" %in% type) {
         range_section <- get_r_document_range_sections(line_seq, doc_content)
     }
 
     label_section <- NULL
-    if (type %in% "subsection") {
+    if ("subsection" %in% type) {
         label_section <- get_r_document_label_sections(line_seq, doc_content)
     }
 
