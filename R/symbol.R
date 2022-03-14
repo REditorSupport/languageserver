@@ -73,13 +73,13 @@ document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
     result <- definition_symbols
 
     if (isTRUE(capabilities$hierarchicalDocumentSymbolSupport)) {
-        sections <- get_document_sections(uri, document)
+        sections <- get_document_symbols(uri, document)
         section_symbols <- lapply(sections, function(section) {
             symbol_information(
                 name = section$name,
                 kind = switch(section$type,
                     section = SymbolKind$String,
-                    subsection = SymbolKind$String,
+                    symbol = SymbolKind$String,
                     chunk = SymbolKind$Key,
                     SymbolKind$String
                 ),
