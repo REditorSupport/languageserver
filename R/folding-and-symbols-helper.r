@@ -20,40 +20,39 @@ section_level_regex <- paste0(
     "[", paste0("\\", section_level_prefix, collapse = ""), "]*+"
 )
 
-get_document_sections <- function(uri, document, xdoc, type = c("section", "chunk")) {
+get_document_sections_and_blocks <- function(uri, document, xdoc) {
     if (document$is_rmarkdown) {
-        get_rmd_document_sections(uri, document, type)
+        get_rmd_document_sections_and_blocks(uri, document, xdoc = xdoc)
     } else {
-        get_r_document_sections(uri, document, xdoc = xdoc)
+        get_r_document_sections_and_blocks(uri, document, xdoc = xdoc)
     }
 }
 
-get_document_symbols <- function(uri, document, xdoc, type = c("section", "chunk")) {
+get_document_symbols <- function(uri, document, xdoc) {
     if (document$is_rmarkdown) {
-        get_rmd_document_sections(uri, document, type)
+        get_rmd_document_symbols(uri, document)
     } else {
         get_r_document_symbols(uri, document, xdoc = xdoc)
     }
 }
 
-get_r_document_sections <- function(uri, document, xdoc) {
-    
+get_r_document_sections_and_blocks <- function(uri, document, xdoc) {
+
     # derive all line number and document content in a vector
     line_seq <- seq_len(document$nline)
     doc_content <- document$content
 
-    break_r_document_sections(
-        line_seq, doc_content, xdoc = xdoc, symbol = FALSE
+    get_block_and_break_r_document_sections(
+        line_seq, doc_content,
+        xdoc = xdoc, symbol = FALSE
     )
-
 }
 
-break_r_document_sections <- function(line_seq, doc_content, xdoc, symbol = FALSE) {
-    blocks <- get_block_helper(xdoc)
+get_block_and_break_r_document_sections <- function(line_seq, doc_content, xdoc, symbol = FALSE) {
+    blocks <- get_document_block_helper(xdoc)
 
     sections <- get_r_document_sections_helper(line_seq, doc_content)
     section_breaks <- get_r_document_section_breaks(line_seq, doc_content)
-    section_breaks <- section_breaks
     if (length(section_breaks) && length(sections)) {
         sections <- lapply(sections, function(section) {
             break_in_section <- section_breaks > section$start_line &
@@ -158,9 +157,10 @@ get_r_document_sections_helper <- function(line_seq, doc_content) {
     NULL
 }
 
-get_block_helper <- function(xdoc) {
-    
-    if (is.null(xdoc)) return(NULL)
+get_document_block_helper <- function(xdoc) {
+    if (is.null(xdoc)) {
+        return(NULL)
+    }
     blocks <- xml_find_all(xdoc, "//expr[@line1 < @line2 and
         (OP-LEFT-PAREN | OP-LEFT-BRACKET | OP-LEFT-BRACE)/@line1 <
         (OP-RIGHT-PAREN | OP-RIGHT-BRACKET | OP-RIGHT-BRACE)/@line1]")
@@ -204,14 +204,6 @@ get_r_document_section_breaks <- function(line_seq, doc_content) {
     if (length(blank_lines)) break_lines else NULL
 }
 
-# get_document_sections <- function(uri, document, type = c("section", "chunk")) {
-#     if (document$is_rmarkdown) {
-#         get_rmd_document_sections(uri, document, type)
-#     } else {
-#         get_r_document_sections(seq_len(document$nline), document$content)
-#     }
-# }
-
 # indent can be indicative of symbol object in vscode outline
 get_r_document_one_line_symbols <- function(line_seq, doc_content) {
     label_lines <- line_seq[
@@ -254,14 +246,27 @@ get_r_document_symbols <- function(uri, document, xdoc) {
     doc_content <- document$content
 
     c(
-        break_r_document_sections(
-            line_seq, doc_content, xdoc = xdoc, symbol = TRUE
+        get_block_and_break_r_document_sections(
+            line_seq, doc_content,
+            xdoc = xdoc, symbol = TRUE
         ),
         get_r_document_one_line_symbols(line_seq, doc_content)
     )
 }
 
-get_rmd_document_sections <- function(uri, document, type = c("section", "chunk")) {
+get_rmd_document_sections_and_blocks <- function(uri, document, xdoc) {
+    blocks <- get_document_block_helper(xdoc)
+    sections <- get_rmd_document_sections_helper(
+        uri, document, c("section", "chunk")
+    )
+    c(blocks, sections)
+}
+
+get_rmd_document_symbols <- function(uri, document) {
+    get_rmd_document_sections_helper(uri, document)
+}
+
+get_rmd_document_sections_helper <- function(uri, document, type = c("section", "chunk")) {
     content <- document$content
     if (length(content) == 0) {
         return(NULL)

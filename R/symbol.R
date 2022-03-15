@@ -75,8 +75,7 @@ document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
     if (isTRUE(capabilities$hierarchicalDocumentSymbolSupport)) {
         sections <- get_document_symbols(
             uri, document,
-            xdoc = parse_data$xml_doc,
-            type = c("section", "chunk")
+            xdoc = parse_data$xml_doc
         )
         section_symbols <- lapply(sections, function(section) {
             symbol_information(

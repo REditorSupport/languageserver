@@ -51,11 +51,10 @@ get_comment_folding_ranges <- function(xdoc) {
     comm_folding_ranges
 }
 
-get_section_folding_ranges <- function(uri, document, xdoc) {
+get_section_and_block_folding_ranges <- function(uri, document, xdoc) {
 
-    sections <- get_document_sections(
-        uri = uri, document = document,
-        xdoc = xdoc, type = c("section", "chunk")
+    sections <- get_document_sections_and_blocks(
+        uri = uri, document = document, xdoc = xdoc
     )
     if (!length(sections)) {
         return(NULL)
@@ -83,7 +82,7 @@ document_folding_range_reply <- function(id, uri, workspace, document) {
     if (!is.null(xdoc)) {
         comment_ranges <- get_comment_folding_ranges(xdoc)
     }
-    section_ranges <- get_section_folding_ranges(
+    section_ranges <- get_section_and_block_folding_ranges(
         uri, document, xdoc
     )
 
