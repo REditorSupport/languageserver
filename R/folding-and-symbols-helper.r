@@ -17,47 +17,64 @@ section_range_regex <- paste0(
 # ** use `section_level_prefix` to indicate section levels
 section_level_prefix <- c("*", "-", "+", "=")
 section_level_regex <- paste0(
-    "\\", section_level_prefix, "*+",
-    collapse = "|"
+    "[", paste0("\\", section_level_prefix, collapse = ""), "]*+"
 )
 
-# get_document_sections <- function(uri, document, type = c("section", "chunk")) {
-#     if (document$is_rmarkdown) {
-#         get_rmd_document_sections(uri, document, type)
-#     } else {
-#         get_r_document_sections(seq_len(document$nline), document$content)
-#     }
-# }
-get_document_symbols <- function(uri, document, type = c("section", "chunk")) {
+get_document_sections <- function(uri, document, xdoc, type = c("section", "chunk")) {
     if (document$is_rmarkdown) {
         get_rmd_document_sections(uri, document, type)
     } else {
-        get_r_document_symbols(uri, document)
+        get_r_document_sections(uri, document, xdoc = xdoc, symbol = FALSE)
     }
 }
 
-# two or more blank lines should break sections succession
-get_r_document_section_breaks <- function(line_seq, doc_content) {
-    blank_lines <- line_seq[
-        grepl("^\\s*$", doc_content, perl = TRUE)
-    ]
-    if (!length(blank_lines)) {
-        return(NULL)
+get_document_symbols <- function(uri, document, xdoc, type = c("section", "chunk")) {
+    if (document$is_rmarkdown) {
+        get_rmd_document_sections(uri, document, type)
+    } else {
+        get_r_document_symbols(uri, document, xdoc = xdoc)
     }
-    group <- split(blank_lines, cumsum(diff(c(0L, blank_lines)) != 1L))
-    break_lines <- vapply(group, function(x) {
-        if (length(x) >= 2) {
-            return(min(x))
-        } else {
-            return(NA_integer_)
-        }
-    }, integer(1L))
-    break_lines <- break_lines[!is.na(break_lines)]
-    if (length(blank_lines)) break_lines else NULL
 }
 
-# orginal name - get_r_document_range_sections
-get_r_document_sections <- function(line_seq, doc_content) {
+get_r_document_sections <- function(uri, document, xdoc, symbol = FALSE) {
+    blocks <- get_block_helper(xdoc)
+
+    # derive all line number and document content in a vector
+    line_seq <- seq_len(document$nline)
+    doc_content <- document$content
+    sections <- get_r_document_sections_helper(line_seq, doc_content)
+    section_breaks <- get_r_document_section_breaks(line_seq, doc_content)
+    section_breaks <- section_breaks
+    if (length(section_breaks) && length(sections)) {
+        sections <- lapply(sections, function(section) {
+            break_in_section <- section_breaks > section$start_line &
+                section_breaks < section$end_line
+
+            # omit breaks in blocks
+            if (length(blocks)) {
+                block_list <- lapply(blocks, function(block) {
+                    matrix(c(block$start_line, block$end_line), nrow = 1)
+                })
+                blocks <- do.call("rbind", block_list)
+                break_in_block <- vapply(
+                    section_breaks, function(section_break) {
+                        any(section_break > blocks[, 1, drop = TRUE] &
+                            section_break < blocks[, 2, drop = TRUE])
+                    }, logical(1L)
+                )
+                break_in_section <- break_in_section & !break_in_block
+            }
+            if (any(break_in_section)) {
+                break_line <- min(section_breaks[break_in_section])
+                section$end_line <- break_line - 1
+            }
+            section
+        })
+    }
+    if (symbol) c(blocks, sections) else sections
+}
+
+get_r_document_sections_helper <- function(line_seq, doc_content) {
 
     # extract comment line with at least 4 of one of c("#", "+", "-", "=", "*")
     section_lines <- line_seq[
@@ -132,6 +149,60 @@ get_r_document_sections <- function(line_seq, doc_content) {
     NULL
 }
 
+get_block_helper <- function(xdoc) {
+    
+    if (is.null(xdoc)) return(NULL)
+    blocks <- xml_find_all(xdoc, "//expr[@line1 < @line2 and
+        (OP-LEFT-PAREN | OP-LEFT-BRACKET | OP-LEFT-BRACE)/@line1 <
+        (OP-RIGHT-PAREN | OP-RIGHT-BRACKET | OP-RIGHT-BRACE)/@line1]")
+    if (!length(blocks)) { # prevent floating point comparision
+        return(NULL)
+    }
+
+    block_start <- xml_find_first(blocks, "OP-LEFT-PAREN | OP-LEFT-BRACKET | OP-LEFT-BRACE")
+    block_end <- xml_find_first(blocks, "OP-RIGHT-PAREN | OP-RIGHT-BRACKET | OP-RIGHT-BRACE")
+
+    block_start_line <- as.integer(xml_attr(block_start, "line1"))
+    block_end_line <- as.integer(xml_attr(block_end, "line1"))
+
+    block_folding_ranges <- .mapply(function(start_line, end_line) {
+        list(
+            type = "block",
+            start_line = start_line,
+            end_line = end_line
+        )
+    }, list(block_start_line, block_end_line), NULL)
+    block_folding_ranges
+}
+
+# two or more blank lines out of block ranges should break sections succession
+get_r_document_section_breaks <- function(line_seq, doc_content) {
+    blank_lines <- line_seq[
+        grepl("^\\s*$", doc_content, perl = TRUE)
+    ]
+    if (!length(blank_lines)) {
+        return(NULL)
+    }
+    group <- split(blank_lines, cumsum(diff(c(0L, blank_lines)) != 1L))
+    break_lines <- vapply(group, function(x) {
+        if (length(x) >= 2) {
+            return(min(x))
+        } else {
+            return(NA_integer_)
+        }
+    }, integer(1L))
+    break_lines <- break_lines[!is.na(break_lines)]
+    if (length(blank_lines)) break_lines else NULL
+}
+
+# get_document_sections <- function(uri, document, type = c("section", "chunk")) {
+#     if (document$is_rmarkdown) {
+#         get_rmd_document_sections(uri, document, type)
+#     } else {
+#         get_r_document_sections(seq_len(document$nline), document$content)
+#     }
+# }
+
 # indent can be indicative of symbol object in vscode outline
 get_r_document_one_line_symbols <- function(line_seq, doc_content) {
     label_lines <- line_seq[
@@ -168,13 +239,13 @@ get_r_document_one_line_symbols <- function(line_seq, doc_content) {
     NULL
 }
 
-get_r_document_symbols <- function(uri, document) {
+get_r_document_symbols <- function(uri, document, xdoc) {
     # derive all line number and document content in a vector
     line_seq <- seq_len(document$nline)
     doc_content <- document$content
 
     c(
-        get_r_document_sections(line_seq, doc_content),
+        get_r_document_sections(line_seq, doc_content, xdoc, symbol = TRUE),
         get_r_document_one_line_symbols(line_seq, doc_content)
     )
 }

@@ -53,7 +53,7 @@ get_document_symbol_kind <- function(type) {
 document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
     parse_data <- workspace$get_parse_data(uri)
     if (is.null(parse_data) ||
-            (!is.null(parse_data$version) && parse_data$version != document$version)) {
+        (!is.null(parse_data$version) && parse_data$version != document$version)) {
         return(NULL)
     }
 
@@ -73,7 +73,11 @@ document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
     result <- definition_symbols
 
     if (isTRUE(capabilities$hierarchicalDocumentSymbolSupport)) {
-        sections <- get_document_symbols(uri, document)
+        sections <- get_document_symbols(
+            uri, document,
+            xdoc = parse_data$xml_doc,
+            type = c("section", "chunk")
+        )
         section_symbols <- lapply(sections, function(section) {
             symbol_information(
                 name = section$name,
