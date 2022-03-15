@@ -122,11 +122,12 @@ get_r_document_sections_helper <- function(line_seq, doc_content) {
             section_index_after_i <- setdiff(
                 seq_along(section_lines), seq_len(i)
             )
-            # when no section is after current section
+            # when no higher-level section is after current section
             # the end line should be the end of current document
             if (!length(section_index_after_i)) {
                 return(length(doc_content))
             }
+            # find the first section with higher-level than current section
             section_range_end_index <- which(
                 section_levels[section_index_after_i] <= section_levels[[i]]
             )
