@@ -24,7 +24,7 @@ get_document_sections <- function(uri, document, xdoc, type = c("section", "chun
     if (document$is_rmarkdown) {
         get_rmd_document_sections(uri, document, type)
     } else {
-        get_r_document_sections(uri, document, xdoc = xdoc, symbol = FALSE)
+        get_r_document_sections(uri, document, xdoc = xdoc)
     }
 }
 
@@ -36,12 +36,21 @@ get_document_symbols <- function(uri, document, xdoc, type = c("section", "chunk
     }
 }
 
-get_r_document_sections <- function(uri, document, xdoc, symbol = FALSE) {
-    blocks <- get_block_helper(xdoc)
-
+get_r_document_sections <- function(uri, document, xdoc) {
+    
     # derive all line number and document content in a vector
     line_seq <- seq_len(document$nline)
     doc_content <- document$content
+
+    break_r_document_sections(
+        line_seq, doc_content, xdoc = xdoc, symbol = FALSE
+    )
+
+}
+
+break_r_document_sections <- function(line_seq, doc_content, xdoc, symbol = FALSE) {
+    blocks <- get_block_helper(xdoc)
+
     sections <- get_r_document_sections_helper(line_seq, doc_content)
     section_breaks <- get_r_document_section_breaks(line_seq, doc_content)
     section_breaks <- section_breaks
@@ -71,7 +80,7 @@ get_r_document_sections <- function(uri, document, xdoc, symbol = FALSE) {
             section
         })
     }
-    if (symbol) c(blocks, sections) else sections
+    if (!symbol) c(blocks, sections) else sections
 }
 
 get_r_document_sections_helper <- function(line_seq, doc_content) {
@@ -245,7 +254,9 @@ get_r_document_symbols <- function(uri, document, xdoc) {
     doc_content <- document$content
 
     c(
-        get_r_document_sections(line_seq, doc_content, xdoc, symbol = TRUE),
+        break_r_document_sections(
+            line_seq, doc_content, xdoc = xdoc, symbol = TRUE
+        ),
         get_r_document_one_line_symbols(line_seq, doc_content)
     )
 }
