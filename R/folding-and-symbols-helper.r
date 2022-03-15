@@ -15,7 +15,7 @@ section_range_regex <- paste0(
 )
 
 # ** use `section_level_prefix` to indicate section levels
-section_level_prefix <- c("*", "-", "+", "=")
+section_level_prefix <- c("#", "*", "-", "+", "=")
 section_level_regex <- paste0(
     "[", paste0("\\", section_level_prefix, collapse = ""), "]*+"
 )
@@ -101,7 +101,7 @@ get_r_document_sections_helper <- function(line_seq, doc_content) {
         section_levels_and_names <- stringi::stri_match_first(
             doc_content[section_lines],
             regex = paste0(
-                "^\\#+\\s*(%%)?\\s*+",
+                "^\\#\\s*(%%)?\\s*+",
                 "(", section_level_regex, ")\\s*+", # section levels group
                 "(.+?)\\s*+", # section names group
                 "(", section_range_regex, ")\\s*$"
