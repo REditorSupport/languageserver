@@ -95,6 +95,7 @@ get_r_document_sections_helper <- function(line_seq, doc_content) {
 
     if (length(section_lines)) {
         # extract section marks of section levels and its name
+        # this should be a matrix 
         # ** section levels - the third column
         # ** section names - the fourth column
         section_levels_and_names <- stringi::stri_match_first(
@@ -192,6 +193,7 @@ get_r_document_section_breaks <- function(line_seq, doc_content) {
     if (!length(blank_lines)) {
         return(NULL)
     }
+    # group continuous blank lines
     group <- split(blank_lines, cumsum(diff(c(0L, blank_lines)) != 1L))
     break_lines <- vapply(group, function(x) {
         if (length(x) >= 2) {
