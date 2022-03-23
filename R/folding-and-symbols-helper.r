@@ -15,7 +15,7 @@ section_range_regex <- paste0(
 )
 
 # ** use `section_level_prefix` to indicate section levels
-section_level_prefix <- c("#", "*", "-", "+", "=")
+section_level_prefix <- "#" # c("#", "*", "-", "+", "=")
 section_level_regex <- paste0(
     "[", paste0("\\", section_level_prefix, collapse = ""), "]*+"
 )
@@ -138,13 +138,14 @@ get_r_document_sections_helper <- function(line_seq, doc_content) {
     if (length(section_lines)) {
         # extract section marks of section levels and its name
         # this should be a matrix
-        # ** section levels - the third column
+        # ** section levels - the second column
         # ** section names - the fourth column
         section_levels_and_names <- stringi::stri_match_first(
             doc_content[section_lines],
             regex = paste0(
-                "^\\#\\s*(%%)?\\s*+",
+                "^\\#\\s*+",
                 "(", section_level_regex, ")\\s*+", # section levels group
+                "(%%)?\\s*+",
                 "(.+?)\\s*+", # section names group
                 "(", section_range_regex, ")\\s*$"
             )
@@ -153,7 +154,7 @@ get_r_document_sections_helper <- function(line_seq, doc_content) {
         # define section levels based on the number of one of
         # `section_level_prefix`
         section_levels <- nchar(
-            section_levels_and_names[, 3, drop = TRUE]
+            section_levels_and_names[, 2, drop = TRUE]
         )
 
         # the section range end line should be the first occurence among
