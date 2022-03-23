@@ -20,6 +20,10 @@ section_level_regex <- paste0(
     "[", paste0("\\", section_level_prefix, collapse = ""), "]*+"
 )
 
+#' Main util function to get folding range - sections and blocks.
+#' sections are indicated by `section_mark_suffix`
+#' blocks are codes between something like [], (), and {}.
+#' @noRd
 get_document_sections_and_blocks <- function(uri, document, xdoc) {
     if (document$is_rmarkdown) {
         get_rmd_document_sections_and_blocks(uri, document, xdoc = xdoc)
@@ -28,14 +32,10 @@ get_document_sections_and_blocks <- function(uri, document, xdoc) {
     }
 }
 
-get_document_symbols <- function(uri, document, xdoc) {
-    if (document$is_rmarkdown) {
-        get_rmd_document_symbols(uri, document)
-    } else {
-        get_r_document_symbols(uri, document, xdoc = xdoc)
-    }
-}
-
+#' r document util function to get folding range - sections and blocks.
+#' sections should be discountinued when two or more blank lines (out of 
+#' blocks) exist
+#' @noRd
 get_r_document_sections_and_blocks <- function(uri, document, xdoc) {
 
     # derive all line number and document content in a vector
@@ -48,6 +48,47 @@ get_r_document_sections_and_blocks <- function(uri, document, xdoc) {
     )
 }
 
+#' r document util function to get folding range - sections and blocks.
+#' @noRd
+get_rmd_document_sections_and_blocks <- function(uri, document, xdoc) {
+    blocks <- get_document_block_helper(xdoc)
+    sections <- get_rmd_document_sections_helper(
+        uri, document, c("section", "chunk")
+    )
+    c(blocks, sections)
+}
+
+#' Main util function to get document symbols
+#' @noRd
+get_document_symbols <- function(uri, document, xdoc) {
+    if (document$is_rmarkdown) {
+        get_rmd_document_symbols(uri, document)
+    } else {
+        get_r_document_symbols(uri, document, xdoc = xdoc)
+    }
+}
+
+get_r_document_symbols <- function(uri, document, xdoc) {
+    # derive all line number and document content in a vector
+    line_seq <- seq_len(document$nline)
+    doc_content <- document$content
+
+    c(
+        get_block_and_break_r_document_sections(
+            line_seq, doc_content,
+            xdoc = xdoc, symbol = TRUE
+        ),
+        get_r_document_one_line_symbols(line_seq, doc_content)
+    )
+}
+
+get_rmd_document_symbols <- function(uri, document) {
+    get_rmd_document_sections_helper(uri, document)
+}
+
+#' Get folding ranges including both sections and blocks; then break off
+#' section successions if two or more blank lines (out of blocks) exist
+#' @noRd 
 get_block_and_break_r_document_sections <- function(line_seq, doc_content, xdoc, symbol = FALSE) {
     blocks <- get_document_block_helper(xdoc)
 
@@ -82,6 +123,7 @@ get_block_and_break_r_document_sections <- function(line_seq, doc_content, xdoc,
     if (!symbol) c(blocks, sections) else sections
 }
 
+#' @noRd
 get_r_document_sections_helper <- function(line_seq, doc_content) {
 
     # extract comment line with at least 4 of one of c("#", "+", "-", "=", "*")
@@ -95,7 +137,7 @@ get_r_document_sections_helper <- function(line_seq, doc_content) {
 
     if (length(section_lines)) {
         # extract section marks of section levels and its name
-        # this should be a matrix 
+        # this should be a matrix
         # ** section levels - the third column
         # ** section names - the fourth column
         section_levels_and_names <- stringi::stri_match_first(
@@ -159,6 +201,7 @@ get_r_document_sections_helper <- function(line_seq, doc_content) {
     NULL
 }
 
+#' @noRd
 get_document_block_helper <- function(xdoc) {
     if (is.null(xdoc)) {
         return(NULL)
@@ -186,7 +229,8 @@ get_document_block_helper <- function(xdoc) {
     block_folding_ranges
 }
 
-# two or more blank lines out of block ranges should break sections succession
+#' two or more blank lines out of block ranges should break sections succession
+#' @noRd 
 get_r_document_section_breaks <- function(line_seq, doc_content) {
     blank_lines <- line_seq[
         grepl("^\\s*$", doc_content, perl = TRUE)
@@ -207,7 +251,8 @@ get_r_document_section_breaks <- function(line_seq, doc_content) {
     if (length(blank_lines)) break_lines else NULL
 }
 
-# indent can be indicative of symbol object in vscode outline
+#' indent can be indicative of symbol object in vscode outline
+#' @noRd
 get_r_document_one_line_symbols <- function(line_seq, doc_content) {
     label_lines <- line_seq[
         grepl(
@@ -241,32 +286,6 @@ get_r_document_one_line_symbols <- function(line_seq, doc_content) {
         return(label_sections)
     }
     NULL
-}
-
-get_r_document_symbols <- function(uri, document, xdoc) {
-    # derive all line number and document content in a vector
-    line_seq <- seq_len(document$nline)
-    doc_content <- document$content
-
-    c(
-        get_block_and_break_r_document_sections(
-            line_seq, doc_content,
-            xdoc = xdoc, symbol = TRUE
-        ),
-        get_r_document_one_line_symbols(line_seq, doc_content)
-    )
-}
-
-get_rmd_document_sections_and_blocks <- function(uri, document, xdoc) {
-    blocks <- get_document_block_helper(xdoc)
-    sections <- get_rmd_document_sections_helper(
-        uri, document, c("section", "chunk")
-    )
-    c(blocks, sections)
-}
-
-get_rmd_document_symbols <- function(uri, document) {
-    get_rmd_document_sections_helper(uri, document)
 }
 
 get_rmd_document_sections_helper <- function(uri, document, type = c("section", "chunk")) {
