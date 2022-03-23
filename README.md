@@ -96,6 +96,8 @@ The following editors are supported by installing the corresponding extensions:
 
 - JupyterLab: [jupyterlab-lsp](https://github.com/jupyter-lsp/jupyterlab-lsp)
 
+- [BBEdit](https://www.barebones.com/products/bbedit/download.html): preconfigured in version 14.0 and later; see the [BBEdit LSP support page](https://www.barebones.com/support/bbedit/lsp-notes.html) for complete details.
+
 ## Services Implemented
 
 `languageserver` is still under active development, the following services have been implemented:
