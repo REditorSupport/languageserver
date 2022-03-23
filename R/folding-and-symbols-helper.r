@@ -1,7 +1,7 @@
 # define suffix marks for section and prefix marks for section levels
 # ** use `section_mark_suffix` to indicate section beginning
 section_mark_suffix <- c("#", "+", "-", "=", "*")
-# *** numbers over 2 is indicative of section name (section range with one line)
+# *** indention with over 2 tokens is indicative of section name (section range with one line)
 # *** see `get_r_document_one_line_symbols`
 section_symbol_regex <- paste0(
     "\\", section_mark_suffix, "{2,}",
