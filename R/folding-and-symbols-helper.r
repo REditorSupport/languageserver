@@ -33,7 +33,7 @@ get_document_sections_and_blocks <- function(uri, document, xdoc) {
 }
 
 #' r document util function to get folding range - sections and blocks.
-#' sections should be discountinued when two or more blank lines (out of 
+#' sections should be discountinued when two or more blank lines (out of
 #' blocks) exist
 #' @noRd
 get_r_document_sections_and_blocks <- function(uri, document, xdoc) {
@@ -42,7 +42,7 @@ get_r_document_sections_and_blocks <- function(uri, document, xdoc) {
     line_seq <- seq_len(document$nline)
     doc_content <- document$content
 
-    get_block_and_break_r_document_sections(
+    get_blocks_and_break_r_document_sections(
         line_seq, doc_content,
         xdoc = xdoc, symbol = FALSE
     )
@@ -51,7 +51,7 @@ get_r_document_sections_and_blocks <- function(uri, document, xdoc) {
 #' r document util function to get folding range - sections and blocks.
 #' @noRd
 get_rmd_document_sections_and_blocks <- function(uri, document, xdoc) {
-    blocks <- get_document_block_helper(xdoc)
+    blocks <- get_document_blocks_helper(xdoc)
     sections <- get_rmd_document_sections_helper(
         uri, document, c("section", "chunk")
     )
@@ -74,7 +74,7 @@ get_r_document_symbols <- function(uri, document, xdoc) {
     doc_content <- document$content
 
     c(
-        get_block_and_break_r_document_sections(
+        get_blocks_and_break_r_document_sections(
             line_seq, doc_content,
             xdoc = xdoc, symbol = TRUE
         ),
@@ -88,9 +88,9 @@ get_rmd_document_symbols <- function(uri, document) {
 
 #' Get folding ranges including both sections and blocks; then break off
 #' section successions if two or more blank lines (out of blocks) exist
-#' @noRd 
-get_block_and_break_r_document_sections <- function(line_seq, doc_content, xdoc, symbol = FALSE) {
-    blocks <- get_document_block_helper(xdoc)
+#' @noRd
+get_blocks_and_break_r_document_sections <- function(line_seq, doc_content, xdoc, symbol = FALSE) {
+    blocks <- get_document_blocks_helper(xdoc)
 
     sections <- get_r_document_sections_helper(line_seq, doc_content)
     section_breaks <- get_r_document_section_breaks(line_seq, doc_content)
@@ -202,7 +202,7 @@ get_r_document_sections_helper <- function(line_seq, doc_content) {
 }
 
 #' @noRd
-get_document_block_helper <- function(xdoc) {
+get_document_blocks_helper <- function(xdoc) {
     if (is.null(xdoc)) {
         return(NULL)
     }
@@ -230,7 +230,7 @@ get_document_block_helper <- function(xdoc) {
 }
 
 #' two or more blank lines out of block ranges should break sections succession
-#' @noRd 
+#' @noRd
 get_r_document_section_breaks <- function(line_seq, doc_content) {
     blank_lines <- line_seq[
         grepl("^\\s*$", doc_content, perl = TRUE)
