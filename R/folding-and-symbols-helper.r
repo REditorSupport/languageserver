@@ -48,7 +48,7 @@ get_r_document_sections_and_blocks <- function(uri, document, xdoc) {
     )
 }
 
-#' r document util function to get folding range - sections and blocks.
+#' rmd document util function to get folding range - sections and blocks.
 #' @noRd
 get_rmd_document_sections_and_blocks <- function(uri, document, xdoc) {
     blocks <- get_document_blocks_helper(xdoc)
