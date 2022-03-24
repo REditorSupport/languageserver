@@ -40,7 +40,7 @@ get_document_symbols <- function(uri, document, xdoc) {
     }
 }
 
-#----------------------r document utils functions---------------------#
+#---------------------------r document utils functions------------------------#
 get_r_document_sections_and_blocks <- function(document, xdoc, symbol = FALSE) {
     doc_content <- document$content
     block_lines <- extract_document_block_lines(xdoc)
@@ -65,7 +65,7 @@ get_r_document_sections_and_blocks <- function(document, xdoc, symbol = FALSE) {
 }
 
 get_r_document_sections_rec <- function(start_line, end_line, doc_content, block_lines) {
-    if (start_line >= end_line) {
+    if (start_line > end_line) {
         return(NULL)
     }
     line_seq <- start_line:end_line
@@ -310,7 +310,7 @@ determine_section_ranges <- function(section_lines, section_names, section_level
     }, list(section_names, section_lines, section_end_lines), NULL)
 }
 
-#----------------------rmd document utils functions---------------------#
+#----------------------------rmd document utils functions----------------------#
 #' rmd document util function to get folding range - sections and blocks.
 #' @noRd
 get_rmd_document_sections_and_blocks <- function(uri, document, xdoc) {
