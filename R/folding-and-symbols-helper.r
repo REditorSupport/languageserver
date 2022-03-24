@@ -50,7 +50,6 @@ get_r_document_sections_and_blocks <- function(document, xdoc, symbol = FALSE) {
         doc_content = doc_content,
         block_lines = block_lines
     )
-    print(section_ranges)
     if (symbol) {
         return(section_ranges)
     }
