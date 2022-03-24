@@ -82,7 +82,6 @@ document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
                 name = section$name,
                 kind = switch(section$type,
                     section = SymbolKind$String,
-                    symbol = SymbolKind$String,
                     chunk = SymbolKind$Key,
                     SymbolKind$String
                 ),
