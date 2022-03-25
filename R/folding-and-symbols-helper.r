@@ -57,7 +57,7 @@ get_r_document_sections_and_blocks <- function(document, xdoc, symbol = FALSE) {
         list(
             type = "block",
             start_line = start_lines,
-            end_line = end_lines
+            end_line = end_lines - 1L
         )
     }, block_lines, NULL)
     c(section_ranges, block_ranges)
@@ -68,27 +68,33 @@ get_r_document_sections_rec <- function(start_line, end_line, doc_content, block
         return(NULL)
     }
     line_seq <- start_line:end_line
-    block_lines <- lapply(
-        block_lines, "[", block_lines$start_lines >= start_line &
-            block_lines$end_lines <= end_line
-    )
+    block_lines <- block_lines[
+        block_lines$start_lines >= start_line &
+            block_lines$end_lines - 1L <= end_line & !(
+            block_lines$start_lines == start_line &
+                block_lines$end_lines - 1L == end_line
+        ), , drop = FALSE
+    ]
 
     lines_out_blocks <- extract_lines_out_blocks(
         line_seq, block_lines
     )
     sections_in_blocks <- NULL
     if (length(block_lines$start_lines)) {
-        highest_level_block_lines <- lapply(
-            block_lines, "[", unlist(
+        highest_level_block_lines <- block_lines[
+            unlist(
                 .mapply(function(start_lines, end_lines) {
-                    !any(start_lines > block_lines$start_lines & end_lines < block_lines$end_lines)
+                    !any(start_lines >= block_lines$start_lines & end_lines <= block_lines$end_lines & !(
+                        start_lines == block_lines$start_lines & end_lines == block_lines$end_lines
+                    ))
                 }, block_lines, NULL),
                 recursive = FALSE, use.names = FALSE
-            )
-        )
+            ), , drop = FALSE
+        ]
+
         sections_in_blocks <- .mapply(function(start_lines, end_lines) {
             get_r_document_sections_rec( # recursive function
-                start_lines + 1L, end_lines - 1L,
+                start_lines, end_lines - 1L,
                 doc_content = doc_content,
                 block_lines = block_lines
             )
@@ -139,10 +145,10 @@ extract_document_block_lines <- function(xdoc) {
     block_start <- xml_find_first(blocks, "OP-LEFT-PAREN | OP-LEFT-BRACKET | OP-LEFT-BRACE")
     block_end <- xml_find_first(blocks, "OP-RIGHT-PAREN | OP-RIGHT-BRACKET | OP-RIGHT-BRACE")
 
-    list(
+    unique(data.frame(
         start_lines = as.integer(xml_attr(block_start, "line1")),
         end_lines = as.integer(xml_attr(block_end, "line1"))
-    )
+    ))
 }
 
 #' `block_lines` should in `line_seq`
@@ -151,10 +157,12 @@ extract_lines_out_blocks <- function(line_seq, block_lines) {
         .mapply(":", block_lines, NULL),
         recursive = FALSE, use.names = FALSE
     )
-    setdiff(line_seq, block_span_lines)
+    lines_out_blocks <- setdiff(line_seq, block_span_lines)
+    # should keep the last line
+    unique(c(lines_out_blocks, max(line_seq)))
 }
 
-#' `line_seq` is the line numbers of line_content
+#' `line_seq` is the line numbers of line_content, both have equal numbers
 #' @noRd
 extract_document_section_lines <- function(line_seq, line_content) {
 
@@ -210,9 +218,9 @@ extract_document_section_breaks <- function(line_seq, line_content) {
         return(NULL)
     }
     # group continuous blank lines
-    group <- split(blank_lines, cumsum(diff(c(0L, blank_lines)) != 1L))
+    group <- split(blank_lines, factor(cumsum(diff(c(0L, blank_lines)) != 1L)))
     break_lines <- vapply(group, function(x) {
-        # how many lines should break off section succession - 2L
+        # how many lines should break off section succession ? ( 2L )
         if (length(x) >= 2L) {
             return(min(x))
         } else {
@@ -288,7 +296,7 @@ determine_section_ranges <- function(section_lines, section_names, section_level
         )
 
         if (length(section_range_end_index)) {
-            section_range_end_index <- section_range_end_index[[1]]
+            section_range_end_index <- section_range_end_index[[1L]]
             return(
                 section_lines[
                     section_index_after_i[section_range_end_index]
