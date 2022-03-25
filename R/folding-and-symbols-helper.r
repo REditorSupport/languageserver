@@ -12,7 +12,7 @@ section_range_regex <- paste0(
 section_level_prefix <- "#" # c("#", "*", "-", "+", "=")
 section_level_regex <- paste0(
     "[", paste0("\\", section_level_prefix, collapse = ""), "]*+"
-) 
+)
 
 #' Main util function to get folding range - sections and blocks.
 #' sections are indicated by `section_mark_suffix`
@@ -53,11 +53,11 @@ get_r_document_sections_and_blocks <- function(document, xdoc, symbol = FALSE) {
     if (symbol) {
         return(section_ranges)
     }
-    block_ranges <- .mapply(function(start_lines, end_lines) {
+    block_ranges <- .mapply(function(start_line, end_line) {
         list(
             type = "block",
-            start_line = start_lines,
-            end_line = end_lines - 1L
+            start_line = start_line,
+            end_line = end_line - 1L
         )
     }, block_lines, NULL)
     c(section_ranges, block_ranges)
@@ -68,40 +68,42 @@ get_r_document_sections_rec <- function(start_line, end_line, doc_content, block
         return(NULL)
     }
     line_seq <- start_line:end_line
-    block_lines <- block_lines[
-        block_lines$start_lines >= start_line &
-            block_lines$end_lines - 1L <= end_line & !(
-            block_lines$start_lines == start_line &
-                block_lines$end_lines - 1L == end_line
-        ), , drop = FALSE
-    ]
+    block_lines <- lapply(
+        block_lines, "[",
+        block_lines[[1L]] >= start_line &
+            block_lines[[2L]] - 1L <= end_line & !(
+            block_lines[[1L]] == start_line &
+                block_lines[[2L]] - 1L == end_line
+        )
+    )
 
     lines_out_blocks <- extract_lines_out_blocks(
         line_seq, block_lines
     )
     sections_in_blocks <- NULL
-    if (length(block_lines$start_lines)) {
-        highest_level_block_lines <- block_lines[
-            unlist(
-                .mapply(function(start_lines, end_lines) {
-                    !any(start_lines >= block_lines$start_lines & end_lines <= block_lines$end_lines & !(
-                        start_lines == block_lines$start_lines & end_lines == block_lines$end_lines
-                    ))
-                }, block_lines, NULL),
-                recursive = FALSE, use.names = FALSE
-            ), , drop = FALSE
-        ]
+    if (length(block_lines[[1L]])) {
+        highest_level_block_lines <- lapply(block_lines, "[", unlist(
+            .mapply(function(start_line, end_line) {
+                !any(start_line >= block_lines[[1L]] &
+                    end_line <= block_lines[[2L]] &
+                    !(start_line == block_lines[[1L]] &
+                        end_line == block_lines[[2L]]))
+            }, block_lines, NULL),
+            recursive = FALSE, use.names = FALSE
+        ))
 
-        sections_in_blocks <- .mapply(function(start_lines, end_lines) {
+
+        sections_in_blocks <- .mapply(function(start_line, end_line) {
             get_r_document_sections_rec( # recursive function
-                start_lines, end_lines - 1L,
+                start_line, end_line - 1L,
                 doc_content = doc_content,
                 block_lines = block_lines
             )
         }, highest_level_block_lines, NULL)
         sections_in_blocks <- unlist(
             sections_in_blocks,
-            recursive = FALSE, use.names = FALSE
+            recursive = FALSE,
+            use.names = FALSE
         )
     }
     sections_out_blocks <- NULL
@@ -145,10 +147,11 @@ extract_document_block_lines <- function(xdoc) {
     block_start <- xml_find_first(blocks, "OP-LEFT-PAREN | OP-LEFT-BRACKET | OP-LEFT-BRACE")
     block_end <- xml_find_first(blocks, "OP-RIGHT-PAREN | OP-RIGHT-BRACKET | OP-RIGHT-BRACE")
 
-    unique(data.frame(
-        start_lines = as.integer(xml_attr(block_start, "line1")),
-        end_lines = as.integer(xml_attr(block_end, "line1"))
+    block_lines <- unique(cbind(
+        as.integer(xml_attr(block_start, "line1")),
+        as.integer(xml_attr(block_end, "line1"))
     ))
+    lapply(1:2, function(i) block_lines[, i, drop = TRUE])
 }
 
 #' `block_lines` should in `line_seq`
