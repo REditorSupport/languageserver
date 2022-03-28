@@ -13,10 +13,13 @@ function Table(el)
 
   -- Do nothing if the 1st column has cells not comprised of single Plain block
   -- or if the 2nd column can be represented by the GFM-syntax.
+  local function unlike_para(x)
+    return x.t ~= "Plain" and x.t ~= "Para"
+  end
   local complex_table = false
   for _, row in pairs(tb.rows) do
-    if (#row[1] ~= 1) or (row[1][1].t ~= "Plain") then return end
-    complex_table = complex_table or (#row[2] > 1 or row[2][1].t ~= "Plain")
+    if (#row[1] ~= 1) or unlike_para(row[1][1]) then return end
+    complex_table = complex_table or #row[2] > 1 or unlike_para(row[2][1])
   end
   if not complex_table then return end
 
