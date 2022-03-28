@@ -1,3 +1,13 @@
+# languageserver 0.3.13
+
+**Closed issues:**
+
+- Some of the tables of arguments are too complex to be represented by GFM (#533) 
+
+**Merged pull requests.**
+
+- Convert the table of arguments to the sections of arguments with Lua filter (#534)
+
 # languageserver 0.3.12
 
 **Closed issues:**
