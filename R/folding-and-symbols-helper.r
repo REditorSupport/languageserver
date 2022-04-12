@@ -16,7 +16,7 @@ section_level_regex <- paste0(
 
 #' Main util function to get folding range - sections and blocks.
 #' sections are indicated by `section_mark_suffix`
-#' blocks are codes between something like [], (), and {}.
+#' blocks are codes between pairs like ("[" and "]"), ("(" and ")"), and ("{" and "}").
 #' @noRd
 get_document_sections_and_blocks <- function(uri, document, xdoc) {
     if (document$is_rmarkdown) {
@@ -81,7 +81,7 @@ get_r_document_sections_rec <- function(start_line, end_line, doc_content, block
         line_seq, block_lines
     )
     sections_in_blocks <- NULL
-    if (length(block_lines[[1L]])) {
+    if (length(block_lines) && length(block_lines[[1L]])) {
         highest_level_block_lines <- lapply(block_lines, "[", unlist(
             .mapply(function(start_line, end_line) {
                 !any(start_line >= block_lines[[1L]] &
