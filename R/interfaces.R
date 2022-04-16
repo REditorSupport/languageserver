@@ -10,7 +10,7 @@
 #' @noRd
 position <- function(line, character) {
 
-  if (!is.numeric(line) | !is.numeric(character)) {
+  if (!is.numeric(line) || !is.numeric(character)) {
     stop("`position` requires numeric arguments!")
   }
 
@@ -37,7 +37,7 @@ print.position <- function(x, start_char = "", ...) {
 #' @noRd
 range <- function(start, end) {
 
-  if (!inherits(start, "position") | !inherits(end, "position")) {
+  if (!inherits(start, "position") || !inherits(end, "position")) {
     stop("`range` requires 'position' parameters!")
   }
 
