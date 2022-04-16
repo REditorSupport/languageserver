@@ -1,4 +1,4 @@
-# languageserver 0.3.13
+# languageserver 0.3.12.9000 (Development version)
 
 **Closed issues:**
 
@@ -6,7 +6,7 @@
 
 **Merged pull requests.**
 
-- Convert the table of arguments to the sections of arguments with Lua filter (#534)
+- Convert the table of arguments to the sections of arguments with Lua filter (#534, thanks @atusy)
 
 # languageserver 0.3.12
 
