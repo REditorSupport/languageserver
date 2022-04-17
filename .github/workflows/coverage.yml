@@ -79,7 +79,7 @@ jobs:
         run: Rscript -e "covr::codecov()"
         env:
           CODECOV_TOKEN: ${{secrets.CODECOV_TOKEN}}
-      - uses: actions/upload-artifact@v1
+      - uses: actions/upload-artifact@v3
         if: failure()
         with:
           name: ${{ runner.os }}-log
