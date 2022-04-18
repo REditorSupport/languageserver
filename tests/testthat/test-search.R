@@ -64,6 +64,10 @@ test_that("find_unbalanced_bracket works as expected", {
     expect_equal(bsearch(c("foo({ ", "}, xyz"), 1, 3)[[1]], c(0, 3))
     expect_equal(bsearch(c("foo(( ", "), xyz"), 1, 3)[[1]], c(0, 3))
 
+    # issue #530
+    expect_equal(bsearch(c("if (sum()) ", "xyz"), 0, 7)[[1]], c(0, 7))
+    expect_equal(bsearch(c("} if (sum()) ", "xyz"), 0, 9)[[1]], c(0, 9))
+
     # other brackets
     expect_equal(bsearch("foo[xy", 0, 5), list(c(0, 3), "["))
     expect_equal(bsearch("foo{xy", 0, 5), list(c(0, 3), "{"))
