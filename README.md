@@ -43,7 +43,10 @@ install.packages("languageserver")
 The latest development build of `languageserver` could be installed from our [r-universe](https://reditorsupport.r-universe.dev) repository:
 
 ```r
-install.packages("languageserver", repos="https://reditorsupport.r-universe.dev")
+install.packages("languageserver", repos = c(
+    reditorsupport = "https://reditorsupport.r-universe.dev",
+    getOption("repos")
+))
 ```
 
 ## Language Clients
