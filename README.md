@@ -40,13 +40,20 @@ apk add --no-cache curl-dev g++ gcc libxml2-dev linux-headers make R R-dev
 install.packages("languageserver")
 ```
 
-The latest development build of `languageserver` could be installed from our [r-universe](https://reditorsupport.r-universe.dev) repository:
+To try the latest features, install the daily development build from our [r-universe](https://reditorsupport.r-universe.dev) repository:
 
 ```r
 install.packages("languageserver", repos = c(
     reditorsupport = "https://reditorsupport.r-universe.dev",
     getOption("repos")
 ))
+```
+
+Or install the latest development version from our GitHub repository:
+
+```r
+# install.packages("remotes")
+remotes::install_github("REditorSupport/languageserver")
 ```
 
 ## Language Clients
