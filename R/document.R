@@ -292,10 +292,8 @@ parser_hooks <- list(
         }
     },
     "pacman::p_load" = function(expr, action) {
-        fun <- if (requireNamespace("pacman")) pacman::p_load else
-            function(..., char, install = TRUE,
-                     update = getOption("pac_update"),
-                     character.only = FALSE) NULL
+        fun <- if (requireNamespace("pacman", quietly = TRUE)) pacman::p_load else
+            function(..., char, install = TRUE, update = getOption("pac_update"), character.only = FALSE) NULL
         call <- match.call(fun, expr, expand.dots = FALSE)
         if (!isTRUE(call$character.only)) {
             packages <- vapply(call[["..."]], as.character, character(1L))
