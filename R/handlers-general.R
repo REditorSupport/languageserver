@@ -17,6 +17,7 @@ on_initialize <- function(self, id, params) {
         ver = unclass(R.version),
         locale = Sys.getlocale(),
         env = as.list(Sys.getenv()),
+        libpaths = .libPaths(),
         namespaces = local({
             nss <- loadedNamespaces()
             vs <- lapply(nss, function(ns) format(utils::packageVersion(ns)))

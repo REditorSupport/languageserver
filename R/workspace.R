@@ -220,10 +220,9 @@ Workspace <- R6::R6Class("Workspace",
                 matches <- symbols[fuzzy_find(symbols, pattern)]
                 result <- c(result, lapply(
                     unname(parse_data$definitions[matches]),
-                    function(def) c(
-                        uri = doc$uri,
-                        def
-                    )
+                    function(def) {
+                        c(uri = doc$uri, def)
+                    }
                 ))
             }
             result

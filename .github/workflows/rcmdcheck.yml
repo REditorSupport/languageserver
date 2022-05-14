@@ -13,7 +13,7 @@ jobs:
     name: Cancel Previous Runs
     runs-on: ubuntu-latest
     steps:
-      - uses: styfle/cancel-workflow-action@0.9.0
+      - uses: styfle/cancel-workflow-action@0.9.1
         with:
           access_token: ${{ github.token }}
 
@@ -37,10 +37,10 @@ jobs:
       R_LANGSVR_LOG: ${{ matrix.log_file }}
       R_LANGSVR_POOL_SIZE: 1
     steps:
-      - uses: actions/checkout@v1
-      - uses: r-lib/actions/setup-r@v1
+      - uses: actions/checkout@v3
+      - uses: r-lib/actions/setup-r@v2
         with:
-          r-version: latest
+          r-version: release
       - name: Create log directory on Linux or macOS
         if: runner.os != 'Windows'
         run: mkdir -p $(dirname ${{ env.R_LANGSVR_LOG }})
@@ -54,7 +54,7 @@ jobs:
           writeLines(sprintf("R-%i.%i", getRversion()$major, getRversion()$minor), ".github/R-version")
         shell: Rscript {0}
       - name: Restore R package cache
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: ${{ env.R_LIBS_USER }}
           key: ${{ runner.os }}-${{ hashFiles('.github/R-version') }}-1-${{ hashFiles('.github/depends.Rds') }}
@@ -78,7 +78,7 @@ jobs:
         id: rcmdcheck
         run: |
           Rscript -e "rcmdcheck::rcmdcheck(args = c('--as-cran', '--no-manual'), error_on = 'warning')"
-      - uses: actions/upload-artifact@v1
+      - uses: actions/upload-artifact@v3
         if: failure()
         with:
           name: ${{ runner.os }}-log
