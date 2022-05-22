@@ -98,12 +98,12 @@ SEXP stdin_read_char(SEXP _n) {
     }
 
     bytes_read = read(0, buf, n);
-    buf[bytes_read] = '\0';
 
-    if (bytes_read == 0) {
-        return Rf_allocVector(STRSXP, 0);
-    } else {
+    if (bytes_read > 0) {
+        buf[bytes_read] = '\0';
         return Rf_ScalarString(Rf_mkCharCE(buf, CE_UTF8));
+    } else {
+        return Rf_allocVector(STRSXP, 0);
     }
 }
 
