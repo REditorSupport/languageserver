@@ -106,7 +106,7 @@ The following editors are supported by installing the corresponding extensions:
 
 - JupyterLab: [jupyterlab-lsp](https://github.com/jupyter-lsp/jupyterlab-lsp)
 
-- [BBEdit](https://www.barebones.com/products/bbedit): preconfigured in version 14.0 and later; see the [BBEdit LSP support page](https://www.barebones.com/support/bbedit/lsp-notes.html) for complete details.
+- [BBEdit](https://www.barebones.com/products/bbedit/): preconfigured in version 14.0 and later; see the [BBEdit LSP support page](https://www.barebones.com/support/bbedit/lsp-notes.html) for complete details.
 
 ## Services Implemented
 
