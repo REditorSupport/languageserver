@@ -1,6 +1,7 @@
 test_that("Works with unicode path", {
     skip_on_cran()
-    if (.Platform$OS.type == "windows") {
+    if (.Platform$OS.type == "windows" &&
+          utils::compareVersion(paste0(R.version$major, ".", R.version$minor), "4.2") < 0) {
         skip_if_not(Sys.getenv("CI", "false") == "true")
         old_locale <- Sys.getlocale("LC_CTYPE")
         Sys.setlocale(locale = "chinese")
