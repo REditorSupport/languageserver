@@ -1,12 +1,38 @@
-# languageserver 0.3.12.9000 (Development version)
+# languageserver 0.3.13
 
-**Closed issues:**
+**Closed issues:**                                                   
+                                                                                          
+- Language Server crashing sporadically (#368)                                        
+- Why not set up r-universe? (#536)                                                   
+- Signature help not show up in if-else branch (#530)                                 
+- Some of the tables of arguments are too complex to be represented by GFM (#533)     
+- Rmd detection ignores front matter (#507)                                           
+- Range formatting and onTypeFormatting are performed in Rmd non-code content (#224)
+- Respect document language specified from editor (#510)
+- "No newline at end of file" after formatting file in VS Code (#462)
+- completionItem/resolve result may not be null (#504)
+- Disabling linting has no effect (#497)
 
-- Some of the tables of arguments are too complex to be represented by GFM (#533) 
+**Merged pull requests:**
 
-**Merged pull requests.**
-
-- Convert the table of arguments to the sections of arguments with Lua filter (#534, thanks @atusy)
+- R 4.2 supports Unicode on Windows (#549)
+- read may return -1 on error (#548)
+- R universe (#542)
+- do not pop the unbalance brackets in the current row (#541)
+- Update GItHub Actions version (#537)
+- Bump actions/upload-artifact from 1 to 3 (#540)
+- Bump styfle/cancel-workflow-action from 0.9.0 to 0.9.1 (#539)
+- Bump actions/cache from 2 to 3 (#538)
+- convert the table of arguments to the sections of arguments with Lua filter (#534, thanks @atusy))
+- Added an entry for BBEdit (#532)
+- Support arg completion for primitive functions (#526)
+- Check rmd scope in on type formatting (#525)
+- Respect document `languageId` (#511)
+- Document formatting ensures trailing empty line (#509)
+- Only call `fs::path_abs` with existing files (#506)
+- `completionItem/resolve` always returns `completionItem` (#505)
+- Unpublish diagnostics when disabled (#498)
+- add whitespace to NEWS.md (#490)
 
 # languageserver 0.3.12
 

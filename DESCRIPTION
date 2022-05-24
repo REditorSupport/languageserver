@@ -1,8 +1,8 @@
 Type: Package
 Package: languageserver
 Title: Language Server Protocol
-Version: 0.3.12.9000
-Date: 2021-10-18
+Version: 0.3.13
+Date: 2022-05-22
 Authors@R: 
     c(person(given = "Randy",
              family = "Lai",

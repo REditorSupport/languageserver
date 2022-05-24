@@ -106,7 +106,7 @@ The following editors are supported by installing the corresponding extensions:
 
 - JupyterLab: [jupyterlab-lsp](https://github.com/jupyter-lsp/jupyterlab-lsp)
 
-- [BBEdit](https://www.barebones.com/products/bbedit/download.html): preconfigured in version 14.0 and later; see the [BBEdit LSP support page](https://www.barebones.com/support/bbedit/lsp-notes.html) for complete details.
+- [BBEdit](https://www.barebones.com/products/bbedit/): preconfigured in version 14.0 and later; see the [BBEdit LSP support page](https://www.barebones.com/support/bbedit/lsp-notes.html) for complete details.
 
 ## Services Implemented
 
@@ -151,7 +151,7 @@ settings | default | description
 ----     | -----   | -----
 `r.lsp.debug`  | `false` | increase verbosity for debug purpose
 `r.lsp.log_file` | `null` | file to log debug messages, fallback to stderr if empty
-`r.lsp.diagnostics` | `true` | enable file diagnostics via [lintr](https://github.com/jimhester/lintr)
+`r.lsp.diagnostics` | `true` | enable file diagnostics via [lintr](https://github.com/r-lib/lintr)
 `r.lsp.rich_documentation` | `true` | rich documentation with enhanced markdown features
 `r.lsp.snippet_support` | `true` | enable snippets in auto completion
 `r.lsp.max_completions` | 200 | maximum number of completion items
@@ -171,7 +171,7 @@ will turn off snippet support globally. LSP configuration settings are always ov
 
 ### Linters
 
-With [lintr](https://github.com/jimhester/lintr) v2.0.0, the linters can be specified by creating the `.lintr` file at the project or home directory. Details can be found at lintr [documentation](https://github.com/jimhester/lintr#project-configuration).
+With [lintr](https://github.com/r-lib/lintr) v2.0.0, the linters can be specified by creating the `.lintr` file at the project or home directory. Details can be found at lintr [documentation](https://github.com/r-lib/lintr#project-configuration).
 
 ### Customizing server capabilities
 
