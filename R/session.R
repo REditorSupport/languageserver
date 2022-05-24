@@ -52,6 +52,9 @@ Session <- R6::R6Class("Session",
         #  before r session is_ready, task is saved in init_task
         init_task = NULL,
         result = NULL,
+        finalize = function() {
+            private$session$close()
+        },
         # safe call with try catch
         call = function(target, args) {
             ret <- tryCatch({
@@ -78,9 +81,6 @@ Session <- R6::R6Class("Session",
                 # skip waiting
                 wait = FALSE
             )
-        },
-        finalize = function() {
-            private$session$close()
         },
         start = function(target, args) {
             if (private$is_running) {

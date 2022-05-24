@@ -11,6 +11,12 @@
 #' @noRd
 LanguageServer <- R6::R6Class("LanguageServer",
     inherit = LanguageBase,
+    private = list(
+        finalize = function() {
+            close(self$inputcon)
+            super$finalize()
+        }
+    ),
     public = list(
         tcp = FALSE,
         inputcon = NULL,
@@ -70,11 +76,6 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$pending_replies <- collections::dict()
 
             super$initialize()
-        },
-
-        finalize = function() {
-            close(self$inputcon)
-            super$finalize()
         },
 
         process_events = function() {
