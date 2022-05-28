@@ -171,7 +171,7 @@ will turn off snippet support globally. LSP configuration settings are always ov
 
 ### Linters
 
-With [lintr](https://github.com/r-lib/lintr) v2.0.0, the linters can be specified by creating the `.lintr` file at the project or home directory. Details can be found at lintr [documentation](https://github.com/r-lib/lintr#project-configuration).
+With [lintr](https://github.com/r-lib/lintr) v2.0.0, the linters can be specified by creating the `.lintr` file at the project or home directory. Details can be found at lintr [documentation](https://lintr.r-lib.org/articles/lintr.html).
 
 ### Customizing server capabilities
 
