@@ -6,6 +6,7 @@
 [![codecov](https://codecov.io/gh/REditorSupport/languageserver/branch/master/graph/badge.svg)](https://app.codecov.io/gh/REditorSupport/languageserver)
 [![CRAN\_Status\_Badge](http://www.r-pkg.org/badges/version/languageserver)](https://cran.r-project.org/package=languageserver)
 [![CRAN Downloads](http://cranlogs.r-pkg.org/badges/grand-total/languageserver)](https://cran.r-project.org/package=languageserver)
+[![r-universe](https://reditorsupport.r-universe.dev/badges/languageserver)](https://reditorsupport.r-universe.dev/ui#package:languageserver)
 
 `languageserver` is an implementation of the Microsoft's [Language Server Protocol](https://microsoft.github.io/language-server-protocol/) for the language of R.
 
@@ -39,7 +40,16 @@ apk add --no-cache curl-dev g++ gcc libxml2-dev linux-headers make R R-dev
 install.packages("languageserver")
 ```
 
-The development version of `languageserver` could be installed by
+To try the latest features, install the daily development build from our [r-universe](https://reditorsupport.r-universe.dev) repository:
+
+```r
+install.packages("languageserver", repos = c(
+    reditorsupport = "https://reditorsupport.r-universe.dev",
+    getOption("repos")
+))
+```
+
+Or install the latest development version from our GitHub repository:
 
 ```r
 # install.packages("remotes")
@@ -96,7 +106,7 @@ The following editors are supported by installing the corresponding extensions:
 
 - JupyterLab: [jupyterlab-lsp](https://github.com/jupyter-lsp/jupyterlab-lsp)
 
-- [BBEdit](https://www.barebones.com/products/bbedit/download.html): preconfigured in version 14.0 and later; see the [BBEdit LSP support page](https://www.barebones.com/support/bbedit/lsp-notes.html) for complete details.
+- [BBEdit](https://www.barebones.com/products/bbedit/): preconfigured in version 14.0 and later; see the [BBEdit LSP support page](https://www.barebones.com/support/bbedit/lsp-notes.html) for complete details.
 
 ## Services Implemented
 
@@ -141,7 +151,7 @@ settings | default | description
 ----     | -----   | -----
 `r.lsp.debug`  | `false` | increase verbosity for debug purpose
 `r.lsp.log_file` | `null` | file to log debug messages, fallback to stderr if empty
-`r.lsp.diagnostics` | `true` | enable file diagnostics via [lintr](https://github.com/jimhester/lintr)
+`r.lsp.diagnostics` | `true` | enable file diagnostics via [lintr](https://github.com/r-lib/lintr)
 `r.lsp.rich_documentation` | `true` | rich documentation with enhanced markdown features
 `r.lsp.snippet_support` | `true` | enable snippets in auto completion
 `r.lsp.max_completions` | 200 | maximum number of completion items
@@ -161,7 +171,7 @@ will turn off snippet support globally. LSP configuration settings are always ov
 
 ### Linters
 
-With [lintr](https://github.com/jimhester/lintr) v2.0.0, the linters can be specified by creating the `.lintr` file at the project or home directory. Details can be found at lintr [documentation](https://github.com/jimhester/lintr#project-configuration).
+With [lintr](https://github.com/r-lib/lintr) v2.0.0, the linters can be specified by creating the `.lintr` file at the project or home directory. Details can be found at lintr [documentation](https://lintr.r-lib.org/articles/lintr.html).
 
 ### Customizing server capabilities
 

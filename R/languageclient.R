@@ -3,7 +3,14 @@
 LanguageClient <- R6::R6Class("LanguageClient",
     inherit = LanguageBase,
     private = list(
-        read_char_buf = raw(0)
+        read_char_buf = raw(0),
+
+        finalize = function() {
+            if (!is.null(self$process)) {
+                self$process$kill_tree()
+            }
+            super$finalize()
+        }
     ),
     public = list(
         process = NULL,
@@ -19,13 +26,6 @@ LanguageClient <- R6::R6Class("LanguageClient",
             }
             self$diagnostics <- collections::dict()
             super$initialize()
-        },
-
-        finalize = function() {
-            if (!is.null(self$process)) {
-                self$process$kill_tree()
-            }
-            super$finalize()
         },
 
         check_connection = function() {

@@ -585,9 +585,9 @@ html_to_markdown <- function(html) {
     logger$info("Converting html to markdown using", html_file, md_file)
     stringi::stri_write_lines(html, html_file)
     result <- tryCatch({
-        pandoc2 <- rmarkdown::pandoc_version() >= "2.0"
-        format <- if (pandoc2) "gfm" else "markdown_github"
-        options <- if (pandoc2) c("--lua-filter", system.file(package = "languageserver", "lua/html-to-markdown.lua"))
+        pandoc_version <- rmarkdown::pandoc_version()
+        format <- if (pandoc_version >= "2.0") "gfm" else "markdown_github"
+        options <- if (pandoc_version >= "2.11") c("--lua-filter", system.file(package = "languageserver", "lua/html-to-markdown.lua"))
         rmarkdown::pandoc_convert(html_file, to = format, output = md_file, options = options)
         paste0(stringi::stri_read_lines(md_file, encoding = "utf-8"), collapse = "\n")
     }, error = function(e) {
