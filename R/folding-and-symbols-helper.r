@@ -176,7 +176,12 @@ extract_document_section_lines <- function(line_seq, line_content) {
 
     # extract comment line with at least 4 of one of `section_range_regex`
     is_section_lines <- grepl(
-        paste0("^\\s*\\#.+", "(", section_range_regex, ")\\s*$"),
+        paste0(
+            "^\\s*\\#",
+            "(", section_level_regex, ")\\s*+", # section levels group
+            "(%%)?\\s*+",
+            "(\\S.+?)\\s*+", # section names group
+            "(", section_range_regex, ")\\s*$"),
         line_content,
         perl = TRUE
     )
@@ -189,10 +194,10 @@ extract_document_section_lines <- function(line_seq, line_content) {
         section_levels_and_names <- stringi::stri_match_first(
             line_content[is_section_lines],
             regex = paste0(
-                "\\s*\\#\\s*+",
+                "^\\s*\\#",
                 "(", section_level_regex, ")\\s*+", # section levels group
                 "(%%)?\\s*+",
-                "(.+?)\\s*+", # section names group
+                "(\\S.+?)\\s*+", # section names group
                 "(", section_range_regex, ")\\s*$"
             )
         )
