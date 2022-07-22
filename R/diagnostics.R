@@ -5,17 +5,6 @@
 #' @name diagnostics
 NULL
 
-
-#' Check if lintr is 2.0.1.9000 above. A number of features relies on it.
-#' @noRd
-lintr_is_new_enough <- function() {
-    return(
-        utils::packageVersion("lintr") >= "2.0.1.9000" &&
-            "text" %in% names(formals(lintr::lint))
-    )
-}
-
-
 DiagnosticSeverity <- list(
     Error = 1,
     Warning = 2,
@@ -95,19 +84,7 @@ diagnose_file <- function(uri, is_rmarkdown, content, cache = FALSE) {
         content <- c(content, "")
     }
 
-    if (lintr_is_new_enough()) {
-        lints <- lintr::lint(path, cache = cache, text = content)
-    } else {
-        # TODO: remove it once new version of lintr is released
-        linter_file <- find_config(path)
-        if (!is.null(linter_file)) {
-            op <- options(lintr.linter_file = linter_file)
-            on.exit(options(op))
-        }
-        text <- paste0(content, collapse = "\n")
-        lints <- lintr::lint(text, cache = cache)
-    }
-
+    lints <- lintr::lint(path, cache = cache, text = content)
     diagnostics <- lapply(lints, diagnostic_from_lint, content = content)
     names(diagnostics) <- NULL
     diagnostics
