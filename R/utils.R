@@ -424,7 +424,7 @@ code_point_to_unit <- function(line, pts) {
     n <- length(offsets)
     m <- offsets[n]
     result[pts >= n] <- m
-    result[is.infinite(pts)] <- m
+    result[!is.finite(pts)] <- m
     result
 }
 
