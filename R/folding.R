@@ -69,6 +69,59 @@ get_section_and_block_folding_ranges <- function(uri, document, xdoc) {
     section_folding_ranges
 }
 
+#' Main util function to get folding range (sections and blocks).
+#' sections ranges are indicated by `section_mark_suffix`
+#' blocks ranges are codes between pairs like ("[" and "]"), ("(" and ")"), and ("{" and "}").
+#' @noRd
+get_document_sections_and_blocks <- function(uri, document, xdoc) {
+    if (document$is_rmarkdown) {
+        get_rmd_document_sections_and_blocks(uri, document, xdoc = xdoc)
+    } else {
+        get_r_document_sections_and_blocks(
+            document = document, xdoc = xdoc, symbol = FALSE
+        )
+    }
+}
+
+#' @noRd
+get_document_blocks <- function(xdoc) {
+    if (is.null(xdoc)) {
+        return(NULL)
+    }
+    blocks <- xml_find_all(xdoc, "//expr[@line1 < @line2 and
+        (OP-LEFT-PAREN | OP-LEFT-BRACKET | OP-LEFT-BRACE)/@line1 <
+        (OP-RIGHT-PAREN | OP-RIGHT-BRACKET | OP-RIGHT-BRACE)/@line1]")
+    if (!length(blocks)) { # prevent floating point comparision
+        return(NULL)
+    }
+
+    block_start <- xml_find_first(blocks, "OP-LEFT-PAREN | OP-LEFT-BRACKET | OP-LEFT-BRACE")
+    block_end <- xml_find_first(blocks, "OP-RIGHT-PAREN | OP-RIGHT-BRACKET | OP-RIGHT-BRACE")
+
+    block_start_line <- as.integer(xml_attr(block_start, "line1"))
+    block_end_line <- as.integer(xml_attr(block_end, "line1"))
+
+    block_folding_ranges <- .mapply(function(start_line, end_line) {
+        list(
+            type = "block",
+            start_line = start_line,
+            end_line = end_line
+        )
+    }, list(block_start_line, block_end_line), NULL)
+    block_folding_ranges
+}
+
+#---------------------------rmd document utils functions----------------------#
+#' rmd document util function to get folding range - sections and blocks.
+#' @noRd
+get_rmd_document_sections_and_blocks <- function(uri, document, xdoc) {
+    blocks <- get_document_blocks(xdoc)
+    sections <- get_rmd_document_sections(
+        uri, document, c("section", "chunk")
+    )
+    c(blocks, sections)
+}
+
 #' Get all the folding ranges in the document
 #' @noRd
 document_folding_range_reply <- function(id, uri, workspace, document) {

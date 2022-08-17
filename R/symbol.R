@@ -48,6 +48,22 @@ get_document_symbol_kind <- function(type) {
     }
 }
 
+get_rmd_document_symbols <- function(uri, document) {
+    get_rmd_document_sections(uri, document)
+}
+
+#' Main util function to get document symbols
+#' @noRd
+get_document_symbols <- function(uri, document, xdoc) {
+    if (document$is_rmarkdown) {
+        get_rmd_document_symbols(uri, document)
+    } else {
+        get_r_document_sections_and_blocks(
+            document = document, xdoc = xdoc, symbol = TRUE
+        )
+    }
+}
+
 #' Get all the symbols in the document
 #' @noRd
 document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
