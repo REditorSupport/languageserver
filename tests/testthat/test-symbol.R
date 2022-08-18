@@ -143,11 +143,11 @@ test_that("Document section symbol works", {
     )
     expect_equivalent(
         result %>% detect(~ .$name == "step1") %>% pluck("location", "range"),
-        range(position(2, 0), position(2, 15))
+        range(position(2, 0), position(3, 7))
     )
     expect_equivalent(
         result %>% detect(~ .$name == "step2") %>% pluck("location", "range"),
-        range(position(4, 0), position(4, 15))
+        range(position(4, 0), position(5, 7))
     )
     expect_equivalent(
         result %>% detect(~ .$name == "section2") %>% pluck("location", "range"),

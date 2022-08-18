@@ -42,13 +42,17 @@ test_that("Section folding range works", {
         keep(~ .$kind == FoldingRangeKind$Region)
     result <- result[order(sapply(result, "[[", "startLine"))]
 
-    expect_equal(length(result), 3)
+    expect_equal(length(result), 5)
     expect_equal(result[[1]]$startLine, 0)
     expect_equal(result[[1]]$endLine, 6)
     expect_equal(result[[2]]$startLine, 1)
     expect_equal(result[[2]]$endLine, 5)
-    expect_equal(result[[3]]$startLine, 7)
-    expect_equal(result[[3]]$endLine, 8)
+    expect_equal(result[[3]]$startLine, 2)
+    expect_equal(result[[3]]$endLine, 3)
+    expect_equal(result[[4]]$startLine, 4)
+    expect_equal(result[[4]]$endLine, 5)
+    expect_equal(result[[5]]$startLine, 7)
+    expect_equal(result[[5]]$endLine, 8)
 })
 
 test_that("Comment folding range works", {
@@ -117,9 +121,9 @@ test_that("Folding range works in Rmarkdown", {
     expect_equal(result[[3]]$startLine, 3)
     expect_equal(result[[3]]$endLine, 12)
     expect_equal(result[[4]]$startLine, 4)
-    expect_equal(result[[4]]$endLine, 5)
+    expect_equal(result[[4]]$endLine, 5) # mark
     expect_equal(result[[5]]$startLine, 7)
     expect_equal(result[[5]]$endLine, 8)
     expect_equal(result[[6]]$startLine, 9)
-    expect_equal(result[[6]]$endLine, 10)
+    expect_equal(result[[6]]$endLine, 10) # mark
 })

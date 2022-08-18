@@ -105,7 +105,7 @@ get_document_blocks <- function(xdoc) {
         list(
             type = "block",
             start_line = start_line,
-            end_line = end_line
+            end_line = end_line - 1L
         )
     }, list(block_start_line, block_end_line), NULL)
     block_folding_ranges
