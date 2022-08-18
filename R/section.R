@@ -15,13 +15,12 @@ section_level_regex <- paste0(
 )
 
 #---------------------------r document utils functions------------------------#
-get_r_document_sections_and_blocks <- function(document, xdoc, symbol = FALSE) {
-    doc_content <- document$content
+get_r_document_sections_and_blocks <- function(content, xdoc, symbol = FALSE) {
     block_lines_list <- extract_document_block_lines(xdoc)
     section_ranges <- get_r_document_sections_rec(
+        content = content,
         start_line = 1L,
-        end_line = length(doc_content),
-        doc_content = doc_content,
+        end_line = length(content),
         block_lines_list = block_lines_list
     )
     if (symbol) {
@@ -43,7 +42,7 @@ get_r_document_sections_and_blocks <- function(document, xdoc, symbol = FALSE) {
 # `get_r_document_sections_base` to extract section ranges.
 # ** For document content in blocks, we only need reuse this function to treat
 # each blocks as a new r document.
-get_r_document_sections_rec <- function(start_line, end_line, doc_content, block_lines_list) {
+get_r_document_sections_rec <- function(content, start_line, end_line, block_lines_list) {
     if (start_line > end_line) {
         return(NULL)
     }
@@ -75,8 +74,9 @@ get_r_document_sections_rec <- function(start_line, end_line, doc_content, block
 
         sections_in_blocks <- .mapply(function(start_line, end_line) {
             get_r_document_sections_rec(# recursive function
-                start_line, end_line - 1L,
-                doc_content = doc_content,
+                content = content,
+                start_line = start_line,
+                end_line = end_line - 1L,
                 block_lines_list = block_lines_list
             )
         }, highest_level_block_lines, NULL)
@@ -89,15 +89,15 @@ get_r_document_sections_rec <- function(start_line, end_line, doc_content, block
     sections_out_blocks <- NULL
     if (length(lines_out_blocks)) {
         sections_out_blocks <- get_r_document_sections_base(
-            lines_out_blocks,
-            doc_content = doc_content
+            content,
+            lines_out_blocks
         )
     }
     c(sections_in_blocks, sections_out_blocks)
 }
 
-get_r_document_sections_base <- function(line_seq, doc_content) {
-    line_content <- doc_content[line_seq]
+get_r_document_sections_base <- function(content, line_seq) {
+    line_content <- content[line_seq]
     section_range_groups <- extract_section_groups(
         line_seq, line_content
     )
@@ -305,8 +305,7 @@ get_section_ranges <- function(section_lines, section_names, section_levels, end
     }, list(section_names, section_lines, section_end_lines), NULL)
 }
 
-get_rmd_document_sections <- function(uri, document, type = c("section", "chunk")) {
-    content <- document$content
+get_rmd_document_sections <- function(content, type = c("section", "chunk")) {
     if (length(content) == 0) {
         return(NULL)
     }
@@ -322,7 +321,7 @@ get_rmd_document_sections <- function(uri, document, type = c("section", "chunk"
         if (grepl("^---\\s*$", content[[1]])) {
             front_start <- 1L
             front_end <- 2L
-            while (front_end <= document$nline) {
+            while (front_end <= length(content)) {
                 if (grepl("^---\\s*$", content[[front_end]])) {
                     break
                 }
@@ -344,7 +343,7 @@ get_rmd_document_sections <- function(uri, document, type = c("section", "chunk"
 
         sections <- lapply(seq_len(section_num), function(i) {
             start_line <- section_lines[[i]]
-            end_line <- document$nline
+            end_line <- length(content)
             level <- section_levels[[i]]
             j <- i + 1
             while (j <= section_num) {

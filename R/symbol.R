@@ -48,18 +48,14 @@ get_document_symbol_kind <- function(type) {
     }
 }
 
-get_rmd_document_symbols <- function(uri, document) {
-    get_rmd_document_sections(uri, document)
-}
-
 #' Main util function to get document symbols
 #' @noRd
-get_document_symbols <- function(uri, document, xdoc) {
+get_document_symbols <- function(document, xdoc) {
     if (document$is_rmarkdown) {
-        get_rmd_document_symbols(uri, document)
+        get_rmd_document_sections(document$content)
     } else {
         get_r_document_sections_and_blocks(
-            document = document, xdoc = xdoc, symbol = TRUE
+            content = document$content, xdoc = xdoc, symbol = TRUE
         )
     }
 }
@@ -90,7 +86,7 @@ document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
 
     if (isTRUE(capabilities$hierarchicalDocumentSymbolSupport)) {
         sections <- get_document_symbols(
-            uri, document,
+            document,
             xdoc = parse_data$xml_doc
         )
         section_symbols <- lapply(sections, function(section) {

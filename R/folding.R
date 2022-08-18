@@ -51,10 +51,10 @@ get_comment_folding_ranges <- function(xdoc) {
     comm_folding_ranges
 }
 
-get_section_and_block_folding_ranges <- function(uri, document, xdoc) {
+get_section_and_block_folding_ranges <- function(document, xdoc) {
 
     sections <- get_document_sections_and_blocks(
-        uri = uri, document = document, xdoc = xdoc
+        document = document, xdoc = xdoc
     )
     if (!length(sections)) {
         return(NULL)
@@ -73,12 +73,12 @@ get_section_and_block_folding_ranges <- function(uri, document, xdoc) {
 #' sections ranges are indicated by `section_mark_suffix`
 #' blocks ranges are codes between pairs like ("[" and "]"), ("(" and ")"), and ("{" and "}").
 #' @noRd
-get_document_sections_and_blocks <- function(uri, document, xdoc) {
+get_document_sections_and_blocks <- function(document, xdoc) {
     if (document$is_rmarkdown) {
-        get_rmd_document_sections_and_blocks(uri, document, xdoc = xdoc)
+        get_rmd_document_sections_and_blocks(document$content, xdoc = xdoc)
     } else {
         get_r_document_sections_and_blocks(
-            document = document, xdoc = xdoc, symbol = FALSE
+            content = document$content, xdoc = xdoc, symbol = FALSE
         )
     }
 }
@@ -114,10 +114,10 @@ get_document_blocks <- function(xdoc) {
 #---------------------------rmd document utils functions----------------------#
 #' rmd document util function to get folding range - sections and blocks.
 #' @noRd
-get_rmd_document_sections_and_blocks <- function(uri, document, xdoc) {
+get_rmd_document_sections_and_blocks <- function(content, xdoc) {
     blocks <- get_document_blocks(xdoc)
     sections <- get_rmd_document_sections(
-        uri, document, c("section", "chunk")
+        content, c("section", "chunk")
     )
     c(blocks, sections)
 }
@@ -136,7 +136,7 @@ document_folding_range_reply <- function(id, uri, workspace, document) {
         comment_ranges <- get_comment_folding_ranges(xdoc)
     }
     section_ranges <- get_section_and_block_folding_ranges(
-        uri, document, xdoc
+        document, xdoc
     )
 
     result <- c(comment_ranges, section_ranges)
