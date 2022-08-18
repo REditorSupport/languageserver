@@ -66,7 +66,7 @@ find_config <- function(filename) {
 #'
 #' Lint and diagnose problems in a file.
 #' @noRd
-diagnose_file <- function(uri, is_rmarkdown, content, cache = FALSE) {
+diagnose_file <- function(uri, content, is_rmarkdown = FALSE, is_package = FALSE, cache = FALSE) {
     if (length(content) == 0) {
         return(list())
     }
@@ -82,6 +82,13 @@ diagnose_file <- function(uri, is_rmarkdown, content, cache = FALSE) {
 
     if (length(content) == 1) {
         content <- c(content, "")
+    }
+
+    if (is_package && requireNamespace("pkgload", quietly = TRUE)) {
+        tryCatch(
+            pkgload::load_all(compile = FALSE, quiet = TRUE),
+            error = function(e) NULL
+        )
     }
 
     lints <- lintr::lint(path, cache = cache, text = content)
@@ -117,8 +124,9 @@ diagnostics_task <- function(self, uri, document, delay = 0) {
         target = package_call(diagnose_file),
         args = list(
             uri = uri,
-            is_rmarkdown = document$is_rmarkdown,
             content = content,
+            is_rmarkdown = document$is_rmarkdown,
+            is_package = is_package(self$rootPath),
             cache = lsp_settings$get("lint_cache")
         ),
         callback = function(result) diagnostics_callback(self, uri, version, result),
