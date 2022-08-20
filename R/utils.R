@@ -467,7 +467,7 @@ find_package <- function(path = getwd()) {
 #' @noRd
 is_package <- function(rootPath) {
     file <- file.path(rootPath, "DESCRIPTION")
-    file.exists(file) && !dir.exists(file)
+    length(file) && file.exists(file) && !dir.exists(file)
 }
 
 get_root_path_for_uri <- function(uri, rootPath) {
