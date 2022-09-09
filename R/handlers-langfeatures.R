@@ -17,7 +17,8 @@ text_document_completion  <- function(self, id, params) {
 #' @noRd
 completion_item_resolve  <- function(self, id, params) {
     self$deliver(completion_item_resolve_reply(
-        id, self$workspace, params))
+        id, self$workspace, params,
+        self$ClientCapabilities$textDocument$completion))
 }
 
 #' `textDocument/hover` request handler

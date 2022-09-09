@@ -534,7 +534,7 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
 
 #' The response to a completionItem/resolve request
 #' @noRd
-completion_item_resolve_reply <- function(id, workspace, params) {
+completion_item_resolve_reply <- function(id, workspace, params, capabilities) {
     resolved <- FALSE
     if (is.null(params$data) || is.null(params$data$type)) {
     } else {
@@ -570,6 +570,17 @@ completion_item_resolve_reply <- function(id, workspace, params) {
                 }
             }
         } else if (params$data$type %in% c("constant", "function", "nonfunction", "lazydata")) {
+            if (isTRUE(capabilities$completionItem$labelDetailsSupport)) {
+                if (params$data$type == "function") {
+                    sig <- workspace$get_signature(params$label, params$data$package)
+                    if (!is.null(sig)) {
+                        params$labelDetails <- list(
+                            detail = substr(sig, nchar(params$label) + 1, nchar(sig))
+                        )
+                    }
+                }
+            }
+
             doc <- NULL
             doc_string <- NULL
             if (is.null(params$data$uri)) {
