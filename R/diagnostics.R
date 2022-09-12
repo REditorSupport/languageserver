@@ -86,7 +86,7 @@ diagnose_file <- function(uri, content, is_rmarkdown = FALSE, is_package = FALSE
 
     if (is_package && requireNamespace("pkgload", quietly = TRUE)) {
         tryCatch(
-            pkgload::load_all(compile = FALSE, quiet = TRUE),
+            pkgload::load_all(compile = FALSE, quiet = TRUE, warn_conflicts = FALSE),
             error = function(e) NULL
         )
     }
