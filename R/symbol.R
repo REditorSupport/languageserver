@@ -48,12 +48,24 @@ get_document_symbol_kind <- function(type) {
     }
 }
 
+#' Main util function to get document symbols
+#' @noRd
+get_document_symbols <- function(document, xdoc) {
+    if (document$is_rmarkdown) {
+        get_rmd_document_sections(document$content)
+    } else {
+        get_r_document_sections_and_blocks(
+            content = document$content, xdoc = xdoc, symbol = TRUE
+        )
+    }
+}
+
 #' Get all the symbols in the document
 #' @noRd
 document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
     parse_data <- workspace$get_parse_data(uri)
     if (is.null(parse_data) ||
-            (!is.null(parse_data$version) && parse_data$version != document$version)) {
+        (!is.null(parse_data$version) && parse_data$version != document$version)) {
         return(NULL)
     }
 
@@ -73,13 +85,15 @@ document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
     result <- definition_symbols
 
     if (isTRUE(capabilities$hierarchicalDocumentSymbolSupport)) {
-        sections <- get_document_sections(uri, document)
+        sections <- get_document_symbols(
+            document,
+            xdoc = parse_data$xml_doc
+        )
         section_symbols <- lapply(sections, function(section) {
             symbol_information(
                 name = section$name,
                 kind = switch(section$type,
                     section = SymbolKind$String,
-                    subsection = SymbolKind$String,
                     chunk = SymbolKind$Key,
                     SymbolKind$String
                 ),
