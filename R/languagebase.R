@@ -158,7 +158,7 @@ LanguageBase <- R6::R6Class("LanguageBase",
         },
 
         handle_notification = function(notification) {
-            logger$info("receive notification: ", notification)
+            # logger$info("receive notification: ", notification)
             method <- notification$method
             params <- notification$params
             if (method %in% names(self$notification_handlers)) {
