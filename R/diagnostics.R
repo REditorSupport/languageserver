@@ -85,10 +85,8 @@ diagnose_file <- function(uri, content, is_rmarkdown = FALSE, globals = NULL, ca
     }
 
     if (length(globals)) {
-        globals_list <- vector("list", length(globals))
-        names(globals_list) <- globals
         env_name <- "languageserver:globals"
-        attach(globals_list, name = env_name)
+        attach(globals, name = env_name)
         on.exit(detach(env_name, character.only = TRUE))
     }
 
@@ -126,12 +124,17 @@ diagnostics_task <- function(self, uri, document, delay = 0) {
     globals <- NULL
 
     if (is_package) {
-        globals <- character()
+        globals <- new.env(parent = emptyenv())
         for (doc in self$workspace$documents$values()) {
             if (dirname(path_from_uri(doc$uri)) != file.path(self$rootPath, "R")) next
             parse_data <- doc$parse_data
             if (is.null(parse_data)) next
-            globals <- union(globals, names(parse_data$definitions))
+            for (symbol in parse_data$nonfuncts) {
+                globals[[symbol]] <- NULL
+            }
+            for (symbol in parse_data$functs) {
+                globals[[symbol]] <- identity
+            }
         }
     }
 
