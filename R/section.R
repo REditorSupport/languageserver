@@ -136,7 +136,7 @@ extract_document_block_lines <- function(xdoc) {
 
 extract_lines_out_blocks <- function(line_seq, block_lines_list) {
     block_span_lines <- unlist(
-        .mapply(":", block_lines_list, NULL),
+        .mapply(`:`, block_lines_list, NULL),
         recursive = FALSE, use.names = FALSE
     )
     lines_out_blocks <- setdiff(line_seq, block_span_lines)
