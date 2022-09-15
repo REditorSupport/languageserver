@@ -66,7 +66,7 @@ find_config <- function(filename) {
 #'
 #' Lint and diagnose problems in a file.
 #' @noRd
-diagnose_file <- function(uri, content, is_rmarkdown = FALSE, is_package = FALSE, cache = FALSE) {
+diagnose_file <- function(uri, content, is_rmarkdown = FALSE, package = NULL, cache = FALSE) {
     if (length(content) == 0) {
         return(list())
     }
@@ -84,11 +84,12 @@ diagnose_file <- function(uri, content, is_rmarkdown = FALSE, is_package = FALSE
         content <- c(content, "")
     }
 
-    if (is_package && requireNamespace("pkgload", quietly = TRUE)) {
-        tryCatch(
-            pkgload::load_all(compile = FALSE, quiet = TRUE, warn_conflicts = FALSE),
-            error = function(e) NULL
-        )
+    if (!is.null(package)) {
+        globals <- vector("list", length(package$globals))
+        names(globals) <- package$globals
+        env_name <- "vsc:package_globals"
+        attach(globals, name = env_name)
+        on.exit(detach(env_name))
     }
 
     lints <- lintr::lint(path, cache = cache, text = content)
@@ -120,13 +121,33 @@ diagnostics_callback <- function(self, uri, version, diagnostics) {
 diagnostics_task <- function(self, uri, document, delay = 0) {
     version <- document$version
     content <- document$content
+
+    is_package <- is_package(self$rootPath)
+    package <- NULL
+
+    if (is_package) {
+        globals <- character()
+        for (doc in self$documents$values()) {
+            if (dirname(path_from_uri(doc$uri)) != file.path(self$rootPath, "R")) next
+            parse_data <- doc$parse_data
+            if (is.null(parse_data)) next
+            globals <- union(globals, names(parse_data$definitions))
+        }
+
+        ns <- parseNamespaceFile(basename(self$rootPath), dirname(self$rootPath), mustExist = FALSE)
+        package <- list(
+            globals = globals,
+            namespace = ns
+        )
+    }
+
     create_task(
         target = package_call(diagnose_file),
         args = list(
             uri = uri,
             content = content,
             is_rmarkdown = document$is_rmarkdown,
-            is_package = is_package(self$rootPath),
+            package = package,
             cache = lsp_settings$get("lint_cache")
         ),
         callback = function(result) diagnostics_callback(self, uri, version, result),

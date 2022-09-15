@@ -43,8 +43,7 @@ Suggests:
     purrr (>= 0.3.3),
     testthat (>= 2.1.0),
     withr (>= 2.3.0),
-    rmarkdown (>= 2.0),
-    pkgload (>= 1.3.0)
+    rmarkdown (>= 2.0)
 ByteCompile: yes
 Encoding: UTF-8
 NeedsCompilation: yes
