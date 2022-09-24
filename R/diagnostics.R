@@ -132,9 +132,7 @@ diagnostics_task <- function(self, uri, document, delay = 0) {
             for (symbol in parse_data$nonfuncts) {
                 globals[[symbol]] <- NULL
             }
-            for (symbol in parse_data$functs) {
-                globals[[symbol]] <- identity
-            }
+            list2env(parse_data$functions, globals)
         }
     }
 

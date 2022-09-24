@@ -362,7 +362,9 @@ parse_expr <- function(content, expr, env, srcref = attr(expr, "srcref")) {
 
                     if (type == "function") {
                         env$functs <- c(env$functs, symbol)
-                        env$formals[[symbol]] <- value[[2L]]
+                        fun <- function() NULL
+                        formals(fun) <- value[[2L]]
+                        env$functions[[symbol]] <- fun
                         env$signatures[[symbol]] <- get_signature(symbol, value)
                     } else {
                         env$nonfuncts <- c(env$nonfuncts, symbol)
@@ -408,7 +410,7 @@ parse_document <- function(uri, content) {
             env$packages <- character()
             env$nonfuncts <- character()
             env$functs <- character()
-            env$formals <- list()
+            env$functions <- list()
             env$signatures <- list()
             env$definitions <- list()
             env$documentation <- list()
