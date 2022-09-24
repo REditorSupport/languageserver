@@ -86,7 +86,7 @@ diagnose_file <- function(uri, content, is_rmarkdown = FALSE, globals = NULL, ca
 
     if (length(globals)) {
         env_name <- "languageserver:globals"
-        attach(globals, name = env_name)
+        attach(globals, name = env_name, warn.conflicts = FALSE)
         on.exit(detach(env_name, character.only = TRUE))
     }
 
