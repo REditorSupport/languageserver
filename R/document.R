@@ -225,6 +225,8 @@ is_top_level <- function(arg_env, ...) {
     any(vapply(top_level_envs, identical, x = arg_env, FUN.VALUE = logical(1L)))
 }
 
+null_function <- local(function() NULL, baseenv())
+
 parser_hooks <- list(
     "{" = function(expr, action) {
         action$parse(as.list(expr)[-1L])
@@ -362,7 +364,7 @@ parse_expr <- function(content, expr, env, srcref = attr(expr, "srcref")) {
 
                     if (type == "function") {
                         env$functs <- c(env$functs, symbol)
-                        fun <- function() NULL
+                        fun <- null_function
                         formals(fun) <- value[[2L]]
                         env$functions[[symbol]] <- fun
                         env$signatures[[symbol]] <- get_signature(symbol, value)
