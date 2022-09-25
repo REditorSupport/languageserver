@@ -1,6 +1,7 @@
 #' @useDynLib languageserver
 #' @importFrom R6 R6Class
 #' @import xml2
+#' @importFrom parallel detectCores
 #' @details
 #' An implementation of the Language Server Protocol for R
 "_PACKAGE"

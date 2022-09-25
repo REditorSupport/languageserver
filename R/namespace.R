@@ -244,7 +244,7 @@ GlobalEnv <- R6::R6Class("GlobalEnv",
             for (doc in self$documents$values()) {
                 if (!is.null(doc$parse_data)) {
                     if (funct %in% doc$parse_data$functs) {
-                        return(doc$parse_data$formals[[funct]])
+                        return(formals(doc$parse_data$functions[[funct]]))
                     }
                 }
             }

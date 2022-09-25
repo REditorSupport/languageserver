@@ -1,5 +1,5 @@
 #' Single R Session for Session Pool
-#'
+#' @import callr
 #' @examples
 #' \dontrun{
 #' # create a session and bind to a session pool

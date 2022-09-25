@@ -49,8 +49,7 @@ on_initialize <- function(self, id, params) {
 #' @noRd
 on_initialized <- function(self, params) {
     logger$info("on_initialized")
-    project_root <- self$rootPath
-    if (length(project_root) && is_package(project_root)) {
+    if (is_package(self$rootPath)) {
         # a bit like devtools::load_all()
         self$workspace$load_all(self)
         # TODO: result lint result of the package

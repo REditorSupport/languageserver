@@ -66,7 +66,7 @@ find_config <- function(filename) {
 #'
 #' Lint and diagnose problems in a file.
 #' @noRd
-diagnose_file <- function(uri, is_rmarkdown, content, cache = FALSE) {
+diagnose_file <- function(uri, content, is_rmarkdown = FALSE, globals = NULL, cache = FALSE) {
     if (length(content) == 0) {
         return(list())
     }
@@ -82,6 +82,12 @@ diagnose_file <- function(uri, is_rmarkdown, content, cache = FALSE) {
 
     if (length(content) == 1) {
         content <- c(content, "")
+    }
+
+    if (length(globals)) {
+        env_name <- "languageserver:globals"
+        attach(globals, name = env_name, warn.conflicts = FALSE)
+        on.exit(detach(env_name, character.only = TRUE))
     }
 
     lints <- lintr::lint(path, cache = cache, text = content)
@@ -113,12 +119,30 @@ diagnostics_callback <- function(self, uri, version, diagnostics) {
 diagnostics_task <- function(self, uri, document, delay = 0) {
     version <- document$version
     content <- document$content
+
+    is_package <- is_package(self$rootPath)
+    globals <- NULL
+
+    if (is_package) {
+        globals <- new.env(parent = emptyenv())
+        for (doc in self$workspace$documents$values()) {
+            if (dirname(path_from_uri(doc$uri)) != file.path(self$rootPath, "R")) next
+            parse_data <- doc$parse_data
+            if (is.null(parse_data)) next
+            for (symbol in parse_data$nonfuncts) {
+                globals[[symbol]] <- NULL
+            }
+            list2env(parse_data$functions, globals)
+        }
+    }
+
     create_task(
         target = package_call(diagnose_file),
         args = list(
             uri = uri,
-            is_rmarkdown = document$is_rmarkdown,
             content = content,
+            is_rmarkdown = document$is_rmarkdown,
+            globals = globals,
             cache = lsp_settings$get("lint_cache")
         ),
         callback = function(result) diagnostics_callback(self, uri, version, result),
