@@ -97,7 +97,8 @@ diagnose_file <- function(uri, content, is_rmarkdown = FALSE, globals = NULL, ca
 }
 
 diagnostics_callback <- function(self, uri, version, diagnostics) {
-    if (is.null(diagnostics) || !self$workspace$documents$has(uri)) return(NULL)
+    if (is.null(diagnostics) || !self$workspace$documents$has(uri) || !lsp_settings$get("diagnostics")) return(NULL)
+
     logger$info("diagnostics_callback called:", list(
         uri = uri,
         version = version,
