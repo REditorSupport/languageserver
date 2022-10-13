@@ -13,7 +13,7 @@
 
 static int ppid = -1;
 
-SEXP process_is_detached() {
+SEXP process_is_detached(void) {
     if (ppid == -1) {
         ppid = (int) getppid();
     }

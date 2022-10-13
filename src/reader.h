@@ -7,6 +7,6 @@
 
 SEXP stdin_read_char(SEXP _n);
 
-SEXP stdin_read_line();
+SEXP stdin_read_line(void);
 
 #endif
