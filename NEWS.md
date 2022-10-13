@@ -1,3 +1,26 @@
+# languageserver 0.3.14
+
+**Closed issues:**
+
+- NA introduced into position when opening curly braces (#564)
+- `html-to-markdown.lua` error: attempt to call a nil value (#555)
+- R6Class finalize() method is public, but it should be private as of R6 2.4.0 (#551)
+ 
+**Merged pull requests:**
+
+- Drop diagnostics on callback if disabled (#577)
+- Bump styfle/cancel-workflow-action from 0.10.1 to 0.11.0 (#576)
+- Bump styfle/cancel-workflow-action from 0.10.0 to 0.10.1 (#573)
+- Provide package symbols before lint in diagnostics (#568)
+- Support completion item labelDetails (#571)
+- Enable multiple-level fold section of R document like RStudio (#566)
+- fix NA introduced into position (#565)
+- Requires lintr 3.0.0 (#562)
+- Bump styfle/cancel-workflow-action from 0.9.1 to 0.10.0 (#560)
+- Use lua-filter when pandoc_version >= 2.11 (#556)
+- Update link to the lintr package (#554)
+- Use private finalizers for R6 classes (#553)
+
 # languageserver 0.3.13
 
 **Closed issues:**                                                   
