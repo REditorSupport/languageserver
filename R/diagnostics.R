@@ -85,12 +85,11 @@ diagnose_file <- function(uri, content, is_rmarkdown = FALSE, globals = NULL, ca
     }
 
     if (length(globals)) {
-        env_name <- "languageserver:globals"
-        attach(globals, name = env_name, warn.conflicts = FALSE)
-        on.exit(detach(env_name, character.only = TRUE))
+        lints <- with(globals, lintr::lint(path, cache = cache, text = content))
+    } else {
+        lints <- lintr::lint(path, cache = cache, text = content)
     }
 
-    lints <- lintr::lint(path, cache = cache, text = content)
     diagnostics <- lapply(lints, diagnostic_from_lint, content = content)
     names(diagnostics) <- NULL
     diagnostics
