@@ -85,6 +85,7 @@ diagnose_file <- function(uri, content, is_rmarkdown = FALSE, globals = NULL, ca
     }
 
     if (length(globals)) {
+        parent.env(globals) <- environment()
         lints <- with(globals, lintr::lint(path, cache = cache, text = content))
     } else {
         lints <- lintr::lint(path, cache = cache, text = content)
