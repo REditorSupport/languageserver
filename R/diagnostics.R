@@ -86,8 +86,8 @@ diagnose_file <- function(uri, content, is_rmarkdown = FALSE, globals = NULL, ca
 
     if (length(globals)) {
         env_name <- "languageserver:globals"
-        attach(globals, name = env_name, warn.conflicts = FALSE)
-        on.exit(detach(env_name, character.only = TRUE))
+        do.call("attach", list(globals, name = env_name, warn.conflicts = FALSE))
+        on.exit(do.call("detach", list(env_name, character.only = TRUE)))
     }
 
     lints <- lintr::lint(path, cache = cache, text = content)
