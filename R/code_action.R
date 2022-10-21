@@ -14,6 +14,7 @@ CodeActionKind <- list(
 #' @keywords internal
 document_code_action_reply <- function(id, uri, workspace, document, range, context) {
     result <- list()
+    listed_linters <- character()
 
     for (item in context$diagnostics) {
         item_range <- list(
@@ -27,24 +28,50 @@ document_code_action_reply <- function(id, uri, workspace, document, range, cont
                 item_range$end$row,
                 nchar(document$line(item_range$end$row + 1))
             )
-            changes <- list(
-                list(
-                    text_edit(range = range(
-                        start = position,
-                        end = position
-                    ), " # nolint")
-                )
-            )
-            names(changes) <- uri
-            action <- list(
-                title = "Disable all linters for this line",
-                kind = CodeActionKind$QuickFix,
-                edit = list(
-                    changes = changes
-                )
-            )
 
-            result <- c(result, list(action))
+            if (!("*" %in% listed_linters)) {
+                changes <- list(
+                    list(
+                        text_edit(range = range(
+                            start = position,
+                            end = position
+                        ), " # nolint")
+                    )
+                )
+                names(changes) <- uri
+                action <- list(
+                    title = "Disable all linters for this line",
+                    kind = CodeActionKind$QuickFix,
+                    edit = list(
+                        changes = changes
+                    )
+                )
+
+                result <- c(result, list(action))
+                listed_linters <- c(listed_linters, "*")
+            }
+
+            if (!(item$source %in% listed_linters)) {
+                changes <- list(
+                    list(
+                        text_edit(range = range(
+                            start = position,
+                            end = position
+                        ), sprintf(" # nolint: %s.", item$source))
+                    )
+                )
+                names(changes) <- uri
+                action <- list(
+                    title = sprintf("Disable %s for this line", item$source),
+                    kind = CodeActionKind$QuickFix,
+                    edit = list(
+                        changes = changes
+                    )
+                )
+
+                result <- c(result, list(action))
+                listed_linters <- c(listed_linters, item$source)
+            }
         }
     }
 
