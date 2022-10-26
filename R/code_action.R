@@ -24,19 +24,33 @@ document_code_action_reply <- function(id, uri, workspace, document, range, cont
 
         if (item_range$start$row == item_range$end$row &&
             item_range$start$col < item_range$end$col) {
+            line <- document$line(item_range$end$row + 1)
+
             position <- document$to_lsp_position(
                 item_range$end$row,
-                nchar(document$line(item_range$end$row + 1))
+                nchar(line)
             )
 
+            logger$info("document_code_action_reply:", list(
+                line = line,
+                position = position
+            ))
+
             if (!("*" %in% listed_linters)) {
-                changes <- list(
-                    list(
-                        text_edit(range = range(
-                            start = position,
-                            end = position
-                        ), " # nolint")
+                if (grepl("#\\s*nolint\\s*:")) {
+                    # modify existing nolint directives
+                } else {
+                    position <- document$to_lsp_position(
+                        item_range$end$row,
+                        nchar(line)
                     )
+                    edit <- text_edit(range = range(
+                        start = position,
+                        end = position
+                    ), " # nolint")
+                }
+                changes <- list(
+                    list(edit)
                 )
                 names(changes) <- uri
                 action <- list(
@@ -52,13 +66,20 @@ document_code_action_reply <- function(id, uri, workspace, document, range, cont
             }
 
             if (!(item$source %in% listed_linters)) {
-                changes <- list(
-                    list(
-                        text_edit(range = range(
-                            start = position,
-                            end = position
-                        ), sprintf(" # nolint: %s.", item$source))
+                if (grepl("#\\s*nolint\\s*:?")) {
+                    # modify existing nolint directives
+                } else {
+                    position <- document$to_lsp_position(
+                        item_range$end$row,
+                        nchar(line)
                     )
+                    edit <- text_edit(range = range(
+                        start = position,
+                        end = position
+                    ), sprintf(" # nolint: %s.", item$source))
+                }
+                changes <- list(
+                    list(edit)
                 )
                 names(changes) <- uri
                 action <- list(
