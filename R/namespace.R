@@ -19,7 +19,9 @@ PackageNamespace <- R6::R6Class("PackageNamespace",
             ns <- asNamespace(pkgname)
             private$objects <- sanitize_names(objects(ns, all.names = TRUE))
             is_function <- vapply(private$objects, function(x) {
-                        is.function(get(x, envir = ns))}, logical(1L), USE.NAMES = FALSE)
+                obj <- tryCatch(get(x, envir = ns), error = function(e) NULL)
+                is.function(obj)
+            }, logical(1L), USE.NAMES = FALSE)
             is_exported <- private$objects %in% sanitize_names(getNamespaceExports(ns))
             private$functs <- private$objects[is_function]
             private$nonfuncts <- private$objects[!is_function]
