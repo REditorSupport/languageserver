@@ -36,7 +36,7 @@ SEXP stdin_read_char(SEXP _n) {
 }
 
 
-SEXP stdin_read_line() {
+SEXP stdin_read_line(void) {
     HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
     DWORD bytes_avail, bytes_read;
     char c;
@@ -107,7 +107,7 @@ SEXP stdin_read_char(SEXP _n) {
     }
 }
 
-SEXP stdin_read_line() {
+SEXP stdin_read_line(void) {
     char c;
 
     if (buf == NULL) {
