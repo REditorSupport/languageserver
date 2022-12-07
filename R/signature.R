@@ -18,7 +18,7 @@ signature_reply <- function(id, uri, workspace, document, point) {
     result <- document$detect_call(point)
 
     SignatureInformation <- list()
-    activeSignature <- -1
+    activeSignature <- NULL
     sig <- NULL
 
     if (nzchar(result$token)) {
@@ -107,11 +107,8 @@ signature_reply <- function(id, uri, workspace, document, point) {
         }
     }
 
-    Response$new(
-        id,
-        result = list(
-            signatures = SignatureInformation,
-            activeSignature = activeSignature
-        )
-    )
+    response_result <- list(signatures = SignatureInformation)
+    response_result$activeSignature <- activeSignature
+
+    Response$new(id, result = response_result)
 }
