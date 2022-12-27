@@ -37,8 +37,19 @@ document_code_action_reply <- function(id, uri, workspace, document, range, cont
             ))
 
             if (!("*" %in% listed_linters)) {
-                if (grepl("#\\s*nolint\\s*:")) {
+                if (grepl("#\\s*nolint\\s*:", line)) {
                     # modify existing nolint directives
+                    nolint_start <- regexec("#\\s*nolint\\s*:", line)[[1]] - 1
+                    edit <- text_edit(range = range(
+                        start = position(
+                            item_range$end$row,
+                            nolint_start
+                        ),
+                        end = position(
+                            item_range$end$row,
+                            nchar(line)
+                        )
+                    ), "# nolint")
                 } else {
                     position <- document$to_lsp_position(
                         item_range$end$row,
@@ -66,8 +77,20 @@ document_code_action_reply <- function(id, uri, workspace, document, range, cont
             }
 
             if (!(item$source %in% listed_linters)) {
-                if (grepl("#\\s*nolint\\s*:?")) {
+                if (grepl("#\\s*nolint\\s*:.+\\.", line)) {
                     # modify existing nolint directives
+                    nolint_start <- regexec("#\\s*nolint\\s*:.+\\.", line)[[1]] - 1
+                    nolint_end <- nolint_start + attr(nolint_start, "match.length") - 1
+                    edit <- text_edit(range = range(
+                        start = position(
+                            item_range$end$row,
+                            nolint_end
+                        ),
+                        end = position(
+                            item_range$end$row,
+                            nolint_end
+                        )
+                    ), sprintf(", %s", item$source))
                 } else {
                     position <- document$to_lsp_position(
                         item_range$end$row,
