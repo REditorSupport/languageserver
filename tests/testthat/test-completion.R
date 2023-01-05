@@ -625,6 +625,24 @@ test_that("Completion of imported objects works inside a package", {
     expect_length(result$items %>% keep(~.$label == "lint_package"), 1)
 })
 
+test_that("Completion of re-exported objects works", {
+    skip_on_cran()
+    client <- language_client()
+
+    temp_file <- withr::local_tempfile(fileext = ".R")
+    writeLines(
+        c(
+            "purrr::set_names"
+        ),
+        temp_file)
+
+    client %>% did_save(temp_file)
+
+    result <- client %>% respond_completion(temp_file, c(0, 16))
+
+    expect_length(result$items %>% keep(~ .$label == "set_names"), 1)
+})
+
 test_that("Completion of tokens in document works", {
     skip_on_cran()
     client <- language_client()
