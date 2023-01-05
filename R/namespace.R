@@ -21,7 +21,7 @@ PackageNamespace <- R6::R6Class("PackageNamespace",
             objects <- union(names(ns), exports)
             private$objects <- sanitize_names(objects)
             is_function <- vapply(private$objects, function(x) {
-                is.function(get(x, envir = ns))
+                is.function(ns[[x]])
             }, logical(1L), USE.NAMES = FALSE)
             is_exported <- private$objects %in% exports
             private$functs <- private$objects[is_function]
