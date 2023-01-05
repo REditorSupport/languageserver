@@ -17,15 +17,18 @@ PackageNamespace <- R6::R6Class("PackageNamespace",
         initialize = function(pkgname) {
             self$package_name <- pkgname
             ns <- asNamespace(pkgname)
-            private$objects <- sanitize_names(objects(ns, all.names = TRUE))
+            exported <- getNamespaceExports(ns)
+            private$objects <- sanitize_names(
+                union(objects(ns, all.names = TRUE), exported)
+            )
             is_function <- vapply(private$objects, function(x) {
                 obj <- tryCatch(get(x, envir = ns), error = function(e) NULL)
                 is.function(obj)
             }, logical(1L), USE.NAMES = FALSE)
-            is_exported <- private$objects %in% sanitize_names(getNamespaceExports(ns))
+            is_exported <- private$objects %in% sanitize_names(exported)
             private$functs <- private$objects[is_function]
             private$nonfuncts <- private$objects[!is_function]
-            private$exports <- private$objects[is_exported]
+            private$exports <- exported
             private$exported_functs <- private$objects[is_exported & is_function]
             private$exported_nonfuncts <- private$objects[is_exported & !is_function]
             private$lazydata <- as.character(names(.getNamespaceInfo(ns, "lazydata")))
