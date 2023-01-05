@@ -17,12 +17,13 @@ PackageNamespace <- R6::R6Class("PackageNamespace",
         initialize = function(pkgname) {
             self$package_name <- pkgname
             ns <- asNamespace(pkgname)
-            private$objects <- sanitize_names(objects(ns, all.names = TRUE))
+            exports <- getNamespaceExports(ns)
+            objects <- union(names(ns), exports)
+            private$objects <- sanitize_names(objects)
             is_function <- vapply(private$objects, function(x) {
-                obj <- tryCatch(get(x, envir = ns), error = function(e) NULL)
-                is.function(obj)
+                is.function(get0(x, ns))
             }, logical(1L), USE.NAMES = FALSE)
-            is_exported <- private$objects %in% sanitize_names(getNamespaceExports(ns))
+            is_exported <- private$objects %in% exports
             private$functs <- private$objects[is_function]
             private$nonfuncts <- private$objects[!is_function]
             private$exports <- private$objects[is_exported]
