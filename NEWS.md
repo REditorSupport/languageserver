@@ -1,3 +1,18 @@
+# languageserver 0.3.15
+
+**Closed issues:**                                                                           
+                                                                                             
+- package::function() autocompletion doesn't include re-exported functions (#590)
+- Server failed to start probably due to hard-coded installation path ERROR (#579)
+                                                                                             
+**Merged pull requests:**                                                                    
+                                                                                             
+- Include all exports in namespace objects (#591)
+- Disable linters actions (#589)
+- Avoid emitting a negative activeSignature (#586)
+- fix CRAN check warnings (#583)
+- Ignore error on checking is.function of namespace objects (#582)
+
 # languageserver 0.3.14
 
 **Closed issues:**
