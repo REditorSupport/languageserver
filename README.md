@@ -108,6 +108,8 @@ The following editors are supported by installing the corresponding extensions:
 
 - [BBEdit](https://www.barebones.com/products/bbedit/): preconfigured in version 14.0 and later; see the [BBEdit LSP support page](https://www.barebones.com/support/bbedit/lsp-notes.html) for complete details.
 
+- [Nova](https://nova.app): [R-Nova](https://github.com/jonclayden/R-Nova)
+
 ## Services Implemented
 
 `languageserver` is still under active development, the following services have been implemented:
