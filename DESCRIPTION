@@ -39,6 +39,7 @@ Suggests:
     covr (>= 3.4.0),
     magrittr (>= 1.5),
     mockery (>= 0.4.2),
+    pacman,
     processx (>= 3.4.1),
     purrr (>= 0.3.3),
     testthat (>= 2.1.0),
