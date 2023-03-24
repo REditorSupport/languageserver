@@ -271,6 +271,9 @@ test_that("Document section symbol works in Rmarkdown", {
         "```",
         "```{r eval=FALSE}",
         "test",
+        "```",
+        "```{r, chunk5}",
+        "test",
         "```"
     ), defn_file)
 
@@ -352,5 +355,9 @@ test_that("Document section symbol works in Rmarkdown", {
     expect_equivalent(
         result %>% detect(~ .$name == "unnamed-chunk-4") %>% pluck("location", "range"),
         range(position(40, 0), position(42, 3))
+    )
+    expect_equivalent(
+        result %>% detect(~ .$name == "chunk5") %>% pluck("location", "range"),
+        range(position(43, 0), position(45, 3))
     )
 })
