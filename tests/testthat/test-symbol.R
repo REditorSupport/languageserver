@@ -285,7 +285,7 @@ test_that("Document section symbol works in Rmarkdown", {
         c("section1", "subsection1", "unnamed-chunk-1",
             "f", "section2", "unnamed-chunk-2", "g",
             "unnamed-chunk-3", "chunk1", "p", "chunk1a", "chunk2", "chunk2a",
-            "chunk3", "chunk3a", "chunk4, new", "unnamed-chunk-4"
+            "chunk3", "chunk3a", "chunk4, new", "unnamed-chunk-4", "chunk5"
         )
     )
     expect_equivalent(
@@ -302,7 +302,7 @@ test_that("Document section symbol works in Rmarkdown", {
     )
     expect_equivalent(
         result %>% detect(~ .$name == "section2") %>% pluck("location", "range"),
-        range(position(12, 0), position(42, 3))
+        range(position(12, 0), position(45, 3))
     )
     expect_equivalent(
         result %>% detect(~ .$name == "g") %>% pluck("location", "range"),
