@@ -17,6 +17,9 @@ DiagnosticSeverity <- list(
 diagnostic_range <- function(result, content) {
     line <- result$line_number - 1
     column <- result$column_number - 1
+    if (is.null(column) || is.na(column)) {
+        column <- 0
+    }
     text <- if (line + 1 <= length(content)) content[line + 1] else ""
     if (is.null(result$ranges)) {
         cols <- code_point_to_unit(text, c(column, column + 1))
