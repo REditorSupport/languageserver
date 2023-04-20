@@ -26,6 +26,10 @@ binary_opts <- c(
 )
 binary_opts_regex <- paste0(binary_opts, collapse = "|")
 
+# options, number of blank lines to break sections or binary ranges
+# default 2L, the same with markdown
+nline_to_break_succession <- 2L
+
 #---------------------------r document utils functions------------------------#
 get_r_document_sections_and_blocks <- function(content, xdoc, symbol = FALSE) {
     block_lines_list <- extract_document_block_lines(xdoc)
@@ -43,7 +47,7 @@ get_r_document_sections_and_blocks <- function(content, xdoc, symbol = FALSE) {
             list(
                 type = "block",
                 start_line = start_line,
-                end_line = end_line - 1L
+                end_line = end_line
             )
         }, block_lines_list, NULL)
         c(
@@ -57,7 +61,7 @@ get_r_document_sections_and_blocks <- function(content, xdoc, symbol = FALSE) {
 # for a r document, we split the document into two element, one for document
 # content out of blocks, another for document content in blocks.
 # ** For document content out of blocks, we define section ranges and binary
-#   ranges. 
+#   ranges.
 # ** For document content in blocks, we only need reuse this function to treat
 #   each blocks as a new r document.
 get_r_document_ranges_rec <- function(content, start_line, end_line, block_lines_list, symbol) {
@@ -69,15 +73,12 @@ get_r_document_ranges_rec <- function(content, start_line, end_line, block_lines
     block_lines_list <- lapply(
         block_lines_list, "[",
         block_lines_list[[1L]] >= start_line &
-            block_lines_list[[2L]] - 1L <= end_line & !(
+            block_lines_list[[2L]] <= end_line & !(
             block_lines_list[[1L]] == start_line &
-                block_lines_list[[2L]] - 1L == end_line
+                block_lines_list[[2L]] == end_line
         )
     )
 
-    lines_out_blocks <- extract_lines_out_blocks(
-        line_seq, block_lines_list
-    )
     if (length(block_lines_list) && length(block_lines_list[[1L]])) {
         # block_lines_list define the blocks, the first element is the block
         # start lines, the second element is the block end lines, we first
@@ -97,7 +98,7 @@ get_r_document_ranges_rec <- function(content, start_line, end_line, block_lines
             get_r_document_ranges_rec( # recursive function
                 content = content,
                 start_line = start_line,
-                end_line = end_line - 1L,
+                end_line = end_line,
                 block_lines_list = block_lines_list,
                 symbol = symbol
             )
@@ -109,20 +110,23 @@ get_r_document_ranges_rec <- function(content, start_line, end_line, block_lines
         ranges_in_blocks <- lapply(ranges_in_blocks, unlist,
             recursive = FALSE, use.names = FALSE
         )
+        lines_out_blocks <- extract_lines_out_blocks(
+            line_seq, highest_level_block_lines
+        )
     } else {
         ranges_in_blocks <- NULL
         highest_level_block_lines <- NULL
+        lines_out_blocks <- line_seq
     }
-    line_content <- content[lines_out_blocks]
     sections_out_blocks <- NULL
     binary_out_blocks <- NULL
     if (length(lines_out_blocks)) {
         sections_out_blocks <- get_r_document_section_ranges(
-            line_content, lines_out_blocks
+            content, lines_out_blocks
         )
         if (!symbol) {
             binary_out_blocks <- get_r_document_binary_ranges(
-                line_content, lines_out_blocks, highest_level_block_lines
+                content, lines_out_blocks, highest_level_block_lines
             )
         }
     }
@@ -154,7 +158,8 @@ get_r_document_ranges_rec <- function(content, start_line, end_line, block_lines
 # block4 <- function() {
 #     ...
 # }
-get_r_document_section_ranges <- function(line_content, line_numbers) {
+get_r_document_section_ranges <- function(content, line_numbers) {
+    line_content <- content[line_numbers]
     section <- extract_document_section(line_numbers, line_content)
     section_ranges <- NULL
     if (!is.null(section)) {
@@ -179,23 +184,39 @@ get_r_document_section_ranges <- function(line_content, line_numbers) {
     section_ranges
 }
 
-get_r_document_binary_ranges <- function(line_content, line_numbers, block_lines_list) {
+get_r_document_binary_ranges <- function(content, line_numbers, block_lines_list) {
     is_binary_line <- grepl(
         paste0("^[^#]*(", binary_opts_regex, ")\\s*(#.*)?$"),
-        line_content,
+        content[line_numbers],
         perl = TRUE
     )
-    # browser()
     if (any(is_binary_line)) {
-        binary_lines <- line_numbers[is_binary_line]
-        start_lines <- c(binary_lines, block_lines_list[[1L]])
-        end_lines <- c(binary_lines, block_lines_list[[2L]] - 1L)
+        start_lines <- line_numbers[is_binary_line]
+        # the end line should be the first non-blank lines in the next
+        # `nline_to_break_succession` lines, if all are blank lines
+        end_lines <- lapply(seq_len(nline_to_break_succession), function(x) {
+            ends <- start_lines + x
+            ends[grepl("^\\s*$", content[ends], perl = TRUE)] <- NA_integer_
+            ends
+        })
+        end_lines <- c(list(start_lines), end_lines, list(na.rm = TRUE))
+        end_lines <- do.call(pmax, end_lines)
+        # then we merge the binary ranges with blocks, if the binary start_lines
+        # run following a close block, we should extent the binary start lines
+        # to the start of the blocks
+        idx_following_block <- match(block_lines_list[[2L]] + 1L, start_lines)
+        matches <- !is.na(idx_following_block)
+        start_lines[idx_following_block[matches]] <- block_lines_list[[1L]][matches]
+        # in the end we check if the binary operations are followed by each
+        # other or other binary operations 
+        start_lines <- c(start_lines, block_lines_list[[1L]])
+        end_lines <- c(end_lines, block_lines_list[[2L]])
         order_idx <- order(start_lines)
         start_lines <- start_lines[order_idx]
         end_lines <- end_lines[order_idx]
         idx_list <- split(
             seq_along(start_lines),
-            factor(cumsum(diff(c(0L, start_lines)) > 2L))
+            factor(cumsum(diff(c(0L, start_lines)) > nline_to_break_succession))
         )
         lapply(unname(idx_list), function(idx) {
             list(
@@ -226,7 +247,7 @@ extract_document_block_lines <- function(xdoc) {
 
     block_lines <- unique(cbind(
         as.integer(xml_attr(block_start, "line1")),
-        as.integer(xml_attr(block_end, "line1"))
+        as.integer(xml_attr(block_end, "line1")) - 1L
     ))
     lapply(1:2, function(i) block_lines[, i, drop = TRUE])
 }
@@ -303,18 +324,15 @@ extract_document_section_breaks <- function(line_numbers, line_content) {
     if (!length(blank_lines)) {
         return(NULL)
     }
-    # group continuous blank lines
-    group <- split(blank_lines, factor(cumsum(diff(c(0L, blank_lines)) != 1L)))
-    break_lines <- vapply(group, function(x) {
-        # how many lines should break off section succession ? ( 2L )
-        if (length(x) >= 2L) {
-            return(min(x))
-        } else {
-            return(NA_integer_)
-        }
-    }, integer(1L))
-    break_lines <- break_lines[!is.na(break_lines)]
-    if (length(blank_lines)) break_lines else NULL
+    # make continuous blank lines as groups
+    groups <- split(blank_lines, factor(cumsum(diff(c(0L, blank_lines)) > 1L)))
+    # how many lines should break off section succession ? ( 2L )
+    groups <- groups[lengths(groups) >= nline_to_break_succession]
+    if (length(groups)) {
+        vapply(groups, min, integer(1L))
+    } else {
+        NULL
+    }
 }
 
 define_section_groups <- function(line_numbers, line_content, section, break_lines) {
