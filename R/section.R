@@ -14,35 +14,53 @@ section_level_regex <- paste0(
     "[", paste0("\\", section_level_prefix, collapse = ""), "]*+"
 )
 
+# ?Syntax
+# : can indicate :: :::
+# - can indicate <-
+# > can indicate |>
+binary_opts <- c(
+    ":", "\\$", "@", "\\^",
+    "%[^#]*%", "\\+", "-", "\\*", "/",
+    "<", ">", "=", "!", "&", "\\|", "~",
+    "\\?"
+)
+binary_opts_regex <- paste0(binary_opts, collapse = "|")
+
 #---------------------------r document utils functions------------------------#
 get_r_document_sections_and_blocks <- function(content, xdoc, symbol = FALSE) {
     block_lines_list <- extract_document_block_lines(xdoc)
-    section_ranges <- get_r_document_sections_rec(
+    sections_and_binary_ranges <- get_r_document_ranges_rec(
         content = content,
         start_line = 1L,
         end_line = length(content),
-        block_lines_list = block_lines_list
+        block_lines_list = block_lines_list,
+        symbol = symbol
     )
     if (symbol) {
-        return(section_ranges)
-    }
-    block_ranges <- .mapply(function(start_line, end_line) {
-        list(
-            type = "block",
-            start_line = start_line,
-            end_line = end_line - 1L
+        sections_and_binary_ranges$sections
+    } else {
+        block_ranges <- .mapply(function(start_line, end_line) {
+            list(
+                type = "block",
+                start_line = start_line,
+                end_line = end_line - 1L
+            )
+        }, block_lines_list, NULL)
+        c(
+            sections_and_binary_ranges$sections,
+            sections_and_binary_ranges$binary_ranges,
+            block_ranges
         )
-    }, block_lines_list, NULL)
-    c(section_ranges, block_ranges)
+    }
 }
 
 # for a r document, we split the document into two element, one for document
 # content out of blocks, another for document content in blocks.
-# ** For document content out of blocks, we define a function
-# `get_r_document_sections_base` to extract section ranges.
+# ** For document content out of blocks, we define section ranges and binary
+#   ranges. 
 # ** For document content in blocks, we only need reuse this function to treat
-# each blocks as a new r document.
-get_r_document_sections_rec <- function(content, start_line, end_line, block_lines_list) {
+#   each blocks as a new r document.
+get_r_document_ranges_rec <- function(content, start_line, end_line, block_lines_list, symbol) {
     if (start_line > end_line) {
         return(NULL)
     }
@@ -60,12 +78,11 @@ get_r_document_sections_rec <- function(content, start_line, end_line, block_lin
     lines_out_blocks <- extract_lines_out_blocks(
         line_seq, block_lines_list
     )
-    sections_in_blocks <- NULL
     if (length(block_lines_list) && length(block_lines_list[[1L]])) {
         # block_lines_list define the blocks, the first element is the block
         # start lines, the second element is the block end lines, we first
         # extract blocks not nested in other blocks.
-        highest_level_block_lines <- lapply(block_lines_list, "[", unlist(
+        highest_level_block_lines <- lapply(block_lines_list, `[`, unlist(
             .mapply(function(start_line, end_line) {
                 !any(start_line >= block_lines_list[[1L]] &
                     end_line <= block_lines_list[[2L]] &
@@ -75,33 +92,47 @@ get_r_document_sections_rec <- function(content, start_line, end_line, block_lin
             recursive = FALSE, use.names = FALSE
         ))
         # for each out-est blocks, we regard it as a new document and re-use
-        # this function to get sections
-        sections_in_blocks <- .mapply(function(start_line, end_line) {
-            get_r_document_sections_rec( # recursive function
+        # this function to get ranges
+        ranges_in_blocks <- .mapply(function(start_line, end_line) {
+            get_r_document_ranges_rec( # recursive function
                 content = content,
                 start_line = start_line,
                 end_line = end_line - 1L,
-                block_lines_list = block_lines_list
+                block_lines_list = block_lines_list,
+                symbol = symbol
             )
         }, highest_level_block_lines, NULL)
-        sections_in_blocks <- unlist(
-            sections_in_blocks,
-            recursive = FALSE,
-            use.names = FALSE
+        ranges_in_blocks <- list(
+            sections = lapply(ranges_in_blocks, `[[`, "sections"),
+            binary_ranges = lapply(ranges_in_blocks, `[[`, "binary_ranges")
         )
+        ranges_in_blocks <- lapply(ranges_in_blocks, unlist,
+            recursive = FALSE, use.names = FALSE
+        )
+    } else {
+        ranges_in_blocks <- NULL
+        highest_level_block_lines <- NULL
     }
+    line_content <- content[lines_out_blocks]
     sections_out_blocks <- NULL
+    binary_out_blocks <- NULL
     if (length(lines_out_blocks)) {
-        sections_out_blocks <- get_r_document_sections_base(
-            content[lines_out_blocks],
-            lines_out_blocks
+        sections_out_blocks <- get_r_document_section_ranges(
+            line_content, lines_out_blocks
         )
+        if (!symbol) {
+            binary_out_blocks <- get_r_document_binary_ranges(
+                line_content, lines_out_blocks, highest_level_block_lines
+            )
+        }
     }
-    c(sections_in_blocks, sections_out_blocks)
+    list(
+        sections = c(sections_out_blocks, ranges_in_blocks$sections),
+        binary_ranges = c(binary_out_blocks, ranges_in_blocks$binary_ranges)
+    )
 }
 
-# we first extract every section-tag line, then we group section based on break
-# lines.  A section group should define all blocks and sub-sections in current
+# A section group should define all blocks and sub-sections in current
 # section and the end line of current section. section groups are like following
 # document:
 # group 1 -----
@@ -123,7 +154,7 @@ get_r_document_sections_rec <- function(content, start_line, end_line, block_lin
 # block4 <- function() {
 #     ...
 # }
-get_r_document_sections_base <- function(line_content, line_numbers) {
+get_r_document_section_ranges <- function(line_content, line_numbers) {
     section <- extract_document_section(line_numbers, line_content)
     section_ranges <- NULL
     if (!is.null(section)) {
@@ -146,6 +177,36 @@ get_r_document_sections_base <- function(line_content, line_numbers) {
         )
     }
     section_ranges
+}
+
+get_r_document_binary_ranges <- function(line_content, line_numbers, block_lines_list) {
+    is_binary_line <- grepl(
+        paste0("^[^#]*(", binary_opts_regex, ")\\s*(#.*)?$"),
+        line_content,
+        perl = TRUE
+    )
+    # browser()
+    if (any(is_binary_line)) {
+        binary_lines <- line_numbers[is_binary_line]
+        start_lines <- c(binary_lines, block_lines_list[[1L]])
+        end_lines <- c(binary_lines, block_lines_list[[2L]] - 1L)
+        order_idx <- order(start_lines)
+        start_lines <- start_lines[order_idx]
+        end_lines <- end_lines[order_idx]
+        idx_list <- split(
+            seq_along(start_lines),
+            factor(cumsum(diff(c(0L, start_lines)) > 2L))
+        )
+        lapply(unname(idx_list), function(idx) {
+            list(
+                type = "binary_ops",
+                start_line = min(start_lines[idx]),
+                end_line = max(end_lines[idx])
+            )
+        })
+    } else {
+        NULL
+    }
 }
 
 #' @noRd
@@ -258,6 +319,7 @@ extract_document_section_breaks <- function(line_numbers, line_content) {
 
 define_section_groups <- function(line_numbers, line_content, section, break_lines) {
     if (length(break_lines)) {
+        # break_lines is exclusive, so we should add 1 to the end line.
         section_breaks <- sort(c(break_lines, max(line_numbers) + 1L))
         # section_group_index is the group number.
         section_group_index <- findInterval(
