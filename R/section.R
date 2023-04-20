@@ -62,6 +62,9 @@ get_r_document_sections_rec <- function(content, start_line, end_line, block_lin
     )
     sections_in_blocks <- NULL
     if (length(block_lines_list) && length(block_lines_list[[1L]])) {
+        # block_lines_list define the blocks, the first element is the block
+        # start lines, the second element is the block end lines, we first
+        # extract blocks not nested in other blocks.
         highest_level_block_lines <- lapply(block_lines_list, "[", unlist(
             .mapply(function(start_line, end_line) {
                 !any(start_line >= block_lines_list[[1L]] &
@@ -71,9 +74,10 @@ get_r_document_sections_rec <- function(content, start_line, end_line, block_lin
             }, block_lines_list, NULL),
             recursive = FALSE, use.names = FALSE
         ))
-
+        # for each out-est blocks, we regard it as a new document and re-use
+        # this function to get sections
         sections_in_blocks <- .mapply(function(start_line, end_line) {
-            get_r_document_sections_rec(# recursive function
+            get_r_document_sections_rec( # recursive function
                 content = content,
                 start_line = start_line,
                 end_line = end_line - 1L,
@@ -89,27 +93,59 @@ get_r_document_sections_rec <- function(content, start_line, end_line, block_lin
     sections_out_blocks <- NULL
     if (length(lines_out_blocks)) {
         sections_out_blocks <- get_r_document_sections_base(
-            content,
+            content[lines_out_blocks],
             lines_out_blocks
         )
     }
     c(sections_in_blocks, sections_out_blocks)
 }
 
-get_r_document_sections_base <- function(content, line_seq) {
-    line_content <- content[line_seq]
-    section_range_groups <- extract_section_groups(
-        line_seq, line_content
-    )
-    res <- lapply(section_range_groups, function(x) {
-        get_section_ranges(
-            section_lines = x$section_lines,
-            section_names = x$section_names,
-            section_levels = x$section_levels,
-            endline = x$group_endline
+# we first extract every section-tag line, then we group section based on break
+# lines.  A section group should define all blocks and sub-sections in current
+# section and the end line of current section. section groups are like following
+# document:
+# group 1 -----
+# block1 <- function() {
+#     ...
+# }
+# block2 <- function() {
+#     ...
+# }
+#
+#
+# two blank lines (defined by function extract_document_section_breaks()) will
+# break the document succession, so following document will be in next group.
+# group 2 ----
+# following blocks will be in the group2
+# block3 <- function() {
+#     ...
+# }
+# block4 <- function() {
+#     ...
+# }
+get_r_document_sections_base <- function(line_content, line_numbers) {
+    section <- extract_document_section(line_numbers, line_content)
+    section_ranges <- NULL
+    if (!is.null(section)) {
+        break_lines <- extract_document_section_breaks(
+            line_numbers, line_content
         )
-    })
-    unlist(res, recursive = FALSE, use.names = FALSE)
+        section_group_list <- define_section_groups(
+            line_numbers, line_content, section, break_lines
+        )
+        section_ranges <- lapply(section_group_list, function(x) {
+            get_section_group_ranges(
+                section_lines = x$section_lines,
+                section_names = x$section_names,
+                section_levels = x$section_levels,
+                group_endline = x$group_endline
+            )
+        })
+        section_ranges <- unlist(section_ranges,
+            recursive = FALSE, use.names = FALSE
+        )
+    }
+    section_ranges
 }
 
 #' @noRd
@@ -140,14 +176,19 @@ extract_lines_out_blocks <- function(line_seq, block_lines_list) {
         recursive = FALSE, use.names = FALSE
     )
     lines_out_blocks <- setdiff(line_seq, block_span_lines)
-    # should keep the last line
+    # should keep the last line, otherwise, the final block will not included in
+    # the last section, like follows:
+    # last section ---------------
+    # fn1 <- function() {
+    #     ...
+    # }
     unique(c(lines_out_blocks, max(line_seq)))
 }
 
-#' `line_seq` is the line numbers of line_content, both have equal numbers
+#' @return A list of start line number, section names and levels if there are
+#' some sections. if no sections defined, NULL will be returned.
 #' @noRd
-extract_document_section_lines <- function(line_seq, line_content) {
-
+extract_document_section <- function(line_numbers, line_content) {
     # extract comment line with at least 4 of one of `section_range_regex`
     is_section_lines <- grepl(
         paste0(
@@ -155,12 +196,13 @@ extract_document_section_lines <- function(line_seq, line_content) {
             "(", section_level_regex, ")\\s*+", # section levels group
             "(%%)?\\s*+",
             "(\\S.+?)\\s*+", # section names group
-            "(", section_range_regex, ")\\s*$"),
+            "(", section_range_regex, ")\\s*$"
+        ),
         line_content,
         perl = TRUE
     )
-    section_lines <- line_seq[is_section_lines]
-    if (length(section_lines)) {
+    if (any(is_section_lines)) {
+        section_lines <- line_numbers[is_section_lines]
         # extract section markers of section levels and its name
         # this should be a matrix
         # ** section levels - the second column
@@ -182,23 +224,19 @@ extract_document_section_lines <- function(line_seq, line_content) {
         section_levels <- nchar(
             section_levels_and_names[, 2L, drop = TRUE]
         )
-
-        return(
-            list(
-                lines = section_lines,
-                names = section_names,
-                levels = section_levels
-            )
-        )
+        return(list(
+            lines = section_lines,
+            names = section_names,
+            levels = section_levels
+        ))
     }
-
     NULL
 }
 
 #' two or more blank lines out of block ranges should break sections succession
 #' @noRd
-extract_document_section_breaks <- function(line_seq, line_content) {
-    blank_lines <- line_seq[
+extract_document_section_breaks <- function(line_numbers, line_content) {
+    blank_lines <- line_numbers[
         grepl("^\\s*$", line_content, perl = TRUE)
     ]
     if (!length(blank_lines)) {
@@ -218,24 +256,17 @@ extract_document_section_breaks <- function(line_seq, line_content) {
     if (length(blank_lines)) break_lines else NULL
 }
 
-extract_section_groups <- function(line_seq, line_content) {
-    sections_lines <- extract_document_section_lines(line_seq, line_content)
-    if (!length(sections_lines)) {
-        return(NULL)
-    }
-
-    break_lines <- extract_document_section_breaks(line_seq, line_content)
+define_section_groups <- function(line_numbers, line_content, section, break_lines) {
     if (length(break_lines)) {
-        section_breaks <- sort(c(break_lines, max(line_seq) + 1L))
-        # we split sections_lines into different group based on `section_breaks`
+        section_breaks <- sort(c(break_lines, max(line_numbers) + 1L))
         # section_group_index is the group number.
         section_group_index <- findInterval(
-            sections_lines$lines,
+            section$lines,
             c(0L, section_breaks),
             rightmost.closed = TRUE
         )
         section_groups <- lapply(
-            sections_lines, split,
+            section, split,
             f = factor(section_group_index)
         )
         group_endlines <- section_breaks - 1L
@@ -253,30 +284,28 @@ extract_section_groups <- function(line_seq, line_content) {
     } else {
         section_data_groups <- list(
             list(
-                section_lines = sections_lines$lines,
-                section_names = sections_lines$names,
-                section_levels = sections_lines$levels,
-                group_endline = max(line_seq)
+                section_lines = section$lines,
+                section_names = section$names,
+                section_levels = section$levels,
+                group_endline = max(line_numbers)
             )
         )
     }
     section_data_groups
 }
 
-get_section_ranges <- function(section_lines, section_names, section_levels, endline) {
+get_section_group_ranges <- function(section_lines, section_names, section_levels, group_endline) {
     section_index <- seq_along(section_lines)
-    # the section range end line should be the first occurence among
+    # the section end line should be the first occurence among
     # following document where the section level is equal or lower than
     # current section level, otherwise, the end line of this section group
     section_end_lines <- vapply(section_index, function(i) {
         # extract sections after current section
-        section_index_after_i <- setdiff(
-            section_index, seq_len(i)
-        )
+        section_index_after_i <- setdiff(section_index, seq_len(i))
         # when no higher-level section is after current section
         # the end line should be the end of current document
         if (!length(section_index_after_i)) {
-            return(endline)
+            return(group_endline)
         }
         # find the first section with higher-level than current section
         section_range_end_index <- which(
@@ -291,7 +320,7 @@ get_section_ranges <- function(section_lines, section_names, section_levels, end
                 ] - 1L
             )
         } else {
-            return(endline)
+            return(group_endline)
         }
     }, integer(1L))
 
