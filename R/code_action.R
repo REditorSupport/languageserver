@@ -76,7 +76,7 @@ document_code_action_reply <- function(id, uri, workspace, document, range, cont
                 listed_linters <- c(listed_linters, "*")
             }
 
-            if (!(item$source %in% listed_linters)) {
+            if (!(item$code %in% listed_linters)) {
                 if (grepl("#\\s*nolint\\s*:.+\\.", line)) {
                     # modify existing nolint directives
                     nolint_start <- regexec("#\\s*nolint\\s*:.+\\.", line)[[1]] - 1
@@ -90,7 +90,7 @@ document_code_action_reply <- function(id, uri, workspace, document, range, cont
                             item_range$end$row,
                             nolint_end
                         )
-                    ), sprintf(", %s", item$source))
+                    ), sprintf(", %s", item$code))
                 } else {
                     position <- document$to_lsp_position(
                         item_range$end$row,
@@ -99,14 +99,14 @@ document_code_action_reply <- function(id, uri, workspace, document, range, cont
                     edit <- text_edit(range = range(
                         start = position,
                         end = position
-                    ), sprintf(" # nolint: %s.", item$source))
+                    ), sprintf(" # nolint: %s.", item$code))
                 }
                 changes <- list(
                     list(edit)
                 )
                 names(changes) <- uri
                 action <- list(
-                    title = sprintf("Disable %s for this line", item$source),
+                    title = sprintf("Disable %s for this line", item$code),
                     kind = CodeActionKind$QuickFix,
                     edit = list(
                         changes = changes
@@ -114,7 +114,7 @@ document_code_action_reply <- function(id, uri, workspace, document, range, cont
                 )
 
                 result <- c(result, list(action))
-                listed_linters <- c(listed_linters, item$source)
+                listed_linters <- c(listed_linters, item$code)
             }
         }
     }
