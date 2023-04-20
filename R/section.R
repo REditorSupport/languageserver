@@ -193,40 +193,57 @@ get_r_document_binary_ranges <- function(content, line_numbers, block_lines_list
     if (any(is_binary_line)) {
         start_lines <- line_numbers[is_binary_line]
         # the end line should be the first non-blank lines in the next
-        # `nline_to_break_succession` lines, if all are blank lines
+        # `nline_to_break_succession` lines, if all are blank lines, the start
+        # lines will be used
         end_lines <- lapply(seq_len(nline_to_break_succession), function(x) {
             ends <- start_lines + x
             ends[grepl("^\\s*$", content[ends], perl = TRUE)] <- NA_integer_
             ends
         })
-        end_lines <- c(list(start_lines), end_lines, list(na.rm = TRUE))
-        end_lines <- do.call(pmax, end_lines)
-        # then we merge the binary ranges with blocks, if the binary start_lines
-        # run following a close block, we should extent the binary start lines
-        # to the start of the blocks
-        idx_following_block <- match(block_lines_list[[2L]] + 1L, start_lines)
-        matches <- !is.na(idx_following_block)
-        start_lines[idx_following_block[matches]] <- block_lines_list[[1L]][matches]
-        # in the end we check if the binary operations are followed by each
-        # other or other binary operations 
-        start_lines <- c(start_lines, block_lines_list[[1L]])
-        end_lines <- c(end_lines, block_lines_list[[2L]])
-        order_idx <- order(start_lines)
-        start_lines <- start_lines[order_idx]
-        end_lines <- end_lines[order_idx]
-        idx_list <- split(
-            seq_along(start_lines),
-            factor(cumsum(diff(c(0L, start_lines)) > nline_to_break_succession))
+        end_lines <- c(end_lines, list(na.rm = TRUE))
+        end_lines <- pmax(start_lines, do.call(pmin, end_lines), na.rm = TRUE)
+
+        # then we merge the binary ranges with blocks, any overlapped ranges
+        # will be merged into one interval.
+        ranges <- merge_intervals(
+            start = c(start_lines, block_lines_list[[1L]]),
+            end = c(end_lines, block_lines_list[[2L]] + 1L)
         )
-        lapply(unname(idx_list), function(idx) {
+        .mapply(function(start_line, end_line) {
             list(
                 type = "binary_ops",
-                start_line = min(start_lines[idx]),
-                end_line = max(end_lines[idx])
+                start_line = start_line,
+                end_line = end_line
             )
-        })
+        }, ranges, NULL)
     } else {
         NULL
+    }
+}
+
+merge_intervals <- function(start, end) {
+    order_idx <- order(start)
+    start <- start[order_idx]
+    end <- end[order_idx]
+    len <- length(start)
+    if (len >= 2L) {
+        groups <- cumsum(c(0L, end[1:(len - 1L)] < start[-1L]))
+        if (anyDuplicated(groups)) {
+            groups <- factor(groups)
+            start <- vapply(split(start, groups), min,
+                integer(1L),
+                USE.NAMES = FALSE
+            )
+            end <- vapply(split(end, groups), max,
+                integer(1L),
+                USE.NAMES = FALSE
+            )
+            Recall(start, end)
+        } else {
+            list(start, end)
+        }
+    } else {
+        list(start, end)
     }
 }
 
