@@ -12,7 +12,7 @@ test_that("lintr works", {
 
     expect_equal(client$diagnostics$size(), 1)
     expect_equal(client$diagnostics$get(data$uri), data$diagnostics)
-    expect_equal(data$diagnostics[[1]]$source, "assignment_linter")
+    expect_equal(data$diagnostics[[1]]$code, "assignment_linter")
     expect_equal(data$diagnostics[[1]]$message, "Use <-, not =, for assignment.")
 })
 
@@ -36,7 +36,7 @@ test_that("lintr config file works", {
     expect_equal(client$diagnostics$size(), 1)
     expect_equal(client$diagnostics$get(data$uri), data$diagnostics)
     expect_length(data$diagnostics, 2)
-    expect_setequal(vapply(data$diagnostics, "[[", character(1), "source"),
+    expect_setequal(vapply(data$diagnostics, "[[", character(1), "code"),
         c("assignment_linter", "infix_spaces_linter"))
 
 
@@ -53,7 +53,7 @@ test_that("lintr config file works", {
     expect_equal(client$diagnostics$size(), 1)
     expect_equal(client$diagnostics$get(data$uri), data$diagnostics)
     expect_length(data$diagnostics, 1)
-    expect_setequal(vapply(data$diagnostics, "[[", character(1), "source"),
+    expect_setequal(vapply(data$diagnostics, "[[", character(1), "code"),
         c("infix_spaces_linter"))
 
     writeLines("linters: list()", lintr_file)

@@ -17,9 +17,9 @@ test_that("Code action works", {
 
   expect_equal(client$diagnostics$size(), 1)
   expect_equal(client$diagnostics$get(data$uri), data$diagnostics)
-  expect_equal(data$diagnostics[[1]]$source, "infix_spaces_linter")
+  expect_equal(data$diagnostics[[1]]$code, "infix_spaces_linter")
   expect_equal(data$diagnostics[[1]]$message, "Put spaces around all infix operators.")
-  expect_equal(data$diagnostics[[2]]$source, "infix_spaces_linter")
+  expect_equal(data$diagnostics[[2]]$code, "infix_spaces_linter")
   expect_equal(data$diagnostics[[2]]$message, "Put spaces around all infix operators.")
 
   result <- client %>% respond_code_action(temp_file, c(0, 0), c(0, 1))

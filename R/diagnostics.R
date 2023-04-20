@@ -49,8 +49,12 @@ diagnostic_from_lint <- function(result, content) {
     list(
         range = diagnostic_range(result, content),
         severity = diagnostic_severity(result),
-        source = result$linter,
-        message = result$message
+        source = "lintr",
+        message = result$message,
+        code = result$linter,
+        codeDescription = list(
+            href = sprintf("https://lintr.r-lib.org/reference/%s.html", result$linter)
+        )
     )
 }
 
