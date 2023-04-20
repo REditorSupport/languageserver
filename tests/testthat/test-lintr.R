@@ -12,7 +12,7 @@ test_that("lintr works", {
 
     expect_equal(client$diagnostics$size(), 1)
     expect_equal(client$diagnostics$get(data$uri), data$diagnostics)
-    expect_equal(data$diagnostics[[1]]$source, "assignment_linter")
+    expect_equal(data$diagnostics[[1]]$code, "assignment_linter")
     expect_equal(data$diagnostics[[1]]$message, "Use <-, not =, for assignment.")
 })
 
