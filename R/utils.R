@@ -292,6 +292,7 @@ code_point_from_unit <- function(line, units) {
 #'
 #' @noRd
 code_point_to_unit <- function(line, pts) {
+    pts[pts < 0] <- 0
     if (!nzchar(line)) return(pts)
     offsets <- c(0, cumsum(ncodeunit(strsplit(line, "")[[1]])))
     result <- offsets[pts + 1]
