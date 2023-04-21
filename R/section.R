@@ -222,7 +222,7 @@ get_r_document_binary_ranges <- function(content, line_numbers, block_lines_list
 }
 
 merge_intervals <- function(start, end) {
-    order_idx <- order(start)
+    order_idx <- order(start, end)
     start <- start[order_idx]
     end <- end[order_idx]
     len <- length(start)
