@@ -8,7 +8,7 @@ on:
 jobs:
   publish-github-release:
     runs-on: ubuntu-latest
-    container: rtagbot/tagbot:latest
+    container: rtagbot/tagbot:master
     steps:
       - uses: actions/checkout@v3
         with:
