@@ -209,6 +209,49 @@ test_that("two or more blank lines breaking section succession works well", {
     expect_equal(result[[3]]$endLine, 10)
 })
 
+test_that("Folding range of binary opts works well", {
+    skip_on_cran()
+    client <- language_client()
+
+    defn_file <- withr::local_tempfile(fileext = ".R")
+    writeLines(c( # mix section with binary opts
+        "# section one ----",
+        "a <- letters %>% ",
+        "",
+        "paste0()",
+        "",
+        "# section two ----",
+        "b <- 1:10 +",
+        "",
+        "    1L",
+        "",
+        "## sub-section ----",
+        "d <- 1:2 +",
+        "    1 +", # two blank lines will break the succession
+        "",
+        "",
+        "1"
+    ), defn_file)
+
+    client %>% did_save(defn_file)
+    result <- client %>% respond_document_folding_range(defn_file)
+    result <- result[order(sapply(result, "[[", "startLine"))]
+
+    expect_equal(length(result), 6)
+    expect_equal(result[[1]]$startLine, 0)
+    expect_equal(result[[1]]$endLine, 4)
+    expect_equal(result[[2]]$startLine, 1)
+    expect_equal(result[[2]]$endLine, 3)
+    expect_equal(result[[3]]$startLine, 5)
+    expect_equal(result[[3]]$endLine, 12)
+    expect_equal(result[[4]]$startLine, 6)
+    expect_equal(result[[4]]$endLine, 8)
+    expect_equal(result[[5]]$startLine, 10)
+    expect_equal(result[[5]]$endLine, 12)
+    expect_equal(result[[6]]$startLine, 11)
+    expect_equal(result[[6]]$endLine, 12)
+})
+
 test_that("Folding range works in Rmarkdown", {
     skip_on_cran()
     client <- language_client()
