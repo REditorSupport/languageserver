@@ -14,19 +14,6 @@ section_level_regex <- paste0(
     "[", paste0("\\", section_level_prefix, collapse = ""), "]*+"
 )
 
-# ?Syntax
-# : can indicate :: :::
-# - can indicate <-
-# > can indicate |>
-binary_opts <- c(
-    ":", "\\$", "@", "\\^",
-    "%[^#]*%", "\\+", "-", "\\*", "/",
-    "<", ">", "=", "!", "&", "\\|", "~",
-    "\\?"
-)
-binary_opts_regex <- paste0(binary_opts, collapse = "|")
-binary_opts_ending_regex <- paste0("^[^#]*(", binary_opts_regex, ")\\s*(#.*)?$")
-
 # options, number of blank lines to break sections or binary ranges
 # default 2L, the same with markdown
 nline_to_break_succession <- 2L
