@@ -124,16 +124,21 @@ test_that("On type formatting works", {
     temp_file <- withr::local_tempfile(fileext = ".R")
     writeLines(c(
         "my_fn<-function(x){",  # nolint
-        "f(x+1,x-1)",
+        "f(x+1,x-1)# call function",
         "data[x,y]",
-        "}"
+        "}",
+        "",
+        "data%>%",
+        " mutate(a=1,b=2)%>%# change data",
+        "  filter(a>=2)%>%",
+        "select(a,b)"
     ), temp_file)
 
     client %>% did_save(temp_file)
 
     result <- client %>% respond_on_type_formatting(temp_file, c(1, 10), ")")
     expect_length(result, 1)
-    expect_equal(result[[1]]$newText, "f(x + 1, x - 1)")
+    expect_equal(result[[1]]$newText, "f(x + 1, x - 1) # call function")
 
     result <- client %>% respond_on_type_formatting(temp_file, c(2, 9), ")")
     expect_length(result, 1)
@@ -145,9 +150,31 @@ test_that("On type formatting works", {
     expect_length(lines, 4)
     expect_equal(lines, c(
         "my_fn <- function(x) {",
-        "    f(x + 1, x - 1)",
+        "    f(x + 1, x - 1) # call function",
         "    data[x, y]",
         "}"
+    ))
+
+    result <- client %>% respond_on_type_formatting(temp_file, c(3, 1), "\n")
+    expect_length(result, 1)
+    lines <- strsplit(result[[1]]$newText, "\n")[[1]]
+    expect_length(lines, 4)
+    expect_equal(lines, c(
+        "my_fn <- function(x) {",
+        "    f(x + 1, x - 1) # call function",
+        "    data[x, y]",
+        "}"
+    ))
+
+    result <- client %>% respond_on_type_formatting(temp_file, c(8, 13), "\n")
+    expect_length(result, 1)
+    lines <- strsplit(result[[1]]$newText, "\n")[[1]]
+    expect_length(lines, 4)
+    expect_equal(lines, c(
+        "data %>%",
+        "    mutate(a = 1, b = 2) %>% # change data",
+        "    filter(a >= 2) %>%",
+        "    select(a, b)"
     ))
 })
 
