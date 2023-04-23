@@ -25,6 +25,7 @@ binary_opts <- c(
     "\\?"
 )
 binary_opts_regex <- paste0(binary_opts, collapse = "|")
+binary_opts_ending_regex <- paste0("^[^#]*(", binary_opts_regex, ")\\s*(#.*)?$")
 
 # options, number of blank lines to break sections or binary ranges
 # default 2L, the same with markdown
@@ -186,7 +187,7 @@ get_r_document_section_ranges <- function(content, line_numbers) {
 
 get_r_document_binary_ranges <- function(content, line_numbers, block_lines_list) {
     is_binary_line <- grepl(
-        paste0("^[^#]*(", binary_opts_regex, ")\\s*(#.*)?$"),
+        binary_opts_ending_regex,
         content[line_numbers],
         perl = TRUE
     )
