@@ -167,7 +167,7 @@ on_type_formatting_reply <- function(id, uri, document, point, ch, options) {
             #    * if it is one-line expression, then we got 1 more expression.
             #    * if it is multi-line expression, then we got no expression
             # 3. the previous line is not an incomplete expression ending with binary operator or comma
-            if (nexpr > 0 && (nexpr1 > nexpr || nexpr1 == 0) && !grepl(incomplete_ending_regex, content[[start_line]])) {
+            if (nexpr > 0 && (nexpr1 > nexpr || nexpr1 == 0) && !is_incomplete_line(content[[start_line]])) {
                 start_line <- start_line + 1
                 break
             }

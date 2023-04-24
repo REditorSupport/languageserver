@@ -173,11 +173,7 @@ get_r_document_section_ranges <- function(content, line_numbers) {
 }
 
 get_r_document_binary_ranges <- function(content, line_numbers, block_lines_list) {
-    is_binary_line <- grepl(
-        binary_opts_ending_regex,
-        content[line_numbers],
-        perl = TRUE
-    )
+    is_binary_line <- is_binary_line(content[line_numbers])
     if (any(is_binary_line)) {
         start_lines <- line_numbers[is_binary_line]
         # the end line should be the first non-blank lines in the next
