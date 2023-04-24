@@ -14,19 +14,6 @@ section_level_regex <- paste0(
     "[", paste0("\\", section_level_prefix, collapse = ""), "]*+"
 )
 
-# ?Syntax
-# : can indicate :: :::
-# - can indicate <-
-# > can indicate |>
-binary_opts <- c(
-    ":", "\\$", "@", "\\^",
-    "%[^#]*%", "\\+", "-", "\\*", "/",
-    "<", ">", "=", "!", "&", "\\|", "~",
-    "\\?"
-)
-binary_opts_regex <- paste0(binary_opts, collapse = "|")
-binary_opts_ending_regex <- paste0("^[^#]*(", binary_opts_regex, ")\\s*(#.*)?$")
-
 # options, number of blank lines to break sections or binary ranges
 # default 2L, the same with markdown
 nline_to_break_succession <- 2L
@@ -186,11 +173,7 @@ get_r_document_section_ranges <- function(content, line_numbers) {
 }
 
 get_r_document_binary_ranges <- function(content, line_numbers, block_lines_list) {
-    is_binary_line <- grepl(
-        binary_opts_ending_regex,
-        content[line_numbers],
-        perl = TRUE
-    )
+    is_binary_line <- is_binary_line(content[line_numbers])
     if (any(is_binary_line)) {
         start_lines <- line_numbers[is_binary_line]
         # the end line should be the first non-blank lines in the next

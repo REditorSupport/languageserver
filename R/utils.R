@@ -1,3 +1,25 @@
+# ?Syntax
+# : can indicate :: :::
+# - can indicate <-
+# > can indicate |>
+binary_opts <- c(
+    ":", "\\$", "@", "\\^",
+    "%[^#]*%", "\\+", "-", "\\*", "/",
+    "<", ">", "=", "!", "&", "\\|", "~",
+    "\\?"
+)
+binary_opts_regex <- paste0(binary_opts, collapse = "|")
+binary_opts_ending_regex <- paste0("^[^#]*(", binary_opts_regex, ")\\s*(#.*)?$")
+incomplete_ending_regex <- paste0("^[^#]*(", binary_opts_regex, "|,)\\s*(#.*)?$")
+
+is_binary_line <- function(line) {
+    grepl(binary_opts_ending_regex, line, perl = TRUE)
+}
+
+is_incomplete_line <- function(line) {
+    grepl(incomplete_ending_regex, line, perl = TRUE)
+}
+
 #' Merge two lists
 #'
 #' @noRd

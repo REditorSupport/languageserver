@@ -158,15 +158,16 @@ on_type_formatting_reply <- function(id, uri, document, point, ch, options) {
         while (start_line >= 1) {
             expr <- tryCatch(parse(
                 text = content[start_line:end_line],
-                keep.source = FALSE),
-            error = function(e) NULL)
+                keep.source = FALSE
+            ), error = function(e) NULL)
             nexpr1 <- length(expr)
             # stop backward parsing when
             # 1. we have at least one expression parsed; and
             # 2. we are entering the previous expression:
             #    * if it is one-line expression, then we got 1 more expression.
             #    * if it is multi-line expression, then we got no expression
-            if (nexpr > 0 && (nexpr1 > nexpr || nexpr1 == 0)) {
+            # 3. the previous line is not an incomplete expression ending with binary operator or comma
+            if (nexpr > 0 && (nexpr1 > nexpr || nexpr1 == 0) && !is_incomplete_line(content[[start_line]])) {
                 start_line <- start_line + 1
                 break
             }
