@@ -1,12 +1,30 @@
+# languageserver 0.3.16
+
+**Closed issues:**
+
+- Error in Neovim: “attempt to compare string with number” (#609)
+- On-type formatter adds extra indentations after pipes (#607)
+
+**Merged pull requests:**
+
+- Handle vscode-notebook-cell in `path_from_uri` (#610)
+- Skip incomplete lines in on-type-formatting (#615)
+- Enable the folding of binary operations (#613)
+- make sure column is defined (#614)
+- Use code and codeDescription in diagnostic (#611)
+- Fix path_from_uri (#612)
+- Fix regex pattern to match chunk label after comma (#608)
+- Include pacman Suggests dependency in DESCRIPTION (#604)
+- Add link to R-Nova extension for Nova (#598)
+
 # languageserver 0.3.15
 
-**Closed issues:**                                                                           
-                                                                                             
+**Closed issues:**
 - package::function() autocompletion doesn't include re-exported functions (#590)
 - Server failed to start probably due to hard-coded installation path ERROR (#579)
-                                                                                             
-**Merged pull requests:**                                                                    
-                                                                                             
+
+**Merged pull requests:**
+
 - Include all exports in namespace objects (#591)
 - Disable linters actions (#589)
 - Avoid emitting a negative activeSignature (#586)
@@ -20,7 +38,7 @@
 - NA introduced into position when opening curly braces (#564)
 - `html-to-markdown.lua` error: attempt to call a nil value (#555)
 - R6Class finalize() method is public, but it should be private as of R6 2.4.0 (#551)
- 
+
 **Merged pull requests:**
 
 - Drop diagnostics on callback if disabled (#577)
@@ -38,13 +56,13 @@
 
 # languageserver 0.3.13
 
-**Closed issues:**                                                   
-                                                                                          
-- Language Server crashing sporadically (#368)                                        
-- Why not set up r-universe? (#536)                                                   
-- Signature help not show up in if-else branch (#530)                                 
-- Some of the tables of arguments are too complex to be represented by GFM (#533)     
-- Rmd detection ignores front matter (#507)                                           
+**Closed issues:**
+
+- Language Server crashing sporadically (#368)
+- Why not set up r-universe? (#536)
+- Signature help not show up in if-else branch (#530)
+- Some of the tables of arguments are too complex to be represented by GFM (#533)
+- Rmd detection ignores front matter (#507)
 - Range formatting and onTypeFormatting are performed in Rmd non-code content (#224)
 - Respect document language specified from editor (#510)
 - "No newline at end of file" after formatting file in VS Code (#462)
@@ -170,7 +188,7 @@
 
 # languageserver 0.3.9
 
-- skip tests on solaris 
+- skip tests on solaris
 
 # languageserver 0.3.8
 
@@ -235,7 +253,7 @@
 - fix enclosed_by_quotes
 - fix a bug in returning NA locations
 - requires collections 0.3.0
-- Run tasks with delay to reduce CPU usage on input 
+- Run tasks with delay to reduce CPU usage on input
 - Refine args (Merge 9fd102b)
 - respect NAMESPACE file
 
@@ -297,7 +315,7 @@
 
 - added symbol definitions
 - added document and workspace symbols
- 
+
 # languageserver 0.2.6
 
 - fix a bug in completion items
@@ -316,7 +334,7 @@
 - disable homedir config until lintr is released
 - concat multiple lines in signature
 - Allow package name to contain dots (e.g. data.table)
-- completing variables defined in document 
+- completing variables defined in document
 - support completions and function signatures from documents
 - improve worksync consistency
 - sync all R files of a package
