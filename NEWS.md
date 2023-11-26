@@ -4,6 +4,7 @@
 
 - Error in Neovim: “attempt to compare string with number” (#609)
 - On-type formatter adds extra indentations after pipes (#607)
+- Add `nline_to_break_succession` option to control section collapsing (#643)
 
 **Merged pull requests:**
 

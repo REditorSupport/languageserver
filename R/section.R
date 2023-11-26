@@ -14,10 +14,6 @@ section_level_regex <- paste0(
     "[", paste0("\\", section_level_prefix, collapse = ""), "]*+"
 )
 
-# options, number of blank lines to break sections or binary ranges
-# default 2L, the same with markdown
-nline_to_break_succession <- 2L
-
 #---------------------------r document utils functions------------------------#
 get_r_document_sections_and_blocks <- function(content, xdoc, symbol = FALSE) {
     block_lines_list <- extract_document_block_lines(xdoc)
@@ -173,6 +169,10 @@ get_r_document_section_ranges <- function(content, line_numbers) {
 }
 
 get_r_document_binary_ranges <- function(content, line_numbers, block_lines_list) {
+    # options, number of blank lines to break sections or binary ranges
+    # default 2L, the same with markdown
+    nline_to_break_succession <- lsp_settings$get("nline_to_break_succession")
+    
     is_binary_line <- is_binary_line(content[line_numbers])
     if (any(is_binary_line)) {
         start_lines <- line_numbers[is_binary_line]
@@ -319,6 +319,10 @@ extract_document_section <- function(line_numbers, line_content) {
 #' two or more blank lines out of block ranges should break sections succession
 #' @noRd
 extract_document_section_breaks <- function(line_numbers, line_content) {
+    # options, number of blank lines to break sections or binary ranges
+    # default 2L, the same with markdown
+    nline_to_break_succession <- lsp_settings$get("nline_to_break_succession")
+
     blank_lines <- line_numbers[
         grepl("^\\s*$", line_content, perl = TRUE)
     ]
