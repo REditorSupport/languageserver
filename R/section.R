@@ -316,7 +316,7 @@ extract_document_section <- function(line_numbers, line_content) {
     NULL
 }
 
-#' two or more blank lines out of block ranges should break sections succession
+#' `nline_to_break_succession` or more blank lines out of block ranges should break sections succession
 #' @noRd
 extract_document_section_breaks <- function(line_numbers, line_content) {
     # options, number of blank lines to break sections or binary ranges
