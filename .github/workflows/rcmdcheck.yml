@@ -78,7 +78,7 @@ jobs:
         id: rcmdcheck
         run: |
           Rscript -e "rcmdcheck::rcmdcheck(args = c('--as-cran', '--no-manual'), error_on = 'warning')"
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         if: failure()
         with:
           name: ${{ runner.os }}-log
