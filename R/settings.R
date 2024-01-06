@@ -10,7 +10,8 @@ Settings <- R6::R6Class("Settings",
             max_completions = 200,
             lint_cache = FALSE,
             server_capabilities = list(),
-            link_file_size_limit = 16L * 1024L^2
+            link_file_size_limit = 16L * 1024L^2,
+            nline_to_break_succession = 2L
         )
     ),
     public = list(

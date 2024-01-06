@@ -18,6 +18,18 @@ get_comment_folding_ranges <- function(xdoc) {
             perl = TRUE
         )
     ]
+    # For code chunks in plain `.R` files. 
+    # This messes up folding when you have `#|` options  
+    # or just comments on next line after code chunk
+    comments <- comments[
+        !grepl(
+            paste0(
+                "(", "#\\s*%%", ")\\s*"
+            ),
+            xml_text(comments, trim = FALSE),
+            perl = TRUE
+        )
+    ]
     if (identical(length(comments), 0L)) {
         return(NULL)
     }
