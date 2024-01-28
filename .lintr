@@ -4,4 +4,5 @@ linters: linters_with_defaults(
     object_length_linter = NULL,
     object_name_linter = NULL,
     commented_code_linter = NULL,
-    cyclocomp_linter = NULL)
+    cyclocomp_linter = NULL,
+    indentation_linter(indent = 4, hanging_indent_style = "never"))

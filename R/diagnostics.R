@@ -97,7 +97,12 @@ diagnose_file <- function(uri, content, is_rmarkdown = FALSE, globals = NULL, ca
         on.exit(do.call("detach", list(env_name, character.only = TRUE)))
     }
 
-    lints <- lintr::lint(path, cache = cache, text = content)
+    if (file.exists(path)) {
+        lints <- lintr::lint(path, cache = cache, text = content)
+    } else {
+        lints <- lintr::lint(text = content, cache = cache)
+    }
+
     diagnostics <- lapply(lints, diagnostic_from_lint, content = content)
     names(diagnostics) <- NULL
     diagnostics
