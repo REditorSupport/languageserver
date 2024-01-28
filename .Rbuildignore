@@ -8,3 +8,4 @@ man-roxygen
 ^codecov.yml$
 ^.lintr$
 ^CRAN-SUBMISSION$
+^\.devcontainer$
