@@ -222,6 +222,15 @@ options(languageserver.formatting_style = function(options) {
 })
 ```
 
+You can use other style packages building on `styler`, e.g. as follows, which styles according to the [`styler.equals`](https://github.com/Robinlovelace/styler.equals) package:
+
+```r
+options(languageserver.formatting_style = function(options) {
+    styler.equals::equals_style(scope = "indention", indent_by = options$tabSize)
+})
+```
+
+
 To disable assignment operator fix (replacing `=` with `<-`):
 
 ```r
