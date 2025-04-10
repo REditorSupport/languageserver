@@ -23,7 +23,7 @@ language_client <- function(working_dir = getwd(), diagnostics = FALSE, capabili
     }
 
     client <- LanguageClient$new(
-        file.path(R.home("bin"), "R"), c("--slave", "-e", script))
+        file.path(R.home("bin"), "R"), c("--no-echo", "-e", script))
 
     client$notification_handlers <- list(
         `textDocument/publishDiagnostics` = function(self, params) {

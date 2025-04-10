@@ -68,7 +68,7 @@ The following editors are supported by installing the corresponding extensions:
 
     ```vim
     let g:LanguageClient_serverCommands = {
-        \ 'r': ['R', '--slave', '-e', 'languageserver::run()'],
+        \ 'r': ['R', '--no-echo', '-e', 'languageserver::run()'],
         \ }
     ```
 
@@ -94,7 +94,7 @@ The following editors are supported by installing the corresponding extensions:
     "languageserver": {
         "R": {
             "command": "/usr/bin/R",
-            "args" : [ "--slave", "-e", "languageserver::run()"],
+            "args" : [ "--no-echo", "-e", "languageserver::run()"],
             "filetypes" : ["r"]
         }
     }
