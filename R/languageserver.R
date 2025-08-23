@@ -217,6 +217,8 @@ LanguageServer$set("public", "register_handlers", function() {
         `callHierarchy/incomingCalls` = call_hierarchy_incoming_calls,
         `callHierarchy/outgoingCalls` = call_hierarchy_outgoing_calls,
         `textDocument/linkedEditingRange` = text_document_linked_editing_range,
+        `textDocument/semanticTokens/full` = text_document_semantic_tokens_full,
+        `textDocument/semanticTokens/range` = text_document_semantic_tokens_range,
         `workspace/symbol` = workspace_symbol
     )
 

@@ -49,6 +49,6 @@ ByteCompile: yes
 Encoding: UTF-8
 NeedsCompilation: yes
 Roxygen: list(markdown = TRUE, r6 = FALSE)
-RoxygenNote: 7.2.1
+RoxygenNote: 7.3.2
 Config/testthat/edition: 3
 Config/Needs/development: testthat, magrittr, mockery, purrr, withr, rmarkdown

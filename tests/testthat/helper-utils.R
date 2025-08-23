@@ -482,3 +482,29 @@ wait_for <- function(client, method, timeout = 30) {
     }
     NULL
 }
+
+respond_semantic_tokens_full <- function(client, path, ..., uri = path_to_uri(path)) {
+    respond(
+        client,
+        "textDocument/semanticTokens/full",
+        list(
+            textDocument = list(uri = uri)
+        ),
+        ...
+    )
+}
+
+respond_semantic_tokens_range <- function(client, path, start_line, start_char, end_line, end_char, ..., uri = path_to_uri(path)) {
+    respond(
+        client,
+        "textDocument/semanticTokens/range",
+        list(
+            textDocument = list(uri = uri),
+            range = list(
+                start = list(line = start_line, character = start_char),
+                end = list(line = end_line, character = end_char)
+            )
+        ),
+        ...
+    )
+}
