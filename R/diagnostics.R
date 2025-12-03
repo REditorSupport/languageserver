@@ -98,9 +98,9 @@ diagnose_file <- function(uri, content, is_rmarkdown = FALSE, globals = NULL, ca
     }
 
     if (file.exists(path)) {
-        lints <- lintr::lint(path, cache = cache, text = content)
+        lints <- lintr::lint(path, cache = cache, text = content, parse_settings = TRUE)
     } else {
-        lints <- lintr::lint(text = content, cache = cache)
+        lints <- lintr::lint(text = content, cache = cache, parse_settings = TRUE)
     }
 
     diagnostics <- lapply(lints, diagnostic_from_lint, content = content)
