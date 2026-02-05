@@ -59,13 +59,20 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$outputcon <- outputcon
 
             cpus <- parallel::detectCores()
+            # Performance optimization: Allow more workers and scale with CPU count
+            # Old default: min(max(floor(cpus / 2), 1), 3) - capped at 3
+            # New default: min(max(cpus - 1, 2), 8) - scale up to 8 workers
+            default_pool_size <- min(max(cpus - 1, 2), 8)
             pool_size <- as.integer(
-                Sys.getenv("R_LANGSVR_POOL_SIZE", min(max(floor(cpus / 2), 1), 3)))
+                Sys.getenv("R_LANGSVR_POOL_SIZE", default_pool_size))
 
-            # parse pool
+            # parse pool - increase size for better throughput
+            # Parse operations are CPU-bound and can benefit from parallelism
             parse_pool <- if (pool_size > 0) SessionPool$new(pool_size, "parse") else NULL
             # diagnostics is slower, so use a separate pool
-            diagnostics_pool <- if (pool_size > 0) SessionPool$new(pool_size, "diagnostics") else NULL
+            # Diagnostics can use slightly fewer workers since they're I/O heavy
+            diagnostics_pool_size <- max(floor(pool_size * 0.75), 2)
+            diagnostics_pool <- if (pool_size > 0) SessionPool$new(diagnostics_pool_size, "diagnostics") else NULL
 
             self$parse_task_manager <- TaskManager$new("parse", parse_pool)
             self$diagnostics_task_manager <- TaskManager$new("diagnostics", diagnostics_pool)
