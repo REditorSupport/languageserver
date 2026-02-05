@@ -152,3 +152,50 @@ test_that("activeParameter handles nested calls", {
         retry_when = function(result) length(result) == 0 || length(result$signatures) == 0)
     expect_equal(result$activeParameter, 2)
 })
+
+test_that("activeParameter correctly handles named arguments", {
+    skip_on_cran()
+    client <- language_client()
+
+    defn_file <- withr::local_tempfile(fileext = ".R")
+    temp_file <- withr::local_tempfile(fileext = ".R")
+
+    writeLines(c("fun <- function(x, y = 1, z = 2) { x + y + z }"), defn_file)
+    
+    # Test 1: Named argument z= should activate parameter z (index 2), not y
+    writeLines(c("fun(1, z = "), temp_file)
+    client %>% did_save(defn_file) %>% did_save(temp_file)
+    
+    result <- client %>% respond_signature(
+        temp_file, c(0, 11),
+        retry_when = function(result) length(result) == 0 || length(result$signatures) == 0)
+    expect_equal(result$activeParameter, 2)
+    expect_length(result$signatures[[1]]$parameters, 3)
+    
+    # Test 2: Named argument y= should activate parameter y (index 1)
+    writeLines(c("fun(x = 1, y = "), temp_file)
+    client %>% did_save(temp_file)
+    
+    result <- client %>% respond_signature(
+        temp_file, c(0, 15),
+        retry_when = function(result) length(result) == 0 || length(result$signatures) == 0)
+    expect_equal(result$activeParameter, 1)
+    
+    # Test 3: Positional argument (no name) should use comma count
+    writeLines(c("fun(1, 2, "), temp_file)
+    client %>% did_save(temp_file)
+    
+    result <- client %>% respond_signature(
+        temp_file, c(0, 10),
+        retry_when = function(result) length(result) == 0 || length(result$signatures) == 0)
+    expect_equal(result$activeParameter, 2)
+    
+    # Test 4: Named argument after skipping parameters
+    writeLines(c("fun(z = "), temp_file)
+    client %>% did_save(temp_file)
+    
+    result <- client %>% respond_signature(
+        temp_file, c(0, 8),
+        retry_when = function(result) length(result) == 0 || length(result$signatures) == 0)
+    expect_equal(result$activeParameter, 2)
+})
