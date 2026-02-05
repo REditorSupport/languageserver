@@ -46,6 +46,23 @@ ExecuteCommandOptions <- list(
     commands = NULL
 )
 
+SemanticTokensOptions <- list(
+    legend = list(
+        tokenTypes = c(
+            "namespace", "type", "class", "enum", "interface", "struct",
+            "typeParameter", "parameter", "variable", "property", "enumMember",
+            "event", "function", "method", "macro", "keyword", "modifier",
+            "comment", "string", "number", "regexp", "operator", "decorator"
+        ),
+        tokenModifiers = c(
+            "declaration", "definition", "readonly", "static", "deprecated",
+            "abstract", "async", "modification", "documentation", "defaultLibrary"
+        )
+    ),
+    full = TRUE,
+    range = TRUE
+)
+
 ServerCapabilities <- list(
     textDocumentSync = TextDocumentSyncOptions,
     hoverProvider = TRUE,
@@ -68,9 +85,9 @@ ServerCapabilities <- list(
     colorProvider = TRUE,
     foldingRangeProvider = TRUE,
     selectionRangeProvider = TRUE,
-    callHierarchyProvider = TRUE
+    callHierarchyProvider = TRUE,
+    semanticTokensProvider = SemanticTokensOptions
     # linkedEditingRangeProvider = FALSE,
-    # semanticTokensProvider = FALSE,
     # monikerProvider = FALSE,
     # executeCommandProvider = ExecuteCommandOptions,
     # workspace = list()

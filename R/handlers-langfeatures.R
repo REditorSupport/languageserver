@@ -373,3 +373,25 @@ call_hierarchy_outgoing_calls <- function(self, id, params) {
 text_document_linked_editing_range <- function(self, id, params) {
 
 }
+
+#' `textDocument/semanticTokens/full` request handler
+#'
+#' Handler to the `textDocument/semanticTokens/full` [Request].
+#' @noRd
+text_document_semantic_tokens_full <- function(self, id, params) {
+    textDocument <- params$textDocument
+    uri <- uri_escape_unicode(textDocument$uri)
+    document <- self$workspace$documents$get(uri)
+    self$deliver(semantic_tokens_full_reply(id, uri, self$workspace, document))
+}
+
+#' `textDocument/semanticTokens/range` request handler
+#'
+#' Handler to the `textDocument/semanticTokens/range` [Request].
+#' @noRd
+text_document_semantic_tokens_range <- function(self, id, params) {
+    textDocument <- params$textDocument
+    uri <- uri_escape_unicode(textDocument$uri)
+    document <- self$workspace$documents$get(uri)
+    self$deliver(semantic_tokens_range_reply(id, uri, self$workspace, document, params$range))
+}
