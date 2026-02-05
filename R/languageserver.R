@@ -100,7 +100,9 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     `textDocument/documentSymbol` = collections::queue(),
                     `textDocument/foldingRange` = collections::queue(),
                     `textDocument/documentLink` = collections::queue(),
-                    `textDocument/documentColor` = collections::queue()
+                    `textDocument/documentColor` = collections::queue(),
+                    `textDocument/semanticTokens/full` = collections::queue(),
+                    `textDocument/semanticTokens/range` = collections::queue()
                 ))
             }
 

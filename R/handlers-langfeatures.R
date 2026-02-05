@@ -382,6 +382,24 @@ text_document_semantic_tokens_full <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- uri_escape_unicode(textDocument$uri)
     document <- self$workspace$documents$get(uri)
+    
+    # Check if we should queue this request waiting for parse data
+    parse_data <- document$parse_data
+    
+    if (is.null(parse_data) || is.null(parse_data$xml_doc)) {
+        # Parse data is missing or incomplete, queue the request
+        logger$info("semantic_tokens_full: queuing request for ", uri, " (parse data not ready)")
+        pending_replies <- self$pending_replies$get(uri, NULL)
+        if (!is.null(pending_replies) && !is.null(pending_replies[["textDocument/semanticTokens/full"]])) {
+            pending_replies[["textDocument/semanticTokens/full"]]$push(list(
+                id = id,
+                params = params,
+                version = document$version
+            ))
+            return(NULL)
+        }
+    }
+    
     self$deliver(semantic_tokens_full_reply(id, uri, self$workspace, document))
 }
 
@@ -393,5 +411,23 @@ text_document_semantic_tokens_range <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- uri_escape_unicode(textDocument$uri)
     document <- self$workspace$documents$get(uri)
+    
+    # Check if we should queue this request waiting for parse data
+    parse_data <- document$parse_data
+    
+    if (is.null(parse_data) || is.null(parse_data$xml_doc)) {
+        # Parse data is missing or incomplete, queue the request
+        logger$info("semantic_tokens_range: queuing request for ", uri, " (parse data not ready)")
+        pending_replies <- self$pending_replies$get(uri, NULL)
+        if (!is.null(pending_replies) && !is.null(pending_replies[["textDocument/semanticTokens/range"]])) {
+            pending_replies[["textDocument/semanticTokens/range"]]$push(list(
+                id = id,
+                params = params,
+                version = document$version
+            ))
+            return(NULL)
+        }
+    }
+    
     self$deliver(semantic_tokens_range_reply(id, uri, self$workspace, document, params$range))
 }
