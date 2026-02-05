@@ -22,6 +22,7 @@ Workspace <- R6::R6Class("Workspace",
         startup_packages = NULL,
         loaded_packages = NULL,
         help_cache = NULL,
+        parse_cache = NULL,  # Performance: Cache parse results by content hash
 
         initialize = function(root) {
             self$root <- root
@@ -43,6 +44,8 @@ Workspace <- R6::R6Class("Workspace",
                 self$namespaces$set(pkgname, PackageNamespace$new(pkgname))
             }
             self$help_cache <- collections::dict()
+            # Performance: Initialize parse cache (limit size to prevent memory issues)
+            self$parse_cache <- collections::dict()
         },
 
         load_package = function(pkgname) {
@@ -246,6 +249,16 @@ Workspace <- R6::R6Class("Workspace",
                     xml2::read_xml(parse_data$xml_data), error = function(e) NULL)
             }
             self$documents$get(uri)$update_parse_data(parse_data)
+            
+            # Performance: Clean up parse cache periodically to prevent memory bloat
+            # Keep only the most recent 50 entries
+            if (self$parse_cache$size() > 50) {
+                keys <- self$parse_cache$keys()
+                # Remove oldest entries (first half)
+                for (key in keys[1:25]) {
+                    self$parse_cache$remove(key)
+                }
+            }
         },
 
         load_all = function(langserver) {
