@@ -456,15 +456,32 @@ respond_code_action <- function(client, path, start_pos, end_pos, ..., uri = pat
     )
 }
 
-wait_for <- function(client, method, timeout = 30) {
-    storage <- new.env(parent = .GlobalEnv)
-    start_time <- Sys.time()
-    remaining <- timeout
+respond_semantic_tokens_full <- function(client, path, ..., uri = path_to_uri(path)) {
+    respond(
+        client,
+        "textDocument/semanticTokens/full",
+        list(
+            textDocument = list(uri = uri)
+        ),
+        ...
+    )
+}
 
-    original_handler <- client$notification_handlers[[method]]
-    on.exit({
-        client$notification_handlers[[method]] <- original_handler
-    })
+respond_semantic_tokens_range <- function(client, path, start_pos, end_pos, ..., uri = path_to_uri(path)) {
+    respond(
+        client,
+        "textDocument/semanticTokens/range",
+        list(
+            textDocument = list(uri = uri),
+            range = range(
+                start = position(start_pos[1], start_pos[2]),
+                end = position(end_pos[1], end_pos[2])
+            )
+        ),
+        ...
+    )
+}
+
     client$notification_handlers[[method]] <- function(self, params) {
         storage$params <- params
         original_handler(self, params)
