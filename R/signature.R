@@ -193,6 +193,28 @@ detect_active_parameter <- function(content, start_row, start_col, end_row, end_
         }
     }
     
+    # For positional arguments, handle ... (ellipsis) specially
+    # If we're at or past the ... position, stick to ... unless explicitly named
+    if (!is.null(signature)) {
+        param_names <- extract_parameter_names(signature)
+        dots_index <- match("...", param_names)
+        
+        if (!is.na(dots_index)) {
+            # dots_index is 1-based, convert to 0-based for comparison
+            dots_position <- dots_index - 1
+            logger$info("detect_active_parameter: found ... at position=", dots_position)
+            
+            # If comma_count puts us at or past ..., stick to ...
+            # Don't advance to parameters after ... for positional args
+            if (comma_count >= dots_position) {
+                # Check if there are parameters after ...
+                # Only stick to ... if we haven't explicitly named a later parameter
+                logger$info("detect_active_parameter: positional arg at/past ..., returning dots position=", dots_position)
+                return(dots_position)
+            }
+        }
+    }
+    
     # Fall back to positional (comma-based) detection
     logger$info("detect_active_parameter: returning positional index=", comma_count)
     return(comma_count)
