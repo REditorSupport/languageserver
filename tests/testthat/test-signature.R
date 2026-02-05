@@ -199,3 +199,78 @@ test_that("activeParameter correctly handles named arguments", {
         retry_when = function(result) length(result) == 0 || length(result$signatures) == 0)
     expect_equal(result$activeParameter, 2)
 })
+
+test_that("activeParameter correctly handles ... (ellipsis)", {
+    skip_on_cran()
+    client <- language_client()
+
+    defn_file <- withr::local_tempfile(fileext = ".R")
+    temp_file <- withr::local_tempfile(fileext = ".R")
+
+    writeLines(c("fun <- function(a, ..., b = 1) { a + b }"), defn_file)
+    
+    # Test 1: Positional args after 'a' should stick to ... (index 1)
+    writeLines(c("fun(1, 2, "), temp_file)
+    client %>% did_save(defn_file) %>% did_save(temp_file)
+    
+    result <- client %>% respond_signature(
+        temp_file, c(0, 10),
+        retry_when = function(result) length(result) == 0 || length(result$signatures) == 0)
+    expect_equal(result$activeParameter, 1)  # Should be ..., not b
+    expect_length(result$signatures[[1]]$parameters, 3)
+    
+    # Test 2: More positional args should still stick to ...
+    writeLines(c("fun(1, 2, 3, 4, "), temp_file)
+    client %>% did_save(temp_file)
+    
+    result <- client %>% respond_signature(
+        temp_file, c(0, 16),
+        retry_when = function(result) length(result) == 0 || length(result$signatures) == 0)
+    expect_equal(result$activeParameter, 1)  # Still ..., not b
+    
+    # Test 3: Named argument b= should activate parameter b (index 2)
+    writeLines(c("fun(1, 2, 3, b = "), temp_file)
+    client %>% did_save(temp_file)
+    
+    result <- client %>% respond_signature(
+        temp_file, c(0, 17),
+        retry_when = function(result) length(result) == 0 || length(result$signatures) == 0)
+    expect_equal(result$activeParameter, 2)  # Explicitly named b
+    
+    # Test 4: First parameter before ...
+    writeLines(c("fun("), temp_file)
+    client %>% did_save(temp_file)
+    
+    result <- client %>% respond_signature(
+        temp_file, c(0, 4),
+        retry_when = function(result) length(result) == 0 || length(result$signatures) == 0)
+    expect_equal(result$activeParameter, 0)  # Should be 'a'
+})
+
+test_that("activeParameter handles ... at different positions", {
+    skip_on_cran()
+    client <- language_client()
+
+    defn_file <- withr::local_tempfile(fileext = ".R")
+    temp_file <- withr::local_tempfile(fileext = ".R")
+
+    # Test with ... at the end
+    writeLines(c("fun2 <- function(a, b, ...) { a + b }"), defn_file)
+    writeLines(c("fun2(1, 2, 3, 4, "), temp_file)
+    client %>% did_save(defn_file) %>% did_save(temp_file)
+    
+    result <- client %>% respond_signature(
+        temp_file, c(0, 17),
+        retry_when = function(result) length(result) == 0 || length(result$signatures) == 0)
+    expect_equal(result$activeParameter, 2)  # Should stick to ... (index 2)
+    
+    # Test with ... at the beginning
+    writeLines(c("fun3 <- function(..., x, y = 1) { x + y }"), defn_file)
+    writeLines(c("fun3(1, 2, "), temp_file)
+    client %>% did_save(defn_file) %>% did_save(temp_file)
+    
+    result <- client %>% respond_signature(
+        temp_file, c(0, 11),
+        retry_when = function(result) length(result) == 0 || length(result$signatures) == 0)
+    expect_equal(result$activeParameter, 0)  # Should stick to ... (index 0)
+})
