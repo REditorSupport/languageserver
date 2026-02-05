@@ -482,6 +482,15 @@ respond_semantic_tokens_range <- function(client, path, start_pos, end_pos, ...,
     )
 }
 
+wait_for <- function(client, method, timeout = 30) {
+    storage <- new.env(parent = .GlobalEnv)
+    start_time <- Sys.time()
+    remaining <- timeout
+
+    original_handler <- client$notification_handlers[[method]]
+    on.exit({
+        client$notification_handlers[[method]] <- original_handler
+    })
     client$notification_handlers[[method]] <- function(self, params) {
         storage$params <- params
         original_handler(self, params)
