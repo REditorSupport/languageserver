@@ -96,3 +96,59 @@ test_that("Signature in Rmarkdown works", {
     result <- client %>% respond_signature(temp_file, c(5, 10))
     expect_length(result$signatures, 0)
 })
+
+test_that("activeParameter is correctly computed", {
+    skip_on_cran()
+    client <- language_client()
+
+    defn_file <- withr::local_tempfile(fileext = ".R")
+    temp_file <- withr::local_tempfile(fileext = ".R")
+
+    writeLines(c("foo <- function(a, b, c, d) { a + b + c + d }"), defn_file)
+    writeLines(c("foo(1, "), temp_file)
+
+    client %>% did_save(defn_file) %>% did_save(temp_file)
+
+    # Test at first parameter (after opening parenthesis)
+    result <- client %>% respond_signature(
+        temp_file, c(0, 4),
+        retry_when = function(result) length(result) == 0 || length(result$signatures) == 0)
+    expect_equal(result$activeParameter, 0)
+    expect_length(result$signatures[[1]]$parameters, 4)
+
+    # Test at second parameter (after first comma)
+    result <- client %>% respond_signature(
+        temp_file, c(0, 7),
+        retry_when = function(result) length(result) == 0 || length(result$signatures) == 0)
+    expect_equal(result$activeParameter, 1)
+    expect_length(result$signatures[[1]]$parameters, 4)
+
+    # Test with more parameters
+    writeLines(c("foo(1, 2, 3, "), temp_file)
+    client %>% did_save(temp_file)
+    
+    result <- client %>% respond_signature(
+        temp_file, c(0, 13),
+        retry_when = function(result) length(result) == 0 || length(result$signatures) == 0)
+    expect_equal(result$activeParameter, 3)
+    expect_length(result$signatures[[1]]$parameters, 4)
+})
+
+test_that("activeParameter handles nested calls", {
+    skip_on_cran()
+    client <- language_client()
+
+    defn_file <- withr::local_tempfile(fileext = ".R")
+    temp_file <- withr::local_tempfile(fileext = ".R")
+
+    writeLines(c("foo <- function(a, b, c) { a + b + c }"), defn_file)
+    writeLines(c("foo(1, foo(2, 3), "), temp_file)
+
+    client %>% did_save(defn_file) %>% did_save(temp_file)
+
+    # Test at outer function's third parameter
+    result <- client %>% respond_signature(
+        temp_file, c(0, 18),
+        retry_when = function(result) length(result) == 0 || length(result$signatures) == 0)
+    expect_equal(result$activeParameter, 2)
+})
