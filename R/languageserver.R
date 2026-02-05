@@ -109,7 +109,8 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     `textDocument/documentLink` = collections::queue(),
                     `textDocument/documentColor` = collections::queue(),
                     `textDocument/semanticTokens/full` = collections::queue(),
-                    `textDocument/semanticTokens/range` = collections::queue()
+                    `textDocument/semanticTokens/range` = collections::queue(),
+                    `textDocument/inlayHint` = collections::queue()
                 ))
             }
 
@@ -228,6 +229,7 @@ LanguageServer$set("public", "register_handlers", function() {
         `textDocument/linkedEditingRange` = text_document_linked_editing_range,
         `textDocument/semanticTokens/full` = text_document_semantic_tokens_full,
         `textDocument/semanticTokens/range` = text_document_semantic_tokens_range,
+        `textDocument/inlayHint` = text_document_inlay_hint,
         `workspace/symbol` = workspace_symbol
     )
 

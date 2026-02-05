@@ -63,6 +63,10 @@ SemanticTokensOptions <- list(
     range = TRUE
 )
 
+InlayHintOptions <- list(
+    resolveProvider = FALSE
+)
+
 ServerCapabilities <- list(
     textDocumentSync = TextDocumentSyncOptions,
     hoverProvider = TRUE,
@@ -86,7 +90,8 @@ ServerCapabilities <- list(
     foldingRangeProvider = TRUE,
     selectionRangeProvider = TRUE,
     callHierarchyProvider = TRUE,
-    semanticTokensProvider = SemanticTokensOptions
+    semanticTokensProvider = SemanticTokensOptions,
+    inlayHintProvider = InlayHintOptions
     # linkedEditingRangeProvider = FALSE,
     # monikerProvider = FALSE,
     # executeCommandProvider = ExecuteCommandOptions,

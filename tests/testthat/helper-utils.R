@@ -482,6 +482,18 @@ respond_semantic_tokens_range <- function(client, path, start_pos, end_pos, ...,
     )
 }
 
+respond_inlay_hint <- function(client, path, range, ..., uri = path_to_uri(path)) {
+    respond(
+        client,
+        "textDocument/inlayHint",
+        list(
+            textDocument = list(uri = uri),
+            range = range
+        ),
+        ...
+    )
+}
+
 wait_for <- function(client, method, timeout = 30) {
     storage <- new.env(parent = .GlobalEnv)
     start_time <- Sys.time()
