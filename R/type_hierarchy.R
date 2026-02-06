@@ -978,8 +978,9 @@ extract_r6_members <- function(document, xdoc, def) {
 extract_r6_list_members <- function(document, list_node, access_modifier) {
   members <- list()
   
-  # Find all SYMBOL_SUB elements
-  all_symbol_subs <- xml_find_all(list_node, ".//SYMBOL_SUB")
+  # Find SYMBOL_SUB elements that have EQ_SUB as immediate next sibling
+  # This indicates name = value patterns
+  all_symbol_subs <- xml_find_all(list_node, ".//SYMBOL_SUB[following-sibling::*[1][self::EQ_SUB]]")
   
   # Process all SYMBOL_SUB elements and try to find their values
   for (symbol_sub in all_symbol_subs) {
@@ -996,10 +997,41 @@ extract_r6_list_members <- function(document, list_node, access_modifier) {
     # All as direct siblings within the list(...) call expr
     
     # Find the value expr - it's the first expr sibling after this SYMBOL_SUB
-    # This skips over the EQ_SUB that's between them
+    # This skips over the EQ SUB that's between them
     value_expr <- xml_find_first(symbol_sub, "following-sibling::expr[1]")
     if (!length(value_expr)) {
       next
+    }
+    
+    # Skip if this SYMBOL_SUB is nested inside a function body
+    # Function structure in parse tree: expr[FUNCTION, params, body_expr]
+    # Body expressions have FUNCTION as a preceding sibling
+    # Check if symbol_sub has an ancestor expr that has FUNCTION as preceding sibling
+    func_body_ancestor <- xml_find_first(symbol_sub, 
+      "ancestor::expr[preceding-sibling::FUNCTION]")
+    
+    if (length(func_body_ancestor)) {
+      # This symbol is inside a function body, not a member definition
+      next
+    }
+    
+    # Also skip if this SYMBOL_SUB is nested inside a list/other structure that is a field value
+    # Member-level SYMBOL_SUBs have a grandparent ABOVE list_node (the R6Class call)
+    # Nested ones (like result in test2 = list(result = 1)) have list_node as their grandparent
+    # Check: symbol_sub -> parent expr -> grandparent expr
+    # If grandparent IS list_node, this is nested and should be skipped
+    grandparent <- xml_find_first(symbol_sub, "parent::expr/parent::expr")
+    if (length(grandparent)) {
+      # Check if grandparent is list_node by comparing node identities
+      gp_line <- xml_attr(grandparent, "line1")
+      gp_col <- xml_attr(grandparent, "col1")
+      ln_line <- xml_attr(list_node, "line1")
+      ln_col <- xml_attr(list_node, "col1")
+      
+      if (identical(gp_line, ln_line) && identical(gp_col, ln_col)) {
+        # Grandparent IS list_node, so this is nested
+        next
+      }
     }
     
     # Check if this specific value expression contains a FUNCTION keyword
