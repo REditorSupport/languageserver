@@ -508,3 +508,32 @@ wait_for <- function(client, method, timeout = 30) {
     }
     NULL
 }
+respond_prepare_type_hierarchy <- function(client, path, pos, ..., uri = path_to_uri(path)) {
+    respond(
+        client,
+        "textDocument/prepareTypeHierarchy",
+        list(
+            textDocument = list(uri = uri),
+            position = list(line = pos[1], character = pos[2])
+        ),
+        ...
+    )
+}
+
+respond_type_hierarchy_supertypes <- function(client, item, ...) {
+    respond(
+        client,
+        "typeHierarchy/supertypes",
+        list(item = item),
+        ...
+    )
+}
+
+respond_type_hierarchy_subtypes <- function(client, item, ...) {
+    respond(
+        client,
+        "typeHierarchy/subtypes",
+        list(item = item),
+        ...
+    )
+}

@@ -86,6 +86,7 @@ ServerCapabilities <- list(
     foldingRangeProvider = TRUE,
     selectionRangeProvider = TRUE,
     callHierarchyProvider = TRUE,
+    typeHierarchyProvider = TRUE,
     semanticTokensProvider = SemanticTokensOptions
     # linkedEditingRangeProvider = FALSE,
     # monikerProvider = FALSE,
