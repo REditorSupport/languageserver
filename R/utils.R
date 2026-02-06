@@ -87,7 +87,11 @@ get_expr_type <- function(expr) {
         } else if (func == "list") {
             "list"
         } else if (grepl("(R6:::?)?R6Class", func)) {
-            "class"
+            "R6"
+        } else if (func %in% c("setClass", "methods::setClass")) {
+            "S4"
+        } else if (func %in% c("setRefClass", "methods::setRefClass")) {
+            "RefClass"
         } else {
             "variable"
         }

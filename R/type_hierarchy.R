@@ -872,3 +872,328 @@ get_element_range <- function(document, element) {
     NULL
   })
 }
+
+#' Extract class members from a class definition
+#'
+#' Extracts public and private fields and methods for R6, S4, and RefClass definitions.
+#'
+#' @param document The document object
+#' @param xdoc The parsed XML document
+#' @param def The class definition with name, range, and classType
+#' @return A list of document symbols representing class members
+#' @noRd
+extract_class_members <- function(document, xdoc, def) {
+  class_type <- def$type
+  if (is.null(class_type) || !class_type %in% c("R6", "S4", "RefClass")) {
+    return(NULL)
+  }
+  
+  if (class_type == "R6") {
+    return(extract_r6_members(document, xdoc, def))
+  } else if (class_type == "S4") {
+    return(extract_s4_members(document, xdoc, def))
+  } else if (class_type == "RefClass") {
+    return(extract_refclass_members(document, xdoc, def))
+  }
+  
+  NULL
+}
+
+#' Extract R6 class members (public and private)
+#'
+#' @noRd
+extract_r6_members <- function(document, xdoc, def) {
+  members <- list()
+  class_name <- def$name
+  
+  # Find the R6Class call for this class
+  all_class_defs <- xml_find_all(
+    xdoc,
+    "//SYMBOL_FUNCTION_CALL[text() = 'R6Class']/ancestor::expr[.//OP-LEFT-PAREN][1]"
+  )
+  
+  for (class_def in all_class_defs) {
+    # Verify this is the right class
+    # First try to get class name from the string argument
+    class_str <- xml_find_first(class_def, ".//STR_CONST[1]")
+    class_name_value <- NULL
+    if (length(class_str)) {
+      class_name_value <- gsub('["\047`]', "", xml_text(class_str))
+    }
+    
+    # If not found or doesn't match, try to get from left side of assignment
+    if (is.null(class_name_value) || class_name_value != class_name) {
+      # Navigate up to find the assignment expression
+      assign_expr <- xml_find_first(class_def, 
+        "ancestor::expr[LEFT_ASSIGN or EQ_ASSIGN][1]")
+      if (length(assign_expr)) {
+        # Get the symbol on the left side of the assignment
+        class_symbol <- xml_find_first(assign_expr,
+          "./expr[1]/SYMBOL[1]")
+        if (length(class_symbol)) {
+          class_name_value <- xml_text(class_symbol)
+        }
+      }
+    }
+    
+    if (is.null(class_name_value) || class_name_value != class_name) {
+      next
+    }
+    
+    # Extract public members
+    public_node <- xml_find_first(class_def, ".//SYMBOL_SUB[text() = 'public']")
+    if (length(public_node)) {
+      public_list <- xml_find_first(
+        public_node,
+        "following-sibling::expr[1] | following-sibling::*[1][self::EQ_ASSIGN]/following-sibling::expr[1]"
+      )
+      if (length(public_list)) {
+        public_members <- extract_r6_list_members(document, public_list, "public")
+        members <- c(members, public_members)
+      }
+    }
+    
+    # Extract private members
+    private_node <- xml_find_first(class_def, ".//SYMBOL_SUB[text() = 'private']")
+    if (length(private_node)) {
+      private_list <- xml_find_first(
+        private_node,
+        "following-sibling::expr[1] | following-sibling::*[1][self::EQ_ASSIGN]/following-sibling::expr[1]"
+      )
+      if (length(private_list)) {
+        private_members <- extract_r6_list_members(document, private_list, "private")
+        members <- c(members, private_members)
+      }
+    }
+    
+    break
+  }
+  
+  members
+}
+
+#' Extract members from an R6 list (public or private)
+#'
+#' @noRd
+extract_r6_list_members <- function(document, list_node, access_modifier) {
+  members <- list()
+  
+  # Find all SYMBOL_SUB elements
+  all_symbol_subs <- xml_find_all(list_node, ".//SYMBOL_SUB")
+  
+  # Process all SYMBOL_SUB elements and try to find their values
+  for (symbol_sub in all_symbol_subs) {
+    member_name <- xml_text(symbol_sub)
+    
+    # Skip if this is a nested list definition (public/private/active)
+    if (member_name %in% c("public", "private", "active", "inherit", "lock_objects", 
+                            "class", "portable", "lock_class", "cloneable", "parent_env")) {
+      next
+    }
+    
+    # The structure at the R6Class call level is:
+    # SYMBOL_SUB (member_name), EQ_SUB, expr[value], OP-COMMA, ...
+    # All as direct siblings within the list(...) call expr
+    
+    # Find the value expr - it's the first expr sibling after this SYMBOL_SUB
+    # This skips over the EQ_SUB that's between them
+    value_expr <- xml_find_first(symbol_sub, "following-sibling::expr[1]")
+    if (!length(value_expr)) {
+      next
+    }
+    
+    # Check if this specific value expression contains a FUNCTION keyword
+    func_node <- xml_find_first(value_expr, ".//FUNCTION")
+    is_function <- length(func_node) > 0
+    
+    member_kind <- if (is_function) SymbolKind$Method else SymbolKind$Field
+    member_range <- get_element_range(document, symbol_sub)
+    
+    if (!is.null(member_range)) {
+      members <- c(members, list(document_symbol(
+        name = member_name,
+        detail = access_modifier,
+        kind = member_kind,
+        range = member_range,
+        selectionRange = member_range
+      )))
+    }
+  }
+  
+  members
+}
+
+#' Extract S4 class members (slots and methods)
+#'
+#' @noRd
+extract_s4_members <- function(document, xdoc, def) {
+  members <- list()
+  class_name <- def$name
+  
+  # Look for setClass calls with this class name
+  all_setclass_calls <- xml_find_all(
+    xdoc,
+    "//SYMBOL_FUNCTION_CALL[text() = 'setClass']/ancestor::expr[1]"
+  )
+  
+  for (setclass_call in all_setclass_calls) {
+    # Get the first string constant (the class name)
+    first_str <- xml_find_first(
+      setclass_call,
+      ".//SYMBOL_FUNCTION_CALL[text() = 'setClass']/following-sibling::expr[1]//STR_CONST[1]"
+    )
+    
+    if (!length(first_str)) next
+    call_class_name <- gsub('["\047`]', "", xml_text(first_str))
+    
+    if (call_class_name != class_name) next
+    
+    # Extract slots/representation
+    slots_node <- xml_find_first(
+      setclass_call,
+      ".//SYMBOL[text() = 'slots' or text() = 'representation']/following-sibling::*[1][self::EQ_ASSIGN]/following-sibling::expr[1]"
+    )
+    
+    if (length(slots_node)) {
+      # Find all named slots
+      slot_names <- xml_find_all(slots_node, ".//SYMBOL_SUB | .//STR_CONST")
+      for (slot_name_node in slot_names) {
+        slot_name_text <- xml_text(slot_name_node)
+        slot_name <- gsub('["\047`]', "", slot_name_text)
+        slot_range <- get_element_range(document, slot_name_node)
+        
+        if (!is.null(slot_range) && nzchar(slot_name)) {
+          members <- c(members, list(document_symbol(
+            name = slot_name,
+            detail = "slot",
+            kind = SymbolKind$Field,
+            range = slot_range,
+            selectionRange = slot_range
+          )))
+        }
+      }
+    }
+    
+    break
+  }
+  
+  # Look for methods defined for this class using setMethod
+  all_setmethod_calls <- xml_find_all(
+    xdoc,
+    "//SYMBOL_FUNCTION_CALL[text() = 'setMethod']/ancestor::expr[1]"
+  )
+  
+  for (setmethod_call in all_setmethod_calls) {
+    # Check if this method is for our class
+    class_strs <- xml_find_all(
+      setmethod_call,
+      ".//SYMBOL_FUNCTION_CALL[text() = 'setMethod']/following-sibling::expr//STR_CONST"
+    )
+    
+    found_class <- FALSE
+    method_name <- NULL
+    for (i in seq_along(class_strs)) {
+      str_value <- gsub('["\047`]', "", xml_text(class_strs[[i]]))
+      if (i == 1) {
+        method_name <- str_value
+      } else if (str_value == class_name) {
+        found_class <- TRUE
+        break
+      }
+    }
+    
+    if (found_class && !is.null(method_name)) {
+      method_range <- get_element_range(document, class_strs[[1]])
+      if (!is.null(method_range)) {
+        members <- c(members, list(document_symbol(
+          name = method_name,
+          detail = "method",
+          kind = SymbolKind$Method,
+          range = method_range,
+          selectionRange = method_range
+        )))
+      }
+    }
+  }
+  
+  members
+}
+
+#' Extract RefClass members (fields and methods)
+#'
+#' @noRd
+extract_refclass_members <- function(document, xdoc, def) {
+  members <- list()
+  class_name <- def$name
+  
+  # Look for setRefClass calls with this class name
+  all_setrefclass_calls <- xml_find_all(
+    xdoc,
+    "//SYMBOL_FUNCTION_CALL[text() = 'setRefClass']/ancestor::expr[1]"
+  )
+  
+  for (setrefclass_call in all_setrefclass_calls) {
+    # Get the first string constant (the class name)
+    first_str <- xml_find_first(
+      setrefclass_call,
+      ".//SYMBOL_FUNCTION_CALL[text() = 'setRefClass']/following-sibling::expr[1]//STR_CONST[1]"
+    )
+    
+    if (!length(first_str)) next
+    call_class_name <- gsub('["\047`]', "", xml_text(first_str))
+    
+    if (call_class_name != class_name) next
+    
+    # Extract fields
+    fields_node <- xml_find_first(
+      setrefclass_call,
+      ".//SYMBOL[text() = 'fields']/following-sibling::*[1][self::EQ_ASSIGN]/following-sibling::expr[1]"
+    )
+    
+    if (length(fields_node)) {
+      field_names <- xml_find_all(fields_node, ".//SYMBOL_SUB")
+      for (field_name_node in field_names) {
+        field_name <- xml_text(field_name_node)
+        field_range <- get_element_range(document, field_name_node)
+        
+        if (!is.null(field_range)) {
+          members <- c(members, list(document_symbol(
+            name = field_name,
+            detail = "field",
+            kind = SymbolKind$Field,
+            range = field_range,
+            selectionRange = field_range
+          )))
+        }
+      }
+    }
+    
+    # Extract methods
+    methods_node <- xml_find_first(
+      setrefclass_call,
+      ".//SYMBOL[text() = 'methods']/following-sibling::*[1][self::EQ_ASSIGN]/following-sibling::expr[1]"
+    )
+    
+    if (length(methods_node)) {
+      method_names <- xml_find_all(methods_node, ".//SYMBOL_SUB")
+      for (method_name_node in method_names) {
+        method_name <- xml_text(method_name_node)
+        method_range <- get_element_range(document, method_name_node)
+        
+        if (!is.null(method_range)) {
+          members <- c(members, list(document_symbol(
+            name = method_name,
+            detail = "method",
+            kind = SymbolKind$Method,
+            range = method_range,
+            selectionRange = method_range
+          )))
+        }
+      }
+    }
+    
+    break
+  }
+  
+  members
+}
