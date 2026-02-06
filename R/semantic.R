@@ -214,6 +214,12 @@ encode_semantic_tokens <- function(tokens) {
 semantic_tokens_full_reply <- function(id, uri, workspace, document) {
     logger$info("semantic_tokens_full: ", uri)
 
+    parse_data <- workspace$get_parse_data(uri)
+    if (is.null(parse_data) ||
+        (!is.null(parse_data$version) && parse_data$version != document$version)) {
+        return(NULL)
+    }
+
     tokens <- extract_semantic_tokens(uri, workspace, document)
     result <- encode_semantic_tokens(tokens)
 
@@ -229,6 +235,12 @@ semantic_tokens_full_reply <- function(id, uri, workspace, document) {
 #' @noRd
 semantic_tokens_range_reply <- function(id, uri, workspace, document, range) {
     logger$info("semantic_tokens_range: ", uri)
+
+    parse_data <- workspace$get_parse_data(uri)
+    if (is.null(parse_data) ||
+        (!is.null(parse_data$version) && parse_data$version != document$version)) {
+        return(NULL)
+    }
 
     tokens <- extract_semantic_tokens(uri, workspace, document, range = range)
     result <- encode_semantic_tokens(tokens)
