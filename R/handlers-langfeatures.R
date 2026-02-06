@@ -366,6 +366,38 @@ call_hierarchy_outgoing_calls <- function(self, id, params) {
     )
 }
 
+#' `textDocument/prepareTypeHierarchy` request handler
+#'
+#' Handler to the `textDocument/prepareTypeHierarchy` [Request].
+#' @noRd
+text_document_prepare_type_hierarchy <- function(self, id, params) {
+    textDocument <- params$textDocument
+    uri <- uri_escape_unicode(textDocument$uri)
+    document <- self$workspace$documents$get(uri)
+    point <- document$from_lsp_position(params$position)
+    self$deliver(prepare_type_hierarchy_reply(id, uri, self$workspace, document, point))
+}
+
+#' `typeHierarchy/supertypes` request handler
+#'
+#' Handler to the `typeHierarchy/supertypes` [Request].
+#' @noRd
+type_hierarchy_supertypes <- function(self, id, params) {
+    self$deliver(
+        type_hierarchy_supertypes_reply(id, self$workspace, params$item)
+    )
+}
+
+#' `typeHierarchy/subtypes` request handler
+#'
+#' Handler to the `typeHierarchy/subtypes` [Request].
+#' @noRd
+type_hierarchy_subtypes <- function(self, id, params) {
+    self$deliver(
+        type_hierarchy_subtypes_reply(id, self$workspace, params$item)
+    )
+}
+
 #' `textDocument/linkedEditingRange` request handler
 #'
 #' Handler to the `textDocument/linkedEditingRange` [Request].
