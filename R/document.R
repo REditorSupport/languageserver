@@ -229,13 +229,31 @@ null_function <- local(function() NULL, baseenv())
 
 parser_hooks <- list(
     "{" = function(expr, action) {
-        action$parse(as.list(expr)[-1L])
+        children <- as.list(expr)[-1L]
+        srcrefs <- attr(expr, "srcref")
+        if (!is.null(srcrefs) && length(srcrefs) > 1) {
+            # srcref[[1]] is for the opening brace, skip it
+            for (i in seq_along(children)) {
+                action$parse(children[[i]], srcrefs[[i + 1]])
+            }
+        } else {
+            action$parse(children)
+        }
     },
     "(" = function(expr, action) {
         action$parse(as.list(expr)[-1L])
     },
     "if" = function(expr, action) {
-        action$parse(as.list(expr)[-1L])
+        children <- as.list(expr)[-1L]
+        srcrefs <- attr(expr, "srcref")
+        if (!is.null(srcrefs) && length(srcrefs) > 1) {
+            # srcref[[1]] is for "if", skip it
+            for (i in seq_along(children)) {
+                action$parse(children[[i]], srcrefs[[i + 1]])
+            }
+        } else {
+            action$parse(children)
+        }
     },
     "for" = function(expr, action) {
         if (is.symbol(e <- expr[[2L]])) {
@@ -244,7 +262,16 @@ parser_hooks <- list(
         action$parse(expr[[4L]])
     },
     "while" = function(expr, action) {
-        action$parse(as.list(expr)[-1L])
+        children <- as.list(expr)[-1L]
+        srcrefs <- attr(expr, "srcref")
+        if (!is.null(srcrefs) && length(srcrefs) > 1) {
+            # srcref[[1]] is for "while", skip it
+            for (i in seq_along(children)) {
+                action$parse(children[[i]], srcrefs[[i + 1]])
+            }
+        } else {
+            action$parse(children)
+        }
     },
     "repeat" = function(expr, action) {
         action$parse(expr[[2L]])
@@ -327,7 +354,10 @@ parse_expr <- function(content, expr, env, srcref = attr(expr, "srcref")) {
         for (i in seq_along(expr)) {
             e <- expr[[i]]
             if (missing(e)) next
-            Recall(content, e, env, srcref)
+            # Use the element's own srcref if available, otherwise inherit parent's
+            e_srcref <- attr(e, "srcref")
+            if (is.null(e_srcref)) e_srcref <- srcref
+            Recall(content, e, env, e_srcref)
         }
     } else if (is_simple_call(expr)) {
         f <- fun_string(expr[[1L]])
@@ -372,8 +402,12 @@ parse_expr <- function(content, expr, env, srcref = attr(expr, "srcref")) {
                         env$nonfuncts <- c(env$nonfuncts, symbol)
                     }
                 },
-                parse = function(expr) {
-                    parse_expr(content, expr, env, srcref)
+                parse = function(expr, srcref_override = NULL) {
+                    if (!is.null(srcref_override)) {
+                        parse_expr(content, expr, env, srcref_override)
+                    } else {
+                        parse_expr(content, expr, env, srcref)
+                    }
                 },
                 parse_args = function(args) {
                     fn <- tryCatch(eval(expr[[1L]], globalenv()), error = function(e) NULL)
