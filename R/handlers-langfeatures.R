@@ -145,7 +145,20 @@ text_document_code_action  <- function(self, id, params) {
 #' Handler to the `textDocument/codeLens` [Request].
 #' @noRd
 text_document_code_lens  <- function(self, id, params) {
-
+    textDocument <- params$textDocument
+    uri <- uri_escape_unicode(textDocument$uri)
+    document <- self$workspace$documents$get(uri)
+    reply <- code_lens_reply(id, uri, self$workspace, document)
+    if (is.null(reply)) {
+        queue <- self$pending_replies$get(uri)[["textDocument/codeLens"]]
+        queue$push(list(
+            id = id,
+            version = document$version,
+            params = params
+        ))
+    } else {
+        self$deliver(reply)
+    }
 }
 
 #' `codeLens/resolve` request handler
@@ -153,7 +166,7 @@ text_document_code_lens  <- function(self, id, params) {
 #' Handler to the `codeLens/resolve` [Request].
 #' @noRd
 code_lens_resolve  <- function(self, id, params) {
-
+    self$deliver(code_lens_resolve_reply(id, self$workspace, params))
 }
 
 

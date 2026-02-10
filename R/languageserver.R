@@ -104,6 +104,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
 
             if (!self$pending_replies$has(uri)) {
                 self$pending_replies$set(uri, list(
+                    `textDocument/codeLens` = collections::queue(),
                     `textDocument/documentSymbol` = collections::queue(),
                     `textDocument/foldingRange` = collections::queue(),
                     `textDocument/documentLink` = collections::queue(),
@@ -216,6 +217,8 @@ LanguageServer$set("public", "register_handlers", function() {
         `documentLink/resolve` = document_link_resolve,
         `textDocument/documentColor` = text_document_document_color,
         `textDocument/codeAction` = text_document_code_action,
+        `textDocument/codeLens` = text_document_code_lens,
+        `codeLens/resolve` = code_lens_resolve,
         `textDocument/colorPresentation` = text_document_color_presentation,
         `textDocument/foldingRange` = text_document_folding_range,
         `textDocument/references` = text_document_references,
