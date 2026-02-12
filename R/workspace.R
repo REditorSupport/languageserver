@@ -23,6 +23,7 @@ Workspace <- R6::R6Class("Workspace",
         loaded_packages = NULL,
         help_cache = NULL,
         parse_cache = NULL,  # Performance: Cache parse results by content hash
+        diagnostics_cache = NULL,  # Performance: Cache diagnostics by content hash
 
         initialize = function(root) {
             self$root <- root
@@ -46,6 +47,8 @@ Workspace <- R6::R6Class("Workspace",
             self$help_cache <- collections::dict()
             # Performance: Initialize parse cache (limit size to prevent memory issues)
             self$parse_cache <- collections::dict()
+            # Performance: Initialize diagnostics cache (ordered for cleanup)
+            self$diagnostics_cache <- collections::ordered_dict()
         },
 
         load_package = function(pkgname) {
@@ -244,6 +247,9 @@ Workspace <- R6::R6Class("Workspace",
         },
 
         update_parse_data = function(uri, parse_data) {
+            # IMPORTANT: Always create xml_doc in the main process from xml_data
+            # parse_document runs in a child process and cannot create xml_doc there
+            # because xml2 external pointers cannot cross process boundaries
             if (!is.null(parse_data$xml_data)) {
                 parse_data$xml_doc <- tryCatch(
                     xml2::read_xml(parse_data$xml_data), error = function(e) NULL)

@@ -87,6 +87,9 @@ TaskManager <- R6::R6Class("TaskManager",
             private$name <- name
         },
         add_task = function(id, task) {
+            if (is.null(task)) {
+                return(NULL)
+            }
             private$pending_tasks$set(id, task)
         },
         run_tasks = function(cpu_load = 0.5) {

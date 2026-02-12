@@ -435,18 +435,26 @@ parse_expr <- function(content, expr, env, srcref = attr(expr, "srcref")) {
 #'
 #' @importFrom digest digest
 #' @noRd
-parse_document <- function(uri, content) {
+normalize_parse_content <- function(content, is_rmarkdown = FALSE) {
+    if (is_rmarkdown) {
+        content <- purl(content)
+    }
     if (length(content) == 0) {
         content <- ""
     }
     # replace tab with a space since the width of a tab is 1 in LSP but 8 in getParseData().
-    content <- gsub("\t", " ", content, fixed = TRUE)
-    
-    # Performance optimization: Check cache for previously parsed identical content
-    # This significantly reduces redundant parse operations
-    content_hash <- digest::digest(content, algo = "xxhash64")
-    # Note: cache check would be done in parse_callback if we had access to workspace there
-    
+    gsub("\t", " ", content, fixed = TRUE)
+}
+
+get_content_hash <- function(content) {
+    digest::digest(content, algo = "xxhash64")
+}
+
+parse_document <- function(uri, content) {
+    content <- normalize_parse_content(content)
+    content_hash <- get_content_hash(content)
+
+    logger$info("parse_document: parsing", uri)
     expr <- tryCatch(parse(text = content, keep.source = TRUE), error = function(e) NULL)
     if (!is.null(expr)) {
         parse_env <- function() {
@@ -466,8 +474,12 @@ parse_document <- function(uri, content) {
         env <- parse_env()
         parse_expr(content, expr, env)
         env$packages <- basename(find.package(env$packages, quiet = TRUE))
-        # Performance: XML parsing is expensive, this is a major bottleneck
+        # Performance: XML generation is expensive, but necessary for analysis
         env$xml_data <- xmlparsedata::xml_parse_data(expr)
+        # IMPORTANT: Do NOT create xml_doc here - this function runs in a child process
+        # and xml2 external pointers cannot be serialized across process boundaries.
+        # xml_doc will be created in the main process by update_parse_data()
+        
         env
     }
 }
@@ -481,6 +493,13 @@ parse_callback <- function(self, uri, version, parse_data) {
     parse_data$version <- version
     old_parse_data <- doc$parse_data
     self$workspace$update_parse_data(uri, parse_data)
+
+    # Cache parse results in the main process (child-process caches are not shared)
+    if (!is.null(parse_data$content_hash)) {
+        cache_entry <- as.list(parse_data)
+        cache_entry$xml_doc <- NULL
+        self$workspace$parse_cache$set(parse_data$content_hash, cache_entry)
+    }
 
     if (!identical(old_parse_data$packages, parse_data$packages)) {
         self$resolve_task_manager$add_task(
@@ -512,10 +531,18 @@ parse_callback <- function(self, uri, version, parse_data) {
 
 parse_task <- function(self, uri, document, delay = 0) {
     version <- document$version
-    content <- document$content
-    if (document$is_rmarkdown) {
-        content <- purl(content)
+    content <- normalize_parse_content(document$content, document$is_rmarkdown)
+    content_hash <- get_content_hash(content)
+
+    # Check cache in the main process before spawning a child task
+    if (self$workspace$parse_cache$has(content_hash)) {
+        logger$info("parse_task: cache hit for", uri)
+        cached_entry <- self$workspace$parse_cache$get(content_hash)
+        cached_env <- list2env(cached_entry, parent = .GlobalEnv)
+        parse_callback(self, uri, version, cached_env)
+        return(NULL)
     }
+
     create_task(
         target = package_call(parse_document),
         args = list(uri = uri, content = content),

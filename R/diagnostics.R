@@ -133,6 +133,23 @@ diagnostics_task <- function(self, uri, document, delay = 0) {
     version <- document$version
     content <- document$content
 
+    cache_ttl <- lsp_settings$get("diagnostics_cache_ttl")
+    if (is.null(cache_ttl)) {
+        cache_ttl <- 0
+    }
+    content_hash <- get_content_hash(content)
+    cache_key <- paste(uri, content_hash, sep = "::")
+
+    if (cache_ttl > 0 && self$workspace$diagnostics_cache$has(cache_key)) {
+        cached_entry <- self$workspace$diagnostics_cache$get(cache_key)
+        age <- as.numeric(difftime(Sys.time(), cached_entry$time, units = "secs"))
+        if (!is.na(age) && age <= cache_ttl) {
+            logger$info("diagnostics_task: cache hit for", uri)
+            diagnostics_callback(self, uri, version, cached_entry$diagnostics)
+            return(NULL)
+        }
+    }
+
     is_package <- is_package(self$rootPath)
     globals <- NULL
 
@@ -158,7 +175,22 @@ diagnostics_task <- function(self, uri, document, delay = 0) {
             globals = globals,
             cache = lsp_settings$get("lint_cache")
         ),
-        callback = function(result) diagnostics_callback(self, uri, version, result),
+        callback = function(result) {
+            if (cache_ttl > 0) {
+                self$workspace$diagnostics_cache$set(cache_key, list(
+                    time = Sys.time(),
+                    diagnostics = result
+                ))
+                # Keep cache bounded
+                if (self$workspace$diagnostics_cache$size() > 100) {
+                    keys <- self$workspace$diagnostics_cache$keys()
+                    for (key in keys[1:50]) {
+                        self$workspace$diagnostics_cache$remove(key)
+                    }
+                }
+            }
+            diagnostics_callback(self, uri, version, result)
+        },
         error = function(e) {
             logger$info("diagnostics_task:", e)
             diagnostics_callback(self, uri, version, list(list(
