@@ -46,7 +46,14 @@ text_document_did_change <- function(self, params) {
         self$workspace$documents$set(uri, doc)
     }
     doc$did_open()
-    self$text_sync(uri, document = doc, run_lintr = TRUE, parse = TRUE, delay = 0.5)
+    self$text_sync(
+        uri,
+        document = doc,
+        run_lintr = TRUE,
+        parse = TRUE,
+        parse_delay = lsp_settings$get("parse_delay"),
+        diagnostics_delay = lsp_settings$get("diagnostics_delay")
+    )
 }
 
 #' `textDocument/willSave` notification handler

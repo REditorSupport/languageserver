@@ -11,7 +11,9 @@ Settings <- R6::R6Class("Settings",
             lint_cache = FALSE,
             server_capabilities = list(),
             link_file_size_limit = 16L * 1024L^2,
-            nline_to_break_succession = 2L
+            nline_to_break_succession = 2L,
+            parse_delay = 0.1,
+            diagnostics_delay = 0.5
         )
     ),
     public = list(

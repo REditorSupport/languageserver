@@ -100,7 +100,13 @@ LanguageServer <- R6::R6Class("LanguageServer",
 
         text_sync = function(
             # TODO: move it to Workspace!?
-                uri, document, run_lintr = FALSE, parse = FALSE, delay = 0) {
+                uri,
+                document,
+                run_lintr = FALSE,
+                parse = FALSE,
+                delay = 0,
+                parse_delay = delay,
+                diagnostics_delay = delay) {
 
             if (!self$pending_replies$has(uri)) {
                 self$pending_replies$set(uri, list(
@@ -119,7 +125,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     !path_has_parent(path_from_uri(uri), temp_root)) {
                     self$diagnostics_task_manager$add_task(
                         uri,
-                        diagnostics_task(self, uri, document, delay = delay)
+                        diagnostics_task(self, uri, document, delay = diagnostics_delay)
                     )
                 }
             }
@@ -127,7 +133,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             if (parse) {
                 self$parse_task_manager$add_task(
                     uri,
-                    parse_task(self, uri, document, delay = delay)
+                    parse_task(self, uri, document, delay = parse_delay)
                 )
             }
         },
