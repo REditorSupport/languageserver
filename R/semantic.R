@@ -89,11 +89,9 @@ get_token_type <- function(token_name) {
 #' Analyzes the parse tree and extracts all semantic tokens from a document
 #' @noRd
 extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
-    tokens <- list()
-
     xdoc <- workspace$get_parse_data(uri)$xml_doc
     if (is.null(xdoc)) {
-        return(tokens)
+        return(list())
     }
 
     # Get all token elements from the parse tree
@@ -120,13 +118,20 @@ extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
     ]")
 
     if (length(token_elements) == 0) {
-        return(tokens)
+        return(list())
     }
+
+    end_pos <- NULL
+    if (!is.null(range)) {
+        end_pos <- document$from_lsp_position(range$end)
+    }
+
+    tokens <- vector("list", length(token_elements))
+    idx <- 0L
 
     # Process each token
     for (token_node in token_elements) {
         token_name <- xml_name(token_node)
-        token_text <- xml_text(token_node)
 
         line1 <- as.integer(xml_attr(token_node, "line1"))
         col1 <- as.integer(xml_attr(token_node, "col1"))
@@ -134,11 +139,8 @@ extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
         col2 <- as.integer(xml_attr(token_node, "col2"))
 
         # Skip if outside range (if range was specified)
-        if (!is.null(range)) {
-            end_pos <- document$from_lsp_position(range$end)
-            if (line1 > end_pos$row + 1) {
-                next
-            }
+        if (!is.null(end_pos) && line1 > end_pos$row + 1) {
+            next
         }
 
         token_type <- get_token_type(token_name)
@@ -152,13 +154,24 @@ extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
             modifiers <- bitwOr(modifiers, 2^SemanticTokenModifiers$declaration)
         }
 
-        tokens[[length(tokens) + 1]] <- list(
+        token_text <- xml_text(token_node)
+
+        idx <- idx + 1L
+        tokens[[idx]] <- list(
             line = as.integer(line1 - 1),  # Convert to 0-based, ensure integer
             col = as.integer(col1 - 1),    # Convert to 0-based, ensure integer
             length = as.integer(nchar(token_text)),  # Ensure integer
             tokenType = as.integer(token_type),      # Ensure integer
             tokenModifiers = as.integer(modifiers)   # Ensure integer
         )
+    }
+
+    if (idx == 0L) {
+        return(list())
+    }
+
+    if (idx < length(tokens)) {
+        tokens <- tokens[seq_len(idx)]
     }
 
     tokens
