@@ -50,21 +50,10 @@ Document <- R6::R6Class(
         find_token = function(row, col, forward = TRUE) {
             # row and col are 0-indexed
             text <- self$line0(row)
-            text_after <- substr(text, col + 1, nchar(text))
-
-            # look forward
-            if (forward) {
-                right_token <- look_forward(text_after)$token
-                end <- col + nchar(right_token)
-            } else {
-                right_token <- ""
-                end <- col
-            }
-
-            matches <- look_backward(substr(text, 1, end))
+            matches <- scan_token(text, col, forward)
             return(list(
                 full_token = matches$full_token,
-                right_token = right_token,
+                right_token = matches$right_token,
                 package = empty_string_to_null(matches$package),
                 accessor = matches$accessor,
                 token = matches$token

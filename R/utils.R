@@ -444,6 +444,49 @@ look_backward <- function(text) {
     )
 }
 
+is_ascii <- function(x) {
+    length(x) == 1 && !grepl("[^\\x00-\\x7F]", x)
+}
+
+scan_token <- function(text, col, forward = TRUE) {
+    if (length(text) == 0) {
+        return(list(
+            full_token = "",
+            right_token = "",
+            package = "",
+            accessor = "",
+            token = ""
+        ))
+    }
+    if (!isTRUE(forward)) {
+        forward <- FALSE
+    }
+
+    if (is_ascii(text)) {
+        return(.Call("scan_token_c",
+            PACKAGE = "languageserver",
+            text, as.integer(col), forward
+        ))
+    }
+
+    text_after <- substr(text, col + 1, nchar(text))
+    if (forward) {
+        right_token <- look_forward(text_after)$token
+        end <- col + nchar(right_token)
+    } else {
+        right_token <- ""
+        end <- col
+    }
+    matches <- look_backward(substr(text, 1, end))
+    list(
+        full_token = matches$full_token,
+        right_token = right_token,
+        package = matches$package,
+        accessor = matches$accessor,
+        token = matches$token
+    )
+}
+
 str_trunc <- function(string, width, ellipsis = "...") {
     trunc <- !is.na(string) && nchar(string) > width
     if (trunc) {
