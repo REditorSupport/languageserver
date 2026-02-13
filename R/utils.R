@@ -229,12 +229,30 @@ check_scope <- function(uri, document, point) {
     }
 }
 
+is_ascii_string <- function(x) {
+    length(x) == 1 && !is.na(x) && !grepl("[^\\x00-\\x7F]", x)
+}
+
+is_ascii_vector <- function(x) {
+    if (!length(x)) {
+        return(TRUE)
+    }
+    any_non_ascii <- any(grepl("[^\\x00-\\x7F]", x), na.rm = TRUE)
+    !any_non_ascii
+}
+
 match_with <- function(x, token) {
+    if (is_ascii_string(token) && is_ascii_vector(x)) {
+        return(.Call("match_with_c", PACKAGE = "languageserver", x, token))
+    }
     pattern <- gsub(".", "\\.", token, fixed = TRUE)
     grepl(pattern, x, ignore.case = TRUE)
 }
 
 fuzzy_find <- function(x, pattern) {
+    if (is_ascii_string(pattern) && is_ascii_vector(x)) {
+        return(.Call("fuzzy_find_c", PACKAGE = "languageserver", x, pattern))
+    }
     subsequence_regex <- gsub("(.)", "\\1.*", pattern)
     grepl(subsequence_regex, x, ignore.case = TRUE)
 }
