@@ -1,5 +1,6 @@
 #include "search.h"
 #include "reader.h"
+#include "semantic.h"
 
 #ifdef _WIN32
 
@@ -27,6 +28,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"detect_comments", (DL_FUNC) &detect_comments, 2},
     {"stdin_read_char", (DL_FUNC) &stdin_read_char, 1},
     {"stdin_read_line", (DL_FUNC) &stdin_read_line},
+    {"encode_semantic_tokens_c", (DL_FUNC) &encode_semantic_tokens_c, 5},
 #if !defined(_WIN32)
     {"process_is_detached", (DL_FUNC) &process_is_detached},
 #endif

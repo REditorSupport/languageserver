@@ -153,11 +153,11 @@ extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
         }
 
         tokens[[length(tokens) + 1]] <- list(
-            line = line1 - 1,  # Convert to 0-based
-            col = col1 - 1,    # Convert to 0-based
-            length = nchar(token_text),
-            tokenType = token_type,
-            tokenModifiers = modifiers
+            line = as.integer(line1 - 1),  # Convert to 0-based, ensure integer
+            col = as.integer(col1 - 1),    # Convert to 0-based, ensure integer
+            length = as.integer(nchar(token_text)),  # Ensure integer
+            tokenType = as.integer(token_type),      # Ensure integer
+            tokenModifiers = as.integer(modifiers)   # Ensure integer
         )
     }
 
@@ -167,42 +167,34 @@ extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
 #' Encode semantic tokens in LSP format
 #'
 #' Converts token list to LSP semantic tokens data array format
-#' Uses relative position encoding for efficiency
+#' Uses relative position encoding for efficiency.
+#' Performance: Implemented in C for large documents
 #' @noRd
 encode_semantic_tokens <- function(tokens) {
     if (length(tokens) == 0) {
         return(list(data = integer(0)))
     }
 
-    # Sort tokens by position
-    tokens <- tokens[order(sapply(tokens, function(t) t$line), 
-                           sapply(tokens, function(t) t$col))]
+    # Convert tokens list to vectors for efficient processing
+    # Defensive: coerce all to integer in case of mixed types
+    lines <- as.integer(vapply(tokens, function(t) t$line, 0.0))
+    cols <- as.integer(vapply(tokens, function(t) t$col, 0.0))
+    lengths <- as.integer(vapply(tokens, function(t) t$length, 0.0))
+    types <- as.integer(vapply(tokens, function(t) t$tokenType, 0.0))
+    mods <- as.integer(vapply(tokens, function(t) t$tokenModifiers, 0.0))
 
-    data <- integer(0)
-    prev_line <- 0L
-    prev_col <- 0L
+    # Sort by position (stable sort by line, then col)
+    order_idx <- order(lines, cols)
+    lines <- lines[order_idx]
+    cols <- cols[order_idx]
+    lengths <- lengths[order_idx]
+    types <- types[order_idx]
+    mods <- mods[order_idx]
 
-    for (token in tokens) {
-        # Encode relative line (delta)
-        line_delta <- as.integer(token$line - prev_line)
-        # Encode relative column
-        if (token$line == prev_line) {
-            col_delta <- as.integer(token$col - prev_col)
-        } else {
-            col_delta <- as.integer(token$col)  # Reset to absolute col on new line
-        }
-
-        # Append: [deltaLine, deltaStart, length, tokenType, tokenModifiers]
-        data <- c(data,
-                  line_delta,
-                  col_delta,
-                  as.integer(token$length),
-                  as.integer(token$tokenType),
-                  as.integer(token$tokenModifiers))
-
-        prev_line <- as.integer(token$line)
-        prev_col <- as.integer(token$col)
-    }
+    # Performance: Use C implementation for encoding
+    data <- .Call("encode_semantic_tokens_c",
+        lines, cols, lengths, types, mods,
+        PACKAGE = "languageserver")
 
     list(data = data)
 }
