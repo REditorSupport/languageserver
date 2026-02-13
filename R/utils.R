@@ -297,36 +297,26 @@ ncodeunit <- function(s) {
 #' Determine code points given code units
 #'
 #' @param line a character of text
-#' @param units 0-indexed code points
+#' @param units 0-indexed UTF-16 code units
 #'
 #' @noRd
 code_point_from_unit <- function(line, units) {
-    if (!nzchar(line)) return(units)
-    offsets <- cumsum(ncodeunit(strsplit(line, "")[[1]]))
-    loc_map <- match(seq_len(utils::tail(offsets, 1)), offsets)
-    result <- c(0, loc_map)[units + 1]
-    n <- nchar(line)
-    result[units > length(loc_map)] <- n
-    result[is.infinite(units)] <- n
-    result
+    # Performance: Use C implementation for fast UTF-16 conversions
+    # This is called on every keystroke (completion, hover, signature help)
+    .Call("code_point_from_unit_c", PACKAGE = "languageserver", line, as.integer(units))
 }
 
 #' Determine code units given code points
 #'
 #' @param line a character of text
-#' @param units 0-indexed code units
+#' @param pts 0-indexed code points
 #'
 #' @noRd
 code_point_to_unit <- function(line, pts) {
     pts[pts < 0] <- 0
-    if (!nzchar(line)) return(pts)
-    offsets <- c(0, cumsum(ncodeunit(strsplit(line, "")[[1]])))
-    result <- offsets[pts + 1]
-    n <- length(offsets)
-    m <- offsets[n]
-    result[pts >= n] <- m
-    result[!is.finite(pts)] <- m
-    result
+    # Performance: Use C implementation for fast UTF-16 conversions
+    # This is called for every position in handlers and diagnostics
+    .Call("code_point_to_unit_c", PACKAGE = "languageserver", line, as.integer(pts))
 }
 
 
