@@ -3,6 +3,7 @@
 #include <ctype.h>
 #include <string.h>
 #include <wctype.h>
+#include <stdint.h>
 
 static int utf8_decode(const char *text, int len, int idx, unsigned int *cp) {
     unsigned char c = (unsigned char) text[idx];
