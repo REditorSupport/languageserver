@@ -141,6 +141,41 @@ SEXP scan_token_c(SEXP line, SEXP col, SEXP forward) {
     SEXP accessor = Rf_mkString("");
     SEXP token = Rf_mkString("");
 
+    if (right_len == 0) {
+        int acc_len = 0;
+        if (right_start >= 2 && text[right_start - 1] == ':' && text[right_start - 2] == ':') {
+            acc_len = 2;
+            if (right_start >= 3 && text[right_start - 3] == ':') {
+                acc_len = 3;
+            }
+        }
+
+        if (acc_len > 0) {
+            int acc_start = right_start - acc_len;
+            int pkg_end = acc_start - 1;
+            if (pkg_end >= 0) {
+                int p = pkg_end;
+                while (p >= 0) {
+                    unsigned char ch = (unsigned char) text[p];
+                    if (ch & 0x80) {
+                        break;
+                    }
+                    if (!(isalnum(ch) || ch == '.')) {
+                        break;
+                    }
+                    p--;
+                }
+                int pkg_start = p + 1;
+                int pkg_len = pkg_end - pkg_start + 1;
+                if (pkg_len >= 2 && isalpha((unsigned char) text[pkg_start])) {
+                    package = make_str(text, pkg_start, pkg_len);
+                    accessor = make_str(text, acc_start, acc_len);
+                    full_token = make_str(text, pkg_start, right_start - pkg_start);
+                }
+            }
+        }
+    }
+
     if (end > 0) {
         if (end > len) {
             end = len;
