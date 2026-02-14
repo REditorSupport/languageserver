@@ -251,7 +251,8 @@ parse_signature_parameters <- function(signature) {
     base_offset <- paren_pos[1]  # Position of '(' in the signature
     
     # Split parameters carefully, respecting nested brackets and quotes
-    params <- list()
+    params <- vector("list", length(strsplit(params_str, ",", fixed = TRUE)[[1]]))
+    idx <- 0L
     current_param <- ""
     depth <- 0
     in_quote <- FALSE
@@ -291,7 +292,8 @@ parse_signature_parameters <- function(signature) {
                     param_start <- base_offset + char_pos + leading_space
                     param_end <- base_offset + char_pos + nchar(current_param) - trailing_space
                     
-                    params[[length(params) + 1]] <- list(
+                    idx <- idx + 1L
+                    params[[idx]] <- list(
                         label = c(param_start, param_end)
                     )
                 }
@@ -312,11 +314,20 @@ parse_signature_parameters <- function(signature) {
         param_start <- base_offset + char_pos + leading_space
         param_end <- base_offset + nchar(params_str) - trailing_space
         
-        params[[length(params) + 1]] <- list(
+        idx <- idx + 1L
+        params[[idx]] <- list(
             label = c(param_start, param_end)
         )
     }
-    
+
+    if (idx == 0L) {
+        logger$info("parse_signature_parameters: found 0 parameters")
+        return(list())
+    }
+    if (idx < length(params)) {
+        params <- params[seq_len(idx)]
+    }
+
     logger$info("parse_signature_parameters: found ", length(params), " parameters")
     return(params)
 }

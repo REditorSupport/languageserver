@@ -271,15 +271,23 @@ extract_blocks <- function(content) {
     begins_or_ends <- which(stringi::stri_detect_fixed(content, "```"))
     begins <- which(stringi::stri_detect_regex(content, "```+\\s*\\{[rR][ ,\\}]"))
     ends <- setdiff(begins_or_ends, begins)
-    blocks <- list()
+    blocks <- vector("list", length(begins))
+    idx <- 0L
     for (begin in begins) {
         z <- which(ends > begin)
         if (length(z) == 0) break
         end <- ends[min(z)]
         lines <- seq_safe(begin + 1, end - 1)
         if (length(lines) > 0) {
-            blocks[[length(blocks) + 1]] <- list(lines = lines, text = content[lines])
+            idx <- idx + 1L
+            blocks[[idx]] <- list(lines = lines, text = content[lines])
         }
+    }
+    if (idx == 0L) {
+        return(list())
+    }
+    if (idx < length(blocks)) {
+        blocks <- blocks[seq_len(idx)]
     }
     blocks
 }

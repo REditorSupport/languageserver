@@ -182,8 +182,10 @@ ns_function_completion <- function(ns, token, exported_only, snippet_support) {
 }
 
 imported_object_completion <- function(workspace, token, snippet_support) {
-    completions <- NULL
-    for (object in workspace$imported_objects$keys()) {
+    keys <- workspace$imported_objects$keys()
+    completions <- vector("list", length(keys))
+    idx <- 0L
+    for (object in keys) {
         if (!match_with(object, token)) {
             next
         }
@@ -214,8 +216,15 @@ imported_object_completion <- function(workspace, token, snippet_support) {
                         package = nsname
                 ))
             }
-            completions <- append(completions, list(item))
+            idx <- idx + 1L
+            completions[[idx]] <- item
         }
+    }
+    if (idx == 0L) {
+        return(NULL)
+    }
+    if (idx < length(completions)) {
+        completions <- completions[seq_len(idx)]
     }
     completions
 }
