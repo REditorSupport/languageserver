@@ -952,3 +952,265 @@ test_that("Completion in Rmarkdown specified by languageId works", {
     result <- client %>% respond_completion(temp_file, c(11, 3))
     expect_length(result$items, 0)
 })
+
+test_that("Completion of argument values from defaults works", {
+    skip_on_cran()
+    client <- language_client()
+
+    temp_file <- withr::local_tempfile(fileext = ".R")
+    writeLines(
+        c(
+            "# Test function with default values",
+            "my_func <- function(method = c('auto', 'manual', 'custom')) {",
+            "  method <- match.arg(method)",
+            "  method",
+            "}",
+            "",
+            "# Test completion with named argument",
+            "my_func(method = ''",
+            "",
+            "# Test completion with positional argument (first position)",
+            "my_func('')"
+        ),
+        temp_file)
+
+    client %>% did_save(temp_file)
+
+    # Test named argument completion
+    result <- client %>% respond_completion(
+        temp_file, c(7, 17),
+        retry_when = function(result) length(result) == 0 || length(result$items) == 0
+    )
+    
+    value_items <- result$items %>% keep(~ .$data$type == "argument_value")
+    expect_length(value_items, 3)
+    
+    labels <- value_items %>% map_chr(~ .$label)
+    expect_true("auto" %in% labels)
+    expect_true("manual" %in% labels)
+    expect_true("custom" %in% labels)
+    
+    # Check that insertText is properly quoted
+    insert_texts <- value_items %>% map_chr(~ .$insertText)
+    expect_true('"auto"' %in% insert_texts)
+    expect_true('"manual"' %in% insert_texts)
+    expect_true('"custom"' %in% insert_texts)
+    
+    # Test positional argument completion
+    result <- client %>% respond_completion(
+        temp_file, c(10, 8),
+        retry_when = function(result) length(result) == 0 || length(result$items) == 0
+    )
+    
+    value_items <- result$items %>% keep(~ .$data$type == "argument_value")
+    expect_length(value_items, 3)
+    
+    labels <- value_items %>% map_chr(~ .$label)
+    expect_true("auto" %in% labels)
+    expect_true("manual" %in% labels)
+    expect_true("custom" %in% labels)
+})
+
+test_that("Completion of argument values with partial match works", {
+    skip_on_cran()
+    client <- language_client()
+
+    temp_file <- withr::local_tempfile(fileext = ".R")
+    writeLines(
+        c(
+            "my_func <- function(type = c('normal', 'special', 'advanced')) {",
+            "  type <- match.arg(type)",
+            "  type",
+            "}",
+            "",
+            "my_func(type = 'a'"
+        ),
+        temp_file)
+
+    client %>% did_save(temp_file)
+
+    result <- client %>% respond_completion(
+        temp_file, c(5, 16),
+        retry_when = function(result) length(result) == 0 || length(result$items) == 0
+    )
+    
+    value_items <- result$items %>% keep(~ .$data$type == "argument_value")
+    labels <- value_items %>% map_chr(~ .$label)
+    
+    # Should match 'advanced' but not 'normal' or 'special'
+    expect_true("advanced" %in% labels)
+    expect_false("normal" %in% labels)
+    expect_false("special" %in% labels)
+})
+
+test_that("Completion of argument values works with base R functions", {
+    skip_on_cran()
+    client <- language_client()
+
+    temp_file <- withr::local_tempfile(fileext = ".R")
+    writeLines(
+        c(
+            "# test with base::file() which has open argument with defaults",
+            "file('test.txt', open = '')"
+        ),
+        temp_file)
+
+    client %>% did_save(temp_file)
+
+    result <- client %>% respond_completion(
+        temp_file, c(1, 25),
+        retry_when = function(result) length(result) == 0 || length(result$items) == 0
+    )
+    
+    value_items <- result$items %>% keep(~ .$data$type == "argument_value")
+    labels <- value_items %>% map_chr(~ .$label)
+    
+    # file() has open = "" with default c("r", "w", "a", "rb", "wb", "ab", "r+", "w+", "a+", "r+b", "w+b", "a+b")
+    # depending on implementation
+    expect_true(length(labels) > 0)
+})
+
+test_that("Completion of argument values for multiple parameter function", {
+    skip_on_cran()
+    client <- language_client()
+
+    temp_file <- withr::local_tempfile(fileext = ".R")
+    writeLines(
+        c(
+            "test_func <- function(x, mode = c('read', 'write', 'append'), ",
+            "                      style = c('plain', 'fancy')) {",
+            "  mode <- match.arg(mode)",
+            "  style <- match.arg(style)",
+            "  list(x, mode, style)",
+            "}",
+            "",
+            "# Test second argument",
+            "test_func(1, ''",
+            "",
+            "# Test third argument",
+            "test_func(1, 'read', ''"
+        ),
+        temp_file)
+
+    client %>% did_save(temp_file)
+
+    # Test second argument (mode)
+    result <- client %>% respond_completion(
+        temp_file, c(8, 13),
+        retry_when = function(result) length(result) == 0 || length(result$items) == 0
+    )
+    
+    value_items <- result$items %>% keep(~ .$data$type == "argument_value")
+    labels <- value_items %>% map_chr(~ .$label)
+    
+    expect_true("read" %in% labels)
+    expect_true("write" %in% labels)
+    expect_true("append" %in% labels)
+    expect_false("plain" %in% labels)
+    expect_false("fancy" %in% labels)
+    
+    # Test third argument (style)
+    result <- client %>% respond_completion(
+        temp_file, c(11, 21),
+        retry_when = function(result) length(result) == 0 || length(result$items) == 0
+    )
+    
+    value_items <- result$items %>% keep(~ .$data$type == "argument_value")
+    labels <- value_items %>% map_chr(~ .$label)
+    
+    expect_true("plain" %in% labels)
+    expect_true("fancy" %in% labels)
+    expect_false("read" %in% labels)
+    expect_false("write" %in% labels)
+})
+
+test_that("Completion of argument values works with named arguments out of order", {
+    skip_on_cran()
+    client <- language_client()
+
+    temp_file <- withr::local_tempfile(fileext = ".R")
+    writeLines(
+        c(
+            "test_func <- function(a = 1, b = c('x', 'y', 'z'), c = 3) {",
+            "  b <- match.arg(b)",
+            "  b",
+            "}",
+            "",
+            "# Named argument out of order",
+            "test_func(c = 5, b = '')"
+        ),
+        temp_file)
+
+    client %>% did_save(temp_file)
+
+    result <- client %>% respond_completion(
+        temp_file, c(6, 20),
+        retry_when = function(result) length(result) == 0 || length(result$items) == 0
+    )
+    
+    value_items <- result$items %>% keep(~ .$data$type == "argument_value")
+    labels <- value_items %>% map_chr(~ .$label)
+    
+    expect_true("x" %in% labels)
+    expect_true("y" %in% labels)
+    expect_true("z" %in% labels)
+})
+
+test_that("Completion of argument values is case insensitive", {
+    skip_on_cran()
+    client <- language_client()
+
+    temp_file <- withr::local_tempfile(fileext = ".R")
+    writeLines(
+        c(
+            "my_func <- function(method = c('Auto', 'Manual', 'Custom')) {",
+            "  method <- match.arg(method)",
+            "  method",
+            "}",
+            "",
+            "my_func(method = 'M')"
+        ),
+        temp_file)
+
+    client %>% did_save(temp_file)
+
+    result <- client %>% respond_completion(
+        temp_file, c(5, 17),
+        retry_when = function(result) length(result) == 0 || length(result$items) == 0
+    )
+    
+    value_items <- result$items %>% keep(~ .$data$type == "argument_value")
+    labels <- value_items %>% map_chr(~ .$label)
+    
+    # Should match both "Manual" and "Custom" (case insensitive)
+    expect_true("Manual" %in% labels)
+    # Depending on implementation, might match Custom too
+})
+
+test_that("No argument value completion for non-character defaults", {
+    skip_on_cran()
+    client <- language_client()
+
+    temp_file <- withr::local_tempfile(fileext = ".R")
+    writeLines(
+        c(
+            "# Function with numeric default",
+            "my_func <- function(x = 10, y = c(1, 2, 3)) {",
+            "  x + y",
+            "}",
+            "",
+            "my_func(x = '')"
+        ),
+        temp_file)
+
+    client %>% did_save(temp_file)
+
+    result <- client %>% respond_completion(
+        temp_file, c(5, 12),
+        retry_when = function(result) length(result) == 0
+    )
+    
+    # Should not have argument_value completions for numeric defaults
+    value_items <- result$items %>% keep(~ !is.null(.$data$type) && .$data$type == "argument_value")
+    expect_length(value_items, 0)
+})

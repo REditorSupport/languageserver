@@ -75,6 +75,162 @@ package_completion <- function(token) {
     completions
 }
 
+#' Extract string values from a default argument expression
+#' @param default_expr the default value expression from formals()
+#' @return character vector of values, or NULL if not applicable
+#' @noRd
+extract_default_values <- function(default_expr) {
+    # If missing, no default value
+    if (missing(default_expr) || is.name(default_expr) && as.character(default_expr) == "") {
+        return(NULL)
+    }
+    
+    # If it's a call to c(), extract the arguments
+    if (is.call(default_expr) && length(default_expr) > 1) {
+        func_name <- as.character(default_expr[[1]])
+        
+        if (func_name == "c") {
+            # Extract all arguments to c()
+            values <- character(0)
+            for (i in seq(2, length(default_expr))) {
+                arg <- default_expr[[i]]
+                # Only handle character literals
+                if (is.character(arg)) {
+                    values <- c(values, arg)
+                } else if (is.call(arg) && as.character(arg[[1]]) %in% c("I")) {
+                    # Handle I("value")
+                    if (length(arg) > 1 && is.character(arg[[2]])) {
+                        values <- c(values, arg[[2]])
+                    }
+                }
+            }
+            if (length(values) > 0) {
+                return(values)
+            }
+        }
+    }
+    
+    # If it's a simple string, return it
+    if (is.character(default_expr) && length(default_expr) == 1) {
+        return(default_expr)
+    }
+    
+    NULL
+}
+
+#' Complete argument values based on default parameter values
+#' @noRd
+argument_value_completion <- function(workspace, funct, package, arg_name, token) {
+    # Get the formals for the function
+    formals_list <- workspace$get_formals(funct, package, exported_only = TRUE)
+    
+    if (is.null(formals_list) || !is.list(formals_list)) {
+        return(list())
+    }
+    
+    # Get the default value for the specific argument
+    if (!arg_name %in% names(formals_list)) {
+        return(list())
+    }
+    
+    default_value <- formals_list[[arg_name]]
+    
+    # Extract possible values from the default
+    values <- extract_default_values(default_value)
+    
+    if (is.null(values) || length(values) == 0) {
+        return(list())
+    }
+    
+    # Filter values that match the token
+    matching_values <- values[match_with(values, token)]
+    
+    # Create completion items
+    completions <- lapply(matching_values, function(value) {
+        list(
+            label = value,
+            kind = CompletionItemKind$Value,
+            detail = paste0("value for ", arg_name),
+            sortText = paste0(sort_prefixes$arg, value),
+            insertText = sprintf('"%s"', value),
+            insertTextFormat = InsertTextFormat$PlainText,
+            data = list(
+                type = "argument_value",
+                funct = funct,
+                package = package,
+                argument = arg_name
+            )
+        )
+    })
+    
+    completions
+}
+
+#' Complete argument values based on function call context
+#' @noRd
+arg_value_completion <- function(uri, workspace, document, point, token, funct, package = NULL, exported_only = TRUE) {
+    # Try to determine which argument we're currently at
+    package_for_call <- package
+    if (is.null(package_for_call)) {
+        package_for_call <- workspace$guess_namespace(funct, isf = TRUE)
+    }
+    
+    if (is.null(package_for_call)) {
+        return(list())
+    }
+    
+    # Get the signature and formals
+    sig <- workspace$get_signature(funct, package_for_call)
+    formals_list <- workspace$get_formals(funct, package_for_call,
+        exported_only = exported_only)
+    
+    if (is.null(formals_list) || !is.list(formals_list) || length(formals_list) == 0) {
+        return(list())
+    }
+    
+    # point is already in internal format (0-based row/col)
+    if (point$col == 0) {
+        return(list())
+    }
+    
+    fub_result <- find_unbalanced_bracket(document$content,
+        point$row, point$col - 1)
+    if (is.null(fub_result) || length(fub_result) < 2) {
+        return(list())
+    }
+    
+    loc <- fub_result[[1]]
+    bracket <- fub_result[[2]]
+    
+    if (length(loc) < 2 || loc[1] < 0 || loc[2] < 0 || bracket != "(") {
+        return(list())
+    }
+    
+    # Detect active parameter
+    active_param <- detect_active_parameter(
+        document$content,
+        loc[1], loc[2],
+        point$row, point$col,
+        sig
+    )
+    
+    if (is.null(active_param) || !is.numeric(active_param)) {
+        return(list())
+    }
+    
+    # Get the parameter name
+    param_names <- names(formals_list)
+    if (length(param_names) == 0 || active_param < 0 ||
+        active_param >= length(param_names)) {
+        return(list())
+    }
+    
+    arg_name <- param_names[active_param + 1]  # Convert 0-based to 1-based
+    
+    # Get value completions for this argument
+    argument_value_completion(workspace, funct, package_for_call, arg_name, token)
+}
+
 #' Complete a function argument
 #' @noRd
 arg_completion <- function(uri, workspace, point, token, funct, package = NULL, exported_only = TRUE) {
@@ -497,6 +653,9 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
             completions <- c(
                 completions,
                 arg_completion(uri, workspace, point, token,
+                    call_result$token, call_result$package,
+                    exported_only = call_result$accessor != ":::"),
+                arg_value_completion(uri, workspace, document, point, token,
                     call_result$token, call_result$package,
                     exported_only = call_result$accessor != ":::"))
         }
