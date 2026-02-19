@@ -88,8 +88,10 @@ SEXP code_point_to_unit_c(SEXP line, SEXP points) {
     // Now extract results for requested points
     for (int i = 0; i < n_points; i++) {
         int pt = points_ptr[i];
-        
-        if (pt < 0) {
+
+        if (pt == NA_INTEGER) {
+            result_ptr[i] = max_unit;
+        } else if (pt < 0) {
             result_ptr[i] = 0;
         } else if (pt >= max_cp) {
             result_ptr[i] = max_unit;
@@ -199,9 +201,15 @@ SEXP code_point_from_unit_c(SEXP line, SEXP units) {
         
         utf16_unit += units_for_char;
         
-        // Mark all UTF-16 units from start_unit to utf16_unit with current code point
-        for (int u = start_unit; u < utf16_unit && u <= max_unit; u++) {
-            unit_to_cp[u] = code_point;
+        // Mark UTF-16 units for this code point.
+        // For surrogate pairs, the trailing unit is invalid for positioning.
+        if (start_unit <= max_unit) {
+            unit_to_cp[start_unit] = code_point;
+        }
+        if (units_for_char > 1) {
+            for (int u = start_unit + 1; u < utf16_unit && u <= max_unit; u++) {
+                unit_to_cp[u] = NA_INTEGER;
+            }
         }
         
         code_point++;
@@ -210,8 +218,10 @@ SEXP code_point_from_unit_c(SEXP line, SEXP units) {
     // Extract results for requested units
     for (int i = 0; i < n_units; i++) {
         int u = units_ptr[i];
-        
-        if (u < 0) {
+
+        if (u == NA_INTEGER) {
+            result_ptr[i] = max_cp;
+        } else if (u < 0) {
             result_ptr[i] = 0;
         } else if (u >= max_unit) {
             result_ptr[i] = max_cp;

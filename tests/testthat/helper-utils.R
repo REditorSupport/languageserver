@@ -12,14 +12,21 @@ expect_equivalent <- function(x, y) {
     expect_equal(x, y, ignore_attr = TRUE)
 }
 
+symbol_range <- function(symbol) {
+    if (!is.null(symbol$location)) {
+        return(symbol$location$range)
+    }
+    symbol$range
+}
+
 language_client <- function(working_dir = getwd(), diagnostics = FALSE, capabilities = NULL) {
 
     if (nzchar(Sys.getenv("R_LANGSVR_LOG"))) {
         script <- sprintf(
-            "languageserver::run(debug = '%s')",
+            "options(languageserver.formatting_style = NULL); languageserver::run(debug = '%s')",
             normalizePath(Sys.getenv("R_LANGSVR_LOG"), "/", mustWork = FALSE))
     } else {
-        script <- "languageserver::run()"
+        script <- "options(languageserver.formatting_style = NULL); languageserver::run()"
     }
 
     client <- LanguageClient$new(

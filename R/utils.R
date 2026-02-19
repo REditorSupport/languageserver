@@ -327,6 +327,9 @@ ncodeunit <- function(s) {
 #'
 #' @noRd
 code_point_from_unit <- function(line, units) {
+    if (any(is.infinite(units))) {
+        units[is.infinite(units)] <- NA_integer_
+    }
     # Performance: Use C implementation for fast UTF-16 conversions
     # This is called on every keystroke (completion, hover, signature help)
     .Call("code_point_from_unit_c", PACKAGE = "languageserver", line, as.integer(units))
@@ -339,6 +342,9 @@ code_point_from_unit <- function(line, units) {
 #'
 #' @noRd
 code_point_to_unit <- function(line, pts) {
+    if (any(is.infinite(pts))) {
+        pts[is.infinite(pts)] <- NA_integer_
+    }
     pts[pts < 0] <- 0
     # Performance: Use C implementation for fast UTF-16 conversions
     # This is called for every position in handlers and diagnostics

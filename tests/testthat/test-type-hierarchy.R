@@ -117,7 +117,7 @@ test_that("Type hierarchy returns empty for non-class definitions", {
 
     # Try to prepare type hierarchy on a regular function
     result <- client %>% respond_prepare_type_hierarchy(
-        single_file, c(0, 1), retry_when = function(result) TRUE)
+        single_file, c(0, 1), retry = FALSE)
 
     expect_null(result)
 })

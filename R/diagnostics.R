@@ -97,10 +97,30 @@ diagnose_file <- function(uri, content, is_rmarkdown = FALSE, globals = NULL, ca
         on.exit(do.call("detach", list(env_name, character.only = TRUE)))
     }
 
-    if (file.exists(path)) {
-        lints <- lintr::lint(path, cache = cache, text = content, parse_settings = TRUE)
+    linters <- NULL
+    if (nzchar(path)) {
+        config_path <- tryCatch(find_config(path), error = function(e) NULL)
+        if (is.null(config_path) || !nzchar(config_path) || !file.exists(config_path)) {
+            linters <- lintr::linters_with_defaults()
+        }
     } else {
-        lints <- lintr::lint(text = content, cache = cache, parse_settings = TRUE)
+        linters <- lintr::linters_with_defaults()
+    }
+
+    if (file.exists(path)) {
+        lints <- lintr::lint(path,
+            cache = cache,
+            text = content,
+            parse_settings = TRUE,
+            linters = linters
+        )
+    } else {
+        lints <- lintr::lint(
+            text = content,
+            cache = cache,
+            parse_settings = TRUE,
+            linters = linters
+        )
     }
 
     diagnostics <- lapply(lints, diagnostic_from_lint, content = content)
