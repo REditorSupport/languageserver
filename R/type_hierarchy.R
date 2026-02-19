@@ -356,8 +356,9 @@ detect_s3class <- function(scopes, token_text, document, uri) {
 
     # Pattern: setMethod("generic", "ClassName", function(...))
     xpath <- glue(
-        "//SYMBOL_FUNCTION_CALL[text() = 'setMethod']/following-sibling::expr[STR_CONST[text() = '\"'{token_quote}'\"']]",
-        token_quote = token_text
+        "//SYMBOL_FUNCTION_CALL[text() = 'setMethod']/following-sibling::expr[STR_CONST[contains(text(), {dquote}{token_text}{dquote})]]",
+        token_text = token_text,
+        dquote = '"'
     )
 
     defs <- xml_find_all(scopes, xpath)

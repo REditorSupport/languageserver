@@ -71,7 +71,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             parse_pool <- if (pool_size > 0) SessionPool$new(pool_size, "parse") else NULL
             # diagnostics is slower, so use a separate pool
             # Diagnostics can use slightly fewer workers since they're I/O heavy
-            diagnostics_pool_size <- max(floor(pool_size * 0.75), 2)
+            diagnostics_pool_size <- min(max(floor(pool_size * 0.75), 1), pool_size)
             diagnostics_pool <- if (pool_size > 0) SessionPool$new(diagnostics_pool_size, "diagnostics") else NULL
 
             self$parse_task_manager <- TaskManager$new("parse", parse_pool)

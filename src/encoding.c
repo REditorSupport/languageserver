@@ -1,6 +1,7 @@
 #include <R.h>
 #include <Rinternals.h>
 #include <string.h>
+#include <stdlib.h>
 
 /*
  * Convert code points to UTF-16 code units.

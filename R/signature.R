@@ -173,7 +173,7 @@ detect_active_parameter <- function(content, start_row, start_col, end_row, end_
     
     # Check if this is a named argument (pattern: name = ...)
     # Match identifier followed by =, with optional whitespace
-    named_match <- regexec("^([a-zA-Z._][a-zA-Z0-9._]*)\\s*=\\s*", current_arg)
+    named_match <- regexec("^([a-zA-Z._][a-zA-Z0-9._]*)[[:space:]]*=[[:space:]]*", current_arg)
     if (!is.null(signature) && named_match[[1]][1] != -1) {
         # Extract the parameter name
         param_name <- regmatches(current_arg, named_match)[[1]][2]
@@ -284,8 +284,8 @@ parse_signature_parameters <- function(signature) {
                 param_trimmed <- trimws(current_param)
                 if (nchar(param_trimmed) > 0) {
                     # Find where the trimmed parameter starts and ends in the original string
-                    leading_space <- nchar(current_param) - nchar(sub("^\\\\s+", "", current_param))
-                    trailing_space <- nchar(current_param) - nchar(sub("\\\\s+$", "", current_param))
+                    leading_space <- nchar(current_param) - nchar(sub("^[[:space:]]+", "", current_param))
+                    trailing_space <- nchar(current_param) - nchar(sub("[[:space:]]+$", "", current_param))
                     
                     # Calculate the label position as [start, end] in the full signature
                     # LSP uses 0-based positions
@@ -308,8 +308,8 @@ parse_signature_parameters <- function(signature) {
     # Don't forget the last parameter
     param_trimmed <- trimws(current_param)
     if (nchar(param_trimmed) > 0) {
-        leading_space <- nchar(current_param) - nchar(sub("^\\\\s+", "", current_param))
-        trailing_space <- nchar(current_param) - nchar(sub("\\\\s+$", "", current_param))
+        leading_space <- nchar(current_param) - nchar(sub("^[[:space:]]+", "", current_param))
+        trailing_space <- nchar(current_param) - nchar(sub("[[:space:]]+$", "", current_param))
         
         param_start <- base_offset + char_pos + leading_space
         param_end <- base_offset + nchar(params_str) - trailing_space

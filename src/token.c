@@ -2,6 +2,7 @@
 
 #include <ctype.h>
 #include <string.h>
+#include <wchar.h>
 #include <wctype.h>
 #include <stdint.h>
 

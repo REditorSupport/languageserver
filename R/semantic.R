@@ -154,13 +154,18 @@ extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
             modifiers <- bitwOr(modifiers, 2^SemanticTokenModifiers$declaration)
         }
 
-        token_text <- xml_text(token_node)
+        # Convert positions to UTF-16 code units for LSP
+        # Parse data uses 1-based code point positions, LSP uses 0-based UTF-16 units
+        line_text <- if (line1 <= length(document$content)) document$content[line1] else ""
+        utf16_cols <- code_point_to_unit(line_text, c(col1 - 1, col2))
+        token_col <- utf16_cols[1]
+        token_length <- utf16_cols[2] - utf16_cols[1]
 
         idx <- idx + 1L
         tokens[[idx]] <- list(
             line = as.integer(line1 - 1),  # Convert to 0-based, ensure integer
-            col = as.integer(col1 - 1),    # Convert to 0-based, ensure integer
-            length = as.integer(nchar(token_text)),  # Ensure integer
+            col = as.integer(token_col),   # UTF-16 code units, ensure integer
+            length = as.integer(token_length),  # UTF-16 code units, ensure integer
             tokenType = as.integer(token_type),      # Ensure integer
             tokenModifiers = as.integer(modifiers)   # Ensure integer
         )
