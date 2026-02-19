@@ -215,8 +215,9 @@ encode_semantic_tokens <- function(tokens) {
     # Only sort if necessary (XML traversal usually produces document order)
     # Create ordering key: line * large_number + col for single-pass sort check
     if (n > 1) {
-        # Use large multiplier to ensure line precedence over col
-        order_key <- lines * 1000000L + cols
+        # Use numeric (64-bit) to avoid integer overflow on large files
+        # Max line in typical files is hundreds, so numeric is safe and precise
+        order_key <- lines * 1000000.0 + cols
         if (is.unsorted(order_key, strictly = FALSE)) {
             logger$info("encode_semantic_tokens: explicit ordering required for ", n, " tokens")
             order_idx <- order(lines, cols)
