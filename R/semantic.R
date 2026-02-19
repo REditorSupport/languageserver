@@ -193,21 +193,40 @@ encode_semantic_tokens <- function(tokens) {
         return(list(data = integer(0)))
     }
 
-    # Convert tokens list to vectors for efficient processing
-    # Defensive: coerce all to integer in case of mixed types
-    lines <- as.integer(vapply(tokens, function(t) t$line, 0.0))
-    cols <- as.integer(vapply(tokens, function(t) t$col, 0.0))
-    lengths <- as.integer(vapply(tokens, function(t) t$length, 0.0))
-    types <- as.integer(vapply(tokens, function(t) t$tokenType, 0.0))
-    mods <- as.integer(vapply(tokens, function(t) t$tokenModifiers, 0.0))
+    # Pre-allocate vectors for better performance
+    n <- length(tokens)
+    lines <- integer(n)
+    cols <- integer(n)
+    lengths <- integer(n)
+    types <- integer(n)
+    mods <- integer(n)
+    
+    # Single loop extraction instead of 5 vapply calls
+    # Explicitly coerce to maintain integer type
+    for (i in seq_along(tokens)) {
+        t <- tokens[[i]]
+        lines[i] <- as.integer(t$line)
+        cols[i] <- as.integer(t$col)
+        lengths[i] <- as.integer(t$length)
+        types[i] <- as.integer(t$tokenType)
+        mods[i] <- as.integer(t$tokenModifiers)
+    }
 
-    # Sort by position (stable sort by line, then col)
-    order_idx <- order(lines, cols)
-    lines <- lines[order_idx]
-    cols <- cols[order_idx]
-    lengths <- lengths[order_idx]
-    types <- types[order_idx]
-    mods <- mods[order_idx]
+    # Only sort if necessary (XML traversal usually produces document order)
+    # Create ordering key: line * large_number + col for single-pass sort check
+    if (n > 1) {
+        # Use large multiplier to ensure line precedence over col
+        order_key <- lines * 1000000L + cols
+        if (is.unsorted(order_key, strictly = FALSE)) {
+            logger$info("encode_semantic_tokens: explicit ordering required for ", n, " tokens")
+            order_idx <- order(lines, cols)
+            lines <- lines[order_idx]
+            cols <- cols[order_idx]
+            lengths <- lengths[order_idx]
+            types <- types[order_idx]
+            mods <- mods[order_idx]
+        }
+    }
 
     # Performance: Use C implementation for encoding
     data <- .Call("encode_semantic_tokens_c",
