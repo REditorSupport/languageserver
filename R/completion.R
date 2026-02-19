@@ -169,7 +169,12 @@ argument_value_completion <- function(workspace, funct, package, arg_name, token
 #' Complete argument values based on function call context
 #' @noRd
 arg_value_completion <- function(uri, workspace, document, point, token, funct, package = NULL, exported_only = TRUE) {
-    # Try to determine which argument we're currently at
+    # Skip if we don't have a meaningful token to complete
+    if (nchar(token) == 0) {
+        return(list())
+    }
+    
+    # Get the package context
     package_for_call <- package
     if (is.null(package_for_call)) {
         package_for_call <- workspace$guess_namespace(funct, isf = TRUE)
@@ -179,8 +184,7 @@ arg_value_completion <- function(uri, workspace, document, point, token, funct, 
         return(list())
     }
     
-    # Get the signature and formals
-    sig <- workspace$get_signature(funct, package_for_call)
+    # Get the formals
     formals_list <- workspace$get_formals(funct, package_for_call,
         exported_only = exported_only)
     
@@ -188,47 +192,46 @@ arg_value_completion <- function(uri, workspace, document, point, token, funct, 
         return(list())
     }
     
-    # point is already in internal format (0-based row/col)
-    if (point$col == 0) {
+    # Get current line
+    lines <- strsplit(document$content, "\n", fixed = TRUE)[[1]]
+    if (point$row >= length(lines)) {
         return(list())
     }
     
-    fub_result <- find_unbalanced_bracket(document$content,
-        point$row, point$col - 1)
-    if (is.null(fub_result) || length(fub_result) < 2) {
+    current_line <- lines[point$row + 1]
+    if (point$col == 0 || point$col > nchar(current_line)) {
         return(list())
     }
     
-    loc <- fub_result[[1]]
-    bracket <- fub_result[[2]]
+    # Get text up to cursor
+    prefix <- substr(current_line, 1, point$col)
     
-    if (length(loc) < 2 || loc[1] < 0 || loc[2] < 0 || bracket != "(") {
-        return(list())
+    # Simple approach: split by = and check if the part before it looks like a named argument
+    parts <- strsplit(prefix, "=", fixed = TRUE)[[1]]
+    if (length(parts) >= 2) {
+        # Get text before the = sign
+        before_equals <- parts[length(parts) - 1]
+        
+        # Extract potential argument name from end of before_equals
+        # Remove trailing whitespace and get the last word
+        trimmed <- trimws(before_equals)
+        words <- strsplit(trimmed, "[^a-zA-Z0-9_.]", perl = TRUE)[[1]]
+        if (length(words) > 0) {
+            potential_arg <- tail(words, 1)
+            
+            # Validate it looks like an identifier
+            if (grepl("^[a-zA-Z_][a-zA-Z0-9_.]*$", potential_arg)) {
+                # Check if this is a valid parameter name
+                param_names <- names(formals_list)
+                if (potential_arg %in% param_names) {
+                    # Get value completions for this argument
+                    return(argument_value_completion(workspace, funct, package_for_call, potential_arg, token))
+                }
+            }
+        }
     }
     
-    # Detect active parameter
-    active_param <- detect_active_parameter(
-        document$content,
-        loc[1], loc[2],
-        point$row, point$col,
-        sig
-    )
-    
-    if (is.null(active_param) || !is.numeric(active_param)) {
-        return(list())
-    }
-    
-    # Get the parameter name
-    param_names <- names(formals_list)
-    if (length(param_names) == 0 || active_param < 0 ||
-        active_param >= length(param_names)) {
-        return(list())
-    }
-    
-    arg_name <- param_names[active_param + 1]  # Convert 0-based to 1-based
-    
-    # Get value completions for this argument
-    argument_value_completion(workspace, funct, package_for_call, arg_name, token)
+    list()
 }
 
 #' Complete a function argument
