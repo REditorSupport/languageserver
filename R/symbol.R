@@ -41,6 +41,9 @@ get_document_symbol_kind <- function(type) {
             `function` = SymbolKind$Function,
             `NULL` = SymbolKind$Null,
             `class` = SymbolKind$Class,
+            R6 = SymbolKind$Class,
+            S4 = SymbolKind$Class,
+            RefClass = SymbolKind$Class,
             SymbolKind$Field
         )
     } else {
@@ -71,20 +74,81 @@ document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
 
     defns <- workspace$get_definitions_for_uri(uri)
     logger$info("document definitions found: ", length(defns))
-    definition_symbols <- lapply(names(defns), function(name) {
-        def <- defns[[name]]
-        symbol_information(
-            name = name,
-            kind = get_document_symbol_kind(def$type),
-            location = location(
-                uri = uri,
-                range = def$range
-            )
-        )
-    })
-    result <- definition_symbols
-
+    
     if (isTRUE(capabilities$hierarchicalDocumentSymbolSupport)) {
+        # Use hierarchical DocumentSymbol format
+        definition_symbols <- lapply(names(defns), function(name) {
+            def <- defns[[name]]
+            
+            # Check if this is a class definition and extract members
+            children <- NULL
+            if (!is.null(def$type) && def$type %in% c("R6", "S4", "RefClass")) {
+                tryCatch({
+                    children <- extract_class_members(document, parse_data$xml_doc, def)
+                }, error = function(e) {
+                    # Silently handle extraction errors
+                })
+            }
+            
+            document_symbol(
+                name = name,
+                kind = get_document_symbol_kind(def$type),
+                range = def$range,
+                selectionRange = def$range,
+                children = children
+            )
+        })
+        
+        sections <- get_document_symbols(
+            document,
+            xdoc = parse_data$xml_doc
+        )
+        section_symbols <- lapply(sections, function(section) {
+            document_symbol(
+                name = section$name,
+                kind = switch(section$type,
+                    section = SymbolKind$String,
+                    chunk = SymbolKind$Key,
+                    SymbolKind$String
+                ),
+                range = range(
+                    start = document$to_lsp_position(
+                        row = section$start_line - 1,
+                        col = 0
+                    ),
+                    end = document$to_lsp_position(
+                        row = section$end_line - 1,
+                        col = nchar(document$line(section$end_line))
+                    )
+                ),
+                selectionRange = range(
+                    start = document$to_lsp_position(
+                        row = section$start_line - 1,
+                        col = 0
+                    ),
+                    end = document$to_lsp_position(
+                        row = section$start_line - 1,
+                        col = nchar(document$line(section$start_line))
+                    )
+                )
+            )
+        })
+        
+        result <- c(definition_symbols, section_symbols)
+    } else {
+        # Use flat SymbolInformation format for backward compatibility
+        definition_symbols <- lapply(names(defns), function(name) {
+            def <- defns[[name]]
+            symbol_information(
+                name = name,
+                kind = get_document_symbol_kind(def$type),
+                location = location(
+                    uri = uri,
+                    range = def$range
+                )
+            )
+        })
+        
         sections <- get_document_symbols(
             document,
             xdoc = parse_data$xml_doc
@@ -112,8 +176,8 @@ document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
                 )
             )
         })
-
-        result <- c(result, section_symbols)
+        
+        result <- c(definition_symbols, section_symbols)
     }
 
     Response$new(id, result = result)

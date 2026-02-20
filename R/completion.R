@@ -75,6 +75,134 @@ package_completion <- function(token) {
     completions
 }
 
+#' Extract string values from a default argument expression
+#' @param default_expr the default value expression from formals()
+#' @return character vector of values, or NULL if not applicable
+#' @noRd
+extract_default_values <- function(default_expr) {
+    # If missing, no default value
+    if (missing(default_expr) || is.name(default_expr) && as.character(default_expr) == "") {
+        return(NULL)
+    }
+    
+    # If it's a call to c(), extract the arguments
+    if (is.call(default_expr) && length(default_expr) > 1) {
+        func_name <- as.character(default_expr[[1]])
+        
+        if (func_name == "c") {
+            # Extract all arguments to c()
+            values <- character(0)
+            for (i in seq(2, length(default_expr))) {
+                arg <- default_expr[[i]]
+                # Only handle character literals
+                if (is.character(arg)) {
+                    values <- c(values, arg)
+                } else if (is.call(arg) && as.character(arg[[1]]) %in% c("I")) {
+                    # Handle I("value")
+                    if (length(arg) > 1 && is.character(arg[[2]])) {
+                        values <- c(values, arg[[2]])
+                    }
+                }
+            }
+            if (length(values) > 0) {
+                return(values)
+            }
+        }
+    }
+    
+    # If it's a simple string, return it
+    if (is.character(default_expr) && length(default_expr) == 1) {
+        return(default_expr)
+    }
+    
+    NULL
+}
+
+#' Complete argument values based on default parameter values
+#' @noRd
+argument_value_completion <- function(workspace, funct, package, arg_name, token, exported_only = TRUE) {
+    # Get the formals for the function
+    formals_list <- workspace$get_formals(funct, package, exported_only = exported_only)
+    
+    if (is.null(formals_list) || !is.list(formals_list)) {
+        return(list())
+    }
+    
+    # Get the default value for the specific argument
+    if (!arg_name %in% names(formals_list)) {
+        return(list())
+    }
+    
+    default_value <- formals_list[[arg_name]]
+    
+    # Extract possible values from the default
+    values <- extract_default_values(default_value)
+    
+    if (is.null(values) || length(values) == 0) {
+        return(list())
+    }
+    
+    # Filter values that match the token
+    matching_values <- values[match_with(values, token)]
+    
+    # Create completion items
+    completions <- lapply(matching_values, function(value) {
+        list(
+            label = value,
+            kind = CompletionItemKind$Value,
+            detail = paste0("value for ", arg_name),
+            sortText = paste0(sort_prefixes$arg, value),
+            insertText = sprintf('"%s"', value),
+            insertTextFormat = InsertTextFormat$PlainText,
+            data = list(
+                type = "argument_value",
+                funct = funct,
+                package = package,
+                argument = arg_name
+            )
+        )
+    })
+    
+    completions
+}
+
+#' Complete argument values based on function call context
+#' @noRd
+arg_value_completion <- function(uri, workspace, document, point, token, funct, package = NULL, exported_only = TRUE) {
+    # Get the package context
+    package_for_call <- package
+    if (is.null(package_for_call)) {
+        package_for_call <- workspace$guess_namespace(funct, isf = TRUE)
+    }
+    
+    # Try to get the formals - works with NULL package for user-defined functions
+    formals_list <- workspace$get_formals(funct, package_for_call,
+        exported_only = exported_only)
+    
+    if (is.null(formals_list) || !is.list(formals_list) || length(formals_list) == 0) {
+        return(list())
+    }
+    
+    # Get all parameters with character vector defaults
+    param_names <- names(formals_list)
+    all_completions <- list()
+    
+    for (param_name in param_names) {
+        values <- extract_default_values(formals_list[[param_name]])
+        if (!is.null(values) && length(values) > 0) {
+            # Filter values that match the current token
+            matching_values <- values[match_with(values, token)]
+            if (length(matching_values) > 0) {
+                # Generate completions for this parameter
+                param_completions <- argument_value_completion(workspace, funct, package_for_call, param_name, token, exported_only)
+                all_completions <- c(all_completions, param_completions)
+            }
+        }
+    }
+    
+    all_completions
+}
+
 #' Complete a function argument
 #' @noRd
 arg_completion <- function(uri, workspace, point, token, funct, package = NULL, exported_only = TRUE) {
@@ -182,8 +310,10 @@ ns_function_completion <- function(ns, token, exported_only, snippet_support) {
 }
 
 imported_object_completion <- function(workspace, token, snippet_support) {
-    completions <- NULL
-    for (object in workspace$imported_objects$keys()) {
+    keys <- workspace$imported_objects$keys()
+    completions <- vector("list", length(keys))
+    idx <- 0L
+    for (object in keys) {
         if (!match_with(object, token)) {
             next
         }
@@ -214,8 +344,15 @@ imported_object_completion <- function(workspace, token, snippet_support) {
                         package = nsname
                 ))
             }
-            completions <- append(completions, list(item))
+            idx <- idx + 1L
+            completions[[idx]] <- item
         }
+    }
+    if (idx == 0L) {
+        return(NULL)
+    }
+    if (idx < length(completions)) {
+        completions <- completions[seq_len(idx)]
     }
     completions
 }
@@ -313,17 +450,17 @@ workspace_completion <- function(workspace, token,
 }
 
 scope_completion_symbols_xpath <- paste(
-    "(*|descendant-or-self::exprlist/*)[self::FUNCTION or self::OP-LAMBDA]/following-sibling::SYMBOL_FORMALS",
-    "(*|descendant-or-self::exprlist/*)/LEFT_ASSIGN[not(following-sibling::expr/*[self::FUNCTION or self::OP-LAMBDA])]/preceding-sibling::expr[count(*)=1]/SYMBOL",
-    "(*|descendant-or-self::exprlist/*)/RIGHT_ASSIGN[not(preceding-sibling::expr/*[self::FUNCTION or self::OP-LAMBDA])]/following-sibling::expr[count(*)=1]/SYMBOL",
-    "(*|descendant-or-self::exprlist/*)/EQ_ASSIGN[not(following-sibling::expr/*[self::FUNCTION or self::OP-LAMBDA])]/preceding-sibling::expr[count(*)=1]/SYMBOL",
+    "(* | descendant-or-self::expr | descendant-or-self::expr_or_assign_or_help)[self::FUNCTION or self::OP-LAMBDA]/following-sibling::SYMBOL_FORMALS",
+    "(* | descendant-or-self::expr | descendant-or-self::expr_or_assign_or_help)/LEFT_ASSIGN[not(following-sibling::expr/*[self::FUNCTION or self::OP-LAMBDA])]/preceding-sibling::expr[count(*)=1]/SYMBOL",
+    "(* | descendant-or-self::expr | descendant-or-self::expr_or_assign_or_help)/RIGHT_ASSIGN[not(preceding-sibling::expr/*[self::FUNCTION or self::OP-LAMBDA])]/following-sibling::expr[count(*)=1]/SYMBOL",
+    "(* | descendant-or-self::expr | descendant-or-self::expr_or_assign_or_help)/EQ_ASSIGN[not(following-sibling::expr/*[self::FUNCTION or self::OP-LAMBDA])]/preceding-sibling::expr[count(*)=1]/SYMBOL",
     "forcond/SYMBOL",
     sep = "|")
 
 scope_completion_functs_xpath <- paste(
-    "(*|descendant-or-self::exprlist/*)/LEFT_ASSIGN[following-sibling::expr/*[self::FUNCTION or self::OP-LAMBDA]]/preceding-sibling::expr[count(*)=1]/SYMBOL",
-    "(*|descendant-or-self::exprlist/*)/RIGHT_ASSIGN[preceding-sibling::expr/*[self::FUNCTION or self::OP-LAMBDA]]/following-sibling::expr[count(*)=1]/SYMBOL",
-    "(*|descendant-or-self::exprlist/*)/EQ_ASSIGN[following-sibling::expr/*[self::FUNCTION or self::OP-LAMBDA]]/preceding-sibling::expr[count(*)=1]/SYMBOL",
+    "(* | descendant-or-self::expr | descendant-or-self::expr_or_assign_or_help)/LEFT_ASSIGN[following-sibling::expr/*[self::FUNCTION or self::OP-LAMBDA]]/preceding-sibling::expr[count(*)=1]/SYMBOL",
+    "(* | descendant-or-self::expr | descendant-or-self::expr_or_assign_or_help)/RIGHT_ASSIGN[preceding-sibling::expr/*[self::FUNCTION or self::OP-LAMBDA]]/following-sibling::expr[count(*)=1]/SYMBOL",
+    "(* | descendant-or-self::expr | descendant-or-self::expr_or_assign_or_help)/EQ_ASSIGN[following-sibling::expr/*[self::FUNCTION or self::OP-LAMBDA]]/preceding-sibling::expr[count(*)=1]/SYMBOL",
     sep = "|")
 
 scope_completion <- function(uri, workspace, token, point, snippet_support = NULL) {
@@ -488,6 +625,9 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
             completions <- c(
                 completions,
                 arg_completion(uri, workspace, point, token,
+                    call_result$token, call_result$package,
+                    exported_only = call_result$accessor != ":::"),
+                arg_value_completion(uri, workspace, document, point, token,
                     call_result$token, call_result$package,
                     exported_only = call_result$accessor != ":::"))
         }

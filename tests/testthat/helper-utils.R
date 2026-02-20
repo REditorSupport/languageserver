@@ -12,14 +12,21 @@ expect_equivalent <- function(x, y) {
     expect_equal(x, y, ignore_attr = TRUE)
 }
 
+symbol_range <- function(symbol) {
+    if (!is.null(symbol$location)) {
+        return(symbol$location$range)
+    }
+    symbol$range
+}
+
 language_client <- function(working_dir = getwd(), diagnostics = FALSE, capabilities = NULL) {
 
     if (nzchar(Sys.getenv("R_LANGSVR_LOG"))) {
         script <- sprintf(
-            "languageserver::run(debug = '%s')",
+            "options(languageserver.formatting_style = NULL); languageserver::run(debug = '%s')",
             normalizePath(Sys.getenv("R_LANGSVR_LOG"), "/", mustWork = FALSE))
     } else {
-        script <- "languageserver::run()"
+        script <- "options(languageserver.formatting_style = NULL); languageserver::run()"
     }
 
     client <- LanguageClient$new(
@@ -87,6 +94,7 @@ did_open <- function(client, path, uri = path_to_uri(path), text = NULL, languag
             )
         )
     )
+    Sys.sleep(0.5)
     invisible(client)
 }
 
@@ -456,6 +464,32 @@ respond_code_action <- function(client, path, start_pos, end_pos, ..., uri = pat
     )
 }
 
+respond_semantic_tokens_full <- function(client, path, ..., uri = path_to_uri(path)) {
+    respond(
+        client,
+        "textDocument/semanticTokens/full",
+        list(
+            textDocument = list(uri = uri)
+        ),
+        ...
+    )
+}
+
+respond_semantic_tokens_range <- function(client, path, start_pos, end_pos, ..., uri = path_to_uri(path)) {
+    respond(
+        client,
+        "textDocument/semanticTokens/range",
+        list(
+            textDocument = list(uri = uri),
+            range = range(
+                start = position(start_pos[1], start_pos[2]),
+                end = position(end_pos[1], end_pos[2])
+            )
+        ),
+        ...
+    )
+}
+
 wait_for <- function(client, method, timeout = 30) {
     storage <- new.env(parent = .GlobalEnv)
     start_time <- Sys.time()
@@ -481,4 +515,33 @@ wait_for <- function(client, method, timeout = 30) {
         remaining <- (start_time + timeout) - Sys.time()
     }
     NULL
+}
+respond_prepare_type_hierarchy <- function(client, path, pos, ..., uri = path_to_uri(path)) {
+    respond(
+        client,
+        "textDocument/prepareTypeHierarchy",
+        list(
+            textDocument = list(uri = uri),
+            position = list(line = pos[1], character = pos[2])
+        ),
+        ...
+    )
+}
+
+respond_type_hierarchy_supertypes <- function(client, item, ...) {
+    respond(
+        client,
+        "typeHierarchy/supertypes",
+        list(item = item),
+        ...
+    )
+}
+
+respond_type_hierarchy_subtypes <- function(client, item, ...) {
+    respond(
+        client,
+        "typeHierarchy/subtypes",
+        list(item = item),
+        ...
+    )
 }
