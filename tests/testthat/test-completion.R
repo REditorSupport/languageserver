@@ -994,7 +994,7 @@ test_that("Completion of argument values from defaults works", {
     
     # Test positional argument completion
     result <- client %>% respond_completion(
-        temp_file, c(10, 9),
+        temp_file, c(10, 8),
         retry_when = function(result) length(result) == 0 || length(result$items) == 0
     )
     
@@ -1323,7 +1323,7 @@ test_that("Positional argument completion works with base R functions", {
     client %>% did_save(temp_file)
 
     result <- client %>% respond_completion(
-        temp_file, c(1, 18),
+        temp_file, c(1, 17),
         retry_when = function(result) length(result) == 0 || length(result$items) == 0
     )
     
