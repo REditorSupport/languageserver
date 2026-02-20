@@ -44,7 +44,6 @@ jobs:
           print(cov)
           covr::to_cobertura(cov)
         shell: Rscript {0}
-
       - uses: codecov/codecov-action@v5
         with:
           # Fail if error if not on PR, or if on PR and token is given
