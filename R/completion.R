@@ -212,7 +212,7 @@ arg_value_completion <- function(uri, workspace, document, point, token, funct, 
         trimmed <- trimws(before_equals)
         words <- strsplit(trimmed, "[^a-zA-Z0-9_.]", perl = TRUE)[[1]]
         if (length(words) > 0) {
-            potential_arg <- tail(words, 1)
+            potential_arg <- words[length(words)]
             
             # Validate it looks like an identifier
             if (grepl("^[a-zA-Z_][a-zA-Z0-9_.]*$", potential_arg)) {
