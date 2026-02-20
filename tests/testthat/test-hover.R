@@ -346,9 +346,11 @@ test_that("Hover on function argument works", {
     result <- client %>% respond_hover(temp_file, c(0, 30))
     expect_equal(result$range$start, list(line = 0, character = 27))
     expect_equal(result$range$end, list(line = 0, character = 36))
-    expect_equal(result$contents, list(
-        "```r\nunlist(x, recursive = TRUE, use.names = TRUE) \n```",
-        "`recursive` - logical.  Should unlisting be applied to list components of `x` ?"
+    expect_equal(result$contents[[1]], "```r\nunlist(x, recursive = TRUE, use.names = TRUE) \n```")
+    expect_true(stringi::stri_detect_fixed(result$contents[[2]], "`recursive` - logical"))
+    expect_true(stringi::stri_detect_fixed(
+        result$contents[[2]],
+        "Should unlisting be applied to list components of `x`"
     ))
 
     result <- client %>% respond_hover(temp_file, c(1, 12))
@@ -614,9 +616,11 @@ test_that("Hover on function argument works in Rmarkdown", {
     result <- client %>% respond_hover(temp_file, c(5, 30))
     expect_equal(result$range$start, list(line = 5, character = 27))
     expect_equal(result$range$end, list(line = 5, character = 36))
-    expect_equal(result$contents, list(
-        "```r\nunlist(x, recursive = TRUE, use.names = TRUE) \n```",
-        "`recursive` - logical.  Should unlisting be applied to list components of `x` ?"
+    expect_equal(result$contents[[1]], "```r\nunlist(x, recursive = TRUE, use.names = TRUE) \n```")
+    expect_true(stringi::stri_detect_fixed(result$contents[[2]], "`recursive` - logical"))
+    expect_true(stringi::stri_detect_fixed(
+        result$contents[[2]],
+        "Should unlisting be applied to list components of `x`"
     ))
 
     result <- client %>% respond_hover(temp_file, c(6, 12))

@@ -59,13 +59,20 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$outputcon <- outputcon
 
             cpus <- parallel::detectCores()
+            # Performance optimization: Allow more workers and scale with CPU count
+            # Old default: min(max(floor(cpus / 2), 1), 3) - capped at 3
+            # New default: min(max(cpus - 1, 2), 8) - scale up to 8 workers
+            default_pool_size <- min(max(cpus - 1, 2), 8)
             pool_size <- as.integer(
-                Sys.getenv("R_LANGSVR_POOL_SIZE", min(max(floor(cpus / 2), 1), 3)))
+                Sys.getenv("R_LANGSVR_POOL_SIZE", default_pool_size))
 
-            # parse pool
+            # parse pool - increase size for better throughput
+            # Parse operations are CPU-bound and can benefit from parallelism
             parse_pool <- if (pool_size > 0) SessionPool$new(pool_size, "parse") else NULL
             # diagnostics is slower, so use a separate pool
-            diagnostics_pool <- if (pool_size > 0) SessionPool$new(pool_size, "diagnostics") else NULL
+            # Diagnostics can use slightly fewer workers since they're I/O heavy
+            diagnostics_pool_size <- min(max(floor(pool_size * 0.75), 1), pool_size)
+            diagnostics_pool <- if (pool_size > 0) SessionPool$new(diagnostics_pool_size, "diagnostics") else NULL
 
             self$parse_task_manager <- TaskManager$new("parse", parse_pool)
             self$diagnostics_task_manager <- TaskManager$new("diagnostics", diagnostics_pool)
@@ -100,7 +107,9 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     `textDocument/documentSymbol` = collections::queue(),
                     `textDocument/foldingRange` = collections::queue(),
                     `textDocument/documentLink` = collections::queue(),
-                    `textDocument/documentColor` = collections::queue()
+                    `textDocument/documentColor` = collections::queue(),
+                    `textDocument/semanticTokens/full` = collections::queue(),
+                    `textDocument/semanticTokens/range` = collections::queue()
                 ))
             }
 
@@ -216,7 +225,12 @@ LanguageServer$set("public", "register_handlers", function() {
         `textDocument/prepareCallHierarchy` = text_document_prepare_call_hierarchy,
         `callHierarchy/incomingCalls` = call_hierarchy_incoming_calls,
         `callHierarchy/outgoingCalls` = call_hierarchy_outgoing_calls,
+        `textDocument/prepareTypeHierarchy` = text_document_prepare_type_hierarchy,
+        `typeHierarchy/supertypes` = type_hierarchy_supertypes,
+        `typeHierarchy/subtypes` = type_hierarchy_subtypes,
         `textDocument/linkedEditingRange` = text_document_linked_editing_range,
+        `textDocument/semanticTokens/full` = text_document_semantic_tokens_full,
+        `textDocument/semanticTokens/range` = text_document_semantic_tokens_range,
         `workspace/symbol` = workspace_symbol
     )
 

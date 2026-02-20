@@ -13,7 +13,8 @@ CodeActionKind <- list(
 #'
 #' @keywords internal
 document_code_action_reply <- function(id, uri, workspace, document, range, context) {
-    result <- list()
+    result <- vector("list", length(context$diagnostics) * 2)
+    idx <- 0L
     listed_linters <- character()
 
     for (item in context$diagnostics) {
@@ -72,7 +73,8 @@ document_code_action_reply <- function(id, uri, workspace, document, range, cont
                     )
                 )
 
-                result <- c(result, list(action))
+                idx <- idx + 1L
+                result[[idx]] <- action
                 listed_linters <- c(listed_linters, "*")
             }
 
@@ -113,10 +115,17 @@ document_code_action_reply <- function(id, uri, workspace, document, range, cont
                     )
                 )
 
-                result <- c(result, list(action))
+                idx <- idx + 1L
+                result[[idx]] <- action
                 listed_linters <- c(listed_linters, item$code)
             }
         }
+    }
+
+    if (idx == 0L) {
+        result <- list()
+    } else if (idx < length(result)) {
+        result <- result[seq_len(idx)]
     }
 
     logger$info("document_code_action_reply: ", list(
