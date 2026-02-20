@@ -979,10 +979,12 @@ test_that("Completion of argument values from defaults works", {
     # Test named argument completion
     result <- client %>% respond_completion(
         temp_file, c(7, 17),
-        retry_when = function(result) length(result) == 0 || length(result$items) == 0
+        retry_when = function(result) {
+            length(result$items %>% keep(~ !is.null(.$data) && .$data$type == "argument_value")) == 0
+        }
     )
     
-    value_items <- result$items %>% keep(~ .$data$type == "argument_value")
+    value_items <- result$items %>% keep(~ !is.null(.$data) && .$data$type == "argument_value")
     expect_length(value_items, 1)
     
     labels <- value_items %>% map_chr(~ .$label)
@@ -995,10 +997,12 @@ test_that("Completion of argument values from defaults works", {
     # Test positional argument completion
     result <- client %>% respond_completion(
         temp_file, c(10, 8),
-        retry_when = function(result) length(result) == 0 || length(result$items) == 0
+        retry_when = function(result) {
+            length(result$items %>% keep(~ !is.null(.$data) && .$data$type == "argument_value")) == 0
+        }
     )
     
-    value_items <- result$items %>% keep(~ .$data$type == "argument_value")
+    value_items <- result$items %>% keep(~ !is.null(.$data) && .$data$type == "argument_value")
     expect_length(value_items, 2)
     
     labels <- value_items %>% map_chr(~ .$label)
@@ -1026,10 +1030,12 @@ test_that("Completion of argument values with partial match works", {
 
     result <- client %>% respond_completion(
         temp_file, c(5, 16),
-        retry_when = function(result) length(result) == 0 || length(result$items) == 0
+        retry_when = function(result) {
+            length(result$items %>% keep(~ !is.null(.$data) && .$data$type == "argument_value")) == 0
+        }
     )
     
-    value_items <- result$items %>% keep(~ .$data$type == "argument_value")
+    value_items <- result$items %>% keep(~ !is.null(.$data) && .$data$type == "argument_value")
     labels <- value_items %>% map_chr(~ .$label)
     
     # Should match 'advanced' but not 'normal' or 'special'
@@ -1054,10 +1060,12 @@ test_that("Completion of argument values works with base R functions", {
 
     result <- client %>% respond_completion(
         temp_file, c(1, 30),
-        retry_when = function(result) length(result) == 0 || length(result$items) == 0
+        retry_when = function(result) {
+            length(result$items %>% keep(~ !is.null(.$data) && .$data$type == "argument_value")) == 0
+        }
     )
     
-    value_items <- result$items %>% keep(~ .$data$type == "argument_value")
+    value_items <- result$items %>% keep(~ !is.null(.$data) && .$data$type == "argument_value")
     labels <- value_items %>% map_chr(~ .$label)
     
     # memCompress has type parameter with values "gzip", "bzip2", "xz", "zstd", "none"
@@ -1092,10 +1100,12 @@ test_that("Completion of argument values for multiple parameter function", {
     # Test second argument (mode) - positional
     result <- client %>% respond_completion(
         temp_file, c(8, 13),
-        retry_when = function(result) length(result) == 0 || length(result$items) == 0
+        retry_when = function(result) {
+            length(result$items %>% keep(~ !is.null(.$data) && .$data$type == "argument_value")) == 0
+        }
     )
     
-    value_items <- result$items %>% keep(~ .$data$type == "argument_value")
+    value_items <- result$items %>% keep(~ !is.null(.$data) && .$data$type == "argument_value")
     labels <- value_items %>% map_chr(~ .$label)
     
     expect_true("read" %in% labels)
@@ -1107,10 +1117,12 @@ test_that("Completion of argument values for multiple parameter function", {
     # Test third argument (style) - using named parameter
     result <- client %>% respond_completion(
         temp_file, c(10, 31),
-        retry_when = function(result) length(result) == 0 || length(result$items) == 0
+        retry_when = function(result) {
+            length(result$items %>% keep(~ !is.null(.$data) && .$data$type == "argument_value")) == 0
+        }
     )
     
-    value_items <- result$items %>% keep(~ .$data$type == "argument_value")
+    value_items <- result$items %>% keep(~ !is.null(.$data) && .$data$type == "argument_value")
     
     # Only assert if we got results, as named argument completion might depend on arg name detection
     if (length(value_items) > 0) {
@@ -1141,10 +1153,12 @@ test_that("Completion of argument values works with named arguments out of order
 
     result <- client %>% respond_completion(
         temp_file, c(6, 21),
-        retry_when = function(result) length(result) == 0 || length(result$items) == 0
+        retry_when = function(result) {
+            length(result$items %>% keep(~ !is.null(.$data) && .$data$type == "argument_value")) == 0
+        }
     )
     
-    value_items <- result$items %>% keep(~ .$data$type == "argument_value")
+    value_items <- result$items %>% keep(~ !is.null(.$data) && .$data$type == "argument_value")
     labels <- value_items %>% map_chr(~ .$label)
     
     expect_true("x" %in% labels)
@@ -1172,10 +1186,12 @@ test_that("Completion of argument values is case insensitive", {
 
     result <- client %>% respond_completion(
         temp_file, c(5, 17),
-        retry_when = function(result) length(result) == 0 || length(result$items) == 0
+        retry_when = function(result) {
+            length(result$items %>% keep(~ !is.null(.$data) && .$data$type == "argument_value")) == 0
+        }
     )
     
-    value_items <- result$items %>% keep(~ .$data$type == "argument_value")
+    value_items <- result$items %>% keep(~ !is.null(.$data) && .$data$type == "argument_value")
     labels <- value_items %>% map_chr(~ .$label)
     
     # Should match both "Manual" and "Custom" (case insensitive)
@@ -1231,10 +1247,12 @@ test_that("Completion of argument values works with positional arguments", {
 
     result <- client %>% respond_completion(
         temp_file, c(5, 11),
-        retry_when = function(result) length(result) == 0 || length(result$items) == 0
+        retry_when = function(result) {
+            length(result$items %>% keep(~ !is.null(.$data) && .$data$type == "argument_value")) == 0
+        }
     )
     
-    value_items <- result$items %>% keep(~ .$data$type == "argument_value")
+    value_items <- result$items %>% keep(~ !is.null(.$data) && .$data$type == "argument_value")
     labels <- value_items %>% map_chr(~ .$label)
     
     # Should match 'running' for positional argument
@@ -1261,10 +1279,12 @@ test_that("Completion of argument values with positional partial match works", {
 
     result <- client %>% respond_completion(
         temp_file, c(5, 9),
-        retry_when = function(result) length(result) == 0 || length(result$items) == 0
+        retry_when = function(result) {
+            length(result$items %>% keep(~ !is.null(.$data) && .$data$type == "argument_value")) == 0
+        }
     )
     
-    value_items <- result$items %>% keep(~ .$data$type == "argument_value")
+    value_items <- result$items %>% keep(~ !is.null(.$data) && .$data$type == "argument_value")
     labels <- value_items %>% map_chr(~ .$label)
     
     # Should match 'read' but not 'write' or 'append'
@@ -1295,10 +1315,12 @@ test_that("Completion of argument values for positional in multi-parameter funct
 
     result <- client %>% respond_completion(
         temp_file, c(7, 13),
-        retry_when = function(result) length(result) == 0 || length(result$items) == 0
+        retry_when = function(result) {
+            length(result$items %>% keep(~ !is.null(.$data) && .$data$type == "argument_value")) == 0
+        }
     )
     
-    value_items <- result$items %>% keep(~ .$data$type == "argument_value")
+    value_items <- result$items %>% keep(~ !is.null(.$data) && .$data$type == "argument_value")
     labels <- value_items %>% map_chr(~ .$label)
     
     # Should include values from both parameters that start with 'f'
