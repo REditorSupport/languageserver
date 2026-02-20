@@ -1,86 +1,70 @@
-name: Coverage
-
+# Workflow derived from https://github.com/r-lib/actions/tree/v2/examples
+# Need help debugging build failures? Start at https://github.com/r-lib/actions#where-to-find-help
 on:
   push:
-    branches:
-      - master
+    branches: [main, master]
   pull_request:
-    branches:
-      - master
+    branches: [main, master]
+
+name: Coverage
+
+permissions: read-all
 
 jobs:
-  cleanup:
-    name: Cancel Previous Runs
-    runs-on: ubuntu-latest
-    steps:
-      - uses: styfle/cancel-workflow-action@0.12.1
-        with:
-          access_token: ${{ github.token }}
-
-  codecov:
+  test-coverage:
     if: contains(github.event.head_commit.message, '[ci skip]') == false
-    name: codecov ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # - os: ubuntu-latest
-            # log_file: /tmp/languageserver/ubuntu-log
-          - os: macos-latest
-            log_file: /tmp/languageserver/macos-log
-          # - os: windows-latest
-            # log_file: C:/tmp/languageserver/windows-log
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
       NOT_CRAN: true
       _R_CHECK_CRAN_INCOMING_: false
       R_LANGSVR_LOG: ${{ matrix.log_file }}
       R_LANGSVR_POOL_SIZE: 1
       R_LANGSVR_TEST_FAST: NO
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: r-lib/actions/setup-r@v2
         with:
+          use-public-rspm: true
           r-version: release
-      - name: Create log directory on Linux or macOS
-        if: runner.os != 'Windows'
-        run: mkdir -p $(dirname ${{ env.R_LANGSVR_LOG }})
-      - name: Create log directory on Windows
-        if: runner.os == 'Windows'
-        run: New-Item -ItemType directory -Path (Split-Path -Parent ${{ env.R_LANGSVR_LOG }})
-      - name: Query dependencies
+
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          extra-packages: any::covr, any::xml2
+          needs: coverage
+
+      - name: Test coverage
         run: |
-          install.packages('remotes')
-          saveRDS(remotes::dev_package_deps(dependencies = TRUE), ".github/depends.Rds", version = 2)
-          writeLines(sprintf("R-%i.%i", getRversion()$major, getRversion()$minor), ".github/R-version")
+          cov <- covr::package_coverage(
+            quiet = FALSE,
+            clean = FALSE,
+            install_path = file.path(normalizePath(Sys.getenv("RUNNER_TEMP"), winslash = "/"), "package")
+          )
+          print(cov)
+          covr::to_cobertura(cov)
         shell: Rscript {0}
-      - name: Restore R package cache
-        uses: actions/cache@v4
+
+      - uses: codecov/codecov-action@v5
         with:
-          path: ${{ env.R_LIBS_USER }}
-          key: ${{ runner.os }}-${{ hashFiles('.github/R-version') }}-1-${{ hashFiles('.github/depends.Rds') }}
-          restore-keys: ${{ runner.os }}-${{ hashFiles('.github/R-version') }}-1-
-      - name: Install system dependencies
-        if: runner.os == 'Linux'
+          # Fail if error if not on PR, or if on PR and token is given
+          fail_ci_if_error: ${{ github.event_name != 'pull_request' || secrets.CODECOV_TOKEN }}
+          files: ./cobertura.xml
+          plugins: noop
+          disable_search: true
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Show testthat output
+        if: always()
         run: |
-          while read -r cmd
-          do
-            eval sudo $cmd
-          done < <(Rscript -e 'writeLines(remotes::system_requirements("ubuntu", "20.04"))')
-      - name: Install dependencies
-        run: |
-          Rscript -e "remotes::install_deps(dependencies = TRUE)"
-          Rscript -e "remotes::install_cran('covr')"
-      - name: Install a sperate copy on Windows
-        if:  runner.os == 'Windows'
-        run: |
-          Rscript -e "remotes::install_local()"
-      - name: Codecov
-        run: Rscript -e "covr::codecov()"
-        env:
-          CODECOV_TOKEN: ${{secrets.CODECOV_TOKEN}}
-      - uses: actions/upload-artifact@v4
+          ## --------------------------------------------------------------------
+          find '${{ runner.temp }}/package' -name 'testthat.Rout*' -exec cat '{}' \; || true
+        shell: bash
+
+      - name: Upload test results
         if: failure()
+        uses: actions/upload-artifact@v4
         with:
-          name: ${{ runner.os }}-log
-          path: ${{ env.R_LANGSVR_LOG }}
+          name: coverage-test-failures
+          path: ${{ runner.temp }}/package
