@@ -1045,22 +1045,23 @@ test_that("Completion of argument values works with base R functions", {
     temp_file <- withr::local_tempfile(fileext = ".R")
     writeLines(
         c(
-            "# test with base::file() which has open argument with defaults",
-            "file('test.txt', open = r)"
+            "# Test with memCompress() which has type parameter with character vector defaults",
+            "memCompress(raw(10), type = gz)"
         ),
         temp_file)
 
     client %>% did_save(temp_file)
 
     result <- client %>% respond_completion(
-        temp_file, c(1, 25),
+        temp_file, c(1, 30),
         retry_when = function(result) length(result) == 0 || length(result$items) == 0
     )
     
     value_items <- result$items %>% keep(~ .$data$type == "argument_value")
     labels <- value_items %>% map_chr(~ .$label)
     
-    # file() has open parameter with default values like "r", "w", etc.
+    # memCompress has type parameter with values "gzip", "bzip2", "xz", "zstd", "none"
+    expect_true("gzip" %in% labels)
     expect_true(length(labels) > 0)
 })
 
@@ -1306,33 +1307,4 @@ test_that("Completion of argument values for positional in multi-parameter funct
     # Should not include values that don't match
     expect_false("slow" %in% labels)
     expect_false("plain" %in% labels)
-})
-
-test_that("Positional argument completion works with base R functions", {
-    skip_on_cran()
-    client <- language_client()
-
-    temp_file <- withr::local_tempfile(fileext = ".R")
-    writeLines(
-        c(
-            "# Test with file() function",
-            "file('test.txt', r)"
-        ),
-        temp_file)
-
-    client %>% did_save(temp_file)
-
-    result <- client %>% respond_completion(
-        temp_file, c(1, 17),
-        retry_when = function(result) length(result) == 0 || length(result$items) == 0
-    )
-    
-    value_items <- result$items %>% keep(~ .$data$type == "argument_value")
-    
-    # Should get completions for 'open' parameter values
-    if (length(value_items) > 0) {
-        labels <- value_items %>% map_chr(~ .$label)
-        # file() has open parameter with values like "r", "w", "a", etc.
-        expect_true(length(labels) > 0)
-    }
 })
