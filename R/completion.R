@@ -169,11 +169,6 @@ argument_value_completion <- function(workspace, funct, package, arg_name, token
 #' Complete argument values based on function call context
 #' @noRd
 arg_value_completion <- function(uri, workspace, document, point, token, funct, package = NULL, exported_only = TRUE) {
-    # Skip if we don't have a meaningful token to complete
-    if (nchar(token) == 0) {
-        return(list())
-    }
-    
     # Get the package context
     package_for_call <- package
     if (is.null(package_for_call)) {
@@ -188,77 +183,24 @@ arg_value_completion <- function(uri, workspace, document, point, token, funct, 
         return(list())
     }
     
-    # Get current line - document$content is an array of lines (1-indexed)
-    if (point$row + 1 < 1 || point$row + 1 > length(document$content)) {
-        return(list())
-    }
+    # Get all parameters with character vector defaults
+    param_names <- names(formals_list)
+    all_completions <- list()
     
-    current_line <- document$content[point$row + 1]
-    if (point$col == 0 || point$col > nchar(current_line)) {
-        return(list())
-    }
-    
-    # Get text up to cursor
-    prefix <- substr(current_line, 1, point$col)
-    
-    # Approach 1: Check for named argument (with = sign)
-    parts <- strsplit(prefix, "=", fixed = TRUE)[[1]]
-    if (length(parts) >= 2) {
-        # Get text before the = sign  
-        before_equals <- parts[length(parts) - 1]
-        
-        # Extract potential argument name from end of before_equals
-        # Remove trailing whitespace and get the last word
-        trimmed <- trimws(before_equals)
-        words <- strsplit(trimmed, "[^a-zA-Z0-9_.]", perl = TRUE)[[1]]
-        if (length(words) > 0) {
-            potential_arg <- words[length(words)]
-            
-            # Validate it looks like an identifier
-            if (grepl("^[a-zA-Z_][a-zA-Z0-9_.]*$", potential_arg)) {
-                # Check if this is a valid parameter name
-                param_names <- names(formals_list)
-                if (potential_arg %in% param_names) {
-                    # Get value completions for this argument
-                    return(argument_value_completion(workspace, funct, package_for_call, potential_arg, token, exported_only))
-                }
+    for (param_name in param_names) {
+        values <- extract_default_values(formals_list[[param_name]])
+        if (!is.null(values) && length(values) > 0) {
+            # Filter values that match the current token
+            matching_values <- values[match_with(values, token)]
+            if (length(matching_values) > 0) {
+                # Generate completions for this parameter
+                param_completions <- argument_value_completion(workspace, funct, package_for_call, param_name, token, exported_only)
+                all_completions <- c(all_completions, param_completions)
             }
         }
     }
     
-    # Approach 2: Positional argument - try all parameters that have matching values
-    # Only do this if we have a meaningful token (not empty) and we're clearly in a function call
-    if (nchar(token) > 0) {
-        # Check if prefix contains function call opening parenthesis
-        # and the token is not preceded by an = sign (which would indicate a value for a named arg)
-        last_part <- parts[length(parts)]
-        # Only proceed if the last part doesn't look like it's after an equals sign with a parameter name
-        # (to avoid suggesting when user typed "param = ")
-        if (!grepl("^\\s*$", last_part)) {
-            # Get all parameters with character vector defaults
-            param_names <- names(formals_list)
-            all_completions <- list()
-            
-            for (param_name in param_names) {
-                values <- extract_default_values(formals_list[[param_name]])
-                if (!is.null(values) && length(values) > 0) {
-                    # Check if any values match the current token
-                    matching_values <- values[match_with(values, token)]
-                    if (length(matching_values) > 0) {
-                        # Generate completions for this parameter
-                        param_completions <- argument_value_completion(workspace, funct, package_for_call, param_name, token, exported_only)
-                        all_completions <- c(all_completions, param_completions)
-                    }
-                }
-            }
-            
-            if (length(all_completions) > 0) {
-                return(all_completions)
-            }
-        }
-    }
-    
-    list()
+    all_completions
 }
 
 #' Complete a function argument
