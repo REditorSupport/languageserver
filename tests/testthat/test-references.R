@@ -8,8 +8,8 @@ test_that("Find References works for functions in files", {
     writeLines(c("my_fn <- function(x) {", "  x + 1", "}"), defn_file)
     writeLines(c("my_fn"), query_file)
 
-    client %>% did_save(defn_file)
-    client %>% did_save(query_file)
+    client %>% did_open(defn_file)
+    client %>% did_open(query_file)
 
     # query at the beginning of token
     result <- client %>% respond_references(
@@ -67,7 +67,7 @@ test_that("Find References works for functions in files", {
 
     # move function into different file
     writeLines(c("my_fn <- function(x) {", "  x + 1", "}"), defn2_file)
-    client %>% did_save(defn2_file)
+    client %>% did_open(defn2_file)
 
     result <- client %>% respond_references(query_file, c(0, 0))
     expect_length(result, 2)
@@ -92,7 +92,7 @@ test_that("Find References works in single file", {
         c("my_fn <- function(x) {x + 1}", "my_fn", ".nonexistent"),
         single_file)
 
-    client %>% did_save(single_file)
+    client %>% did_open(single_file)
 
     # first query a known function to make sure the file is processed
     result <- client %>% respond_references(
@@ -128,7 +128,7 @@ test_that("Find References works in scope with different assignment operators", 
         "my_fn(1)"
     ), single_file)
 
-    client %>% did_save(single_file)
+    client %>% did_open(single_file)
 
     # first query a known function to make sure the file is processed
     result <- client %>% respond_references(
@@ -208,7 +208,7 @@ test_that("Find References in Rmarkdown works", {
         single_file
     )
 
-    client %>% did_save(single_file)
+    client %>% did_open(single_file)
 
     # first query a known function to make sure the file is processed
     result <- client %>% respond_references(single_file, c(5, 0))

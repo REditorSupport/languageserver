@@ -14,7 +14,7 @@ test_that("Document Symbol works", {
         ")"
     ), defn_file)
 
-    client %>% did_save(defn_file)
+    client %>% did_open(defn_file)
     result <- client %>% respond_document_symbol(defn_file)
 
     expect_setequal(result %>% map_chr(~ .$name), c("f", "g", "p", "m"))
@@ -64,7 +64,7 @@ test_that("Recognize symbols created by delayedAssign/assign/makeActiveBinding",
         "assign('assign4', 4, pos = new.env())"
     ), defn_file)
 
-    client %>% did_save(defn_file)
+    client %>% did_open(defn_file)
     result <- client %>% respond_document_symbol(defn_file)
 
     expect_setequal(
@@ -90,7 +90,7 @@ test_that("Document symbols are robust to invalid source", {
         "d1 <- 1"
     ), defn_file)
 
-    client %>% did_save(defn_file)
+    client %>% did_open(defn_file)
     result <- client %>% respond_document_symbol(defn_file)
 
     expect_setequal(
@@ -126,7 +126,7 @@ test_that("Document section symbol works", {
         ")"
     ), defn_file)
 
-    client %>% did_save(defn_file)
+    client %>% did_open(defn_file)
     result <- client %>% respond_document_symbol(defn_file)
 
     expect_setequal(
@@ -193,8 +193,8 @@ test_that("Workspace Symbol works", {
         ")"
     ), defn2_file)
 
-    client %>% did_save(defn_file)
-    client %>% did_save(defn2_file)
+    client %>% did_open(defn_file)
+    client %>% did_open(defn2_file)
 
     expected_names <- c("f1", "f2")
     result <- client %>% respond_workspace_symbol(
@@ -277,7 +277,7 @@ test_that("Document section symbol works in Rmarkdown", {
         "```"
     ), defn_file)
 
-    client %>% did_save(defn_file)
+    client %>% did_open(defn_file)
     result <- client %>% respond_document_symbol(defn_file)
 
     expect_setequal(

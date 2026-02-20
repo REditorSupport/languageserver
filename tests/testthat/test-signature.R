@@ -10,7 +10,7 @@ test_that("Simple signature works", {
         ),
         temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_signature(temp_file, c(0, 10))
     expect_length(result$signatures, 1)
@@ -37,7 +37,7 @@ test_that("Signature of user function works", {
     writeLines(c("foo <- function(x, y = 3) { x + y }"), defn_file)
     writeLines(c("foo(3, "), temp_file)
 
-    client %>% did_save(defn_file) %>% did_save(temp_file)
+    client %>% did_open(defn_file) %>% did_open(temp_file)
 
     result <- client %>% respond_signature(
         temp_file, c(0, 7),
@@ -56,7 +56,7 @@ test_that("Signature of user function works with semi-colon", {
     writeLines(c("foo <- function(x, y = 3) { x + y };"), defn_file)
     writeLines(c("foo(3, "), temp_file)
 
-    client %>% did_save(defn_file) %>% did_save(temp_file)
+    client %>% did_open(defn_file) %>% did_open(temp_file)
 
     result <- client %>% respond_signature(
         temp_file, c(0, 7),
@@ -83,7 +83,7 @@ test_that("Signature in Rmarkdown works", {
         temp_file
     )
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_signature(temp_file, c(3, 10))
     expect_length(result$signatures, 1)

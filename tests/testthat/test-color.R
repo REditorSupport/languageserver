@@ -18,7 +18,7 @@ test_that("Document color works", {
         temp_file
     )
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_document_color(temp_file)
     expect_length(result, 5)
@@ -65,7 +65,7 @@ test_that("Document color works in Rmarkdown", {
         temp_file
     )
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_document_color(temp_file)
     expect_length(result, 5)

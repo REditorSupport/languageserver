@@ -9,7 +9,7 @@ test_that("Formatting document works", {
         "}"
     ), temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_formatting(temp_file)
 
@@ -36,7 +36,7 @@ test_that("Formatting selection works for complete line", {
         "}"
     ), temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_range_formatting(temp_file, c(1, 0), c(2, 7))
 
@@ -59,7 +59,7 @@ test_that("Formatting selection works for partial line", {
         "}"
     ), temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_range_formatting(temp_file, c(1, 4), c(2, 7))
 
@@ -81,7 +81,7 @@ test_that("Formatting selection preserves initial indentation", {
         "  }"
     ), temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_range_formatting(temp_file, c(0, 0), c(3, 3))
 
@@ -106,7 +106,7 @@ test_that("Formatting selection does not add indentation to multi-line string", 
         "}"
     ), temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_range_formatting(temp_file, c(1, 0), c(3, 23))
 
@@ -134,7 +134,7 @@ test_that("On type formatting works", {
         "select(a,b)"
     ), temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_on_type_formatting(temp_file, c(1, 10), ")")
     expect_length(result, 1)
@@ -192,7 +192,7 @@ test_that("Formatting in Rmarkdown works", {
         single_file
     )
 
-    client %>% did_save(single_file)
+    client %>% did_open(single_file)
 
     # first query a known function to make sure the file is processed
     result <- client %>% respond_formatting(single_file)
@@ -223,7 +223,7 @@ test_that("On type formatting works in Rmarkdown", {
         "```"
     ), temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_on_type_formatting(temp_file, c(1, 10), ")", retry = FALSE)
     expect_length(result, 0)

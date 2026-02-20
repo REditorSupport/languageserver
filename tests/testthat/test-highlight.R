@@ -12,7 +12,7 @@ test_that("Document highlight works", {
         ),
         temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     # query at the beginning of token
     result <- client %>% respond_document_highlight(temp_file, c(1, 0))
@@ -73,7 +73,7 @@ test_that("Document highlight works in Rmarkdown", {
         temp_file
     )
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_document_highlight(temp_file, c(6, 0))
 

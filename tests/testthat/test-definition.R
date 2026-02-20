@@ -8,8 +8,8 @@ test_that("Go to Definition works for functions in files", {
     writeLines(c("my_fn <- function(x) {", "  x + 1", "}"), defn_file)
     writeLines(c("my_fn"), query_file)
 
-    client %>% did_save(defn_file)
-    client %>% did_save(query_file)
+    client %>% did_open(defn_file)
+    client %>% did_open(query_file)
 
     # query at the beginning of token
     result <- client %>% respond_definition(query_file, c(0, 0))
@@ -42,7 +42,7 @@ test_that("Go to Definition works for functions in files", {
 
     # move function into different file
     writeLines(c("my_fn <- function(x) {", "  x + 1", "}"), defn2_file)
-    client %>% did_save(defn2_file)
+    client %>% did_open(defn2_file)
 
     result <- client %>% respond_definition(query_file, c(0, 0))
 
@@ -56,7 +56,7 @@ test_that("Go to Definition works for functions in packages", {
     query_file <- withr::local_tempfile(fileext = ".R")
     writeLines(c("print"), query_file)
 
-    client %>% did_save(query_file)
+    client %>% did_open(query_file)
 
     result <- client %>% respond_definition(query_file, c(0, 0))
 
@@ -72,7 +72,7 @@ test_that("Go to Definition works in single file", {
         c("my_fn <- function(x) {x + 1}", "my_fn", ".nonexistent"),
         single_file)
 
-    client %>% did_save(single_file)
+    client %>% did_open(single_file)
 
     # first query a known function to make sure the file is processed
     result <- client %>% respond_definition(single_file, c(1, 0))
@@ -127,7 +127,7 @@ test_that("Go to Definition works in scope with different assignment operators",
         "my_fn(1)"
     ), single_file)
 
-    client %>% did_save(single_file)
+    client %>% did_open(single_file)
 
     # first query a known function to make sure the file is processed
     result <- client %>% respond_definition(single_file, c(8, 0))
@@ -178,7 +178,7 @@ test_that("Go to Definition works in scope with semi-colons", {
         "my_fn(1)"
     ), single_file)
 
-    client %>% did_save(single_file)
+    client %>% did_open(single_file)
 
     # first query a known function to make sure the file is processed
     result <- client %>% respond_definition(single_file, c(8, 0))
@@ -226,7 +226,7 @@ test_that("Go to Definition works on both sides of assignment", {
         "var3 + 3 -> var3"
     ), single_file)
 
-    client %>% did_save(single_file)
+    client %>% did_open(single_file)
 
     result <- client %>% respond_definition(single_file, c(0, 1))
 
@@ -287,8 +287,8 @@ test_that("Go to Definition works when package is specified", {
     writeLines(c("print <- function(x) {", "# Not base::print", "}"), defn_file)
     writeLines(c("print", "base::print"), query_file)
 
-    client %>% did_save(defn_file)
-    client %>% did_save(query_file)
+    client %>% did_open(defn_file)
+    client %>% did_open(query_file)
 
     result <- client %>% respond_definition(query_file, c(0, 0),
         retry_when = function(result) {
@@ -322,7 +322,7 @@ test_that("Go to Definition in Rmarkdown works", {
         single_file
     )
 
-    client %>% did_save(single_file)
+    client %>% did_open(single_file)
 
     # first query a known function to make sure the file is processed
     result <- client %>% respond_definition(single_file, c(5, 0))
@@ -354,8 +354,8 @@ test_that("Go to Definition works for file paths", {
         sprintf("source('%s')", basename(defn_file))
     ), query_file)
 
-    client %>% did_save(defn_file)
-    client %>% did_save(query_file)
+    client %>% did_open(defn_file)
+    client %>% did_open(query_file)
 
     result <- client %>% respond_definition(query_file, c(0, 9))
     expect_equal(result$uri, path_to_uri(defn_file))

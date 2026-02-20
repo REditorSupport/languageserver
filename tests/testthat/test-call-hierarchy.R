@@ -9,7 +9,7 @@ test_that("Call hierarchy works in single file", {
         "fun <- function(x) { foo(x) + bar(x) + 1 }"
     ), single_file)
 
-    client %>% did_save(single_file)
+    client %>% did_open(single_file)
 
     result <- client %>% respond_prepare_call_hierarchy(
         single_file, c(0, 1), retry_when = function(result) length(result) == 0)
@@ -74,8 +74,8 @@ test_that("Call hierarchy works in multiple files", {
         "fun <- function(x) { foo(x) + bar(x) + 1 }"
     ), file2)
 
-    client %>% did_save(file1)
-    client %>% did_save(file2)
+    client %>% did_open(file1)
+    client %>% did_open(file2)
 
     result <- client %>% respond_prepare_call_hierarchy(
         file2, c(0, 22), retry_when = function(result) length(result) == 0)
@@ -120,7 +120,7 @@ test_that("Call hierarchy incoming calls works", {
         "fun <- function(x) { foo(x) + bar(x) + foo(bar(x)) }"
     ), single_file)
 
-    client %>% did_save(single_file)
+    client %>% did_open(single_file)
 
     items <- client %>% respond_prepare_call_hierarchy(
         single_file, c(0, 1), retry_when = function(result) length(result) == 0)
@@ -183,7 +183,7 @@ test_that("Call hierarchy outgoing calls works", {
         "fun <- function(x) { foo(x) + bar(x) + foo(bar(x)) }"
     ), single_file)
 
-    client %>% did_save(single_file)
+    client %>% did_open(single_file)
 
     items <- client %>% respond_prepare_call_hierarchy(
         single_file, c(2, 1), retry_when = function(result) length(result) == 0)
