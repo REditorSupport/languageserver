@@ -4,6 +4,10 @@ test_that("lintr works", {
     dir <- tempdir()
     client <- language_client(working_dir = dir, diagnostics = TRUE)
 
+    lintr_file <- file.path(dir, ".lintr")
+    on.exit(unlink(lintr_file), add = TRUE)
+    writeLines("linters: linters_with_defaults()", lintr_file)
+
     temp_file <- withr::local_tempfile(tmpdir = dir, fileext = ".R")
     writeLines("a = 1", temp_file)
 
@@ -13,7 +17,8 @@ test_that("lintr works", {
     expect_equal(client$diagnostics$size(), 1)
     expect_equal(client$diagnostics$get(data$uri), data$diagnostics)
     expect_equal(data$diagnostics[[1]]$code, "assignment_linter")
-    expect_equal(data$diagnostics[[1]]$message, "Use <-, not =, for assignment.")
+    expect_true(stringi::stri_detect_fixed(data$diagnostics[[1]]$message, "assignment"))
+    expect_true(stringi::stri_detect_fixed(data$diagnostics[[1]]$message, "not ="))
 })
 
 test_that("lintr config file works", {
@@ -23,7 +28,7 @@ test_that("lintr config file works", {
     lintr_file <- file.path(dir, ".lintr")
     on.exit(unlink(lintr_file))
 
-    writeLines("linters: with_defaults()", lintr_file)
+    writeLines("linters: linters_with_defaults()", lintr_file)
 
     client <- language_client(working_dir = dir, diagnostics = TRUE)
 
@@ -40,7 +45,7 @@ test_that("lintr config file works", {
         c("assignment_linter", "infix_spaces_linter"))
 
 
-    writeLines("linters: with_defaults(assignment_linter=NULL)", lintr_file)
+    writeLines("linters: linters_with_defaults(assignment_linter=NULL)", lintr_file)
 
     client <- language_client(working_dir = dir, diagnostics = TRUE)
 

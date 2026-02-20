@@ -129,6 +129,31 @@ symbol_information <- function(name, kind, location) {
   )
 }
 
+#' Hierarchical document symbol
+#'
+#' @param name a character
+#' @param kind an integer
+#' @param range a [range]
+#' @param selectionRange a [range]
+#' @param detail a character (optional)
+#' @param children a list of document symbols (optional)
+#' @noRd
+document_symbol <- function(name, kind, range, selectionRange, detail = NULL, children = NULL) {
+  result <- list(
+    name = name,
+    kind = kind,
+    range = range,
+    selectionRange = selectionRange
+  )
+  if (!is.null(detail)) {
+    result$detail <- detail
+  }
+  if (!is.null(children) && length(children) > 0) {
+    result$children <- children
+  }
+  structure(result, class = "document_symbol")
+}
+
 #' A textual edit applicable to a text document
 #'
 #' @param range a [range], the part of the document to replace

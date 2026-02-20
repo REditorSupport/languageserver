@@ -87,7 +87,11 @@ get_expr_type <- function(expr) {
         } else if (func == "list") {
             "list"
         } else if (grepl("(R6:::?)?R6Class", func)) {
-            "class"
+            "R6"
+        } else if (func %in% c("setClass", "methods::setClass")) {
+            "S4"
+        } else if (func %in% c("setRefClass", "methods::setRefClass")) {
+            "RefClass"
         } else {
             "variable"
         }
@@ -225,12 +229,30 @@ check_scope <- function(uri, document, point) {
     }
 }
 
+is_ascii_string <- function(x) {
+    length(x) == 1 && !is.na(x) && !grepl("[^\\x00-\\x7F]", x)
+}
+
+is_ascii_vector <- function(x) {
+    if (!length(x)) {
+        return(TRUE)
+    }
+    any_non_ascii <- any(grepl("[^\\x00-\\x7F]", x), na.rm = TRUE)
+    !any_non_ascii
+}
+
 match_with <- function(x, token) {
+    if (is_ascii_string(token) && is_ascii_vector(x)) {
+        return(.Call("match_with_c", PACKAGE = "languageserver", x, token))
+    }
     pattern <- gsub(".", "\\.", token, fixed = TRUE)
     grepl(pattern, x, ignore.case = TRUE)
 }
 
 fuzzy_find <- function(x, pattern) {
+    if (is_ascii_string(pattern) && is_ascii_vector(x)) {
+        return(.Call("fuzzy_find_c", PACKAGE = "languageserver", x, pattern))
+    }
     subsequence_regex <- gsub("(.)", "\\1.*", pattern)
     grepl(subsequence_regex, x, ignore.case = TRUE)
 }
@@ -249,15 +271,23 @@ extract_blocks <- function(content) {
     begins_or_ends <- which(stringi::stri_detect_fixed(content, "```"))
     begins <- which(stringi::stri_detect_regex(content, "```+\\s*\\{[rR][ ,\\}]"))
     ends <- setdiff(begins_or_ends, begins)
-    blocks <- list()
+    blocks <- vector("list", length(begins))
+    idx <- 0L
     for (begin in begins) {
         z <- which(ends > begin)
         if (length(z) == 0) break
         end <- ends[min(z)]
         lines <- seq_safe(begin + 1, end - 1)
         if (length(lines) > 0) {
-            blocks[[length(blocks) + 1]] <- list(lines = lines, text = content[lines])
+            idx <- idx + 1L
+            blocks[[idx]] <- list(lines = lines, text = content[lines])
         }
+    }
+    if (idx == 0L) {
+        return(list())
+    }
+    if (idx < length(blocks)) {
+        blocks <- blocks[seq_len(idx)]
     }
     blocks
 }
@@ -293,36 +323,32 @@ ncodeunit <- function(s) {
 #' Determine code points given code units
 #'
 #' @param line a character of text
-#' @param units 0-indexed code points
+#' @param units 0-indexed UTF-16 code units
 #'
 #' @noRd
 code_point_from_unit <- function(line, units) {
-    if (!nzchar(line)) return(units)
-    offsets <- cumsum(ncodeunit(strsplit(line, "")[[1]]))
-    loc_map <- match(seq_len(utils::tail(offsets, 1)), offsets)
-    result <- c(0, loc_map)[units + 1]
-    n <- nchar(line)
-    result[units > length(loc_map)] <- n
-    result[is.infinite(units)] <- n
-    result
+    if (any(is.infinite(units))) {
+        units[is.infinite(units)] <- NA_integer_
+    }
+    # Performance: Use C implementation for fast UTF-16 conversions
+    # This is called on every keystroke (completion, hover, signature help)
+    .Call("code_point_from_unit_c", PACKAGE = "languageserver", line, as.integer(units))
 }
 
 #' Determine code units given code points
 #'
 #' @param line a character of text
-#' @param units 0-indexed code units
+#' @param pts 0-indexed code points
 #'
 #' @noRd
 code_point_to_unit <- function(line, pts) {
+    if (any(is.infinite(pts))) {
+        pts[is.infinite(pts)] <- NA_integer_
+    }
     pts[pts < 0] <- 0
-    if (!nzchar(line)) return(pts)
-    offsets <- c(0, cumsum(ncodeunit(strsplit(line, "")[[1]])))
-    result <- offsets[pts + 1]
-    n <- length(offsets)
-    m <- offsets[n]
-    result[pts >= n] <- m
-    result[!is.finite(pts)] <- m
-    result
+    # Performance: Use C implementation for fast UTF-16 conversions
+    # This is called for every position in handlers and diagnostics
+    .Call("code_point_to_unit_c", PACKAGE = "languageserver", line, as.integer(pts))
 }
 
 
@@ -447,6 +473,26 @@ look_backward <- function(text) {
         package  = na_to_empty_string(matches[2]),
         accessor = na_to_empty_string(matches[3]),
         token = na_to_empty_string(matches[4])
+    )
+}
+
+scan_token <- function(text, col, forward = TRUE) {
+    if (length(text) == 0) {
+        return(list(
+            full_token = "",
+            right_token = "",
+            package = "",
+            accessor = "",
+            token = ""
+        ))
+    }
+    if (!isTRUE(forward)) {
+        forward <- FALSE
+    }
+
+    .Call("scan_token_c",
+        PACKAGE = "languageserver",
+        text, as.integer(col), forward
     )
 }
 

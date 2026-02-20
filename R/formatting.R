@@ -47,7 +47,8 @@ formatting_reply <- function(id, uri, document, options) {
         if (length(blocks) == 0) {
             return(Response$new(id, list()))
         }
-        TextEditList <- list()
+        TextEditList <- vector("list", length(blocks))
+        idx <- 0L
         for (block in blocks) {
             new_text <- style_text(block$text, style)
             if (is.null(new_text)) {
@@ -60,7 +61,11 @@ formatting_reply <- function(id, uri, document, options) {
                 end = document$to_lsp_position(row = b - 1, col = nchar(document$line(b)))
             )
             TextEdit <- text_edit(range = range, new_text = new_text)
-            TextEditList[[length(TextEditList) + 1]] <- TextEdit
+            idx <- idx + 1L
+            TextEditList[[idx]] <- TextEdit
+        }
+        if (idx < length(TextEditList)) {
+            TextEditList <- TextEditList[seq_len(idx)]
         }
     } else {
         logger$info("formatting R file")
