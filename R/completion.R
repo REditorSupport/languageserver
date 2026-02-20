@@ -180,11 +180,7 @@ arg_value_completion <- function(uri, workspace, document, point, token, funct, 
         package_for_call <- workspace$guess_namespace(funct, isf = TRUE)
     }
     
-    if (is.null(package_for_call)) {
-        return(list())
-    }
-    
-    # Get the formals
+    # Try to get the formals - works with NULL package for user-defined functions
     formals_list <- workspace$get_formals(funct, package_for_call,
         exported_only = exported_only)
     
@@ -192,13 +188,12 @@ arg_value_completion <- function(uri, workspace, document, point, token, funct, 
         return(list())
     }
     
-    # Get current line
-    lines <- strsplit(document$content, "\n", fixed = TRUE)[[1]]
-    if (point$row >= length(lines)) {
+    # Get current line - document$content is an array of lines (1-indexed)
+    if (point$row + 1 < 1 || point$row + 1 > length(document$content)) {
         return(list())
     }
     
-    current_line <- lines[point$row + 1]
+    current_line <- document$content[point$row + 1]
     if (point$col == 0 || point$col > nchar(current_line)) {
         return(list())
     }
@@ -209,7 +204,7 @@ arg_value_completion <- function(uri, workspace, document, point, token, funct, 
     # Simple approach: split by = and check if the part before it looks like a named argument
     parts <- strsplit(prefix, "=", fixed = TRUE)[[1]]
     if (length(parts) >= 2) {
-        # Get text before the = sign
+        # Get text before the = sign  
         before_equals <- parts[length(parts) - 1]
         
         # Extract potential argument name from end of before_equals
@@ -225,7 +220,9 @@ arg_value_completion <- function(uri, workspace, document, point, token, funct, 
                 param_names <- names(formals_list)
                 if (potential_arg %in% param_names) {
                     # Get value completions for this argument
-                    return(argument_value_completion(workspace, funct, package_for_call, potential_arg, token))
+                    result <- argument_value_completion(workspace, funct, package_for_call, potential_arg, token)
+                    logger$info("arg_value_completion: returning", length(result), "items for", funct, "arg", potential_arg)
+                    return(result)
                 }
             }
         }
