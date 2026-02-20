@@ -1018,14 +1018,14 @@ test_that("Completion of argument values with partial match works", {
             "  type",
             "}",
             "",
-            "my_func(type = 'a'"
+            "my_func(type = a"
         ),
         temp_file)
 
     client %>% did_save(temp_file)
 
     result <- client %>% respond_completion(
-        temp_file, c(5, 17),
+        temp_file, c(5, 16),
         retry_when = function(result) length(result) == 0 || length(result$items) == 0
     )
     
@@ -1046,14 +1046,14 @@ test_that("Completion of argument values works with base R functions", {
     writeLines(
         c(
             "# test with base::file() which has open argument with defaults",
-            "file('test.txt', open = 'r')"
+            "file('test.txt', open = r)"
         ),
         temp_file)
 
     client %>% did_save(temp_file)
 
     result <- client %>% respond_completion(
-        temp_file, c(1, 26),
+        temp_file, c(1, 25),
         retry_when = function(result) length(result) == 0 || length(result$items) == 0
     )
     
@@ -1079,10 +1079,10 @@ test_that("Completion of argument values for multiple parameter function", {
             "}",
             "",
             "# Test second argument",
-            "test_func(1, 'r",
+            "test_func(1, r",
             "",
             "# Test third argument with named param",
-            "test_func(mode = 'w', style = 'p')"
+            "test_func(mode = w, style = p)"
         ),
         temp_file)
 
@@ -1090,7 +1090,7 @@ test_that("Completion of argument values for multiple parameter function", {
 
     # Test second argument (mode) - positional
     result <- client %>% respond_completion(
-        temp_file, c(9, 15),
+        temp_file, c(8, 13),
         retry_when = function(result) length(result) == 0 || length(result$items) == 0
     )
     
@@ -1105,7 +1105,7 @@ test_that("Completion of argument values for multiple parameter function", {
     
     # Test third argument (style) - using named parameter
     result <- client %>% respond_completion(
-        temp_file, c(12, 32),
+        temp_file, c(10, 31),
         retry_when = function(result) length(result) == 0 || length(result$items) == 0
     )
     
@@ -1132,14 +1132,14 @@ test_that("Completion of argument values works with named arguments out of order
             "}",
             "",
             "# Named argument out of order",
-            "test_func(c = 5, b = '')"
+            "test_func(c = 5, b = )"
         ),
         temp_file)
 
     client %>% did_save(temp_file)
 
     result <- client %>% respond_completion(
-        temp_file, c(6, 20),
+        temp_file, c(6, 21),
         retry_when = function(result) length(result) == 0 || length(result$items) == 0
     )
     
@@ -1163,14 +1163,14 @@ test_that("Completion of argument values is case insensitive", {
             "  method",
             "}",
             "",
-            "my_func(method = 'M')"
+            "my_func(method = M)"
         ),
         temp_file)
 
     client %>% did_save(temp_file)
 
     result <- client %>% respond_completion(
-        temp_file, c(5, 18),
+        temp_file, c(5, 17),
         retry_when = function(result) length(result) == 0 || length(result$items) == 0
     )
     
@@ -1194,14 +1194,14 @@ test_that("No argument value completion for non-character defaults", {
             "  x + y",
             "}",
             "",
-            "my_func(x = 'a')"
+            "my_func(x = a)"
         ),
         temp_file)
 
     client %>% did_save(temp_file)
 
     result <- client %>% respond_completion(
-        temp_file, c(5, 13),
+        temp_file, c(5, 12),
         retry_when = function(result) length(result) == 0
     )
     
@@ -1252,14 +1252,14 @@ test_that("Completion of argument values with positional partial match works", {
             "  mode",
             "}",
             "",
-            "my_func('r')"
+            "my_func(r)"
         ),
         temp_file)
 
     client %>% did_save(temp_file)
 
     result <- client %>% respond_completion(
-        temp_file, c(5, 10),
+        temp_file, c(5, 9),
         retry_when = function(result) length(result) == 0 || length(result$items) == 0
     )
     
@@ -1286,14 +1286,14 @@ test_that("Completion of argument values for positional in multi-parameter funct
             "}",
             "",
             "# Should suggest values from both mode and style parameters",
-            "test_func(1, 'f')"
+            "test_func(1, f)"
         ),
         temp_file)
 
     client %>% did_save(temp_file)
 
     result <- client %>% respond_completion(
-        temp_file, c(7, 15),
+        temp_file, c(7, 13),
         retry_when = function(result) length(result) == 0 || length(result$items) == 0
     )
     
