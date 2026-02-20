@@ -94,6 +94,7 @@ did_open <- function(client, path, uri = path_to_uri(path), text = NULL, languag
             )
         )
     )
+    Sys.sleep(0.5)
     invisible(client)
 }
 
