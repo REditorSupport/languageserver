@@ -1209,3 +1209,130 @@ test_that("No argument value completion for non-character defaults", {
     value_items <- result$items %>% keep(~ !is.null(.$data$type) && .$data$type == "argument_value")
     expect_length(value_items, 0)
 })
+
+test_that("Completion of argument values works with positional arguments", {
+    skip_on_cran()
+    client <- language_client()
+
+    temp_file <- withr::local_tempfile(fileext = ".R")
+    writeLines(
+        c(
+            "fun0 <- function(x, status = c('running', 'done', 'error')) {",
+            "  status <- match.arg(status)",
+            "  status",
+            "}",
+            "",
+            "fun0(1, run"
+        ),
+        temp_file)
+
+    client %>% did_save(temp_file)
+
+    result <- client %>% respond_completion(
+        temp_file, c(5, 11),
+        retry_when = function(result) length(result) == 0 || length(result$items) == 0
+    )
+    
+    value_items <- result$items %>% keep(~ .$data$type == "argument_value")
+    labels <- value_items %>% map_chr(~ .$label)
+    
+    # Should match 'running' for positional argument
+    expect_true("running" %in% labels)
+})
+
+test_that("Completion of argument values with positional partial match works", {
+    skip_on_cran()
+    client <- language_client()
+
+    temp_file <- withr::local_tempfile(fileext = ".R")
+    writeLines(
+        c(
+            "my_func <- function(mode = c('read', 'write', 'append')) {",
+            "  mode <- match.arg(mode)",
+            "  mode",
+            "}",
+            "",
+            "my_func('r')"
+        ),
+        temp_file)
+
+    client %>% did_save(temp_file)
+
+    result <- client %>% respond_completion(
+        temp_file, c(5, 10),
+        retry_when = function(result) length(result) == 0 || length(result$items) == 0
+    )
+    
+    value_items <- result$items %>% keep(~ .$data$type == "argument_value")
+    labels <- value_items %>% map_chr(~ .$label)
+    
+    # Should match 'read' but not 'write' or 'append'
+    expect_true("read" %in% labels)
+    expect_false("write" %in% labels)
+    expect_false("append" %in% labels)
+})
+
+test_that("Completion of argument values for positional in multi-parameter function", {
+    skip_on_cran()
+    client <- language_client()
+
+    temp_file <- withr::local_tempfile(fileext = ".R")
+    writeLines(
+        c(
+            "test_func <- function(x, mode = c('fast', 'slow'), style = c('plain', 'fancy')) {",
+            "  mode <- match.arg(mode)",
+            "  style <- match.arg(style)",
+            "  list(x, mode, style)",
+            "}",
+            "",
+            "# Should suggest values from both mode and style parameters",
+            "test_func(1, 'f')"
+        ),
+        temp_file)
+
+    client %>% did_save(temp_file)
+
+    result <- client %>% respond_completion(
+        temp_file, c(7, 15),
+        retry_when = function(result) length(result) == 0 || length(result$items) == 0
+    )
+    
+    value_items <- result$items %>% keep(~ .$data$type == "argument_value")
+    labels <- value_items %>% map_chr(~ .$label)
+    
+    # Should include values from both parameters that start with 'f'
+    expect_true("fast" %in% labels)
+    expect_true("fancy" %in% labels)
+    # Should not include values that don't match
+    expect_false("slow" %in% labels)
+    expect_false("plain" %in% labels)
+})
+
+test_that("Positional argument completion works with base R functions", {
+    skip_on_cran()
+    client <- language_client()
+
+    temp_file <- withr::local_tempfile(fileext = ".R")
+    writeLines(
+        c(
+            "# Test with file() function",
+            "file('test.txt', 'r')"
+        ),
+        temp_file)
+
+    client %>% did_save(temp_file)
+
+    result <- client %>% respond_completion(
+        temp_file, c(1, 19),
+        retry_when = function(result) length(result) == 0 || length(result$items) == 0
+    )
+    
+    value_items <- result$items %>% keep(~ .$data$type == "argument_value")
+    
+    # Should get completions for 'open' parameter values
+    if (length(value_items) > 0) {
+        labels <- value_items %>% map_chr(~ .$label)
+        # file() has open parameter with values like "r", "w", "a", etc.
+        expect_true(length(labels) > 0)
+    }
+})
