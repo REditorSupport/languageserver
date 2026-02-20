@@ -64,12 +64,20 @@ The following editors are supported by installing the corresponding extensions:
 
 - Sublime Text: [R-IDE](https://github.com/REditorSupport/sublime-ide-r)
 
-- Vim/NeoVim: [LanguageClient-neovim](https://github.com/autozimu/LanguageClient-neovim) with settings
+- NeoVim: NeoVim's LSP client with settings
 
-    ```vim
-    let g:LanguageClient_serverCommands = {
-        \ 'r': ['R', '--no-echo', '-e', 'languageserver::run()'],
-        \ }
+    ```lua
+    vim.lsp.config['r_language_server'] = {
+    	settings = {
+    		filetypes = { "r", "rmd" },
+    	},
+    }
+    vim.api.nvim_create_autocmd("FileType", {
+    	pattern = { "r", "rmd" },
+    	callback = function()
+    		vim.lsp.start(vim.lsp.config["r_language_server"])
+    	end,
+    }
     ```
 
   or, if you use [coc.nvim](https://github.com/neoclide/coc.nvim), you can do one of two things:
