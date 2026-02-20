@@ -23,7 +23,8 @@ text_document_did_open <- function(self, params) {
     doc <- Document$new(uri, language = language, version = version, content = content)
     self$workspace$documents$set(uri, doc)
     doc$did_open()
-    self$text_sync(uri, document = doc, run_lintr = TRUE, parse = TRUE)
+    # Performance: Parse immediately on open (no delay) to have data ready for initial requests
+    self$text_sync(uri, document = doc, run_lintr = TRUE, parse = TRUE, delay = 0)
 }
 
 #' `textDocument/didChange` notification handler

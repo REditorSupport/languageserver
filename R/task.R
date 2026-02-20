@@ -87,6 +87,9 @@ TaskManager <- R6::R6Class("TaskManager",
             private$name <- name
         },
         add_task = function(id, task) {
+            if (is.null(task)) {
+                return(NULL)
+            }
             private$pending_tasks$set(id, task)
         },
         run_tasks = function(cpu_load = 0.5) {
@@ -95,11 +98,20 @@ TaskManager <- R6::R6Class("TaskManager",
                 n <- private$session_pool$get_idle_size()
             } else {
                 # use r_bg
-                n <- max(max(private$cpus * cpu_load, 1) - private$running_tasks$size(), 0)
+                # Performance: Increase CPU load factor for better resource utilization
+                # Old: cpu_load = 0.5 was conservative
+                # New: Allow higher utilization for better throughput
+                effective_cpu_load <- if (private$name == "parse") 0.8 else cpu_load
+                n <- max(max(private$cpus * effective_cpu_load, 1) - private$running_tasks$size(), 0)
             }
 
             ids <- private$pending_tasks$keys()
-            if (length(ids) > n) {
+            # Performance: Prioritize newer tasks over older for better responsiveness
+            # For parse tasks, process most recent documents first
+            if (length(ids) > n && private$name == "parse") {
+                # Take the most recent n tasks
+                ids <- tail(ids, n)
+            } else if (length(ids) > n) {
                 ids <- ids[seq_len(n)]
             }
             for (id in ids) {
