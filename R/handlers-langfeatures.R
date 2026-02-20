@@ -366,10 +366,84 @@ call_hierarchy_outgoing_calls <- function(self, id, params) {
     )
 }
 
+#' `textDocument/prepareTypeHierarchy` request handler
+#'
+#' Handler to the `textDocument/prepareTypeHierarchy` [Request].
+#' @noRd
+text_document_prepare_type_hierarchy <- function(self, id, params) {
+    textDocument <- params$textDocument
+    uri <- uri_escape_unicode(textDocument$uri)
+    document <- self$workspace$documents$get(uri)
+    point <- document$from_lsp_position(params$position)
+    self$deliver(prepare_type_hierarchy_reply(id, uri, self$workspace, document, point))
+}
+
+#' `typeHierarchy/supertypes` request handler
+#'
+#' Handler to the `typeHierarchy/supertypes` [Request].
+#' @noRd
+type_hierarchy_supertypes <- function(self, id, params) {
+    self$deliver(
+        type_hierarchy_supertypes_reply(id, self$workspace, params$item)
+    )
+}
+
+#' `typeHierarchy/subtypes` request handler
+#'
+#' Handler to the `typeHierarchy/subtypes` [Request].
+#' @noRd
+type_hierarchy_subtypes <- function(self, id, params) {
+    self$deliver(
+        type_hierarchy_subtypes_reply(id, self$workspace, params$item)
+    )
+}
+
 #' `textDocument/linkedEditingRange` request handler
 #'
 #' Handler to the `textDocument/linkedEditingRange` [Request].
 #' @noRd
 text_document_linked_editing_range <- function(self, id, params) {
 
+}
+
+#' `textDocument/semanticTokens/full` request handler
+#'
+#' Handler to the `textDocument/semanticTokens/full` [Request].
+#' @noRd
+text_document_semantic_tokens_full <- function(self, id, params) {
+    textDocument <- params$textDocument
+    uri <- uri_escape_unicode(textDocument$uri)
+    document <- self$workspace$documents$get(uri)
+    reply <- semantic_tokens_full_reply(id, uri, self$workspace, document)
+    if (is.null(reply)) {
+        queue <- self$pending_replies$get(uri)[["textDocument/semanticTokens/full"]]
+        queue$push(list(
+            id = id,
+            version = document$version,
+            params = params
+        ))
+    } else {
+        self$deliver(reply)
+    }
+}
+
+#' `textDocument/semanticTokens/range` request handler
+#'
+#' Handler to the `textDocument/semanticTokens/range` [Request].
+#' @noRd
+text_document_semantic_tokens_range <- function(self, id, params) {
+    textDocument <- params$textDocument
+    uri <- uri_escape_unicode(textDocument$uri)
+    document <- self$workspace$documents$get(uri)
+    reply <- semantic_tokens_range_reply(id, uri, self$workspace, document, params$range)
+    if (is.null(reply)) {
+        queue <- self$pending_replies$get(uri)[["textDocument/semanticTokens/range"]]
+        queue$push(list(
+            id = id,
+            version = document$version,
+            params = params
+        ))
+    } else {
+        self$deliver(reply)
+    }
 }

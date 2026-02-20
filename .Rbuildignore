@@ -9,3 +9,4 @@ man-roxygen
 ^.lintr$
 ^CRAN-SUBMISSION$
 ^\.devcontainer$
+^\.github$

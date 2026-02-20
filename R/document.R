@@ -50,21 +50,10 @@ Document <- R6::R6Class(
         find_token = function(row, col, forward = TRUE) {
             # row and col are 0-indexed
             text <- self$line0(row)
-            text_after <- substr(text, col + 1, nchar(text))
-
-            # look forward
-            if (forward) {
-                right_token <- look_forward(text_after)$token
-                end <- col + nchar(right_token)
-            } else {
-                right_token <- ""
-                end <- col
-            }
-
-            matches <- look_backward(substr(text, 1, end))
+            matches <- scan_token(text, col, forward)
             return(list(
                 full_token = matches$full_token,
-                right_token = right_token,
+                right_token = matches$right_token,
                 package = empty_string_to_null(matches$package),
                 accessor = matches$accessor,
                 token = matches$token
@@ -229,13 +218,31 @@ null_function <- local(function() NULL, baseenv())
 
 parser_hooks <- list(
     "{" = function(expr, action) {
-        action$parse(as.list(expr)[-1L])
+        children <- as.list(expr)[-1L]
+        srcrefs <- attr(expr, "srcref")
+        if (!is.null(srcrefs) && length(srcrefs) > 1) {
+            # srcref[[1]] is for the opening brace, skip it
+            for (i in seq_along(children)) {
+                action$parse(children[[i]], srcrefs[[i + 1]])
+            }
+        } else {
+            action$parse(children)
+        }
     },
     "(" = function(expr, action) {
         action$parse(as.list(expr)[-1L])
     },
     "if" = function(expr, action) {
-        action$parse(as.list(expr)[-1L])
+        children <- as.list(expr)[-1L]
+        srcrefs <- attr(expr, "srcref")
+        if (!is.null(srcrefs) && length(srcrefs) > 1) {
+            # srcref[[1]] is for "if", skip it
+            for (i in seq_along(children)) {
+                action$parse(children[[i]], srcrefs[[i + 1]])
+            }
+        } else {
+            action$parse(children)
+        }
     },
     "for" = function(expr, action) {
         if (is.symbol(e <- expr[[2L]])) {
@@ -244,7 +251,16 @@ parser_hooks <- list(
         action$parse(expr[[4L]])
     },
     "while" = function(expr, action) {
-        action$parse(as.list(expr)[-1L])
+        children <- as.list(expr)[-1L]
+        srcrefs <- attr(expr, "srcref")
+        if (!is.null(srcrefs) && length(srcrefs) > 1) {
+            # srcref[[1]] is for "while", skip it
+            for (i in seq_along(children)) {
+                action$parse(children[[i]], srcrefs[[i + 1]])
+            }
+        } else {
+            action$parse(children)
+        }
     },
     "repeat" = function(expr, action) {
         action$parse(expr[[2L]])
@@ -327,7 +343,10 @@ parse_expr <- function(content, expr, env, srcref = attr(expr, "srcref")) {
         for (i in seq_along(expr)) {
             e <- expr[[i]]
             if (missing(e)) next
-            Recall(content, e, env, srcref)
+            # Use the element's own srcref if available, otherwise inherit parent's
+            e_srcref <- attr(e, "srcref")
+            if (is.null(e_srcref)) e_srcref <- srcref
+            Recall(content, e, env, e_srcref)
         }
     } else if (is_simple_call(expr)) {
         f <- fun_string(expr[[1L]])
@@ -372,8 +391,12 @@ parse_expr <- function(content, expr, env, srcref = attr(expr, "srcref")) {
                         env$nonfuncts <- c(env$nonfuncts, symbol)
                     }
                 },
-                parse = function(expr) {
-                    parse_expr(content, expr, env, srcref)
+                parse = function(expr, srcref_override = NULL) {
+                    if (!is.null(srcref_override)) {
+                        parse_expr(content, expr, env, srcref_override)
+                    } else {
+                        parse_expr(content, expr, env, srcref)
+                    }
                 },
                 parse_args = function(args) {
                     fn <- tryCatch(eval(expr[[1L]], globalenv()), error = function(e) NULL)
@@ -397,14 +420,30 @@ parse_expr <- function(content, expr, env, srcref = attr(expr, "srcref")) {
 #'
 #' Build the list of called packages, functions, variables, formals and
 #' signatures in the document in order to add them to the current [Workspace].
+#' Parse document content
 #'
+#' @importFrom digest digest
 #' @noRd
-parse_document <- function(uri, content) {
+normalize_parse_content <- function(content, is_rmarkdown = FALSE) {
+    if (is_rmarkdown) {
+        content <- purl(content)
+    }
     if (length(content) == 0) {
         content <- ""
     }
     # replace tab with a space since the width of a tab is 1 in LSP but 8 in getParseData().
-    content <- gsub("\t", " ", content, fixed = TRUE)
+    gsub("\t", " ", content, fixed = TRUE)
+}
+
+get_content_hash <- function(content) {
+    digest::digest(content, algo = "xxhash64")
+}
+
+parse_document <- function(uri, content) {
+    content <- normalize_parse_content(content)
+    content_hash <- get_content_hash(content)
+
+    logger$info("parse_document: parsing", uri)
     expr <- tryCatch(parse(text = content, keep.source = TRUE), error = function(e) NULL)
     if (!is.null(expr)) {
         parse_env <- function() {
@@ -418,12 +457,18 @@ parse_document <- function(uri, content) {
             env$documentation <- list()
             env$xml_data <- NULL
             env$xml_doc <- NULL
+            env$content_hash <- content_hash  # Store hash for cache validation
             env
         }
         env <- parse_env()
         parse_expr(content, expr, env)
         env$packages <- basename(find.package(env$packages, quiet = TRUE))
+        # Performance: XML generation is expensive, but necessary for analysis
         env$xml_data <- xmlparsedata::xml_parse_data(expr)
+        # IMPORTANT: Do NOT create xml_doc here - this function runs in a child process
+        # and xml2 external pointers cannot be serialized across process boundaries.
+        # xml_doc will be created in the main process by update_parse_data()
+        
         env
     }
 }
@@ -437,6 +482,13 @@ parse_callback <- function(self, uri, version, parse_data) {
     parse_data$version <- version
     old_parse_data <- doc$parse_data
     self$workspace$update_parse_data(uri, parse_data)
+
+    # Cache parse results in the main process (child-process caches are not shared)
+    if (!is.null(parse_data$content_hash)) {
+        cache_entry <- as.list(parse_data)
+        cache_entry$xml_doc <- NULL
+        self$workspace$parse_cache$set(parse_data$content_hash, cache_entry)
+    }
 
     if (!identical(old_parse_data$packages, parse_data$packages)) {
         self$resolve_task_manager$add_task(
@@ -468,10 +520,18 @@ parse_callback <- function(self, uri, version, parse_data) {
 
 parse_task <- function(self, uri, document, delay = 0) {
     version <- document$version
-    content <- document$content
-    if (document$is_rmarkdown) {
-        content <- purl(content)
+    content <- normalize_parse_content(document$content, document$is_rmarkdown)
+    content_hash <- get_content_hash(content)
+
+    # Check cache in the main process before spawning a child task
+    if (self$workspace$parse_cache$has(content_hash)) {
+        logger$info("parse_task: cache hit for", uri)
+        cached_entry <- self$workspace$parse_cache$get(content_hash)
+        cached_env <- list2env(cached_entry, parent = .GlobalEnv)
+        parse_callback(self, uri, version, cached_env)
+        return(NULL)
     }
+
     create_task(
         target = package_call(parse_document),
         args = list(uri = uri, content = content),
