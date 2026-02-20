@@ -120,9 +120,9 @@ extract_default_values <- function(default_expr) {
 
 #' Complete argument values based on default parameter values
 #' @noRd
-argument_value_completion <- function(workspace, funct, package, arg_name, token) {
+argument_value_completion <- function(workspace, funct, package, arg_name, token, exported_only = TRUE) {
     # Get the formals for the function
-    formals_list <- workspace$get_formals(funct, package, exported_only = TRUE)
+    formals_list <- workspace$get_formals(funct, package, exported_only = exported_only)
     
     if (is.null(formals_list) || !is.list(formals_list)) {
         return(list())
@@ -220,7 +220,7 @@ arg_value_completion <- function(uri, workspace, document, point, token, funct, 
                 param_names <- names(formals_list)
                 if (potential_arg %in% param_names) {
                     # Get value completions for this argument
-                    return(argument_value_completion(workspace, funct, package_for_call, potential_arg, token))
+                    return(argument_value_completion(workspace, funct, package_for_call, potential_arg, token, exported_only))
                 }
             }
         }
@@ -246,7 +246,7 @@ arg_value_completion <- function(uri, workspace, document, point, token, funct, 
                     matching_values <- values[match_with(values, token)]
                     if (length(matching_values) > 0) {
                         # Generate completions for this parameter
-                        param_completions <- argument_value_completion(workspace, funct, package_for_call, param_name, token)
+                        param_completions <- argument_value_completion(workspace, funct, package_for_call, param_name, token, exported_only)
                         all_completions <- c(all_completions, param_completions)
                     }
                 }

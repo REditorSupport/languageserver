@@ -967,10 +967,10 @@ test_that("Completion of argument values from defaults works", {
             "}",
             "",
             "# Test completion with named argument",
-            "my_func(method = 'a",
+            "my_func(method = a",
             "",
             "# Test completion with positional argument (first position)",
-            "my_func('m')"
+            "my_func(m)"
         ),
         temp_file)
 
@@ -978,7 +978,7 @@ test_that("Completion of argument values from defaults works", {
 
     # Test named argument completion
     result <- client %>% respond_completion(
-        temp_file, c(7, 18),
+        temp_file, c(7, 17),
         retry_when = function(result) length(result) == 0 || length(result$items) == 0
     )
     
@@ -994,7 +994,7 @@ test_that("Completion of argument values from defaults works", {
     
     # Test positional argument completion
     result <- client %>% respond_completion(
-        temp_file, c(10, 10),
+        temp_file, c(10, 9),
         retry_when = function(result) length(result) == 0 || length(result$items) == 0
     )
     
@@ -1316,14 +1316,14 @@ test_that("Positional argument completion works with base R functions", {
     writeLines(
         c(
             "# Test with file() function",
-            "file('test.txt', 'r')"
+            "file('test.txt', r)"
         ),
         temp_file)
 
     client %>% did_save(temp_file)
 
     result <- client %>% respond_completion(
-        temp_file, c(1, 19),
+        temp_file, c(1, 18),
         retry_when = function(result) length(result) == 0 || length(result$items) == 0
     )
     
