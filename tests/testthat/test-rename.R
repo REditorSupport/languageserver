@@ -62,7 +62,7 @@ test_that("Rename works for functions in files", {
 
     # remove definition
     writeLines("", defn_file)
-    client %>% did_save(defn_file)
+    client %>% did_open(defn_file)
 
     result <- client %>% respond_rename(query_file, c(0, 0), "new_fn",
         retry_when = function(result) {
