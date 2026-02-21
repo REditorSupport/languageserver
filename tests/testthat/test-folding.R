@@ -10,7 +10,7 @@ test_that("Expression folding rage works", {
         "g <- function(x) { x - 1 }"
     ), defn_file)
 
-    client %>% did_save(defn_file)
+    client %>% did_open(defn_file)
     result <- client %>% respond_document_folding_range(defn_file)
     result <- result[order(sapply(result, "[[", "startLine"))]
 
@@ -36,7 +36,7 @@ test_that("Section folding range works", {
         "g <- function(x) { x - 1 }"
     ), defn_file)
 
-    client %>% did_save(defn_file)
+    client %>% did_open(defn_file)
     result <- client %>%
         respond_document_folding_range(defn_file) %>%
         keep(~ .$kind == FoldingRangeKind$Region)
@@ -73,7 +73,7 @@ test_that("Comment folding range works", {
         "g <- function(x) { x - 1 }"
     ), defn_file)
 
-    client %>% did_save(defn_file)
+    client %>% did_open(defn_file)
     result <- client %>%
         respond_document_folding_range(defn_file) %>%
         keep(~ .$kind == FoldingRangeKind$Comment)
@@ -106,7 +106,7 @@ test_that("Multiple-level Folding range works", {
         "two_c <- 1:2"
     ), defn_file)
 
-    client %>% did_save(defn_file)
+    client %>% did_open(defn_file)
     result <- client %>% respond_document_folding_range(defn_file)
     result <- result[order(sapply(result, "[[", "startLine"))]
 
@@ -149,7 +149,7 @@ test_that("Multiple-level Folding range nested in blocks works well", {
         "    }} # end of both f1 and f4"
     ), defn_file)
 
-    client %>% did_save(defn_file)
+    client %>% did_open(defn_file)
     result <- client %>% respond_document_folding_range(defn_file)
     result <- result[order(sapply(result, "[[", "startLine"))]
 
@@ -196,7 +196,7 @@ test_that("two or more blank lines breaking section succession works well", {
         "d <- 1:2"
     ), defn_file)
 
-    client %>% did_save(defn_file)
+    client %>% did_open(defn_file)
     result <- client %>% respond_document_folding_range(defn_file)
     result <- result[order(sapply(result, "[[", "startLine"))]
 
@@ -233,7 +233,7 @@ test_that("Folding range of binary opts works well", {
         "1"
     ), defn_file)
 
-    client %>% did_save(defn_file)
+    client %>% did_open(defn_file)
     result <- client %>% respond_document_folding_range(defn_file)
     result <- result[order(sapply(result, "[[", "startLine"))]
 
@@ -273,7 +273,7 @@ test_that("Folding range works in Rmarkdown", {
         "```"
     ), defn_file)
 
-    client %>% did_save(defn_file)
+    client %>% did_open(defn_file)
     result <- client %>% respond_document_folding_range(defn_file)
     result <- result[order(sapply(result, "[[", "startLine"))]
 

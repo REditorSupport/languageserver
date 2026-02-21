@@ -20,7 +20,7 @@ test_that("Go to Definition works for symbols in top-level blocks", {
         "z"
     ), single_file)
 
-    client %>% did_save(single_file)
+    client %>% did_open(single_file)
 
     # Test definition of x (inside plain braces)
     result <- client %>% respond_definition(single_file, c(3, 0))

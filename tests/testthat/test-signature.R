@@ -10,7 +10,7 @@ test_that("Simple signature works", {
         ),
         temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_signature(temp_file, c(0, 10))
     expect_length(result$signatures, 1)
@@ -37,7 +37,7 @@ test_that("Signature of user function works", {
     writeLines(c("foo <- function(x, y = 3) { x + y }"), defn_file)
     writeLines(c("foo(3, "), temp_file)
 
-    client %>% did_save(defn_file) %>% did_save(temp_file)
+    client %>% did_open(defn_file) %>% did_open(temp_file)
 
     result <- client %>% respond_signature(
         temp_file, c(0, 7),
@@ -56,7 +56,7 @@ test_that("Signature of user function works with semi-colon", {
     writeLines(c("foo <- function(x, y = 3) { x + y };"), defn_file)
     writeLines(c("foo(3, "), temp_file)
 
-    client %>% did_save(defn_file) %>% did_save(temp_file)
+    client %>% did_open(defn_file) %>% did_open(temp_file)
 
     result <- client %>% respond_signature(
         temp_file, c(0, 7),
@@ -83,7 +83,7 @@ test_that("Signature in Rmarkdown works", {
         temp_file
     )
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_signature(temp_file, c(3, 10))
     expect_length(result$signatures, 1)
@@ -107,7 +107,7 @@ test_that("activeParameter is correctly computed", {
     writeLines(c("foo <- function(a, b, c, d) { a + b + c + d }"), defn_file)
     writeLines(c("foo(1, "), temp_file)
 
-    client %>% did_save(defn_file) %>% did_save(temp_file)
+    client %>% did_open(defn_file) %>% did_open(temp_file)
 
     # Test at first parameter (after opening parenthesis)
     result <- client %>% respond_signature(
@@ -125,7 +125,7 @@ test_that("activeParameter is correctly computed", {
 
     # Test with more parameters
     writeLines(c("foo(1, 2, 3, "), temp_file)
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
     
     result <- client %>% respond_signature(
         temp_file, c(0, 13),
@@ -144,7 +144,7 @@ test_that("activeParameter handles nested calls", {
     writeLines(c("foo <- function(a, b, c) { a + b + c }"), defn_file)
     writeLines(c("foo(1, foo(2, 3), "), temp_file)
 
-    client %>% did_save(defn_file) %>% did_save(temp_file)
+    client %>% did_open(defn_file) %>% did_open(temp_file)
 
     # Test at outer function's third parameter
     result <- client %>% respond_signature(
@@ -164,7 +164,7 @@ test_that("activeParameter correctly handles named arguments", {
     
     # Test 1: Named argument z= should activate parameter z (index 2), not y
     writeLines(c("fun(1, z = "), temp_file)
-    client %>% did_save(defn_file) %>% did_save(temp_file)
+    client %>% did_open(defn_file) %>% did_open(temp_file)
     
     result <- client %>% respond_signature(
         temp_file, c(0, 11),
@@ -174,7 +174,7 @@ test_that("activeParameter correctly handles named arguments", {
     
     # Test 2: Named argument y= should activate parameter y (index 1)
     writeLines(c("fun(x = 1, y = "), temp_file)
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
     
     result <- client %>% respond_signature(
         temp_file, c(0, 15),
@@ -183,7 +183,7 @@ test_that("activeParameter correctly handles named arguments", {
     
     # Test 3: Positional argument (no name) should use comma count
     writeLines(c("fun(1, 2, "), temp_file)
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
     
     result <- client %>% respond_signature(
         temp_file, c(0, 10),
@@ -192,7 +192,7 @@ test_that("activeParameter correctly handles named arguments", {
     
     # Test 4: Named argument after skipping parameters
     writeLines(c("fun(z = "), temp_file)
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
     
     result <- client %>% respond_signature(
         temp_file, c(0, 8),
@@ -211,7 +211,7 @@ test_that("activeParameter correctly handles ... (ellipsis)", {
     
     # Test 1: Positional args after 'a' should stick to ... (index 1)
     writeLines(c("fun(1, 2, "), temp_file)
-    client %>% did_save(defn_file) %>% did_save(temp_file)
+    client %>% did_open(defn_file) %>% did_open(temp_file)
     
     result <- client %>% respond_signature(
         temp_file, c(0, 10),
@@ -221,7 +221,7 @@ test_that("activeParameter correctly handles ... (ellipsis)", {
     
     # Test 2: More positional args should still stick to ...
     writeLines(c("fun(1, 2, 3, 4, "), temp_file)
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
     
     result <- client %>% respond_signature(
         temp_file, c(0, 16),
@@ -230,7 +230,7 @@ test_that("activeParameter correctly handles ... (ellipsis)", {
     
     # Test 3: Named argument b= should activate parameter b (index 2)
     writeLines(c("fun(1, 2, 3, b = "), temp_file)
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
     
     result <- client %>% respond_signature(
         temp_file, c(0, 17),
@@ -239,7 +239,7 @@ test_that("activeParameter correctly handles ... (ellipsis)", {
     
     # Test 4: First parameter before ...
     writeLines(c("fun("), temp_file)
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
     
     result <- client %>% respond_signature(
         temp_file, c(0, 4),
@@ -257,7 +257,7 @@ test_that("activeParameter handles ... at different positions", {
     # Test with ... at the end
     writeLines(c("fun2 <- function(a, b, ...) { a + b }"), defn_file)
     writeLines(c("fun2(1, 2, 3, 4, "), temp_file)
-    client %>% did_save(defn_file) %>% did_save(temp_file)
+    client %>% did_open(defn_file) %>% did_open(temp_file)
     
     result <- client %>% respond_signature(
         temp_file, c(0, 17),
@@ -267,7 +267,7 @@ test_that("activeParameter handles ... at different positions", {
     # Test with ... at the beginning
     writeLines(c("fun3 <- function(..., x, y = 1) { x + y }"), defn_file)
     writeLines(c("fun3(1, 2, "), temp_file)
-    client %>% did_save(defn_file) %>% did_save(temp_file)
+    client %>% did_open(defn_file) %>% did_open(temp_file)
     
     result <- client %>% respond_signature(
         temp_file, c(0, 11),

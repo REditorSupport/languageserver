@@ -22,7 +22,7 @@ test_that("Document highlight works for symbols in top-level blocks", {
         ),
         temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     # Test highlighting x (inside plain braces)
     result <- client %>% respond_document_highlight(temp_file, c(1, 2))

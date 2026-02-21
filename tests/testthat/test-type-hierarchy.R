@@ -13,7 +13,7 @@ test_that("Type hierarchy works with R6Class", {
         "))"
     ), single_file)
 
-    client %>% did_save(single_file)
+    client %>% did_open(single_file)
 
     # Test prepare type hierarchy for Animal
     result <- client %>% respond_prepare_type_hierarchy(
@@ -51,7 +51,7 @@ test_that("Type hierarchy returns supertypes for R6Class", {
         "))"
     ), single_file)
 
-    client %>% did_save(single_file)
+    client %>% did_open(single_file)
 
     # Prepare Dog
     item <- client %>% respond_prepare_type_hierarchy(
@@ -86,7 +86,7 @@ test_that("Type hierarchy returns subtypes for R6Class", {
         "))"
     ), single_file)
 
-    client %>% did_save(single_file)
+    client %>% did_open(single_file)
 
     # Prepare Animal
     item <- client %>% respond_prepare_type_hierarchy(
@@ -113,7 +113,7 @@ test_that("Type hierarchy returns empty for non-class definitions", {
         "bar <- 42"
     ), single_file)
 
-    client %>% did_save(single_file)
+    client %>% did_open(single_file)
 
     # Try to prepare type hierarchy on a regular function
     result <- client %>% respond_prepare_type_hierarchy(
