@@ -19,7 +19,7 @@ test_that("Simple completion works", {
         ),
         temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_completion(temp_file, c(0, 3))
 
@@ -79,7 +79,7 @@ test_that("Simple completion is case insensitive", {
         ),
         temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_completion(temp_file, c(0, 3))
 
@@ -132,7 +132,7 @@ test_that("Completion of attached package functions works", {
         ),
         temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_completion(temp_file, c(2, 6),
         retry_when = function(result) result$items %>% keep(~ .$label == "fromJSON") %>% length() == 0)
@@ -151,7 +151,7 @@ test_that("Completion of attached package functions works", {
         ),
         temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_completion(temp_file, c(1, 6),
         retry_when = function(result) result$items %>% keep(~ .$label == "fromJSON") %>% length() == 0)
@@ -174,7 +174,7 @@ test_that("Completion of package functions attached in unscoped functions works"
         ),
         temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_completion(temp_file, c(1, 6),
         retry_when = function(result) result$items %>% keep(~ .$label == "fromJSON") %>% length() == 0)
@@ -191,7 +191,7 @@ test_that("Completion of package functions attached in unscoped functions works"
         ),
         temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_completion(temp_file, c(4, 6),
         retry_when = function(result) result$items %>% keep(~ .$label == "fromJSON") %>% length() == 0)
@@ -218,7 +218,7 @@ test_that("Completion is robust to invalid source", {
         ),
         temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_completion(temp_file, c(4, 6),
         retry_when = function(result) result$items %>% keep(~ .$label == "fromJSON") %>% length() == 0)
@@ -243,7 +243,7 @@ test_that("Completion of function arguments works", {
         ),
         temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_completion(temp_file, c(0, 6))
     arg_items <- result$items %>% keep(~.$label == "object")
@@ -275,7 +275,7 @@ test_that("Completion of function arguments is case insensitive", {
         ),
         temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_completion(temp_file, c(0, 6))
     arg_items <- result$items %>% keep(~ .$label == "object")
@@ -302,7 +302,7 @@ test_that("Completion of options works", {
         ),
         temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_completion(temp_file, c(0, 11))
     arg_items <- result$items %>%
@@ -331,7 +331,7 @@ test_that("Completion of function arguments preserves the order of arguments", {
         ),
         temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_completion(temp_file, c(0, 5))
     arg_items <- result$items %>%
@@ -375,7 +375,7 @@ test_that("Completion of local function arguments works", {
         ),
         temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_completion(
         temp_file, c(4, 13),
@@ -430,7 +430,7 @@ test_that("Completion of user function arguments preserves the order of argument
         ),
         temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_completion(
         temp_file, c(3, 5),
@@ -455,7 +455,7 @@ test_that("Completion of user function works", {
         ),
         temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_completion(
         temp_file, c(1, 4),
@@ -480,7 +480,7 @@ test_that("Completion of user function contains no duplicate symbols", {
         ),
         temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_completion(
         temp_file, c(2, 4),
@@ -511,7 +511,7 @@ test_that("Completion of symbols in scope works", {
         temp_file
     )
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_completion(
         temp_file, c(5, 12),
@@ -555,7 +555,7 @@ test_that("Completion of symbols in scope works with semi-colons", {
         temp_file
     )
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_completion(
         temp_file, c(5, 12),
@@ -588,8 +588,8 @@ test_that("Completion inside a package works", {
     temp_file <- withr::local_tempfile(fileext = ".R")
     writeLines(c("noth"), temp_file)
 
-    # client %>% did_save(path(wd, "R", "mypackage.R"))
-    client %>% did_save(temp_file)
+    # client %>% did_open(path(wd, "R", "mypackage.R"))
+    client %>% did_open(temp_file)
     result <- client %>% respond_completion(
         temp_file, c(0, 4),
         retry_when = function(result) length(result) == 0 || length(result$items) == 0)
@@ -605,8 +605,8 @@ test_that("Completion of imported objects works inside a package", {
     temp_file <- withr::local_tempfile(fileext = ".R")
     writeLines(c("dic"), temp_file)
 
-    # client %>% did_save(path(wd, "R", "mypackage.R"))
-    client %>% did_save(temp_file)
+    # client %>% did_open(path(wd, "R", "mypackage.R"))
+    client %>% did_open(temp_file)
     result <- client %>% respond_completion(
         temp_file, c(0, 3),
         retry_when = function(result) length(result) == 0 || length(result$items) == 0)
@@ -616,8 +616,8 @@ test_that("Completion of imported objects works inside a package", {
     temp_file <- withr::local_tempfile(fileext = ".R")
     writeLines(c("lint_p"), temp_file)
 
-    # client %>% did_save(path(wd, "R", "mypackage.R"))
-    client %>% did_save(temp_file)
+    # client %>% did_open(path(wd, "R", "mypackage.R"))
+    client %>% did_open(temp_file)
     result <- client %>% respond_completion(
         temp_file, c(0, 6),
         retry_when = function(result) length(result) == 0 || length(result$items) == 0)
@@ -636,7 +636,7 @@ test_that("Completion of re-exported objects works", {
         ),
         temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_completion(temp_file, c(0, 16))
 
@@ -657,7 +657,7 @@ test_that("Completion of tokens in document works", {
         temp_file
     )
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_completion(
         temp_file, c(2, 7),
@@ -684,7 +684,7 @@ test_that("Completion item resolve works", {
         ),
         temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_completion(temp_file, c(0, 2))
     items <- result$items %>% keep(~.$label == "base")
@@ -742,7 +742,7 @@ test_that("Completion item resolve extracts symbol documentation", {
         ),
         temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_completion(
         temp_file, c(2, 6),
@@ -773,7 +773,7 @@ test_that("Completion item resolve extracts function documentation", {
         ),
         temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_completion(
         temp_file, c(5, 6),
@@ -817,7 +817,7 @@ test_that("Completion item resolve extracts local function documentation", {
         ),
         temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_completion(
         temp_file, c(6, 8),
@@ -865,7 +865,7 @@ test_that("Completion in Rmarkdown works", {
         temp_file
     )
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_completion(temp_file, c(3, 3))
 
@@ -974,7 +974,7 @@ test_that("Completion of argument values from defaults works", {
         ),
         temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     # Test named argument completion
     result <- client %>% respond_completion(
@@ -1027,7 +1027,7 @@ test_that("Completion of argument values with partial match works", {
         ),
         temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_completion(
         temp_file, c(5, 15),
@@ -1057,7 +1057,7 @@ test_that("Completion of argument values works with base R functions", {
         ),
         temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_completion(
         temp_file, c(1, 30),
@@ -1096,7 +1096,7 @@ test_that("Completion of argument values for multiple parameter function", {
         ),
         temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     # Test second argument (mode) - positional
     result <- client %>% respond_completion(
@@ -1150,7 +1150,7 @@ test_that("Completion of argument values works with named arguments out of order
         ),
         temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_completion(
         temp_file, c(6, 21),
@@ -1184,7 +1184,7 @@ test_that("Completion of argument values is case insensitive", {
         ),
         temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_completion(
         temp_file, c(5, 17),
@@ -1217,7 +1217,7 @@ test_that("No argument value completion for non-character defaults", {
         ),
         temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_completion(
         temp_file, c(5, 12),
@@ -1245,7 +1245,7 @@ test_that("Completion of argument values works with positional arguments", {
         ),
         temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_completion(
         temp_file, c(5, 11),
@@ -1279,7 +1279,7 @@ test_that("Completion of argument values with positional partial match works", {
         ),
         temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_completion(
         temp_file, c(5, 9),
@@ -1315,7 +1315,7 @@ test_that("Completion of argument values for positional in multi-parameter funct
         ),
         temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_completion(
         temp_file, c(7, 14),

@@ -12,7 +12,7 @@ test_that("Semantic tokens full works", {
         temp_file
     )
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_semantic_tokens_full(temp_file)
     expect_true(!is.null(result$data))
@@ -34,7 +34,7 @@ test_that("Semantic tokens range works", {
         temp_file
     )
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     # Request tokens for the first line only
     result <- client %>% respond_semantic_tokens_range(
@@ -62,7 +62,7 @@ test_that("Semantic tokens contain expected types", {
         temp_file
     )
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_semantic_tokens_full(temp_file)
     expect_true(!is.null(result$data))

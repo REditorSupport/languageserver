@@ -19,7 +19,7 @@ test_that("Document symbols work for symbols in top-level blocks", {
         ),
         temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_document_symbol(temp_file)
 

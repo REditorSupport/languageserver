@@ -9,7 +9,7 @@ test_that("Null workspace folder works", {
     ),
     temp_file)
 
-  client %>% did_save(temp_file)
+  client %>% did_open(temp_file)
 
   result <- client %>% respond_signature(temp_file, c(0, 10))
   expect_length(result$signatures, 1)

@@ -35,7 +35,7 @@ test_that("Document link works", {
         temp_file
     )
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_document_link(temp_file)
 
@@ -107,7 +107,7 @@ test_that("Document link works with raw strings", {
         temp_file
     )
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_document_link(temp_file)
 
@@ -184,7 +184,7 @@ test_that("Document link works in Rmarkdown", {
         temp_file
     )
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_document_link(temp_file)
 
@@ -252,7 +252,7 @@ test_that("Document link works with null workspace folder", {
         "source('non_exist_file.R')"
     ), temp_file)
 
-    client %>% did_save(temp_file)
+    client %>% did_open(temp_file)
 
     result <- client %>% respond_document_link(temp_file)
 
@@ -314,7 +314,7 @@ test_that("Document link works with untitled document", {
 
     uri <- "untitled:Untitled-1"
 
-    client %>% did_save(uri = uri, text = c(
+    client %>% did_open(uri = uri, text = c(
         sprintf("source('%s')", src_file1),
         sprintf("source('%s')", basename(src_file1)),
         sprintf("source('%s')", src_file2),

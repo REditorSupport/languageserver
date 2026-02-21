@@ -9,7 +9,7 @@ test_that("Selection range works with single position", {
     "}"
   ), defn_file)
 
-  client %>% did_save(defn_file)
+  client %>% did_open(defn_file)
   result <- client %>% respond_selection_range(defn_file, list(
     list(
       line = 1,
@@ -59,7 +59,7 @@ test_that("Selection range works with multiple positions", {
     "}"
   ), defn_file)
 
-  client %>% did_save(defn_file)
+  client %>% did_open(defn_file)
   result <- client %>% respond_selection_range(defn_file, list(
     list(
       line = 0,
@@ -138,7 +138,7 @@ test_that("Selection range works in Rmarkdown", {
     "```"
   ), defn_file)
 
-  client %>% did_save(defn_file)
+  client %>% did_open(defn_file)
 
   result <- client %>% respond_selection_range(defn_file, list(
     list(

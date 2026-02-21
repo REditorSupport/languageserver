@@ -8,8 +8,8 @@ test_that("Rename works for functions in files", {
     writeLines(c("my_fn <- function(x) {", "  x + 1", "}"), defn_file)
     writeLines(c("my_fn"), query_file)
 
-    client %>% did_save(defn_file)
-    client %>% did_save(query_file)
+    client %>% did_open(defn_file)
+    client %>% did_open(query_file)
 
     # query at the beginning of token
     result <- client %>% respond_rename(
@@ -62,7 +62,7 @@ test_that("Rename works for functions in files", {
 
     # remove definition
     writeLines("", defn_file)
-    client %>% did_save(defn_file)
+    client %>% did_open(defn_file)
 
     result <- client %>% respond_rename(query_file, c(0, 0), "new_fn",
         retry_when = function(result) {
@@ -73,7 +73,7 @@ test_that("Rename works for functions in files", {
 
     # move function into different file
     writeLines(c("my_fn <- function(x) {", "  x + 1", "}"), defn2_file)
-    client %>% did_save(defn2_file)
+    client %>% did_open(defn2_file)
 
     result <- client %>% respond_rename(query_file, c(0, 0), "new_fn")
     expect_length(result$changes, 2)
@@ -100,7 +100,7 @@ test_that("Rename works in single file", {
         c("my_fn <- function(x) {x + 1}", "my_fn", ".nonexistent"),
         single_file)
 
-    client %>% did_save(single_file)
+    client %>% did_open(single_file)
 
     # first query a known function to make sure the file is processed
     result <- client %>% respond_rename(single_file, c(1, 0), "new_fn")
@@ -140,7 +140,7 @@ test_that("Rename works in scope with different assignment operators", {
         "my_fn(1)"
     ), single_file)
 
-    client %>% did_save(single_file)
+    client %>% did_open(single_file)
 
     # first query a known function to make sure the file is processed
     result <- client %>% respond_rename(
@@ -250,7 +250,7 @@ test_that("Rename in Rmarkdown works", {
         single_file
     )
 
-    client %>% did_save(single_file)
+    client %>% did_open(single_file)
 
     # first query a known function to make sure the file is processed
     result <- client %>% respond_rename(single_file, c(5, 0), "new_fn")
@@ -281,7 +281,7 @@ test_that("Prepare rename works in single file", {
         c("my_fn <- function(x) {x + 123}", "my_fn", "new_fn"),
         single_file)
 
-    client %>% did_save(single_file)
+    client %>% did_open(single_file)
 
     # first make sure the file is processed
     result <- client %>% respond_references(

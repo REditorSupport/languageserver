@@ -19,8 +19,8 @@ test_that("Works with unicode path", {
     writeLines(c("my_fn <- function(x) {", "  x + 1", "}"), defn_file)
     writeLines(c("my_fn"), query_file)
 
-    client %>% did_save(defn_file)
-    client %>% did_save(query_file)
+    client %>% did_open(defn_file)
+    client %>% did_open(query_file)
 
     result <- client %>% respond_definition(query_file, c(0, 0))
 
@@ -29,7 +29,7 @@ test_that("Works with unicode path", {
 
     # remove definition
     writeLines("", defn_file)
-    client %>% did_save(defn_file)
+    client %>% did_open(defn_file)
 
     result <- client %>% respond_definition(query_file, c(0, 0),
         retry_when = function(result) {
@@ -40,7 +40,7 @@ test_that("Works with unicode path", {
 
     # move function into different file
     writeLines(c("my_fn <- function(x) {", "  x + 1", "}"), defn2_file)
-    client %>% did_save(defn2_file)
+    client %>% did_open(defn2_file)
 
     result <- client %>% respond_definition(query_file, c(0, 0))
 
