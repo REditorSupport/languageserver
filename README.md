@@ -2,9 +2,9 @@
 
 [![R-CMD-check](https://github.com/REditorSupport/languageserver/actions/workflows/rcmdcheck.yml/badge.svg)](https://github.com/REditorSupport/languageserver/actions/workflows/rcmdcheck.yml)
 [![codecov](https://codecov.io/gh/REditorSupport/languageserver/graph/badge.svg)](https://app.codecov.io/gh/REditorSupport/languageserver)
-[![CRAN\_Status\_Badge](http://www.r-pkg.org/badges/version/languageserver)](https://cran.r-project.org/package=languageserver)
-[![CRAN Downloads](http://cranlogs.r-pkg.org/badges/grand-total/languageserver)](https://cran.r-project.org/package=languageserver)
-[![r-universe](https://reditorsupport.r-universe.dev/badges/languageserver)](https://reditorsupport.r-universe.dev/ui/#package:languageserver)
+[![CRAN\_Status\_Badge](https://www.r-pkg.org/badges/version/languageserver)](https://cran.r-project.org/package=languageserver)
+[![CRAN Downloads](https://cranlogs.r-pkg.org/badges/grand-total/languageserver)](https://cran.r-project.org/package=languageserver)
+[![r-universe](https://reditorsupport.r-universe.dev/badges/languageserver)](https://reditorsupport.r-universe.dev/#package:languageserver)
 
 `languageserver` is an implementation of the Microsoft's [Language Server Protocol](https://microsoft.github.io/language-server-protocol/) for the language of R.
 
