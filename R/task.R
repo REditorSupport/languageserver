@@ -1,11 +1,11 @@
 Task <- R6::R6Class("Task",
     private = list(
         process = NULL,
+        session = NULL,
         target = NULL,
         args = NULL,
         callback = NULL,
-        error = NULL,
-        should_release = FALSE
+        error = NULL
     ),
     public = list(
         time = NULL,
@@ -18,73 +18,135 @@ Task <- R6::R6Class("Task",
             self$time <- Sys.time()
             self$delay <- delay
         },
-        start = function(session) {
-            # no session, use new session
+        start = function(session = NULL) {
             if (is.null(session)) {
-                private$should_release <- FALSE
                 private$process <- callr::r_bg(
                     private$target,
                     private$args,
                     system_profile = TRUE, user_profile = TRUE
                 )
             } else {
-                # acquired session, should release in the future
-                private$should_release <- TRUE
-                private$process <- session
-                private$process$start(private$target, private$args)
+                private$session <- session
+                private$session$call(
+                    private$target,
+                    private$args
+                )
             }
         },
         check = function() {
+            if (!is.null(private$session)) {
+                res <- private$session$read()
+                if (!is.null(res)) {
+                    if (res$code == 200 && is.null(res$error)) {
+                        if (!is.null(private$callback)) private$callback(res$result)
+                        return(TRUE)
+                    } else if (!is.null(res$code)) {
+                        if (!is.null(private$error)) {
+                            err <- res$error
+                            if (is.null(err)) err <- simpleError(paste("Session error with code", res$code))
+                            private$error(err)
+                        }
+                        return(TRUE)
+                    }
+                }
+                return(private$session$get_state() == "finished")
+            }
+
             if (is.null(private$process)) {
                 FALSE
             } else if (private$process$is_alive()) {
                 FALSE
             } else {
-                result <- NULL
-                # release session
-                if (private$should_release) {
-                    result <- private$process$get_result()
-                    private$process$release()
-                } else {
-                    # r_bg$get_result() will throw
-                    result <- tryCatch(private$process$get_result(), error = function(e) e)
-                }
+                # r_bg$get_result() will throw
+                result <- tryCatch(private$process$get_result(), error = function(e) e)
 
-                if (!is.null(private$callback)) {
-                    if (inherits(result, "error")) {
-                        if (!is.null(private$error)) {
-                            private$error(result)
-                        }
-                    } else {
-                        private$callback(result)
+                if (inherits(result, "error")) {
+                    if (!is.null(private$error)) {
+                        private$error(result)
                     }
+                } else if (!is.null(private$callback)) {
+                    private$callback(result)
                 }
                 TRUE
             }
         },
         kill = function() {
-            private$process$kill()
+            if (!is.null(private$session)) {
+                if (!identical(Sys.getenv("R_COVR"), "true")) {
+                    # Do not close the session, it is persistent and managed by TaskManager.
+                    # Just try to interrupt the ongoing computation.
+                    private$session$interrupt()
+                }
+            } else if (!is.null(private$process) && private$process$is_alive()) {
+                if (identical(Sys.getenv("R_COVR"), "true")) {
+                    private$process$wait()
+                } else {
+                    private$process$wait(1000)
+                    private$process$kill()
+                }
+            }
         }
     )
 )
 
 TaskManager <- R6::R6Class("TaskManager",
     private = list(
-        cpus = NULL,
         pending_tasks = NULL,
         running_tasks = NULL,
-        session_pool = NULL,
         name = NULL,
-        use_session = FALSE
+        use_session = NULL,
+        sessions = NULL,
+        process_recent_first = NULL,
+        max_running_tasks = NULL,
+        find_or_create_session = function() {
+            if (!isTRUE(private$use_session)) {
+                return(NULL)
+            }
+
+            for (s in private$sessions) {
+                state <- s$get_state()
+                if (state == "starting") {
+                    res <- s$read()
+                    if (!is.null(res) && res$code == 201) state <- s$get_state()
+                }
+                if (state == "idle") {
+                    return(s)
+                }
+            }
+
+            if (length(private$sessions) < private$max_running_tasks) {
+                session <- callr::r_session$new(
+                    options = callr::r_session_options(
+                        system_profile = TRUE,
+                        user_profile = TRUE
+                    ),
+                    wait = TRUE
+                )
+                private$sessions <- append(private$sessions, session)
+                return(session)
+            }
+
+            NULL
+        }
     ),
     public = list(
-        initialize = function(name, session_pool = NULL) {
-            private$cpus <- parallel::detectCores()
+        initialize = function(name,
+                              use_session = FALSE,
+                              process_recent_first = FALSE,
+                              cpu_load = 0.5,
+                              max_running_tasks = 8) {
             private$pending_tasks <- collections::ordered_dict()
             private$running_tasks <- collections::ordered_dict()
-            private$session_pool <- session_pool
-            private$use_session <- !is.null(session_pool)
             private$name <- name
+            private$use_session <- use_session
+            private$process_recent_first <- process_recent_first
+            
+            cpus <- min(parallel::detectCores())
+            max_running_tasks <- min(cpus, max_running_tasks)
+            private$max_running_tasks <- max(min(max_running_tasks, round(cpus * cpu_load)), 1)
+            if (use_session) {
+                private$sessions <- list()
+            }
         },
         add_task = function(id, task) {
             if (is.null(task)) {
@@ -92,47 +154,42 @@ TaskManager <- R6::R6Class("TaskManager",
             }
             private$pending_tasks$set(id, task)
         },
-        run_tasks = function(cpu_load = 0.5) {
-            n <- 0
-            if (private$use_session) {
-                n <- private$session_pool$get_idle_size()
-            } else {
-                # use r_bg
-                # Performance: Increase CPU load factor for better resource utilization
-                # Old: cpu_load = 0.5 was conservative
-                # New: Allow higher utilization for better throughput
-                effective_cpu_load <- if (private$name == "parse") 0.8 else cpu_load
-                n <- max(max(private$cpus * effective_cpu_load, 1) - private$running_tasks$size(), 0)
-            }
+        run_tasks = function() {
+            n <- max(private$max_running_tasks - private$running_tasks$size(), 0)
 
-            ids <- private$pending_tasks$keys()
+            pending_ids <- private$pending_tasks$keys()
             # Performance: Prioritize newer tasks over older for better responsiveness
             # For parse tasks, process most recent documents first
-            if (length(ids) > n && private$name == "parse") {
+            if (length(pending_ids) > n && isTRUE(private$process_recent_first)) {
                 # Take the most recent n tasks
-                ids <- tail(ids, n)
-            } else if (length(ids) > n) {
-                ids <- ids[seq_len(n)]
+                pending_ids <- tail(pending_ids, n)
+            } else if (length(pending_ids) > n) {
+                pending_ids <- pending_ids[seq_len(n)]
             }
-            for (id in ids) {
+
+            if (isTRUE(private$use_session)) {
+                states <- vapply(private$sessions, function(s) s$get_state(), character(1))
+                private$sessions <- private$sessions[states != "finished"]
+            }
+
+            for (id in pending_ids) {
                 task <- private$pending_tasks$get(id)
                 if (Sys.time() - task$time >= task$delay) {
                     session <- NULL
-                    if (private$use_session) {
-                        session <- private$session_pool$acquire()
-                        if (is.null(session)) {
-                            # get invalid session
+
+                    if (isTRUE(private$use_session)) {
+                        session <- private$find_or_create_session()
+                        if (is.null(session) || session$get_state() == "starting") {
                             next
                         }
                     }
 
                     if (private$running_tasks$has(id)) {
-                        task <- private$running_tasks$pop(id)
-                        task$kill()
+                        old_task <- private$running_tasks$pop(id)
+                        old_task$kill()
                     }
                     task <- private$pending_tasks$pop(id)
                     private$running_tasks$set(id, task)
-                    # maybe acquired session, will need to be released on check
                     task$start(session)
                 }
             }
@@ -140,13 +197,25 @@ TaskManager <- R6::R6Class("TaskManager",
         check_tasks = function() {
             running_tasks <- private$running_tasks
             keys <- private$running_tasks$keys()
-            pending_tasks <- private$pending_tasks
             for (key in keys) {
                 task <- running_tasks$get(key)
                 if (task$check()) {
                     # FIXME: debug
                     logger$info(private$name, "task timing:", Sys.time() - task$time, " ", key)
                     running_tasks$remove(key)
+                }
+            }
+        },
+        stop = function() {
+            for (id in private$running_tasks$keys()) {
+                task <- private$running_tasks$get(id)
+                task$kill()
+            }
+            if (private$use_session) {
+                for (session in private$sessions) {
+                    if (!identical(Sys.getenv("R_COVR"), "true")) {
+                        session$close()
+                    }
                 }
             }
         }
