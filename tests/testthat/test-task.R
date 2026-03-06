@@ -17,7 +17,7 @@ for (covr in c("false", "true")) {
             tm$add_task("t1", task)
 
             tm$run_tasks()
-            
+
             # Wait for the task to finish
             for (i in 1:10) {
                 Sys.sleep(0.5)
@@ -100,3 +100,44 @@ for (covr in c("false", "true")) {
         })
     })
 }
+
+test_that("TaskManager prunes idle sessions", {
+    skip_on_cran()
+
+    # Initialize TaskManager with a short timeout
+    tm <- TaskManager$new("test", use_session = TRUE, session_idle_timeout = 2)
+
+    # Create a dummy task
+    task <- create_task(function() 1, list())
+    tm$add_task("1", task)
+
+    # Run the task
+    tm$run_tasks()
+
+    # Wait for task completion
+    start_time <- Sys.time()
+    while (length(tm$.__enclos_env__$private$running_tasks$keys()) > 0 ||
+        length(tm$.__enclos_env__$private$pending_tasks$keys()) > 0) {
+        tm$check_tasks()
+        tm$run_tasks()
+        if (Sys.time() - start_time > 10) stop("Task timed out")
+        Sys.sleep(0.1)
+    }
+
+    # Verify session is idle
+    sessions <- tm$.__enclos_env__$private$sessions
+    expect_length(sessions, 1)
+    expect_equal(sessions[[1]]$get_state(), "idle")
+
+    # Wait for timeout
+    Sys.sleep(5)
+
+    # Trigger pruning
+    tm$check_tasks()
+
+    # Verify session is removed
+    sessions <- tm$.__enclos_env__$private$sessions
+    expect_length(sessions, 0)
+
+    tm$stop()
+})
