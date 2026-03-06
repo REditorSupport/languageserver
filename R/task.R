@@ -49,7 +49,15 @@ Task <- R6::R6Class("Task",
                         return(TRUE)
                     }
                 }
-                return(private$session$get_state() == "finished")
+                state <- private$session$get_state()
+                if (identical(state, "finished")) {
+                    if (!is.null(private$error)) {
+                        err <- simpleError("Session finished unexpectedly while task was running")
+                        private$error(err)
+                    }
+                    return(TRUE)
+                }
+                return(FALSE)
             }
 
             if (is.null(private$process)) {
@@ -98,6 +106,7 @@ TaskManager <- R6::R6Class("TaskManager",
         sessions = NULL,
         process_recent_first = NULL,
         max_running_tasks = NULL,
+        session_idle_timeout = NULL,
         find_or_create_session = function() {
             if (!isTRUE(private$use_session)) {
                 return(NULL)
@@ -127,6 +136,25 @@ TaskManager <- R6::R6Class("TaskManager",
             }
 
             NULL
+        },
+        prune_sessions = function() {
+            for (i in rev(seq_along(private$sessions))) {
+                session <- private$sessions[[i]]
+                state <- session$get_state()
+                if (state == "finished") {
+                    private$sessions[[i]] <- NULL
+                } else if (state == "idle") {
+                    idle_start <- attr(session, "idle_start")
+                    if (is.null(idle_start)) {
+                        attr(session, "idle_start") <- Sys.time()
+                    } else if (as.numeric(difftime(Sys.time(), idle_start, units = "secs")) > private$session_idle_timeout) {
+                        session$close()
+                        private$sessions[[i]] <- NULL
+                    }
+                } else {
+                    attr(session, "idle_start") <- NULL
+                }
+            }
         }
     ),
     public = list(
@@ -134,13 +162,15 @@ TaskManager <- R6::R6Class("TaskManager",
                               use_session = FALSE,
                               process_recent_first = FALSE,
                               cpu_load = 0.5,
-                              max_running_tasks = 8) {
+                              max_running_tasks = 8,
+                              session_idle_timeout = 60) {
             private$pending_tasks <- collections::ordered_dict()
             private$running_tasks <- collections::ordered_dict()
             private$name <- name
             private$use_session <- use_session
             private$process_recent_first <- process_recent_first
             
+            private$session_idle_timeout <- session_idle_timeout
             cpus <- min(parallel::detectCores())
             max_running_tasks <- min(cpus, max_running_tasks)
             private$max_running_tasks <- max(min(max_running_tasks, round(cpus * cpu_load)), 1)
@@ -165,11 +195,6 @@ TaskManager <- R6::R6Class("TaskManager",
                 pending_ids <- tail(pending_ids, n)
             } else if (length(pending_ids) > n) {
                 pending_ids <- pending_ids[seq_len(n)]
-            }
-
-            if (isTRUE(private$use_session)) {
-                states <- vapply(private$sessions, function(s) s$get_state(), character(1))
-                private$sessions <- private$sessions[states != "finished"]
             }
 
             for (id in pending_ids) {
@@ -204,6 +229,9 @@ TaskManager <- R6::R6Class("TaskManager",
                     logger$info(private$name, "task timing:", Sys.time() - task$time, " ", key)
                     running_tasks$remove(key)
                 }
+            }
+            if (isTRUE(private$use_session)) {
+                private$prune_sessions()
             }
         },
         stop = function() {

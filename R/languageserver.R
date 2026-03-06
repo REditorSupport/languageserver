@@ -55,7 +55,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
 
             self$parse_task_manager <- TaskManager$new(
                 "parse",
-                use_session = TRUE, process_recent_first = TRUE,
+                use_session = TRUE, process_recent_first = TRUE
             )
             self$diagnostics_task_manager <- TaskManager$new(
                 "diagnostics",
