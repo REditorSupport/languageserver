@@ -1,3 +1,32 @@
+# languageserver 0.3.17
+
+**Closed issues:**
+
+- Support semanticTokens (#692)
+- lintr 3.3.0-1 changed default parse_settings to FALSE for lint() (#709)
+- LanguageClient-neovim is abandoned (#701)
+- languageserver does not respect lintr file (#700)
+- languageserver warns about undefined global functions even when they are imported via NAMESPACE (#698)
+- Semantic highlighting appears incomplete (#694)
+- Completions without {library}:: (#686)
+- Disabling indentation warnings, can't disable `lintr` warnings (#674)
+
+**Merged pull requests:**
+
+- Ignore didSave without didOpen (#714)
+- Implement semantic tokens support (#692)
+- Implement type hierarchy provider (#703)
+- explicit parse_settings = TRUE (#706)
+- Update comment folding to ignore `# %%` code chunks (#644)
+- Add `nline_to_break_succession` as option (#643)
+- Check path in diagnose_file (#654)
+- Add devcontainer configs (#655, #656)
+- Use built-in LSP instead of abandoned LanguageClient-neovim (#702)
+- Fix covr readRDS error by gracefully closing background sessions
+- Fix test failure: only send shutdown request if language server is alive
+- Support class members for document symbols
+- Performance improvements with C implementation of semantic tokens and encoding
+
 # languageserver 0.3.16
 
 **Closed issues:**
