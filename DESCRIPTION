@@ -52,4 +52,5 @@ NeedsCompilation: yes
 Roxygen: list(markdown = TRUE, r6 = FALSE)
 RoxygenNote: 7.3.3
 Config/testthat/edition: 3
+Config/testthat/parallel: true
 Config/Needs/development: testthat, magrittr, mockery, purrr, withr, rmarkdown

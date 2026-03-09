@@ -34,7 +34,8 @@ Workspace <- R6::R6Class("Workspace",
             self$namespaces <- collections::dict()
             self$startup_packages <- tryCatch(
                 callr::r(resolve_attached_packages,
-                    system_profile = TRUE, user_profile = TRUE, timeout = 3),
+                    system_profile = TRUE, user_profile = TRUE,
+                    timeout = if (identical(Sys.getenv("R_COVR"), "true")) 30 else 3),
                 error = function(e) {
                     logger$info("workspace initialize error: ", e)
                     startup_packages

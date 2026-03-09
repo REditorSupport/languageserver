@@ -6,8 +6,12 @@ LanguageClient <- R6::R6Class("LanguageClient",
         read_char_buf = raw(0),
 
         finalize = function() {
-            if (!is.null(self$process)) {
-                self$process$kill_tree()
+            if (!is.null(self$process) && self$process$is_alive()) {
+                if (identical(Sys.getenv("R_COVR"), "true")) {
+                    self$process$wait()
+                } else {
+                    self$process$kill_tree()
+                }
             }
             super$finalize()
         }
