@@ -185,8 +185,11 @@ document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
 
 #' Get all the symbols in the workspace matching a query
 #' @noRd
-workspace_symbol_reply <- function(id, workspace, query) {
-    defns <- workspace$get_definitions_for_query(query)
+workspace_symbol_reply <- function(id, workspaces, query) {
+    defns <- list()
+    for (workspace in workspaces) {
+        defns <- c(defns, workspace$get_definitions_for_query(query))
+    }
     logger$info("workspace symbols found: ", length(defns))
     result <- lapply(defns, function(def) {
         symbol_information(

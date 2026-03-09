@@ -30,7 +30,17 @@ on_initialize <- function(self, id, params) {
     self$processId <- params$processId
     self$rootUri <- uri_escape_unicode(params$rootUri)
     self$rootPath <- path_from_uri(self$rootUri)
-    self$workspace <- Workspace$new(self$rootPath)
+    
+    if (is.list(params$workspaceFolders) && length(params$workspaceFolders) > 0) {
+        logger$info("workspaceFolders provided: ", length(params$workspaceFolders))
+        for (folder in params$workspaceFolders) {
+            self$add_workspace(uri_escape_unicode(folder$uri))
+        }
+    } else {
+        self$add_workspace(self$rootUri)
+    }
+    logger$info("workspaces initialized: ", self$workspaces$size())
+
     self$initializationOptions <- params$initializationOptions
     self$ClientCapabilities <- params$capabilities
     server_capabilities <- update_server_capabilities(
@@ -49,12 +59,10 @@ on_initialize <- function(self, id, params) {
 #' @noRd
 on_initialized <- function(self, params) {
     logger$info("on_initialized")
-    if (is_package(self$rootPath)) {
-        # a bit like devtools::load_all()
-        self$workspace$load_all(self)
-        # TODO: result lint result of the package
-        # lint_result <- lintr::lint_package(rootPath)
-    }
+    # a bit like devtools::load_all()
+    self$load_workspaces()
+    # TODO: result lint result of the package
+    # lint_result <- lintr::lint_package(rootPath)
 }
 
 #' `shutdown` request handler

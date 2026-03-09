@@ -6,10 +6,19 @@ FileChangeType <- list(
 
 #' `workspace/didChangeWorkspaceFolders` notification handler
 #'
-#' Handler to the `workspace/didChangeWorkspaceFolders` [Notification].
+#' Handler to the `workspace/didChangeWorkspaceFolders` [Notification]
 #' @noRd
-workspace_did_change_workspace_folder_params <- function(self, params) {
-
+workspace_did_change_workspace_folders <- function(self, params) {
+    event <- params$event
+    for (folder in event$added) {
+        uri <- uri_escape_unicode(folder$uri)
+        self$add_workspace(uri)
+        workspace <- self$get_workspace(uri)
+        self$load_workspace(workspace)
+    }
+    for (folder in event$removed) {
+        self$remove_workspace(uri_escape_unicode(folder$uri))
+    }
 }
 
 #' `workspace/didChangeConfiguration` notification handler
@@ -28,8 +37,10 @@ workspace_did_change_configuration <- function(self, params) {
     lsp_settings$update_from_workspace(settings)
 
     if (!lsp_settings$get("diagnostics")) {
-        for (uri in self$workspace$documents$keys()) {
-            diagnostics_callback(self, uri, NULL, list())
+        for (workspace in self$workspaces$values()) {
+            for (uri in workspace$documents$keys()) {
+                diagnostics_callback(self, uri, NULL, list())
+            }
         }
     }
 }
@@ -42,38 +53,40 @@ workspace_did_change_watched_files <- function(self, params) {
     # All open documents will be automatically handled by lsp requests.
     # Only non-open documents in a package should be handled here.
 
-    project_root <- self$rootPath
-    if (is_package(project_root)) {
-        source_dir <- file.path(project_root, "R")
-        for (file_event in params$changes) {
-            uri <- file_event$uri
-            path <- path_from_uri(uri)
+    for (file_event in params$changes) {
+        uri <- file_event$uri
+        path <- path_from_uri(uri)
+        workspace <- self$get_workspace(uri)
 
-            if (dirname(path) != source_dir) {
+        if (!is_package(workspace$root)) {
+            next
+        }
+
+        source_dir <- file.path(workspace$root, "R")
+        if (dirname(path) != source_dir) {
+            next
+        }
+
+        if (workspace$documents$has(uri)) {
+            doc <- workspace$documents$get(uri)
+            if (doc$is_open) {
+                # skip open documents
                 next
             }
-
-            if (self$workspace$documents$has(uri)) {
-                doc <- self$workspace$documents$get(uri)
-                if (doc$is_open) {
-                    # skip open documents
-                    next
-                }
-            }
-
-            type <- file_event$type
-
-            if (type == FileChangeType$Created || type == FileChangeType$Changed) {
-                logger$info("load", path)
-                doc <- Document$new(uri, language = "r", version = NULL, content = stringi::stri_read_lines(path))
-                self$workspace$documents$set(uri, doc)
-                self$text_sync(uri, document = doc, parse = TRUE)
-            } else if (type == FileChangeType$Deleted) {
-                logger$info("remove", path)
-                self$workspace$documents$remove(uri)
-            }
         }
-        self$workspace$update_loaded_packages()
+
+        type <- file_event$type
+
+        if (type == FileChangeType$Created || type == FileChangeType$Changed) {
+            logger$info("load", path)
+            doc <- Document$new(uri, language = "r", version = NULL, content = stringi::stri_read_lines(path))
+            workspace$documents$set(uri, doc)
+            self$text_sync(uri, document = doc, parse = TRUE)
+        } else if (type == FileChangeType$Deleted) {
+            logger$info("remove", path)
+            workspace$documents$remove(uri)
+        }
+        workspace$update_loaded_packages()
     }
 }
 
@@ -83,7 +96,7 @@ workspace_did_change_watched_files <- function(self, params) {
 #' @noRd
 workspace_symbol <- function(self, id, params) {
     self$deliver(workspace_symbol_reply(
-            id, self$workspace, params$query))
+            id, self$workspaces$values(), params$query))
 }
 
 #' `workspace/executeCommand` request handler

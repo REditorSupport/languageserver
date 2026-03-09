@@ -475,19 +475,20 @@ parse_document <- function(uri, content) {
 
 
 parse_callback <- function(self, uri, version, parse_data) {
-    if (is.null(parse_data) || !self$workspace$documents$has(uri)) return(NULL)
+    workspace <- self$get_workspace(uri)
+    if (is.null(parse_data) || !workspace$documents$has(uri)) return(NULL)
     logger$info("parse_callback called:", list(uri = uri, version = version))
-    doc <- self$workspace$documents$get(uri)
+    doc <- workspace$documents$get(uri)
 
     parse_data$version <- version
     old_parse_data <- doc$parse_data
-    self$workspace$update_parse_data(uri, parse_data)
+    workspace$update_parse_data(uri, parse_data)
 
     # Cache parse results in the main process (child-process caches are not shared)
     if (!is.null(parse_data$content_hash)) {
         cache_entry <- as.list(parse_data)
         cache_entry$xml_doc <- NULL
-        self$workspace$parse_cache$set(parse_data$content_hash, cache_entry)
+        workspace$parse_cache$set(parse_data$content_hash, cache_entry)
     }
 
     if (!identical(old_parse_data$packages, parse_data$packages)) {
@@ -496,7 +497,7 @@ parse_callback <- function(self, uri, version, parse_data) {
             resolve_task(self, uri, doc, parse_data$packages)
         )
         doc$loaded_packages <- parse_data$packages
-        self$workspace$update_loaded_packages()
+        workspace$update_loaded_packages()
     }
 
     pending_replies <- self$pending_replies$get(uri, NULL)
@@ -524,9 +525,10 @@ parse_task <- function(self, uri, document, delay = 0) {
     content_hash <- get_content_hash(content)
 
     # Check cache in the main process before spawning a child task
-    if (self$workspace$parse_cache$has(content_hash)) {
+    workspace <- self$get_workspace(uri)
+    if (workspace$parse_cache$has(content_hash)) {
         logger$info("parse_task: cache hit for", uri)
-        cached_entry <- self$workspace$parse_cache$get(content_hash)
+        cached_entry <- workspace$parse_cache$get(content_hash)
         cached_env <- list2env(cached_entry, parent = .GlobalEnv)
         parse_callback(self, uri, version, cached_env)
         return(NULL)
@@ -542,12 +544,13 @@ parse_task <- function(self, uri, document, delay = 0) {
 }
 
 resolve_callback <- function(self, uri, version, packages) {
-    if (!self$workspace$documents$has(uri)) return(NULL)
+    workspace <- self$get_workspace(uri)
+    if (!workspace$documents$has(uri)) return(NULL)
     logger$info("resolve_callback called:", list(uri = uri, version = version))
-    self$workspace$load_packages(packages)
-    doc <- self$workspace$documents$get(uri)
+    workspace$load_packages(packages)
+    doc <- workspace$documents$get(uri)
     doc$loaded_packages <- packages
-    self$workspace$update_loaded_packages()
+    workspace$update_loaded_packages()
 }
 
 resolve_task <- function(self, uri, document, packages, delay = 0) {

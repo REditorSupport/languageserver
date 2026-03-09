@@ -268,22 +268,10 @@ Workspace <- R6::R6Class("Workspace",
             }
         },
 
-        load_all = function(langserver) {
-            source_dir <- file.path(self$root, "R")
-            files <- list.files(source_dir, pattern = "\\.r$", ignore.case = TRUE)
-            for (f in files) {
-                logger$info("load ", f)
-                path <- file.path(source_dir, f)
-                uri <- path_to_uri(path)
-                doc <- Document$new(uri, language = "r", version = NULL, content = stringi::stri_read_lines(path))
-                self$documents$set(uri, doc)
-                # TODO: move text_sync to Workspace!?
-                langserver$text_sync(uri, document = doc, parse = TRUE)
-            }
-            self$import_from_namespace_file()
-        },
-
         import_from_namespace_file = function() {
+            if (length(self$root) == 0) {
+                return(NULL)
+            }
             namespace_file <- file.path(self$root, "NAMESPACE")
             if (!file.exists(namespace_file)) {
                 return(NULL)
@@ -324,6 +312,9 @@ Workspace <- R6::R6Class("Workspace",
         },
 
         poll_namespace_file = function() {
+            if (length(self$root) == 0) {
+                return(NULL)
+            }
             namespace_file <- file.path(self$root, "NAMESPACE")
             if (!file.exists(namespace_file)) {
                 return(NULL)

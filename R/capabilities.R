@@ -87,11 +87,16 @@ ServerCapabilities <- list(
     selectionRangeProvider = TRUE,
     callHierarchyProvider = TRUE,
     typeHierarchyProvider = TRUE,
-    semanticTokensProvider = SemanticTokensOptions
+    semanticTokensProvider = SemanticTokensOptions,
     # linkedEditingRangeProvider = FALSE,
     # monikerProvider = FALSE,
     # executeCommandProvider = ExecuteCommandOptions,
-    # workspace = list()
+    workspace = list(
+        workspaceFolders = list(
+            supported = TRUE,
+            changeNotifications = TRUE
+        )
+    )
 )
 
 update_server_capabilities <- function(server_capabilities, client_capabilities) {
