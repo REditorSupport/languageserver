@@ -148,7 +148,11 @@ TaskManager <- R6::R6Class("TaskManager",
                     if (is.null(idle_start)) {
                         attr(session, "idle_start") <- Sys.time()
                     } else if (as.numeric(difftime(Sys.time(), idle_start, units = "secs")) > private$session_idle_timeout) {
-                        session$close()
+                         if (identical(Sys.getenv("R_COVR"), "true")) {
+                            session$close(grace = 10000)
+                         } else {
+                            session$close()
+                         }
                         private$sessions[[i]] <- NULL
                     }
                 } else {
@@ -241,7 +245,13 @@ TaskManager <- R6::R6Class("TaskManager",
             }
             if (private$use_session) {
                 for (session in private$sessions) {
-                    if (!identical(Sys.getenv("R_COVR"), "true")) {
+                    if (identical(Sys.getenv("R_COVR"), "true")) {
+                        while (session$get_state() %in% c("starting", "busy")) {
+                            session$poll_process(1000)
+                            tryCatch(session$read(), error = function(e) NULL)
+                        }
+                        session$close(grace = 10000)
+                    } else {
                         session$close()
                     }
                 }

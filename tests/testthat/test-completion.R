@@ -592,7 +592,7 @@ test_that("Completion inside a package works", {
     client %>% did_open(temp_file)
     result <- client %>% respond_completion(
         temp_file, c(0, 4),
-        retry_when = function(result) length(result) == 0 || length(result$items) == 0)
+        retry_when = function(result) length(result) == 0 || length(result$items) == 0 || length(result$items %>% keep(~.$label == "nothing")) == 0)
 
     expect_length(result$items %>% keep(~.$label == "nothing"), 1)
 })
@@ -609,7 +609,7 @@ test_that("Completion of imported objects works inside a package", {
     client %>% did_open(temp_file)
     result <- client %>% respond_completion(
         temp_file, c(0, 3),
-        retry_when = function(result) length(result) == 0 || length(result$items) == 0)
+        retry_when = function(result) length(result) == 0 || length(result$items) == 0 || length(result$items %>% keep(~.$label == "dict")) == 0)
 
     expect_length(result$items %>% keep(~.$label == "dict"), 1)
 
@@ -620,7 +620,7 @@ test_that("Completion of imported objects works inside a package", {
     client %>% did_open(temp_file)
     result <- client %>% respond_completion(
         temp_file, c(0, 6),
-        retry_when = function(result) length(result) == 0 || length(result$items) == 0)
+        retry_when = function(result) length(result) == 0 || length(result$items) == 0 || length(result$items %>% keep(~.$label == "lint_package")) == 0)
 
     expect_length(result$items %>% keep(~.$label == "lint_package"), 1)
 })
