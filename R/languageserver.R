@@ -6,6 +6,8 @@
 #' An implementation of the Language Server Protocol for R
 "_PACKAGE"
 
+DEFAULT_WORKSPACE <- "_default_"
+
 #' The language server
 #'
 #' Describe the language server and how it interacts with clients.
@@ -68,7 +70,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
 
             self$pending_replies <- collections::dict()
             self$workspaces <- collections::dict()
-            self$workspaces$set("", Workspace$new(NULL))
+            self$workspaces$set(DEFAULT_WORKSPACE, Workspace$new(NULL))
 
             super$initialize()
         },
@@ -84,15 +86,15 @@ LanguageServer <- R6::R6Class("LanguageServer",
             }
         },
         add_workspace = function(uri) {
-            key <- if (length(uri) == 0) "" else uri
+            key <- if (length(uri) == 0) DEFAULT_WORKSPACE else uri
             if (!self$workspaces$has(key)) {
                 path <- if (length(uri) == 0) NULL else path_from_uri(uri)
                 new_workspace <- Workspace$new(path)
                 self$workspaces$set(key, new_workspace)
-                
+
                 # Remove documents from the fallback workspace if they belong here
                 if (!is.null(path)) {
-                    fallback <- self$workspaces$get("")
+                    fallback <- self$workspaces$get(DEFAULT_WORKSPACE)
                     for (doc_uri in fallback$documents$keys()) {
                         doc_path <- path_from_uri(doc_uri)
                         if (path_has_parent(doc_path, path)) {
@@ -103,43 +105,54 @@ LanguageServer <- R6::R6Class("LanguageServer",
             }
         },
         remove_workspace = function(uri) {
-            key <- if (length(uri) == 0) "" else uri
-            if (key == "") return(invisible(NULL))
+            key <- if (length(uri) == 0) DEFAULT_WORKSPACE else uri
+            if (key == DEFAULT_WORKSPACE) {
+                return(invisible(NULL))
+            }
             if (self$workspaces$has(key)) {
                 workspace <- self$workspaces$get(key)
                 for (doc_uri in workspace$documents$keys()) {
                     diagnostics_callback(self, doc_uri, NULL, list())
                     doc <- workspace$documents$get(doc_uri)
                     if (isTRUE(doc$is_open)) {
-                        self$workspaces$get("")$documents$set(doc_uri, doc)
+                        self$workspaces$get(DEFAULT_WORKSPACE)$documents$set(doc_uri, doc)
                     }
                 }
                 self$workspaces$remove(key)
             }
         },
         get_workspace = function(uri) {
-            workspaces_list <- self$workspaces$values()
+            # Find the best matching workspace for a given URI.
+            # If no match is found, or if URI is empty, return the default workspace.
 
-            default_key <- if (length(self$rootUri) == 0) "" else self$rootUri
-            default_workspace <- self$workspaces$get(default_key, self$workspaces$get(""))
+            # Determine the default workspace to use as a fallback
+            default_key <- if (length(self$rootUri) == 0) DEFAULT_WORKSPACE else self$rootUri
+            fallback <- self$workspaces$get(default_key, self$workspaces$get(DEFAULT_WORKSPACE))
 
-            if (length(uri) == 0) return(default_workspace)
+            if (length(uri) == 0) {
+                return(fallback)
+            }
 
             path <- path_from_uri(uri)
             best_match <- NULL
             max_len <- -1
-            
-            for (workspace in workspaces_list) {
+
+            for (workspace in self$workspaces$values()) {
                 root <- workspace$root
                 if (length(root) > 0 && path_has_parent(path, root)) {
-                    if (nchar(root) > max_len) {
-                        max_len <- nchar(root)
+                    root_len <- nchar(root)
+                    if (root_len > max_len) {
+                        max_len <- root_len
                         best_match <- workspace
                     }
                 }
             }
-            
-            best_match %||% default_workspace
+
+            if (is.null(best_match)) {
+                return(fallback)
+            }
+
+            best_match
         },
         load_workspace = function(workspace) {
             if (!is_package(workspace$root)) {
@@ -163,8 +176,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 self$load_workspace(workspace)
             }
         },
-        text_sync = function(
-                             uri, document, run_lintr = FALSE, parse = FALSE, delay = 0) {
+        text_sync = function(uri, document, run_lintr = FALSE, parse = FALSE, delay = 0) {
             if (!self$pending_replies$has(uri)) {
                 self$pending_replies$set(uri, list(
                     `textDocument/documentSymbol` = collections::queue(),
