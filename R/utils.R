@@ -163,6 +163,9 @@ path_to_uri <- function(path) {
 
 
 path_has_parent <- function(x, y) {
+    if (is.null(y)) {
+        return(FALSE)
+    }
     if (.Platform$OS.type == "windows") {
         tryCatch(
             # https://github.com/REditorSupport/languageserver/issues/279

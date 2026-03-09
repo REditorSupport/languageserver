@@ -19,7 +19,7 @@ symbol_range <- function(symbol) {
     symbol$range
 }
 
-language_client <- function(working_dir = getwd(), diagnostics = FALSE, capabilities = NULL) {
+language_client <- function(working_dir = getwd(), workspace_folders = NULL, diagnostics = FALSE, capabilities = NULL) {
 
     if (nzchar(Sys.getenv("R_LANGSVR_LOG"))) {
         script <- sprintf(
@@ -40,7 +40,7 @@ language_client <- function(working_dir = getwd(), diagnostics = FALSE, capabili
         }
     )
 
-    client$start(working_dir = working_dir, capabilities = capabilities)
+    client$start(working_dir = working_dir, workspace_folders = workspace_folders, capabilities = capabilities)
     client$catch_callback_error <- FALSE
     # initialize request
     data <- client$fetch(blocking = TRUE)

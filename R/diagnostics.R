@@ -129,7 +129,8 @@ diagnose_file <- function(uri, content, is_rmarkdown = FALSE, globals = NULL, ca
 }
 
 diagnostics_callback <- function(self, uri, version, diagnostics) {
-    if (is.null(diagnostics) || !self$workspace$documents$has(uri) || !lsp_settings$get("diagnostics")) return(NULL)
+    workspace <- self$get_workspace(uri)
+    if (is.null(diagnostics) || !workspace$documents$has(uri) || !lsp_settings$get("diagnostics")) return(NULL)
 
     logger$info("diagnostics_callback called:", list(
         uri = uri,
@@ -160,8 +161,10 @@ diagnostics_task <- function(self, uri, document, delay = 0) {
     content_hash <- get_content_hash(content)
     cache_key <- paste(uri, content_hash, sep = "::")
 
-    if (cache_ttl > 0 && self$workspace$diagnostics_cache$has(cache_key)) {
-        cached_entry <- self$workspace$diagnostics_cache$get(cache_key)
+    workspace <- self$get_workspace(uri)
+
+    if (cache_ttl > 0 && workspace$diagnostics_cache$has(cache_key)) {
+        cached_entry <- workspace$diagnostics_cache$get(cache_key)
         age <- as.numeric(difftime(Sys.time(), cached_entry$time, units = "secs"))
         if (!is.na(age) && age <= cache_ttl) {
             logger$info("diagnostics_task: cache hit for", uri)
@@ -170,13 +173,13 @@ diagnostics_task <- function(self, uri, document, delay = 0) {
         }
     }
 
-    is_package <- is_package(self$rootPath)
+    is_package <- is_package(workspace$root)
     globals <- NULL
 
     if (is_package) {
         globals <- new.env(parent = emptyenv())
-        for (doc in self$workspace$documents$values()) {
-            if (dirname(path_from_uri(doc$uri)) != file.path(self$rootPath, "R")) next
+        for (doc in workspace$documents$values()) {
+            if (dirname(path_from_uri(doc$uri)) != file.path(workspace$root, "R")) next
             parse_data <- doc$parse_data
             if (is.null(parse_data)) next
             for (symbol in parse_data$nonfuncts) {
@@ -197,15 +200,15 @@ diagnostics_task <- function(self, uri, document, delay = 0) {
         ),
         callback = function(result) {
             if (cache_ttl > 0) {
-                self$workspace$diagnostics_cache$set(cache_key, list(
+                workspace$diagnostics_cache$set(cache_key, list(
                     time = Sys.time(),
                     diagnostics = result
                 ))
                 # Keep cache bounded
-                if (self$workspace$diagnostics_cache$size() > 100) {
-                    keys <- self$workspace$diagnostics_cache$keys()
+                if (workspace$diagnostics_cache$size() > 100) {
+                    keys <- workspace$diagnostics_cache$keys()
                     for (key in keys[1:50]) {
-                        self$workspace$diagnostics_cache$remove(key)
+                        workspace$diagnostics_cache$remove(key)
                     }
                 }
             }
