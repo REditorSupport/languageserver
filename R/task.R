@@ -261,9 +261,10 @@ TaskManager <- R6::R6Class("TaskManager",
 )
 
 package_call <- function(target) {
-    func <- call(":::", as.name("languageserver"), substitute(target))
-    target <- eval(substitute(function(...) func(...), list(func = func)))
-    target
+    target_name <- as.character(substitute(target))
+    eval(bquote(
+        function(...) get(.(target_name), envir = asNamespace("languageserver"))(...)
+    ), envir = baseenv())
 }
 
 create_task <- function(target, args, callback = NULL, error = NULL, delay = 0) {
