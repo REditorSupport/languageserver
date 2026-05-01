@@ -1,3 +1,14 @@
+# languageserver 0.3.18
+
+**Closed issues:**
+
+- avoid rlang formatting crash in callr subprocess (#723)
+- Multi root support (#719)
+
+**Merged pull requests:**
+
+- test: enable parallel execution and streamline CI workflows (#720)
+
 # languageserver 0.3.17
 
 **Closed issues:**
