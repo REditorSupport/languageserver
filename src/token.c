@@ -92,9 +92,15 @@ static int is_token_start_cp(unsigned int cp) {
 
 static SEXP make_str(const char *text, int start, int len) {
     if (len <= 0) {
-        return Rf_mkString("");
+        SEXP chr = PROTECT(Rf_mkCharLenCE("", 0, CE_UTF8));
+        SEXP res = Rf_ScalarString(chr);
+        UNPROTECT(1);
+        return res;
     }
-    return Rf_ScalarString(Rf_mkCharLenCE(text + start, len, CE_UTF8));
+    SEXP chr = PROTECT(Rf_mkCharLenCE(text + start, len, CE_UTF8));
+    SEXP res = Rf_ScalarString(chr);
+    UNPROTECT(1);
+    return res;
 }
 
 SEXP scan_token_c(SEXP line, SEXP col, SEXP forward) {
@@ -136,11 +142,12 @@ SEXP scan_token_c(SEXP line, SEXP col, SEXP forward) {
     int right_len = right_end - right_start;
     int end = do_forward ? right_end : right_start;
 
-    SEXP full_token = Rf_mkString("");
-    SEXP right_token = make_str(text, right_start, right_len);
-    SEXP package = Rf_mkString("");
-    SEXP accessor = Rf_mkString("");
-    SEXP token = Rf_mkString("");
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 5));
+    SET_VECTOR_ELT(out, 0, make_str("", 0, 0));
+    SET_VECTOR_ELT(out, 1, make_str(text, right_start, right_len));
+    SET_VECTOR_ELT(out, 2, make_str("", 0, 0));
+    SET_VECTOR_ELT(out, 3, make_str("", 0, 0));
+    SET_VECTOR_ELT(out, 4, make_str("", 0, 0));
 
     if (right_len == 0) {
         int acc_len = 0;
@@ -169,9 +176,9 @@ SEXP scan_token_c(SEXP line, SEXP col, SEXP forward) {
                 int pkg_start = p + 1;
                 int pkg_len = pkg_end - pkg_start + 1;
                 if (pkg_len >= 2 && isalpha((unsigned char) text[pkg_start])) {
-                    package = make_str(text, pkg_start, pkg_len);
-                    accessor = make_str(text, acc_start, acc_len);
-                    full_token = make_str(text, pkg_start, right_start - pkg_start);
+                    SET_VECTOR_ELT(out, 2, make_str(text, pkg_start, pkg_len));
+                    SET_VECTOR_ELT(out, 3, make_str(text, acc_start, acc_len));
+                    SET_VECTOR_ELT(out, 0, make_str(text, pkg_start, right_start - pkg_start));
                 }
             }
         }
@@ -204,8 +211,8 @@ SEXP scan_token_c(SEXP line, SEXP col, SEXP forward) {
                 if (is_token_start_cp(start_cp)) {
                     if (!(start > 0 && text[start - 1] == '$')) {
                         int token_len = end - start;
-                        token = make_str(text, start, token_len);
-                        full_token = token;
+                        SET_VECTOR_ELT(out, 4, make_str(text, start, token_len));
+                        SET_VECTOR_ELT(out, 0, VECTOR_ELT(out, 4));
 
                         if (start >= 2 && text[start - 1] == ':' && text[start - 2] == ':') {
                             int acc_len = 2;
@@ -232,9 +239,9 @@ SEXP scan_token_c(SEXP line, SEXP col, SEXP forward) {
                                 int pkg_len = pkg_end - pkg_start + 1;
 
                                 if (pkg_len >= 2 && isalpha((unsigned char) text[pkg_start])) {
-                                    package = make_str(text, pkg_start, pkg_len);
-                                    accessor = make_str(text, acc_start, acc_len);
-                                    full_token = make_str(text, pkg_start, end - pkg_start);
+                                    SET_VECTOR_ELT(out, 2, make_str(text, pkg_start, pkg_len));
+                                    SET_VECTOR_ELT(out, 3, make_str(text, acc_start, acc_len));
+                                    SET_VECTOR_ELT(out, 0, make_str(text, pkg_start, end - pkg_start));
                                 }
                             }
                         }
@@ -243,13 +250,6 @@ SEXP scan_token_c(SEXP line, SEXP col, SEXP forward) {
             }
         }
     }
-
-    SEXP out = PROTECT(Rf_allocVector(VECSXP, 5));
-    SET_VECTOR_ELT(out, 0, full_token);
-    SET_VECTOR_ELT(out, 1, right_token);
-    SET_VECTOR_ELT(out, 2, package);
-    SET_VECTOR_ELT(out, 3, accessor);
-    SET_VECTOR_ELT(out, 4, token);
 
     SEXP names = PROTECT(Rf_allocVector(STRSXP, 5));
     SET_STRING_ELT(names, 0, Rf_mkChar("full_token"));
