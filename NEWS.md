@@ -2,11 +2,13 @@
 
 **Closed issues:**
 
-- avoid rlang formatting crash in callr subprocess (#723)
-- Multi root support (#719)
+- Failed to run diagnostics: ! in callr subprocess. Caused by error in `call[[1L]]` (#723)
 
 **Merged pull requests:**
 
+- Bump codecov/codecov-action from 5 to 6 (#724)
+- fix: avoid rlang formatting crash in callr subprocess (#723) (#725)
+- Multi root support (#719)
 - test: enable parallel execution and streamline CI workflows (#720)
 
 # languageserver 0.3.17

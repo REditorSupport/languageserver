@@ -1,3 +1,4 @@
+#' @import callr
 Task <- R6::R6Class("Task",
     private = list(
         process = NULL,
