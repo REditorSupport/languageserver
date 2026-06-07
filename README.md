@@ -108,6 +108,14 @@ The following editors are supported by installing the corresponding extensions:
     }
     ```
 
+- Emacs: [eglot-mode](https://elpa.gnu.org/devel/doc/eglot.html) (native LSP client)
+
+    ```elisp
+    (use-package ess :ensure t)
+    (add-hook 'ess-r-mode-hook 'eglot-ensure)
+    ```
+    To check if it is working, open an R file, place the cursor on a line and run `M-x ess-eval-line`.
+
 - Emacs: [lsp-mode](https://github.com/emacs-lsp/lsp-mode)
 
 - JupyterLab: [jupyterlab-lsp](https://github.com/jupyter-lsp/jupyterlab-lsp)
