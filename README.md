@@ -23,10 +23,10 @@ A few dependencies are required beforehand:
 
 ```bash
 # On Debian, Ubuntu, etc.
-apt install --assume-yes --no-install-recommends build-essential libcurl4-openssl-dev libssl-dev libxml2-dev r-base
+apt install --assume-yes --no-install-recommends build-essential libcurl4-openssl-dev libssl-dev libxml2-dev libuv1-dev r-base
 
 # On Fedora, Centos, etc.
-dnf install --assumeyes --setopt=install_weak_deps=False @development-tools libcurl-devel libxml2-devel openssl-devel R
+dnf install --assumeyes --setopt=install_weak_deps=False @development-tools libcurl-devel libxml2-devel openssl-devel libuv-devel R
 
 # On Alpine
 apk add --no-cache curl-dev g++ gcc libxml2-dev linux-headers make R R-dev
