@@ -243,7 +243,7 @@ code_action_params <- function(uri, range, context = NULL) {
   structure(
     list(
       textDocument = uri,
-      position      = position,
+      range         = range,
       context       = context
     ),
     class = "code_action_params"

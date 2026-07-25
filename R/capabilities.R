@@ -46,6 +46,10 @@ DocumentLinkOptions <- list(
     resolveProvider = TRUE
 )
 
+CodeActionOptions <- list(
+    codeActionKinds = list("quickfix", "source.fixAll")
+)
+
 RenameOptions <- list(
     prepareProvider = TRUE
 )
@@ -85,7 +89,7 @@ ServerCapabilities <- list(
     documentHighlightProvider = TRUE,
     documentSymbolProvider = TRUE,
     workspaceSymbolProvider = TRUE,
-    codeActionProvider = TRUE,
+    codeActionProvider = CodeActionOptions,
     codeLensProvider = CodeLensOptions,
     documentFormattingProvider = TRUE,
     documentRangeFormattingProvider = DocumentRangeFormattingOptions,
