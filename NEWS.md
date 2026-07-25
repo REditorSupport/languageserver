@@ -1,5 +1,8 @@
 # languageserver 0.3.18
 
+- Add preferred quick fixes for common `lintr` diagnostics and a conflict-aware
+  `source.fixAll` action, while making multi-line `nolint` actions apply to every
+  affected line.
 - Add LSP 3.18 capability updates, including multiple-range formatting,
   explicit UTF-16 position encoding, and the semantic token `label` type.
 - Add R-focused code lenses for function call counts, linked editing between
