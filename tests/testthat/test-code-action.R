@@ -214,3 +214,137 @@ test_that("Code action capabilities and request interface are precise", {
   expect_identical(params$range, request_range)
   expect_null(params$position)
 })
+
+test_that("Direct fixes reject diagnostics that cannot be applied safely", {
+  diagnostic <- function(code, start = 0L, end = 1L, message = "", line = 0L,
+                         source = "lintr") {
+    list(
+      range = range(position(line, start), position(line, end)),
+      source = source,
+      code = code,
+      message = message
+    )
+  }
+
+  cases <- list(
+    list("x <- 1", diagnostic("assignment_linter", 2L, 4L)),
+    list("x + 1", diagnostic("infix_spaces_linter", 2L, 2L)),
+    list("f(x)", diagnostic("commas_linter")),
+    list(" x", diagnostic("indentation_linter", message = "Bad indentation")),
+    list("x %>% f()", diagnostic("pipe_consistency_linter", 2L, 5L,
+      "Use one consistent pipe")),
+    list("X", diagnostic("T_and_F_symbol_linter")),
+    list("x", diagnostic("trailing_whitespace_linter")),
+    list(c("", "x"), diagnostic("trailing_blank_lines_linter")),
+    list("x", diagnostic("semicolon_linter")),
+    list("x", diagnostic("spaces_left_parentheses_linter")),
+    list("if (x)", diagnostic("brace_linter", message =
+      "There should be a space before an opening curly brace.")),
+    list("x == 1", diagnostic("equals_na_linter", 0L, 6L)),
+    list("x", diagnostic("unknown_linter"))
+  )
+
+  for (case in cases) {
+    document <- Document$new("file:///invalid-fix.R", content = case[[1L]])
+    expect_null(code_action_direct_fix(document, case[[2L]]))
+  }
+
+  already_formatted <- Document$new("file:///no-op.R", content = "x + y")
+  expect_null(code_action_direct_fix(
+    already_formatted,
+    diagnostic("infix_spaces_linter", 1L, 4L)
+  ))
+  expect_equal(code_action_character("abc", -1L), "")
+  expect_equal(code_action_character("abc", 3L), "")
+  expect_null(code_action_nearest_character("abc", ",", 0L, 1L))
+})
+
+test_that("Code action helpers preserve multiline text and merge duplicates", {
+  document <- Document$new("file:///edits.R", content = c("abc", "def"))
+  edit <- text_edit(
+    range(position(0L, 1L), position(1L, 1L)),
+    "replacement"
+  )
+  expect_equal(code_action_edit_text(document, edit), "bc\nd")
+
+  diagnostic <- list(
+    range = range(position(0L, 1L), position(0L, 2L)),
+    source = "lintr",
+    code = "assignment_linter",
+    message = "Use <- for assignment."
+  )
+  assignment <- Document$new("file:///duplicate.R", content = "x=1")
+  fixes <- code_action_direct_fixes(
+    assignment,
+    list(diagnostic, diagnostic, within(diagnostic, source <- "another-tool"))
+  )
+  expect_length(fixes, 1L)
+  expect_length(fixes[[1L]]$diagnostics, 2L)
+  expect_identical(code_action_direct_fixes(assignment, list()), list())
+  expect_identical(code_action_non_overlapping_fixes(list()), list())
+})
+
+test_that("Nolint edits handle existing, blank, and trailing-space lines", {
+  document <- Document$new("file:///nolint-edges.R", content = c(
+    "x # nolint",
+    "y # nolint: first_linter.",
+    "   ",
+    "z   "
+  ))
+
+  expect_null(code_action_nolint_edit(document, 0L))
+  expect_null(code_action_nolint_edit(document, 0L, "new_linter"))
+  expect_equal(
+    code_action_nolint_edit(document, 1L)$newText,
+    "# nolint"
+  )
+  expect_null(code_action_nolint_edit(document, 1L, "first_linter"))
+  expect_equal(
+    code_action_nolint_edit(document, 1L, "second_linter")$newText,
+    ", second_linter"
+  )
+  expect_equal(
+    code_action_nolint_edit(document, 2L, "blank_linter")$newText,
+    "# nolint: blank_linter."
+  )
+  expect_equal(
+    code_action_nolint_edit(document, 3L)$newText,
+    " # nolint"
+  )
+})
+
+test_that("Code action filtering ignores unrelated or invalid diagnostics", {
+  uri <- "file:///filtered-actions.R"
+  document <- Document$new(uri, content = "x")
+  unrelated <- list(
+    range = range(position(0L, 0L), position(0L, 1L)),
+    source = "another-tool",
+    code = "some_rule",
+    message = "Not from lintr"
+  )
+  missing_code <- within(unrelated, {
+    source <- "lintr"
+    code <- NULL
+  })
+  invalid_row <- within(unrelated, {
+    source <- "lintr"
+    range <- range(position(10L, 0L), position(10L, 1L))
+  })
+
+  expect_identical(
+    code_action_suppression_actions(
+      uri, document, list(unrelated, missing_code)
+    ),
+    list()
+  )
+  expect_identical(
+    code_action_suppression_actions(uri, document, list(invalid_row)),
+    list()
+  )
+
+  reply <- document_code_action_reply(
+    1L, uri, NULL, document, list(),
+    list(diagnostics = NULL, only = list("quickfix"))
+  )
+  expect_identical(reply$result, list())
+})

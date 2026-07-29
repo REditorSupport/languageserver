@@ -584,13 +584,13 @@ get_help_rd <- function(hfile) {
 get_help <- function(hfile, format = c("html", "text")) {
     format <- match.arg(format)
 
-    rd <- get_help_rd(hfile)
     paths <- as.character(hfile)
 
     if (length(paths) == 0) {
         return(NULL)
     }
 
+    rd <- get_help_rd(hfile)
     pkgname <- basename(dirname(dirname(paths[[1]])))
 
     if (format == "html") {

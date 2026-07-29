@@ -24,6 +24,115 @@ test_that("Simple hover works", {
     expect_equal(result$range$end$character, 13)
 })
 
+test_that("function argument hover falls back through sparse documentation", {
+    workspace <- new.env(parent = baseenv())
+    workspace$get_documentation <- function(...) "plain text"
+    workspace$get_signature <- function(...) NULL
+    expect_null(function_argument_hover_contents(
+        workspace, "target", NULL, "argument"
+    ))
+
+    workspace$get_documentation <- function(...) {
+        list(arguments = list("..." = "additional arguments"))
+    }
+    expect_equal(
+        function_argument_hover_contents(workspace, "target", NULL, "missing"),
+        "additional arguments"
+    )
+
+    workspace$get_documentation <- function(...) list(arguments = list())
+    expect_null(function_argument_hover_contents(
+        workspace, "target", NULL, "missing"
+    ))
+})
+
+test_that("hover handles package and literal token classes", {
+    fixture <- provider_fixture(c(
+        "base::mean",
+        "missingHoverPackage::fun",
+        "object@slot",
+        "'text'",
+        "# comment",
+        "1 + 2"
+    ))
+    fixture$workspace$get_help <- function(...) NULL
+    fixture$workspace$get_documentation <- function(...) NULL
+    fixture$workspace$get_signature <- function(...) NULL
+    fixture$workspace$get_definition <- function(...) NULL
+    fixture$workspace$guess_namespace <- function(...) NULL
+
+    outside <- hover_reply(
+        1L,
+        fixture$uri,
+        fixture$workspace,
+        fixture$document,
+        list(row = 99L, col = 0L)
+    )
+    expect_null(outside$result)
+
+    installed <- hover_reply(
+        2L, fixture$uri, fixture$workspace, fixture$document,
+        list(row = 0L, col = 1L)
+    )
+    expect_match(
+        paste(installed$result$contents, collapse = " "),
+        "base",
+        ignore.case = TRUE
+    )
+
+    missing <- hover_reply(
+        3L, fixture$uri, fixture$workspace, fixture$document,
+        list(row = 1L, col = 2L)
+    )
+    expect_match(
+        paste(missing$result$contents, collapse = " "),
+        "not installed"
+    )
+
+    for (point in list(
+        list(row = 2L, col = 8L),
+        list(row = 3L, col = 2L),
+        list(row = 4L, col = 2L),
+        list(row = 5L, col = 2L)
+    )) {
+        expect_null(hover_reply(
+            4L, fixture$uri, fixture$workspace, fixture$document, point
+        )$result)
+    }
+})
+
+test_that("hover combines fallback signatures with character and list docs", {
+    fixture <- provider_fixture("mystery")
+    fixture$workspace$get_help <- function(...) NULL
+    fixture$workspace$guess_namespace <- function(...) "workspace"
+    fixture$workspace$get_signature <- function(...) "mystery(value)"
+    fixture$workspace$get_definition <- function(...) NULL
+    point <- list(row = 0L, col = 2L)
+
+    fixture$workspace$get_documentation <- function(...) "character docs"
+    character_reply <- hover_reply(
+        1L, fixture$uri, fixture$workspace, fixture$document, point
+    )
+    expect_match(character_reply$result$contents[[1L]], "mystery\\(value\\)")
+    expect_equal(character_reply$result$contents[[2L]], "character docs")
+
+    fixture$workspace$get_documentation <- function(...) {
+        list(description = "description docs")
+    }
+    description_reply <- hover_reply(
+        2L, fixture$uri, fixture$workspace, fixture$document, point
+    )
+    expect_equal(description_reply$result$contents[[2L]], "description docs")
+
+    fixture$workspace$get_documentation <- function(...) {
+        list(description = "ignored", markdown = "markdown docs")
+    }
+    markdown_reply <- hover_reply(
+        3L, fixture$uri, fixture$workspace, fixture$document, point
+    )
+    expect_equal(markdown_reply$result$contents[[2L]], "markdown docs")
+})
+
 test_that("Hover on user function works", {
     skip_on_cran()
     client <- language_client()

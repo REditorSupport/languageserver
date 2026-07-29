@@ -17,3 +17,20 @@ test_that("ByteLruCache does not retain an oversized value", {
     expect_false(cache$has("large"))
     expect_equal(cache$bytes(), 0)
 })
+
+test_that("ByteLruCache exposes safe collection operations", {
+    cache <- ByteLruCache$new(max_bytes = 10000, max_entries = 2L)
+    expect_equal(cache$get("missing", "fallback"), "fallback")
+    expect_null(cache$remove("missing"))
+
+    cache$set("first", 1L)
+    cache$set("second", 2L)
+    expect_equal(cache$size(), 2L)
+    expect_setequal(cache$keys(), c("first", "second"))
+    expect_true(cache$bytes() > 0)
+
+    cache$clear()
+    expect_equal(cache$size(), 0L)
+    expect_length(cache$keys(), 0L)
+    expect_equal(cache$bytes(), 0)
+})

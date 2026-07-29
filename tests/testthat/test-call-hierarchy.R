@@ -238,3 +238,91 @@ test_that("Call hierarchy outgoing calls works", {
         end = list(line = 2, character = 46)
     ))
 })
+
+legacy_call_hierarchy_fixture <- function() {
+    content <- c(
+        "target <- function() 1",
+        "caller <- function() { target(); target() }"
+    )
+    uri <- "file:///legacy-call-hierarchy.R"
+    document <- Document$new(uri, version = 1L, content = content)
+    parse_data <- parse_document(uri, content)
+    parse_data$xml_doc <- xml2::read_xml(parse_data$xml_data)
+    parse_data$reference_index <- NULL
+    document$update_parse_data(parse_data)
+
+    documents <- collections::dict()
+    documents$set(uri, document)
+    workspace <- new.env(parent = baseenv())
+    workspace$documents <- documents
+    workspace$get_parse_data <- function(request_uri) {
+        stopifnot(identical(request_uri, uri))
+        parse_data
+    }
+    workspace$get_definitions_for_uri <- function(request_uri) {
+        stopifnot(identical(request_uri, uri))
+        unname(parse_data$definitions)
+    }
+    workspace$get_definition <- function(...) NULL
+
+    list(
+        uri = uri,
+        document = document,
+        workspace = workspace,
+        definitions = parse_data$definitions
+    )
+}
+
+test_that("Call hierarchy falls back to XML for outgoing calls", {
+    fixture <- legacy_call_hierarchy_fixture()
+    definition <- fixture$definitions$caller
+    item <- list(
+        name = "caller",
+        uri = fixture$uri,
+        range = definition$range,
+        data = list(definition = list(
+            uri = fixture$uri,
+            range = definition$range
+        ))
+    )
+
+    reply <- call_hierarchy_outgoing_calls_reply(
+        1L, fixture$workspace, item
+    )
+
+    expect_length(reply$result, 1L)
+    expect_equal(reply$result[[1L]]$to$name, "target")
+    expect_equal(reply$result[[1L]]$to$uri, fixture$uri)
+    expect_length(reply$result[[1L]]$fromRanges, 2L)
+    expect_equal(
+        map_int(reply$result[[1L]]$fromRanges, c("start", "line")),
+        c(1L, 1L)
+    )
+})
+
+test_that("Call hierarchy falls back to XML for incoming calls", {
+    fixture <- legacy_call_hierarchy_fixture()
+    definition <- fixture$definitions$target
+    item <- list(
+        name = "target",
+        uri = fixture$uri,
+        range = definition$range,
+        data = list(definition = list(
+            uri = fixture$uri,
+            range = definition$range
+        ))
+    )
+
+    reply <- call_hierarchy_incoming_calls_reply(
+        1L, fixture$workspace, item
+    )
+
+    expect_length(reply$result, 1L)
+    expect_equal(reply$result[[1L]]$from$name, "caller")
+    expect_equal(reply$result[[1L]]$from$kind, SymbolKind$Function)
+    expect_length(reply$result[[1L]]$fromRanges, 2L)
+    expect_equal(
+        map_int(reply$result[[1L]]$fromRanges, c("start", "character")),
+        c(23L, 33L)
+    )
+})
