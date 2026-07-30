@@ -97,7 +97,12 @@ test_that("URI helpers handle files, notebooks, Unicode, and empty inputs", {
 
 test_that("path helpers find package roots and restore working directories", {
     original <- getwd()
-    package_root <- normalizePath(file.path(original, "..", ".."))
+    package_root <- normalizePath(withr::local_tempdir())
+    writeLines(
+        c("Package: pathfixture", "Version: 0.0.1"),
+        file.path(package_root, "DESCRIPTION")
+    )
+    dir.create(file.path(package_root, "R"))
     expect_false(path_has_parent(package_root, NULL))
     expect_true(path_has_parent(file.path(package_root, "R"), package_root))
     expect_true(is_directory(package_root))

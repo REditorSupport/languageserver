@@ -176,7 +176,12 @@ test_that("didClose removes non-package documents and clears caches", {
 })
 
 test_that("didClose retains documents belonging to an open package", {
-    package_root <- normalizePath(file.path(getwd(), "..", ".."))
+    package_root <- normalizePath(withr::local_tempdir())
+    writeLines(
+        c("Package: textsyncfixture", "Version: 0.0.1"),
+        file.path(package_root, "DESCRIPTION")
+    )
+    dir.create(file.path(package_root, "R"))
     fixture <- textsync_fixture(package_root)
     uri <- path_to_uri(file.path(package_root, "R", "retained.R"))
     document <- Document$new(uri, version = 1L, content = "value <- 1")
