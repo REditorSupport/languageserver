@@ -82,7 +82,14 @@ test_that("URI helpers handle files, notebooks, Unicode, and empty inputs", {
     expect_equal(path_from_uri("untitled:Untitled-1"), "")
 
     path <- file.path(tempdir(), paste0("space ", intToUtf8(0x4f62), ".R"))
-    expect_equal(path_from_uri(path_to_uri(path)), path.expand(path))
+    expect_equal(
+        normalizePath(
+            path_from_uri(path_to_uri(path)),
+            winslash = "/",
+            mustWork = FALSE
+        ),
+        normalizePath(path.expand(path), winslash = "/", mustWork = FALSE)
+    )
     expect_equal(
         path_from_uri("vscode-notebook-cell:/tmp/notebook.ipynb#cell-1"),
         "/tmp/notebook.ipynb"
@@ -125,7 +132,14 @@ test_that("path helpers find package roots and restore working directories", {
 
     uri <- path_to_uri(file.path(empty_dir, "file.R"))
     expect_equal(get_root_path_for_uri(uri, original), original)
-    expect_equal(get_root_path_for_uri(uri, character()), empty_dir)
+    expect_equal(
+        normalizePath(
+            get_root_path_for_uri(uri, character()),
+            winslash = "/",
+            mustWork = FALSE
+        ),
+        normalizePath(empty_dir, winslash = "/", mustWork = FALSE)
+    )
     expect_equal(get_root_path_for_uri("untitled:1", character()), original)
 })
 

@@ -346,9 +346,18 @@ Workspace <- R6::R6Class("Workspace",
             }
             globals <- new.env(parent = emptyenv())
             if (is_package(self$root)) {
-                source_dir <- file.path(self$root, "R")
+                source_dir <- normalizePath(
+                    file.path(self$root, "R"),
+                    winslash = "/",
+                    mustWork = FALSE
+                )
                 for (doc in self$documents$values()) {
-                    if (dirname(path_from_uri(doc$uri)) != source_dir) next
+                    document_dir <- normalizePath(
+                        dirname(path_from_uri(doc$uri)),
+                        winslash = "/",
+                        mustWork = FALSE
+                    )
+                    if (document_dir != source_dir) next
                     parse_data <- doc$parse_data
                     if (is.null(parse_data)) next
                     for (symbol in parse_data$nonfuncts) {

@@ -127,13 +127,12 @@ path_from_uri <- function(uri) {
         # Windows: vscode-notebook-cell:/c:/Users/Username/Documents/Notebooks/MyNotebook.ipynb#MyCellId
         # Unix: vscode-notebook-cell:/home/username/Documents/Notebooks/MyNotebook.ipynb#MyCellId
         # WSL: vscode-notebook-cell://wsl+ubuntu-20.04/home/username/Documents/Notebooks/MyNotebook.ipynb#MyCellId
-        if (.Platform$OS.type == "windows") {
-            path <- sub("^vscode-notebook-cell:/(.+)#.*$", "\\1", uri)
-        } else {
-            path <- sub("^vscode-notebook-cell:(.+)#.*$", "\\1", uri)
-            if (startsWith(path, "//")) {
-                path <- sub("^//[^/]+(/.+)$", "\\1", path)
-            }
+        path <- sub("^vscode-notebook-cell:(.+)#.*$", "\\1", uri)
+        if (startsWith(path, "//")) {
+            path <- sub("^//[^/]+(/.+)$", "\\1", path)
+        } else if (.Platform$OS.type == "windows" &&
+                grepl("^/[[:alpha:]]:/", path)) {
+            path <- substring(path, 2L)
         }
     } else {
         return("")
