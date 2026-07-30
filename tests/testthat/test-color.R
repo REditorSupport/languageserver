@@ -3,6 +3,27 @@ get_color <- function(color) {
     as.list(rgba[, 1])
 }
 
+test_that("color presentations preserve opaque and translucent alpha", {
+    fixture <- provider_fixture("value <- 1")
+    opaque <- color_presentation_reply(
+        1L,
+        fixture$uri,
+        fixture$workspace,
+        fixture$document,
+        list(red = 1, green = 0, blue = 0, alpha = 1)
+    )
+    translucent <- color_presentation_reply(
+        2L,
+        fixture$uri,
+        fixture$workspace,
+        fixture$document,
+        list(red = 1, green = 0, blue = 0, alpha = 0.5)
+    )
+
+    expect_equal(opaque$result[[1L]]$label, "#ff0000")
+    expect_equal(translucent$result[[1L]]$label, "#ff000080")
+})
+
 test_that("Document color works", {
     skip_on_cran()
     client <- language_client()

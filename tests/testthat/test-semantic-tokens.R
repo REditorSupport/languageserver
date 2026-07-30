@@ -146,3 +146,237 @@ test_that("Semantic tokens contain expected types", {
     token_count <- length(result$data) %/% 5
     expect_true(token_count > 0)
 })
+
+test_that("Semantic parse data handles UTF-16 and multiline tokens", {
+    astral <- intToUtf8(0x10400)
+    content <- c(
+        paste0('label <- "', astral, '"'),
+        'description <- "first',
+        'second"',
+        "fn <- function(argument) argument + 1L"
+    )
+    parsed <- parse(text = content, keep.source = TRUE)
+    data <- utils::getParseData(parsed, includeText = TRUE)
+
+    semantic <- semantic_parse_data(data, content)
+
+    expect_gt(length(semantic$lines), 0L)
+    expect_identical(length(semantic$encoded), length(semantic$lines) * 5L)
+    expect_true(all(diff(semantic$lines) >= 0L))
+    string_rows <- which(semantic$types == SemanticTokenTypes$string)
+    expect_true(all(c(0L, 1L, 2L) %in% semantic$lines[string_rows]))
+    astral_string <- which(
+        semantic$lines == 0L & semantic$types == SemanticTokenTypes$string
+    )
+    expect_equal(semantic$lengths[astral_string], 4L)
+
+    expect_identical(
+        semantic_parse_data(NULL, content),
+        empty_semantic_data()
+    )
+    expect_identical(
+        semantic_parse_data(data[!data$terminal, , drop = FALSE], content),
+        empty_semantic_data()
+    )
+})
+
+test_that("Semantic ranges select overlapping tokens and re-encode them", {
+    fixture <- provider_fixture(c("alpha <- 1", "beta <- alpha", "gamma <- 3"))
+    data <- fixture$document$parse_data$semantic_data
+
+    selected <- semantic_data_for_range(data, list(
+        start = list(line = 1L, character = 1L),
+        end = list(line = 2L, character = 0L)
+    ))
+    expect_true(length(selected$lines) > 0L)
+    expect_true(all(selected$lines == 1L))
+    expect_identical(length(selected$encoded), length(selected$lines) * 5L)
+
+    empty <- semantic_data_for_range(data, list(
+        start = list(line = 20L, character = 0L),
+        end = list(line = 21L, character = 0L)
+    ))
+    expect_identical(empty, empty_semantic_data())
+    expect_identical(
+        semantic_data_for_range(NULL, list()),
+        empty_semantic_data()
+    )
+})
+
+test_that("Semantic providers use cached data and legacy fallbacks", {
+    uri <- "file:///semantic-cache.R"
+    document <- Document$new(uri, version = 1L, content = "value <- 1")
+    semantic_data <- list(
+        lines = c(0L, 1L),
+        cols = c(0L, 2L),
+        lengths = c(5L, 3L),
+        types = c(SemanticTokenTypes$variable, SemanticTokenTypes$number),
+        modifiers = c(0L, 0L),
+        encoded = as.integer(c(0, 0, 5, 8, 0, 1, 2, 3, 9, 0))
+    )
+    parse_data <- list(
+        version = 1L,
+        semantic_data = semantic_data,
+        content_hash = "current"
+    )
+    workspace <- new.env(parent = baseenv())
+    workspace$parse_cache <- collections::dict()
+    workspace$get_parse_data <- function(...) parse_data
+
+    legend <- get_semantic_tokens_legend()
+    expect_identical(legend$tokenTypes, names(SemanticTokenTypes))
+    expect_identical(legend$tokenModifiers, names(SemanticTokenModifiers))
+
+    cached <- extract_semantic_tokens(uri, workspace, document)
+    expect_length(cached, 2L)
+    ranged <- extract_semantic_tokens(
+        uri, workspace, document,
+        range = range(position(0L, 0L), position(1L, 0L))
+    )
+    expect_length(ranged, 1L)
+
+    parse_data$semantic_data <- empty_semantic_data()
+    expect_identical(
+        extract_semantic_tokens(uri, workspace, document),
+        list()
+    )
+
+    parse_data <- list(
+        version = 1L,
+        semantic_data = NULL,
+        xml_doc = NULL,
+        content_hash = "current"
+    )
+    expect_identical(
+        semantic_tokens_full_reply(1L, uri, workspace, document)$result$data,
+        integer()
+    )
+    request_range <- range(position(0L, 0L), position(1L, 0L))
+    expect_identical(
+        semantic_tokens_range_reply(
+            2L, uri, workspace, document, request_range
+        )$result$data,
+        integer()
+    )
+    expect_identical(
+        semantic_tokens_delta_reply(
+            3L, uri, workspace, document, "missing"
+        )$result$data,
+        integer()
+    )
+
+    parse_data$semantic_data <- semantic_data
+    delta <- semantic_tokens_delta_reply(
+        4L, uri, workspace, document, "missing"
+    )
+    expect_identical(delta$result$resultId, "current")
+    expect_identical(delta$result$data, semantic_data$encoded)
+})
+
+test_that("Semantic token types cover every parser token category", {
+    cases <- c(
+        SYMBOL = SemanticTokenTypes$variable,
+        SYMBOL_FUNCTION_CALL = SemanticTokenTypes[["function"]],
+        SYMBOL_FORMALS = SemanticTokenTypes$parameter,
+        SYMBOL_PACKAGE = SemanticTokenTypes$namespace,
+        FUNCTION = SemanticTokenTypes$keyword,
+        KEYWORD = SemanticTokenTypes$keyword,
+        NUM_CONST = SemanticTokenTypes$number,
+        INT_CONST = SemanticTokenTypes$number,
+        FLOAT_CONST = SemanticTokenTypes$number,
+        STRING = SemanticTokenTypes$string,
+        STR_CONST = SemanticTokenTypes$string,
+        COMMENT = SemanticTokenTypes$comment,
+        LEFT_ASSIGN = SemanticTokenTypes$operator,
+        RIGHT_ASSIGN = SemanticTokenTypes$operator,
+        EQ_ASSIGN = SemanticTokenTypes$operator,
+        `OP-DOLLAR` = SemanticTokenTypes$operator,
+        `OP-PIPE` = SemanticTokenTypes$operator,
+        OP = SemanticTokenTypes$operator,
+        `OP-LAMBDA` = SemanticTokenTypes$keyword,
+        UNKNOWN = SemanticTokenTypes$variable
+    )
+
+    actual <- vapply(names(cases), get_token_type, integer(1L))
+    expect_identical(unname(actual), unname(as.integer(cases)))
+})
+
+test_that("Legacy XML semantic extraction handles ranges and declarations", {
+    uri <- "file:///legacy-semantic.R"
+    content <- c(
+        "fn <- function(argument) {",
+        "  value <- argument + 1L",
+        "  value",
+        "}"
+    )
+    parsed <- parse(text = content, keep.source = TRUE)
+    xdoc <- xml2::read_xml(xmlparsedata::xml_parse_data(parsed))
+    workspace <- list(get_parse_data = function(request_uri) {
+        expect_identical(request_uri, uri)
+        list(xml_doc = xdoc, semantic_data = NULL)
+    })
+    document <- Document$new(uri, version = 1L, content = content)
+
+    tokens <- extract_semantic_tokens(uri, workspace, document)
+    expect_gt(length(tokens), 0L)
+    parameter <- Filter(function(token) {
+        token$tokenType == SemanticTokenTypes$parameter
+    }, tokens)
+    expect_true(any(vapply(parameter, function(token) {
+        token$tokenModifiers != 0L
+    }, logical(1L))))
+
+    ranged <- extract_semantic_tokens(
+        uri, workspace, document,
+        range = range(position(0L, 0L), position(1L, 0L))
+    )
+    expect_true(length(ranged) > 0L)
+    expect_true(all(vapply(ranged, function(token) token$line <= 1L, logical(1L))))
+
+    no_xml <- list(get_parse_data = function(...) list(xml_doc = NULL))
+    expect_identical(
+        extract_semantic_tokens(uri, no_xml, document),
+        list()
+    )
+})
+
+test_that("Semantic encoding sorts tokens and supports empty results", {
+    tokens <- list(
+        list(line = 2L, col = 0L, length = 1L,
+            tokenType = SemanticTokenTypes$number, tokenModifiers = 0L),
+        list(line = 0L, col = 4L, length = 3L,
+            tokenType = SemanticTokenTypes$variable, tokenModifiers = 0L),
+        list(line = 0L, col = 0L, length = 2L,
+            tokenType = SemanticTokenTypes$parameter, tokenModifiers = 1L)
+    )
+
+    encoded <- encode_semantic_tokens(tokens)$data
+    matrix_data <- matrix(encoded, ncol = 5L, byrow = TRUE)
+    expect_identical(matrix_data[, 1L], c(0L, 0L, 2L))
+    expect_identical(matrix_data[, 2L], c(0L, 4L, 0L))
+    expect_identical(encode_semantic_tokens(list())$data, integer())
+})
+
+test_that("Semantic deltas handle equality, insertion, and deletion", {
+    token_a <- as.integer(c(0, 0, 1, 8, 0))
+    token_b <- as.integer(c(1, 0, 1, 8, 0))
+    token_c <- as.integer(c(1, 2, 1, 8, 0))
+
+    expect_identical(semantic_token_delta(token_a, token_a), list())
+
+    inserted <- semantic_token_delta(
+        c(token_a, token_c),
+        c(token_a, token_b, token_c)
+    )[[1L]]
+    expect_equal(inserted$start, 5L)
+    expect_equal(inserted$deleteCount, 0L)
+    expect_identical(inserted$data, token_b)
+
+    deleted <- semantic_token_delta(
+        c(token_a, token_b, token_c),
+        c(token_a, token_c)
+    )[[1L]]
+    expect_equal(deleted$start, 5L)
+    expect_equal(deleted$deleteCount, 5L)
+    expect_null(deleted$data)
+})

@@ -335,7 +335,7 @@ detect_s3class <- function(scopes, token_text, document, uri) {
 
         xpath <- glue(
             "//expr[LEFT_ASSIGN or EQ_ASSIGN][
-        preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}']]",
+        expr[1][count(*)=1]/SYMBOL[text() = '{token_quote}']]",
             token_quote = xml_single_quote(token_text)
         )
 

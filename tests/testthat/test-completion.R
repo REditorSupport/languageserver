@@ -1481,3 +1481,202 @@ test_that("Completion parse index handles supported symbol forms", {
         c("argument", "lambda_argument"))
     expect_setequal(parse_data$empty_tokens, c("member", "named"))
 })
+
+completion_test_namespace <- function(name, functions = character(),
+    values = character(), lazydata = character()) {
+    namespace <- new.env(parent = baseenv())
+    namespace$package_name <- name
+    namespace$get_symbols <- function(want_functs, exported_only = TRUE) {
+        if (want_functs) functions else values
+    }
+    namespace$get_lazydata <- function() lazydata
+    namespace$exists_funct <- function(object) object %in% functions
+    namespace
+}
+
+test_that("Namespace completions distinguish workspace and package functions", {
+    package <- completion_test_namespace(
+        "example", functions = c("alpha", "beta")
+    )
+    workspace <- completion_test_namespace(
+        WORKSPACE, functions = "alpha_workspace"
+    )
+
+    package_items <- ns_function_completion(package, "al", TRUE, TRUE)
+    expect_length(package_items, 1L)
+    expect_equal(package_items[[1L]]$detail, "{example}")
+    expect_equal(package_items[[1L]]$insertText, "alpha($0)")
+    expect_equal(package_items[[1L]]$insertTextFormat, InsertTextFormat$Snippet)
+
+    workspace_items <- ns_function_completion(
+        workspace, "workspace", TRUE, FALSE
+    )
+    expect_length(workspace_items, 1L)
+    expect_equal(workspace_items[[1L]]$detail, "[workspace]")
+    expect_null(workspace_items[[1L]]$insertText)
+})
+
+test_that("Imported completions skip missing and non-function namespaces", {
+    imports <- collections::dict()
+    imports$set("alpha", "example")
+    imports$set("value", "example")
+    imports$set("missing", "missing-package")
+    namespace <- completion_test_namespace(
+        "example", functions = "alpha", values = "value"
+    )
+    workspace <- new.env(parent = baseenv())
+    workspace$imported_objects <- imports
+    workspace$get_namespace <- function(name) {
+        if (identical(name, "example")) namespace else NULL
+    }
+
+    items <- imported_object_completion(workspace, "a", TRUE)
+    expect_length(items, 1L)
+    expect_equal(items[[1L]]$label, "alpha")
+    expect_equal(items[[1L]]$insertText, "alpha($0)")
+
+    plain <- imported_object_completion(workspace, "alpha", FALSE)
+    expect_null(plain[[1L]]$insertText)
+    expect_null(imported_object_completion(workspace, "unmatched", TRUE))
+})
+
+test_that("Workspace completion combines namespaces, imports, and limits", {
+    imports <- collections::dict()
+    imports$set("imported_fun", "example")
+    global <- completion_test_namespace(
+        WORKSPACE,
+        functions = c("global_fun", "global_other"),
+        values = "global_value"
+    )
+    package <- completion_test_namespace(
+        "example",
+        functions = c("exported_fun", "imported_fun"),
+        values = "exported_value",
+        lazydata = "example_data"
+    )
+    workspace <- new.env(parent = baseenv())
+    workspace$loaded_packages <- "example"
+    workspace$imported_objects <- imports
+    workspace$get_namespace <- function(name) {
+        if (identical(name, WORKSPACE)) global else if (identical(name, "example")) package
+    }
+
+    items <- workspace_completion(
+        workspace, "", snippet_support = TRUE, limit = 4L
+    )
+    expect_length(items, 4L)
+    expect_true(isTRUE(attr(items, "truncated")))
+    expect_true(all(vapply(items, function(item) {
+        !is.null(item$label) && !is.null(item$data$type)
+    }, logical(1L))))
+
+    private_items <- workspace_completion(
+        workspace, "exported", package = "example",
+        exported_only = FALSE, snippet_support = FALSE
+    )
+    expect_setequal(
+        vapply(private_items, `[[`, character(1L), "label"),
+        c("exported_fun", "exported_value")
+    )
+    expect_identical(
+        workspace_completion(
+            workspace, "nothing-matches", package = "example"
+        ),
+        list()
+    )
+})
+
+test_that("Argument value completion accepts only literal character defaults", {
+    defaults <- quote(c("first", I("second"), 3, identity("ignored")))
+    expect_identical(extract_default_values(defaults), c("first", "second"))
+    expect_identical(extract_default_values("single"), "single")
+    expect_null(extract_default_values(quote(c(1, 2))))
+    missing_default <- alist(value = )[[1L]]
+    expect_null(extract_default_values(missing_default))
+
+    workspace <- new.env(parent = baseenv())
+    workspace$get_formals <- function(...) alist(
+        mode = c("auto", "manual"),
+        count = 1L
+    )
+    expect_identical(
+        argument_value_completion(
+            workspace, "fun", NULL, "missing", "", formals_list = list()
+        ),
+        list()
+    )
+    items <- argument_value_completion(
+        workspace, "fun", NULL, "mode", "man"
+    )
+    expect_length(items, 1L)
+    expect_equal(items[[1L]]$label, "manual")
+    expect_equal(items[[1L]]$insertText, '"manual"')
+})
+
+test_that("Indexed and XML scope completions agree on local symbols", {
+    content <- c(
+        "outer <- function(argument) {",
+        "  local_value <- 1",
+        "  local_fun <- function() local_value",
+        "  local_value",
+        "}"
+    )
+    fixture <- provider_fixture(content)
+    point <- list(row = 3L, col = 8L)
+
+    indexed <- scope_completion(
+        fixture$uri, fixture$workspace, "local_", point,
+        snippet_support = TRUE
+    )
+    expect_length(indexed, 2L)
+
+    limited <- scope_completion(
+        fixture$uri, fixture$workspace, "local_", point,
+        snippet_support = TRUE, limit = 1L
+    )
+    expect_length(limited, 1L)
+    expect_true(isTRUE(attr(limited, "truncated")))
+
+    parse_data <- fixture$document$parse_data
+    parse_data$completion_data <- NULL
+    legacy_workspace <- new.env(parent = baseenv())
+    legacy_workspace$get_parse_data <- function(...) parse_data
+    legacy <- scope_completion(
+        fixture$uri, legacy_workspace, "local_", point,
+        snippet_support = FALSE
+    )
+    expect_setequal(
+        vapply(legacy, `[[`, character(1L), "label"),
+        vapply(indexed, `[[`, character(1L), "label")
+    )
+
+    parse_data$xml_doc <- NULL
+    expect_identical(
+        scope_completion(fixture$uri, legacy_workspace, "x", point),
+        list()
+    )
+})
+
+test_that("Token completion supports indexed and XML parse data", {
+    content <- c("object$member", "target(named = 1)", "member_other <- 2")
+    fixture <- provider_fixture(content)
+
+    indexed <- token_completion(
+        fixture$uri, fixture$workspace, "mem", exclude = "member_other",
+        limit = 1L
+    )
+    expect_length(indexed, 1L)
+    expect_equal(indexed[[1L]]$label, "member")
+
+    parse_data <- fixture$document$parse_data
+    parse_data$completion_data <- NULL
+    legacy_workspace <- list(get_parse_data = function(...) parse_data)
+    legacy <- token_completion(fixture$uri, legacy_workspace, "mem")
+    expect_true("member" %in% vapply(legacy, `[[`, character(1L), "label"))
+
+    parse_data$xml_doc <- NULL
+    expect_identical(
+        token_completion(fixture$uri, legacy_workspace, "mem"),
+        list()
+    )
+})

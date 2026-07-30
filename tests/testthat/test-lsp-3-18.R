@@ -9,6 +9,14 @@ test_that("general LSP 3.18 capabilities are advertised", {
     expect_equal(tail(ServerCapabilities$semanticTokensProvider$legend$tokenTypes, 1), "label")
 })
 
+test_that("rename prepare capability follows client support", {
+    capabilities <- update_server_capabilities(
+        ServerCapabilities,
+        list(textDocument = list(rename = list(prepareSupport = TRUE)))
+    )
+    expect_equal(capabilities$renameProvider, RenameOptions)
+})
+
 test_that("incremental document changes are sequential and UTF-16 aware", {
     document <- Document$new(
         "file:///incremental.R",

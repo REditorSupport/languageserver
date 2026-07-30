@@ -274,3 +274,115 @@ test_that("activeParameter handles ... at different positions", {
         retry_when = function(result) length(result) == 0 || length(result$signatures) == 0)
     expect_equal(result$activeParameter, 0)  # Should stick to ... (index 0)
 })
+
+test_that("Signature parameter parsing respects nested defaults and quotes", {
+    signature <- paste0(
+        "fun(alpha, beta = list(1, 2), gamma = ",
+        "c('a,b', \"c,d\"), `odd name` = { 1, 2 }, ...)"
+    )
+
+    expect_identical(
+        extract_parameter_names(signature),
+        c("alpha", "beta", "gamma", "`odd name`", "...")
+    )
+    expect_identical(extract_parameter_names("not a signature"), character())
+    expect_identical(extract_parameter_names("empty()"), character())
+
+    parameters <- parse_signature_parameters(signature)
+    expect_length(parameters, 5L)
+    labels <- vapply(parameters, function(parameter) {
+        start <- parameter$label[[1L]] + 1L
+        end <- parameter$label[[2L]]
+        substr(signature, start, end)
+    }, character(1L))
+    expect_identical(
+        labels,
+        c(
+            "alpha", "beta = list(1, 2)",
+            "gamma = c('a,b', \"c,d\")", "`odd name` = { 1, 2 }", "..."
+        )
+    )
+    expect_identical(parse_signature_parameters("missing"), list())
+    expect_identical(parse_signature_parameters("empty(   )"), list())
+})
+
+test_that("Active parameter detection ignores nested and quoted commas", {
+    signature <- "fun(first, second, third, ..., named = NULL)"
+    cases <- list(
+        list("fun(list(1, 2), ", 1L),
+        list("fun('a,b', ", 1L),
+        list('fun("a,\\\"b", ', 1L),
+        list("fun(first = 1, named = ", 4L),
+        list("fun(1, unknown = ", 1L),
+        list("fun(1, 2, 3, 4, ", 3L),
+        list("fun(1, # comment, ignored", 1L)
+    )
+
+    for (case in cases) {
+        content <- case[[1L]]
+        actual <- detect_active_parameter(
+            content, 0L, 3L, 0L, nchar(content), signature
+        )
+        expect_equal(actual, case[[2L]])
+    }
+
+    expect_equal(
+        detect_active_parameter(c("fun(", NA_character_), 0L, 3L, 1L, 0L),
+        0L
+    )
+    expect_equal(
+        detect_active_parameter("fun(", 5L, 0L, 6L, 0L),
+        0L
+    )
+})
+
+test_that("Signature reply resolves local documented functions", {
+    content <- c(
+        "#' Add values",
+        "#' @param first First value.",
+        "#' @param second Second value.",
+        "add_values <- function(first, second = list(1, 2)) first + second",
+        "add_values(first = 1, second = 2)"
+    )
+    fixture <- provider_fixture(content)
+    reply <- signature_reply(
+        1L, fixture$uri, fixture$workspace, fixture$document,
+        list(row = 4L, col = nchar(content[[5L]]) - 2L)
+    )
+
+    expect_length(reply$result$signatures, 1L)
+    expect_match(reply$result$signatures[[1L]]$label, "add_values\\(first")
+    expect_match(
+        reply$result$signatures[[1L]]$documentation$value,
+        "Add values"
+    )
+    expect_equal(reply$result$activeSignature, 0L)
+    expect_equal(reply$result$activeParameter, 1L)
+})
+
+test_that("Signature reply falls back to workspace metadata", {
+    uri <- "file:///external-signature.R"
+    document <- Document$new(uri, content = "external(value = ")
+    workspace <- list(
+        get_parse_data = function(...) list(xml_doc = NULL),
+        get_signature = function(symbol, package, exported_only) {
+            expect_equal(symbol, "external")
+            expect_true(exported_only)
+            "external(value, ..., option = TRUE)"
+        },
+        get_documentation = function(...) list(
+            description = "An external function."
+        )
+    )
+    reply <- signature_reply(
+        1L, uri, workspace, document,
+        list(row = 0L, col = nchar(document$content[[1L]]))
+    )
+
+    expect_length(reply$result$signatures, 1L)
+    expect_equal(
+        reply$result$signatures[[1L]]$documentation$value,
+        "An external function."
+    )
+    expect_equal(reply$result$activeParameter, 0L)
+})

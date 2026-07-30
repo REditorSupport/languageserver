@@ -66,3 +66,51 @@ test_that("code lenses work through the language server after incremental edits"
     )
     expect_equal(changed_lenses[[1L]]$data$symbol, "bar")
 })
+
+test_that("code lenses cover XML fallback and non-resolvable definitions", {
+    fixture <- provider_fixture(c(
+        "foo <- function(x) x",
+        "foo(1)",
+        "pkg::foo(2)",
+        "value <- 3"
+    ))
+    fixture$document$parse_data$reference_index <- NULL
+
+    locations <- function_call_locations(fixture$workspace, "foo")
+    expect_length(locations, 1L)
+    expect_equal(locations[[1L]]$range$start$line, 1L)
+
+    expect_length(function_call_locations(fixture$workspace, "absent"), 0L)
+    saved_xml <- fixture$document$parse_data$xml_doc
+    fixture$document$parse_data$xml_doc <- NULL
+    expect_length(function_call_locations(fixture$workspace, "foo"), 0L)
+    fixture$document$parse_data$xml_doc <- saved_xml
+
+    incomplete <- list(data = list(uri = fixture$uri))
+    expect_identical(
+        resolve_function_code_lens(fixture$workspace, incomplete),
+        incomplete
+    )
+
+    fixture$document$parse_data$definitions <- list()
+    empty <- code_lens_reply(
+        1L, fixture$uri, fixture$workspace, fixture$document)$result
+    expect_length(empty, 0L)
+
+    definition_range <- range(position(0L, 0L), position(0L, 5L))
+    fixture$document$parse_data$definitions <- list(
+        value = list(type = "double", range = definition_range),
+        foo = list(type = "function", range = definition_range)
+    )
+    eager <- code_lens_reply(
+        2L,
+        fixture$uri,
+        fixture$workspace,
+        fixture$document,
+        list(textDocument = list(codeLens = list(
+            resolveSupport = list(properties = "range")
+        )))
+    )$result
+    expect_length(eager, 1L)
+    expect_equal(eager[[1L]]$command$title, "1 call")
+})

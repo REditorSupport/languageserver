@@ -238,3 +238,66 @@ test_that("Find References in Rmarkdown works", {
     result <- client %>% respond_references(single_file, c(6, 0), retry = FALSE)
     expect_length(result, 0)
 })
+
+test_that("Reference index excludes members and resolves qualified calls", {
+    uri <- "file:///reference-index.R"
+    content <- c(
+        "outer <- function(argument) {",
+        "  local <- argument",
+        "  object$member",
+        "  base::mean(local)",
+        "}"
+    )
+    parsed <- parse_document(uri, content)
+    index <- parsed$reference_index
+
+    expect_false("member" %in% index$name)
+    mean_index <- which(index$name == "mean")
+    expect_length(mean_index, 1L)
+    expect_true(index$qualified_call[[mean_index]])
+    expect_equal(index$call_package[[mean_index]], "base")
+    expect_equal(index$definition_key[[mean_index]], "package:base:mean")
+
+    local_index <- which(index$name == "local")
+    expect_true(length(local_index) >= 2L)
+    expect_true(all(startsWith(index$definition_key[local_index], "local:")))
+
+    expect_null(reference_key_at(NULL, list(row = 0L, col = 0L), "x"))
+    expect_null(reference_key_at(index, list(row = 99L, col = 0L), "x"))
+})
+
+test_that("References fall back to XML when no occurrence index exists", {
+    content <- c(
+        "target <- function() 1",
+        "caller <- function() { target(); target() }"
+    )
+    uri <- "file:///legacy-references.R"
+    document <- Document$new(uri, version = 1L, content = content)
+    parse_data <- parse_document(uri, content)
+    parse_data$xml_doc <- xml2::read_xml(parse_data$xml_data)
+    parse_data$reference_index <- NULL
+    document$update_parse_data(parse_data)
+
+    documents <- collections::dict()
+    documents$set(uri, document)
+    workspace <- new.env(parent = baseenv())
+    workspace$documents <- documents
+    workspace$get_parse_data <- function(...) parse_data
+    workspace$get_definition <- function(...) NULL
+
+    reply <- references_reply(
+        1L, uri, workspace, document, list(row = 0L, col = 1L)
+    )
+
+    expect_length(reply$result, 3L)
+    expect_true(all(vapply(reply$result, function(item) item$uri == uri,
+        logical(1L))))
+    expect_equal(
+        map_int(reply$result, c("range", "start", "line")),
+        c(0L, 1L, 1L)
+    )
+    expect_equal(
+        map_int(reply$result, c("range", "start", "character")),
+        c(0L, 23L, 33L)
+    )
+})
