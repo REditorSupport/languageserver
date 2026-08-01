@@ -90,9 +90,11 @@ Task <- R6::R6Class("Task",
             private$cancelled <- TRUE
             if (!is.null(private$session)) {
                 if (!identical(Sys.getenv("R_COVR"), "true")) {
-                    # Do not close the session, it is persistent and managed by TaskManager.
-                    # Just try to interrupt the ongoing computation.
-                    private$session$interrupt()
+                    # An interrupt can arrive after this call has completed and
+                    # interrupt the next task on the persistent session. Retire
+                    # the worker instead so cancellation cannot leak across tasks.
+                    private$session$kill(
+                        grace = 0, close_connections = FALSE)
                 }
             } else if (!is.null(private$process) && private$process$is_alive()) {
                 if (identical(Sys.getenv("R_COVR"), "true")) {
