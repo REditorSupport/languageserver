@@ -158,6 +158,32 @@ test_that("TaskManager refreshes pending task recency", {
     tm$stop()
 })
 
+test_that("Task cancellation retires its persistent session", {
+    withr::local_envvar(R_COVR = "false")
+    state <- "idle"
+    killed <- FALSE
+    interrupted <- FALSE
+    session <- list(
+        call = function(...) state <<- "busy",
+        get_state = function() state,
+        read = function() NULL,
+        kill = function(grace, close_connections) {
+            expect_equal(grace, 0)
+            expect_false(close_connections)
+            killed <<- TRUE
+            state <<- "finished"
+        },
+        interrupt = function() interrupted <<- TRUE
+    )
+    task <- create_task(function() NULL, list())
+
+    task$start(session)
+    task$kill()
+
+    expect_true(killed)
+    expect_false(interrupted)
+})
+
 test_that("TaskManager does not overprovision while a session starts", {
     tm <- TaskManager$new(
         "starting", use_session = TRUE, min_idle_sessions = 0,

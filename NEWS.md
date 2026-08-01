@@ -1,5 +1,7 @@
 # languageserver 0.3.18
 
+- Retire persistent `callr` workers when cancelling tasks so a late interrupt
+  cannot leak into the next diagnostics run.
 - Add preferred quick fixes for common `lintr` diagnostics and a conflict-aware
   `source.fixAll` action, while making multi-line `nolint` actions apply to every
   affected line.
