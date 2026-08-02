@@ -184,6 +184,69 @@ test_that("Task cancellation retires its persistent session", {
     expect_false(interrupted)
 })
 
+test_that("TaskManager removes a cancelled session from the pool", {
+    withr::local_envvar(R_COVR = "false")
+    state <- "idle"
+    session <- list(
+        call = function(...) state <<- "busy",
+        get_state = function() state,
+        read = function() {
+            if (state != "busy") return(NULL)
+            state <<- "idle"
+            list(code = 200L, error = NULL, result = NULL)
+        },
+        kill = function(...) NULL,
+        close = function(...) NULL
+    )
+    tm <- TaskManager$new(
+        "cancelled session", use_session = TRUE, min_idle_sessions = 0,
+        max_running_tasks = 1L, cpu_load = 1
+    )
+    private <- tm$.__enclos_env__$private
+    private$sessions <- list(session)
+    tm$add_task("doc", create_task(function() NULL, list()))
+    tm$run_tasks()
+
+    tm$add_task("doc", create_task(function() NULL, list()))
+    tm$check_tasks()
+
+    expect_equal(state, "idle")
+    expect_length(private$sessions, 0L)
+    expect_true(private$pending_tasks$has("doc"))
+    tm$stop()
+})
+
+test_that("TaskManager handles errors while dispatching to a session", {
+    withr::local_envvar(R_COVR = "false")
+    killed <- FALSE
+    session <- list(
+        call = function(...) stop("broken pipe"),
+        get_state = function() "idle",
+        read = function() NULL,
+        kill = function(...) killed <<- TRUE,
+        close = function(...) NULL
+    )
+    tm <- TaskManager$new(
+        "dispatch error", use_session = TRUE, min_idle_sessions = 0,
+        max_running_tasks = 1L, cpu_load = 1
+    )
+    private <- tm$.__enclos_env__$private
+    private$sessions <- list(session)
+    task_error <- NULL
+    tm$add_task("doc", create_task(
+        function() NULL, list(),
+        error = function(e) task_error <<- e
+    ))
+
+    expect_silent(tm$run_tasks())
+
+    expect_match(conditionMessage(task_error), "broken pipe")
+    expect_true(killed)
+    expect_length(private$sessions, 0L)
+    expect_false(private$running_tasks$has("doc"))
+    tm$stop()
+})
+
 test_that("TaskManager does not overprovision while a session starts", {
     tm <- TaskManager$new(
         "starting", use_session = TRUE, min_idle_sessions = 0,
