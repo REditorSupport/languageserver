@@ -2,6 +2,8 @@
 
 - Retire persistent `callr` workers when cancelling tasks so a late interrupt
   cannot leak into the next diagnostics run.
+- Prevent a dead persistent worker from crashing the language server when a
+  task is dispatched to its closed command pipe.
 - Add preferred quick fixes for common `lintr` diagnostics and a conflict-aware
   `source.fixAll` action, while making multi-line `nolint` actions apply to every
   affected line.

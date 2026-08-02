@@ -86,15 +86,26 @@ Task <- R6::R6Class("Task",
                 TRUE
             }
         },
+        fail = function(error) {
+            if (!private$cancelled && !is.null(private$error)) {
+                private$error(error)
+            }
+            invisible(NULL)
+        },
         kill = function() {
             private$cancelled <- TRUE
+            retired_session <- NULL
             if (!is.null(private$session)) {
                 if (!identical(Sys.getenv("R_COVR"), "true")) {
                     # An interrupt can arrive after this call has completed and
                     # interrupt the next task on the persistent session. Retire
                     # the worker instead so cancellation cannot leak across tasks.
-                    private$session$kill(
-                        grace = 0, close_connections = FALSE)
+                    retired_session <- private$session
+                    tryCatch(
+                        private$session$kill(
+                            grace = 0, close_connections = FALSE),
+                        error = function(e) NULL
+                    )
                 }
             } else if (!is.null(private$process) && private$process$is_alive()) {
                 if (identical(Sys.getenv("R_COVR"), "true")) {
@@ -103,6 +114,7 @@ Task <- R6::R6Class("Task",
                     private$process$kill()
                 }
             }
+            invisible(retired_session)
         }
     )
 )
@@ -120,6 +132,20 @@ TaskManager <- R6::R6Class("TaskManager",
         min_idle_sessions = NULL,
         cancelled_tasks = NULL,
         stopping = FALSE,
+        remove_session = function(session) {
+            keep <- !vapply(
+                private$sessions, identical, logical(1L), y = session)
+            private$sessions <- private$sessions[keep]
+        },
+        retire_session = function(session) {
+            private$remove_session(session)
+            if (!identical(Sys.getenv("R_COVR"), "true")) {
+                tryCatch(
+                    session$kill(grace = 0),
+                    error = function(e) NULL
+                )
+            }
+        },
         create_session = function() {
             session <- callr::r_session$new(
                 options = callr::r_session_options(
@@ -243,7 +269,13 @@ TaskManager <- R6::R6Class("TaskManager",
             }
             if (private$running_tasks$has(id)) {
                 old_task <- private$running_tasks$pop(id)
-                old_task$kill()
+                retired_session <- old_task$kill()
+                if (!is.null(retired_session)) {
+                    # A killed session can still report a buffered result and
+                    # transition back to "idle". Remove it before that stale
+                    # state makes it eligible for another task.
+                    private$remove_session(retired_session)
+                }
                 private$cancelled_tasks <- append(
                     private$cancelled_tasks, old_task)
             }
@@ -286,7 +318,20 @@ TaskManager <- R6::R6Class("TaskManager",
 
                 task <- private$pending_tasks$pop(id)
                 private$running_tasks$set(id, task)
-                task$start(session)
+                start_error <- tryCatch(
+                    {
+                        task$start(session)
+                        NULL
+                    },
+                    error = function(e) e
+                )
+                if (!is.null(start_error)) {
+                    private$running_tasks$remove(id)
+                    if (!is.null(session)) {
+                        private$retire_session(session)
+                    }
+                    task$fail(start_error)
+                }
             }
         },
         check_tasks = function() {
