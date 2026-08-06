@@ -307,3 +307,174 @@ test_that("TaskManager supersedes a running task even at capacity", {
     expect_equal(new_result, "new")
     tm$stop()
 })
+
+test_that("TaskManager cleans up after a completion callback fails", {
+    withr::local_envvar(R_COVR = "false")
+    state <- "idle"
+    session <- list(
+        call = function(...) state <<- "busy",
+        get_state = function() state,
+        read = function() {
+            if (state != "busy") return(NULL)
+            state <<- "idle"
+            list(code = 200L, error = NULL, result = 1L)
+        },
+        kill = function(...) state <<- "finished",
+        close = function(...) NULL
+    )
+    tm <- TaskManager$new(
+        "callback failure", use_session = TRUE, min_idle_sessions = 0,
+        max_running_tasks = 1L, cpu_load = 1
+    )
+    private <- tm$.__enclos_env__$private
+    private$sessions <- list(session)
+    tm$add_task("doc", create_task(
+        function() 1L, list(),
+        callback = function(value) stop("callback failed")
+    ))
+    tm$run_tasks()
+
+    expect_error(tm$check_tasks(), NA)
+
+    expect_false(private$running_tasks$has("doc"))
+    expect_equal(state, "idle")
+    tm$stop()
+})
+
+test_that("TaskManager retires a session when polling fails", {
+    withr::local_envvar(R_COVR = "false")
+    state <- "idle"
+    killed <- FALSE
+    session <- list(
+        call = function(...) state <<- "busy",
+        get_state = function() state,
+        read = function() stop("broken read pipe"),
+        kill = function(...) {
+            killed <<- TRUE
+            state <<- "finished"
+        },
+        close = function(...) NULL
+    )
+    tm <- TaskManager$new(
+        "poll failure", use_session = TRUE, min_idle_sessions = 0,
+        max_running_tasks = 1L, cpu_load = 1
+    )
+    private <- tm$.__enclos_env__$private
+    private$sessions <- list(session)
+    task_error <- NULL
+    tm$add_task("doc", create_task(
+        function() NULL, list(),
+        error = function(e) task_error <<- e
+    ))
+    tm$run_tasks()
+
+    invisible(capture.output(tm$check_tasks(), type = "message"))
+
+    expect_match(conditionMessage(task_error), "broken read pipe")
+    expect_true(killed)
+    expect_false(private$running_tasks$has("doc"))
+    expect_length(private$sessions, 0L)
+    tm$stop()
+})
+
+test_that("TaskManager provisions sessions for queued demand", {
+    withr::local_envvar(R_COVR = "false")
+    tm <- TaskManager$new(
+        "queued demand", use_session = TRUE, min_idle_sessions = 0,
+        max_running_tasks = 4L, cpu_load = 1
+    )
+    private <- tm$.__enclos_env__$private
+    unlockBinding("max_running_tasks", private)
+    private$max_running_tasks <- 3L
+    lockBinding("max_running_tasks", private)
+    demand <- 3L
+
+    unlockBinding("create_session", private)
+    private$create_session <- function() {
+        session <- list(
+            get_state = function() "starting",
+            read = function() NULL,
+            kill = function(...) NULL,
+            close = function(...) NULL
+        )
+        private$sessions <- append(private$sessions, list(session))
+        session
+    }
+    lockBinding("create_session", private)
+
+    for (i in seq_len(demand)) {
+        tm$add_task(as.character(i), create_task(function() NULL, list()))
+    }
+    tm$run_tasks()
+
+    expect_length(private$sessions, demand)
+    expect_equal(private$pending_tasks$size(), demand)
+    tm$stop()
+})
+
+test_that("TaskManager dispatches the most recent eligible task first", {
+    withr::local_envvar(R_COVR = "false")
+    state <- "idle"
+    idle_session <- list(
+        call = function(...) state <<- "busy",
+        get_state = function() state,
+        read = function() NULL,
+        kill = function(...) state <<- "finished",
+        close = function(...) NULL
+    )
+    starting_session <- function() {
+        list(
+            get_state = function() "starting",
+            read = function() NULL,
+            kill = function(...) NULL,
+            close = function(...) NULL
+        )
+    }
+    tm <- TaskManager$new(
+        "dispatch recency", use_session = TRUE, process_recent_first = TRUE,
+        min_idle_sessions = 0, max_running_tasks = 4L, cpu_load = 1
+    )
+    private <- tm$.__enclos_env__$private
+    unlockBinding("max_running_tasks", private)
+    private$max_running_tasks <- 3L
+    lockBinding("max_running_tasks", private)
+    capacity <- private$max_running_tasks
+    private$sessions <- c(
+        list(idle_session),
+        replicate(max(capacity - 1L, 0L), starting_session(), simplify = FALSE)
+    )
+    ids <- paste0("task-", seq_len(capacity + 2L))
+    for (id in ids) {
+        tm$add_task(id, create_task(function() NULL, list()))
+    }
+
+    tm$run_tasks()
+
+    expect_equal(unlist(private$running_tasks$keys()), tail(ids, 1L))
+    tm$stop()
+})
+
+test_that("TaskManager shutdown is best-effort and idempotent", {
+    withr::local_envvar(R_COVR = "false")
+    second_closed <- FALSE
+    tm <- TaskManager$new(
+        "shutdown", use_session = TRUE, min_idle_sessions = 0,
+        max_running_tasks = 2L, cpu_load = 1
+    )
+    private <- tm$.__enclos_env__$private
+    private$sessions <- list(
+        list(close = function(...) stop("close failed")),
+        list(close = function(...) second_closed <<- TRUE)
+    )
+    tm$add_task("pending", create_task(function() NULL, list(), delay = 60))
+
+    invisible(capture.output(tm$stop(), type = "message"))
+
+    expect_true(second_closed)
+    expect_length(private$sessions, 0L)
+    expect_false(tm$has_work())
+    expect_error(tm$stop(), NA)
+    tm$add_task("after-stop", create_task(function() NULL, list()))
+    tm$run_tasks()
+    expect_false(tm$has_work())
+})

@@ -7,7 +7,20 @@ Task <- R6::R6Class("Task",
         args = NULL,
         callback = NULL,
         error = NULL,
-        cancelled = FALSE
+        cancelled = FALSE,
+        invoke_handler = function(handler, value, type) {
+            if (private$cancelled || is.null(handler)) return(invisible(NULL))
+            tryCatch(
+                handler(value),
+                error = function(e) {
+                    tryCatch(
+                        logger$info("task ", type, " callback error: ", e),
+                        error = function(e) NULL
+                    )
+                }
+            )
+            invisible(NULL)
+        }
     ),
     public = list(
         time = NULL,
@@ -43,26 +56,21 @@ Task <- R6::R6Class("Task",
             if (!is.null(private$session)) {
                 res <- private$session$read()
                 if (!is.null(res)) {
-                    if (res$code == 200 && is.null(res$error)) {
-                        if (!private$cancelled && !is.null(private$callback)) {
-                            private$callback(res$result)
-                        }
+                    if (isTRUE(res$code == 200) && is.null(res$error)) {
+                        private$invoke_handler(
+                            private$callback, res$result, "completion")
                         return(TRUE)
                     } else if (!is.null(res$code)) {
-                        if (!private$cancelled && !is.null(private$error)) {
-                            err <- res$error
-                            if (is.null(err)) err <- simpleError(paste("Session error with code", res$code))
-                            private$error(err)
-                        }
+                        err <- res$error
+                        if (is.null(err)) err <- simpleError(paste("Session error with code", res$code))
+                        private$invoke_handler(private$error, err, "error")
                         return(TRUE)
                     }
                 }
                 state <- private$session$get_state()
                 if (identical(state, "finished")) {
-                    if (!private$cancelled && !is.null(private$error)) {
-                        err <- simpleError("Session finished unexpectedly while task was running")
-                        private$error(err)
-                    }
+                    err <- simpleError("Session finished unexpectedly while task was running")
+                    private$invoke_handler(private$error, err, "error")
                     return(TRUE)
                 }
                 return(FALSE)
@@ -77,19 +85,15 @@ Task <- R6::R6Class("Task",
                 result <- tryCatch(private$process$get_result(), error = function(e) e)
 
                 if (inherits(result, "error")) {
-                    if (!private$cancelled && !is.null(private$error)) {
-                        private$error(result)
-                    }
-                } else if (!private$cancelled && !is.null(private$callback)) {
-                    private$callback(result)
+                    private$invoke_handler(private$error, result, "error")
+                } else {
+                    private$invoke_handler(private$callback, result, "completion")
                 }
                 TRUE
             }
         },
         fail = function(error) {
-            if (!private$cancelled && !is.null(private$error)) {
-                private$error(error)
-            }
+            private$invoke_handler(private$error, error, "error")
             invisible(NULL)
         },
         kill = function() {
@@ -132,6 +136,10 @@ TaskManager <- R6::R6Class("TaskManager",
         min_idle_sessions = NULL,
         cancelled_tasks = NULL,
         stopping = FALSE,
+        log_error = function(...) {
+            tryCatch(logger$error(...), error = function(e) NULL)
+            invisible(NULL)
+        },
         remove_session = function(session) {
             keep <- !vapply(
                 private$sessions, identical, logical(1L), y = session)
@@ -142,7 +150,8 @@ TaskManager <- R6::R6Class("TaskManager",
             if (!identical(Sys.getenv("R_COVR"), "true")) {
                 tryCatch(
                     session$kill(grace = 0),
-                    error = function(e) NULL
+                    error = function(e) private$log_error(
+                        private$name, " failed to retire task session: ", e)
                 )
             }
         },
@@ -166,39 +175,69 @@ TaskManager <- R6::R6Class("TaskManager",
                 private$create_session()
             }
         },
-        find_or_create_session = function() {
+        ensure_demand_sessions = function(demand) {
+            if (!isTRUE(private$use_session) || private$stopping) return(NULL)
+            target <- min(
+                private$max_running_tasks,
+                private$running_tasks$size() + max(as.integer(demand), 0L)
+            )
+            while (length(private$sessions) < target) {
+                created <- tryCatch(
+                    {
+                        private$create_session()
+                        TRUE
+                    },
+                    error = function(e) {
+                        private$log_error(
+                            private$name, " failed to create task session: ", e)
+                        FALSE
+                    }
+                )
+                if (!created) break
+            }
+            invisible(NULL)
+        },
+        find_available_session = function() {
             if (!isTRUE(private$use_session)) {
                 return(NULL)
             }
 
-            starting <- FALSE
             for (s in private$sessions) {
-                state <- s$get_state()
-                if (state == "starting") {
-                    res <- s$read()
-                    if (!is.null(res) && res$code == 201) state <- s$get_state()
-                    starting <- starting || state == "starting"
+                state <- tryCatch(
+                    {
+                        state <- s$get_state()
+                        if (state == "starting") {
+                            res <- s$read()
+                            if (!is.null(res) && isTRUE(res$code == 201)) {
+                                state <- s$get_state()
+                            }
+                        }
+                        state
+                    },
+                    error = function(e) e
+                )
+                if (inherits(state, "error")) {
+                    private$log_error(
+                        private$name, " failed to poll task session: ", state)
+                    private$retire_session(s)
+                    next
                 }
                 if (state == "idle") {
                     return(s)
                 }
             }
-
-            # A starting session can serve this task as soon as it becomes
-            # idle. Creating another one on every event-loop pass would fill
-            # the pool for a single pending task before the first R process
-            # has even finished starting.
-            if (!starting &&
-                    length(private$sessions) < private$max_running_tasks) {
-                private$create_session()
-            }
-
             NULL
         },
         prune_sessions = function() {
             for (i in rev(seq_along(private$sessions))) {
                 session <- private$sessions[[i]]
-                state <- session$get_state()
+                state <- tryCatch(session$get_state(), error = function(e) e)
+                if (inherits(state, "error")) {
+                    private$log_error(
+                        private$name, " failed to inspect task session: ", state)
+                    private$retire_session(session)
+                    next
+                }
                 if (state == "finished") {
                     private$sessions[[i]] <- NULL
                 } else if (state == "idle") {
@@ -209,12 +248,26 @@ TaskManager <- R6::R6Class("TaskManager",
                         as.numeric(difftime(
                             Sys.time(), idle_start,
                             units = "secs")) > private$session_idle_timeout) {
-                        if (identical(Sys.getenv("R_COVR"), "true")) {
-                            session$close(grace = 10000)
-                        } else {
-                            session$close()
-                        }
+                        close_error <- tryCatch(
+                            {
+                                if (identical(Sys.getenv("R_COVR"), "true")) {
+                                    session$close(grace = 10000)
+                                } else {
+                                    session$close()
+                                }
+                                NULL
+                            },
+                            error = function(e) e
+                        )
                         private$sessions[[i]] <- NULL
+                        if (!is.null(close_error)) {
+                            private$log_error(
+                                private$name,
+                                " failed to close idle task session: ",
+                                close_error
+                            )
+                            private$retire_session(session)
+                        }
                     }
                 } else {
                     attr(session, "idle_start") <- NULL
@@ -237,6 +290,7 @@ TaskManager <- R6::R6Class("TaskManager",
             private$use_session <- use_session
             private$process_recent_first <- process_recent_first
             private$cancelled_tasks <- list()
+            private$stopping <- FALSE
             
             private$session_idle_timeout <- session_idle_timeout
             cpus <- suppressWarnings(parallel::detectCores())
@@ -255,7 +309,7 @@ TaskManager <- R6::R6Class("TaskManager",
             }
         },
         add_task = function(id, task) {
-            if (is.null(task)) {
+            if (is.null(task) || private$stopping) {
                 return(NULL)
             }
             # Replacing an ordered-dict value does not update insertion order.
@@ -282,6 +336,7 @@ TaskManager <- R6::R6Class("TaskManager",
             invisible(NULL)
         },
         run_tasks = function() {
+            if (private$stopping) return(invisible(NULL))
             n <- max(private$max_running_tasks - private$running_tasks$size(), 0)
             if (n == 0L) return(invisible(NULL))
 
@@ -299,10 +354,19 @@ TaskManager <- R6::R6Class("TaskManager",
             # Performance: Prioritize newer tasks over older for better responsiveness
             # For parse tasks, process most recent documents first
             if (length(pending_ids) > n && isTRUE(private$process_recent_first)) {
-                # Take the most recent n tasks
-                pending_ids <- tail(pending_ids, n)
+                # Take the most recent n tasks and dispatch newest first.
+                pending_ids <- rev(tail(pending_ids, n))
             } else if (length(pending_ids) > n) {
                 pending_ids <- pending_ids[seq_len(n)]
+            } else if (isTRUE(private$process_recent_first)) {
+                pending_ids <- rev(pending_ids)
+            }
+
+            if (isTRUE(private$use_session)) {
+                # Provision to actual queued demand. This allows a burst of
+                # independent tasks to start workers in parallel without
+                # growing the pool for a single pending task.
+                private$ensure_demand_sessions(length(pending_ids))
             }
 
             for (id in pending_ids) {
@@ -310,8 +374,8 @@ TaskManager <- R6::R6Class("TaskManager",
                 session <- NULL
 
                 if (isTRUE(private$use_session)) {
-                    session <- private$find_or_create_session()
-                    if (is.null(session) || session$get_state() == "starting") {
+                    session <- private$find_available_session()
+                    if (is.null(session)) {
                         next
                     }
                 }
@@ -339,7 +403,28 @@ TaskManager <- R6::R6Class("TaskManager",
             keys <- private$running_tasks$keys()
             for (key in keys) {
                 task <- running_tasks$get(key)
-                if (task$check()) {
+                check_result <- tryCatch(task$check(), error = function(e) e)
+                if (inherits(check_result, "error")) {
+                    private$log_error(
+                        private$name, " failed to check task ", key, ": ",
+                        check_result
+                    )
+                    task$fail(check_result)
+                    retired_session <- tryCatch(
+                        task$kill(),
+                        error = function(e) {
+                            private$log_error(
+                                private$name, " failed to stop task ", key,
+                                ": ", e)
+                            NULL
+                        }
+                    )
+                    if (!is.null(retired_session)) {
+                        private$remove_session(retired_session)
+                    }
+                    check_result <- TRUE
+                }
+                if (isTRUE(check_result)) {
                     # FIXME: debug
                     logger$info(private$name, "task timing:", Sys.time() - task$time, " ", key)
                     running_tasks$remove(key)
@@ -348,7 +433,18 @@ TaskManager <- R6::R6Class("TaskManager",
             if (length(private$cancelled_tasks)) {
                 complete <- vapply(
                     private$cancelled_tasks,
-                    function(task) task$check(),
+                    function(task) {
+                        tryCatch(
+                            task$check(),
+                            error = function(e) {
+                                private$log_error(
+                                    private$name,
+                                    " failed to reap cancelled task: ", e)
+                                tryCatch(task$kill(), error = function(e) NULL)
+                                TRUE
+                            }
+                        )
+                    },
                     logical(1L)
                 )
                 private$cancelled_tasks <- private$cancelled_tasks[!complete]
@@ -362,25 +458,52 @@ TaskManager <- R6::R6Class("TaskManager",
                 private$running_tasks$size() > 0L
         },
         stop = function() {
+            if (private$stopping) return(invisible(NULL))
             private$stopping <- TRUE
+            private$pending_tasks$clear()
             for (id in private$running_tasks$keys()) {
                 task <- private$running_tasks$get(id)
-                task$kill()
+                tryCatch(
+                    task$kill(),
+                    error = function(e) private$log_error(
+                        private$name, " failed to stop task ", id, ": ", e)
+                )
             }
-            for (task in private$cancelled_tasks) task$kill()
+            private$running_tasks$clear()
+            for (task in private$cancelled_tasks) {
+                tryCatch(
+                    task$kill(),
+                    error = function(e) private$log_error(
+                        private$name, " failed to stop cancelled task: ", e)
+                )
+            }
+            private$cancelled_tasks <- list()
             if (private$use_session) {
-                for (session in private$sessions) {
-                    if (identical(Sys.getenv("R_COVR"), "true")) {
-                        while (session$get_state() %in% c("starting", "busy")) {
-                            session$poll_process(1000)
-                            tryCatch(session$read(), error = function(e) NULL)
+                sessions <- private$sessions
+                private$sessions <- list()
+                for (session in sessions) {
+                    tryCatch(
+                        {
+                            if (identical(Sys.getenv("R_COVR"), "true")) {
+                                while (session$get_state() %in% c("starting", "busy")) {
+                                    session$poll_process(1000)
+                                    tryCatch(session$read(), error = function(e) NULL)
+                                }
+                                session$close(grace = 10000)
+                            } else {
+                                session$close()
+                            }
+                        },
+                        error = function(e) {
+                            private$log_error(
+                                private$name,
+                                " failed to close task session: ", e)
+                            private$retire_session(session)
                         }
-                        session$close(grace = 10000)
-                    } else {
-                        session$close()
-                    }
+                    )
                 }
             }
+            invisible(NULL)
         }
     )
 )

@@ -4,6 +4,10 @@
   cannot leak into the next diagnostics run.
 - Prevent a dead persistent worker from crashing the language server when a
   task is dispatched to its closed command pipe.
+- Keep task callback and polling failures from terminating the server or
+  permanently consuming scheduler capacity.
+- Scale persistent workers to queued demand and make task-manager shutdown
+  best-effort and idempotent.
 - Add preferred quick fixes for common `lintr` diagnostics and a conflict-aware
   `source.fixAll` action, while making multi-line `nolint` actions apply to every
   affected line.
