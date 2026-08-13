@@ -285,4 +285,15 @@ test_that("references and code lenses include source dependents", {
     expect_length(lenses, 1L)
     resolved <- respond(client, "codeLens/resolve", lenses[[1L]])
     expect_equal(resolved$command$title, "1 call")
+
+    items <- client %>% respond_prepare_call_hierarchy(definition, c(2, 1))
+    incoming <- client %>% respond_call_hierarchy_incoming_calls(items[[1L]])
+    expect_length(incoming, 1L)
+    expect_equal(incoming[[1L]]$from$name, basename(caller))
+    expect_equal(incoming[[1L]]$from$kind, SymbolKind$File)
+    expect_equal(incoming[[1L]]$from$uri, path_to_uri(caller))
+    expect_equal(incoming[[1L]]$fromRanges[[1L]], list(
+        start = list(line = 2L, character = 0L),
+        end = list(line = 2L, character = 4L)
+    ))
 })

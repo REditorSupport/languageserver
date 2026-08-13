@@ -14,6 +14,31 @@ indexed_call_range <- function(index, i) {
     )
 }
 
+#' Create a call-hierarchy item for calls made outside a function
+#' @noRd
+call_hierarchy_file_item <- function(workspace, uri, selection_range,
+    context_uri = uri) {
+    document <- workspace$documents$get(uri, NULL)
+    if (is.null(document)) return(NULL)
+    last_row <- max(document$nline - 1L, 0L)
+    last_col <- nchar(document$line0(last_row), type = "chars")
+    file_range <- range(
+        position(0L, 0L),
+        document$to_lsp_position(last_row, last_col)
+    )
+    name <- basename(path_from_uri(uri))
+    if (!length(name) || !nzchar(name)) name <- uri
+    list(
+        name = name,
+        detail = "top level",
+        kind = SymbolKind$File,
+        uri = uri,
+        range = file_range,
+        selectionRange = selection_range,
+        data = list(contextUri = context_uri, topLevel = TRUE)
+    )
+}
+
 indexed_incoming_calls <- function(workspace, item) {
     target_key <- item$data$definitionKey
     if (is.null(target_key)) target_key <- paste0("global:", item$name)
@@ -39,16 +64,29 @@ indexed_incoming_calls <- function(workspace, item) {
         definitions <- definitions[vapply(definitions, function(definition) {
             identical(definition$type, "function")
         }, logical(1L))]
-        if (!length(definitions)) next
 
         for (i in selected) {
+            call_range <- indexed_call_range(index, i)
             containing <- which(vapply(definitions, function(definition) {
                 indexed_position_in_range(
                     index$line[[i]], index$col[[i]], definition$range) &&
                     indexed_position_in_range(
                         index$end_line[[i]], index$end_col[[i]], definition$range)
             }, logical(1L)))
-            if (!length(containing)) next
+            if (!length(containing)) {
+                key <- paste(doc_uri, "top-level", sep = ":")
+                if (!in_calls$has(key)) {
+                    in_calls$set(key, list(
+                        from = call_hierarchy_file_item(
+                            workspace, doc_uri, call_range, context_uri),
+                        fromRanges = list()
+                    ))
+                }
+                entry <- in_calls$get(key)
+                entry$fromRanges[[length(entry$fromRanges) + 1L]] <- call_range
+                in_calls$set(key, entry)
+                next
+            }
 
             spans <- vapply(definitions[containing], function(definition) {
                 (definition$range$end$line - definition$range$start$line) *
@@ -84,8 +122,7 @@ indexed_incoming_calls <- function(workspace, item) {
                 ))
             }
             entry <- in_calls$get(key)
-            entry$fromRanges[[length(entry$fromRanges) + 1L]] <-
-                indexed_call_range(index, i)
+            entry$fromRanges[[length(entry$fromRanges) + 1L]] <- call_range
             in_calls$set(key, entry)
         }
     }
@@ -306,6 +343,59 @@ call_hierarchy_incoming_calls_reply <- function(id, workspace, item) {
 
                 in_calls$set(defn, defn_item)
             }
+        }
+
+        symbols <- xml_find_all(xdoc,
+            glue("//SYMBOL_FUNCTION_CALL[text() = '{token_quote}']",
+                token_quote = token_quote))
+        if (!length(symbols)) next
+        symbol_line1 <- as.integer(xml_attr(symbols, "line1"))
+        symbol_col1 <- as.integer(xml_attr(symbols, "col1"))
+        symbol_line2 <- as.integer(xml_attr(symbols, "line2"))
+        symbol_col2 <- as.integer(xml_attr(symbols, "col2"))
+        for (i in seq_along(symbols)) {
+            call_range <- range(
+                start = doc$to_lsp_position(
+                    row = symbol_line1[[i]] - 1L,
+                    col = symbol_col1[[i]] - 1L
+                ),
+                end = doc$to_lsp_position(
+                    row = symbol_line2[[i]] - 1L,
+                    col = symbol_col2[[i]]
+                )
+            )
+            contained <- any(vapply(defns, function(defn) {
+                indexed_position_in_range(
+                    call_range$start$line,
+                    call_range$start$character,
+                    defn$range
+                ) && indexed_position_in_range(
+                    call_range$end$line,
+                    call_range$end$character,
+                    defn$range
+                )
+            }, logical(1L)))
+            if (contained) next
+            symbol_point <- list(
+                row = symbol_line1[[i]] - 1L,
+                col = symbol_col1[[i]]
+            )
+            symbol_defn <- definition_reply(
+                NULL, doc_uri, workspace, doc, symbol_point,
+                context_uri = context_uri)$result
+            if (!equal_definition(symbol_defn, item$data$definition)) next
+
+            key <- paste(doc_uri, "top-level", sep = ":")
+            if (!in_calls$has(key)) {
+                in_calls$set(key, list(
+                    from = call_hierarchy_file_item(
+                        workspace, doc_uri, call_range, context_uri),
+                    fromRanges = list()
+                ))
+            }
+            entry <- in_calls$get(key)
+            entry$fromRanges[[length(entry$fromRanges) + 1L]] <- call_range
+            in_calls$set(key, entry)
         }
     }
 
