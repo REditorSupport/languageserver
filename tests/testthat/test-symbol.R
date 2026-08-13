@@ -229,10 +229,9 @@ test_that("Document section symbol works", {
 
 test_that("Workspace Symbol works", {
     skip_on_cran()
-    client <- language_client()
-
-    defn_file <- withr::local_tempfile(fileext = ".R")
-    defn2_file <- withr::local_tempfile(fileext = ".R")
+    root <- withr::local_tempdir()
+    defn_file <- file.path(root, "definitions.R")
+    defn2_file <- file.path(root, "more-definitions.R")
     writeLines(c(
         "f1 <- function(x) {",
         "  x + 1",
@@ -253,6 +252,7 @@ test_that("Workspace Symbol works", {
         ")"
     ), defn2_file)
 
+    client <- language_client(root)
     client %>% did_open(defn_file)
     client %>% did_open(defn2_file)
 
