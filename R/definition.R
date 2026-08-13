@@ -12,7 +12,8 @@ definition_xpath <- paste(
 #' writes the function definition to a temporary file and returns that
 #' as the location.
 #' @noRd
-definition_reply <- function(id, uri, workspace, document, point, rootPath) {
+definition_reply <- function(id, uri, workspace, document, point, rootPath,
+    context_uri = uri) {
 
     token_result <- document$detect_token(point)
     resolved <- FALSE
@@ -86,8 +87,10 @@ definition_reply <- function(id, uri, workspace, document, point, rootPath) {
     }
 
     if (!resolved && check_scope(uri, document, point)) {
-        result <- workspace$get_definition(token_result$token, token_result$package,
-            exported_only = token_result$accessor != ":::")
+        result <- call_with_optional_uri(
+            workspace$get_definition,
+            token_result$token, token_result$package,
+            exported_only = token_result$accessor != ":::", uri = context_uri)
     }
 
     if (is.null(result)) {

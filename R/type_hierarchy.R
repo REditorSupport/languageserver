@@ -27,7 +27,8 @@ prepare_type_hierarchy_reply <- function(id, uri, workspace, document, point) {
                 selectionRange = type_info$range,
                 data = list(
                     definition = type_info,
-                    classType = type_info$classType
+                    classType = type_info$classType,
+                    contextUri = uri
                 )
             )
         )
@@ -64,7 +65,8 @@ type_hierarchy_supertypes_reply <- function(id, workspace, item) {
                     selectionRange = supertype$range,
                     data = list(
                         definition = supertype,
-                        classType = supertype$classType
+                        classType = supertype$classType,
+                        contextUri = item$data$contextUri
                     )
                 )
             })
@@ -87,7 +89,10 @@ type_hierarchy_subtypes_reply <- function(id, workspace, item) {
     result <- list()
 
     if (!is.null(item$data$definition)) {
-        subtypes <- find_type_subtypes(workspace, item$data$definition)
+        context_uri <- item$data$contextUri
+        if (is.null(context_uri)) context_uri <- item$uri
+        subtypes <- find_type_subtypes(
+            workspace, item$data$definition, context_uri = context_uri)
 
         if (length(subtypes) > 0) {
             result <- lapply(subtypes, function(subtype) {
@@ -99,7 +104,8 @@ type_hierarchy_subtypes_reply <- function(id, workspace, item) {
                     selectionRange = subtype$range,
                     data = list(
                         definition = subtype,
-                        classType = subtype$classType
+                        classType = subtype$classType,
+                        contextUri = context_uri
                     )
                 )
             })
@@ -618,10 +624,15 @@ find_s3_supertypes <- function(doc, xdoc, class_name, uri) {
 #' Find subtypes (child types) that inherit from a given type
 #'
 #' @noRd
-find_type_subtypes <- function(workspace, type_def) {
-    cache_key <- paste(
-        "sub", type_def$uri, type_def$classType, type_def$name,
-        sep = "\r")
+find_type_subtypes <- function(workspace, type_def, context_uri = type_def$uri) {
+    cache_key <- if (identical(context_uri, type_def$uri)) {
+        paste("sub", type_def$uri, type_def$classType, type_def$name,
+            sep = "\r")
+    } else {
+        paste(
+            "sub", context_uri, type_def$uri, type_def$classType, type_def$name,
+            sep = "\r")
+    }
     if (!is.null(workspace$type_hierarchy_cache) &&
             workspace$type_hierarchy_cache$has(cache_key)) {
         return(workspace$type_hierarchy_cache$get(cache_key))
@@ -632,7 +643,7 @@ find_type_subtypes <- function(workspace, type_def) {
     parent_name <- type_def$name
 
     # Search through all documents for classes that inherit from this one
-    for (doc_uri in workspace$documents$keys()) {
+    for (doc_uri in workspace_document_uris(workspace, context_uri)) {
         doc <- workspace$documents$get(doc_uri)
         xdoc <- workspace$get_parse_data(doc_uri)$xml_doc
 

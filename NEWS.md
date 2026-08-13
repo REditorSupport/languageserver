@@ -1,5 +1,8 @@
 # languageserver 0.3.18
 
+- Index complete R projects with bounded, cached shallow summaries while fully
+  parsing only packages, open files, and static `source()` closures. Keep
+  unrelated standalone scripts isolated in semantic editor features.
 - Retire persistent `callr` workers when cancelling tasks so a late interrupt
   cannot leak into the next diagnostics run.
 - Prevent a dead persistent worker from crashing the language server when a

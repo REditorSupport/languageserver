@@ -12,11 +12,11 @@ current_parse_data <- function(uri, workspace, document) {
 
 #' Find calls to a workspace function without resolving every symbol
 #' @noRd
-function_call_locations <- function(workspace, symbol) {
+function_call_locations <- function(workspace, symbol, context_uri = NULL) {
     token_quote <- xml_single_quote(symbol)
     locations <- list()
 
-    for (doc_uri in workspace$documents$keys()) {
+    for (doc_uri in workspace_document_uris(workspace, context_uri)) {
         document <- workspace$documents$get(doc_uri)
         parse_data <- workspace$get_parse_data(doc_uri)
         indexed <- parse_data$reference_index
@@ -75,7 +75,7 @@ resolve_function_code_lens <- function(workspace, lens) {
     uri <- lens$data$uri
     if (is.null(symbol) || is.null(uri)) return(lens)
 
-    locations <- function_call_locations(workspace, symbol)
+    locations <- function_call_locations(workspace, symbol, context_uri = uri)
     count <- length(locations)
     title <- sprintf("%d call%s", count, if (count == 1L) "" else "s")
     lens$command <- list(

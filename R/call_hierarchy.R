@@ -18,8 +18,10 @@ indexed_incoming_calls <- function(workspace, item) {
     target_key <- item$data$definitionKey
     if (is.null(target_key)) target_key <- paste0("global:", item$name)
     in_calls <- collections::dict()
+    context_uri <- item$data$contextUri
+    if (is.null(context_uri)) context_uri <- item$uri
 
-    for (doc_uri in workspace$documents$keys()) {
+    for (doc_uri in workspace_document_uris(workspace, context_uri)) {
         parse_data <- workspace$get_parse_data(doc_uri)
         index <- parse_data$reference_index
         if (is.null(index)) return(NULL)
@@ -72,7 +74,8 @@ indexed_incoming_calls <- function(workspace, item) {
                         range = definition$range,
                         selectionRange = definition$range,
                         data = list(
-                            definition = list(uri = doc_uri, range = definition$range)
+                            definition = list(uri = doc_uri, range = definition$range),
+                            contextUri = context_uri
                         )
                     ),
                     fromRanges = list()
@@ -111,6 +114,8 @@ indexed_outgoing_calls <- function(workspace, item) {
         sep = "\r"
     ))
     result <- list()
+    context_uri <- item$data$contextUri
+    if (is.null(context_uri)) context_uri <- item$uri
     for (indices in groups) {
         i <- indices[[1L]]
         point <- list(
@@ -118,7 +123,8 @@ indexed_outgoing_calls <- function(workspace, item) {
             col = index$code_point_col[[i]]
         )
         symbol_definition <- definition_reply(
-            NULL, item$uri, workspace, doc, point)$result
+            NULL, item$uri, workspace, doc, point,
+            context_uri = context_uri)$result
         if (is.null(symbol_definition) ||
             equal_definition(symbol_definition, item$data$definition)) {
             next
@@ -134,7 +140,10 @@ indexed_outgoing_calls <- function(workspace, item) {
                 detail = detail,
                 range = symbol_definition$range,
                 selectionRange = symbol_definition$range,
-                data = list(definition = symbol_definition)
+                data = list(
+                    definition = symbol_definition,
+                    contextUri = context_uri
+                )
             ),
             fromRanges = lapply(indices, function(j) indexed_call_range(index, j))
         )
@@ -172,7 +181,8 @@ prepare_call_hierarchy_reply <- function(id, uri, workspace, document, point) {
                 selectionRange = defn$range,
                 data = list(
                     definition = defn,
-                    definitionKey = definition_key
+                    definitionKey = definition_key,
+                    contextUri = uri
                 )
             )
         )
@@ -199,7 +209,9 @@ call_hierarchy_incoming_calls_reply <- function(id, workspace, item) {
 
     in_calls <- collections::dict()
 
-    for (doc_uri in workspace$documents$keys()) {
+    context_uri <- item$data$contextUri
+    if (is.null(context_uri)) context_uri <- item$uri
+    for (doc_uri in workspace_document_uris(workspace, context_uri)) {
         doc <- workspace$documents$get(doc_uri)
         xdoc <- workspace$get_parse_data(doc_uri)$xml_doc
         if (is.null(xdoc)) next
@@ -243,7 +255,9 @@ call_hierarchy_incoming_calls_reply <- function(id, workspace, item) {
 
             for (i in seq_along(symbols)) {
                 symbol_point <- list(row = symbol_line1[[i]] - 1, col = symbol_col1[[i]])
-                symbol_defn <- definition_reply(NULL, doc_uri, workspace, doc, symbol_point)$result
+                symbol_defn <- definition_reply(
+                    NULL, doc_uri, workspace, doc, symbol_point,
+                    context_uri = context_uri)$result
 
                 if (!equal_definition(symbol_defn, item$data$definition)) {
                     next
@@ -261,7 +275,8 @@ call_hierarchy_incoming_calls_reply <- function(id, workspace, item) {
                                 definition = list(
                                     uri = doc_uri,
                                     range = defn$range
-                                )
+                                ),
+                                contextUri = context_uri
                             )
                         ),
                         fromRanges = list()
@@ -312,6 +327,8 @@ call_hierarchy_outgoing_calls_reply <- function(id, workspace, item) {
     }
 
     result <- list()
+    context_uri <- item$data$contextUri
+    if (is.null(context_uri)) context_uri <- item$uri
     start_point <- doc$from_lsp_position(item$range$start)
     end_point <- doc$from_lsp_position(item$range$end)
     line1 <- start_point$row + 1
@@ -338,7 +355,9 @@ call_hierarchy_outgoing_calls_reply <- function(id, workspace, item) {
 
     for (i in seq_along(symbols)) {
         symbol_point <- list(row = symbol_line1[[i]] - 1, col = symbol_col1[[i]])
-        symbol_defn <- definition_reply(NULL, item$uri, workspace, doc, symbol_point)$result
+        symbol_defn <- definition_reply(
+            NULL, item$uri, workspace, doc, symbol_point,
+            context_uri = context_uri)$result
 
         if (is.null(symbol_defn) || equal_definition(symbol_defn, item$data$definition)) {
             next
@@ -356,7 +375,8 @@ call_hierarchy_outgoing_calls_reply <- function(id, workspace, item) {
                     range = symbol_defn$range,
                     selectionRange = symbol_defn$range,
                     data = list(
-                        definition = symbol_defn
+                        definition = symbol_defn,
+                        contextUri = context_uri
                     )
                 ),
                 fromRanges = list()

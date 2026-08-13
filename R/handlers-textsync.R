@@ -2,6 +2,16 @@
 #'
 #' Handler to the `textDocument/didOpen` [Notification].
 #' @noRd
+update_document_index <- function(self, workspace, uri, content,
+    cacheable = FALSE) {
+    if (is.null(workspace$index) || !isTRUE(workspace$index$enabled)) {
+        return(invisible(NULL))
+    }
+    workspace$index$update_content(uri, content, cacheable = cacheable)
+    self$refresh_index_documents(workspace, uri)
+    invisible(NULL)
+}
+
 text_document_did_open <- function(self, params) {
     textDocument <- params$textDocument
     uri <- uri_escape_unicode(textDocument$uri)
@@ -26,6 +36,7 @@ text_document_did_open <- function(self, params) {
     doc <- Document$new(uri, language = language, version = version, content = content)
     workspace$documents$set(uri, doc)
     doc$did_open()
+    update_document_index(self, workspace, uri, doc$content)
     # Performance: Parse immediately on open (no delay) to have data ready for initial requests
     self$text_sync(uri, document = doc, run_lintr = TRUE, parse = TRUE, delay = 0)
 }
@@ -77,6 +88,7 @@ text_document_did_change <- function(self, params) {
         workspace$documents$set(uri, doc)
     }
     doc$did_open()
+    update_document_index(self, workspace, uri, doc$content)
     self$text_sync(
         uri,
         document = doc,
@@ -124,6 +136,8 @@ text_document_did_save <- function(self, params) {
     doc <- workspace$documents$get(uri)
     doc$set_content(doc$version, content)
     doc$did_open()
+    update_document_index(
+        self, workspace, uri, doc$content, cacheable = TRUE)
     self$text_sync(uri, document = doc, run_lintr = TRUE, parse = TRUE)
 }
 
@@ -152,8 +166,15 @@ text_document_did_close <- function(self, params) {
         doc$did_close()
     }
 
+    if (!is.null(workspace$index) && isTRUE(workspace$index$enabled)) {
+        if (file.exists(path)) {
+            workspace$index$update_path(path)
+        } else {
+            workspace$index$remove(uri)
+        }
+        self$prune_index_documents(workspace)
     # do not remove document in package
-    if (!(is_package(workspace$root) && is_from_workspace)) {
+    } else if (!(is_package(workspace$root) && is_from_workspace)) {
         diagnostics_callback(self, uri, NULL, list())
         workspace$documents$remove(uri)
         workspace$diagnostics_globals_cache <- NULL

@@ -184,12 +184,18 @@ extract_default_values <- function(default_expr) {
 #' Complete argument values based on default parameter values
 #' @noRd
 argument_value_completion <- function(workspace, funct, package, arg_name, token,
-    exported_only = TRUE, formals_list = NULL) {
+    exported_only = TRUE, formals_list = NULL, uri = NULL) {
     # Reuse formals already resolved by the caller when completing multiple
     # arguments from the same function.
     if (is.null(formals_list)) {
-        formals_list <- workspace$get_formals(funct, package,
-            exported_only = exported_only)
+        formals_list <- if (is.null(uri)) {
+            workspace$get_formals(
+                funct, package, exported_only = exported_only)
+        } else {
+            call_with_optional_uri(
+                workspace$get_formals,
+                funct, package, exported_only = exported_only, uri = uri)
+        }
     }
     
     if (is.null(formals_list) || !is.list(formals_list)) {
@@ -226,7 +232,8 @@ argument_value_completion <- function(workspace, funct, package, arg_name, token
                 type = "argument_value",
                 funct = funct,
                 package = package,
-                argument = arg_name
+                argument = arg_name,
+                context_uri = uri
             )
         )
     })
@@ -240,12 +247,14 @@ arg_value_completion <- function(uri, workspace, document, point, token, funct, 
     # Get the package context
     package_for_call <- package
     if (is.null(package_for_call)) {
-        package_for_call <- workspace$guess_namespace(funct, isf = TRUE)
+        package_for_call <- call_with_optional_uri(
+            workspace$guess_namespace, funct, isf = TRUE, uri = uri)
     }
     
     # Try to get the formals - works with NULL package for user-defined functions
-    formals_list <- workspace$get_formals(funct, package_for_call,
-        exported_only = exported_only)
+    formals_list <- call_with_optional_uri(
+        workspace$get_formals,
+        funct, package_for_call, exported_only = exported_only, uri = uri)
     
     if (is.null(formals_list) || !is.list(formals_list) || length(formals_list) == 0) {
         return(list())
@@ -264,7 +273,7 @@ arg_value_completion <- function(uri, workspace, document, point, token, funct, 
                 # Generate completions for this parameter
                 param_completions <- argument_value_completion(
                     workspace, funct, package_for_call, param_name, token,
-                    exported_only, formals_list)
+                    exported_only, formals_list, uri = uri)
                 all_completions <- c(all_completions, param_completions)
             }
         }
@@ -304,12 +313,15 @@ arg_completion <- function(uri, workspace, point, token, funct, package = NULL, 
         }
 
         if (is.null(token_args)) {
-            package <- workspace$guess_namespace(funct, isf = TRUE)
+            package <- call_with_optional_uri(
+                workspace$guess_namespace, funct, isf = TRUE, uri = uri)
         }
     }
 
     if (!is.null(package)) {
-        args <- names(workspace$get_formals(funct, package, exported_only = exported_only))
+        args <- names(call_with_optional_uri(
+            workspace$get_formals,
+            funct, package, exported_only = exported_only, uri = uri))
 
         if (package == "base" && funct == "options") {
             args <- c(args, names(.Options))
@@ -320,7 +332,8 @@ arg_completion <- function(uri, workspace, point, token, funct, package = NULL, 
             token_data <- list(
                 type = "parameter",
                 funct = funct,
-                package = package
+                package = package,
+                context_uri = uri
             )
         }
     }
@@ -453,8 +466,13 @@ completion_select_indices <- function(labels, sort_text, token, limit) {
 #' Complete any object in the workspace
 #' @noRd
 workspace_completion <- function(workspace, token,
-    package = NULL, exported_only = TRUE, snippet_support = NULL, limit = Inf) {
+    package = NULL, exported_only = TRUE, snippet_support = NULL, limit = Inf,
+    uri = NULL) {
     candidates <- list()
+    get_namespace <- function(name) {
+        if (is.null(uri)) workspace$get_namespace(name)
+        else call_with_optional_uri(workspace$get_namespace, name, uri = uri)
+    }
 
     append_candidates <- function(objects, kind, detail, sort_prefix,
         type, package, is_function = FALSE) {
@@ -478,14 +496,20 @@ workspace_completion <- function(workspace, token,
     }
 
     if (is.null(package)) {
-        packages <- c(WORKSPACE, workspace$loaded_packages)
+        loaded_packages <- if (is.null(uri) ||
+                !is.function(workspace$loaded_packages_for_context)) {
+            workspace$loaded_packages
+        } else {
+            workspace$loaded_packages_for_context(uri)
+        }
+        packages <- c(WORKSPACE, loaded_packages)
     } else {
         packages <- c(package)
     }
 
     if (is.null(package) || exported_only) {
         for (nsname in packages) {
-            ns <- workspace$get_namespace(nsname)
+            ns <- get_namespace(nsname)
             if (is.null(ns)) {
                 next
             }
@@ -516,7 +540,7 @@ workspace_completion <- function(workspace, token,
                 "lazydata", nsname)
         }
     } else {
-        ns <- workspace$get_namespace(package)
+        ns <- get_namespace(package)
         if (!is.null(ns)) {
             tag <- paste0("{", package, "}")
             functs <- ns$get_symbols(want_functs = TRUE, exported_only = FALSE)
@@ -586,6 +610,8 @@ workspace_completion <- function(workspace, token,
 
     completions <- unname(Map(function(label, kind, detail, sort_text,
         type, package, is_function) {
+        data <- list(type = type, package = package)
+        if (!is.null(uri)) data$context_uri <- uri
         if (isTRUE(snippet_support) && is_function) {
             list(
                 label = label,
@@ -594,7 +620,7 @@ workspace_completion <- function(workspace, token,
                 sortText = sort_text,
                 insertText = paste0(label, "($0)"),
                 insertTextFormat = InsertTextFormat$Snippet,
-                data = list(type = type, package = package)
+                data = data
             )
         } else {
             list(
@@ -602,7 +628,7 @@ workspace_completion <- function(workspace, token,
                 kind = kind,
                 detail = detail,
                 sortText = sort_text,
-                data = list(type = type, package = package)
+                data = data
             )
         }
     }, labels, kinds, details, sort_text, types, packages, functions))
@@ -858,7 +884,7 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
         }
         workspace_completions <- workspace_completion(
             workspace, token, package, token_result$accessor == "::",
-            snippet_support, nmax)
+            snippet_support, nmax, uri = uri)
         providers_incomplete <- providers_incomplete ||
             isTRUE(attr(workspace_completions, "truncated"))
         completions <- c(completions, workspace_completions)
@@ -941,7 +967,10 @@ completion_item_resolve_reply <- function(id, workspace, params, capabilities) {
             doc <- NULL
             doc_string <- NULL
             if (is.null(params$data$uri)) {
-                doc <- workspace$get_documentation(params$data$funct, params$data$package, isf = TRUE)
+                doc <- call_with_optional_uri(
+                    workspace$get_documentation,
+                    params$data$funct, params$data$package, isf = TRUE,
+                    uri = params$data$context_uri)
             } else {
                 document <- workspace$documents$get(params$data$uri)
                 func_line1 <- params$data$line
@@ -961,7 +990,10 @@ completion_item_resolve_reply <- function(id, workspace, params, capabilities) {
         } else if (params$data$type %in% c("constant", "function", "nonfunction", "lazydata")) {
             if (isTRUE(capabilities$completionItem$labelDetailsSupport)) {
                 if (params$data$type == "function") {
-                    sig <- workspace$get_signature(params$label, params$data$package)
+                    sig <- call_with_optional_uri(
+                        workspace$get_signature,
+                        params$label, params$data$package,
+                        uri = params$data$context_uri)
                     if (!is.null(sig)) {
                         params$labelDetails <- list(
                             detail = substr(sig, nchar(params$label) + 1, nchar(sig))
@@ -973,8 +1005,11 @@ completion_item_resolve_reply <- function(id, workspace, params, capabilities) {
             doc <- NULL
             doc_string <- NULL
             if (is.null(params$data$uri)) {
-                doc <- workspace$get_documentation(params$label, params$data$package,
-                    isf = params$data$type == "function")
+                doc <- call_with_optional_uri(
+                    workspace$get_documentation,
+                    params$label, params$data$package,
+                    isf = params$data$type == "function",
+                    uri = params$data$context_uri)
             } else {
                 document <- workspace$documents$get(params$data$uri)
                 token_line1 <- params$data$line

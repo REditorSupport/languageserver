@@ -190,6 +190,14 @@ settings | default | description
 `r.lsp.diagnostics_delay` | `0.75` | seconds to debounce diagnostics after the current parse
 `r.lsp.parse_cache_max_mb` | `64` | maximum memory used by cached document parse versions
 `r.lsp.diagnostics_cache_max_mb` | `16` | maximum memory used by cached diagnostics
+`r.lsp.index_mode` | `"auto"` | index R files in the complete workspace; use `"off"` to restore package-only loading
+`r.lsp.index_include` | `"**/*.R"` | glob or character vector of globs included in workspace indexing
+`r.lsp.index_exclude` | common VCS, dependency, cache, and output directories | glob or character vector of globs excluded from workspace indexing
+`r.lsp.index_max_files` | `10000` | maximum number of eligible R files discovered per workspace
+`r.lsp.index_max_file_size_mb` | `2` | maximum size of a file included in the workspace index
+`r.lsp.index_batch_size` | `20` | maximum number of shallow summaries built in one idle batch
+`r.lsp.index_time_budget_ms` | `25` | approximate event-loop budget for each shallow-index batch
+`r.lsp.index_persistent_cache` | `true` | persist validated shallow summaries in the user cache directory
 `r.lsp.server_capabilities` | `{}` | override server capabilities defined in [capabilities.R](https://github.com/REditorSupport/languageserver/blob/master/R/capabilities.R). See FAQ below.
 `r.lsp.link_file_size_limit` | 16384 | maximum file size (in bytes) that supports document links
 
@@ -200,6 +208,14 @@ options(languageserver.snippet_support = FALSE)
 ```
 
 will turn off snippet support globally. LSP configuration settings are always overriden by `options()`.
+
+Project indexing is deliberately two-tiered. Package `R/` files, open files,
+and the transitive dependencies of static `source()` or `sys.source()` calls
+receive full semantic parsing. Other scripts receive only a lightweight symbol
+and source-call summary, so they appear in workspace symbol search without
+polluting completion, definition, references, or rename in unrelated scripts.
+Static paths built from string literals, `file.path()`, and `here::here()` are
+recognized; project code is never executed to resolve a path.
 
 ## FAQ
 

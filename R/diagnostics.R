@@ -196,7 +196,10 @@ diagnostics_task <- function(self, uri, document, delay = 0) {
         }
     }
 
-    globals <- if (is_package(workspace$root)) {
+    globals <- if (!is.null(workspace$index) &&
+            isTRUE(workspace$index$enabled)) {
+        workspace$get_diagnostics_globals(uri)
+    } else if (is_package(workspace$root)) {
         workspace$get_diagnostics_globals()
     } else {
         NULL

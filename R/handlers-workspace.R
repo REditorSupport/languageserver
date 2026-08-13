@@ -4,6 +4,21 @@ FileChangeType <- list(
     Deleted = 3
 )
 
+#' Refresh a shallow summary without overwriting an open editor buffer
+#' @noRd
+refresh_index_summary <- function(workspace, index, uri) {
+    document_uri <- Filter(function(candidate) {
+        identical(index_canonical_uri(candidate), index_canonical_uri(uri))
+    }, workspace$documents$keys())
+    if (length(document_uri)) {
+        doc <- workspace$documents$get(document_uri[[1L]])
+        if (isTRUE(doc$is_open)) {
+            return(index$update_content(document_uri[[1L]], doc$content))
+        }
+    }
+    index$update_path(path_from_uri(uri))
+}
+
 #' `workspace/didChangeWorkspaceFolders` notification handler
 #'
 #' Handler to the `workspace/didChangeWorkspaceFolders` [Notification]
@@ -34,7 +49,30 @@ workspace_did_change_configuration <- function(self, params) {
 
     logger$info("settings ", settings)
 
+    index_settings <- intersect(names(settings), c(
+        "index_mode", "index_include", "index_exclude",
+        "index_max_files", "index_max_file_size_mb", "index_batch_size",
+        "index_time_budget_ms", "index_persistent_cache"
+    ))
     lsp_settings$update_from_workspace(settings)
+
+    if (length(index_settings)) {
+        for (workspace in self$workspaces$values()) {
+            open_documents <- Filter(function(doc) isTRUE(doc$is_open),
+                workspace$documents$values())
+            workspace$index <- WorkspaceIndex$new(workspace$root)
+            self$load_workspace(workspace)
+            if (isTRUE(workspace$index$enabled)) {
+                for (doc in open_documents) {
+                    workspace$index$update_content(
+                        doc$uri, doc$content, cacheable = FALSE)
+                }
+                self$refresh_index_documents(workspace)
+            } else {
+                self$prune_legacy_documents(workspace)
+            }
+        }
+    }
 
     if (!lsp_settings$get("diagnostics")) {
         for (workspace in self$workspaces$values()) {
@@ -50,22 +88,10 @@ workspace_did_change_configuration <- function(self, params) {
 #' Handler to the `workspace/didChangeWatchedFiles` [Notification].
 #' @noRd
 workspace_did_change_watched_files <- function(self, params) {
-    # All open documents will be automatically handled by lsp requests.
-    # Only non-open documents in a package should be handled here.
-
     for (file_event in params$changes) {
-        uri <- file_event$uri
+        uri <- uri_escape_unicode(file_event$uri)
         path <- path_from_uri(uri)
         workspace <- self$get_workspace(uri)
-
-        if (!is_package(workspace$root)) {
-            next
-        }
-
-        source_dir <- file.path(workspace$root, "R")
-        if (dirname(path) != source_dir) {
-            next
-        }
 
         if (workspace$documents$has(uri)) {
             doc <- workspace$documents$get(uri)
@@ -76,6 +102,53 @@ workspace_did_change_watched_files <- function(self, params) {
         }
 
         type <- file_event$type
+        index <- workspace$index
+        if (!is.null(index) && isTRUE(index$enabled)) {
+            if (!index$should_index(path) && type != FileChangeType$Deleted) next
+
+            dependents <- index$dependents(
+                uri, include_candidates = type == FileChangeType$Created)
+            if (type == FileChangeType$Created ||
+                    type == FileChangeType$Changed) {
+                logger$info("index", path)
+                index$update_path(path)
+                # A newly created file can make a previously unresolved
+                # static source call resolvable.
+                for (dependent in dependents) {
+                    refresh_index_summary(workspace, index, dependent)
+                }
+                package_root <- index$package_root_for_uri(uri)
+                if (!is.null(package_root) || workspace$documents$has(uri)) {
+                    if (workspace$documents$has(uri)) {
+                        workspace$documents$remove(uri)
+                    }
+                    if (is.function(self$load_index_document)) {
+                        self$load_index_document(workspace, uri)
+                    }
+                }
+            } else if (type == FileChangeType$Deleted) {
+                logger$info("remove", path)
+                index$remove(uri)
+                if (workspace$documents$has(uri)) {
+                    workspace$documents$remove(uri)
+                    workspace$diagnostics_globals_cache <- NULL
+                    workspace$type_hierarchy_cache$clear()
+                }
+                for (dependent in dependents) {
+                    refresh_index_summary(workspace, index, dependent)
+                }
+            }
+            if (is.function(self$refresh_index_documents)) {
+                self$refresh_index_documents(workspace)
+            }
+            workspace$update_loaded_packages()
+            next
+        }
+
+        # Compatibility path when project indexing is disabled.
+        if (!is_package(workspace$root)) next
+        source_dir <- file.path(workspace$root, "R")
+        if (dirname(path) != source_dir) next
 
         if (type == FileChangeType$Created || type == FileChangeType$Changed) {
             logger$info("load", path)

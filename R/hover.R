@@ -8,8 +8,15 @@ hover_xpath <- paste(
 
 #' Format hover contents for a function argument
 #' @noRd
-function_argument_hover_contents <- function(workspace, funct, package, parameter) {
-    doc <- workspace$get_documentation(funct, package, isf = TRUE)
+function_argument_hover_contents <- function(workspace, funct, package, parameter,
+    uri = NULL) {
+    doc <- if (is.null(uri)) {
+        workspace$get_documentation(funct, package, isf = TRUE)
+    } else {
+        call_with_optional_uri(
+            workspace$get_documentation,
+            funct, package, isf = TRUE, uri = uri)
+    }
     if (!is.list(doc)) return(NULL)
 
     doc_string <- doc$arguments[[parameter]]
@@ -19,7 +26,9 @@ function_argument_hover_contents <- function(workspace, funct, package, paramete
     }
     if (is.null(doc_string)) return(NULL)
 
-    sig <- workspace$get_signature(funct, package)
+    sig <- if (is.null(uri)) workspace$get_signature(funct, package)
+    else call_with_optional_uri(
+        workspace$get_signature, funct, package, uri = uri)
     if (is.null(sig)) return(doc_string)
 
     c(
@@ -164,7 +173,7 @@ hover_reply <- function(id, uri, workspace, document, point) {
 
                     if (!resolved) {
                         contents <- function_argument_hover_contents(
-                            workspace, funct, package, token_text)
+                            workspace, funct, package, token_text, uri = uri)
                         resolved <- TRUE
                     }
                 }
@@ -218,22 +227,31 @@ hover_reply <- function(id, uri, workspace, document, point) {
     }
 
     if (!resolved) {
-        contents <- workspace$get_help(token_result$token, token_result$package)
+        contents <- call_with_optional_uri(
+            workspace$get_help,
+            token_result$token, token_result$package, uri = uri)
         if (is.null(contents)) {
             def_text <- NULL
 
-            doc <- workspace$get_documentation(token_result$token, token_result$package)
+            doc <- call_with_optional_uri(
+                workspace$get_documentation,
+                token_result$token, token_result$package, uri = uri)
             signs <- if (is.null(token_result$package)) {
-                workspace$guess_namespace(token_result$token)
+                call_with_optional_uri(
+                    workspace$guess_namespace, token_result$token, uri = uri)
             } else {
                 token_result$package
             }
-            sig <- workspace$get_signature(token_result$token, signs,
-                exported_only = token_result$accessor != ":::")
+            sig <- call_with_optional_uri(
+                workspace$get_signature,
+                token_result$token, signs,
+                exported_only = token_result$accessor != ":::", uri = uri)
 
             if (is.null(sig)) {
-                def <- workspace$get_definition(token_result$token, token_result$package,
-                    exported_only = token_result$accessor != ":::")
+                def <- call_with_optional_uri(
+                    workspace$get_definition,
+                    token_result$token, token_result$package,
+                    exported_only = token_result$accessor != ":::", uri = uri)
                 if (!is.null(def)) {
                     def_doc <- workspace$documents$get(def$uri)
                     def_line1 <- def$range$start$line + 1

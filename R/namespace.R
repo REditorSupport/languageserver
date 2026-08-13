@@ -183,15 +183,22 @@ WORKSPACE <- "_workspace_"
 GlobalEnv <- R6::R6Class("GlobalEnv",
     public = list(
         documents = NULL,
+        document_uris = NULL,
         package_name = NULL,
 
-        initialize = function(documents) {
+        initialize = function(documents, document_uris = NULL) {
             self$documents <- documents
+            self$document_uris <- document_uris
             self$package_name <- WORKSPACE
         },
 
+        document_values = function() {
+            if (is.null(self$document_uris)) return(self$documents$values())
+            lapply(self$document_uris, function(uri) self$documents$get(uri))
+        },
+
         exists = function(objname, exported_only = TRUE) {
-            for (doc in self$documents$values()) {
+            for (doc in self$document_values()) {
                 if (!is.null(doc$parse_data)) {
                     if (objname %in% doc$parse_data$nonfuncts) {
                         return(TRUE)
@@ -204,7 +211,7 @@ GlobalEnv <- R6::R6Class("GlobalEnv",
         },
 
         exists_funct = function(funct, exported_only = TRUE) {
-            for (doc in self$documents$values()) {
+            for (doc in self$document_values()) {
                 if (!is.null(doc$parse_data)) {
                     if (funct %in% doc$parse_data$functs) {
                         return(TRUE)
@@ -216,7 +223,7 @@ GlobalEnv <- R6::R6Class("GlobalEnv",
 
         get_symbols = function(want_functs = TRUE, exported_only = TRUE) {
             symbols <- character(0)
-            for (doc in self$documents$values()) {
+            for (doc in self$document_values()) {
                 if (!is.null(doc$parse_data)) {
                     if (want_functs) {
                         symbols <- c(symbols, doc$parse_data$functs)
@@ -233,7 +240,7 @@ GlobalEnv <- R6::R6Class("GlobalEnv",
         },
 
         get_signature = function(funct, exported_only = TRUE) {
-            for (doc in self$documents$values()) {
+            for (doc in self$document_values()) {
                 if (!is.null(doc$parse_data)) {
                     if (funct %in% doc$parse_data$functs) {
                         return(doc$parse_data$signatures[[funct]])
@@ -244,7 +251,7 @@ GlobalEnv <- R6::R6Class("GlobalEnv",
         },
 
         get_formals = function(funct, exported_only = TRUE) {
-            for (doc in self$documents$values()) {
+            for (doc in self$document_values()) {
                 if (!is.null(doc$parse_data)) {
                     if (funct %in% doc$parse_data$functs) {
                         return(formals(doc$parse_data$functions[[funct]]))
@@ -255,7 +262,7 @@ GlobalEnv <- R6::R6Class("GlobalEnv",
         },
 
         get_documentation = function(topic) {
-            for (doc in self$documents$values()) {
+            for (doc in self$document_values()) {
                 if (!is.null(doc$parse_data)) {
                     if (topic %in% doc$parse_data$objects) {
                         return(doc$parse_data$documentation[[topic]])
@@ -266,7 +273,7 @@ GlobalEnv <- R6::R6Class("GlobalEnv",
         },
 
         get_definition = function(symbol, exported_only = TRUE) {
-            for (doc in self$documents$values()) {
+            for (doc in self$document_values()) {
                 if (!is.null(doc$parse_data)) {
                     if (symbol %in% doc$parse_data$objects) {
                         def <- location(

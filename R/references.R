@@ -216,7 +216,7 @@ references_reply <- function(id, uri, workspace, document, point) {
         definition_key <- reference_key_at(
             parse_data$reference_index, token_point, token$token)
         if (!is.null(definition_key)) {
-            for (doc_uri in workspace$documents$keys()) {
+            for (doc_uri in workspace_document_uris(workspace, uri)) {
                 indexed <- workspace$get_parse_data(doc_uri)$reference_index
                 if (is.null(indexed)) next
                 selected <- which(
@@ -233,7 +233,7 @@ references_reply <- function(id, uri, workspace, document, point) {
             return(Response$new(id, result = result))
         }
 
-        doc_uris <- workspace$documents$keys()
+        doc_uris <- workspace_document_uris(workspace, uri)
         doc_results <- lapply(doc_uris, function(doc_uri) {
             doc <- workspace$documents$get(doc_uri)
             xdoc <- workspace$get_parse_data(doc_uri)$xml_doc
@@ -255,7 +255,9 @@ references_reply <- function(id, uri, workspace, document, point) {
             idx <- 0L
             for (i in seq_along(symbols)) {
                 symbol_point <- list(row = line1[[i]] - 1, col = col1[[i]])
-                symbol_defn <- definition_reply(NULL, doc_uri, workspace, doc, symbol_point)
+                symbol_defn <- definition_reply(
+                    NULL, doc_uri, workspace, doc, symbol_point,
+                    context_uri = uri)
                 if (identical(symbol_defn$result, defn$result)) {
                     idx <- idx + 1L
                     matches[[idx]] <- list(

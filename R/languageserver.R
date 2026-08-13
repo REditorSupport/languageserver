@@ -85,6 +85,12 @@ LanguageServer <- R6::R6Class("LanguageServer",
             # Start latency-sensitive parse work before diagnostics.
             self$parse_task_manager$run_tasks()
             if (!self$parse_task_manager$has_work()) {
+                for (workspace in self$workspaces$values()) {
+                    if (!is.null(workspace$index) &&
+                            isTRUE(workspace$index$enabled)) {
+                        workspace$index$process_batch()
+                    }
+                }
                 self$diagnostics_task_manager$run_tasks()
             }
             self$resolve_task_manager$run_tasks()
@@ -169,22 +175,133 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$workspace_cache$set(uri, best_match)
             best_match
         },
+        load_index_document = function(workspace, uri) {
+            if (workspace$documents$has(uri)) return(invisible(NULL))
+            path <- path_from_uri(uri)
+            if (!file.exists(path) || dir.exists(path)) return(invisible(NULL))
+            content <- tryCatch(stringi::stri_read_lines(path),
+                error = function(e) NULL)
+            if (is.null(content)) return(invisible(NULL))
+            doc <- Document$new(
+                uri, language = "r", version = NULL, content = content)
+            workspace$documents$set(uri, doc)
+            self$text_sync(uri, document = doc, parse = TRUE)
+            invisible(doc)
+        },
+
+        refresh_index_documents = function(workspace, entry_uri = NULL) {
+            index <- workspace$index
+            if (is.null(index) || !isTRUE(index$enabled)) return(invisible(NULL))
+            entries <- if (is.null(entry_uri)) {
+                Filter(function(uri) {
+                    doc <- workspace$documents$get(uri, NULL)
+                    !is.null(doc) && isTRUE(doc$is_open)
+                }, workspace$documents$keys())
+            } else {
+                entry_uri
+            }
+            for (entry in entries) {
+                entry_key <- index_canonical_uri(entry)
+                queue <- collections::queue()
+                queue$push(entry_key)
+                visited <- new.env(hash = TRUE, parent = emptyenv())
+                while (queue$size()) {
+                    uri <- queue$pop()
+                    if (exists(uri, envir = visited, inherits = FALSE)) next
+                    assign(uri, TRUE, envir = visited)
+                    if (!index$summaries$has(uri)) {
+                        index$update_path(path_from_uri(uri))
+                    }
+                    if (!identical(uri, entry_key)) {
+                        self$load_index_document(workspace, uri)
+                    }
+                    for (target in index$source_edges$get(uri, character())) {
+                        queue$push(target)
+                    }
+                }
+            }
+            self$prune_index_documents(workspace)
+            invisible(NULL)
+        },
+
+        prune_index_documents = function(workspace) {
+            index <- workspace$index
+            if (is.null(index) || !isTRUE(index$enabled)) return(invisible(NULL))
+            document_uris <- workspace$documents$keys()
+            open_uris <- Filter(function(uri) {
+                isTRUE(workspace$documents$get(uri)$is_open)
+            }, document_uris)
+            keep <- union(index$package_source_uris(), open_uris)
+            for (uri in open_uris) keep <- union(keep, index$source_closure(uri))
+            keep <- unique(vapply(keep, index_canonical_uri, character(1L)))
+            remove <- document_uris[!vapply(document_uris, function(uri) {
+                index_canonical_uri(uri) %in% keep
+            }, logical(1L))]
+            remove <- Filter(function(uri) {
+                index$contains_path(path_from_uri(uri))
+            }, remove)
+            for (uri in remove) {
+                diagnostics_callback(self, uri, NULL, list())
+                workspace$documents$remove(uri)
+            }
+            if (length(remove)) {
+                workspace$diagnostics_globals_cache <- NULL
+                workspace$type_hierarchy_cache$clear()
+                workspace$update_loaded_packages()
+            }
+            invisible(NULL)
+        },
+
+        prune_legacy_documents = function(workspace) {
+            source_dir <- if (is_package(workspace$root)) {
+                index_normalize_path(file.path(workspace$root, "R"))
+            } else {
+                NULL
+            }
+            remove <- Filter(function(uri) {
+                doc <- workspace$documents$get(uri)
+                if (isTRUE(doc$is_open)) return(FALSE)
+                path <- index_normalize_path(path_from_uri(uri))
+                is.null(source_dir) || !identical(dirname(path), source_dir)
+            }, workspace$documents$keys())
+            for (uri in remove) {
+                diagnostics_callback(self, uri, NULL, list())
+                workspace$documents$remove(uri)
+            }
+            if (length(remove)) {
+                workspace$diagnostics_globals_cache <- NULL
+                workspace$type_hierarchy_cache$clear()
+                workspace$update_loaded_packages()
+            }
+            invisible(NULL)
+        },
+
         load_workspace = function(workspace) {
-            if (!is_package(workspace$root)) {
+            if (is.null(workspace$index) || !isTRUE(workspace$index$enabled)) {
+                if (is_package(workspace$root)) {
+                    source_dir <- file.path(workspace$root, "R")
+                    files <- list.files(
+                        source_dir, pattern = "\\.r$", ignore.case = TRUE)
+                    for (file in files) {
+                        self$load_index_document(
+                            workspace,
+                            path_to_uri(file.path(source_dir, file))
+                        )
+                    }
+                    workspace$import_from_namespace_file()
+                }
                 return(invisible(NULL))
             }
             logger$info("load workspace:", workspace$root)
-            source_dir <- file.path(workspace$root, "R")
-            files <- list.files(source_dir, pattern = "\\.r$", ignore.case = TRUE)
-            for (f in files) {
-                logger$info("load file:", f)
-                path <- file.path(source_dir, f)
-                uri <- path_to_uri(path)
-                doc <- Document$new(uri, language = "r", version = NULL, content = stringi::stri_read_lines(path))
-                workspace$documents$set(uri, doc)
-                self$text_sync(uri, document = doc, parse = TRUE)
+            workspace$index$discover()
+            for (uri in workspace$index$package_source_uris()) {
+                logger$info("load package file:", path_from_uri(uri))
+                if (!workspace$index$summaries$has(uri)) {
+                    workspace$index$update_path(path_from_uri(uri))
+                }
+                self$load_index_document(workspace, uri)
             }
-            workspace$import_from_namespace_file()
+            if (is_package(workspace$root)) workspace$import_from_namespace_file()
         },
         load_workspaces = function() {
             for (workspace in self$workspaces$values()) {
