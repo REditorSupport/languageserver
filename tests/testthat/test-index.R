@@ -81,6 +81,12 @@ test_that("source closure is transitive and cycle safe", {
         basename(vapply(closure, path_from_uri, character(1L))),
         c("main.R", "a.R", "b.R")
     )
+    dependents <- index$dependent_closure(
+        path_to_uri(file.path(root, "b.R")))
+    expect_setequal(
+        basename(vapply(dependents, path_from_uri, character(1L))),
+        c("main.R", "a.R", "b.R")
+    )
 })
 
 test_that("source edges survive incomplete edits and resolve created targets", {
@@ -224,4 +230,59 @@ test_that("plain projects load source closures without merging unrelated scripts
     symbols <- client %>% respond_workspace_symbol("unrelated_fun",
         retry_when = function(result) length(result) == 0L)
     expect_length(symbols, 1L)
+})
+
+test_that("references and code lenses include source dependents", {
+    skip_on_cran()
+    local_index_settings(index_persistent_cache = FALSE)
+    root <- withr::local_tempdir()
+    definition <- file.path(root, "src_test1.R")
+    caller <- file.path(root, "src_test2.R")
+    unrelated <- file.path(root, "unrelated.R")
+    writeLines(c(
+        "test1 <- 1",
+        "test2 <- 2",
+        "fun1 <- function(x) {",
+        "  x + 1",
+        "}"
+    ), definition)
+    writeLines(c(
+        "source(\"./src_test1.R\")",
+        "",
+        "fun1(x)"
+    ), caller)
+    writeLines("fun1(x)", unrelated)
+
+    client <- language_client(root, capabilities = list(
+        textDocument = list(codeLens = list(
+            resolveSupport = list(properties = list("command"))
+        ))
+    ))
+    client %>% did_open(caller)
+    client %>% did_open(unrelated)
+
+    from_call <- client %>% respond_references(
+        caller, c(2, 1), retry_when = function(result) length(result) < 2L)
+    expect_setequal(
+        vapply(from_call, `[[`, character(1L), "uri"),
+        path_to_uri(c(definition, caller))
+    )
+
+    client %>% did_open(definition)
+    from_definition <- client %>% respond_references(
+        definition, c(2, 1),
+        retry_when = function(result) length(result) < 2L)
+    expect_setequal(
+        vapply(from_definition, `[[`, character(1L), "uri"),
+        path_to_uri(c(definition, caller))
+    )
+
+    lenses <- respond(
+        client,
+        "textDocument/codeLens",
+        list(textDocument = list(uri = path_to_uri(definition)))
+    )
+    expect_length(lenses, 1L)
+    resolved <- respond(client, "codeLens/resolve", lenses[[1L]])
+    expect_equal(resolved$command$title, "1 call")
 })

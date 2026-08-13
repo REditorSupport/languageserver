@@ -216,7 +216,9 @@ references_reply <- function(id, uri, workspace, document, point) {
         definition_key <- reference_key_at(
             parse_data$reference_index, token_point, token$token)
         if (!is.null(definition_key)) {
-            for (doc_uri in workspace_document_uris(workspace, uri)) {
+            doc_uris <- workspace_reference_document_uris(
+                workspace, defn$result$uri, uri)
+            for (doc_uri in doc_uris) {
                 indexed <- workspace$get_parse_data(doc_uri)$reference_index
                 if (is.null(indexed)) next
                 selected <- which(
@@ -233,7 +235,8 @@ references_reply <- function(id, uri, workspace, document, point) {
             return(Response$new(id, result = result))
         }
 
-        doc_uris <- workspace_document_uris(workspace, uri)
+        doc_uris <- workspace_reference_document_uris(
+            workspace, defn$result$uri, uri)
         doc_results <- lapply(doc_uris, function(doc_uri) {
             doc <- workspace$documents$get(doc_uri)
             xdoc <- workspace$get_parse_data(doc_uri)$xml_doc

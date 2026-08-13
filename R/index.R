@@ -626,6 +626,28 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             if (result_count) result[seq_len(result_count)] else character()
         },
 
+        dependent_closure = function(uri) {
+            result <- character(self$max_files() + 1L)
+            result_count <- 0L
+            queue <- collections::queue()
+            queue$push(index_canonical_uri(uri))
+            visited <- new.env(hash = TRUE, parent = emptyenv())
+            while (queue$size()) {
+                current <- queue$pop()
+                if (exists(current, envir = visited, inherits = FALSE)) next
+                assign(current, TRUE, envir = visited)
+                result_count <- result_count + 1L
+                if (result_count > length(result)) {
+                    result <- c(result, character(length(result)))
+                }
+                result[[result_count]] <- current
+                for (dependent in self$reverse_edges$get(current, character())) {
+                    queue$push(dependent)
+                }
+            }
+            if (result_count) result[seq_len(result_count)] else character()
+        },
+
         dependents = function(uri, include_candidates = FALSE) {
             uri <- index_canonical_uri(uri)
             result <- self$reverse_edges$get(uri, character())

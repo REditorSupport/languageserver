@@ -20,8 +20,10 @@ indexed_incoming_calls <- function(workspace, item) {
     in_calls <- collections::dict()
     context_uri <- item$data$contextUri
     if (is.null(context_uri)) context_uri <- item$uri
+    doc_uris <- workspace_reference_document_uris(
+        workspace, item$uri, context_uri)
 
-    for (doc_uri in workspace_document_uris(workspace, context_uri)) {
+    for (doc_uri in doc_uris) {
         parse_data <- workspace$get_parse_data(doc_uri)
         index <- parse_data$reference_index
         if (is.null(index)) return(NULL)
@@ -211,7 +213,9 @@ call_hierarchy_incoming_calls_reply <- function(id, workspace, item) {
 
     context_uri <- item$data$contextUri
     if (is.null(context_uri)) context_uri <- item$uri
-    for (doc_uri in workspace_document_uris(workspace, context_uri)) {
+    doc_uris <- workspace_reference_document_uris(
+        workspace, item$uri, context_uri)
+    for (doc_uri in doc_uris) {
         doc <- workspace$documents$get(doc_uri)
         xdoc <- workspace$get_parse_data(doc_uri)$xml_doc
         if (is.null(xdoc)) next

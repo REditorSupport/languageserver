@@ -30,6 +30,17 @@ workspace_document_uris <- function(workspace, uri = NULL) {
     }
 }
 
+#' Return documents that can reference a definition
+#' @noRd
+workspace_reference_document_uris <- function(workspace, definition_uri,
+    context_uri = definition_uri) {
+    if (is.function(workspace$document_uris_for_references)) {
+        workspace$document_uris_for_references(definition_uri, context_uri)
+    } else {
+        workspace_document_uris(workspace, context_uri)
+    }
+}
+
 #' A byte-bounded least-recently-used cache
 #' @noRd
 ByteLruCache <- R6::R6Class(
@@ -180,6 +191,9 @@ Workspace <- R6::R6Class("Workspace",
                     is.null(self$index) || !isTRUE(self$index$enabled)) {
                 return(all_uris)
             }
+            if (!self$index$contains_path(path_from_uri(uri))) {
+                return(all_uris)
+            }
             package_root <- self$index$package_root_for_uri(uri)
             if (!is.null(package_root)) {
                 return(all_uris[vapply(all_uris, function(document_uri) {
@@ -190,6 +204,33 @@ Workspace <- R6::R6Class("Workspace",
                 }, logical(1L))])
             }
             closure <- self$index$source_closure(uri)
+            all_uris[vapply(all_uris, function(document_uri) {
+                index_canonical_uri(document_uri) %in% closure
+            }, logical(1L))]
+        },
+
+        document_uris_for_references = function(definition_uri,
+            context_uri = definition_uri) {
+            all_uris <- self$documents$keys()
+            if (is.null(definition_uri) || !length(definition_uri) ||
+                    !nzchar(definition_uri) || is.null(self$index) ||
+                    !isTRUE(self$index$enabled)) {
+                return(self$document_uris_for_context(context_uri))
+            }
+            definition_path <- path_from_uri(definition_uri)
+            if (!self$index$contains_path(definition_path)) {
+                return(self$document_uris_for_context(context_uri))
+            }
+            package_root <- self$index$package_root_for_uri(definition_uri)
+            if (!is.null(package_root)) {
+                return(all_uris[vapply(all_uris, function(document_uri) {
+                    identical(
+                        self$index$package_root_for_uri(document_uri),
+                        package_root
+                    )
+                }, logical(1L))])
+            }
+            closure <- self$index$dependent_closure(definition_uri)
             all_uris[vapply(all_uris, function(document_uri) {
                 index_canonical_uri(document_uri) %in% closure
             }, logical(1L))]
