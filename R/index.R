@@ -137,21 +137,28 @@ index_source_specs <- function(expr) {
             if (length(args)) {
                 named_file <- which(!is.null(arg_names) & arg_names == "file")
                 if (length(named_file)) {
-                    file_arg <- args[[named_file[[1L]]]]
+                    file_index <- named_file[[1L]]
                 } else {
                     unnamed <- if (is.null(arg_names)) {
                         seq_along(args)
                     } else {
                         which(!nzchar(arg_names))
                     }
-                    if (length(unnamed)) file_arg <- args[[unnamed[[1L]]]]
+                    file_index <- if (length(unnamed)) unnamed[[1L]] else NULL
+                }
+                if (length(file_index) &&
+                        !identical(args[[file_index]], quote(expr = ))) {
+                    file_arg <- args[[file_index]]
                 }
             }
             spec <- index_static_path(file_arg)
             if (!is.null(spec)) result[[length(result) + 1L]] <<- spec
         }
         children <- as.list(node)[-1L]
-        for (child in children) visit(child)
+        for (i in seq_along(children)) {
+            if (identical(children[[i]], quote(expr = ))) next
+            visit(children[[i]])
+        }
         NULL
     }
     visit(expr)

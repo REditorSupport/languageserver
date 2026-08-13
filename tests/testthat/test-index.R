@@ -45,6 +45,24 @@ test_that("shallow summaries extract definitions and static source calls", {
     expect_false(any(grepl("dynamic", summary$sources, fixed = TRUE)))
 })
 
+test_that("source discovery tolerates missing call arguments", {
+    local_index_settings(index_persistent_cache = FALSE)
+    root <- withr::local_tempdir()
+    helper <- file.path(root, "helper.R")
+    writeLines("helper <- TRUE", helper)
+    path <- file.path(root, "main.R")
+    content <- c(
+        "ordinary_call(, value)",
+        "source(file = )",
+        "source(\"helper.R\", )"
+    )
+    writeLines(content, path)
+
+    summary <- index_shallow_summary(path, content, root)
+
+    expect_equal(summary$sources, list(path_to_uri(helper)))
+})
+
 test_that("source closure is transitive and cycle safe", {
     local_index_settings(index_persistent_cache = FALSE)
     root <- withr::local_tempdir()
