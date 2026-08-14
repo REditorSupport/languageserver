@@ -249,7 +249,8 @@ test_that("references and code lenses include source dependents", {
     writeLines(c(
         "source(\"./src_test1.R\")",
         "",
-        "fun1(x)"
+        "fun1(x)",
+        "fun1(1)"
     ), caller)
     writeLines("fun1(x)", unrelated)
 
@@ -262,20 +263,24 @@ test_that("references and code lenses include source dependents", {
     client %>% did_open(unrelated)
 
     from_call <- client %>% respond_references(
-        caller, c(2, 1), retry_when = function(result) length(result) < 2L)
-    expect_setequal(
-        vapply(from_call, `[[`, character(1L), "uri"),
-        path_to_uri(c(definition, caller))
-    )
+        caller, c(2, 1), retry_when = function(result) length(result) < 3L)
+    expect_equal(sum(vapply(from_call, function(value) {
+        identical(value$uri, path_to_uri(caller))
+    }, logical(1L))), 2L)
+    expect_true(any(vapply(from_call, function(value) {
+        identical(value$uri, path_to_uri(definition))
+    }, logical(1L))))
 
     client %>% did_open(definition)
     from_definition <- client %>% respond_references(
         definition, c(2, 1),
-        retry_when = function(result) length(result) < 2L)
-    expect_setequal(
-        vapply(from_definition, `[[`, character(1L), "uri"),
-        path_to_uri(c(definition, caller))
-    )
+        retry_when = function(result) length(result) < 3L)
+    expect_equal(sum(vapply(from_definition, function(value) {
+        identical(value$uri, path_to_uri(caller))
+    }, logical(1L))), 2L)
+    expect_true(any(vapply(from_definition, function(value) {
+        identical(value$uri, path_to_uri(definition))
+    }, logical(1L))))
 
     lenses <- respond(
         client,
@@ -284,7 +289,15 @@ test_that("references and code lenses include source dependents", {
     )
     expect_length(lenses, 1L)
     resolved <- respond(client, "codeLens/resolve", lenses[[1L]])
-    expect_equal(resolved$command$title, "1 call")
+    expect_equal(resolved$command$title, "2 calls")
+    expect_equal(resolved$command$command, "editor.action.peekLocations")
+    expect_length(resolved$command$arguments[[3L]], 2L)
+    caller_path <- vscode_command_uri(path_to_uri(caller))$path
+    expect_true(all(vapply(
+        resolved$command$arguments[[3L]],
+        function(value) identical(value$uri$path, caller_path),
+        logical(1L)
+    )))
 
     items <- client %>% respond_prepare_call_hierarchy(definition, c(2, 1))
     incoming <- client %>% respond_call_hierarchy_incoming_calls(items[[1L]])
@@ -292,8 +305,14 @@ test_that("references and code lenses include source dependents", {
     expect_equal(incoming[[1L]]$from$name, basename(caller))
     expect_equal(incoming[[1L]]$from$kind, SymbolKind$File)
     expect_equal(incoming[[1L]]$from$uri, path_to_uri(caller))
-    expect_equal(incoming[[1L]]$fromRanges[[1L]], list(
-        start = list(line = 2L, character = 0L),
-        end = list(line = 2L, character = 4L)
+    expect_equal(incoming[[1L]]$fromRanges, list(
+        list(
+            start = list(line = 2L, character = 0L),
+            end = list(line = 2L, character = 4L)
+        ),
+        list(
+            start = list(line = 3L, character = 0L),
+            end = list(line = 3L, character = 4L)
+        )
     ))
 })

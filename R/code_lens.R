@@ -70,6 +70,56 @@ function_call_locations <- function(workspace, symbol, context_uri = NULL) {
     locations
 }
 
+#' Convert an LSP URI to the marshalled URI shape used by VS Code commands
+#' @noRd
+vscode_command_uri <- function(uri) {
+    pattern <- paste0(
+        "^([A-Za-z][A-Za-z0-9+.-]*):",
+        "(?://([^/?#]*))?([^?#]*)(?:\\?([^#]*))?(?:#(.*))?$"
+    )
+    parts <- regmatches(uri, regexec(pattern, uri, perl = TRUE))[[1L]]
+    if (length(parts) != 6L) return(NULL)
+
+    decode <- function(value) {
+        value <- utils::URLdecode(value)
+        Encoding(value) <- "UTF-8"
+        value
+    }
+    result <- list(`$mid` = 1L, scheme = tolower(parts[[2L]]))
+    if (nzchar(parts[[3L]])) result$authority <- decode(parts[[3L]])
+    if (nzchar(parts[[4L]])) result$path <- decode(parts[[4L]])
+    if (nzchar(parts[[5L]])) result$query <- decode(parts[[5L]])
+    if (nzchar(parts[[6L]])) result$fragment <- decode(parts[[6L]])
+    result
+}
+
+#' Convert LSP locations to the internal shapes accepted by VS Code commands
+#' @noRd
+vscode_command_position <- function(value) {
+    list(
+        lineNumber = value$line + 1L,
+        column = value$character + 1L
+    )
+}
+
+#' @noRd
+vscode_command_range <- function(value) {
+    list(
+        startLineNumber = value$start$line + 1L,
+        startColumn = value$start$character + 1L,
+        endLineNumber = value$end$line + 1L,
+        endColumn = value$end$character + 1L
+    )
+}
+
+#' @noRd
+vscode_command_location <- function(value) {
+    list(
+        uri = vscode_command_uri(value$uri),
+        range = vscode_command_range(value$range)
+    )
+}
+
 #' Resolve a function-reference code lens
 #' @noRd
 resolve_function_code_lens <- function(workspace, lens) {
@@ -80,11 +130,21 @@ resolve_function_code_lens <- function(workspace, lens) {
     locations <- function_call_locations(workspace, symbol, context_uri = uri)
     count <- length(locations)
     title <- sprintf("%d call%s", count, if (count == 1L) "" else "s")
-    lens$command <- list(
+    command <- list(
         title = title,
-        tooltip = sprintf("Show the semantic call hierarchy for %s()", symbol),
-        command = "editor.showCallHierarchy"
+        tooltip = sprintf("Show calls to %s()", symbol),
+        command = ""
     )
+    anchor <- vscode_command_uri(uri)
+    if (count && !is.null(anchor)) {
+        command$command <- "editor.action.peekLocations"
+        command$arguments <- list(
+            anchor,
+            vscode_command_position(lens$range$start),
+            lapply(locations, vscode_command_location)
+        )
+    }
+    lens$command <- command
     lens
 }
 
