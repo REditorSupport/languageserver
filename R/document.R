@@ -9,6 +9,7 @@ Document <- R6::R6Class(
         content = NULL,
         parse_data = NULL,
         is_rmarkdown = NULL,
+        regions = NULL,
         loaded_packages = NULL,
         pending_diagnostics = FALSE,
         diagnostics_delay = 0,
@@ -17,7 +18,7 @@ Document <- R6::R6Class(
             self$uri <- uri
             self$language <- language
             self$version <- version
-            self$is_rmarkdown <- if (is.null(language)) is_rmarkdown(uri) else language == "rmd"
+            self$is_rmarkdown <- is_rmarkdown(uri, language)
             self$set_content(version, content)
             self$loaded_packages <- character()
         },
@@ -34,6 +35,11 @@ Document <- R6::R6Class(
             self$version <- version
             self$nline <- length(content)
             self$content <- content
+            self$regions <- if (self$is_rmarkdown) {
+                parse_literate_regions(content)
+            } else {
+                NULL
+            }
         },
 
         apply_content_changes = function(version, content_changes) {
@@ -518,9 +524,10 @@ parse_expr <- function(content, expr, env, srcref = attr(expr, "srcref")) {
 #'
 #' @importFrom digest digest
 #' @noRd
-normalize_parse_content <- function(content, is_rmarkdown = FALSE) {
+normalize_parse_content <- function(content, is_rmarkdown = FALSE,
+    parseable_only = TRUE) {
     if (is_rmarkdown) {
-        content <- purl(content)
+        content <- purl(content, parseable_only = parseable_only)
     }
     if (length(content) == 0) {
         content <- ""
@@ -533,9 +540,10 @@ get_content_hash <- function(content) {
     digest::digest(content, algo = "xxhash64")
 }
 
-parse_document <- function(uri, content) {
-    content <- normalize_parse_content(content)
-    content_hash <- get_content_hash(content)
+parse_document <- function(uri, content, is_rmarkdown = FALSE,
+    content_hash = NULL) {
+    content <- normalize_parse_content(content, is_rmarkdown)
+    if (is.null(content_hash)) content_hash <- get_content_hash(content)
 
     parse_env <- function() {
         env <- new.env(parent = .GlobalEnv)
@@ -702,8 +710,15 @@ parse_callback <- function(self, uri, version, parse_data) {
 
 parse_task <- function(self, uri, document, delay = 0) {
     version <- document$version
-    content <- normalize_parse_content(document$content, document$is_rmarkdown)
-    content_hash <- get_content_hash(content)
+    if (document$is_rmarkdown) {
+        content <- document$content
+        cache_content <- normalize_parse_content(
+            content, is_rmarkdown = TRUE, parseable_only = FALSE)
+    } else {
+        content <- normalize_parse_content(document$content)
+        cache_content <- content
+    }
+    content_hash <- get_content_hash(cache_content)
 
     # Check cache in the main process before spawning a child task
     workspace <- self$get_workspace(uri)
@@ -717,7 +732,12 @@ parse_task <- function(self, uri, document, delay = 0) {
 
     create_task(
         target = package_call(parse_document),
-        args = list(uri = uri, content = content),
+        args = list(
+            uri = uri,
+            content = content,
+            is_rmarkdown = document$is_rmarkdown,
+            content_hash = content_hash
+        ),
         callback = function(result) parse_callback(self, uri, version, result),
         error = function(e) logger$info("parse_task:", e),
         delay = delay

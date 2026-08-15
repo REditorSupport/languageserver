@@ -57,6 +57,11 @@ roxygen_parameter_ranges <- function(document, definition_row) {
 #' makes correcting a parameter name update its documentation at the same time.
 #' @noRd
 linked_editing_range_reply <- function(id, uri, workspace, document, point) {
+    internal_point <- document$from_lsp_position(point)
+    if (!check_r_region(document, internal_point)) {
+        return(Response$new(id, result = NULL))
+    }
+
     parse_data <- current_parse_data(uri, workspace, document)
     if (is.null(parse_data)) return(NULL)
     xdoc <- parse_data$xml_doc

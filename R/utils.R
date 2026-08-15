@@ -211,11 +211,34 @@ equal_definition <- function(x, y) {
     x$uri == y$uri && equal_range(x$range, y$range)
 }
 
-#' Check if a file is an RMarkdown file
+#' Check if a language id denotes an R Markdown or Quarto document
 #' @noRd
-is_rmarkdown <- function(uri) {
+is_literate_language <- function(language) {
+    if (is.null(language) || !length(language) || is.na(language[[1L]])) {
+        return(FALSE)
+    }
+    language <- tolower(language[[1L]])
+    language %in% c(
+        "rmd", "rmarkdown", "r-markdown",
+        "qmd", "quarto", "quarto-markdown", "quarto_markdown"
+    ) || grepl("^quarto(?:[-_]?markdown)?$", language, perl = TRUE)
+}
+
+#' Check if a file is an R Markdown or Quarto file
+#' @noRd
+is_rmarkdown <- function(uri, language = NULL) {
     filename <- path_from_uri(uri)
-    endsWith(tolower(filename), ".rmd") || endsWith(tolower(filename), ".rmarkdown")
+    extension_match <- endsWith(tolower(filename), ".rmd") ||
+        endsWith(tolower(filename), ".rmarkdown") ||
+        endsWith(tolower(filename), ".qmd")
+    extension_match || is_literate_language(language)
+}
+
+#' Check if a point is in an R region
+#' @noRd
+check_r_region <- function(document, point) {
+    !document$is_rmarkdown ||
+        !is.null(literate_r_cell_at(document$regions, point$row))
 }
 
 #' Check if a token is in a R code block in an Rmarkdown file
@@ -226,20 +249,7 @@ is_rmarkdown <- function(uri) {
 #'
 #' @noRd
 check_scope <- function(uri, document, point) {
-    if (document$is_rmarkdown) {
-        row <- point$row
-        flags <- startsWith(document$content[1:(row + 1)], "```")
-        if (any(flags)) {
-            last_match <- document$content[max(which(flags))]
-            stringi::stri_detect_regex(last_match, "```+\\s*\\{[rR][ ,\\}]") &&
-                !identical(sum(flags) %% 2, 0) &&
-                !enclosed_by_quotes(document, point)
-        } else {
-            FALSE
-        }
-    } else {
-        !enclosed_by_quotes(document, point)
-    }
+    check_r_region(document, point) && !enclosed_by_quotes(document, point)
 }
 
 is_ascii_string <- function(x) {
@@ -281,28 +291,7 @@ seq_safe <- function(a, b) {
 #' Extract the R code blocks of a Rmarkdown file
 #' @noRd
 extract_blocks <- function(content) {
-    begins_or_ends <- which(stringi::stri_detect_fixed(content, "```"))
-    begins <- which(stringi::stri_detect_regex(content, "```+\\s*\\{[rR][ ,\\}]"))
-    ends <- setdiff(begins_or_ends, begins)
-    blocks <- vector("list", length(begins))
-    idx <- 0L
-    for (begin in begins) {
-        z <- which(ends > begin)
-        if (length(z) == 0) break
-        end <- ends[min(z)]
-        lines <- seq_safe(begin + 1, end - 1)
-        if (length(lines) > 0) {
-            idx <- idx + 1L
-            blocks[[idx]] <- list(lines = lines, text = content[lines])
-        }
-    }
-    if (idx == 0L) {
-        return(list())
-    }
-    if (idx < length(blocks)) {
-        blocks <- blocks[seq_len(idx)]
-    }
-    blocks
+    literate_r_blocks(content)
 }
 
 get_signature <- function(symbol, expr) {
@@ -316,13 +305,8 @@ get_signature <- function(symbol, expr) {
 #' Strip out all the non R blocks in a R markdown file
 #' @param content a character vector
 #' @noRd
-purl <- function(content) {
-    blocks <- extract_blocks(content)
-    rmd_content <- rep("", length(content))
-    for (block in blocks) {
-        rmd_content[block$lines] <- content[block$lines]
-    }
-    rmd_content
+purl <- function(content, parseable_only = FALSE) {
+    literate_r_content(content, parseable_only = parseable_only)
 }
 
 

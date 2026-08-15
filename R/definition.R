@@ -15,6 +15,10 @@ definition_xpath <- paste(
 definition_reply <- function(id, uri, workspace, document, point, rootPath,
     context_uri = uri) {
 
+    if (!check_r_region(document, point)) {
+        return(Response$new(id))
+    }
+
     token_result <- document$detect_token(point)
     resolved <- FALSE
     result <- NULL

@@ -5,6 +5,10 @@
 #'
 #' @noRd
 prepare_type_hierarchy_reply <- function(id, uri, workspace, document, point) {
+    if (!check_r_region(document, point)) {
+        return(Response$new(id, result = NULL))
+    }
+
     token <- document$detect_token(point)
 
     logger$info("prepare_type_hierarchy_reply: ", list(

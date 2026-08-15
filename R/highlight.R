@@ -10,6 +10,10 @@ document_highlight_xpath <- "//*[(self::SYMBOL or self::SYMBOL_FUNCTION_CALL or 
 #'
 #' @noRd
 document_highlight_reply <- function(id, uri, workspace, document, point) {
+    if (!check_r_region(document, point)) {
+        return(Response$new(id))
+    }
+
     result <- NULL
     parse_data <- workspace$get_parse_data(uri)
     index <- parse_data$reference_index

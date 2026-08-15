@@ -13,6 +13,7 @@ selection_range_reply <- function(id, uri, workspace, document, points) {
     xdoc <- parse_data$xml_doc
     if (!is.null(xdoc)) {
         result <- lapply(points, function(point) {
+            if (!check_r_region(document, point)) return(NULL)
             row <- point$row + 1
             col <- point$col + 1
             token <- xdoc_find_token(xdoc, row, col)

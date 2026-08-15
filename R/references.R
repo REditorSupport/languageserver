@@ -195,6 +195,10 @@ indexed_reference_locations <- function(index, uri, selected) {
 #' @noRd
 references_reply <- function(id, uri, workspace, document, point) {
 
+    if (!check_r_region(document, point)) {
+        return(Response$new(id, result = list()))
+    }
+
     token <- document$detect_token(point)
     defn <- definition_reply(NULL, uri, workspace, document, point)
     token_quote <- xml_single_quote(token$token)

@@ -1,4 +1,12 @@
 prepare_rename_reply <- function(id, uri, workspace, document, point) {
+    if (!check_r_region(document, point)) {
+        return(ResponseErrorMessage$new(
+            id,
+            errortype = "RequestCancelled",
+            message = "Cannot rename outside an R region"
+        ))
+    }
+
     token <- document$detect_token(point)
     defn <- definition_reply(NULL, uri, workspace, document, point)
 
@@ -30,6 +38,10 @@ prepare_rename_reply <- function(id, uri, workspace, document, point) {
 
 #' @noRd
 rename_reply <- function(id, uri, workspace, document, point, newName) {
+    if (!check_r_region(document, point)) {
+        return(Response$new(id))
+    }
+
     refs <- references_reply(NULL, uri, workspace, document, point)
     result <- list()
 
