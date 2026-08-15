@@ -1,5 +1,8 @@
 # languageserver 0.3.18
 
+- Add a shared Quarto/R Markdown region model with `.qmd` and Quarto language
+  ID detection, independent R-cell parsing, nested fenced-div folding, and
+  provider isolation from YAML, Markdown, cell options, and non-R engines.
 - Index complete R projects with bounded, cached shallow summaries while fully
   parsing only packages, open files, and static `source()` closures. Keep
   unrelated standalone scripts isolated in semantic editor features.

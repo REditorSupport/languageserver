@@ -128,8 +128,8 @@ get_document_blocks <- function(xdoc) {
 #' @noRd
 get_rmd_document_sections_and_blocks <- function(content, xdoc) {
     blocks <- get_document_blocks(xdoc)
-    sections <- get_rmd_document_sections(
-        content, c("section", "chunk")
+    sections <- get_literate_document_sections(
+        content, c("section", "chunk", "yaml", "div", "code")
     )
     c(blocks, sections)
 }

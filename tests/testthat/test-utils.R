@@ -156,9 +156,12 @@ test_that("R Markdown block extraction handles empty and incomplete fences", {
         "unfinished <- TRUE"
     )
     blocks <- extract_blocks(content)
-    expect_length(blocks, 2L)
-    expect_equal(map_int(blocks, ~ .x$lines), c(3L, 6L))
-    expect_equal(map_chr(blocks, ~ .x$text), c("x <- 1", "y <- 2"))
+    expect_length(blocks, 3L)
+    expect_equal(map_int(blocks, ~ .x$lines), c(3L, 6L, 9L))
+    expect_equal(
+        map_chr(blocks, ~ .x$text),
+        c("x <- 1", "y <- 2", "unfinished <- TRUE")
+    )
     expect_identical(extract_blocks(c("text", "```{r}", "```")), list())
     expect_identical(extract_blocks("plain text"), list())
 })

@@ -137,7 +137,7 @@ formatting_reply <- function(id, uri, document, options) {
     nline <- document$nline
     if (document$is_rmarkdown) {
         logger$info("formatting R markdown file")
-        blocks <- extract_blocks(document$content)
+        blocks <- literate_r_blocks(document$content, document$regions)
         if (length(blocks) == 0) {
             return(Response$new(id, list()))
         }
@@ -201,6 +201,19 @@ range_formatting_reply <- function(id, uri, document, range, options) {
     # check if the selection is empty
     if (row1 == row2 && col1 == col2) {
         return(Response$new(id, list()))
+    }
+
+    if (document$is_rmarkdown) {
+        start_cell <- literate_r_cell_at(document$regions, row1)
+        end_cell <- literate_r_cell_at(document$regions, row2)
+        if (is.null(start_cell) || is.null(end_cell) ||
+                start_cell$start_line != end_cell$start_line) {
+            return(Response$new(id, list()))
+        }
+        selected_lines <- seq.int(row1 + 1L, row2 + 1L)
+        if (any(document$regions$line_type[selected_lines] != "r")) {
+            return(Response$new(id, list()))
+        }
     }
 
     style <- get_style(options)
@@ -324,7 +337,8 @@ find_on_type_formatting_chunk <- function(content, end_line, complete_at_end = F
 
 #' Return a conservative indentation-only edit
 #' @noRd
-indentation_only_reply <- function(id, document, point, options) {
+indentation_only_reply <- function(id, document, point, options,
+    start_line = 1L) {
     row <- point$row
     if (row < 0L || row >= document$nline) return(Response$new(id))
 
@@ -342,23 +356,27 @@ indentation_only_reply <- function(id, document, point, options) {
         strrep(" ", tab_size)
     }
 
+    scoped_content <- document$content[seq.int(start_line, row + 1L)]
+    scoped_row <- row - start_line + 1L
     result <- find_unbalanced_bracket(
-        document$content,
-        row,
+        scoped_content,
+        scoped_row,
         nchar(line) - 1L
     )
     location <- result[[1L]]
 
     if (all(location >= 0L)) {
-        context_line <- document$line0(location[[1L]])
+        context_row <- location[[1L]] + start_line - 1L
+        context_line <- document$line0(context_row)
         base <- stringi::stri_extract_first_regex(context_line, "^\\s*")
         indentation <- paste0(base, indent_unit)
     } else {
         previous <- row - 1L
-        while (previous >= 0L && !grepl("\\S", document$line0(previous))) {
+        minimum_row <- start_line - 1L
+        while (previous >= minimum_row && !grepl("\\S", document$line0(previous))) {
             previous <- previous - 1L
         }
-        if (previous < 0L) return(Response$new(id))
+        if (previous < minimum_row) return(Response$new(id))
 
         previous_line <- document$line0(previous)
         indentation <- stringi::stri_extract_first_regex(previous_line, "^\\s*")
@@ -383,6 +401,13 @@ on_type_formatting_reply <- function(id, uri, document, point, ch, options) {
         return(Response$new(id))
     }
 
+    run <- if (document$is_rmarkdown) {
+        literate_r_run_at(document$regions, point$row)
+    } else {
+        list(start_line = 1L, end_line = document$nline)
+    }
+    if (is.null(run)) return(Response$new(id))
+
     content <- document$content
     end_line <- point$row + 1L
     complete_at_end <- FALSE
@@ -397,8 +422,10 @@ on_type_formatting_reply <- function(id, uri, document, point, ch, options) {
         }
     }
 
+    scoped_content <- content[seq.int(run$start_line, end_line)]
     chunk <- tryCatchTimeout(
-        find_on_type_formatting_chunk(content, end_line, complete_at_end),
+        find_on_type_formatting_chunk(
+            scoped_content, length(scoped_content), complete_at_end),
         timeout = 0.1,
         error = function(e) {
             logger$info("on_type_formatting_reply:parser:", e)
@@ -407,7 +434,7 @@ on_type_formatting_reply <- function(id, uri, document, point, ch, options) {
     )
 
     if (!is.null(chunk)) {
-        start_line <- chunk$start_line
+        start_line <- chunk$start_line + run$start_line - 1L
 
         # find first non-empty line for the detection of indention
         while (start_line < end_line) {
@@ -455,7 +482,8 @@ on_type_formatting_reply <- function(id, uri, document, point, ch, options) {
     }
 
     if (ch == "\n") {
-        return(indentation_only_reply(id, document, point, options))
+        return(indentation_only_reply(
+            id, document, point, options, start_line = run$start_line))
     }
     Response$new(id)
 }

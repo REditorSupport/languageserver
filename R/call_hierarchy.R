@@ -193,6 +193,10 @@ indexed_outgoing_calls <- function(workspace, item) {
 #' @noRd
 prepare_call_hierarchy_reply <- function(id, uri, workspace, document, point) {
 
+    if (!check_r_region(document, point)) {
+        return(Response$new(id, result = NULL))
+    }
+
     token <- document$detect_token(point)
     defn <- definition_reply(NULL, uri, workspace, document, point)$result
     token_quote <- xml_single_quote(token$token)

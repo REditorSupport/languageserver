@@ -79,8 +79,8 @@ diagnose_file <- function(uri, content, is_rmarkdown = FALSE, globals = NULL, ca
     }
 
     if (is_rmarkdown) {
-        # make sure Rmarkdown file has at least one block
-        if (!any(stringi::stri_detect_regex(content, "```\\{r[ ,\\}]"))) {
+        content <- purl(content, parseable_only = TRUE)
+        if (!any(nzchar(trimws(content)))) {
             return(list())
         }
     }
@@ -107,7 +107,7 @@ diagnose_file <- function(uri, content, is_rmarkdown = FALSE, globals = NULL, ca
         linters <- lintr::linters_with_defaults()
     }
 
-    if (file.exists(path)) {
+    if (file.exists(path) && !is_rmarkdown) {
         lints <- lintr::lint(path,
             cache = cache,
             text = content,
