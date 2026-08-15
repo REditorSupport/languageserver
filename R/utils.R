@@ -77,6 +77,17 @@ capture_print <- function(x) {
     paste0(utils::capture.output(print(x)), collapse = "\n")
 }
 
+#' Call a workspace method with URI context when the implementation supports it
+#' @noRd
+call_with_optional_uri <- function(fun, ..., uri = NULL) {
+    args <- list(...)
+    parameters <- names(formals(fun))
+    if (!is.null(uri) && ("uri" %in% parameters || "..." %in% parameters)) {
+        args$uri <- uri
+    }
+    do.call(fun, args)
+}
+
 get_expr_type <- function(expr) {
     if (is.call(expr)) {
         func <- deparse(expr[[1]], nlines = 1)

@@ -20,9 +20,21 @@ test_that("code lenses lazily resolve R function call counts", {
     expect_equal(resolved$command$title, "2 calls")
     expect_equal(
         resolved$command$command,
-        "editor.showCallHierarchy"
+        "editor.action.peekLocations"
     )
-    expect_null(resolved$command$arguments)
+    expect_length(resolved$command$arguments, 3L)
+    expect_equal(resolved$command$arguments[[1L]]$`$mid`, 1L)
+    expect_equal(resolved$command$arguments[[1L]]$scheme, "file")
+    expect_equal(
+        resolved$command$arguments[[2L]],
+        list(lineNumber = 1L, column = 1L)
+    )
+    expect_length(resolved$command$arguments[[3L]], 2L)
+    expect_true(all(vapply(
+        resolved$command$arguments[[3L]],
+        function(value) identical(value$uri$`$mid`, 1L),
+        logical(1L)
+    )))
 })
 
 test_that("code lenses work through the language server after incremental edits", {
@@ -46,7 +58,8 @@ test_that("code lenses work through the language server after incremental edits"
     expect_length(lenses, 1L)
     resolved <- respond(client, "codeLens/resolve", lenses[[1L]])
     expect_equal(resolved$command$title, "1 call")
-    expect_equal(resolved$command$command, "editor.showCallHierarchy")
+    expect_equal(resolved$command$command, "editor.action.peekLocations")
+    expect_length(resolved$command$arguments[[3L]], 1L)
 
     notify(client, "textDocument/didChange", list(
         textDocument = list(uri = uri, version = 2L),

@@ -242,7 +242,8 @@ test_that("Call hierarchy outgoing calls works", {
 legacy_call_hierarchy_fixture <- function() {
     content <- c(
         "target <- function() 1",
-        "caller <- function() { target(); target() }"
+        "caller <- function() { target(); target() }",
+        "target()"
     )
     uri <- "file:///legacy-call-hierarchy.R"
     document <- Document$new(uri, version = 1L, content = content)
@@ -317,12 +318,17 @@ test_that("Call hierarchy falls back to XML for incoming calls", {
         1L, fixture$workspace, item
     )
 
-    expect_length(reply$result, 1L)
-    expect_equal(reply$result[[1L]]$from$name, "caller")
-    expect_equal(reply$result[[1L]]$from$kind, SymbolKind$Function)
-    expect_length(reply$result[[1L]]$fromRanges, 2L)
+    expect_length(reply$result, 2L)
+    caller <- keep(reply$result, ~ .$from$name == "caller")[[1L]]
+    expect_equal(caller$from$kind, SymbolKind$Function)
+    expect_length(caller$fromRanges, 2L)
     expect_equal(
-        map_int(reply$result[[1L]]$fromRanges, c("start", "character")),
+        map_int(caller$fromRanges, c("start", "character")),
         c(23L, 33L)
     )
+    top_level <- keep(
+        reply$result, ~ .$from$name == "legacy-call-hierarchy.R")[[1L]]
+    expect_equal(top_level$from$kind, SymbolKind$File)
+    expect_equal(top_level$from$detail, "top level")
+    expect_equal(top_level$fromRanges[[1L]]$start$line, 2L)
 })

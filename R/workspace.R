@@ -20,6 +20,27 @@ workspace_startup_packages <- local({
     }
 })
 
+#' Return semantic document scope with compatibility for lightweight fixtures
+#' @noRd
+workspace_document_uris <- function(workspace, uri = NULL) {
+    if (is.function(workspace$document_uris_for_context)) {
+        workspace$document_uris_for_context(uri)
+    } else {
+        workspace$documents$keys()
+    }
+}
+
+#' Return documents that can reference a definition
+#' @noRd
+workspace_reference_document_uris <- function(workspace, definition_uri,
+    context_uri = definition_uri) {
+    if (is.function(workspace$document_uris_for_references)) {
+        workspace$document_uris_for_references(definition_uri, context_uri)
+    } else {
+        workspace_document_uris(workspace, context_uri)
+    }
+}
+
 #' A byte-bounded least-recently-used cache
 #' @noRd
 ByteLruCache <- R6::R6Class(
@@ -97,6 +118,7 @@ Workspace <- R6::R6Class("Workspace",
         namespaces = NULL,
         global_env = NULL,
         documents = NULL,
+        index = NULL,
 
         # from NAMESPACE importFrom()
         imported_objects = NULL,
@@ -115,6 +137,7 @@ Workspace <- R6::R6Class("Workspace",
         initialize = function(root) {
             self$root <- root
             self$documents <- collections::dict()
+            self$index <- WorkspaceIndex$new(root)
             self$imported_objects <- collections::dict()
             self$imported_packages <- character(0)
             self$global_env <- GlobalEnv$new(self$documents)
@@ -162,15 +185,82 @@ Workspace <- R6::R6Class("Workspace",
             }
         },
 
-        guess_namespace = function(object, isf = FALSE) {
+        document_uris_for_context = function(uri = NULL) {
+            all_uris <- self$documents$keys()
+            if (is.null(uri) || !length(uri) || !nzchar(uri) ||
+                    is.null(self$index) || !isTRUE(self$index$enabled)) {
+                return(all_uris)
+            }
+            if (!self$index$contains_path(path_from_uri(uri))) {
+                return(all_uris)
+            }
+            package_root <- self$index$package_root_for_uri(uri)
+            if (!is.null(package_root)) {
+                return(all_uris[vapply(all_uris, function(document_uri) {
+                    identical(
+                        self$index$package_root_for_uri(document_uri),
+                        package_root
+                    )
+                }, logical(1L))])
+            }
+            closure <- self$index$source_closure(uri)
+            all_uris[vapply(all_uris, function(document_uri) {
+                index_canonical_uri(document_uri) %in% closure
+            }, logical(1L))]
+        },
+
+        document_uris_for_references = function(definition_uri,
+            context_uri = definition_uri) {
+            all_uris <- self$documents$keys()
+            if (is.null(definition_uri) || !length(definition_uri) ||
+                    !nzchar(definition_uri) || is.null(self$index) ||
+                    !isTRUE(self$index$enabled)) {
+                return(self$document_uris_for_context(context_uri))
+            }
+            definition_path <- path_from_uri(definition_uri)
+            if (!self$index$contains_path(definition_path)) {
+                return(self$document_uris_for_context(context_uri))
+            }
+            package_root <- self$index$package_root_for_uri(definition_uri)
+            if (!is.null(package_root)) {
+                return(all_uris[vapply(all_uris, function(document_uri) {
+                    identical(
+                        self$index$package_root_for_uri(document_uri),
+                        package_root
+                    )
+                }, logical(1L))])
+            }
+            closure <- self$index$dependent_closure(definition_uri)
+            all_uris[vapply(all_uris, function(document_uri) {
+                index_canonical_uri(document_uri) %in% closure
+            }, logical(1L))]
+        },
+
+        loaded_packages_for_context = function(uri = NULL) {
+            if (is.null(uri) || !length(uri) || !nzchar(uri) ||
+                    is.null(self$index) || !isTRUE(self$index$enabled)) {
+                return(self$loaded_packages)
+            }
+            packages <- union(self$startup_packages, self$imported_packages)
+            for (document_uri in self$document_uris_for_context(uri)) {
+                doc <- self$documents$get(document_uri, NULL)
+                if (!is.null(doc)) packages <- union(packages, doc$loaded_packages)
+            }
+            packages
+        },
+
+        guess_namespace = function(object, isf = FALSE, uri = NULL) {
             if (!nzchar(object)) {
                 return(NULL)
             }
 
-            packages <- c(WORKSPACE, rev(self$loaded_packages))
+            packages <- c(
+                WORKSPACE,
+                rev(self$loaded_packages_for_context(uri))
+            )
 
             for (pkgname in packages) {
-                ns <- self$get_namespace(pkgname)
+                ns <- self$get_namespace(pkgname, uri = uri)
                 if (isf) {
                     if (!is.null(ns) && ns$exists_funct(object)) {
                         logger$info("guess namespace:", pkgname)
@@ -192,9 +282,16 @@ Workspace <- R6::R6Class("Workspace",
             NULL
         },
 
-        get_namespace = function(pkgname) {
+        get_namespace = function(pkgname, uri = NULL) {
             if (pkgname == WORKSPACE) {
-                self$global_env
+                if (is.null(uri)) {
+                    self$global_env
+                } else {
+                    GlobalEnv$new(
+                        self$documents,
+                        self$document_uris_for_context(uri)
+                    )
+                }
             } else if (self$namespaces$has(pkgname)) {
                 self$namespaces$get(pkgname)
             } else if (length(find.package(pkgname, quiet = TRUE))) {
@@ -206,35 +303,37 @@ Workspace <- R6::R6Class("Workspace",
             }
         },
 
-        get_signature = function(funct, pkgname = NULL, exported_only = TRUE) {
+        get_signature = function(funct, pkgname = NULL, exported_only = TRUE,
+            uri = NULL) {
             if (is.null(pkgname)) {
-                pkgname <- self$guess_namespace(funct, isf = TRUE)
+                pkgname <- self$guess_namespace(funct, isf = TRUE, uri = uri)
                 if (is.null(pkgname)) {
                     return(NULL)
                 }
             }
-            ns <- self$get_namespace(pkgname)
+            ns <- self$get_namespace(pkgname, uri = uri)
             if (!is.null(ns)) {
                 ns$get_signature(funct, exported_only = exported_only)
             }
         },
 
-        get_formals = function(funct, pkgname = NULL, exported_only = TRUE) {
+        get_formals = function(funct, pkgname = NULL, exported_only = TRUE,
+            uri = NULL) {
             if (is.null(pkgname)) {
-                pkgname <- self$guess_namespace(funct, isf = TRUE)
+                pkgname <- self$guess_namespace(funct, isf = TRUE, uri = uri)
                 if (is.null(pkgname)) {
                     return(NULL)
                 }
             }
-            ns <- self$get_namespace(pkgname)
+            ns <- self$get_namespace(pkgname, uri = uri)
             if (!is.null(ns)) {
                 ns$get_formals(funct, exported_only = exported_only)
             }
         },
 
-        get_help = function(topic, pkgname = NULL) {
+        get_help = function(topic, pkgname = NULL, uri = NULL) {
             if (is.null(pkgname)) {
-                pkgname <- self$guess_namespace(topic)
+                pkgname <- self$guess_namespace(topic, uri = uri)
             }
             # note: the parantheses are neccessary
             hfile <- tryCatch({
@@ -277,27 +376,29 @@ Workspace <- R6::R6Class("Workspace",
             }
         },
 
-        get_documentation = function(topic, pkgname = NULL, isf = FALSE) {
+        get_documentation = function(topic, pkgname = NULL, isf = FALSE,
+            uri = NULL) {
             if (is.null(pkgname)) {
-                pkgname <- self$guess_namespace(topic, isf = isf)
+                pkgname <- self$guess_namespace(topic, isf = isf, uri = uri)
                 if (is.null(pkgname)) {
                     return(NULL)
                 }
             }
-            ns <- self$get_namespace(pkgname)
+            ns <- self$get_namespace(pkgname, uri = uri)
             if (!is.null(ns)) {
                 ns$get_documentation(topic)
             }
         },
 
-        get_definition = function(symbol, pkgname = NULL, exported_only = TRUE) {
+        get_definition = function(symbol, pkgname = NULL, exported_only = TRUE,
+            uri = NULL) {
             if (is.null(pkgname)) {
-                pkgname <- self$guess_namespace(symbol, isf = FALSE)
+                pkgname <- self$guess_namespace(symbol, isf = FALSE, uri = uri)
                 if (is.null(pkgname)) {
                     return(NULL)
                 }
             }
-            ns <- self$get_namespace(pkgname)
+            ns <- self$get_namespace(pkgname, uri = uri)
             if (!is.null(ns)) {
                 ns$get_definition(symbol, exported_only = exported_only)
             }
@@ -312,8 +413,18 @@ Workspace <- R6::R6Class("Workspace",
         },
 
         get_definitions_for_query = function(pattern) {
-            result <- list()
-            for (doc in self$documents$values()) {
+            if (!is.null(self$index) && isTRUE(self$index$enabled)) {
+                result <- self$index$definitions_for_query(pattern)
+                indexed_uris <- self$index$summaries$keys()
+                documents <- self$documents$values()
+                documents <- documents[!vapply(documents, function(doc) {
+                    index_canonical_uri(doc$uri) %in% indexed_uris
+                }, logical(1L))]
+            } else {
+                result <- list()
+                documents <- self$documents$values()
+            }
+            for (doc in documents) {
                 parse_data <- doc$parse_data
                 if (is.null(parse_data)) next
                 symbols <- names(parse_data$definitions)
@@ -340,7 +451,25 @@ Workspace <- R6::R6Class("Workspace",
             self$loaded_packages <- loaded_packages
         },
 
-        get_diagnostics_globals = function() {
+        get_diagnostics_globals = function(uri = NULL) {
+            if (!is.null(uri) && !is.null(self$index) &&
+                    isTRUE(self$index$enabled)) {
+                globals <- new.env(parent = emptyenv())
+                package_root <- self$index$package_root_for_uri(uri)
+                uris <- if (is.null(package_root)) {
+                    self$index$source_closure(uri)
+                } else {
+                    self$index$package_source_uris(package_root)
+                }
+                for (summary_uri in uris) {
+                    summary <- self$index$summaries$get(summary_uri, NULL)
+                    if (is.null(summary)) next
+                    for (symbol in names(summary$definitions)) {
+                        globals[[symbol]] <- NULL
+                    }
+                }
+                return(globals)
+            }
             if (!is.null(self$diagnostics_globals_cache)) {
                 return(self$diagnostics_globals_cache)
             }
@@ -385,6 +514,22 @@ Workspace <- R6::R6Class("Workspace",
                 }
             }
             self$documents$get(uri)$update_parse_data(parse_data)
+            if (!is.null(self$index) && isTRUE(self$index$enabled)) {
+                doc <- self$documents$get(uri)
+                index_uri <- index_canonical_uri(uri)
+                previous <- self$index$summaries$get(index_uri, NULL)
+                cacheable <- if (is.null(previous)) {
+                    !isTRUE(doc$is_open)
+                } else {
+                    !identical(previous$cacheable, FALSE)
+                }
+                summary <- self$index$update_content(
+                    uri, doc$content, cacheable = cacheable)
+                if (!is.null(summary) && !isTRUE(parse_data$parse_error)) {
+                    summary$definitions <- as.list(parse_data$definitions)
+                    self$index$set_summary(summary)
+                }
+            }
         },
 
         import_from_namespace_file = function() {

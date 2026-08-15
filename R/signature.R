@@ -411,11 +411,15 @@ signature_reply <- function(id, uri, workspace, document, point) {
         }
 
         if (is.null(sig)) {
-            sig <- workspace$get_signature(result$token, result$package,
-                exported_only = result$accessor != ":::")
+            sig <- call_with_optional_uri(
+                workspace$get_signature,
+                result$token, result$package,
+                exported_only = result$accessor != ":::", uri = uri)
             logger$info("sig: ", sig)
             if (!is.null(sig)) {
-                doc <- workspace$get_documentation(result$token, result$package, isf = TRUE)
+                doc <- call_with_optional_uri(
+                    workspace$get_documentation,
+                    result$token, result$package, isf = TRUE, uri = uri)
                 doc_string <- NULL
 
                 if (is.character(doc)) {

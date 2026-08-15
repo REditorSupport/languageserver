@@ -106,10 +106,9 @@ inlay_hint_reply <- function(id, uri, workspace, document, request_range) {
         if (exists(cache_key, envir = formals_cache, inherits = FALSE)) {
             function_formals <- get(cache_key, envir = formals_cache, inherits = FALSE)
         } else {
-            function_formals <- tryCatch(
-                workspace$get_formals(function_name, package),
-                error = function(e) NULL
-            )
+            function_formals <- tryCatch(call_with_optional_uri(
+                workspace$get_formals, function_name, package, uri = uri),
+                error = function(e) NULL)
             assign(cache_key, function_formals, envir = formals_cache)
         }
 
@@ -186,7 +185,7 @@ inlay_hint_resolve_reply <- function(id, workspace, hint) {
         paste0(package, "::", function_name)
     }
     contents <- function_argument_hover_contents(
-        workspace, function_name, package, parameter)
+        workspace, function_name, package, parameter, uri = hint$data$uri)
     if (is.null(contents)) {
         contents <- sprintf(
             "Parameter `%s` of `%s()`.", parameter, qualified_name)
