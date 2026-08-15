@@ -211,6 +211,18 @@ equal_definition <- function(x, y) {
     x$uri == y$uri && equal_range(x$range, y$range)
 }
 
+#' Check if a language id denotes a Quarto document
+#' @noRd
+is_quarto_language <- function(language) {
+    if (is.null(language) || !length(language) || is.na(language[[1L]])) {
+        return(FALSE)
+    }
+    language <- tolower(language[[1L]])
+    language %in% c(
+        "qmd", "quarto", "quarto-markdown", "quarto_markdown"
+    ) || grepl("^quarto(?:[-_]?markdown)?$", language, perl = TRUE)
+}
+
 #' Check if a language id denotes an R Markdown or Quarto document
 #' @noRd
 is_literate_language <- function(language) {
@@ -218,10 +230,8 @@ is_literate_language <- function(language) {
         return(FALSE)
     }
     language <- tolower(language[[1L]])
-    language %in% c(
-        "rmd", "rmarkdown", "r-markdown",
-        "qmd", "quarto", "quarto-markdown", "quarto_markdown"
-    ) || grepl("^quarto(?:[-_]?markdown)?$", language, perl = TRUE)
+    language %in% c("rmd", "rmarkdown", "r-markdown") ||
+        is_quarto_language(language)
 }
 
 #' Check if a file is an R Markdown or Quarto file

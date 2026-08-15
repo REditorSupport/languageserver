@@ -13,6 +13,55 @@ test_that("Quarto files and language identifiers are literate documents", {
     expect_identical(quarto$regions$line_type, "markdown")
 })
 
+test_that("Quarto outlines defer R definitions to embedded cell providers", {
+    content <- c(
+        "## Air Quality",
+        "```{r}",
+        "# test function",
+        "fun1 <- function(x) {",
+        "  x + 1",
+        "}",
+        "```",
+        "```{r}",
+        "fun1(1)",
+        "```"
+    )
+    uri <- "file:///outline.qmd"
+    parse_data <- parse_document(uri, content, is_rmarkdown = TRUE)
+    parse_data$version <- 1L
+    parse_data$xml_doc <- xml2::read_xml(parse_data$xml_data)
+
+    workspace <- new.env(parent = baseenv())
+    workspace$get_parse_data <- function(uri) parse_data
+    workspace$get_definitions_for_uri <- function(uri) parse_data$definitions
+
+    quarto <- Document$new(
+        uri, language = "quarto", version = 1L, content = content
+    )
+    quarto_symbols <- document_symbol_reply(
+        1L, uri, workspace, quarto,
+        list(hierarchicalDocumentSymbolSupport = TRUE)
+    )$result
+    quarto_names <- vapply(quarto_symbols, `[[`, character(1L), "name")
+    expect_setequal(
+        quarto_names,
+        c("Air Quality", "unnamed-chunk-1", "unnamed-chunk-2")
+    )
+    expect_false("fun1" %in% quarto_names)
+
+    standalone <- Document$new(
+        uri, language = "rmd", version = 1L, content = content
+    )
+    standalone_symbols <- document_symbol_reply(
+        2L, uri, workspace, standalone,
+        list(hierarchicalDocumentSymbolSupport = TRUE)
+    )$result
+    standalone_names <- vapply(
+        standalone_symbols, `[[`, character(1L), "name"
+    )
+    expect_identical(sum(standalone_names == "fun1"), 1L)
+})
+
 test_that("literate regions distinguish YAML Markdown divs and cells", {
     content <- c(
         "---",
@@ -229,7 +278,7 @@ test_that("Quarto documents work end to end with isolated cells", {
         map_chr(symbols, ~ .x$name),
         c(
             "Analysis", "Results", "unnamed-chunk-1", "broken-cell",
-            "valid-cell", "good"
+            "valid-cell"
         )
     )
 
