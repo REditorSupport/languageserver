@@ -73,14 +73,6 @@ document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
     }
 
     defns <- workspace$get_definitions_for_uri(uri)
-    # Quarto clients build the document outline themselves, then request
-    # symbols for each embedded R document and attach them to its code cell.
-    # Returning the same R definitions for the outer Quarto document makes
-    # those clients display every definition twice. R Markdown and .qmd files
-    # opened under another language id still use the standalone outline.
-    if (is_quarto_language(document$language)) {
-        defns <- list()
-    }
     logger$info("document definitions found: ", length(defns))
     
     if (isTRUE(capabilities$hierarchicalDocumentSymbolSupport)) {
