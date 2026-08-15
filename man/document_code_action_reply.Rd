@@ -4,7 +4,15 @@
 \alias{document_code_action_reply}
 \title{The response to a textDocument/codeAction Request}
 \usage{
-document_code_action_reply(id, uri, workspace, document, range, context)
+document_code_action_reply(
+  id,
+  uri,
+  workspace,
+  document,
+  range,
+  context,
+  client_capabilities = NULL
+)
 }
 \description{
 The response to a textDocument/codeAction Request

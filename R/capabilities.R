@@ -47,7 +47,8 @@ DocumentLinkOptions <- list(
 )
 
 CodeActionOptions <- list(
-    codeActionKinds = list("quickfix", "source.fixAll")
+    codeActionKinds = list(
+        "quickfix", "refactor.extract", "refactor.inline", "source.fixAll")
 )
 
 RenameOptions <- list(

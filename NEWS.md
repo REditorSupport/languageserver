@@ -17,6 +17,9 @@
 - Add preferred quick fixes for common `lintr` diagnostics and a conflict-aware
   `source.fixAll` action, while making multi-line `nolint` actions apply to every
   affected line.
+- Add previewable `refactor.extract` actions for variables and functions with
+  local free-variable analysis, plus a conservative `refactor.inline` action
+  for single-use local variables.
 - Add LSP 3.18 capability updates, including multiple-range formatting,
   explicit UTF-16 position encoding, and the semantic token `label` type.
 - Add R-focused code lenses for function call counts, linked editing between
@@ -44,6 +47,7 @@
 
 **Closed issues:**
 
+- Add extract and inline refactorings (#94)
 - Failed to run diagnostics: ! in callr subprocess. Caused by error in `call[[1L]]` (#723)
 
 **Merged pull requests:**

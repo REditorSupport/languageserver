@@ -12,7 +12,16 @@ CodeActionKind <- list(
 
 #' Create a workspace edit for one document
 #' @noRd
-code_action_workspace_edit <- function(uri, edits) {
+code_action_workspace_edit <- function(uri, edits, document = NULL,
+    client_capabilities = NULL) {
+    supports_document_changes <- isTRUE(
+        client_capabilities$workspace$workspaceEdit$documentChanges)
+    if (supports_document_changes && !is.null(document)) {
+        return(list(documentChanges = list(list(
+            textDocument = list(uri = uri, version = document$version),
+            edits = edits
+        ))))
+    }
     changes <- list(edits)
     names(changes) <- uri
     list(changes = changes)
@@ -441,7 +450,8 @@ code_action_suppression_actions <- function(uri, document, diagnostics) {
 #' The response to a textDocument/codeAction Request
 #'
 #' @keywords internal
-document_code_action_reply <- function(id, uri, workspace, document, range, context) {
+document_code_action_reply <- function(id, uri, workspace, document, range, context,
+    client_capabilities = NULL) {
     diagnostics <- context$diagnostics
     if (is.null(diagnostics)) diagnostics <- list()
     only <- context$only
@@ -471,6 +481,12 @@ document_code_action_reply <- function(id, uri, workspace, document, range, cont
                 uri, lapply(selected, function(fix) fix$edit))
         )
     }
+
+    result <- c(
+        result,
+        refactor_code_actions(
+            uri, workspace, document, range, only, client_capabilities)
+    )
 
     result <- Filter(function(action) {
         code_action_kind_requested(action$kind, only)

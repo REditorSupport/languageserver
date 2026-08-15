@@ -178,7 +178,9 @@ text_document_code_action  <- function(self, id, params) {
         end = document$from_lsp_position(params$range$end)
     )
     context <- params$context
-    self$deliver(document_code_action_reply(id, uri, workspace, document, range, context))
+    self$deliver(document_code_action_reply(
+        id, uri, workspace, document, range, context,
+        self$ClientCapabilities))
 }
 
 #' `textDocument/codeLens` request handler
