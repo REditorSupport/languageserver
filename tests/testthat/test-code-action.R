@@ -207,7 +207,7 @@ test_that("Nolint actions cover all affected lines and extend directives", {
 test_that("Code action capabilities and request interface are precise", {
   expect_equal(
     unlist(ServerCapabilities$codeActionProvider$codeActionKinds),
-    c("quickfix", "source.fixAll")
+    c("quickfix", "refactor.extract", "refactor.inline", "source.fixAll")
   )
   request_range <- range(position(0, 0), position(0, 1))
   params <- code_action_params(document_uri("file:///test.R"), request_range)
