@@ -58,6 +58,10 @@ completion_parse_data <- function(data) {
         list(
             name = character(),
             line = integer(),
+            definition_line1 = integer(),
+            definition_col1 = integer(),
+            definition_line2 = integer(),
+            definition_col2 = integer(),
             line1 = integer(),
             col1 = integer(),
             line2 = integer(),
@@ -94,6 +98,10 @@ completion_parse_data <- function(data) {
         list(
             name = data$text[name_rows],
             line = data$line1[name_rows],
+            definition_line1 = data$line1[name_rows],
+            definition_col1 = data$col1[name_rows],
+            definition_line2 = data$line2[name_rows],
+            definition_col2 = data$col2[name_rows],
             line1 = data$line1[range_rows],
             col1 = data$col1[range_rows],
             line2 = data$line2[range_rows],

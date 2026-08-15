@@ -19,6 +19,8 @@ reference_parse_data <- function(data, content, completion_data, uri,
         code_point_col = integer(),
         code_point_end_col = integer(),
         definition_key = character(),
+        is_definition = logical(),
+        definition_kind = character(),
         qualified_call = logical(),
         call_package = character()
     )
@@ -39,21 +41,32 @@ reference_parse_data <- function(data, content, completion_data, uri,
     rows <- rows[!member]
     if (!length(rows)) return(empty)
 
-    combine_records <- function(...) {
-        records <- list(...)
+    combine_records <- function(records, kinds) {
         list(
             name = unlist(lapply(records, `[[`, "name"), use.names = FALSE),
             line = unlist(lapply(records, `[[`, "line"), use.names = FALSE),
+            definition_line1 = unlist(lapply(
+                records, `[[`, "definition_line1"), use.names = FALSE),
+            definition_col1 = unlist(lapply(
+                records, `[[`, "definition_col1"), use.names = FALSE),
+            definition_line2 = unlist(lapply(
+                records, `[[`, "definition_line2"), use.names = FALSE),
+            definition_col2 = unlist(lapply(
+                records, `[[`, "definition_col2"), use.names = FALSE),
             line1 = unlist(lapply(records, `[[`, "line1"), use.names = FALSE),
             col1 = unlist(lapply(records, `[[`, "col1"), use.names = FALSE),
             line2 = unlist(lapply(records, `[[`, "line2"), use.names = FALSE),
-            col2 = unlist(lapply(records, `[[`, "col2"), use.names = FALSE)
+            col2 = unlist(lapply(records, `[[`, "col2"), use.names = FALSE),
+            kind = rep(kinds, lengths(lapply(records, `[[`, "name")))
         )
     }
     definitions <- combine_records(
-        completion_data$symbols,
-        completion_data$functions,
-        completion_data$formals
+        list(
+            completion_data$symbols,
+            completion_data$functions,
+            completion_data$formals
+        ),
+        c("variable", "function", "formal")
     )
 
     global_lines <- vapply(global_definitions, function(definition) {
@@ -65,6 +78,7 @@ reference_parse_data <- function(data, content, completion_data, uri,
 
     names <- data$text[rows]
     definition_keys <- paste0("global:", names)
+    definition_kinds <- rep("global", length(rows))
     local_names <- unique(definitions$name[local])
     for (name in intersect(unique(names), local_names)) {
         occurrence_indices <- which(names == name)
@@ -108,8 +122,28 @@ reference_parse_data <- function(data, content, completion_data, uri,
                 definitions$col2[[candidate]],
                 sep = ":"
             )
+            definition_kinds[[occurrence_index]] <-
+                definitions$kind[[candidate]]
         }
     }
+
+    definition_positions <- paste(
+        definitions$name,
+        definitions$definition_line1,
+        definitions$definition_col1,
+        definitions$definition_line2,
+        definitions$definition_col2,
+        sep = ":"
+    )
+    occurrence_positions <- paste(
+        names,
+        data$line1[rows],
+        data$col1[rows],
+        data$line2[rows],
+        data$col2[rows],
+        sep = ":"
+    )
+    is_definition <- occurrence_positions %in% definition_positions
 
     cols <- as.integer(data$col1[rows] - 1L)
     end_cols <- as.integer(data$col2[rows])
@@ -159,6 +193,8 @@ reference_parse_data <- function(data, content, completion_data, uri,
         code_point_col = as.integer(data$col1[rows] - 1L),
         code_point_end_col = as.integer(data$col2[rows]),
         definition_key = definition_keys,
+        is_definition = is_definition,
+        definition_kind = definition_kinds,
         qualified_call = qualified_call,
         call_package = call_package
     )
