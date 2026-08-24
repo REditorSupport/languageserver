@@ -44,6 +44,9 @@
   until the current parse is ready.
 - Bound parse and diagnostics caches by memory and reuse indexed references for
   rename, highlights, call hierarchy, and code-lens call counts.
+- Track the last successful ordered package request for each document, avoiding
+  redundant `callr` subprocesses after transient parse errors or representation
+  changes while preserving package attachment order (#754).
 
 **Closed issues:**
 
