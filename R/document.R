@@ -11,6 +11,7 @@ Document <- R6::R6Class(
         is_rmarkdown = NULL,
         regions = NULL,
         loaded_packages = NULL,
+        requested_packages = NULL,
         pending_diagnostics = FALSE,
         diagnostics_delay = 0,
 
@@ -21,6 +22,7 @@ Document <- R6::R6Class(
             self$is_rmarkdown <- is_rmarkdown(uri, language)
             self$set_content(version, content)
             self$loaded_packages <- character()
+            self$requested_packages <- NULL
         },
 
         did_open = function() {
@@ -644,6 +646,11 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
 }
 
 
+normalize_package_request <- function(packages) {
+    enc2utf8(unname(as.character(packages)))
+}
+
+
 parse_callback <- function(self, uri, version, parse_data) {
     workspace <- self$get_workspace(uri)
     if (is.null(parse_data) || !workspace$documents$has(uri)) return(NULL)
@@ -660,6 +667,11 @@ parse_callback <- function(self, uri, version, parse_data) {
 
     parse_data$version <- version
     old_parse_data <- doc$parse_data
+    previous_packages <- doc$requested_packages
+    if (is.null(previous_packages) && !is.null(old_parse_data) &&
+            !isTRUE(old_parse_data$parse_error)) {
+        previous_packages <- normalize_package_request(old_parse_data$packages)
+    }
     workspace$update_parse_data(uri, parse_data)
 
     if (isTRUE(doc$pending_diagnostics)) {
@@ -675,14 +687,20 @@ parse_callback <- function(self, uri, version, parse_data) {
         workspace$parse_cache$set(parse_data$content_hash, cache_entry)
     }
 
-    if (!isTRUE(parse_data$parse_error) &&
-            !identical(old_parse_data$packages, parse_data$packages)) {
-        self$resolve_task_manager$add_task(
-            uri,
-            resolve_task(self, uri, doc, parse_data$packages)
-        )
-        doc$loaded_packages <- parse_data$packages
-        workspace$update_loaded_packages()
+    if (!isTRUE(parse_data$parse_error)) {
+        requested_packages <- normalize_package_request(parse_data$packages)
+        if (is.null(previous_packages) ||
+                !identical(previous_packages, requested_packages)) {
+            doc$requested_packages <- requested_packages
+            self$resolve_task_manager$add_task(
+                uri,
+                resolve_task(self, uri, doc, requested_packages)
+            )
+            doc$loaded_packages <- requested_packages
+            workspace$update_loaded_packages()
+        } else if (is.null(doc$requested_packages)) {
+            doc$requested_packages <- requested_packages
+        }
     }
 
     pending_replies <- self$pending_replies$get(uri, NULL)
