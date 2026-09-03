@@ -180,6 +180,59 @@ test_that("Semantic parse data handles UTF-16 and multiline tokens", {
     )
 })
 
+test_that("Function assignment names are function declarations", {
+    content <- c(
+        "fn <- function(x) x",
+        "gn = function(x) x",
+        "hn <- \\(x) x",
+        "value <- 1",
+        "nested <- foo(function(x) x)",
+        "fn(value)"
+    )
+    parsed <- parse(text = content, keep.source = TRUE)
+    semantic <- semantic_parse_data(
+        utils::getParseData(parsed, includeText = TRUE),
+        content
+    )
+
+    token_at <- function(line, name) {
+        which(
+            semantic$lines == line &
+                semantic$cols == 0L &
+                semantic$lengths == nchar(name)
+        )
+    }
+
+    expect_equal(
+        semantic$types[token_at(0L, "fn")],
+        SemanticTokenTypes[["function"]]
+    )
+    expect_equal(
+        semantic$modifiers[token_at(0L, "fn")],
+        bitwShiftL(1L, SemanticTokenModifiers$declaration)
+    )
+    expect_equal(
+        semantic$types[token_at(1L, "gn")],
+        SemanticTokenTypes[["function"]]
+    )
+    expect_equal(
+        semantic$types[token_at(2L, "hn")],
+        SemanticTokenTypes[["function"]]
+    )
+    expect_equal(
+        semantic$types[token_at(3L, "value")],
+        SemanticTokenTypes$variable
+    )
+    expect_equal(
+        semantic$types[token_at(4L, "nested")],
+        SemanticTokenTypes$variable
+    )
+    expect_equal(
+        semantic$types[token_at(5L, "fn")],
+        SemanticTokenTypes[["function"]]
+    )
+})
+
 test_that("Semantic ranges select overlapping tokens and re-encode them", {
     fixture <- provider_fixture(c("alpha <- 1", "beta <- alpha", "gamma <- 3"))
     data <- fixture$document$parse_data$semantic_data
@@ -319,6 +372,12 @@ test_that("Legacy XML semantic extraction handles ranges and declarations", {
 
     tokens <- extract_semantic_tokens(uri, workspace, document)
     expect_gt(length(tokens), 0L)
+    fn_declaration <- Filter(function(token) {
+        token$line == 0L && token$col == 0L && token$length == nchar("fn")
+    }, tokens)
+    expect_length(fn_declaration, 1L)
+    expect_equal(fn_declaration[[1L]]$tokenType, SemanticTokenTypes[["function"]])
+    expect_true(fn_declaration[[1L]]$tokenModifiers != 0L)
     parameter <- Filter(function(token) {
         token$tokenType == SemanticTokenTypes$parameter
     }, tokens)

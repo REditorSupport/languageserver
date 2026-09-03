@@ -69,6 +69,67 @@ empty_semantic_data <- function() {
     )
 }
 
+#' Parse-data ids of symbols assigned `function()` or `\()`
+#'
+#' Same cases as `scope_completion_functs_xpath` in `completion.R`.
+#' @noRd
+function_assignment_symbol_ids <- function(data) {
+    fun_expr_ids <- unique(data$parent[data$token %in% c("FUNCTION", "'\\\\'")])
+    if (!length(fun_expr_ids)) {
+        return(integer())
+    }
+
+    assign_rows <- which(
+        data$token %in% c("LEFT_ASSIGN", "EQ_ASSIGN", "RIGHT_ASSIGN")
+    )
+    lhs_ids <- integer()
+    for (row in assign_rows) {
+        children <- data[data$parent == data$parent[[row]], , drop = FALSE]
+        assign_pos <- match(data$id[[row]], children$id)
+        if (is.na(assign_pos)) {
+            next
+        }
+        before_idx <- seq_len(assign_pos - 1L)
+        after_idx <- if (assign_pos < nrow(children)) {
+            seq.int(assign_pos + 1L, nrow(children))
+        } else {
+            integer()
+        }
+        if (data$token[[row]] == "RIGHT_ASSIGN") {
+            rhs <- children[before_idx, , drop = FALSE]
+            lhs <- children[after_idx, , drop = FALSE]
+        } else {
+            lhs <- children[before_idx, , drop = FALSE]
+            rhs <- children[after_idx, , drop = FALSE]
+        }
+        if (!any(rhs$id %in% fun_expr_ids)) {
+            next
+        }
+        for (expr_id in lhs$id[lhs$token %in% c("expr", "expr_or_assign_or_help")]) {
+            child_rows <- which(data$parent == expr_id)
+            terminal_rows <- child_rows[data$terminal[child_rows]]
+            if (length(terminal_rows) == 1L &&
+                    data$token[[terminal_rows]] == "SYMBOL") {
+                lhs_ids <- c(lhs_ids, data$id[[terminal_rows]])
+            }
+        }
+    }
+    unique(lhs_ids)
+}
+
+#' Whether an XML SYMBOL is assigned `function()` or `\()`
+#' @noRd
+xml_symbol_is_function_assignment <- function(node) {
+    !inherits(
+        xml_find_first(node, paste(
+            "./parent::expr[count(*)=1]/following-sibling::*[self::LEFT_ASSIGN or self::EQ_ASSIGN][following-sibling::expr/*[self::FUNCTION or self::OP-LAMBDA]]",
+            "./parent::expr[count(*)=1]/preceding-sibling::RIGHT_ASSIGN[preceding-sibling::expr/*[self::FUNCTION or self::OP-LAMBDA]]",
+            sep = "|"
+        )),
+        "xml_missing"
+    )
+}
+
 #' Build a compact semantic token index from R parse data
 #'
 #' This runs in the parse worker. Keeping ordinary integer vectors here avoids
@@ -120,6 +181,16 @@ semantic_parse_data <- function(data, content) {
         0L
     )
     modifiers <- as.integer(modifiers)
+
+    fun_lhs_ids <- function_assignment_symbol_ids(data)
+    if (length(fun_lhs_ids)) {
+        fun_lhs <- data$id[single_rows] %in% fun_lhs_ids
+        types[fun_lhs] <- SemanticTokenTypes[["function"]]
+        modifiers[fun_lhs] <- bitwOr(
+            modifiers[fun_lhs],
+            bitwShiftL(1L, SemanticTokenModifiers$declaration)
+        )
+    }
 
     non_ascii_lines <- nchar(content, type = "bytes") !=
         nchar(content, type = "chars")
@@ -395,7 +466,10 @@ extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
         modifiers <- 0L  # Start with no modifiers
 
         # Determine modifiers based on context
-        if (token_name == "SYMBOL_FUNCTION_CALL") {
+        if (token_name == "SYMBOL" && xml_symbol_is_function_assignment(token_node)) {
+            token_type <- SemanticTokenTypes[["function"]]
+            modifiers <- bitwOr(modifiers, 2^SemanticTokenModifiers$declaration)
+        } else if (token_name == "SYMBOL_FUNCTION_CALL") {
             # Function calls might be declared elsewhere
         } else if (token_name == "SYMBOL_FORMALS") {
             # Parameters are declarations
