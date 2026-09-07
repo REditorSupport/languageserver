@@ -233,6 +233,65 @@ test_that("Function assignment names are function declarations", {
     )
 })
 
+test_that("Rightward function assignments are declarations in both semantic paths", {
+    uri <- "file:///rightward-semantic.R"
+    content <- c(
+        "(function(x) x) -> fn",
+        "((function(x) { x })) ->> gn",
+        "(\\(x) x) -> hn",
+        "(1) -> value",
+        "(foo(function(x) x)) -> nested",
+        "function(x) x -> inner",
+        "(fn) -> alias",
+        "left <- (function(x) x)",
+        "equal = (function(x) x)"
+    )
+    parsed <- parse(text = content, keep.source = TRUE)
+    semantic <- semantic_parse_data(
+        utils::getParseData(parsed, includeText = TRUE),
+        content
+    )
+    xdoc <- xml2::read_xml(xmlparsedata::xml_parse_data(parsed))
+    document <- Document$new(uri, version = 1L, content = content)
+    expected <- list(
+        list(line = 0L, col = 19L, name = "fn", is_function = TRUE),
+        list(line = 1L, col = 26L, name = "gn", is_function = TRUE),
+        list(line = 2L, col = 12L, name = "hn", is_function = TRUE),
+        list(line = 3L, col = 7L, name = "value", is_function = FALSE),
+        list(line = 4L, col = 24L, name = "nested", is_function = FALSE),
+        list(line = 5L, col = 17L, name = "inner", is_function = FALSE),
+        list(line = 6L, col = 8L, name = "alias", is_function = FALSE),
+        list(line = 7L, col = 0L, name = "left", is_function = TRUE),
+        list(line = 8L, col = 0L, name = "equal", is_function = TRUE)
+    )
+
+    for (cached in c(TRUE, FALSE)) {
+        workspace <- list(get_parse_data = function(request_uri) {
+            expect_identical(request_uri, uri)
+            list(xml_doc = xdoc, semantic_data = if (cached) semantic else NULL)
+        })
+        tokens <- extract_semantic_tokens(uri, workspace, document)
+        for (case in expected) {
+            info <- paste(if (cached) "cached" else "XML", case$name)
+            matched <- Filter(function(token) {
+                token$line == case$line && token$col == case$col &&
+                    token$length == nchar(case$name)
+            }, tokens)
+            expect_length(matched, 1L, label = info)
+            expect_equal(
+                matched[[1L]]$tokenType,
+                if (case$is_function) SemanticTokenTypes[["function"]] else SemanticTokenTypes$variable,
+                info = info
+            )
+            expect_equal(
+                matched[[1L]]$tokenModifiers,
+                if (case$is_function) bitwShiftL(1L, SemanticTokenModifiers$declaration) else 0L,
+                info = info
+            )
+        }
+    }
+})
+
 test_that("Semantic ranges select overlapping tokens and re-encode them", {
     fixture <- provider_fixture(c("alpha <- 1", "beta <- alpha", "gamma <- 3"))
     data <- fixture$document$parse_data$semantic_data
