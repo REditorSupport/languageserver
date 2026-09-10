@@ -561,6 +561,8 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
         env$xml_doc <- NULL
         env$completion_data <- completion_parse_data(NULL)
         env$semantic_data <- empty_semantic_data()
+        env$range_data <- range_provider_parse_data(NULL, content)
+        env$source_specs <- list()
         env$reference_index <- reference_parse_data(
             NULL, content, env$completion_data, uri, env$definitions)
         env$content_hash <- content_hash
@@ -624,6 +626,8 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
         data <- utils::getParseData(expr)
         env$completion_data <- completion_parse_data(data)
         env$semantic_data <- semantic_parse_data(data, content)
+        env$range_data <- range_provider_parse_data(data, content)
+        env$source_specs <- index_source_specs(expr)
         env$reference_index <- reference_parse_data(
             data, content, env$completion_data, uri, env$definitions)
         # Performance: XML generation is expensive, but necessary for analysis
@@ -673,6 +677,10 @@ parse_callback <- function(self, uri, version, parse_data) {
         previous_packages <- normalize_package_request(old_parse_data$packages)
     }
     workspace$update_parse_data(uri, parse_data)
+    if (!is.null(workspace$index) && isTRUE(workspace$index$enabled) &&
+            is.function(self$refresh_index_documents)) {
+        self$refresh_index_documents(workspace, uri)
+    }
 
     if (isTRUE(doc$pending_diagnostics)) {
         doc$pending_diagnostics <- FALSE
@@ -684,6 +692,10 @@ parse_callback <- function(self, uri, version, parse_data) {
     if (!is.null(parse_data$content_hash)) {
         cache_entry <- as.list(parse_data)
         cache_entry$xml_doc <- NULL
+        # Local reference identities and cached flat symbols contain the URI.
+        # Identical text in another file may share semantic tokens, but must
+        # not reuse those document-specific provider results.
+        cache_entry$cache_uri <- uri
         workspace$parse_cache$set(parse_data$content_hash, cache_entry)
     }
 
@@ -741,11 +753,13 @@ parse_task <- function(self, uri, document, delay = 0) {
     # Check cache in the main process before spawning a child task
     workspace <- self$get_workspace(uri)
     if (workspace$parse_cache$has(content_hash)) {
-        logger$info("parse_task: cache hit for", uri)
         cached_entry <- workspace$parse_cache$get(content_hash)
-        cached_env <- list2env(cached_entry, parent = .GlobalEnv)
-        parse_callback(self, uri, version, cached_env)
-        return(NULL)
+        if (identical(cached_entry$cache_uri, uri)) {
+            logger$info("parse_task: cache hit for", uri)
+            cached_env <- list2env(cached_entry, parent = .GlobalEnv)
+            parse_callback(self, uri, version, cached_env)
+            return(NULL)
+        }
     }
 
     create_task(

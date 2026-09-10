@@ -88,7 +88,8 @@ text_document_did_change <- function(self, params) {
         workspace$documents$set(uri, doc)
     }
     doc$did_open()
-    update_document_index(self, workspace, uri, doc$content)
+    # The accepted background parse updates definitions and source edges.
+    # Parsing a shallow index here would block every keystroke a second time.
     self$text_sync(
         uri,
         document = doc,

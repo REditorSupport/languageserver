@@ -79,52 +79,27 @@ reference_parse_data <- function(data, content, completion_data, uri,
     names <- data$text[rows]
     definition_keys <- paste0("global:", names)
     definition_kinds <- rep("global", length(rows))
-    local_names <- unique(definitions$name[local])
-    for (name in intersect(unique(names), local_names)) {
-        occurrence_indices <- which(names == name)
-        definition_indices <- local[definitions$name[local] == name]
-        if (!length(definition_indices)) next
-
-        start_positions <- definitions$line1[definition_indices] * 1000000 +
-            definitions$col1[definition_indices]
-        end_positions <- definitions$line2[definition_indices] * 1000000 +
-            definitions$col2[definition_indices]
-        spans <- end_positions - start_positions
-        definition_order <- order(start_positions, -spans)
-        definition_indices <- definition_indices[definition_order]
-        start_positions <- start_positions[definition_order]
-        end_positions <- end_positions[definition_order]
-
-        occurrence_rows <- rows[occurrence_indices]
-        occurrence_positions <- data$line1[occurrence_rows] * 1000000 +
-            data$col1[occurrence_rows]
-        nearest <- findInterval(occurrence_positions, start_positions)
-
-        for (k in seq_along(occurrence_indices)) {
-            candidate_position <- nearest[[k]]
-            # Local definition ranges are normally nested or disjoint. Walk
-            # back only when the nearest preceding definition has already
-            # ended, which keeps this linear for ordinary documents.
-            while (candidate_position > 0L &&
-                    end_positions[[candidate_position]] <
-                        occurrence_positions[[k]]) {
-                candidate_position <- candidate_position - 1L
-            }
-            if (candidate_position == 0L) next
-            candidate <- definition_indices[[candidate_position]]
-            occurrence_index <- occurrence_indices[[k]]
-            definition_keys[[occurrence_index]] <- paste(
-                "local", uri, name,
-                definitions$line[[candidate]],
-                definitions$line1[[candidate]],
-                definitions$col1[[candidate]],
-                definitions$line2[[candidate]],
-                definitions$col2[[candidate]],
-                sep = ":"
-            )
-            definition_kinds[[occurrence_index]] <-
-                definitions$kind[[candidate]]
-        }
+    if (length(local)) {
+        local_names <- unique(definitions$name[local])
+        selected <- .Call(
+            "reference_resolve_local_c",
+            PACKAGE = "languageserver",
+            match(names, local_names),
+            data$line1[rows], data$col1[rows],
+            match(definitions$name[local], local_names),
+            definitions$line1[local], definitions$col1[local],
+            definitions$line2[local], definitions$col2[local]
+        )
+        local_keys <- paste(
+            "local", uri, definitions$name[local],
+            definitions$line[local],
+            definitions$line1[local], definitions$col1[local],
+            definitions$line2[local], definitions$col2[local],
+            sep = ":"
+        )
+        resolved <- which(selected > 0L)
+        definition_keys[resolved] <- local_keys[selected[resolved]]
+        definition_kinds[resolved] <- definitions$kind[local[selected[resolved]]]
     }
 
     definition_positions <- paste(
@@ -196,20 +171,37 @@ reference_parse_data <- function(data, content, completion_data, uri,
         is_definition = is_definition,
         definition_kind = definition_kinds,
         qualified_call = qualified_call,
-        call_package = call_package
+        call_package = call_package,
+        by_name = list2env(
+            split(seq_along(names), names),
+            hash = TRUE, parent = emptyenv()
+        )
     )
+}
+
+#' Select occurrences without scanning unrelated symbols in the document
+#' @noRd
+reference_indices <- function(index, name, definition_key = NULL) {
+    if (is.null(index) || !length(index$name)) return(integer())
+    if (length(name) != 1L || is.na(name) || !nzchar(name)) return(integer())
+    selected <- if (is.environment(index$by_name)) {
+        get0(name, envir = index$by_name, inherits = FALSE, ifnotfound = integer())
+    } else {
+        which(index$name == name)
+    }
+    if (is.null(definition_key)) return(selected)
+    selected[index$definition_key[selected] == definition_key]
 }
 
 #' Find the indexed definition key at an internal document position
 #' @noRd
 reference_key_at <- function(index, point, name) {
-    if (is.null(index) || !length(index$name)) return(NULL)
-    candidates <- which(
-        index$name == name &
-            index$line == point$row &
-            index$code_point_col <= point$col &
-            index$code_point_end_col >= point$col
-    )
+    selected <- reference_indices(index, name)
+    candidates <- selected[
+        index$line[selected] == point$row &
+            index$code_point_col[selected] <= point$col &
+            index$code_point_end_col[selected] >= point$col
+    ]
     if (!length(candidates)) return(NULL)
     index$definition_key[[candidates[[1L]]]]
 }
@@ -261,10 +253,7 @@ references_reply <- function(id, uri, workspace, document, point) {
             for (doc_uri in doc_uris) {
                 indexed <- workspace$get_parse_data(doc_uri)$reference_index
                 if (is.null(indexed)) next
-                selected <- which(
-                    indexed$name == token$token &
-                        indexed$definition_key == definition_key
-                )
+                selected <- reference_indices(indexed, token$token, definition_key)
                 if (length(selected)) {
                     result <- c(
                         result,

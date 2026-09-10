@@ -72,29 +72,17 @@ hover_reply <- function(id, uri, workspace, document, point) {
                 # symbol
                 preceding_dollar <- xml_find_first(token, "preceding-sibling::OP-DOLLAR")
                 if (length(preceding_dollar) == 0) {
-                    enclosing_scopes <- xdoc_find_enclosing_scopes(xdoc,
-                        row, col, top = TRUE)
                     xpath <- glue(hover_xpath,
                         row = row, start = token_start, end = token_end,
                         token_quote = xml_single_quote(token_text))
-                    all_defs <- xml_find_all(enclosing_scopes, xpath)
+                    all_defs <- xdoc_find_definitions(xdoc, row, col, token_text, xpath)
                     if (length(all_defs)) {
                         last_def <- all_defs[[length(all_defs)]]
                         def_func <- xml_find_first(last_def,
                             "self::*[LEFT_ASSIGN | RIGHT_ASSIGN | EQ_ASSIGN]/expr[FUNCTION | OP-LAMBDA]")
                         if (length(def_func)) {
                             func_line1 <- as.integer(xml_attr(def_func, "line1"))
-                            func_col1 <- as.integer(xml_attr(def_func, "col1"))
-                            func_line2 <- as.integer(xml_attr(def_func, "line2"))
-                            func_col2 <- as.integer(xml_attr(def_func, "col2"))
-                            func_text <- get_range_text(document$content,
-                                line1 = func_line1,
-                                col1 = func_col1,
-                                line2 = func_line2,
-                                col2 = func_col2
-                            )
-                            func_expr <- parse(text = func_text, keep.source = FALSE)
-                            def_text <- get_signature(token_text, func_expr[[1]])
+                            def_text <- local_function_signature(document, def_func, token_text)
                             def_line1 <- func_line1
                         } else {
                             def_line1 <- as.integer(xml_attr(last_def, "line1"))
@@ -132,25 +120,13 @@ hover_reply <- function(id, uri, workspace, document, point) {
                         "preceding-sibling::expr/SYMBOL_PACKAGE/text()"))
                     if (is.na(package)) {
                         package <- NULL
-                        enclosing_scopes <- xdoc_find_enclosing_scopes(xdoc,
-                            row, col, top = TRUE)
                         xpath <- glue(signature_xpath, row = row,
                             token_quote = xml_single_quote(funct))
-                        all_defs <- xml_find_all(enclosing_scopes, xpath)
+                        all_defs <- xdoc_find_definitions(xdoc, row, col, funct, xpath)
                         if (length(all_defs)) {
                             last_def <- all_defs[[length(all_defs)]]
                             func_line1 <- as.integer(xml_attr(last_def, "line1"))
-                            func_col1 <- as.integer(xml_attr(last_def, "col1"))
-                            func_line2 <- as.integer(xml_attr(last_def, "line2"))
-                            func_col2 <- as.integer(xml_attr(last_def, "col2"))
-                            func_text <- get_range_text(document$content,
-                                line1 = func_line1,
-                                col1 = func_col1,
-                                line2 = func_line2,
-                                col2 = func_col2
-                            )
-                            func_expr <- parse(text = func_text, keep.source = FALSE)
-                            sig <- get_signature(funct, func_expr[[1]])
+                            sig <- local_function_signature(document, last_def, funct)
                             doc_string <- NULL
 
                             doc_line1 <- detect_comments(document$content, func_line1 - 1) + 1

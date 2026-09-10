@@ -23,11 +23,9 @@ function_call_locations <- function(workspace, symbol, context_uri = NULL) {
         parse_data <- workspace$get_parse_data(doc_uri)
         indexed <- parse_data$reference_index
         if (!is.null(indexed)) {
-            selected <- which(
-                indexed$token == "SYMBOL_FUNCTION_CALL" &
-                    indexed$name == symbol &
-                    !indexed$qualified_call
-            )
+            selected <- reference_indices(indexed, symbol)
+            selected <- selected[indexed$token[selected] == "SYMBOL_FUNCTION_CALL" &
+                    !indexed$qualified_call[selected]]
             if (length(selected)) {
                 locations <- c(
                     locations,

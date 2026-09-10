@@ -51,6 +51,40 @@ roxygen_parameter_ranges <- function(document, definition_row) {
     result
 }
 
+#' Index definition and documentation intervals once per document version
+#' @noRd
+linked_editing_index <- function(parse_data, document) {
+    cached <- parse_data$linked_editing_cache
+    definitions <- parse_data$definitions
+    if (!is.null(cached) && identical(cached$content, document$content) &&
+            identical(cached$definitions, definitions)) return(cached)
+
+    functions <- which(vapply(definitions, function(definition) {
+        identical(definition$type, "function")
+    }, logical(1L)))
+    starts <- vapply(definitions[functions], function(definition) {
+        as.integer(definition$range$start$line)
+    }, integer(1L))
+    ends <- vapply(definitions[functions], function(definition) {
+        as.integer(definition$range$end$line)
+    }, integer(1L))
+    roxygen <- grepl("^\\s*#'", document$content)
+    previous_non_roxygen <- cummax(ifelse(roxygen, 0L, seq_along(roxygen)))
+    documented_starts <- starts
+    preceding <- which(starts > 0L & starts <= length(document$content))
+    documented_starts[preceding] <- previous_non_roxygen[starts[preceding]]
+    cached <- list(
+        content = document$content,
+        definitions = definitions,
+        symbols = names(definitions)[functions],
+        starts = documented_starts,
+        ends = ends,
+        ranges = new.env(parent = emptyenv())
+    )
+    if (is.environment(parse_data)) parse_data$linked_editing_cache <- cached
+    cached
+}
+
 #' The response to a textDocument/linkedEditingRange request
 #'
 #' Links roxygen @param names with the corresponding R function formal. This
@@ -68,25 +102,40 @@ linked_editing_range_reply <- function(id, uri, workspace, document, point) {
     if (is.null(xdoc)) return(Response$new(id, result = NULL))
 
     definitions <- parse_data$definitions
-    for (symbol in names(definitions)) {
+    indexed <- linked_editing_index(parse_data, document)
+    candidates <- which(indexed$starts <= point$line & indexed$ends >= point$line)
+    for (symbol in indexed$symbols[candidates]) {
+        if (exists(symbol, envir = indexed$ranges, inherits = FALSE)) {
+            linked <- get(symbol, envir = indexed$ranges, inherits = FALSE)
+            for (ranges in linked) {
+                if (any(vapply(ranges, lsp_range_contains, logical(1L), point = point))) {
+                    return(Response$new(id, result = list(ranges = ranges)))
+                }
+            }
+            next
+        }
         definition <- definitions[[symbol]]
-        if (!identical(definition$type, "function")) next
-
         definition_row <- definition$range$start$line
+        documented <- roxygen_parameter_ranges(document, definition_row)
+        if (!length(documented)) {
+            assign(symbol, list(), envir = indexed$ranges)
+            next
+        }
         xpath <- glue(
             signature_xpath,
             row = definition_row + 1L,
             token_quote = xml_single_quote(symbol)
         )
-        function_nodes <- xml_find_all(xdoc, xpath)
+        scopes <- xdoc_find_enclosing_scopes(xdoc, definition_row + 1L,
+            definition$range$start$character + 1L)
+        context <- if (length(scopes)) scopes[[1L]] else xdoc
+        function_nodes <- xml_find_all(context, xpath)
         if (!length(function_nodes)) next
         function_node <- function_nodes[[length(function_nodes)]]
         formal_nodes <- xml_find_all(function_node, "SYMBOL_FORMALS")
         if (!length(formal_nodes)) next
 
-        documented <- roxygen_parameter_ranges(document, definition_row)
-        if (!length(documented)) next
-
+        linked <- list()
         for (formal_node in formal_nodes) {
             name <- xml_text(formal_node)
             documentation_ranges <- documented[[name]]
@@ -101,7 +150,10 @@ linked_editing_range_reply <- function(id, uri, workspace, document, point) {
                 document$to_lsp_position(line2 - 1L, col2)
             )
             ranges <- c(list(formal_range), documentation_ranges)
-
+            linked[[length(linked) + 1L]] <- ranges
+        }
+        assign(symbol, linked, envir = indexed$ranges)
+        for (ranges in linked) {
             if (any(vapply(ranges, lsp_range_contains, logical(1L), point = point))) {
                 return(Response$new(id, result = list(ranges = ranges)))
             }

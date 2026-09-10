@@ -5,6 +5,10 @@
 #include "token.h"
 #include "match.h"
 #include "completion.h"
+#include "index.h"
+#include "navigation.h"
+#include "signature.h"
+#include "call_hierarchy.h"
 
 #ifdef _WIN32
 
@@ -40,6 +44,17 @@ static const R_CallMethodDef CallEntries[] = {
     {"fuzzy_find_c", (DL_FUNC) &fuzzy_find_c, 2},
     {"completion_parse_index_c", (DL_FUNC) &completion_parse_index_c, 7},
     {"completion_select_c", (DL_FUNC) &completion_select_c, 4},
+    {"source_calls_c", (DL_FUNC) &source_calls_c, 1},
+    {"navigation_find_token_c", (DL_FUNC) &navigation_find_token_c, 6},
+    {"reference_resolve_local_c", (DL_FUNC) &reference_resolve_local_c, 8},
+    {"signature_info_c", (DL_FUNC) &signature_info_c, 1},
+    {"active_parameter_c", (DL_FUNC) &active_parameter_c, 2},
+    {"semantic_token_delta_c", (DL_FUNC) &semantic_token_delta_c, 2},
+    {"semantic_token_range_c", (DL_FUNC) &semantic_token_range_c, 3},
+    {"range_line_bounds_c", (DL_FUNC) &range_line_bounds_c, 3},
+    {"function_assignment_ids_c", (DL_FUNC) &function_assignment_ids_c, 1},
+    {"range_provider_index_c", (DL_FUNC) &range_provider_index_c, 1},
+    {"call_hierarchy_containers_c", (DL_FUNC) &call_hierarchy_containers_c, 2},
 #if !defined(_WIN32)
     {"process_is_detached", (DL_FUNC) &process_is_detached},
 #endif

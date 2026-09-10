@@ -14,6 +14,43 @@ indexed_call_range <- function(index, i) {
     )
 }
 
+#' Select the narrowest function containing each complete call range
+#' @noRd
+indexed_call_containers <- function(index, selected, definitions) {
+    definition_ranges <- vapply(definitions, function(definition) {
+        as.integer(c(
+            definition$range$start$line, definition$range$start$character,
+            definition$range$end$line, definition$range$end$character
+        ))
+    }, integer(4L))
+    .Call(
+        "call_hierarchy_containers_c",
+        cbind(index$line[selected], index$col[selected],
+            index$end_line[selected], index$end_col[selected]),
+        t(definition_ranges), PACKAGE = "languageserver"
+    )
+}
+
+#' Select calls whose complete ranges fall inside the requested function
+#' @noRd
+indexed_calls_in_range <- function(index, item_range) {
+    selected <- which(index$token == "SYMBOL_FUNCTION_CALL")
+    start <- item_range$start
+    end <- item_range$end
+    lines <- index$line[selected]
+    cols <- index$col[selected]
+    end_lines <- index$end_line[selected]
+    end_cols <- index$end_col[selected]
+    selected[
+        (lines > start$line | lines == start$line & cols >= start$character) &
+            (lines < end$line | lines == end$line & cols <= end$character) &
+            (end_lines > start$line |
+                    end_lines == start$line & end_cols >= start$character) &
+            (end_lines < end$line |
+                    end_lines == end$line & end_cols <= end$character)
+    ]
+}
+
 #' Create a call-hierarchy item for calls made outside a function
 #' @noRd
 call_hierarchy_file_item <- function(workspace, uri, selection_range,
@@ -53,11 +90,8 @@ indexed_incoming_calls <- function(workspace, item) {
         index <- parse_data$reference_index
         if (is.null(index)) return(NULL)
 
-        selected <- which(
-            index$token == "SYMBOL_FUNCTION_CALL" &
-                index$name == item$name &
-                index$definition_key == target_key
-        )
+        selected <- reference_indices(index, item$name, target_key)
+        selected <- selected[index$token[selected] == "SYMBOL_FUNCTION_CALL"]
         if (!length(selected)) next
 
         definitions <- workspace$get_definitions_for_uri(doc_uri)
@@ -65,65 +99,64 @@ indexed_incoming_calls <- function(workspace, item) {
             identical(definition$type, "function")
         }, logical(1L))]
 
-        for (i in selected) {
-            call_range <- indexed_call_range(index, i)
-            containing <- which(vapply(definitions, function(definition) {
-                indexed_position_in_range(
-                    index$line[[i]], index$col[[i]], definition$range) &&
-                    indexed_position_in_range(
-                        index$end_line[[i]], index$end_col[[i]], definition$range)
-            }, logical(1L)))
-            if (!length(containing)) {
+        containers <- indexed_call_containers(index, selected, definitions)
+        used <- unique(containers[containers > 0L])
+        if (doc_uri == item$uri) {
+            recursive <- used[vapply(definitions[used], function(definition) {
+                equal_range(definition$range, item$data$definition$range)
+            }, logical(1L))]
+            keep <- !containers %in% recursive
+            containers <- containers[keep]
+            selected <- selected[keep]
+            if (!length(selected)) next
+            used <- unique(containers[containers > 0L])
+        }
+        keys <- rep(paste(doc_uri, "top-level", sep = ":"), length(selected))
+        definition_keys <- vapply(used, function(container) {
+            definition <- definitions[[container]]
+            paste(doc_uri, definition$range$start$line,
+                definition$range$start$character, sep = ":")
+        }, character(1L))
+        contained <- containers > 0L
+        keys[contained] <- definition_keys[match(containers[contained], used)]
+        # Build each caller's ranges in one allocation. Repeatedly appending
+        # to a dictionary entry copied all earlier calls from that caller.
+        groups <- split(seq_along(selected), factor(keys, levels = unique(keys)))
+        for (group in groups) {
+            container <- containers[[group[[1L]]]]
+            indices <- selected[group]
+            call_ranges <- lapply(indices, function(i) indexed_call_range(index, i))
+            if (container == 0L) {
                 key <- paste(doc_uri, "top-level", sep = ":")
-                if (!in_calls$has(key)) {
-                    in_calls$set(key, list(
-                        from = call_hierarchy_file_item(
-                            workspace, doc_uri, call_range, context_uri),
-                        fromRanges = list()
-                    ))
-                }
-                entry <- in_calls$get(key)
-                entry$fromRanges[[length(entry$fromRanges) + 1L]] <- call_range
-                in_calls$set(key, entry)
+                in_calls$set(key, list(
+                    from = call_hierarchy_file_item(
+                        workspace, doc_uri, call_ranges[[1L]], context_uri),
+                    fromRanges = call_ranges
+                ))
                 next
             }
 
-            spans <- vapply(definitions[containing], function(definition) {
-                (definition$range$end$line - definition$range$start$line) *
-                    1000000 + definition$range$end$character -
-                    definition$range$start$character
-            }, numeric(1L))
-            definition <- definitions[[containing[[which.min(spans)]]]]
-            if (doc_uri == item$uri &&
-                equal_range(definition$range, item$data$definition$range)) {
-                next
-            }
-
+            definition <- definitions[[container]]
             key <- paste(
                 doc_uri,
                 definition$range$start$line,
                 definition$range$start$character,
                 sep = ":"
             )
-            if (!in_calls$has(key)) {
-                in_calls$set(key, list(
-                    from = list(
-                        name = definition$name,
-                        kind = get_document_symbol_kind(definition$type),
-                        uri = doc_uri,
-                        range = definition$range,
-                        selectionRange = definition$range,
-                        data = list(
-                            definition = list(uri = doc_uri, range = definition$range),
-                            contextUri = context_uri
-                        )
-                    ),
-                    fromRanges = list()
-                ))
-            }
-            entry <- in_calls$get(key)
-            entry$fromRanges[[length(entry$fromRanges) + 1L]] <- call_range
-            in_calls$set(key, entry)
+            in_calls$set(key, list(
+                from = list(
+                    name = definition$name,
+                    kind = get_document_symbol_kind(definition$type),
+                    uri = doc_uri,
+                    range = definition$range,
+                    selectionRange = definition$range,
+                    data = list(
+                        definition = list(uri = doc_uri, range = definition$range),
+                        contextUri = context_uri
+                    )
+                ),
+                fromRanges = call_ranges
+            ))
         }
     }
 
@@ -136,14 +169,7 @@ indexed_outgoing_calls <- function(workspace, item) {
     index <- parse_data$reference_index
     if (is.null(index)) return(NULL)
 
-    selected <- which(
-        index$token == "SYMBOL_FUNCTION_CALL" &
-            vapply(seq_along(index$name), function(i) {
-                indexed_position_in_range(index$line[[i]], index$col[[i]], item$range) &&
-                    indexed_position_in_range(
-                        index$end_line[[i]], index$end_col[[i]], item$range)
-            }, logical(1L))
-    )
+    selected <- indexed_calls_in_range(index, item$range)
     if (!length(selected)) return(list())
 
     groups <- split(selected, paste(
@@ -165,7 +191,7 @@ indexed_outgoing_calls <- function(workspace, item) {
             NULL, item$uri, workspace, doc, point,
             context_uri = context_uri)$result
         if (is.null(symbol_definition) ||
-            equal_definition(symbol_definition, item$data$definition)) {
+                equal_definition(symbol_definition, item$data$definition)) {
             next
         }
 

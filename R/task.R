@@ -96,6 +96,10 @@ Task <- R6::R6Class("Task",
             private$invoke_handler(private$error, error, "error")
             invisible(NULL)
         },
+        discard = function() {
+            private$cancelled <- TRUE
+            invisible(NULL)
+        },
         kill = function() {
             private$cancelled <- TRUE
             retired_session <- NULL
@@ -135,6 +139,8 @@ TaskManager <- R6::R6Class("TaskManager",
         session_idle_timeout = NULL,
         min_idle_sessions = NULL,
         cancelled_tasks = NULL,
+        cancellation_grace = 0,
+        superseded_tasks = NULL,
         stopping = FALSE,
         log_error = function(...) {
             tryCatch(logger$error(...), error = function(e) NULL)
@@ -277,19 +283,24 @@ TaskManager <- R6::R6Class("TaskManager",
         }
     ),
     public = list(
-        initialize = function(name,
-                              use_session = FALSE,
-                              process_recent_first = FALSE,
-                              cpu_load = 0.5,
-                              max_running_tasks = 8,
-                              session_idle_timeout = 300,
-                              min_idle_sessions = 1) {
+        initialize = function(name, use_session = FALSE,
+            process_recent_first = FALSE, cpu_load = 0.5,
+            max_running_tasks = 8, session_idle_timeout = 300,
+            min_idle_sessions = 1, cancellation_grace = 0) {
             private$pending_tasks <- collections::ordered_dict()
             private$running_tasks <- collections::ordered_dict()
             private$name <- name
             private$use_session <- use_session
             private$process_recent_first <- process_recent_first
             private$cancelled_tasks <- list()
+            private$superseded_tasks <- collections::dict()
+            private$cancellation_grace <- if (is.numeric(cancellation_grace) &&
+                    length(cancellation_grace) == 1L &&
+                    is.finite(cancellation_grace) && cancellation_grace > 0) {
+                cancellation_grace
+            } else {
+                0
+            }
             private$stopping <- FALSE
             
             private$session_idle_timeout <- session_idle_timeout
@@ -322,6 +333,17 @@ TaskManager <- R6::R6Class("TaskManager",
                 private$pending_tasks$remove(id)
             }
             if (private$running_tasks$has(id)) {
+                if (private$cancellation_grace > 0) {
+                    # A nearly finished parse can release its warm worker.
+                    # Discard its callbacks immediately and bound the wait so
+                    # a slow obsolete parse cannot hold up a newer buffer.
+                    private$running_tasks$get(id)$discard()
+                    if (!private$superseded_tasks$has(id)) {
+                        private$superseded_tasks$set(id,
+                            proc.time()[[3L]] + private$cancellation_grace)
+                    }
+                    return(invisible(NULL))
+                }
                 old_task <- private$running_tasks$pop(id)
                 retired_session <- old_task$kill()
                 if (!is.null(retired_session)) {
@@ -344,6 +366,7 @@ TaskManager <- R6::R6Class("TaskManager",
             if (!length(pending_ids)) return(invisible(NULL))
 
             eligible <- vapply(pending_ids, function(id) {
+                if (private$running_tasks$has(id)) return(FALSE)
                 task <- private$pending_tasks$get(id)
                 as.numeric(difftime(
                     Sys.time(), task$time, units = "secs")) >= task$delay
@@ -404,6 +427,16 @@ TaskManager <- R6::R6Class("TaskManager",
             for (key in keys) {
                 task <- running_tasks$get(key)
                 check_result <- tryCatch(task$check(), error = function(e) e)
+                if (identical(check_result, FALSE) &&
+                        private$superseded_tasks$has(key) &&
+                        proc.time()[[3L]] >= private$superseded_tasks$get(key)) {
+                    retired_session <- task$kill()
+                    if (!is.null(retired_session)) {
+                        private$remove_session(retired_session)
+                    }
+                    private$cancelled_tasks <- append(private$cancelled_tasks, task)
+                    check_result <- TRUE
+                }
                 if (inherits(check_result, "error")) {
                     private$log_error(
                         private$name, " failed to check task ", key, ": ",
@@ -428,6 +461,9 @@ TaskManager <- R6::R6Class("TaskManager",
                     # FIXME: debug
                     logger$info(private$name, "task timing:", Sys.time() - task$time, " ", key)
                     running_tasks$remove(key)
+                    if (private$superseded_tasks$has(key)) {
+                        private$superseded_tasks$remove(key)
+                    }
                 }
             }
             if (length(private$cancelled_tasks)) {
@@ -470,6 +506,7 @@ TaskManager <- R6::R6Class("TaskManager",
                 )
             }
             private$running_tasks$clear()
+            private$superseded_tasks$clear()
             for (task in private$cancelled_tasks) {
                 tryCatch(
                     task$kill(),

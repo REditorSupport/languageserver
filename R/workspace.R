@@ -113,6 +113,30 @@ ByteLruCache <- R6::R6Class(
 #' that are loaded during the session for quick reference.
 #' @noRd
 Workspace <- R6::R6Class("Workspace",
+    private = list(
+        scope_index = NULL,
+        scope_revision = NULL,
+        scope_uris = NULL,
+        scope_contexts = NULL,
+        scope_references = NULL,
+        scope_namespaces = NULL,
+        scope_namespace_sets = NULL,
+        refresh_scope_cache = function(uris) {
+            revision <- self$index$revision
+            if (is.null(private$scope_contexts) ||
+                    !identical(private$scope_index, self$index) ||
+                    !identical(private$scope_revision, revision) ||
+                    !identical(private$scope_uris, uris)) {
+                private$scope_index <- self$index
+                private$scope_revision <- revision
+                private$scope_uris <- uris
+                private$scope_contexts <- collections::dict()
+                private$scope_references <- collections::dict()
+                private$scope_namespaces <- collections::dict()
+                private$scope_namespace_sets <- collections::dict()
+            }
+        }
+    ),
     public = list(
         root = NULL,
         namespaces = NULL,
@@ -187,6 +211,7 @@ Workspace <- R6::R6Class("Workspace",
 
         document_uris_for_context = function(uri = NULL) {
             all_uris <- self$documents$keys()
+            private$refresh_scope_cache(all_uris)
             if (is.null(uri) || !length(uri) || !nzchar(uri) ||
                     is.null(self$index) || !isTRUE(self$index$enabled)) {
                 return(all_uris)
@@ -194,24 +219,31 @@ Workspace <- R6::R6Class("Workspace",
             if (!self$index$contains_path(path_from_uri(uri))) {
                 return(all_uris)
             }
+            if (private$scope_contexts$has(uri)) {
+                return(private$scope_contexts$get(uri))
+            }
             package_root <- self$index$package_root_for_uri(uri)
-            if (!is.null(package_root)) {
-                return(all_uris[vapply(all_uris, function(document_uri) {
+            result <- if (!is.null(package_root)) {
+                all_uris[vapply(all_uris, function(document_uri) {
                     identical(
                         self$index$package_root_for_uri(document_uri),
                         package_root
                     )
-                }, logical(1L))])
+                }, logical(1L))]
+            } else {
+                closure <- self$index$source_closure(uri)
+                all_uris[vapply(all_uris, function(document_uri) {
+                    index_canonical_uri(document_uri) %in% closure
+                }, logical(1L))]
             }
-            closure <- self$index$source_closure(uri)
-            all_uris[vapply(all_uris, function(document_uri) {
-                index_canonical_uri(document_uri) %in% closure
-            }, logical(1L))]
+            private$scope_contexts$set(uri, result)
+            result
         },
 
         document_uris_for_references = function(definition_uri,
             context_uri = definition_uri) {
             all_uris <- self$documents$keys()
+            private$refresh_scope_cache(all_uris)
             if (is.null(definition_uri) || !length(definition_uri) ||
                     !nzchar(definition_uri) || is.null(self$index) ||
                     !isTRUE(self$index$enabled)) {
@@ -221,19 +253,25 @@ Workspace <- R6::R6Class("Workspace",
             if (!self$index$contains_path(definition_path)) {
                 return(self$document_uris_for_context(context_uri))
             }
+            if (private$scope_references$has(definition_uri)) {
+                return(private$scope_references$get(definition_uri))
+            }
             package_root <- self$index$package_root_for_uri(definition_uri)
-            if (!is.null(package_root)) {
-                return(all_uris[vapply(all_uris, function(document_uri) {
+            result <- if (!is.null(package_root)) {
+                all_uris[vapply(all_uris, function(document_uri) {
                     identical(
                         self$index$package_root_for_uri(document_uri),
                         package_root
                     )
-                }, logical(1L))])
+                }, logical(1L))]
+            } else {
+                closure <- self$index$dependent_closure(definition_uri)
+                all_uris[vapply(all_uris, function(document_uri) {
+                    index_canonical_uri(document_uri) %in% closure
+                }, logical(1L))]
             }
-            closure <- self$index$dependent_closure(definition_uri)
-            all_uris[vapply(all_uris, function(document_uri) {
-                index_canonical_uri(document_uri) %in% closure
-            }, logical(1L))]
+            private$scope_references$set(definition_uri, result)
+            result
         },
 
         loaded_packages_for_context = function(uri = NULL) {
@@ -287,10 +325,19 @@ Workspace <- R6::R6Class("Workspace",
                 if (is.null(uri)) {
                     self$global_env
                 } else {
-                    GlobalEnv$new(
-                        self$documents,
-                        self$document_uris_for_context(uri)
-                    )
+                    uris <- self$document_uris_for_context(uri)
+                    if (!private$scope_namespaces$has(uri)) {
+                        # Package files often share the same scope. Keep one
+                        # aggregate symbol map for that set of documents.
+                        key <- get_content_hash(uris)
+                        if (!private$scope_namespace_sets$has(key)) {
+                            private$scope_namespace_sets$set(key,
+                                GlobalEnv$new(self$documents, uris))
+                        }
+                        private$scope_namespaces$set(uri,
+                            private$scope_namespace_sets$get(key))
+                    }
+                    private$scope_namespaces$get(uri)
                 }
             } else if (self$namespaces$has(pkgname)) {
                 self$namespaces$get(pkgname)
@@ -524,8 +571,11 @@ Workspace <- R6::R6Class("Workspace",
                     !identical(previous$cacheable, FALSE)
                 }
                 summary <- self$index$update_content(
-                    uri, doc$content, cacheable = cacheable)
-                if (!is.null(summary) && !isTRUE(parse_data$parse_error)) {
+                    uri, doc$content, cacheable = cacheable,
+                    parse_data = if (is.null(parse_data$source_specs)) NULL else
+                        parse_data)
+                if (is.null(parse_data$source_specs) && !is.null(summary) &&
+                        !isTRUE(parse_data$parse_error)) {
                     summary$definitions <- as.list(parse_data$definitions)
                     self$index$set_summary(summary)
                 }

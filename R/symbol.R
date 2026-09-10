@@ -72,6 +72,16 @@ document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
         return(NULL)
     }
 
+    cache_key <- if (isTRUE(capabilities$hierarchicalDocumentSymbolSupport)) {
+        "hierarchical"
+    } else {
+        "flat"
+    }
+    cached <- parse_data$document_symbols_cache[[cache_key]]
+    if (!is.null(cached) && identical(cached$content, document$content)) {
+        return(Response$new(id, result = cached$result))
+    }
+
     defns <- workspace$get_definitions_for_uri(uri)
     logger$info("document definitions found: ", length(defns))
     
@@ -180,6 +190,12 @@ document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
         result <- c(definition_symbols, section_symbols)
     }
 
+    # Parse data is replaced after an edit. Keep the immutable result with
+    # that parse so repeated outline requests only construct the response.
+    parse_data$document_symbols_cache[[cache_key]] <- list(
+        content = document$content,
+        result = result
+    )
     Response$new(id, result = result)
 }
 

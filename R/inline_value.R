@@ -20,6 +20,31 @@ inline_value_reply <- function(id, uri, workspace, document, request_range) {
     xdoc <- parse_data$xml_doc
     if (is.null(xdoc)) return(Response$new(id, result = list()))
 
+    indexed <- parse_data$range_data$variables
+    if (!is.null(indexed)) {
+        selected <- range_line_indices(
+            indexed$line, request_range$start$line, request_range$end$line
+        )
+        selected <- selected[range_position_selected(
+            indexed$line[selected], indexed$col[selected], request_range
+        )]
+        selected <- selected[nzchar(indexed$name[selected]) & indexed$name[selected] != "..."]
+        # Construct the deduplication keys only for visible occurrences.
+        selected <- selected[!duplicated(paste(
+            indexed$line[selected], indexed$name[selected], sep = ":"
+        ))]
+        return(Response$new(id, result = lapply(selected, function(i) {
+            list(
+                range = range(
+                    position(indexed$line[[i]], indexed$col[[i]]),
+                    position(indexed$end_line[[i]], indexed$end_col[[i]])
+                ),
+                variableName = indexed$name[[i]],
+                caseSensitiveLookup = TRUE
+            )
+        })))
+    }
+
     start_line <- request_range$start$line + 1L
     end_line <- request_range$end$line + 1L
     if (request_range$end$character == 0L && end_line > start_line) {

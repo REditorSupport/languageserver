@@ -59,7 +59,8 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$parse_task_manager <- TaskManager$new(
                 "parse",
                 use_session = TRUE, process_recent_first = TRUE,
-                cpu_load = 0.5, max_running_tasks = 4
+                cpu_load = 0.5, max_running_tasks = 4,
+                cancellation_grace = 0.1
             )
             self$diagnostics_task_manager <- TaskManager$new(
                 "diagnostics",

@@ -25,10 +25,7 @@ document_highlight_reply <- function(id, uri, workspace, document, point) {
         )
         definition_key <- reference_key_at(index, token_point, detected$token)
         if (!is.null(definition_key)) {
-            selected <- which(
-                index$name == detected$token &
-                    index$definition_key == definition_key
-            )
+            selected <- reference_indices(index, detected$token, definition_key)
             result <- lapply(selected, function(i) {
                 list(
                     range = range(

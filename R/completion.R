@@ -133,8 +133,27 @@ constant_completion <- function(token) {
 
 #' Complete a package name
 #' @noRd
+installed_package_names <- local({
+    previous_paths <- NULL
+    previous_stamp <- NULL
+    packages <- character()
+    function(lib_paths = .libPaths()) {
+        # Installing/removing packages changes the library directory. Avoid
+        # checking metadata inside every package directory on each request.
+        stamp <- file.info(lib_paths, extra_cols = FALSE)[c("mtime", "ctime")]
+        if (!identical(lib_paths, previous_paths) ||
+                !identical(stamp, previous_stamp)) {
+            packages <<- .packages(all.available = TRUE, lib.loc = lib_paths)
+            previous_paths <<- lib_paths
+            previous_stamp <<- stamp
+        }
+        packages
+    }
+})
+
+#' @noRd
 package_completion <- function(token) {
-    installed_packages <- .packages(all.available = TRUE)
+    installed_packages <- installed_package_names()
     token_packages <- installed_packages[match_with(installed_packages, token)]
     completions <- lapply(token_packages, function(package) {
         list(label = package,
@@ -301,11 +320,9 @@ arg_completion <- function(uri, workspace, point, token, funct, package = NULL, 
         if (!is.null(xdoc)) {
             row <- point$row + 1
             col <- point$col + 1
-            enclosing_scopes <- xdoc_find_enclosing_scopes(xdoc,
-                row, col, top = TRUE)
             xpath <- glue(signature_xpath, row = row,
                 token_quote = xml_single_quote(funct))
-            all_defs <- xml_find_all(enclosing_scopes, xpath)
+            all_defs <- xdoc_find_definitions(xdoc, row, col, funct, xpath)
             if (length(all_defs)) {
                 last_def <- all_defs[[length(all_defs)]]
                 func_line1 <- as.integer(xml_attr(last_def, "line1"))
