@@ -277,7 +277,7 @@ test_that("Rightward function assignments are declarations in both semantic path
                 token$line == case$line && token$col == case$col &&
                     token$length == nchar(case$name)
             }, tokens)
-            expect_length(matched, 1L, label = info)
+            expect_equal(length(matched), 1L, info = info)
             expect_equal(
                 matched[[1L]]$tokenType,
                 if (case$is_function) SemanticTokenTypes[["function"]] else SemanticTokenTypes$variable,
