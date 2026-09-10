@@ -71,7 +71,7 @@ empty_semantic_data <- function() {
 
 #' Parse-data ids of symbols assigned `function()` or `\()`
 #'
-#' Same cases as `scope_completion_functs_xpath` in `completion.R`.
+#' Parentheses around function expressions are ignored.
 #' @noRd
 function_assignment_symbol_ids <- function(data) {
     fun_expr_ids <- unique(data$parent[data$token %in% c("FUNCTION", "'\\\\'")])
@@ -102,7 +102,18 @@ function_assignment_symbol_ids <- function(data) {
             lhs <- children[before_idx, , drop = FALSE]
             rhs <- children[after_idx, , drop = FALSE]
         }
-        if (!any(rhs$id %in% fun_expr_ids)) {
+        rhs_ids <- rhs$id
+        while (length(rhs_ids) == 1L) {
+            children <- data[
+                data$parent == rhs_ids & data$token != "COMMENT", , drop = FALSE
+            ]
+            if (nrow(children) != 3L ||
+                    !identical(children$token[c(1L, 3L)], c("'('", "')'"))) {
+                break
+            }
+            rhs_ids <- children$id[[2L]]
+        }
+        if (!any(rhs_ids %in% fun_expr_ids)) {
             next
         }
         for (expr_id in lhs$id[lhs$token %in% c("expr", "expr_or_assign_or_help")]) {
@@ -120,12 +131,24 @@ function_assignment_symbol_ids <- function(data) {
 #' Whether an XML SYMBOL is assigned `function()` or `\()`
 #' @noRd
 xml_symbol_is_function_assignment <- function(node) {
+    rhs <- xml_find_first(node, paste(
+        "./parent::expr[count(*)=1]/following-sibling::*[self::LEFT_ASSIGN or self::EQ_ASSIGN]/following-sibling::expr",
+        "./parent::expr[count(*)=1]/preceding-sibling::RIGHT_ASSIGN/preceding-sibling::expr",
+        sep = "|"
+    ))
+    if (inherits(rhs, "xml_missing")) {
+        return(FALSE)
+    }
+    repeat {
+        children <- xml_find_all(rhs, "./*[not(self::COMMENT)]")
+        if (length(children) != 3L ||
+                !identical(xml_text(children[c(1L, 3L)]), c("(", ")"))) {
+            break
+        }
+        rhs <- children[[2L]]
+    }
     !inherits(
-        xml_find_first(node, paste(
-            "./parent::expr[count(*)=1]/following-sibling::*[self::LEFT_ASSIGN or self::EQ_ASSIGN][following-sibling::expr/*[self::FUNCTION or self::OP-LAMBDA]]",
-            "./parent::expr[count(*)=1]/preceding-sibling::RIGHT_ASSIGN[preceding-sibling::expr/*[self::FUNCTION or self::OP-LAMBDA]]",
-            sep = "|"
-        )),
+        xml_find_first(rhs, "./FUNCTION | ./OP-LAMBDA"),
         "xml_missing"
     )
 }
