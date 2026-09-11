@@ -21,6 +21,11 @@ Useful links:
 \author{
 \strong{Maintainer}: Randy Lai \email{randy.cs.lai@gmail.com}
 
+Authors:
+\itemize{
+  \item Randy Lai \email{randy.cs.lai@gmail.com}
+}
+
 Other contributors:
 \itemize{
   \item Kun Ren \email{mail@renkun.me} [contributor]
