@@ -9,6 +9,7 @@
 #include "navigation.h"
 #include "signature.h"
 #include "call_hierarchy.h"
+#include "json.h"
 
 #ifdef _WIN32
 
@@ -32,6 +33,9 @@ SEXP process_is_detached(void) {
 
 static const R_CallMethodDef CallEntries[] = {
     {"find_unbalanced_bracket", (DL_FUNC) &find_unbalanced_bracket, 4},
+    {"new_bracket_scan_cache_c", (DL_FUNC) &new_bracket_scan_cache_c, 0},
+    {"find_unbalanced_bracket_cached_c", (DL_FUNC) &find_unbalanced_bracket_cached_c, 5},
+    {"response_json_c", (DL_FUNC) &response_json_c, 2},
     {"enclosed_by_quotes", (DL_FUNC) &enclosed_by_quotes, 2},
     {"detect_comments", (DL_FUNC) &detect_comments, 2},
     {"stdin_read_char", (DL_FUNC) &stdin_read_char, 1},

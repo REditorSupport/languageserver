@@ -381,6 +381,19 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 stdin_read_char(n)
             }
         },
+        process_input = function(max_messages = 20L) {
+            processed <- 0L
+            # Apply queued edits and serve their requests before installing
+            # background results. Limit the batch so parsing and diagnostics
+            # also progress while a client is sending a stream of messages.
+            while (processed < max_messages && !isTRUE(self$exit_flag)) {
+                data <- self$fetch(blocking = FALSE)
+                if (is.null(data)) break
+                self$handle_raw(data)
+                processed <- processed + 1L
+            }
+            processed
+        },
         run = function() {
             on.exit(
                 {
@@ -398,14 +411,12 @@ LanguageServer <- R6::R6Class("LanguageServer",
                             break
                         }
 
+                        processed <- self$process_input()
+                        if (isTRUE(self$exit_flag)) next
                         self$process_events()
-
-                        data <- self$fetch(blocking = FALSE)
-                        if (is.null(data)) {
+                        if (!processed) {
                             Sys.sleep(0.01)
-                            next
                         }
-                        self$handle_raw(data)
                     },
                     error = function(e) e
                 )

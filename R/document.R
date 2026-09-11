@@ -7,6 +7,7 @@ Document <- R6::R6Class(
         is_open = FALSE,
         nline = 0,
         content = NULL,
+        call_scan_cache = NULL,
         parse_data = NULL,
         is_rmarkdown = NULL,
         regions = NULL,
@@ -127,7 +128,13 @@ Document <- R6::R6Class(
             col <- point$col
 
             if (col > 0) {
-                fub_result <- find_unbalanced_bracket(self$content, row, col - 1)
+                if (is.null(self$call_scan_cache)) {
+                    self$call_scan_cache <- .Call("new_bracket_scan_cache_c",
+                        PACKAGE = "languageserver")
+                }
+                fub_result <- .Call("find_unbalanced_bracket_cached_c",
+                    self$content, row, col - 1, FALSE, self$call_scan_cache,
+                    PACKAGE = "languageserver")
                 loc <- fub_result[[1]]
                 bracket <- fub_result[[2]]
             } else {

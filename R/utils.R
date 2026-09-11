@@ -641,7 +641,9 @@ glue <- function(.x, ...) {
 xdoc_top_level_index <- function(x) {
     nodes <- xml_children(x)
     nodes <- nodes[xml_name(nodes) == "expr"]
-    tokens <- xml_find_all(x, "//*[@line1 and not(*)]")
+    # An explicit descendant axis avoids libxml2 repeatedly merging terminal
+    # node sets for //*, which becomes quadratic in long, flat scripts.
+    tokens <- xml_find_all(x, "descendant-or-self::*[@line1 and not(*)]")
     token_line1 <- as.integer(xml_attr(tokens, "line1"))
     token_col1 <- as.integer(xml_attr(tokens, "col1"))
     token_line2 <- as.integer(xml_attr(tokens, "line2"))

@@ -494,6 +494,7 @@ workspace_completion <- function(workspace, token,
     package = NULL, exported_only = TRUE, snippet_support = NULL, limit = Inf,
     uri = NULL) {
     candidates <- list()
+    truncated <- FALSE
     get_namespace <- function(name) {
         if (is.null(uri)) workspace$get_namespace(name)
         else call_with_optional_uri(workspace$get_namespace, name, uri = uri)
@@ -504,9 +505,24 @@ workspace_completion <- function(workspace, token,
         if (!length(objects)) {
             return(NULL)
         }
+        selected <- NULL
+        if (length(objects) > limit) {
+            # Every group shares a sort prefix, so candidates outside its
+            # best `limit` cannot appear in the combined best `limit` either.
+            # Trim before expanding metadata or allocating sort strings.
+            selected <- completion_select_indices(objects, objects, token, limit)
+            objects <- objects[selected]
+            truncated <<- TRUE
+        }
         size <- length(objects)
         recycle <- function(value) {
-            if (length(value) == 1L) rep.int(value, size) else value
+            if (length(value) == 1L) {
+                rep.int(value, size)
+            } else if (!is.null(selected)) {
+                value[selected]
+            } else {
+                value
+            }
         }
         candidates[[length(candidates) + 1L]] <<- list(
             label = objects,
@@ -622,7 +638,7 @@ workspace_completion <- function(workspace, token,
     }
     labels <- combine("label")
     sort_text <- combine("sort_text")
-    truncated <- length(labels) > limit
+    truncated <- truncated || length(labels) > limit
     selected <- completion_select_indices(labels, sort_text, token, limit)
 
     labels <- labels[selected]

@@ -53,6 +53,7 @@ ErrorLanguageServer <- R6::R6Class(
             self$diagnostics_task_manager <- manager
             self$resolve_task_manager <- manager
         },
+        fetch = function(...) NULL,
         process_events = function() stop("event loop failed")
     )
 )
@@ -119,6 +120,40 @@ test_that("LanguageServer stops managers after an event loop error", {
     withr::defer(server$close_connections())
     expect_null(server$run())
     expect_equal(server$stops$count, 3L)
+})
+
+test_that("LanguageServer drains queued input before background callbacks", {
+    events <- character()
+    messages <- collections::queue()
+    for (message in c("edit", "completion", "shutdown")) messages$push(message)
+    server_class <- R6::R6Class(
+        inherit = BareLanguageServer,
+        public = list(
+            fetch = function(...) {
+                if (messages$size()) messages$pop() else NULL
+            },
+            handle_raw = function(data) {
+                events <<- c(events, data)
+                if (data == "shutdown") self$exit_flag <- TRUE
+            },
+            process_events = function() events <<- c(events, "background")
+        )
+    )
+    server <- server_class$new()
+    withr::defer(server$close_connections())
+    server$run()
+    expect_identical(events, c("edit", "completion", "shutdown"))
+
+    # A busy client cannot starve workers indefinitely.
+    server$exit_flag <- FALSE
+    events <- character()
+    for (i in seq_len(25L)) messages$push(as.character(i))
+    expect_identical(server$process_input(), 20L)
+    expect_identical(messages$size(), 5L)
+    server$process_events()
+    expect_identical(server$process_input(), 5L)
+    expect_identical(events, c(as.character(1:20), "background", as.character(21:25)))
+    expect_identical(server$process_input(), 0L)
 })
 
 test_that("run configures boolean and file debug modes", {

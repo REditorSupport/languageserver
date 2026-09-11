@@ -45,6 +45,23 @@ test_that("empty and unordered XML retain token lookup behavior", {
     expect_equal(xml2::xml_text(xdoc_find_token(unordered, 1L, 1L)), "a")
 })
 
+test_that("Flat script token indexes preserve terminal nodes and source order", {
+    content <- c(
+        "# leading comment",
+        sprintf("value_%03d <- sum(c(1, 2, 3))", seq_len(300L)),
+        "text <- 'a multiline",
+        "string' # trailing comment"
+    )
+    xdoc <- xml2::read_xml(xmlparsedata::xml_parse_data(utils::getParseData(
+        parse(text = content, keep.source = TRUE))))
+    expected <- xml2::xml_find_all(xdoc, "//*[@line1 and not(*)]")
+    index <- xdoc_top_level_index(xdoc)$tokens
+    expect_identical(xml2::xml_attr(index$nodes, "id"), xml2::xml_attr(expected, "id"))
+    expect_identical(index$line1, as.integer(xml2::xml_attr(expected, "line1")))
+    expect_identical(index$col1, as.integer(xml2::xml_attr(expected, "col1")))
+    expect_identical(index$is_string, xml2::xml_name(expected) == "STR_CONST")
+})
+
 test_that("indexed definition queries preserve XPath scope and result order", {
     content <- c(
         "global <- 1",
