@@ -160,7 +160,7 @@ extract_default_values <- function(default_expr) {
     if (is.call(default_expr) && length(default_expr) > 1) {
         func_name <- as.character(default_expr[[1]])
         
-        if (func_name == "c") {
+        if (identical(func_name, "c")) {
             # Extract all arguments to c()
             values <- character(0)
             for (i in seq(2, length(default_expr))) {
