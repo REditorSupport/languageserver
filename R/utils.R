@@ -641,12 +641,47 @@ glue <- function(.x, ...) {
 xdoc_top_level_index <- function(x) {
     nodes <- xml_children(x)
     nodes <- nodes[xml_name(nodes) == "expr"]
+    # An explicit descendant axis avoids libxml2 repeatedly merging terminal
+    # node sets for //*, which becomes quadratic in long, flat scripts.
+    tokens <- xml_find_all(x, "descendant-or-self::*[@line1 and not(*)]")
+    token_line1 <- as.integer(xml_attr(tokens, "line1"))
+    token_col1 <- as.integer(xml_attr(tokens, "col1"))
+    token_line2 <- as.integer(xml_attr(tokens, "line2"))
+    token_col2 <- as.integer(xml_attr(tokens, "col2"))
+    # XML from the parser lists terminal tokens in source order. Check the
+    # non-overlap invariant once so hand-built XML can use the XPath fallback.
+    previous <- seq_len(max(length(tokens) - 1L, 0L))
+    following <- previous + 1L
+    ordered <- !anyNA(c(token_line1, token_col1, token_line2, token_col2)) &&
+        all(token_line2[previous] < token_line1[following] |
+            token_line2[previous] == token_line1[following] &
+                token_col2[previous] < token_col1[following])
+    assignment_symbol <- paste(
+        "(LEFT_ASSIGN | EQ_ASSIGN)/preceding-sibling::expr[count(*)=1]/SYMBOL",
+        "RIGHT_ASSIGN/following-sibling::expr[count(*)=1]/SYMBOL",
+        sep = " | "
+    )
+    definitions <- xml_find_all(x, paste0("//*[", assignment_symbol, "]"))
+    definition_names <- xml_text(xml_find_first(definitions, assignment_symbol))
     list(
         nodes = nodes,
         line1 = as.integer(xml_attr(nodes, "line1")),
         col1 = as.integer(xml_attr(nodes, "col1")),
         line2 = as.integer(xml_attr(nodes, "line2")),
-        col2 = as.integer(xml_attr(nodes, "col2"))
+        col2 = as.integer(xml_attr(nodes, "col2")),
+        definitions = definitions,
+        definitions_by_name = list2env(
+            split(seq_along(definition_names), definition_names),
+            hash = TRUE, parent = emptyenv()
+        ),
+        tokens = if (ordered) list(
+            nodes = tokens,
+            line1 = token_line1,
+            col1 = token_col1,
+            line2 = token_line2,
+            col2 = token_col2,
+            is_string = xml_name(tokens) == "STR_CONST"
+        )
     )
 }
 
@@ -682,7 +717,42 @@ xdoc_find_enclosing_scopes <- function(x, line, col, top = FALSE) {
     }
 }
 
+xdoc_find_definitions <- function(x, line, col, name, xpath) {
+    index <- attr(x, "top_level_index", exact = TRUE)
+    if (is.null(index$definitions_by_name)) {
+        scopes <- xdoc_find_enclosing_scopes(x, line, col, top = TRUE)
+        return(xml_find_all(scopes, xpath))
+    }
+    selected <- get0(name, envir = index$definitions_by_name,
+        inherits = FALSE, ifnotfound = integer())
+    scopes <- xdoc_find_enclosing_scopes(x, line, col)
+    contexts <- structure(
+        c(unclass(index$definitions[selected]), unclass(scopes)),
+        class = "xml_nodeset"
+    )
+    # The global root supplies assignment expressions in document order.
+    # Formal parameters and for variables come from enclosing scopes. With
+    # those contexts indexed, retain the original predicates and ordering
+    # while avoiding repeated descendant scans through unrelated functions.
+    shallow_xpath <- gsub(
+        "(* | descendant-or-self::expr | descendant-or-self::expr_or_assign_or_help)",
+        "(* | self::expr | self::expr_or_assign_or_help)",
+        xpath, fixed = TRUE
+    )
+    xml_find_all(contexts, shallow_xpath)
+}
+
 xdoc_find_token <- function(x, line, col) {
+    index <- attr(x, "top_level_index", exact = TRUE)$tokens
+    if (!is.null(index)) {
+        selected <- .Call(
+            "navigation_find_token_c", PACKAGE = "languageserver",
+            index$line1, index$col1, index$line2, index$col2,
+            index$is_string, as.integer(c(line, col))
+        )
+        if (selected > 0L) return(index$nodes[[selected]])
+        return(xml_find_first(x, "/*[false()]"))
+    }
     xpath <- glue("//*[not(*)][(@line1 < {line} or (@line1 = {line} and @col1 <= {col})) and (@line2 > {line} or (@line2 = {line} and @col2 >= {col}-1))]",
         line = line, col = col)
     tokens <- xml_find_all(x, xpath)

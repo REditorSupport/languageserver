@@ -126,42 +126,31 @@ index_static_path <- function(expr) {
 #' @noRd
 index_source_specs <- function(expr) {
     result <- list()
-    visit <- function(node) {
-        if (!is.call(node)) return(NULL)
-        fun <- deparse(node[[1L]], nlines = 1L)
-        if (fun %in% c(
-                "source", "sys.source", "base::source", "base::sys.source")) {
-            args <- as.list(node)[-1L]
-            arg_names <- names(args)
-            file_arg <- NULL
-            if (length(args)) {
-                named_file <- which(!is.null(arg_names) & arg_names == "file")
-                if (length(named_file)) {
-                    file_index <- named_file[[1L]]
+    calls <- .Call("source_calls_c", expr, PACKAGE = "languageserver")
+    for (node in calls) {
+        args <- as.list(node)[-1L]
+        arg_names <- names(args)
+        file_arg <- NULL
+        if (length(args)) {
+            named_file <- which(!is.null(arg_names) & arg_names == "file")
+            if (length(named_file)) {
+                file_index <- named_file[[1L]]
+            } else {
+                unnamed <- if (is.null(arg_names)) {
+                    seq_along(args)
                 } else {
-                    unnamed <- if (is.null(arg_names)) {
-                        seq_along(args)
-                    } else {
-                        which(!nzchar(arg_names))
-                    }
-                    file_index <- if (length(unnamed)) unnamed[[1L]] else NULL
+                    which(!nzchar(arg_names))
                 }
-                if (length(file_index) &&
-                        !identical(args[[file_index]], quote(expr = ))) {
-                    file_arg <- args[[file_index]]
-                }
+                file_index <- if (length(unnamed)) unnamed[[1L]] else NULL
             }
-            spec <- index_static_path(file_arg)
-            if (!is.null(spec)) result[[length(result) + 1L]] <<- spec
+            if (length(file_index) &&
+                    !identical(args[[file_index]], quote(expr = ))) {
+                file_arg <- args[[file_index]]
+            }
         }
-        children <- as.list(node)[-1L]
-        for (i in seq_along(children)) {
-            if (identical(children[[i]], quote(expr = ))) next
-            visit(children[[i]])
-        }
-        NULL
+        spec <- index_static_path(file_arg)
+        if (!is.null(spec)) result[[length(result) + 1L]] <- spec
     }
-    visit(expr)
     result
 }
 
@@ -207,22 +196,26 @@ index_resolve_source <- function(spec, from_path, workspace_root) {
 
 #' Extract top-level definitions and source edges without building semantic XML
 #' @noRd
-index_shallow_summary <- function(path, content, workspace_root, metadata = NULL) {
+index_shallow_summary <- function(path, content, workspace_root, metadata = NULL,
+    parse_data = NULL) {
     path <- index_normalize_path(path)
     workspace_root <- index_normalize_path(workspace_root)
     if (is.null(metadata)) metadata <- file.info(path)
-    expressions <- tryCatch(
+    expressions <- if (is.null(parse_data)) tryCatch(
         parse(text = content, keep.source = TRUE),
         error = function(e) NULL
-    )
+    ) else NULL
     definitions <- list()
     source_specs <- list()
-    if (!is.null(expressions)) {
+    if (!is.null(parse_data)) {
+        definitions <- as.list(parse_data$definitions)
+        source_specs <- parse_data$source_specs
+    } else if (!is.null(expressions)) {
         srcrefs <- attr(expressions, "srcref")
         expression_list <- as.list(expressions)
+        source_specs <- index_source_specs(expressions)
         for (i in seq_along(expression_list)) {
             expr <- expression_list[[i]]
-            source_specs <- c(source_specs, index_source_specs(expr))
             if (!is.call(expr) || length(expr) != 3L) next
             operator <- deparse(expr[[1L]], nlines = 1L)
             if (operator %in% c("<-", "=") && is.symbol(expr[[2L]])) {
@@ -270,7 +263,8 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
         sources = sources,
         source_candidates = source_candidates,
         source_candidate_exists = source_candidate_exists,
-        parse_error = is.null(expressions),
+        parse_error = if (is.null(parse_data)) is.null(expressions) else
+            isTRUE(parse_data$parse_error),
         package_root = index_package_root(path, workspace_root)
     )
 }
@@ -289,6 +283,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
         enabled = TRUE,
         cache_dirty = FALSE,
         processing_batch = FALSE,
+        revision = 0,
 
         initialize = function(root) {
             self$root <- if (length(root) && nzchar(root)) {
@@ -487,6 +482,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                 !is.null(self$files$get(uri)$package_root)
             }, logical(1L))
             self$pending <- c(self$pending[package], self$pending[!package])
+            self$revision <- self$revision + 1
             invisible(NULL)
         },
 
@@ -508,17 +504,19 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                     union(self$reverse_edges$get(target, character()), uri))
             }
             self$cache_dirty <- TRUE
+            self$revision <- self$revision + 1
             invisible(summary)
         },
 
         update_content = function(uri, content, metadata = NULL,
-            cacheable = TRUE) {
+            cacheable = TRUE, parse_data = NULL) {
             if (!self$enabled) return(NULL)
             path <- path_from_uri(uri)
             if (!self$should_index(path)) return(NULL)
             if (is.null(metadata)) metadata <- file.info(path)
             summary <- index_shallow_summary(
-                path, content, self$root, metadata = metadata)
+                path, content, self$root, metadata = metadata,
+                parse_data = parse_data)
             uri <- index_canonical_uri(uri)
             summary$uri <- uri
             summary$cacheable <- isTRUE(cacheable)
@@ -601,6 +599,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             if (self$files$has(uri)) self$files$remove(uri)
             self$pending <- setdiff(self$pending, uri)
             self$cache_dirty <- TRUE
+            self$revision <- self$revision + 1
             invisible(NULL)
         },
 

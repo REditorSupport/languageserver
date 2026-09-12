@@ -67,6 +67,18 @@ Notification <- R6::R6Class("Notification",
     )
 )
 
+#' Encode ordinary LSP response values without general-purpose R dispatch
+#' @noRd
+response_to_json <- function(payload) {
+    json <- .Call("response_json_c", payload, .Machine$integer.max,
+        PACKAGE = "languageserver")
+    if (is.null(json)) {
+        json <- jsonlite::toJSON(payload,
+            auto_unbox = TRUE, null = "null", force = TRUE)
+    }
+    json
+}
+
 #' Response Message class
 #'
 #' Message sent as the result of a [Request]
@@ -91,7 +103,7 @@ Response <- R6::R6Class("Response",
             if (!is.null(self$error)) {
                 payload$error <- self$error
             }
-            jsonlite::toJSON(payload, auto_unbox = TRUE, null = "null", force = TRUE)
+            response_to_json(payload)
         }
     )
 )

@@ -6,6 +6,9 @@
 #include <Rinternals.h>
 
 SEXP find_unbalanced_bracket(SEXP document, SEXP _row, SEXP _col, SEXP _skip_el);
+SEXP new_bracket_scan_cache_c(void);
+SEXP find_unbalanced_bracket_cached_c(SEXP document, SEXP row, SEXP col,
+    SEXP skip_empty_line, SEXP cache);
 
 SEXP enclosed_by_quotes(SEXP s, SEXP _col);
 

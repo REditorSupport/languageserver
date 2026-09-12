@@ -9,54 +9,25 @@ get_comment_folding_ranges <- function(xdoc) {
     if (identical(length(comments), 0L)) {
         return(NULL)
     }
-    comments <- comments[
-        !grepl(
-            paste0(
-                "(", section_range_regex, ")\\s*$"
-            ),
-            xml_text(comments, trim = FALSE),
-            perl = TRUE
-        )
-    ]
-    # For code chunks in plain `.R` files. 
-    # This messes up folding when you have `#|` options  
-    # or just comments on next line after code chunk
-    comments <- comments[
-        !grepl(
-            paste0(
-                "(", "#\\s*%%", ")\\s*"
-            ),
-            xml_text(comments, trim = FALSE),
-            perl = TRUE
-        )
-    ]
-    if (identical(length(comments), 0L)) {
-        return(NULL)
-    }
-    comm_line1 <- as.integer(xml_attr(comments, "line1"))
-    comm_col1 <- as.integer(xml_attr(comments, "col1"))
-    comm_runs <- c(1L, diff(comm_col1) != 0)
-    comm_groups <- cumsum(comm_runs)
-    comm_max_group <- comm_groups[[length(comm_groups)]]
-    comm_ranges <- lapply(seq_len(comm_max_group), function(i) {
-        lines <- comm_line1[comm_groups == i]
-        sub_groups <- cumsum(c(0L, diff(lines)) != 1L)
-        max_sub_group <- sub_groups[[length(sub_groups)]]
-        lapply(seq_len(max_sub_group), function(j) {
-            lns <- lines[sub_groups == j]
-            start_line <- lns[1]
-            end_line <- lns[length(lns)]
-            if (end_line > start_line) {
-                c(start_line, end_line)
-            }
-        })
-    })
-    comm_ranges <- unlist(comm_ranges, recursive = FALSE, use.names = FALSE)
-    comm_ranges <- comm_ranges[lengths(comm_ranges) > 0]
-    comm_folding_ranges <- lapply(comm_ranges, function(item) {
+    text <- xml_text(comments, trim = FALSE)
+    keep <- !grepl(paste0("(", section_range_regex, ")\\s*$"), text, perl = TRUE) &
+        !grepl("#\\s*%%\\s*", text, perl = TRUE)
+    comments <- comments[keep]
+    if (!length(comments)) return(NULL)
+
+    lines <- as.integer(xml_attr(comments, "line1"))
+    cols <- as.integer(xml_attr(comments, "col1"))
+    # A fold is one contiguous run with the same indentation. Identify all
+    # runs together instead of rescanning every comment for every group.
+    starts <- which(c(TRUE, diff(cols) != 0L | diff(lines) != 1L))
+    ends <- c(starts[-1L] - 1L, length(lines))
+    keep <- ends > starts
+    starts <- starts[keep]
+    ends <- ends[keep]
+    comm_folding_ranges <- lapply(seq_along(starts), function(i) {
         list(
-            startLine = item[1] - 1,
-            endLine = item[2] - 1,
+            startLine = lines[[starts[[i]]]] - 1L,
+            endLine = lines[[ends[[i]]]] - 1L,
             kind = FoldingRangeKind$Comment
         )
     })
@@ -143,7 +114,14 @@ document_folding_range_reply <- function(id, uri, workspace, document) {
         return(NULL)
     }
 
+    cached <- parse_data$folding_ranges_cache
+    if (!is.null(cached) && identical(cached$content, document$content) &&
+            identical(cached$is_rmarkdown, document$is_rmarkdown)) {
+        return(Response$new(id, result = cached$result))
+    }
+
     xdoc <- parse_data$xml_doc
+    comment_ranges <- NULL
     if (!is.null(xdoc)) {
         comment_ranges <- get_comment_folding_ranges(xdoc)
     }
@@ -154,6 +132,16 @@ document_folding_range_reply <- function(id, uri, workspace, document) {
     result <- c(comment_ranges, section_ranges)
 
     result <- unique(result)
+    # Markdown structure belongs to the original document, while the parse
+    # cache is keyed by extracted R code. Retain the original content as the
+    # cache key so documents with identical chunks cannot share stale folds.
+    if (is.environment(parse_data)) {
+        parse_data$folding_ranges_cache <- list(
+            content = document$content,
+            is_rmarkdown = document$is_rmarkdown,
+            result = result
+        )
+    }
     if (!length(result)) { # prevent floating point comparision
         Response$new(id)
     } else {

@@ -74,58 +74,8 @@ empty_semantic_data <- function() {
 #' Parentheses around function expressions are ignored.
 #' @noRd
 function_assignment_symbol_ids <- function(data) {
-    fun_expr_ids <- unique(data$parent[data$token %in% c("FUNCTION", "'\\\\'")])
-    if (!length(fun_expr_ids)) {
-        return(integer())
-    }
-
-    assign_rows <- which(
-        data$token %in% c("LEFT_ASSIGN", "EQ_ASSIGN", "RIGHT_ASSIGN")
-    )
-    lhs_ids <- integer()
-    for (row in assign_rows) {
-        children <- data[data$parent == data$parent[[row]], , drop = FALSE]
-        assign_pos <- match(data$id[[row]], children$id)
-        if (is.na(assign_pos)) {
-            next
-        }
-        before_idx <- seq_len(assign_pos - 1L)
-        after_idx <- if (assign_pos < nrow(children)) {
-            seq.int(assign_pos + 1L, nrow(children))
-        } else {
-            integer()
-        }
-        if (data$token[[row]] == "RIGHT_ASSIGN") {
-            rhs <- children[before_idx, , drop = FALSE]
-            lhs <- children[after_idx, , drop = FALSE]
-        } else {
-            lhs <- children[before_idx, , drop = FALSE]
-            rhs <- children[after_idx, , drop = FALSE]
-        }
-        rhs_ids <- rhs$id
-        while (length(rhs_ids) == 1L) {
-            children <- data[
-                data$parent == rhs_ids & data$token != "COMMENT", , drop = FALSE
-            ]
-            if (nrow(children) != 3L ||
-                    !identical(children$token[c(1L, 3L)], c("'('", "')'"))) {
-                break
-            }
-            rhs_ids <- children$id[[2L]]
-        }
-        if (!any(rhs_ids %in% fun_expr_ids)) {
-            next
-        }
-        for (expr_id in lhs$id[lhs$token %in% c("expr", "expr_or_assign_or_help")]) {
-            child_rows <- which(data$parent == expr_id)
-            terminal_rows <- child_rows[data$terminal[child_rows]]
-            if (length(terminal_rows) == 1L &&
-                    data$token[[terminal_rows]] == "SYMBOL") {
-                lhs_ids <- c(lhs_ids, data$id[[terminal_rows]])
-            }
-        }
-    }
-    unique(lhs_ids)
+    if (is.null(data) || !nrow(data)) return(integer())
+    .Call("function_assignment_ids_c", data, PACKAGE = "languageserver")
 }
 
 #' Whether an XML SYMBOL is assigned `function()` or `\()`
@@ -298,87 +248,19 @@ semantic_parse_data <- function(data, content) {
 #' Select semantic token data for an LSP range
 #' @noRd
 semantic_data_for_range <- function(data, range) {
-    if (is.null(data) || !length(data$lines)) {
-        return(empty_semantic_data())
-    }
-
-    start <- range$start
-    end <- range$end
-    after_start <- data$lines > start$line |
-        data$lines == start$line & data$cols + data$lengths > start$character
-    before_end <- data$lines < end$line |
-        data$lines == end$line & data$cols < end$character
-    keep <- which(after_start & before_end)
-    if (!length(keep)) {
-        return(empty_semantic_data())
-    }
-
-    lines <- data$lines[keep]
-    cols <- data$cols[keep]
-    lengths <- data$lengths[keep]
-    types <- data$types[keep]
-    modifiers <- data$modifiers[keep]
-    encoded <- .Call(
-        "encode_semantic_tokens_c",
-        lines, cols, lengths, types, modifiers,
+    if (is.null(data) || !length(data$lines)) return(empty_semantic_data())
+    .Call(
+        "semantic_token_range_c", data,
+        as.integer(c(range$start$line, range$start$character)),
+        as.integer(c(range$end$line, range$end$character)),
         PACKAGE = "languageserver"
-    )
-
-    list(
-        lines = lines,
-        cols = cols,
-        lengths = lengths,
-        types = types,
-        modifiers = modifiers,
-        encoded = encoded
     )
 }
 
 #' Compute one compact semantic-token delta edit
 #' @noRd
 semantic_token_delta <- function(previous, current) {
-    if (identical(previous, current)) {
-        return(list())
-    }
-
-    previous_count <- length(previous) %/% 5L
-    current_count <- length(current) %/% 5L
-    prefix <- 0L
-    shared <- min(previous_count, current_count)
-    while (prefix < shared) {
-        offset <- prefix * 5L
-        indices <- seq.int(offset + 1L, offset + 5L)
-        if (!identical(previous[indices], current[indices])) break
-        prefix <- prefix + 1L
-    }
-
-    suffix <- 0L
-    while (suffix < previous_count - prefix &&
-            suffix < current_count - prefix) {
-        previous_start <- (previous_count - suffix - 1L) * 5L + 1L
-        current_start <- (current_count - suffix - 1L) * 5L + 1L
-        if (!identical(
-            previous[seq.int(previous_start, previous_start + 4L)],
-            current[seq.int(current_start, current_start + 4L)])) {
-            break
-        }
-        suffix <- suffix + 1L
-    }
-
-    current_first <- prefix * 5L + 1L
-    current_last <- (current_count - suffix) * 5L
-    replacement <- if (current_first <= current_last) {
-        current[seq.int(current_first, current_last)]
-    } else {
-        integer()
-    }
-
-    edit <- list(
-        start = prefix * 5L,
-        deleteCount = (previous_count - prefix - suffix) * 5L
-    )
-    if (length(replacement)) edit$data <- replacement
-    list(edit)
+    .Call("semantic_token_delta_c", previous, current, PACKAGE = "languageserver")
 }
 
 #' Get semantic token type for an XML token

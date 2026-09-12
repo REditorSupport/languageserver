@@ -133,8 +133,27 @@ constant_completion <- function(token) {
 
 #' Complete a package name
 #' @noRd
+installed_package_names <- local({
+    previous_paths <- NULL
+    previous_stamp <- NULL
+    packages <- character()
+    function(lib_paths = .libPaths()) {
+        # Installing/removing packages changes the library directory. Avoid
+        # checking metadata inside every package directory on each request.
+        stamp <- file.info(lib_paths, extra_cols = FALSE)[c("mtime", "ctime")]
+        if (!identical(lib_paths, previous_paths) ||
+                !identical(stamp, previous_stamp)) {
+            packages <<- .packages(all.available = TRUE, lib.loc = lib_paths)
+            previous_paths <<- lib_paths
+            previous_stamp <<- stamp
+        }
+        packages
+    }
+})
+
+#' @noRd
 package_completion <- function(token) {
-    installed_packages <- .packages(all.available = TRUE)
+    installed_packages <- installed_package_names()
     token_packages <- installed_packages[match_with(installed_packages, token)]
     completions <- lapply(token_packages, function(package) {
         list(label = package,
@@ -301,11 +320,9 @@ arg_completion <- function(uri, workspace, point, token, funct, package = NULL, 
         if (!is.null(xdoc)) {
             row <- point$row + 1
             col <- point$col + 1
-            enclosing_scopes <- xdoc_find_enclosing_scopes(xdoc,
-                row, col, top = TRUE)
             xpath <- glue(signature_xpath, row = row,
                 token_quote = xml_single_quote(funct))
-            all_defs <- xml_find_all(enclosing_scopes, xpath)
+            all_defs <- xdoc_find_definitions(xdoc, row, col, funct, xpath)
             if (length(all_defs)) {
                 last_def <- all_defs[[length(all_defs)]]
                 func_line1 <- as.integer(xml_attr(last_def, "line1"))
@@ -477,6 +494,7 @@ workspace_completion <- function(workspace, token,
     package = NULL, exported_only = TRUE, snippet_support = NULL, limit = Inf,
     uri = NULL) {
     candidates <- list()
+    truncated <- FALSE
     get_namespace <- function(name) {
         if (is.null(uri)) workspace$get_namespace(name)
         else call_with_optional_uri(workspace$get_namespace, name, uri = uri)
@@ -487,9 +505,24 @@ workspace_completion <- function(workspace, token,
         if (!length(objects)) {
             return(NULL)
         }
+        selected <- NULL
+        if (length(objects) > limit) {
+            # Every group shares a sort prefix, so candidates outside its
+            # best `limit` cannot appear in the combined best `limit` either.
+            # Trim before expanding metadata or allocating sort strings.
+            selected <- completion_select_indices(objects, objects, token, limit)
+            objects <- objects[selected]
+            truncated <<- TRUE
+        }
         size <- length(objects)
         recycle <- function(value) {
-            if (length(value) == 1L) rep.int(value, size) else value
+            if (length(value) == 1L) {
+                rep.int(value, size)
+            } else if (!is.null(selected)) {
+                value[selected]
+            } else {
+                value
+            }
         }
         candidates[[length(candidates) + 1L]] <<- list(
             label = objects,
@@ -605,7 +638,7 @@ workspace_completion <- function(workspace, token,
     }
     labels <- combine("label")
     sort_text <- combine("sort_text")
-    truncated <- length(labels) > limit
+    truncated <- truncated || length(labels) > limit
     selected <- completion_select_indices(labels, sort_text, token, limit)
 
     labels <- labels[selected]

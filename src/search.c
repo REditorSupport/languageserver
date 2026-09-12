@@ -13,7 +13,57 @@ static int is_empty(const char *s) {
     return 1;
 }
 
-SEXP find_unbalanced_bracket(SEXP content, SEXP _row, SEXP _col, SEXP _skip_el) {
+typedef struct {
+    int prefix_length;
+    int closing_brackets;
+    int skip_empty_line;
+    int row;
+    int col;
+    char bracket;
+} bracket_scan_cache;
+
+static void free_bracket_scan_cache(SEXP cache) {
+    bracket_scan_cache *data = R_ExternalPtrAddr(cache);
+    if (data != NULL) {
+        R_Free(data);
+        R_ClearExternalPtr(cache);
+    }
+}
+
+static void initialize_bracket_scan_cache(SEXP cache) {
+    bracket_scan_cache *data = R_Calloc(1, bracket_scan_cache);
+    data->prefix_length = -1;
+    R_SetExternalPtrAddr(cache, data);
+    R_RegisterCFinalizerEx(cache, free_bracket_scan_cache, TRUE);
+}
+
+SEXP new_bracket_scan_cache_c(void) {
+    SEXP cache = PROTECT(R_MakeExternalPtr(NULL,
+        Rf_install("languageserver.bracket_scan_cache"), R_NilValue));
+    initialize_bracket_scan_cache(cache);
+    UNPROTECT(1);
+    return cache;
+}
+
+/* R strings are immutable. Comparing their identities lets an edit on the
+ * cursor line reuse a preceding-line scan without trusting stale parse data.
+ * Keep the original vector protected so cached string identities stay live. */
+static int bracket_scan_cache_matches(SEXP object, SEXP content,
+    int prefix_length, int closing_brackets, int skip_empty_line) {
+    bracket_scan_cache *cache = R_ExternalPtrAddr(object);
+    if (cache->prefix_length != prefix_length ||
+            cache->closing_brackets != closing_brackets ||
+            cache->skip_empty_line != skip_empty_line) return 0;
+    SEXP previous = R_ExternalPtrProtected(object);
+    if (previous == content) return 1;
+    for (int i = 0; i < prefix_length; ++i) {
+        if (STRING_ELT(previous, i) != STRING_ELT(content, i)) return 0;
+    }
+    return 1;
+}
+
+static SEXP find_unbalanced_bracket_impl(SEXP content, SEXP _row, SEXP _col,
+    SEXP _skip_el, SEXP cache_object) {
     int ncontent = Rf_length(content);
     int row = Rf_asInteger(_row);
     int col = Rf_asInteger(_col);
@@ -31,8 +81,25 @@ SEXP find_unbalanced_bracket(SEXP content, SEXP _row, SEXP _col, SEXP _skip_el) 
     int ncurrentunbalanced = 0;
     int nunbalanced = 0;
     char brac[2] = " \x00";
+    int cache_prefix = 0;
+    int prefix_closing_brackets = 0;
+    bracket_scan_cache *cache = cache_object == R_NilValue ? NULL :
+        R_ExternalPtrAddr(cache_object);
 
     for (i = row; i >= 0 && i < ncontent; i--) {
+        if (cache != NULL && i == row - 1) {
+            if (bracket_scan_cache_matches(cache_object, content,
+                    row, nunbalanced, skip)) {
+                i = cache->row;
+                k = cache->col;
+                brac[0] = cache->bracket;
+                /* Future requests for this exact content need no line comparisons. */
+                R_SetExternalPtrProtected(cache_object, content);
+                break;
+            }
+            cache_prefix = 1;
+            prefix_closing_brackets = nunbalanced;
+        }
         c = Rf_translateCharUTF8(STRING_ELT(content, i));
         if (skip && i < row && is_empty(c)) {
             // skip empty row when search backward
@@ -97,6 +164,15 @@ SEXP find_unbalanced_bracket(SEXP content, SEXP _row, SEXP _col, SEXP _skip_el) 
             break;
         }
     }
+    if (cache_prefix) {
+        cache->prefix_length = row;
+        cache->closing_brackets = prefix_closing_brackets;
+        cache->skip_empty_line = skip;
+        cache->row = i;
+        cache->col = k;
+        cache->bracket = brac[0];
+        R_SetExternalPtrProtected(cache_object, content);
+    }
     SEXP out = PROTECT(Rf_allocVector(VECSXP, 2));
     SEXP loc = PROTECT(Rf_allocVector(INTSXP, 2));
     INTEGER(loc)[0] = i;
@@ -106,6 +182,22 @@ SEXP find_unbalanced_bracket(SEXP content, SEXP _row, SEXP _col, SEXP _skip_el) 
     SET_VECTOR_ELT(out, 1, bracket);
     UNPROTECT(3);
     return out;
+}
+
+SEXP find_unbalanced_bracket(SEXP content, SEXP row, SEXP col,
+    SEXP skip_empty_line) {
+    return find_unbalanced_bracket_impl(content, row, col, skip_empty_line, R_NilValue);
+}
+
+SEXP find_unbalanced_bracket_cached_c(SEXP content, SEXP row, SEXP col,
+    SEXP skip_empty_line, SEXP object) {
+    if (TYPEOF(object) != EXTPTRSXP || R_ExternalPtrTag(object) !=
+            Rf_install("languageserver.bracket_scan_cache")) {
+        Rf_error("invalid bracket scan cache");
+    }
+    /* External pointers lose their address when an R document is serialized. */
+    if (R_ExternalPtrAddr(object) == NULL) initialize_bracket_scan_cache(object);
+    return find_unbalanced_bracket_impl(content, row, col, skip_empty_line, object);
 }
 
 

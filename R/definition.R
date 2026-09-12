@@ -38,12 +38,11 @@ definition_reply <- function(id, uri, workspace, document, point, rootPath,
                 # symbol
                 preceding_dollar <- xml_find_first(token, "preceding-sibling::OP-DOLLAR")
                 if (length(preceding_dollar) == 0) {
-                    enclosing_scopes <- xdoc_find_enclosing_scopes(xdoc,
-                        row, col, top = TRUE)
                     xpath <- glue(definition_xpath,
                         row = row, start = token_start, end = token_end,
                         token_quote = xml_single_quote(token_text))
-                    all_defs <- xml_find_all(enclosing_scopes, xpath)
+                    all_defs <- xdoc_find_definitions(
+                        xdoc, row, col, token_text, xpath)
                     if (length(all_defs)) {
                         last_def <- all_defs[[length(all_defs)]]
                         result <- list(

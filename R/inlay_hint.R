@@ -55,6 +55,12 @@ inlay_hint_reply <- function(id, uri, workspace, document, request_range) {
     xdoc <- parse_data$xml_doc
     if (is.null(xdoc)) return(Response$new(id, result = list()))
 
+    if (!is.null(parse_data$range_data)) {
+        return(indexed_inlay_hint_reply(
+            id, uri, workspace, parse_data$range_data, request_range
+        ))
+    }
+
     start_line <- request_range$start$line + 1L
     end_line <- request_range$end$line + 1L
     if (request_range$end$character == 0L && end_line > start_line) {
@@ -167,6 +173,98 @@ inlay_hint_reply <- function(id, uri, workspace, document, request_range) {
     }
 
     Response$new(id, result = hints)
+}
+
+#' Resolve hints only for calls with an argument visible in the viewport
+#' @noRd
+indexed_inlay_hint_reply <- function(id, uri, workspace, indexed, request_range) {
+    arguments <- indexed$arguments
+    visible <- indexed$argument_order[range_line_indices(
+        indexed$argument_lines,
+        request_range$start$line, request_range$end$line
+    )]
+    visible <- visible[range_position_selected(
+        arguments$line[visible], arguments$col[visible], request_range
+    )]
+    if (!length(visible)) return(Response$new(id, result = list()))
+    calls <- indexed$calls
+    call_indices <- sort(unique(arguments$call[visible]))
+    visible_by_call <- list2env(split(visible, arguments$call[visible]),
+        parent = emptyenv())
+
+    minimum_arguments <- lsp_settings$get("inlay_hints_minimum_arguments")
+    if (!is.numeric(minimum_arguments) || length(minimum_arguments) != 1L ||
+            is.na(minimum_arguments) || minimum_arguments < 0L) {
+        minimum_arguments <- 2L
+    }
+    minimum_argument_length <- lsp_settings$get("inlay_hints_minimum_argument_length")
+    if (!is.numeric(minimum_argument_length) || length(minimum_argument_length) != 1L ||
+            is.na(minimum_argument_length) || minimum_argument_length < 0L) {
+        minimum_argument_length <- 2L
+    }
+    formals_cache <- new.env(parent = emptyenv())
+    hints <- vector("list", 200L)
+    hint_count <- 0L
+    for (call_index in call_indices) {
+        groups <- seq.int(calls$first_argument[[call_index]], calls$last_argument[[call_index]])
+        if (sum(arguments$present[groups]) < minimum_arguments) next
+        function_name <- calls$name[[call_index]]
+        package <- calls$package[[call_index]]
+        if (is.na(package)) package <- NULL
+        cache_key <- paste(if (is.null(package)) "" else package, function_name, sep = "::")
+        if (exists(cache_key, envir = formals_cache, inherits = FALSE)) {
+            formal_names <- get(cache_key, envir = formals_cache, inherits = FALSE)
+        } else {
+            function_formals <- tryCatch(call_with_optional_uri(
+                workspace$get_formals, function_name, package, uri = uri),
+            error = function(e) NULL)
+            formal_names <- names(function_formals)
+            assign(cache_key, formal_names, envir = formals_cache)
+        }
+        if (!length(formal_names)) next
+        group_names <- arguments$name[groups]
+        named <- !is.na(group_names)
+        named_formals <- vapply(group_names[named], match_named_formal,
+            integer(1L), formal_names = formal_names)
+        available <- setdiff(seq_along(formal_names), named_formals[!is.na(named_formals)])
+        unnamed <- groups[!named]
+        n <- min(length(unnamed), length(available))
+        if (!n) next
+        unnamed <- unnamed[seq_len(n)]
+        matched_names <- formal_names[available[seq_len(n)]]
+        dots <- match("...", matched_names)
+        if (!is.na(dots)) {
+            unnamed <- unnamed[seq_len(dots - 1L)]
+            matched_names <- matched_names[seq_len(dots - 1L)]
+        }
+        visible_arguments <- get(as.character(call_index), envir = visible_by_call,
+            inherits = FALSE)
+        keep <- arguments$present[unnamed] & unnamed %in% visible_arguments &
+            nchar(sub("^\\.", "", matched_names)) >= minimum_argument_length &
+            (is.na(arguments$symbol[unnamed]) | arguments$symbol[unnamed] != matched_names)
+        unnamed <- unnamed[keep]
+        matched_names <- matched_names[keep]
+        for (j in seq_along(unnamed)) {
+            argument <- unnamed[[j]]
+            formal_name <- matched_names[[j]]
+            hint_count <- hint_count + 1L
+            hints[[hint_count]] <- list(
+                position = position(arguments$line[[argument]], arguments$col[[argument]]),
+                label = paste0(formal_name, " ="),
+                kind = 2L,
+                paddingRight = TRUE,
+                data = list(
+                    uri = uri,
+                    functionName = function_name,
+                    package = package,
+                    parameter = formal_name
+                )
+            )
+            if (hint_count >= 200L) break
+        }
+        if (hint_count >= 200L) break
+    }
+    Response$new(id, result = hints[seq_len(hint_count)])
 }
 
 #' Resolve explanatory text for an inlay hint
