@@ -10,9 +10,16 @@ BareLanguageServer <- R6::R6Class(
             }, error = function(e) NULL)
         },
         finalize = function() {
-            private$close_connection(self$inputcon)
-            if (!identical(self$outputcon, self$inputcon)) {
-                private$close_connection(self$outputcon)
+            input <- self$inputcon
+            output <- self$outputcon
+            # Explicit cleanup is followed by R6 finalization during GC. R
+            # reuses connection numbers, so release the old handles before
+            # another cleanup can mistake a new connection for an owned one.
+            self$inputcon <- NULL
+            self$outputcon <- NULL
+            if (!is.null(input)) private$close_connection(input)
+            if (!is.null(output) && !identical(output, input)) {
+                private$close_connection(output)
             }
             self$request_callbacks$clear()
         }
@@ -57,6 +64,23 @@ ErrorLanguageServer <- R6::R6Class(
         process_events = function() stop("event loop failed")
     )
 )
+
+test_that("Server fixture cleanup leaves subsequently opened connections alive", {
+    previous <- BareLanguageServer$new()
+    previous$close_connections()
+
+    current <- BareLanguageServer$new()
+    withr::defer(current$close_connections())
+    # Both explicit cleanup and the later GC finalizer must be harmless even
+    # after the old connection numbers have been reused by another fixture.
+    previous$close_connections()
+    expect_true(isOpen(current$inputcon))
+    expect_true(isOpen(current$outputcon))
+    rm(previous)
+    invisible(gc())
+    expect_true(isOpen(current$inputcon))
+    expect_true(isOpen(current$outputcon))
+})
 
 test_that("LanguageServer removes workspaces and preserves open documents", {
     old_diagnostics <- lsp_settings$get("diagnostics")
