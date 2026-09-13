@@ -1,3 +1,20 @@
+# languageserver (development version)
+
+- Honor nested `.lintr` settings and exclusions in Quarto, R Markdown, and new
+  unsaved file buffers, including with lintr 3.0.0.
+- Clear existing diagnostics and cancel queued work when diagnostics are
+  disabled, while rejecting late background results.
+- Run document and explicit-selection formatting in a background worker so
+  other editor requests remain responsive. Cancel formatting when requested by
+  the client or when its document changes, and preserve custom formatting
+  options and literate-document boundaries.
+- Correct the standalone Neovim setup instructions and include Quarto files.
+- Extend typing benchmarks with cold-start measurements and verified
+  diagnostics-enabled workloads.
+- Check R oldrel and devel in CI and schedule native-memory checks with
+  AddressSanitizer, Valgrind, and rchk.
+- Repair CRAN-to-GitHub release automation and start development after 0.3.19.
+
 # languageserver 0.3.19
 
 - Add a shared Quarto/R Markdown region model with `.qmd` and Quarto language

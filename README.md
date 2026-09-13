@@ -6,7 +6,7 @@
 [![CRAN Downloads](https://cranlogs.r-pkg.org/badges/grand-total/languageserver)](https://cran.r-project.org/package=languageserver)
 [![r-universe](https://reditorsupport.r-universe.dev/badges/languageserver)](https://reditorsupport.r-universe.dev/#package:languageserver)
 
-`languageserver` is an implementation of the Microsoft's [Language Server Protocol](https://microsoft.github.io/language-server-protocol/) for the language of R.
+`languageserver` is an implementation of Microsoft's [Language Server Protocol](https://microsoft.github.io/language-server-protocol/) for R.
 
 - [Installation](#installation)
 - [Language Clients](#language-clients)
@@ -64,21 +64,22 @@ The following editors are supported by installing the corresponding extensions:
 
 - Sublime Text: [R-IDE](https://github.com/REditorSupport/sublime-ide-r)
 
-- NeoVim: NeoVim's LSP client with settings
+- Neovim 0.11 or later: install the R package above, ensure `R` is on your
+  `PATH`, and add this to `init.lua` to use the built-in LSP client:
 
     ```lua
-    vim.lsp.config['r_language_server'] = {
-    	settings = {
-    		filetypes = { "r", "rmd" },
-    	},
-    }
-    vim.api.nvim_create_autocmd("FileType", {
-    	pattern = { "r", "rmd" },
-    	callback = function()
-    		vim.lsp.start(vim.lsp.config["r_language_server"])
-    	end,
-    }
+    vim.filetype.add({ extension = { qmd = "quarto" } })
+    vim.lsp.config("r_language_server", {
+        cmd = { "R", "--no-echo", "--no-restore", "-e", "languageserver::run()" },
+        filetypes = { "r", "rmd", "quarto" },
+        root_markers = { "DESCRIPTION", ".git" },
+    })
+    vim.lsp.enable("r_language_server")
     ```
+
+  Open an `.R`, `.Rmd`, or `.qmd` file and run `:checkhealth vim.lsp` to
+  check the server configuration and connection. This setup does not require
+  `nvim-lspconfig`.
 
   or, if you use [coc.nvim](https://github.com/neoclide/coc.nvim), you can do one of two things:
   
@@ -92,7 +93,7 @@ The following editors are supported by installing the corresponding extensions:
 
     ```r
     install.packages("languageserver")
-    # or install the developement version
+    # or install the development version
     # remotes::install_github("REditorSupport/languageserver")
     ```
 
@@ -114,7 +115,8 @@ The following editors are supported by installing the corresponding extensions:
     (use-package ess :ensure t)
     (add-hook 'ess-r-mode-hook 'eglot-ensure)
     ```
-    To check if it is working, open an R file, place the cursor on a line and run `M-x ess-eval-line`.
+    Open an R file and use `M-x eglot-events-buffer` to inspect the server
+    connection, or `M-x completion-at-point` to request completions.
 
 - Emacs: [lsp-mode](https://github.com/emacs-lsp/lsp-mode)
 
@@ -199,15 +201,15 @@ settings | default | description
 `r.lsp.index_time_budget_ms` | `25` | approximate event-loop budget for each shallow-index batch
 `r.lsp.index_persistent_cache` | `true` | persist validated shallow summaries in the user cache directory
 `r.lsp.server_capabilities` | `{}` | override server capabilities defined in [capabilities.R](https://github.com/REditorSupport/languageserver/blob/master/R/capabilities.R). See FAQ below.
-`r.lsp.link_file_size_limit` | 16384 | maximum file size (in bytes) that supports document links
+`r.lsp.link_file_size_limit` | `16777216` (16 MiB) | maximum file size (in bytes) that supports document links
 
-These settings could also specified in `.Rprofile` file via `options(languageserver.<SETTING_NAME> =  <VALUE>)`. For example,
+These settings can also be specified in an `.Rprofile` file via `options(languageserver.<SETTING_NAME> = <VALUE>)`. For example,
 
 ```r
 options(languageserver.snippet_support = FALSE)
 ```
 
-will turn off snippet support globally. LSP configuration settings are always overriden by `options()`.
+will turn off snippet support for servers started with that profile. LSP configuration settings are always overridden by `options()`.
 
 Project indexing is deliberately two-tiered. Package `R/` files, open files,
 and the transitive dependencies of static `source()` or `sys.source()` calls
@@ -221,7 +223,10 @@ recognized; project code is never executed to resolve a path.
 
 ### Linters
 
-With [lintr](https://github.com/r-lib/lintr) v2.0.0, the linters can be specified by creating the `.lintr` file at the project or home directory. Details can be found at lintr [documentation](https://lintr.r-lib.org/articles/lintr.html).
+Configure [lintr](https://github.com/r-lib/lintr) by creating a `.lintr` file in
+the project or home directory. The package requires lintr 3.0.0 or later; see
+the [lintr documentation](https://lintr.r-lib.org/articles/lintr.html) for
+configuration options.
 
 ### Customizing server capabilities
 
