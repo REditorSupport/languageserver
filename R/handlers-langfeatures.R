@@ -311,7 +311,7 @@ text_document_formatting  <- function(self, id, params) {
     document <- workspace$documents$get(uri)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     options <- params$options
-    self$deliver(formatting_reply(id, uri, document, options))
+    enqueue_formatting(self, id, uri, document, options)
 }
 
 #' `textDocument/rangeFormatting` request handler
@@ -329,7 +329,7 @@ text_document_range_formatting  <- function(self, id, params) {
         end = document$from_lsp_position(params$range$end)
     )
     options <- params$options
-    self$deliver(range_formatting_reply(id, uri, document, range, options))
+    enqueue_formatting(self, id, uri, document, options, range = range)
 }
 
 #' `textDocument/rangesFormatting` request handler (LSP 3.18)
@@ -346,8 +346,7 @@ text_document_ranges_formatting <- function(self, id, params) {
             end = document$from_lsp_position(item$end)
         )
     })
-    self$deliver(ranges_formatting_reply(
-        id, uri, document, ranges, params$options))
+    enqueue_formatting(self, id, uri, document, params$options, ranges = ranges)
 }
 
 
