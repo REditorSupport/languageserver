@@ -92,7 +92,8 @@ lint_literate_file <- function(path, content, linters, cache) {
     # before applying the config's file and line exclusions. Inline nolint
     # comments have already been applied by lint().
     lints[] <- lapply(lints, function(lint) {
-        lint$filename <- normalizePath(path, mustWork = FALSE)
+        # lintr normalizes exclusion paths to forward slashes on Windows too.
+        lint$filename <- normalizePath(path, winslash = "/", mustWork = FALSE)
         lint
     })
     lintr_namespace$exclude(lints, lines = character())
