@@ -144,6 +144,33 @@ Omit `--wait-parse` to type immediately after opening; `--open-delay`, `--pause`
 and `--rounds` control other typing scenarios. `--profile /tmp/typing.Rprof`
 records an R sampling profile without enabling server debug logging.
 
+### Cold startup and diagnostics
+
+Each invocation starts a fresh R process. The `startup.initialize_ms` field
+measures process launch through the initialize response, and the first
+completion includes `startup_to_first_completion_ms`. With `--wait-parse`, the
+first preparation record also reports `open_to_symbols_ms`. These wall-clock
+measurements include any requested pauses, parse waits, or diagnostic waits;
+the per-request `elapsed_ms` remains the interactive completion measurement.
+
+```sh
+# Begin typing immediately after opening, without waiting for the initial parse.
+python3 inst/benchmarks/typing.py /tmp/languageserver-after --lines 20000 --index auto --pause 0
+
+# Exercise the normal diagnostics workload and verify the final edited version.
+python3 inst/benchmarks/typing.py /tmp/languageserver-after --lines 5000 --index auto --providers --diagnostics --wait-diagnostics --pause 1 --rounds 2
+```
+
+`--diagnostics` enables lintr with a fixture-local default configuration and
+disables its result cache. `--wait-diagnostics` requires an initial publication
+before typing and a publication for the final document version before shutdown.
+The transport summary includes publication counts and versions, so a run that
+never reaches diagnostics is distinguishable from one exercising the worker.
+The one-second typing interval allows the normal diagnostics debounce to fire;
+use `--pause 0.25` separately to measure continuous typing and cancellation.
+Diagnostics failures and missing final publications make the run fail. Run
+comparisons sequentially, with the same flags and R environment on each revision.
+
 Regression coverage checks old/new result equivalence, Unicode and UTF-16,
 missing arguments, nested/overlapping scopes, cursor boundaries, literate and
 incomplete documents, serialization, edits, live settings/files, namespace

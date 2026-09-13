@@ -14,6 +14,10 @@ parser = argparse.ArgumentParser()
 parser.add_argument("library")
 parser.add_argument("--lines", type=int, default=20000)
 parser.add_argument("--providers", action="store_true")
+parser.add_argument("--diagnostics", action="store_true",
+    help="enable lintr while measuring typing and report diagnostic publications")
+parser.add_argument("--wait-diagnostics", action="store_true",
+    help="wait for diagnostics before typing and for the final edited version")
 parser.add_argument("--wait-parse", action="store_true")
 parser.add_argument("--index", choices=("off", "auto"), default="off")
 parser.add_argument("--rounds", type=int, default=1)
@@ -24,20 +28,26 @@ parser.add_argument("--profile")
 args = parser.parse_args()
 if args.lines < 1 or args.rounds < 1 or min(args.pause, args.open_delay) < 0:
     parser.error("lines/rounds must be positive and delays nonnegative")
+if args.wait_diagnostics and not args.diagnostics:
+    parser.error("--wait-diagnostics requires --diagnostics")
 
 root = Path(tempfile.mkdtemp(prefix="completion-fixture-"))
 file = root / "script.R"
 lines = [f"value_{i:05d} <- sum(c(1, 2, 3))" for i in range(args.lines)] + [""]
 file.write_text("\n".join(lines), encoding="utf-8")
+# Keep the diagnostic workload independent of the user's home .lintr file.
+(root / ".lintr").write_text("linters: lintr::linters_with_defaults()\n", encoding="utf-8")
 env = os.environ.copy()
 env["R_LIBS"] = os.pathsep.join(filter(None, (str(Path(args.library).resolve()), env.get("R_LIBS", ""))))
-program = ('options(languageserver.diagnostics=FALSE, '
+program = (f'options(languageserver.diagnostics={"TRUE" if args.diagnostics else "FALSE"}, '
+           'languageserver.lint_cache=FALSE, '
            'languageserver.index_persistent_cache=FALSE, '
            f'languageserver.index_mode="{args.index}"); library(languageserver); ')
 if args.profile:
     program += f'Rprof({json.dumps(str(Path(args.profile).resolve()))}, interval=0.001); '
 program += 'languageserver::run(); Rprof(NULL)'
 stderr = open(root / "stderr.log", "wb")
+launched_at = time.monotonic()
 process = subprocess.Popen(["Rscript", "--vanilla", "-e", program], env=env,
     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=stderr, cwd=root)
 next_id = 0
@@ -45,6 +55,7 @@ condition = threading.Condition()
 requests = {}
 responses = {}
 background_responses = {}
+diagnostic_publications = []
 reader_failure = None
 reader_finished = False
 bytes_received = 0
@@ -95,6 +106,19 @@ def read_responses():
                 if "method" in payload:
                     if "id" in payload:
                         raise RuntimeError(f"Unexpected server request: {payload}")
+                    if payload["method"] == "textDocument/publishDiagnostics":
+                        params = payload["params"]
+                        diagnostics = params.get("diagnostics", [])
+                        if any(item.get("message", "").startswith("Failed to run diagnostics:")
+                               for item in diagnostics):
+                            raise RuntimeError(f"Diagnostics failed: {diagnostics}")
+                        with condition:
+                            diagnostic_publications.append({
+                                "uri": params["uri"], "version": params.get("version"),
+                                "count": len(diagnostics),
+                                "startup_ms": round((time.monotonic() - launched_at) * 1000, 2)
+                            })
+                            condition.notify_all()
                     continue  # Notifications need no response in this fixture.
                 with condition:
                     response_id = payload.get("id")
@@ -166,6 +190,20 @@ def pause(duration):
         check_reader()
 
 
+def receive_diagnostics(uri, version, timeout=120):
+    deadline = time.monotonic() + timeout
+    with condition:
+        while True:
+            check_reader()
+            for publication in diagnostic_publications:
+                if publication["uri"] == uri and publication["version"] == version:
+                    return dict(publication)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError(f"No diagnostics for version {version} within {timeout}s")
+            condition.wait(remaining)
+
+
 # Editors keep consuming stdout between keystrokes. Continuously drain the
 # pipe here too, otherwise large background responses block the server during
 # the pauses and artificially inflate the following completion measurement.
@@ -175,20 +213,32 @@ reader.start()
 try:
     receive(send("initialize", {"rootUri": root.as_uri(), "capabilities": {
         "textDocument": {"completion": {"completionItem": {"snippetSupport": True}}}}}))
+    print(json.dumps({"startup": {
+        "initialize_ms": round((time.monotonic() - launched_at) * 1000, 2),
+        "diagnostics": args.diagnostics, "lines": args.lines, "index": args.index
+    }}), flush=True)
     send("initialized", {}, False)
     uri = file.as_uri()
+    opened_at = time.monotonic()
     send("textDocument/didOpen", {"textDocument": {"uri": uri, "languageId": "r",
         "version": 1, "text": "\n".join(lines)}}, False)
     doc = {"textDocument": {"uri": uri}}
     previous = ""
     version = 1
     pause(args.open_delay)
+    if args.wait_diagnostics:
+        publication = receive_diagnostics(uri, version)
+        print(json.dumps({"initial_diagnostics": publication}), flush=True)
     for round_number in range(1, args.rounds + 1):
         if args.wait_parse or round_number > 1:
             started = time.monotonic()
             receive(send("textDocument/documentSymbol", doc))
-            print(json.dumps({"round": round_number, "prepare_ms": round(
-                (time.monotonic() - started) * 1000, 2)}), flush=True)
+            prepared_at = time.monotonic()
+            preparation = {"round": round_number, "prepare_ms": round(
+                (prepared_at - started) * 1000, 2)}
+            if round_number == 1:
+                preparation["open_to_symbols_ms"] = round((prepared_at - opened_at) * 1000, 2)
+            print(json.dumps(preparation), flush=True)
             pause(0.1)
         if args.providers:
             send("textDocument/documentSymbol", doc, background=True)
@@ -203,10 +253,17 @@ try:
                 "contentChanges": [{"range": {"start": {"line": args.lines, "character": 0},
                     "end": {"line": args.lines, "character": len(previous)}}, "text": token}]}, False)
             result = receive(send("textDocument/completion", {**doc, "position": point}))
-            print(json.dumps({"round": round_number, "token": token,
+            measurement = {"round": round_number, "token": token,
                 "elapsed_ms": round((time.monotonic() - start) * 1000, 2),
-                "items": len(result.get("items", []))}), flush=True)
+                "items": len(result.get("items", []))}
+            if round_number == 1 and token == "v":
+                measurement["startup_to_first_completion_ms"] = round(
+                    (time.monotonic() - launched_at) * 1000, 2)
+            print(json.dumps(measurement), flush=True)
             previous = token
+    if args.wait_diagnostics:
+        publication = receive_diagnostics(uri, version)
+        print(json.dumps({"final_diagnostics": publication}), flush=True)
     receive(send("shutdown", {}))
     exit_code = process.wait(timeout=10)
     reader.join(timeout=10)
@@ -221,7 +278,9 @@ try:
             "bytes_received": bytes_received,
             "providers_completed": sum(item["error"] is None for item in background_responses.values()),
             "providers_cancelled": sum(item["error"] is not None for item in background_responses.values()),
-            "providers_pending": sum(background for _, background in requests.values())
+            "providers_pending": sum(background for _, background in requests.values()),
+            "diagnostic_publications": len(diagnostic_publications),
+            "diagnostic_versions": [item["version"] for item in diagnostic_publications]
         }}), flush=True)
 finally:
     closing.set()
