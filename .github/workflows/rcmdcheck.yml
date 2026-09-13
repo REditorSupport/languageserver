@@ -1,5 +1,8 @@
 name: R-CMD-check
 
+permissions:
+  contents: read
+
 on:
   push:
     branches:
@@ -15,17 +18,26 @@ concurrency:
 jobs:
   rcmdcheck:
     if: contains(github.event.head_commit.message, '[ci skip]') == false
-    name: rcmdcheck ${{ matrix.os }}
+    name: rcmdcheck ${{ matrix.os }} (R ${{ matrix.r }})
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
+            r: release
             log_file: /tmp/languageserver/ubuntu-log
           - os: macos-latest
+            r: release
             log_file: /tmp/languageserver/macos-log
           - os: windows-latest
+            r: release
             log_file: C:/tmp/languageserver/windows-log
+          - os: ubuntu-latest
+            r: oldrel-1
+            log_file: /tmp/languageserver/oldrel-log
+          - os: ubuntu-latest
+            r: devel
+            log_file: /tmp/languageserver/devel-log
     runs-on: ${{ matrix.os }}
     env:
       NOT_CRAN: true
@@ -36,7 +48,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: r-lib/actions/setup-r@v2
         with:
-          r-version: release
+          r-version: ${{ matrix.r }}
       - name: Create log directory on Linux or macOS
         if: runner.os != 'Windows'
         run: mkdir -p $(dirname ${{ env.R_LANGSVR_LOG }})
@@ -77,5 +89,5 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
-          name: ${{ runner.os }}-log
+          name: ${{ runner.os }}-${{ matrix.r }}-log
           path: ${{ env.R_LANGSVR_LOG }}

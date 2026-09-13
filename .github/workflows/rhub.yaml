@@ -7,9 +7,18 @@
 # It is unlikely that you need to modify this file manually.
 
 name: R-hub
-run-name: "${{ github.event.inputs.id }}: ${{ github.event.inputs.name || format('Manually run by {0}', github.triggering_actor) }}"
+run-name: "${{ github.event_name == 'schedule' && 'Weekly native memory checks' || github.event.inputs.name || format('Manually run by {0}', github.triggering_actor) }}"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: false
 
 on:
+  schedule:
+    - cron: '23 3 * * 1'
   workflow_dispatch:
     inputs:
       config:
@@ -32,11 +41,11 @@ jobs:
       platforms: ${{ steps.rhub-setup.outputs.platforms }}
 
     steps:
-    # NO NEED TO CHECKOUT HERE
-    - uses: r-hub/actions/setup@v1
-      with:
-        config: ${{ github.event.inputs.config }}
-      id: rhub-setup
+      # No checkout needed to resolve the platform matrix.
+      - uses: r-hub/actions/setup@v1
+        with:
+          config: ${{ github.event.inputs.config || 'clang-asan,valgrind,rchk' }}
+        id: rhub-setup
 
   linux-containers:
     needs: setup
