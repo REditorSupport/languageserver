@@ -1,4 +1,4 @@
-# languageserver 0.3.18
+# languageserver 0.3.19
 
 - Add a shared Quarto/R Markdown region model with `.qmd` and Quarto language
   ID detection, independent R-cell parsing, nested fenced-div folding, and
@@ -47,14 +47,61 @@
 - Track the last successful ordered package request for each document, avoiding
   redundant `callr` subprocesses after transient parse errors or representation
   changes while preserving package attachment order (#754).
+- Classify function assignment names as function semantic tokens and fix semantic token regression assertions (#756, #757).
+- Prefer `STR_CONST` in `xdoc_find_token()` at ambiguous punctuation/string boundaries (#739, #740).
+- Update documentation for Emacs Eglot setup and libuv system dependency (#732, #733).
+- Reduce provider and typing latency with native C indexes, cached provider and namespace metadata, and responsive completion during typing (#758).
+- Safely handle namespaced calls in argument default values within `extract_default_values()` (#759).
 
 **Closed issues:**
 
+- Package resolution (`resolve_attached_packages`) spawns fresh R subprocess on keystrokes in Quarto/R Markdown documents (#754)
+- `xdoc_find_token` resolves to adjacent punctuation instead of string literal at unspaced quote (#739)
+- Type hierarchy supertypes and subtypes return empty for S4 / RefClass (#738)
+- `diagnose_file`: empty path crash and `.lintr` config never applied when using `text=` argument (#722)
+- Segfault with invalid permissions in Neovim context (#721)
+- Support directory-nested R packages (monorepo support) (#619)
+- Document installation for Emacs (#354)
 - Add extract and inline refactorings (#94)
+- Extend completion with source by recursive parsing (#20)
+
+**Merged pull requests:**
+
+- Protect extract_default_values for namespaced calls (#759)
+- Reduce provider and typing latency with native indexes and serialization (#758)
+- Fix semantic token regression test assertion and update semantic (#757)
+- Classify function assignment names as function semantic tokens (#756)
+- Avoid redundant package resolution (#755)
+- Add extract and inline refactorings (#753)
+- Add Quarto and R Markdown region model (#752)
+- Add scalable project-wide R indexing (#751)
+- Improve task manager reliability (#750)
+- Fix broken pipe crash in task sessions (#749)
+- Fix diagnostics cancellation interrupt race (#748)
+- Raise test coverage above 95% (#747)
+- Improve code actions (#746)
+- Improve language server responsiveness (#745)
+- Improve inlay hint argument tooltips (#744)
+- Improve completion responsiveness (#743)
+- Make on-type formatting robust for incomplete expressions (#742)
+- Update LSP 3.18 providers and improve responsiveness (#741)
+- `xdoc_find_token()` now prefers `STR_CONST` at ambiguous punctuation/string boundaries (#740)
+- Bump actions/cache from 5 to 6 (#737)
+- Bump actions/checkout from 6 to 7 (#736)
+- Bump codecov/codecov-action from 6 to 7 (#734)
+- Added emacs eglot setup instructions (#733)
+- Added missing libuv dependency to README.md (#732)
+
+# languageserver 0.3.18
+
+**Closed issues:**
+
 - Failed to run diagnostics: ! in callr subprocess. Caused by error in `call[[1L]]` (#723)
 
 **Merged pull requests:**
 
+- fix: protect SEXP objects in C code (#728)
+- feat: add stringr to Suggests for roxygen2 8.0.0 (#729)
 - Bump codecov/codecov-action from 5 to 6 (#724)
 - fix: avoid rlang formatting crash in callr subprocess (#723) (#725)
 - Multi root support (#719)
