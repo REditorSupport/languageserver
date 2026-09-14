@@ -1,3 +1,8 @@
+# languageserver (development version)
+
+- Repair CRAN-to-GitHub release automation with authenticated, idempotent
+  publication from the finalized release commit.
+
 # languageserver 0.3.19
 
 - Add a shared Quarto/R Markdown region model with `.qmd` and Quarto language
