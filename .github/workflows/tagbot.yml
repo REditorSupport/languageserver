@@ -1,21 +1,52 @@
-name: TagBot
+name: CRAN release
 
 on:
   schedule:
-    # every six hour
-    - cron: 0 */6 * * *
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Preview the release without creating a tag or release
+        type: boolean
+        default: true
+  pull_request:
+    paths:
+      - '.github/workflows/tagbot.yml'
+      - '.github/scripts/cran_release.py'
+      - '.github/scripts/test_cran_release.py'
+
+permissions:
+  contents: read
 
 jobs:
-  publish-github-release:
+  test:
     runs-on: ubuntu-latest
-    container: rtagbot/tagbot:latest
     steps:
       - uses: actions/checkout@v7
         with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s .github/scripts -p 'test_cran_release.py' -v
+
+  publish-github-release:
+    needs: test
+    if: github.event_name != 'pull_request' && github.repository == 'REditorSupport/languageserver'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: cran-release-publish
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 0
-      - name: check and publish release
-        run: |
-          tagbot::publish_release()
-        shell: Rscript {0}
+          persist-credentials: false
+      - name: Check CRAN and publish the matching release
         env:
-          GITHUB_PAT: ${{secrets.GITHUB_TOKEN}}
+          GH_TOKEN: ${{ github.token }}
+          PUBLISH: ${{ github.event_name == 'schedule' || !inputs.dry_run }}
+        run: |
+          args=()
+          if [[ "$PUBLISH" == true ]]; then args+=(--publish); fi
+          python3 .github/scripts/cran_release.py "${args[@]}"
