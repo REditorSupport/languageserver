@@ -69,6 +69,36 @@ find_config <- function(filename) {
     asNamespace("lintr")$find_config(filename)
 }
 
+#' Lint extracted R code using the settings and exclusions of its source file
+#' @noRd
+lint_literate_file <- function(path, content, linters, cache) {
+    # lintr 3.0 interprets text according to the filename's extension, even
+    # when it has already been extracted. Load the source file's settings
+    # separately so the line-preserving R content is not extracted again.
+    lintr_namespace <- asNamespace("lintr")
+    settings <- lintr_namespace$settings
+    previous_settings <- as.list(settings, all.names = TRUE)
+    on.exit({
+        rm(list = ls(settings, all.names = TRUE), envir = settings)
+        list2env(previous_settings, envir = settings)
+    })
+    lintr_namespace$read_settings(path)
+    lints <- lintr::lint(
+        text = content, linters = linters, cache = cache,
+        parse_settings = FALSE
+    )
+
+    # Inline linting uses a temporary filename. Restore the real filename
+    # before applying the config's file and line exclusions. Inline nolint
+    # comments have already been applied by lint().
+    lints[] <- lapply(lints, function(lint) {
+        # lintr normalizes exclusion paths to forward slashes on Windows too.
+        lint$filename <- normalizePath(path, winslash = "/", mustWork = FALSE)
+        lint
+    })
+    lintr_namespace$exclude(lints, lines = character())
+}
+
 #' Run diagnostic on a file
 #'
 #' Lint and diagnose problems in a file.
@@ -107,7 +137,9 @@ diagnose_file <- function(uri, content, is_rmarkdown = FALSE, globals = NULL, ca
         linters <- lintr::linters_with_defaults()
     }
 
-    if (file.exists(path) && !is_rmarkdown) {
+    if (nzchar(path) && is_rmarkdown) {
+        lints <- lint_literate_file(path, content, linters, cache)
+    } else if (nzchar(path)) {
         lints <- lintr::lint(path,
             cache = cache,
             text = content,
@@ -128,9 +160,11 @@ diagnose_file <- function(uri, content, is_rmarkdown = FALSE, globals = NULL, ca
     diagnostics
 }
 
-diagnostics_callback <- function(self, uri, version, diagnostics) {
+diagnostics_callback <- function(self, uri, version, diagnostics, clear = FALSE) {
     workspace <- self$get_workspace(uri)
-    if (is.null(diagnostics) || !workspace$documents$has(uri) || !lsp_settings$get("diagnostics")) return(NULL)
+    if (is.null(diagnostics) || !workspace$documents$has(uri)) return(NULL)
+    if (!lsp_settings$get("diagnostics") && !isTRUE(clear)) return(NULL)
+    if (isTRUE(clear)) diagnostics <- list()
     document <- workspace$documents$get(uri)
     if (!is.null(version) && !identical(document$version, version)) {
         logger$info("diagnostics_callback: discarded stale result", list(
