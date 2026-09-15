@@ -133,6 +133,9 @@ test_that("native reference resolution restores enclosing scopes after siblings"
     )
     expect_identical(resolve(1, 1, integer(), integer(), integer()), 0L)
     expect_identical(resolve(integer(), integer(), 1, 1, 2), integer())
+    expect_identical(resolve(integer(), integer(), integer(), integer(), integer()), integer())
+    expect_identical(resolve(c(0, -1), c(1, 1), c(1, 1), c(1, 1), c(2, 2)), c(0L, 0L))
+    expect_identical(resolve(c(1, 1), c(1, 2), c(0, -1), c(1, 1), c(2, 2)), c(0L, 0L))
 })
 
 test_that("reference name indexes serialize and preserve fallback results", {

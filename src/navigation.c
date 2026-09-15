@@ -115,6 +115,11 @@ SEXP reference_resolve_local_c(
         Rf_error("invalid reference scope index");
     }
     SEXP result = PROTECT(Rf_allocVector(INTSXP, n));
+    for (int i = 0; i < n; ++i) INTEGER(result)[i] = 0;
+    if (n == 0 || d == 0) {
+        UNPROTECT(1);
+        return result;
+    }
     reference_interval *occurrences = (reference_interval *) R_alloc(
         n, sizeof(reference_interval));
     reference_interval *definitions = (reference_interval *) R_alloc(
@@ -122,7 +127,6 @@ SEXP reference_resolve_local_c(
     int *heap = (int *) R_alloc(d, sizeof(int));
     int n_occurrences = 0, n_definitions = 0;
     for (int i = 0; i < n; ++i) {
-        INTEGER(result)[i] = 0;
         int group = INTEGER(occurrence_group)[i];
         if (group <= 0) continue;
         reference_interval *item = &occurrences[n_occurrences++];
@@ -141,8 +145,16 @@ SEXP reference_resolve_local_c(
         item->start = source_position(INTEGER(line1)[i], INTEGER(col1)[i]);
         item->end = source_position(INTEGER(line2)[i], INTEGER(col2)[i]);
     }
-    qsort(occurrences, n_occurrences, sizeof(reference_interval), interval_compare);
-    qsort(definitions, n_definitions, sizeof(reference_interval), interval_compare);
+    if (n_occurrences == 0 || n_definitions == 0) {
+        UNPROTECT(1);
+        return result;
+    }
+    if (n_occurrences > 1) {
+        qsort(occurrences, n_occurrences, sizeof(reference_interval), interval_compare);
+    }
+    if (n_definitions > 1) {
+        qsort(definitions, n_definitions, sizeof(reference_interval), interval_compare);
+    }
     int next = 0, heap_size = 0, group = 0;
     for (int i = 0; i < n_occurrences; ++i) {
         if ((i & 4095) == 0) R_CheckUserInterrupt();
