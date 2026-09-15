@@ -3,8 +3,14 @@
 on:
   push:
     branches: [main, master]
+    paths-ignore:
+      - '**.md'
+      - '.gitignore'
   pull_request:
     branches: [main, master]
+    paths-ignore:
+      - '**.md'
+      - '.gitignore'
 
 name: Coverage
 
@@ -22,9 +28,7 @@ jobs:
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
       NOT_CRAN: true
       _R_CHECK_CRAN_INCOMING_: false
-      R_LANGSVR_LOG: ${{ matrix.log_file }}
-      R_LANGSVR_POOL_SIZE: 1
-      R_LANGSVR_TEST_FAST: NO
+      TESTTHAT_CPUS: 4
 
     steps:
       - uses: actions/checkout@v7
