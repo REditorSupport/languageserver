@@ -77,7 +77,10 @@ workspace_did_change_configuration <- function(self, params) {
     if (!lsp_settings$get("diagnostics")) {
         for (workspace in self$workspaces$values()) {
             for (uri in workspace$documents$keys()) {
-                diagnostics_callback(self, uri, NULL, list())
+                if (!is.null(self$diagnostics_task_manager)) {
+                    self$diagnostics_task_manager$cancel(uri)
+                }
+                diagnostics_callback(self, uri, NULL, list(), clear = TRUE)
             }
         }
     }
