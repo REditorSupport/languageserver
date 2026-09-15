@@ -28,12 +28,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3, 4]
         include:
           - shard: 1
-            filter: '^[a-m]'
+            filter: '^[a-c]'
           - shard: 2
-            filter: '^[n-z]'
+            filter: '^[d-i]'
+          - shard: 3
+            filter: '^[j-r]'
+          - shard: 4
+            filter: '^[s-z]'
     env:
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
       NOT_CRAN: true
