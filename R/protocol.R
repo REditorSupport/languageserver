@@ -95,13 +95,18 @@ Response <- R6::R6Class("Response",
             self$error <- error
         },
         to_json = function() {
-            payload <- list(
-                jsonrpc = self$jsonrpc,
-                id = self$id,
-                result = self$result
-            )
             if (!is.null(self$error)) {
-                payload$error <- self$error
+                payload <- list(
+                    jsonrpc = self$jsonrpc,
+                    id = self$id,
+                    error = self$error
+                )
+            } else {
+                payload <- list(
+                    jsonrpc = self$jsonrpc,
+                    id = self$id,
+                    result = self$result
+                )
             }
             response_to_json(payload)
         }
