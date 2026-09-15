@@ -89,6 +89,7 @@ on_exit <- function(self, params) {
 #' @noRd
 cancel_request <- function(self, params) {
     request_id <- params$id
+    if (!is.null(request_id)) cancel_formatting_requests(self, id = request_id)
     for (uri in self$pending_replies$keys()) {
         queues <- self$pending_replies$get(uri)
         for (queue in queues) {

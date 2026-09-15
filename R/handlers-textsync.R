@@ -15,6 +15,8 @@ update_document_index <- function(self, workspace, uri, content,
 text_document_did_open <- function(self, params) {
     textDocument <- params$textDocument
     uri <- uri_escape_unicode(textDocument$uri)
+    cancel_formatting_requests(self, uri = uri,
+        message = "Request superseded by a reopened document")
     language <- textDocument$languageId
     version <- textDocument$version
     text <- textDocument$text
@@ -51,6 +53,8 @@ text_document_did_change <- function(self, params) {
     uri <- uri_escape_unicode(textDocument$uri)
     version <- textDocument$version
     logger$info("did change:", list(uri = uri, version = version))
+    cancel_formatting_requests(self, uri = uri,
+        message = "Request superseded by a newer document version")
 
     pending <- self$pending_replies$get(uri, NULL)
     for (queue in pending) {
@@ -135,6 +139,10 @@ text_document_did_save <- function(self, params) {
         content <- NULL
     }
     doc <- workspace$documents$get(uri)
+    if (!identical(doc$content, content)) {
+        cancel_formatting_requests(self, uri = uri,
+            message = "Request superseded by updated document content")
+    }
     doc$set_content(doc$version, content)
     doc$did_open()
     update_document_index(
@@ -149,6 +157,8 @@ text_document_did_save <- function(self, params) {
 text_document_did_close <- function(self, params) {
     textDocument <- params$textDocument
     uri <- uri_escape_unicode(textDocument$uri)
+    cancel_formatting_requests(self, uri = uri,
+        message = "Request cancelled because the document was closed")
     path <- path_from_uri(uri)
     
     workspace <- self$get_workspace(uri)

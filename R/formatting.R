@@ -1,3 +1,98 @@
+#' Format an immutable document snapshot in a background worker
+#' @noRd
+format_document <- function(snapshot, options, range = NULL, ranges = NULL,
+    formatting_options = list(), working_directory = getwd()) {
+    old_directory <- setwd(working_directory)
+    on.exit(setwd(old_directory), add = TRUE)
+    old_options <- base::options(formatting_options)
+    on.exit(base::options(old_options), add = TRUE)
+
+    document <- Document$new(snapshot$uri, language = snapshot$language,
+        version = snapshot$version, content = snapshot$content)
+    reply <- if (!is.null(ranges)) {
+        ranges_formatting_reply(NULL, snapshot$uri, document, ranges, options)
+    } else if (!is.null(range)) {
+        range_formatting_reply(NULL, snapshot$uri, document, range, options)
+    } else {
+        formatting_reply(NULL, snapshot$uri, document, options)
+    }
+    reply$result
+}
+
+#' Complete formatting only while its document snapshot is still current
+#' @noRd
+formatting_callback <- function(self, request, result = NULL, error = NULL) {
+    key <- as.character(request$id)
+    if (!identical(self$formatting_requests$get(key, NULL), request)) {
+        return(invisible(NULL))
+    }
+    self$formatting_requests$remove(key)
+    workspace <- self$get_workspace(request$uri)
+    current <- workspace$documents$get(request$uri, NULL)
+    if (is.null(current) || !identical(current, request$document) ||
+            !identical(current$version, request$version) ||
+            !identical(current$content, request$content) ||
+            !identical(current$is_open, request$is_open)) {
+        reply <- ResponseErrorMessage$new(request$id, "RequestCancelled",
+            "Request superseded by updated document content")
+    } else if (!is.null(error)) {
+        logger$info("formatting task error: ", error)
+        reply <- ResponseErrorMessage$new(request$id, "InternalError",
+            "Background formatting failed")
+    } else {
+        reply <- Response$new(request$id, result)
+    }
+    self$deliver(reply)
+    invisible(NULL)
+}
+
+#' Queue full-document and explicit-selection formatting without blocking input
+#' @noRd
+enqueue_formatting <- function(self, id, uri, document, options,
+    range = NULL, ranges = NULL) {
+    request <- list(id = id, uri = uri, version = document$version,
+        content = document$content, is_open = document$is_open,
+        document = document, token = new.env(parent = emptyenv()))
+    snapshot <- list(uri = uri, language = document$language,
+        version = document$version, content = document$content)
+    formatting_options <- base::options()
+    formatting_options <- formatting_options[
+        grepl("^styler\\.", names(formatting_options))]
+    # Explicitly include NULL so a worker's startup profile cannot override
+    # the formatter selected in the language-server process.
+    formatting_options["languageserver.formatting_style"] <- list(
+        getOption("languageserver.formatting_style"))
+    task <- create_task(
+        target = package_call(format_document),
+        args = list(snapshot = snapshot, options = options, range = range,
+            ranges = ranges, formatting_options = formatting_options,
+            working_directory = getwd()),
+        callback = function(result) formatting_callback(self, request, result),
+        error = function(error) formatting_callback(self, request, error = error)
+    )
+    key <- as.character(id)
+    self$formatting_requests$set(key, request)
+    self$formatting_task_manager$add_task(key, task)
+    invisible(NULL)
+}
+
+#' Cancel pending or running formatting and send exactly one response
+#' @noRd
+cancel_formatting_requests <- function(self, uri = NULL, id = NULL,
+    message = "Request cancelled by client") {
+    if (is.null(self$formatting_requests)) return(invisible(NULL))
+    for (key in self$formatting_requests$keys()) {
+        request <- self$formatting_requests$get(key)
+        if ((!is.null(uri) && !identical(request$uri, uri)) ||
+                (!is.null(id) && !identical(key, as.character(id)))) next
+        self$formatting_requests$remove(key)
+        self$formatting_task_manager$cancel(key)
+        self$deliver(ResponseErrorMessage$new(
+            request$id, "RequestCancelled", message))
+    }
+    invisible(NULL)
+}
+
 get_style <- function(options) {
     style <- getOption("languageserver.formatting_style")
     if (is.null(style)) {

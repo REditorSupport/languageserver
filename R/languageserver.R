@@ -37,6 +37,8 @@ LanguageServer <- R6::R6Class("LanguageServer",
         diagnostics_task_manager = NULL,
         parse_task_manager = NULL,
         resolve_task_manager = NULL,
+        formatting_task_manager = NULL,
+        formatting_requests = NULL,
         pending_replies = NULL,
         initialize = function(host, port) {
             if (is.null(port)) {
@@ -72,6 +74,12 @@ LanguageServer <- R6::R6Class("LanguageServer",
             # resolve task require a new session for every task
             self$resolve_task_manager <- TaskManager$new("resolve")
 
+            self$formatting_task_manager <- TaskManager$new(
+                "formatting", use_session = TRUE,
+                max_running_tasks = 1, min_idle_sessions = 0
+            )
+            self$formatting_requests <- collections::dict()
+
             self$pending_replies <- collections::dict()
             self$workspaces <- collections::dict()
             self$workspace_cache <- collections::dict()
@@ -83,6 +91,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$parse_task_manager$check_tasks()
             self$diagnostics_task_manager$check_tasks()
             self$resolve_task_manager$check_tasks()
+            self$formatting_task_manager$check_tasks()
             # Start latency-sensitive parse work before diagnostics.
             self$parse_task_manager$run_tasks()
             if (!self$parse_task_manager$has_work()) {
@@ -95,6 +104,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 self$diagnostics_task_manager$run_tasks()
             }
             self$resolve_task_manager$run_tasks()
+            self$formatting_task_manager$run_tasks()
             for (workspace in self$workspaces$values()) {
                 workspace$poll_namespace_file()
             }
@@ -400,6 +410,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     if (!is.null(self$parse_task_manager)) self$parse_task_manager$stop()
                     if (!is.null(self$diagnostics_task_manager)) self$diagnostics_task_manager$stop()
                     if (!is.null(self$resolve_task_manager)) self$resolve_task_manager$stop()
+                    if (!is.null(self$formatting_task_manager)) self$formatting_task_manager$stop()
                 },
                 add = TRUE
             )
