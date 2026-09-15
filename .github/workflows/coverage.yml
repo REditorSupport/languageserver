@@ -23,12 +23,23 @@ concurrency:
 jobs:
   test-coverage:
     if: contains(github.event.head_commit.message, '[ci skip]') == false
+    name: test-coverage (shard ${{ matrix.shard }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+        include:
+          - shard: 1
+            filter: '^[a-m]'
+          - shard: 2
+            filter: '^[n-z]'
     env:
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
       NOT_CRAN: true
       _R_CHECK_CRAN_INCOMING_: false
       TESTTHAT_CPUS: 4
+      TESTTHAT_FILTER: ${{ matrix.filter }}
 
     steps:
       - uses: actions/checkout@v7
@@ -57,6 +68,7 @@ jobs:
           # Fail if error if not on PR, or if on PR and token is given
           fail_ci_if_error: ${{ github.event_name != 'pull_request' || secrets.CODECOV_TOKEN }}
           files: ./cobertura.xml
+          flags: shard-${{ matrix.shard }}
           plugins: noop
           disable_search: true
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -72,5 +84,5 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: coverage-test-failures
+          name: coverage-test-failures-shard-${{ matrix.shard }}
           path: ${{ runner.temp }}/package
