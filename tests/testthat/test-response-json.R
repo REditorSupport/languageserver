@@ -51,12 +51,23 @@ test_that("Response and error message wire formats retain jsonlite behavior", {
         Response$new(5L, error = list(code = -32603L, message = "error", data = NULL))
     )
     for (response in responses) {
-        payload <- list(jsonrpc = response$jsonrpc, id = response$id, result = response$result)
-        if (!is.null(response$error)) payload$error <- response$error
+        if (!is.null(response$error)) {
+            payload <- list(jsonrpc = response$jsonrpc, id = response$id, error = response$error)
+        } else {
+            payload <- list(jsonrpc = response$jsonrpc, id = response$id, result = response$result)
+        }
         expected <- reference_response_json(payload)
         expect_identical(response$to_json(), expected)
         expect_identical(response$format(), paste0("Content-Length: ",
                 nchar(expected, type = "bytes"), "\r\n\r\n", expected))
+        parsed <- jsonlite::fromJSON(response$to_json(), simplifyVector = FALSE)
+        if (!is.null(response$error)) {
+            expect_true("error" %in% names(parsed))
+            expect_false("result" %in% names(parsed))
+        } else {
+            expect_true("result" %in% names(parsed))
+            expect_false("error" %in% names(parsed))
+        }
     }
 })
 
