@@ -1,3 +1,34 @@
+# languageserver 0.3.20
+
+- Run full-document, range, and multiple-range formatting in a lazy, cancellable
+  background worker so other editor requests remain responsive during formatting (#764, #251).
+- Stabilize diagnostics for Quarto and R Markdown documents by preserving
+  source-specific settings, custom suppression markers, and exclusions when linting
+  extracted code, while normalizing paths on Windows (#763, #726).
+- Clear published diagnostics and cancel queued or running lint tasks when diagnostics
+  are disabled (#763).
+- Strictly enforce mutual exclusivity of `result` and `error` in JSON-RPC responses
+  per the JSON-RPC 2.0 specification, preventing strict clients like Neovim from
+  disconnecting on errors (#768, #766).
+- Prevent undefined behavior in `reference_resolve_local_c()` by guarding `qsort` and
+  avoiding zero-length allocations when definitions or occurrences are empty (#767).
+- Speed up test-coverage workflow by utilizing 4 CPUs, path filtering, and 4-way
+  balanced test sharding (#769).
+
+**Closed issues:**
+
+- Ensure error and result are mutually exclusive in JSON-RPC responses (#766)
+- Quarto / R Markdown / new file buffers ignoring nested `.lintr` config and diagnostics not clearing when disabled (#726)
+- Non-blocking formatting: run explicit formatting in background (#251)
+
+**Merged pull requests:**
+
+- Speed up test-coverage workflow with 4 CPUs, sharding, and path filtering (#769)
+- Ensure error and result are mutually exclusive in JSON-RPC responses (#768)
+- Avoid passing null or zero-length buffers to qsort in reference resolution (#767)
+- Run explicit formatting in the background (#764)
+- Stabilize diagnostics (#763)
+
 # languageserver 0.3.19
 
 - Add a shared Quarto/R Markdown region model with `.qmd` and Quarto language
