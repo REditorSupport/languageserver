@@ -83,6 +83,7 @@
 - Update documentation for Emacs Eglot setup and libuv system dependency (#732, #733).
 - Reduce provider and typing latency with native C indexes, cached provider and namespace metadata, and responsive completion during typing (#758).
 - Safely handle namespaced calls in argument default values within `extract_default_values()` (#759).
+- Preserve missing terminal newline state during diagnostics and provide a preferred quick fix for `trailing_blank_lines_linter` (#772).
 
 **Closed issues:**
 

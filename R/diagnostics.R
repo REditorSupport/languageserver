@@ -101,12 +101,53 @@ lint_document_text <- function(path, content, linters = NULL, cache = FALSE) {
     lintr_namespace$exclude(lints, lines = character())
 }
 
+lintr_supports_text_terminal_newline <- function() {
+    lines <- asNamespace("lintr")$get_lines(
+        filename = "x.R",
+        text = "x"
+    )
+    isFALSE(attr(lines, "terminal_newline", exact = TRUE))
+}
+
+lint_without_terminal_newline <- function(path, content, linters, cache) {
+    tmp <- tempfile(fileext = ".R")
+    on.exit(unlink(tmp), add = TRUE)
+    cat(paste(content, collapse = "\n"), file = tmp)
+    if (!nzchar(path)) {
+        return(lintr::lint(
+            filename = tmp,
+            cache = cache,
+            parse_settings = TRUE,
+            linters = linters
+        ))
+    }
+    lintr_namespace <- asNamespace("lintr")
+    settings <- lintr_namespace$settings
+    previous_settings <- as.list(settings, all.names = TRUE)
+    on.exit({
+        rm(list = ls(settings, all.names = TRUE), envir = settings)
+        list2env(previous_settings, envir = settings)
+    }, add = TRUE)
+    lintr_namespace$read_settings(path)
+    lints <- lintr::lint(
+        filename = tmp,
+        linters = linters,
+        cache = cache,
+        parse_settings = FALSE
+    )
+    lints[] <- lapply(lints, function(lint) {
+        lint$filename <- normalizePath(path, winslash = "/", mustWork = FALSE)
+        lint
+    })
+    lintr_namespace$exclude(lints, lines = content)
+}
+
 #' Run diagnostic on a file
 #'
 #' Lint and diagnose problems in a file.
 #' @noRd
 diagnose_file <- function(uri, content, is_rmarkdown = FALSE, globals = NULL, cache = FALSE) {
-    if (length(content) == 0) {
+    if (length(content) == 0 || identical(content, "")) {
         return(list())
     }
 
@@ -119,14 +160,12 @@ diagnose_file <- function(uri, content, is_rmarkdown = FALSE, globals = NULL, ca
 
     path <- path_from_uri(uri)
 
-    if (length(content) == 1) {
-        content <- c(content, "")
-    }
+    terminal_newline <- is_rmarkdown || !nzchar(content[[length(content)]])
 
     if (length(globals)) {
         env_name <- "languageserver:globals"
         do.call("attach", list(globals, name = env_name, warn.conflicts = FALSE))
-        on.exit(do.call("detach", list(env_name, character.only = TRUE)))
+        on.exit(do.call("detach", list(env_name, character.only = TRUE)), add = TRUE)
     }
 
     linters <- NULL
@@ -139,6 +178,8 @@ diagnose_file <- function(uri, content, is_rmarkdown = FALSE, globals = NULL, ca
 
     if (nzchar(path) && is_rmarkdown) {
         lints <- lint_document_text(path, content, linters, cache)
+    } else if (!is_rmarkdown && !terminal_newline && !lintr_supports_text_terminal_newline()) {
+        lints <- lint_without_terminal_newline(path, content, linters, cache)
     } else if (nzchar(path)) {
         lints <- lintr::lint(path,
             cache = cache,

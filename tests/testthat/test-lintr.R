@@ -292,3 +292,60 @@ test_that("diagnose_file object_usage_linter acknowledges NAMESPACE imports and 
         path_to_uri(script_main), script_code, globals = script_globals, cache = FALSE)
     expect_length(script_diags, 0L)
 })
+
+test_that("diagnose_file reports missing terminal newline for single-line and multi-line files", {
+    temp_file <- withr::local_tempfile(fileext = ".R")
+    cat("x <- 1", file = temp_file)
+    uri <- path_to_uri(temp_file)
+
+    diag_single_missing <- diagnose_file(uri, "x <- 1", cache = FALSE)
+    expect_length(diag_single_missing, 1L)
+    expect_equal(diag_single_missing[[1L]]$code, "trailing_blank_lines_linter")
+    expect_equal(diag_single_missing[[1L]]$message, "Add a terminal newline.")
+
+    diag_single_present <- diagnose_file(uri, c("x <- 1", ""), cache = FALSE)
+    expect_length(diag_single_present, 0L)
+
+    diag_multi_missing <- diagnose_file(uri, c("x <- 1", "y <- 2"), cache = FALSE)
+    expect_length(diag_multi_missing, 1L)
+    expect_equal(diag_multi_missing[[1L]]$code, "trailing_blank_lines_linter")
+    expect_equal(diag_multi_missing[[1L]]$message, "Add a terminal newline.")
+
+    diag_multi_present <- diagnose_file(uri, c("x <- 1", "y <- 2", ""), cache = FALSE)
+    expect_length(diag_multi_present, 0L)
+
+    fallback_lints <- lint_without_terminal_newline(
+        temp_file, "x <- 1", lintr::linters_with_defaults(), cache = FALSE
+    )
+    expect_length(fallback_lints, 1L)
+    expect_equal(fallback_lints[[1L]]$message, "Add a terminal newline.")
+
+    fallback_untitled <- lint_without_terminal_newline(
+        "", "x <- 1", lintr::linters_with_defaults(), cache = FALSE
+    )
+    expect_length(fallback_untitled, 1L)
+    expect_equal(fallback_untitled[[1L]]$message, "Add a terminal newline.")
+})
+
+test_that("LSP publishes missing terminal newline diagnostic on did_open", {
+    skip_on_cran()
+    dir <- tempdir()
+    client <- language_client(working_dir = dir, diagnostics = TRUE)
+
+    temp_file <- withr::local_tempfile(tmpdir = dir, fileext = ".R")
+    cat("x <- 1", file = temp_file)
+
+    client %>% did_open(temp_file)
+    data <- client %>% wait_for("textDocument/publishDiagnostics")
+
+    expect_length(data$diagnostics, 1L)
+    expect_equal(data$diagnostics[[1]]$code, "trailing_blank_lines_linter")
+    expect_equal(data$diagnostics[[1]]$message, "Add a terminal newline.")
+    expect_equal(
+        data$diagnostics[[1]]$range,
+        list(
+            start = list(line = 0, character = 6),
+            end = list(line = 0, character = 6)
+        )
+    )
+})
