@@ -9,7 +9,7 @@ test_that("lintr works", {
     writeLines("linters: linters_with_defaults()", lintr_file)
 
     temp_file <- withr::local_tempfile(tmpdir = dir, fileext = ".R")
-    writeLines("a = 1", temp_file)
+    writeLines(c("a = 1", ""), temp_file)
 
     client %>% did_open(temp_file)
     data <- client %>% wait_for("textDocument/publishDiagnostics")
@@ -19,6 +19,23 @@ test_that("lintr works", {
     expect_equal(data$diagnostics[[1]]$code, "assignment_linter")
     expect_true(stringi::stri_detect_fixed(data$diagnostics[[1]]$message, "assignment"))
     expect_true(stringi::stri_detect_fixed(data$diagnostics[[1]]$message, "not ="))
+
+    no_newline_file <- withr::local_tempfile(tmpdir = dir, fileext = ".R")
+    writeLines("x <- 1", no_newline_file)
+
+    client %>% did_open(no_newline_file)
+    data_no_newline <- client %>% wait_for("textDocument/publishDiagnostics")
+
+    expect_length(data_no_newline$diagnostics, 1L)
+    expect_equal(data_no_newline$diagnostics[[1]]$code, "trailing_blank_lines_linter")
+    expect_equal(data_no_newline$diagnostics[[1]]$message, "Add a terminal newline.")
+    expect_equal(
+        data_no_newline$diagnostics[[1]]$range,
+        list(
+            start = list(line = 0, character = 6),
+            end = list(line = 0, character = 6)
+        )
+    )
 })
 
 test_that("lintr config file works", {
@@ -33,7 +50,7 @@ test_that("lintr config file works", {
     client <- language_client(working_dir = dir, diagnostics = TRUE)
 
     temp_file <- withr::local_tempfile(tmpdir = dir, fileext = ".R")
-    writeLines("a=1", temp_file)
+    writeLines(c("a=1", ""), temp_file)
 
     client %>% did_open(temp_file)
     data <- client %>% wait_for("textDocument/publishDiagnostics")
@@ -50,7 +67,7 @@ test_that("lintr config file works", {
     client <- language_client(working_dir = dir, diagnostics = TRUE)
 
     temp_file <- withr::local_tempfile(tmpdir = dir, fileext = ".R")
-    writeLines("a=1", temp_file)
+    writeLines(c("a=1", ""), temp_file)
 
     client %>% did_open(temp_file)
     data <- client %>% wait_for("textDocument/publishDiagnostics")
@@ -294,7 +311,8 @@ test_that("diagnose_file object_usage_linter acknowledges NAMESPACE imports and 
 })
 
 test_that("diagnose_file reports missing terminal newline for single-line and multi-line files", {
-    temp_file <- withr::local_tempfile(fileext = ".R")
+    dir <- withr::local_tempdir()
+    temp_file <- withr::local_tempfile(tmpdir = dir, fileext = ".R")
     cat("x <- 1", file = temp_file)
     uri <- path_to_uri(temp_file)
 
@@ -325,27 +343,4 @@ test_that("diagnose_file reports missing terminal newline for single-line and mu
     )
     expect_length(fallback_untitled, 1L)
     expect_equal(fallback_untitled[[1L]]$message, "Add a terminal newline.")
-})
-
-test_that("LSP publishes missing terminal newline diagnostic on did_open", {
-    skip_on_cran()
-    dir <- tempdir()
-    client <- language_client(working_dir = dir, diagnostics = TRUE)
-
-    temp_file <- withr::local_tempfile(tmpdir = dir, fileext = ".R")
-    cat("x <- 1", file = temp_file)
-
-    client %>% did_open(temp_file)
-    data <- client %>% wait_for("textDocument/publishDiagnostics")
-
-    expect_length(data$diagnostics, 1L)
-    expect_equal(data$diagnostics[[1]]$code, "trailing_blank_lines_linter")
-    expect_equal(data$diagnostics[[1]]$message, "Add a terminal newline.")
-    expect_equal(
-        data$diagnostics[[1]]$range,
-        list(
-            start = list(line = 0, character = 6),
-            end = list(line = 0, character = 6)
-        )
-    )
 })

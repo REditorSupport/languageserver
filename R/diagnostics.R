@@ -139,7 +139,7 @@ lint_without_terminal_newline <- function(path, content, linters, cache) {
         lint$filename <- normalizePath(path, winslash = "/", mustWork = FALSE)
         lint
     })
-    lintr_namespace$exclude(lints, lines = content)
+    lintr_namespace$exclude(lints, lines = character())
 }
 
 #' Run diagnostic on a file

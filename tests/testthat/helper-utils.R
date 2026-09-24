@@ -69,19 +69,11 @@ notify <- function(client, method, params = NULL) {
 }
 
 
-read_raw_text <- function(path) {
-    raw <- stringi::stri_read_raw(path)
-    text <- stringi::stri_encode(raw, to = "UTF-8")
-    gsub("\r\n", "\n", text, fixed = TRUE)
-}
-
-
 did_open <- function(client, path, uri = path_to_uri(path), text = NULL, languageId = NULL) {
     if (is.null(text)) {
-        text <- read_raw_text(path)
-    } else {
-        text <- paste0(text, collapse = "\n")
+        text <- stringi::stri_read_lines(path)
     }
+    text <- paste0(text, collapse = "\n")
 
     if (is.null(languageId)) {
         languageId <- if (is_rmarkdown(uri)) "rmd" else "r"
@@ -111,10 +103,9 @@ did_save <- function(client, path, uri = path_to_uri(path), text = NULL) {
     )
     if (includeText) {
         if (is.null(text)) {
-            text <- read_raw_text(path)
-        } else {
-            text <- paste0(text, collapse = "\n")
+            text <- stringi::stri_read_lines(path)
         }
+        text <- paste0(text, collapse = "\n")
         params <- list(textDocument = list(uri = uri), text = text)
     } else {
         params <- list(textDocument = list(uri = uri))
