@@ -110,17 +110,6 @@ lintr_supports_text_terminal_newline <- function() {
 }
 
 lint_without_terminal_newline <- function(path, content, linters, cache) {
-    tmp <- tempfile(fileext = ".R")
-    on.exit(unlink(tmp), add = TRUE)
-    cat(paste(content, collapse = "\n"), file = tmp)
-    if (!nzchar(path)) {
-        return(lintr::lint(
-            filename = tmp,
-            cache = cache,
-            parse_settings = TRUE,
-            linters = linters
-        ))
-    }
     lintr_namespace <- asNamespace("lintr")
     settings <- lintr_namespace$settings
     previous_settings <- as.list(settings, all.names = TRUE)
@@ -128,13 +117,29 @@ lint_without_terminal_newline <- function(path, content, linters, cache) {
         rm(list = ls(settings, all.names = TRUE), envir = settings)
         list2env(previous_settings, envir = settings)
     }, add = TRUE)
-    lintr_namespace$read_settings(path)
+    if (nzchar(path)) {
+        lintr_namespace$read_settings(path)
+    }
+    effective_linters <- lintr_namespace$define_linters(linters)
+    if (!("trailing_blank_lines_linter" %in% names(effective_linters))) {
+        return(list())
+    }
+    settings$encoding <- "UTF-8"
+    tmp <- tempfile(fileext = ".R")
+    on.exit(unlink(tmp), add = TRUE)
+    writeBin(charToRaw(enc2utf8(paste(content, collapse = "\n"))), tmp)
     lints <- lintr::lint(
         filename = tmp,
-        linters = linters,
+        linters = effective_linters["trailing_blank_lines_linter"],
         cache = cache,
         parse_settings = FALSE
     )
+    lints <- Filter(function(lint) {
+        identical(lint$message, "Add a terminal newline.")
+    }, lints)
+    if (!nzchar(path) || !length(lints)) {
+        return(lints)
+    }
     lints[] <- lapply(lints, function(lint) {
         lint$filename <- normalizePath(path, winslash = "/", mustWork = FALSE)
         lint
@@ -178,8 +183,6 @@ diagnose_file <- function(uri, content, is_rmarkdown = FALSE, globals = NULL, ca
 
     if (nzchar(path) && is_rmarkdown) {
         lints <- lint_document_text(path, content, linters, cache)
-    } else if (!is_rmarkdown && !terminal_newline && !lintr_supports_text_terminal_newline()) {
-        lints <- lint_without_terminal_newline(path, content, linters, cache)
     } else if (nzchar(path)) {
         lints <- lintr::lint(path,
             cache = cache,
@@ -187,6 +190,14 @@ diagnose_file <- function(uri, content, is_rmarkdown = FALSE, globals = NULL, ca
             parse_settings = TRUE,
             linters = linters
         )
+        if (!terminal_newline && !lintr_supports_text_terminal_newline()) {
+            has_terminal_newline_lint <- any(vapply(lints, function(lint) {
+                identical(lint$message, "Add a terminal newline.")
+            }, logical(1L)))
+            if (!has_terminal_newline_lint) {
+                lints <- c(lints, lint_without_terminal_newline(path, content, linters, cache))
+            }
+        }
     } else {
         # There is no stable filename to cache for a pathless document.
         lints <- lint_document_text(NULL, content)

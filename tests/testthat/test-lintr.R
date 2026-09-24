@@ -343,4 +343,43 @@ test_that("diagnose_file reports missing terminal newline for single-line and mu
     )
     expect_length(fallback_untitled, 1L)
     expect_equal(fallback_untitled[[1L]]$message, "Add a terminal newline.")
+
+    enc_dir <- withr::local_tempdir()
+    writeLines(c(
+        "encoding: \"latin1\"",
+        "linters: list(line_length_linter(22L), trailing_blank_lines_linter())"
+    ), file.path(enc_dir, ".lintr"))
+    enc_file <- file.path(enc_dir, "encoding.R")
+    enc_line <- paste0("x <- \"", strrep("\u00e9", 15L), "\"")
+    writeLines(enc_line, enc_file)
+    diag_encoding <- diagnose_file(path_to_uri(enc_file), enc_line, cache = FALSE)
+    expect_length(diag_encoding, 1L)
+    expect_equal(diag_encoding[[1L]]$code, "trailing_blank_lines_linter")
+    expect_equal(diag_encoding[[1L]]$range$start$character, 22L)
+
+    fallback_enc <- lint_without_terminal_newline(enc_file, enc_line, NULL, cache = FALSE)
+    expect_length(fallback_enc, 1L)
+    diag_fallback_enc <- diagnostic_from_lint(fallback_enc[[1L]], content = enc_line)
+    expect_equal(diag_fallback_enc$code, "trailing_blank_lines_linter")
+    expect_equal(diag_fallback_enc$range$start$character, 22L)
+
+    diagnose_fallback <- diagnose_file
+    stub(diagnose_fallback, "lintr_supports_text_terminal_newline", function() FALSE)
+    diag_encoding_fallback <- diagnose_fallback(path_to_uri(enc_file), enc_line, cache = FALSE)
+    expect_length(diag_encoding_fallback, 1L)
+    expect_equal(diag_encoding_fallback[[1L]]$code, "trailing_blank_lines_linter")
+    expect_equal(diag_encoding_fallback[[1L]]$range$start$character, 22L)
+
+    pkg_dir <- withr::local_tempdir()
+    dir.create(file.path(pkg_dir, "R"))
+    writeLines(c("Package: languageserver", "Version: 0.3.19"), file.path(pkg_dir, "DESCRIPTION"))
+    writeLines(
+        "linters: list(object_usage_linter(), trailing_blank_lines_linter())",
+        file.path(pkg_dir, ".lintr")
+    )
+    pkg_file <- file.path(pkg_dir, "R", "pkg.R")
+    cat("f <- function(x) read_xml(x)", file = pkg_file)
+    diag_pkg <- diagnose_fallback(path_to_uri(pkg_file), "f <- function(x) read_xml(x)", cache = FALSE)
+    expect_length(diag_pkg, 1L)
+    expect_equal(diag_pkg[[1L]]$code, "trailing_blank_lines_linter")
 })
