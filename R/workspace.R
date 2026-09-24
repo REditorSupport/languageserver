@@ -735,38 +735,45 @@ extract_namespace_imports <- function(package_root) {
         ),
         error = function(e) NULL
     )
-    if (!is.null(ns)) {
-        for (imp in ns$imports) {
-            if (is.character(imp) && length(imp) == 1L) {
-                packages <- c(packages, imp)
-            } else if (is.list(imp) && length(imp) >= 1L) {
-                pkg <- as.character(imp[[1L]])[1L]
-                if ("except" %in% names(imp)) {
-                    packages <- c(packages, pkg)
-                    except_map[[pkg]] <- union(
-                        except_map[[pkg]],
-                        as.character(imp$except)
-                    )
-                } else if (length(imp) >= 2L) {
-                    syms <- as.character(imp[[2L]])
-                    aliases <- names(imp[[2L]])
-                    if (!is.null(aliases)) {
-                        has_alias <- nzchar(aliases)
-                        syms[has_alias] <- aliases[has_alias]
-                    }
-                    for (sym in syms[nzchar(syms)]) {
-                        objects[[sym]] <- pkg
-                    }
-                }
+    if (is.null(ns)) {
+      return(list(packages = packages, objects = objects, except = except_map))
+    }
+    for (imp in ns$imports) {
+        if (is.character(imp) && length(imp) == 1L) {
+            packages <- c(packages, imp)
+            next
+        }
+        if (!is.list(imp) || length(imp) == 0L) {
+            next
+        }
+        pkg <- as.character(imp[[1L]])[1L]
+        if ("except" %in% names(imp)) {
+            packages <- c(packages, pkg)
+            except_map[[pkg]] <- union(
+                except_map[[pkg]],
+                as.character(imp$except)
+            )
+        } else if (length(imp) >= 2L) {
+            syms <- as.character(imp[[2L]])
+            aliases <- names(imp[[2L]])
+            if (!is.null(aliases)) {
+                has_alias <- nzchar(aliases)
+                syms[has_alias] <- aliases[has_alias]
+            }
+            for (sym in syms[nzchar(syms)]) {
+                objects[[sym]] <- pkg
             }
         }
-        for (imp in ns$importMethods) {
-            if (is.list(imp) && length(imp) >= 2L) {
-                pkg <- as.character(imp[[1L]])[1L]
-                for (sym in as.character(imp[[2L]])) {
-                    if (nzchar(sym)) objects[[sym]] <- pkg
-                }
-            }
+    }
+    for (imp in ns$importMethods) {
+        if (!is.list(imp) || length(imp) < 2L) {
+            next
+        }
+        pkg <- as.character(imp[[1L]])[1L]
+        syms <- as.character(imp[[2L]])
+        syms <- syms[nzchar(syms)]
+        for (sym in syms) {
+            objects[[sym]] <- pkg
         }
     }
     list(
