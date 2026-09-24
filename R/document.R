@@ -284,6 +284,7 @@ is_top_level <- function(arg_env, ...) {
 }
 
 null_function <- local(function() NULL, baseenv())
+any_args_function <- local(function(...) NULL, baseenv())
 
 parser_hooks <- list(
     "{" = function(expr, action) {

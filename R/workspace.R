@@ -501,8 +501,14 @@ Workspace <- R6::R6Class("Workspace",
         get_diagnostics_globals = function(uri = NULL) {
             if (!is.null(uri) && !is.null(self$index) &&
                     isTRUE(self$index$enabled)) {
+                if (!self$index$files$size()) {
+                    self$index$discover()
+                }
                 globals <- new.env(parent = emptyenv())
                 package_root <- self$index$package_root_for_uri(uri)
+                if (is.null(package_root) && is_package(self$root)) {
+                    package_root <- self$root
+                }
                 uris <- if (is.null(package_root)) {
                     self$index$source_closure(uri)
                 } else {
@@ -510,10 +516,47 @@ Workspace <- R6::R6Class("Workspace",
                 }
                 for (summary_uri in uris) {
                     summary <- self$index$summaries$get(summary_uri, NULL)
-                    if (is.null(summary)) next
-                    for (symbol in names(summary$definitions)) {
-                        globals[[symbol]] <- NULL
+                    if (is.null(summary)) {
+                        summary <- self$index$update_path(path_from_uri(summary_uri))
                     }
+                    if (is.null(summary)) next
+                    doc <- self$documents$get(summary_uri, NULL)
+                    doc_functions <- if (!is.null(doc) && !is.null(doc$parse_data)) {
+                        doc$parse_data$functions
+                    } else {
+                        NULL
+                    }
+                    for (symbol in names(summary$definitions)) {
+                        def <- summary$definitions[[symbol]]
+                        fn <- if (!is.null(doc_functions) && !is.null(doc_functions[[symbol]])) {
+                            doc_functions[[symbol]]
+                        } else if (!is.null(def$funct)) {
+                            def$funct
+                        } else {
+                            any_args_function
+                        }
+                        globals[[symbol]] <- fn
+                    }
+                }
+                if (!is.null(package_root)) {
+                    pkg_imports <- extract_package_imports(package_root)
+                    imported_packages <- pkg_imports$packages
+                    imported_objects <- names(pkg_imports$objects)
+                    if (identical(
+                        index_normalize_path(package_root),
+                        index_normalize_path(self$root)
+                    )) {
+                        imported_packages <- union(
+                            imported_packages, self$imported_packages)
+                        imported_objects <- union(
+                            imported_objects, self$imported_objects$keys())
+                    }
+                    populate_package_import_globals(
+                        globals,
+                        imported_packages = imported_packages,
+                        imported_objects = imported_objects,
+                        except_map = pkg_imports$except
+                    )
                 }
                 return(globals)
             }
@@ -522,6 +565,11 @@ Workspace <- R6::R6Class("Workspace",
             }
             globals <- new.env(parent = emptyenv())
             if (is_package(self$root)) {
+                pkg_imports <- extract_package_imports(self$root)
+                imported_packages <- union(
+                    pkg_imports$packages, self$imported_packages)
+                imported_objects <- union(
+                    names(pkg_imports$objects), self$imported_objects$keys())
                 source_dir <- normalizePath(
                     file.path(self$root, "R"),
                     winslash = "/",
@@ -536,11 +584,15 @@ Workspace <- R6::R6Class("Workspace",
                     if (document_dir != source_dir) next
                     parse_data <- doc$parse_data
                     if (is.null(parse_data)) next
-                    for (symbol in parse_data$nonfuncts) {
-                        globals[[symbol]] <- NULL
-                    }
+                    assign_diagnostics_globals(globals, parse_data$nonfuncts)
                     list2env(parse_data$functions, globals)
                 }
+                populate_package_import_globals(
+                    globals,
+                    imported_packages = imported_packages,
+                    imported_objects = imported_objects,
+                    except_map = pkg_imports$except
+                )
             }
             self$diagnostics_globals_cache <- globals
             globals
@@ -576,7 +628,13 @@ Workspace <- R6::R6Class("Workspace",
                         parse_data)
                 if (is.null(parse_data$source_specs) && !is.null(summary) &&
                         !isTRUE(parse_data$parse_error)) {
-                    summary$definitions <- as.list(parse_data$definitions)
+                    definitions <- as.list(parse_data$definitions)
+                    if (length(parse_data$functions)) {
+                        for (symbol in intersect(names(definitions), names(parse_data$functions))) {
+                            definitions[[symbol]]$funct <- parse_data$functions[[symbol]]
+                        }
+                    }
+                    summary$definitions <- definitions
                     self$index$set_summary(summary)
                 }
             }
@@ -595,32 +653,19 @@ Workspace <- R6::R6Class("Workspace",
                 return(NULL)
             }
             self$namespace_file_mt <- namespace_file_mt
-            exprs <- tryCatch(
-                parse(namespace_file),
-                error = function(e) list())
-            for (expr in exprs) {
-                if (!is.call(expr) || !is.name(expr[[1]])) {
-                    next
-                }
-                if (expr[[1]] == "import") {
-                    packages <- as.list(expr[-1])
-                    if (is.null(names(packages))) {
-                        packages <- as.character(packages)
-                    } else {
-                        # handle import(foo, except = c(bar))
-                        packages <- as.character(packages[names(packages) == ""])
-                    }
-                    logger$info("load packages:", packages)
-                    self$load_packages(packages)
-                    self$imported_packages <- c(self$imported_packages, packages)
-                } else if (expr[[1]] == "importFrom") {
-                    package <- as.character(expr[[2]])
-                    objects <- as.character(expr[3:length(expr)])
-                    logger$info("load package objects:", package, objects)
-                    for (object in objects) {
-                        self$imported_objects$set(object, package)
-                    }
-                }
+            self$diagnostics_globals_cache <- NULL
+            if (!is.null(self$diagnostics_cache)) {
+                self$diagnostics_cache$clear()
+            }
+            ns_imports <- extract_namespace_imports(self$root)
+            if (length(ns_imports$packages)) {
+                logger$info("load packages:", ns_imports$packages)
+                self$load_packages(ns_imports$packages)
+                self$imported_packages <- c(
+                    self$imported_packages, ns_imports$packages)
+            }
+            for (object in names(ns_imports$objects)) {
+                self$imported_objects$set(object, ns_imports$objects[[object]])
             }
             self$update_loaded_packages()
         },
@@ -642,7 +687,119 @@ Workspace <- R6::R6Class("Workspace",
                 self$imported_objects$clear()
                 self$imported_packages <- character(0)
                 self$import_from_namespace_file()
+                return(invisible(TRUE))
             }
+            NULL
         }
     )
 )
+
+assign_diagnostics_globals <- function(globals, symbols, value = any_args_function) {
+    symbols <- unique(symbols[nzchar(symbols)])
+    for (symbol in symbols) {
+        if (!exists(symbol, envir = globals, inherits = FALSE)) {
+            globals[[symbol]] <- value
+        }
+    }
+    globals
+}
+
+populate_package_import_globals <- function(globals,
+    imported_packages = character(),
+    imported_objects = character(),
+    except_map = list()) {
+    for (pkg in unique(imported_packages[nzchar(imported_packages)])) {
+        exports <- tryCatch(getNamespaceExports(pkg), error = function(e) character())
+        if (length(except_map[[pkg]])) {
+            exports <- setdiff(exports, except_map[[pkg]])
+        }
+        assign_diagnostics_globals(globals, exports)
+    }
+    assign_diagnostics_globals(globals, imported_objects)
+    globals
+}
+
+extract_namespace_imports <- function(package_root) {
+    packages <- character()
+    objects <- list()
+    except_map <- list()
+    namespace_file <- file.path(package_root, "NAMESPACE")
+    if (!file.exists(namespace_file)) {
+        return(list(packages = packages, objects = objects, except = except_map))
+    }
+    ns <- tryCatch(
+        base::parseNamespaceFile(
+            basename(package_root),
+            dirname(package_root),
+            mustExist = FALSE
+        ),
+        error = function(e) NULL
+    )
+    if (!is.null(ns)) {
+        for (imp in ns$imports) {
+            if (is.character(imp) && length(imp) == 1L) {
+                packages <- c(packages, imp)
+            } else if (is.list(imp) && length(imp) >= 1L) {
+                pkg <- as.character(imp[[1L]])[1L]
+                if ("except" %in% names(imp)) {
+                    packages <- c(packages, pkg)
+                    except_map[[pkg]] <- union(
+                        except_map[[pkg]],
+                        as.character(imp$except)
+                    )
+                } else if (length(imp) >= 2L) {
+                    syms <- as.character(imp[[2L]])
+                    aliases <- names(imp[[2L]])
+                    if (!is.null(aliases)) {
+                        has_alias <- nzchar(aliases)
+                        syms[has_alias] <- aliases[has_alias]
+                    }
+                    for (sym in syms[nzchar(syms)]) {
+                        objects[[sym]] <- pkg
+                    }
+                }
+            }
+        }
+        for (imp in ns$importMethods) {
+            if (is.list(imp) && length(imp) >= 2L) {
+                pkg <- as.character(imp[[1L]])[1L]
+                for (sym in as.character(imp[[2L]])) {
+                    if (nzchar(sym)) objects[[sym]] <- pkg
+                }
+            }
+        }
+    }
+    list(
+        packages = unique(packages[nzchar(packages)]),
+        objects = objects,
+        except = except_map
+    )
+}
+
+extract_package_imports <- function(package_root) {
+    if (is.null(package_root) || !length(package_root) || !nzchar(package_root)) {
+        return(list(packages = character(), objects = list(), except = list()))
+    }
+    ns_imports <- extract_namespace_imports(package_root)
+    packages <- ns_imports$packages
+
+    desc_file <- file.path(package_root, "DESCRIPTION")
+    if (file.exists(desc_file)) {
+        depends <- tryCatch(
+            read.dcf(desc_file, fields = "Depends")[1L, 1L],
+            error = function(e) NA_character_
+        )
+        if (!is.na(depends) && nzchar(depends)) {
+            dep_pkgs <- trimws(strsplit(depends, ",", fixed = TRUE)[[1L]])
+            dep_pkgs <- trimws(sub("\\s*\\(.*\\)$", "", dep_pkgs))
+            dep_pkgs <- setdiff(dep_pkgs[nzchar(dep_pkgs)], "R")
+            packages <- c(dep_pkgs, packages)
+        }
+    }
+
+    list(
+        packages = unique(packages[nzchar(packages)]),
+        objects = ns_imports$objects,
+        except = ns_imports$except
+    )
+}

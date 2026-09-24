@@ -209,3 +209,59 @@ test_that("diagnostics_task reuses fresh cached results", {
     expect_s3_class(task, "Task")
     expect_equal(task$delay, 0)
 })
+
+test_that("diagnose_file object_usage_linter acknowledges NAMESPACE imports and package globals", {
+    pkg_dir <- withr::local_tempdir()
+    dir.create(file.path(pkg_dir, "R"), recursive = TRUE)
+    writeLines(c(
+        "Package: uninstalledgeompkg",
+        "Version: 0.1.0"
+    ), file.path(pkg_dir, "DESCRIPTION"))
+    writeLines(c(
+        "import(stats)",
+        "importFrom(utils, head)",
+        "importFrom(grDevices, rgb)",
+        "importFrom(tools, file_path_sans_ext)"
+    ), file.path(pkg_dir, "NAMESPACE"))
+    writeLines(
+        "linters: list(object_usage_linter())",
+        file.path(pkg_dir, ".lintr")
+    )
+
+    helper_file <- file.path(pkg_dir, "R", "helper.R")
+    writeLines(c(
+        "pkg_helper <- function(x) file_path_sans_ext(x)",
+        ".pkg_pronoun <- list(col = 1)",
+        ""
+    ), helper_file)
+
+    main_file <- file.path(pkg_dir, "R", "main.R")
+    main_code <- c(
+        "my_fun <- function(df) {",
+        "  val <- sd(c(1, 2, 3))",
+        "  col <- rgb(1, 0, 0)",
+        "  top <- head(df)",
+        "  ext <- file_path_sans_ext('a.txt')",
+        "  res <- pkg_helper(.pkg_pronoun$col)",
+        "  list(val, col, top, ext, res)",
+        "}",
+        ""
+    )
+    writeLines(main_code, main_file)
+
+    ws <- Workspace$new(pkg_dir)
+    globals <- ws$get_diagnostics_globals(path_to_uri(main_file))
+    diags <- diagnose_file(path_to_uri(main_file), main_code, globals = globals, cache = FALSE)
+    expect_length(diags, 0L)
+
+    bad_code <- c(
+        main_code[seq_len(length(main_code) - 2L)],
+        "  missing_fn(missing_var)",
+        "}",
+        ""
+    )
+    bad_diags <- diagnose_file(path_to_uri(main_file), bad_code, globals = globals, cache = FALSE)
+    messages <- vapply(bad_diags, `[[`, character(1L), "message")
+    expect_true(any(grepl("no visible global function definition for 'missing_fn'", messages, fixed = TRUE)))
+    expect_true(any(grepl("no visible binding for global variable 'missing_var'", messages, fixed = TRUE)))
+})

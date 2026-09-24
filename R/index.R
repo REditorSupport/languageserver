@@ -209,6 +209,11 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
     source_specs <- list()
     if (!is.null(parse_data)) {
         definitions <- as.list(parse_data$definitions)
+        if (length(parse_data$functions)) {
+            for (symbol in intersect(names(definitions), names(parse_data$functions))) {
+                definitions[[symbol]]$funct <- parse_data$functions[[symbol]]
+            }
+        }
         source_specs <- parse_data$source_specs
     } else if (!is.null(expressions)) {
         srcrefs <- attr(expressions, "srcref")
@@ -230,10 +235,17 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
             }
             srcref <- if (length(srcrefs) >= i) srcrefs[[i]] else NULL
             if (is.null(srcref)) next
+            def_type <- get_expr_type(value)
+            fun <- NULL
+            if (def_type == "function") {
+                fun <- null_function
+                tryCatch(formals(fun) <- value[[2L]], error = function(e) NULL)
+            }
             definitions[[symbol]] <- list(
                 name = symbol,
-                type = get_expr_type(value),
-                range = expr_range(srcref)
+                type = def_type,
+                range = expr_range(srcref),
+                funct = fun
             )
         }
     }

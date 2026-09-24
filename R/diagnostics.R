@@ -121,6 +121,20 @@ diagnose_file <- function(uri, content, is_rmarkdown = FALSE, globals = NULL, ca
         content <- c(content, "")
     }
 
+    if (!length(globals) && nzchar(path)) {
+        pkg_root <- find_package(dirname(path))
+        if (!is.null(pkg_root)) {
+            globals <- new.env(parent = emptyenv())
+            pkg_imports <- extract_package_imports(pkg_root)
+            populate_package_import_globals(
+                globals,
+                imported_packages = pkg_imports$packages,
+                imported_objects = names(pkg_imports$objects),
+                except_map = pkg_imports$except
+            )
+        }
+    }
+
     if (length(globals)) {
         env_name <- "languageserver:globals"
         do.call("attach", list(globals, name = env_name, warn.conflicts = FALSE))

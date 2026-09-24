@@ -73,7 +73,6 @@ test_that("Workspace parses named NAMESPACE imports and polls recent files", {
     writeLines(c("Package: coveragefixture", "Version: 0.0.1"),
         file.path(root, "DESCRIPTION"))
     writeLines(c(
-        "1",
         "import(base, except = c(mean))",
         "importFrom(stats, median)"
     ), file.path(root, "NAMESPACE"))
@@ -126,4 +125,60 @@ test_that("workspace handlers remove folders and ignore unrelated file events", 
         list(uri = open_document$uri, type = FileChangeType$Changed)
     )))
     expect_true(package$documents$has(open_document$uri))
+})
+
+test_that("get_diagnostics_globals includes NAMESPACE and Depends imports via parseNamespaceFile", {
+    root <- withr::local_tempdir()
+    dir.create(file.path(root, "R"), recursive = TRUE)
+    writeLines(c(
+        "Package: importglobalsfixture",
+        "Version: 0.1.0",
+        "Depends: R (>= 4.0.0), methods"
+    ), file.path(root, "DESCRIPTION"))
+    writeLines(c(
+        "import(stats, except = c(mad))",
+        "import(grDevices)",
+        "importFrom(utils, head, tail)",
+        "importFrom(tools, file_ext)"
+    ), file.path(root, "NAMESPACE"))
+
+    helper_path <- file.path(root, "R", "helper.R")
+    helper_lines <- c(
+        "pkg_helper <- function(x, y = 1) x + y",
+        "pkg_const <- 42",
+        ""
+    )
+    writeLines(helper_lines, helper_path)
+
+    main_path <- file.path(root, "R", "main.R")
+    main_lines <- c(
+        "main_fn <- function(z) pkg_helper(z) + pkg_const",
+        ""
+    )
+    writeLines(main_lines, main_path)
+
+    workspace <- Workspace$new(root)
+    globals_indexed <- workspace$get_diagnostics_globals(path_to_uri(main_path))
+
+    expect_true(exists("pkg_helper", envir = globals_indexed, mode = "function", inherits = FALSE))
+    expect_equal(names(formals(globals_indexed$pkg_helper)), c("x", "y"))
+    expect_true(exists("pkg_const", envir = globals_indexed, inherits = FALSE))
+    expect_true(exists("sd", envir = globals_indexed, mode = "function", inherits = FALSE))
+    expect_false(exists("mad", envir = globals_indexed, inherits = FALSE))
+    expect_true(exists("head", envir = globals_indexed, mode = "function", inherits = FALSE))
+    expect_true(exists("tail", envir = globals_indexed, mode = "function", inherits = FALSE))
+    expect_true(exists("file_ext", envir = globals_indexed, mode = "function", inherits = FALSE))
+    expect_true(exists("rgb", envir = globals_indexed, mode = "function", inherits = FALSE))
+    expect_true(exists("is", envir = globals_indexed, mode = "function", inherits = FALSE))
+
+    helper_doc <- Document$new(path_to_uri(helper_path), content = helper_lines)
+    helper_doc$update_parse_data(parse_document(helper_doc$uri, helper_lines))
+    workspace$documents$set(helper_doc$uri, helper_doc)
+
+    globals_unindexed <- workspace$get_diagnostics_globals()
+    expect_true(exists("pkg_helper", envir = globals_unindexed, mode = "function", inherits = FALSE))
+    expect_true(exists("sd", envir = globals_unindexed, mode = "function", inherits = FALSE))
+    expect_false(exists("mad", envir = globals_unindexed, inherits = FALSE))
+    expect_true(exists("head", envir = globals_unindexed, mode = "function", inherits = FALSE))
+    expect_true(exists("file_ext", envir = globals_unindexed, mode = "function", inherits = FALSE))
 })
