@@ -1,11 +1,10 @@
 test_that("lintr works", {
     skip_on_cran()
 
-    dir <- tempdir()
+    dir <- withr::local_tempdir()
     client <- language_client(working_dir = dir, diagnostics = TRUE)
 
     lintr_file <- file.path(dir, ".lintr")
-    on.exit(unlink(lintr_file), add = TRUE)
     writeLines("linters: linters_with_defaults()", lintr_file)
 
     temp_file <- withr::local_tempfile(tmpdir = dir, fileext = ".R")
@@ -41,9 +40,8 @@ test_that("lintr works", {
 test_that("lintr config file works", {
     skip_on_cran()
 
-    dir <- tempdir()
+    dir <- withr::local_tempdir()
     lintr_file <- file.path(dir, ".lintr")
-    on.exit(unlink(lintr_file))
 
     writeLines("linters: linters_with_defaults()", lintr_file)
 
@@ -64,15 +62,13 @@ test_that("lintr config file works", {
 
     writeLines("linters: linters_with_defaults(assignment_linter=NULL)", lintr_file)
 
-    client <- language_client(working_dir = dir, diagnostics = TRUE)
-
     temp_file <- withr::local_tempfile(tmpdir = dir, fileext = ".R")
     writeLines(c("a=1", ""), temp_file)
 
     client %>% did_open(temp_file)
     data <- client %>% wait_for("textDocument/publishDiagnostics")
 
-    expect_equal(client$diagnostics$size(), 1)
+    expect_equal(client$diagnostics$size(), 2)
     expect_equal(client$diagnostics$get(data$uri), data$diagnostics)
     expect_length(data$diagnostics, 1)
     expect_setequal(vapply(data$diagnostics, "[[", character(1), "code"),
@@ -80,24 +76,23 @@ test_that("lintr config file works", {
 
     writeLines("linters: list()", lintr_file)
 
-    client <- language_client(working_dir = dir, diagnostics = TRUE)
-
     temp_file <- withr::local_tempfile(tmpdir = dir, fileext = ".R")
     writeLines("a=1", temp_file)
 
     client %>% did_open(temp_file)
     data <- client %>% wait_for("textDocument/publishDiagnostics")
 
-    expect_equal(client$diagnostics$size(), 1)
+    expect_equal(client$diagnostics$size(), 3)
     expect_equal(client$diagnostics$get(data$uri), data$diagnostics)
     expect_length(data$diagnostics, 0)
 })
 
 test_that("lintr is disabled", {
     skip_on_cran()
-    client <- language_client(diagnostics = FALSE)
+    dir <- withr::local_tempdir()
+    client <- language_client(working_dir = dir, diagnostics = FALSE)
 
-    temp_file <- withr::local_tempfile(fileext = ".R")
+    temp_file <- withr::local_tempfile(tmpdir = dir, fileext = ".R")
     writeLines("a = 1", temp_file)
 
     client %>% did_open(temp_file)
