@@ -344,6 +344,19 @@ test_that("diagnose_file reports missing terminal newline for single-line and mu
     expect_length(fallback_untitled, 1L)
     expect_equal(fallback_untitled[[1L]]$message, "Add a terminal newline.")
 
+    fallback_disabled <- lint_without_terminal_newline(
+        temp_file, "x <- 1", list(line_length_linter = lintr::line_length_linter()), cache = FALSE
+    )
+    expect_identical(fallback_disabled, list())
+
+    diag_untitled_missing <- suppressWarnings(diagnose_file("untitled:1", "x <- 1", cache = FALSE))
+    expect_length(diag_untitled_missing, 1L)
+    expect_equal(diag_untitled_missing[[1L]]$code, "trailing_blank_lines_linter")
+    expect_equal(diag_untitled_missing[[1L]]$message, "Add a terminal newline.")
+
+    diag_untitled_present <- suppressWarnings(diagnose_file("untitled:1", c("x <- 1", ""), cache = FALSE))
+    expect_length(diag_untitled_present, 0L)
+
     enc_dir <- withr::local_tempdir()
     writeLines(c(
         "encoding: \"latin1\"",
@@ -365,6 +378,11 @@ test_that("diagnose_file reports missing terminal newline for single-line and mu
 
     diagnose_fallback <- diagnose_file
     stub(diagnose_fallback, "lintr_supports_text_terminal_newline", function() FALSE)
+    if (lintr_supports_text_terminal_newline()) {
+        stub(diagnose_fallback, "lintr::lint", function(path, ..., text) {
+            lintr::lint(path, ..., text = c(text, ""))
+        })
+    }
     diag_encoding_fallback <- diagnose_fallback(path_to_uri(enc_file), enc_line, cache = FALSE)
     expect_length(diag_encoding_fallback, 1L)
     expect_equal(diag_encoding_fallback[[1L]]$code, "trailing_blank_lines_linter")
