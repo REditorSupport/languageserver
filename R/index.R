@@ -206,14 +206,11 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
         error = function(e) NULL
     ) else NULL
     definitions <- list()
+    functions <- list()
     source_specs <- list()
     if (!is.null(parse_data)) {
         definitions <- as.list(parse_data$definitions)
-        if (length(parse_data$functions)) {
-            for (symbol in intersect(names(definitions), names(parse_data$functions))) {
-                definitions[[symbol]]$funct <- parse_data$functions[[symbol]]
-            }
-        }
+        functions <- as.list(parse_data$functions)
         source_specs <- parse_data$source_specs
     } else if (!is.null(expressions)) {
         srcrefs <- attr(expressions, "srcref")
@@ -236,16 +233,15 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
             srcref <- if (length(srcrefs) >= i) srcrefs[[i]] else NULL
             if (is.null(srcref)) next
             def_type <- get_expr_type(value)
-            fun <- NULL
             if (def_type == "function") {
                 fun <- null_function
                 tryCatch(formals(fun) <- value[[2L]], error = function(e) NULL)
+                functions[[symbol]] <- fun
             }
             definitions[[symbol]] <- list(
                 name = symbol,
                 type = def_type,
-                range = expr_range(srcref),
-                funct = fun
+                range = expr_range(srcref)
             )
         }
     }
@@ -272,6 +268,7 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
         mtime = as.numeric(mtime),
         content_hash = get_content_hash(content),
         definitions = definitions,
+        functions = functions,
         sources = sources,
         source_candidates = source_candidates,
         source_candidate_exists = source_candidate_exists,
@@ -535,6 +532,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             if (isTRUE(summary$parse_error) && self$summaries$has(uri)) {
                 previous <- self$summaries$get(uri)
                 summary$definitions <- previous$definitions
+                summary$functions <- previous$functions
                 summary$sources <- previous$sources
                 summary$source_candidates <- previous$source_candidates
                 summary$source_candidate_exists <-

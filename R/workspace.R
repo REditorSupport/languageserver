@@ -527,11 +527,10 @@ Workspace <- R6::R6Class("Workspace",
                         NULL
                     }
                     for (symbol in names(summary$definitions)) {
-                        def <- summary$definitions[[symbol]]
                         fn <- if (!is.null(doc_functions) && !is.null(doc_functions[[symbol]])) {
                             doc_functions[[symbol]]
-                        } else if (!is.null(def$funct)) {
-                            def$funct
+                        } else if (!is.null(summary$functions) && !is.null(summary$functions[[symbol]])) {
+                            summary$functions[[symbol]]
                         } else {
                             any_args_function
                         }
@@ -628,13 +627,8 @@ Workspace <- R6::R6Class("Workspace",
                         parse_data)
                 if (is.null(parse_data$source_specs) && !is.null(summary) &&
                         !isTRUE(parse_data$parse_error)) {
-                    definitions <- as.list(parse_data$definitions)
-                    if (length(parse_data$functions)) {
-                        for (symbol in intersect(names(definitions), names(parse_data$functions))) {
-                            definitions[[symbol]]$funct <- parse_data$functions[[symbol]]
-                        }
-                    }
-                    summary$definitions <- definitions
+                    summary$definitions <- as.list(parse_data$definitions)
+                    summary$functions <- as.list(parse_data$functions)
                     self$index$set_summary(summary)
                 }
             }
