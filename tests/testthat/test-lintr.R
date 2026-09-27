@@ -221,7 +221,8 @@ test_that("diagnose_file object_usage_linter acknowledges NAMESPACE imports and 
         "import(stats)",
         "importFrom(utils, head)",
         "importFrom(grDevices, rgb)",
-        "importFrom(tools, file_path_sans_ext)"
+        "importFrom(tools, file_path_sans_ext)",
+        "importFrom(rlang, .data)"
     ), file.path(pkg_dir, "NAMESPACE"))
     writeLines(
         "linters: list(object_usage_linter())",
@@ -237,13 +238,14 @@ test_that("diagnose_file object_usage_linter acknowledges NAMESPACE imports and 
 
     main_file <- file.path(pkg_dir, "R", "main.R")
     main_code <- c(
-        "my_fun <- function(df) {",
+        "my_fun <- function(df, col) {",
         "  val <- sd(c(1, 2, 3))",
-        "  col <- rgb(1, 0, 0)",
+        "  rgb_col <- rgb(1, 0, 0)",
         "  top <- head(df)",
         "  ext <- file_path_sans_ext('a.txt')",
         "  res <- pkg_helper(.pkg_pronoun$col)",
-        "  list(val, col, top, ext, res)",
+        "  pronoun_val <- list(.data[[col]], .data$x)",
+        "  list(val, rgb_col, top, ext, res, pronoun_val)",
         "}",
         ""
     )
