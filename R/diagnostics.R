@@ -69,12 +69,13 @@ find_config <- function(filename) {
     asNamespace("lintr")$find_config(filename)
 }
 
-#' Lint extracted R code using the settings and exclusions of its source file
+#' Lint R text using settings from its source file or working directory
 #' @noRd
-lint_literate_file <- function(path, content, linters, cache) {
+lint_document_text <- function(path, content, linters = NULL, cache = FALSE) {
     # lintr 3.0 interprets text according to the filename's extension, even
-    # when it has already been extracted. Load the source file's settings
-    # separately so the line-preserving R content is not extracted again.
+    # when it has already been extracted. It also resolves settings relative
+    # to a temporary file when no filename is supplied. Load settings first
+    # so literate and pathless documents use the correct configuration.
     lintr_namespace <- asNamespace("lintr")
     settings <- lintr_namespace$settings
     previous_settings <- as.list(settings, all.names = TRUE)
@@ -82,11 +83,12 @@ lint_literate_file <- function(path, content, linters, cache) {
         rm(list = ls(settings, all.names = TRUE), envir = settings)
         list2env(previous_settings, envir = settings)
     })
-    lintr_namespace$read_settings(path)
+    lintr_namespace$read_settings(if (is.null(path)) getwd() else path)
     lints <- lintr::lint(
         text = content, linters = linters, cache = cache,
         parse_settings = FALSE
     )
+    if (is.null(path)) return(lints)
 
     # Inline linting uses a temporary filename. Restore the real filename
     # before applying the config's file and line exclusions. Inline nolint
@@ -133,12 +135,10 @@ diagnose_file <- function(uri, content, is_rmarkdown = FALSE, globals = NULL, ca
         if (is.null(config_path) || !nzchar(config_path) || !file.exists(config_path)) {
             linters <- lintr::linters_with_defaults()
         }
-    } else {
-        linters <- lintr::linters_with_defaults()
     }
 
     if (nzchar(path) && is_rmarkdown) {
-        lints <- lint_literate_file(path, content, linters, cache)
+        lints <- lint_document_text(path, content, linters, cache)
     } else if (nzchar(path)) {
         lints <- lintr::lint(path,
             cache = cache,
@@ -147,12 +147,8 @@ diagnose_file <- function(uri, content, is_rmarkdown = FALSE, globals = NULL, ca
             linters = linters
         )
     } else {
-        lints <- lintr::lint(
-            text = content,
-            cache = cache,
-            parse_settings = TRUE,
-            linters = linters
-        )
+        # There is no stable filename to cache for a pathless document.
+        lints <- lint_document_text(NULL, content)
     }
 
     diagnostics <- lapply(lints, diagnostic_from_lint, content = content)

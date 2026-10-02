@@ -75,6 +75,83 @@ test_that("literate diagnostics restore lintr settings after errors", {
     expect_equal(setting_values(), before)
 })
 
+test_that("pathless diagnostics use working directory settings and reload edits", {
+    root <- withr::local_tempdir()
+    withr::local_options(lintr.cache_directory = withr::local_tempdir())
+    nested <- file.path(root, "nested")
+    dir.create(nested)
+    withr::local_dir(nested)
+    config <- file.path(root, ".lintr")
+    content <- c("value=1", "# value <- sum(1, 2)",
+        paste0('long_value <- "', strrep("a", 90), '"'))
+    uris <- c("untitled:1", "vscode-interactive-input:InteractiveInput-1",
+        "vscode-r-cell:cell-1")
+    diagnostic_codes <- function(uri) {
+        vapply(diagnose_file(uri, content, cache = TRUE), "[[", character(1), "code")
+    }
+
+    writeLines("linters: list(infix_spaces_linter())", config)
+    for (uri in uris) {
+        expect_identical(diagnostic_codes(uri), "infix_spaces_linter")
+    }
+
+    writeLines("linters: list(line_length_linter(40), commented_code_linter())", config)
+    for (uri in uris) {
+        expect_setequal(diagnostic_codes(uri),
+            c("line_length_linter", "commented_code_linter"))
+    }
+
+    writeLines("linters: list()", config)
+    for (uri in uris) {
+        expect_length(diagnostic_codes(uri), 0L)
+    }
+})
+
+test_that("pathless diagnostics honor custom configuration and linter options", {
+    root <- withr::local_tempdir()
+    withr::local_dir(root)
+    config <- withr::local_tempfile(fileext = ".lintr")
+    writeLines(c("linters: list(assignment_linter())", "exclude: '# quiet'"), config)
+    withr::local_options(lintr.linter_file = config)
+    content <- c("first = 1", "second = 2 # quiet")
+    diagnostics <- diagnose_file("untitled:1", content)
+    expect_length(diagnostics, 1L)
+    expect_equal(diagnostics[[1L]]$code, "assignment_linter")
+    expect_equal(diagnostics[[1L]]$range$start$line, 0L)
+
+    withr::local_options(lintr.linters = list())
+    expect_length(diagnose_file("untitled:1", content), 0L)
+
+    unlink(config)
+    expect_length(diagnose_file("untitled:1", content), 0L)
+})
+
+test_that("pathless diagnostics restore lintr settings after success and errors", {
+    root <- withr::local_tempdir()
+    withr::local_dir(root)
+    config <- file.path(root, ".lintr")
+    settings <- asNamespace("lintr")$settings
+    setting_values <- function() mget(sort(ls(settings, all.names = TRUE)), settings)
+    before <- setting_values()
+
+    writeLines("linters: list(assignment_linter())", config)
+    diagnose_file("untitled:1", "value = 1")
+    expect_equal(setting_values(), before)
+
+    writeLines("linters: list(", config)
+    expect_error(diagnose_file("untitled:1", "value = 1"))
+    expect_equal(setting_values(), before)
+})
+
+test_that("pathless diagnostics support linters that inspect the source filename", {
+    root <- withr::local_tempdir()
+    withr::local_dir(root)
+    writeLines("linters: list(namespace_linter())", file.path(root, ".lintr"))
+    diagnostics <- diagnose_file("untitled:1", "base::missing_lintr_test_export()")
+    expect_length(diagnostics, 1L)
+    expect_equal(diagnostics[[1L]]$code, "namespace_linter")
+})
+
 test_that("disabling diagnostics clears documents and cancels pending work", {
     old_diagnostics <- lsp_settings$get("diagnostics")
     withr::defer(lsp_settings$set("diagnostics", old_diagnostics))
