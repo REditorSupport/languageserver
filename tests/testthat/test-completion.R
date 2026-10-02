@@ -1494,6 +1494,35 @@ completion_test_namespace <- function(name, functions = character(),
     namespace
 }
 
+test_that("Function completions preserve existing call parentheses", {
+    fixture <- provider_fixture(c("mea(x)", "mea"))
+    namespace <- completion_test_namespace("base", functions = "mean")
+    fixture$workspace$loaded_packages <- "base"
+    fixture$workspace$imported_objects <- collections::dict()
+    fixture$workspace$get_namespace <- function(name) {
+        if (identical(name, "base")) namespace else NULL
+    }
+    capabilities <- list(completionItem = list(snippetSupport = TRUE))
+
+    complete_at <- function(row, col) {
+        completion_reply(
+            1L, fixture$uri, fixture$workspace, fixture$document,
+            list(row = row, col = col), capabilities
+        )$result$items
+    }
+
+    existing_call_items <- complete_at(0L, 3L)
+    existing_call_mean <- keep(existing_call_items, ~ .$label == "mean")
+    expect_length(existing_call_mean, 1L)
+    expect_null(existing_call_mean[[1L]]$insertText)
+
+    bare_items <- complete_at(1L, 3L)
+    bare_mean <- keep(bare_items, ~ .$label == "mean")
+    expect_length(bare_mean, 1L)
+    expect_equal(bare_mean[[1L]]$insertText, "mean($0)")
+    expect_equal(bare_mean[[1L]]$insertTextFormat, InsertTextFormat$Snippet)
+})
+
 test_that("Namespace completions distinguish workspace and package functions", {
     package <- completion_test_namespace(
         "example", functions = c("alpha", "beta")

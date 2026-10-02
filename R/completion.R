@@ -885,6 +885,16 @@ token_completion <- function(uri, workspace, token, exclude = NULL, limit = Inf)
     completions
 }
 
+completion_has_call_parens <- function(document, token_result) {
+    line_text <- document$line0(token_result$range$end$row)
+    rest_of_line <- substr(
+        line_text,
+        token_result$range$end$col + 1L,
+        nchar(line_text)
+    )
+    startsWith(trimws(rest_of_line), "(")
+}
+
 #' The response to a textDocument/completion request
 #' @noRd
 completion_reply <- function(id, uri, workspace, document, point, capabilities) {
@@ -907,6 +917,8 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
     full_token <- token_result$full_token
     token <- token_result$token
     package <- token_result$package
+    function_snippet_support <- snippet_support &&
+        !completion_has_call_parens(document, token_result)
 
     completions <- list()
     providers_incomplete <- FALSE
@@ -914,7 +926,7 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
     if (nzchar(full_token)) {
         if (is.null(package)) {
             scope_completions <- scope_completion(uri, workspace, token, point,
-                snippet_support, nmax)
+                function_snippet_support, nmax)
             providers_incomplete <- providers_incomplete ||
                 isTRUE(attr(scope_completions, "truncated"))
             completions <- c(
@@ -925,7 +937,7 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
         }
         workspace_completions <- workspace_completion(
             workspace, token, package, token_result$accessor == "::",
-            snippet_support, nmax, uri = uri)
+            function_snippet_support, nmax, uri = uri)
         providers_incomplete <- providers_incomplete ||
             isTRUE(attr(workspace_completions, "truncated"))
         completions <- c(completions, workspace_completions)
