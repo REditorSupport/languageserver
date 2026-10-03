@@ -215,11 +215,12 @@ test_that("diagnose_file object_usage_linter acknowledges NAMESPACE imports and 
     dir.create(file.path(pkg_dir, "R"), recursive = TRUE)
     writeLines(c(
         "Package: uninstalledgeompkg",
-        "Version: 0.1.0"
+        "Version: 0.1.0",
+        "Depends: stats"
     ), file.path(pkg_dir, "DESCRIPTION"))
     writeLines(c(
         "import(stats)",
-        "importFrom(utils, head)",
+        "importFrom(utils, head, filter = head)",
         "importFrom(grDevices, rgb)",
         "importFrom(tools, file_path_sans_ext)",
         "importFrom(rlang, .data)"
@@ -242,10 +243,11 @@ test_that("diagnose_file object_usage_linter acknowledges NAMESPACE imports and 
         "  val <- sd(c(1, 2, 3))",
         "  rgb_col <- rgb(1, 0, 0)",
         "  top <- head(df)",
+        "  top2 <- filter(df, n = 2L)",
         "  ext <- file_path_sans_ext('a.txt')",
         "  res <- pkg_helper(.pkg_pronoun$col)",
         "  pronoun_val <- list(.data[[col]], .data$x)",
-        "  list(val, rgb_col, top, ext, res, pronoun_val)",
+        "  list(val, rgb_col, top, top2, ext, res, pronoun_val)",
         "}",
         ""
     )
@@ -260,6 +262,7 @@ test_that("diagnose_file object_usage_linter acknowledges NAMESPACE imports and 
         main_code[seq_len(length(main_code) - 2L)],
         "  rnorm(1, invalid_arg = 2)",
         "  file_path_sans_ext('a.txt', invalid_ext_arg = 2)",
+        "  .pkg_pronoun(1)",
         "  missing_fn(missing_var)",
         "}",
         ""
@@ -268,6 +271,7 @@ test_that("diagnose_file object_usage_linter acknowledges NAMESPACE imports and 
     messages <- vapply(bad_diags, `[[`, character(1L), "message")
     expect_true(any(grepl("unused argument (invalid_arg = 2)", messages, fixed = TRUE)))
     expect_true(any(grepl("unused argument (invalid_ext_arg = 2)", messages, fixed = TRUE)))
+    expect_true(any(grepl("no visible global function definition for '.pkg_pronoun'", messages, fixed = TRUE)))
     expect_true(any(grepl("no visible global function definition for 'missing_fn'", messages, fixed = TRUE)))
     expect_true(any(grepl("no visible binding for global variable 'missing_var'", messages, fixed = TRUE)))
 

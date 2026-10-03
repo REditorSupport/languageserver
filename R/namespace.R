@@ -5,6 +5,7 @@ PackageNamespace <- R6::R6Class("PackageNamespace",
         namespace = NULL,
         membership = NULL,
         function_metadata = NULL,
+        function_stubs = NULL,
         documentation = NULL,
         objects = character(0),
         functs = character(0),
@@ -44,6 +45,24 @@ PackageNamespace <- R6::R6Class("PackageNamespace",
                     formals(if (is.primitive(fn)) args else fn))
             private$function_metadata$set(funct, value)
             value
+        },
+
+        function_stub = function(funct) {
+            if (private$function_stubs$has(funct)) {
+                return(private$function_stubs$get(funct))
+            }
+            fn <- tryCatch(get0(funct, envir = private$namespace), error = function(e) NULL)
+            stub <- if (!is.function(fn)) {
+                NULL
+            } else if (is.primitive(fn)) {
+                fn
+            } else {
+                fun <- null_function
+                formals(fun) <- formals(fn)
+                utils::removeSource(fun)
+            }
+            private$function_stubs$set(funct, stub)
+            stub
         }
     ),
     public = list(
@@ -57,7 +76,7 @@ PackageNamespace <- R6::R6Class("PackageNamespace",
             objects <- union(names(ns), exports)
             private$objects <- sanitize_names(objects)
             is_function <- vapply(private$objects, function(x) {
-                is.function(get0(x, ns))
+                tryCatch(is.function(get0(x, ns)), error = function(e) FALSE)
             }, logical(1L), USE.NAMES = FALSE)
             is_exported <- private$objects %in% exports
             private$functs <- private$objects[is_function]
@@ -70,6 +89,7 @@ PackageNamespace <- R6::R6Class("PackageNamespace",
                 stats::setNames(as.list(flags), private$objects),
                 hash = TRUE, parent = emptyenv())
             private$function_metadata <- collections::dict()
+            private$function_stubs <- collections::dict()
             private$lazydata <- as.character(names(.getNamespaceInfo(ns, "lazydata")))
             private$documentation <- collections::dict()
         },
@@ -110,6 +130,17 @@ PackageNamespace <- R6::R6Class("PackageNamespace",
         get_lazydata = function() {
             private$ensure_namespace()
             private$lazydata
+        },
+
+        get_diagnostic_stub = function(symbol) {
+            if (self$exists_funct(symbol, exported_only = FALSE)) {
+                private$function_stub(symbol)
+            } else if (self$exists(symbol, exported_only = FALSE) ||
+                    symbol %in% private$lazydata) {
+                NULL
+            } else {
+                any_args_function
+            }
         },
 
         get_signature = function(funct, exported_only = TRUE) {

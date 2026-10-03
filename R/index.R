@@ -236,7 +236,7 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
             if (def_type == "function") {
                 fun <- null_function
                 tryCatch(formals(fun) <- value[[2L]], error = function(e) NULL)
-                functions[[symbol]] <- fun
+                functions[[symbol]] <- utils::removeSource(fun)
             }
             definitions[[symbol]] <- list(
                 name = symbol,
@@ -372,7 +372,8 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                     !identical(cached$root, self$root) ||
                     !is.list(cached$summaries)) return(NULL)
             for (summary in cached$summaries) {
-                if (!is.list(summary) || !file.exists(summary$path)) next
+                if (!is.list(summary) || is.null(summary$functions) ||
+                        !file.exists(summary$path)) next
                 info <- file.info(summary$path)
                 if (!nrow(info) || is.na(info$size[[1L]]) ||
                         !identical(as.numeric(info$size[[1L]]), summary$size) ||

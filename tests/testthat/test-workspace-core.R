@@ -73,6 +73,7 @@ test_that("Workspace parses named NAMESPACE imports and polls recent files", {
     writeLines(c("Package: coveragefixture", "Version: 0.0.1"),
         file.path(root, "DESCRIPTION"))
     writeLines(c(
+        "1",
         "import(base, except = c(mean))",
         "importFrom(stats, median)"
     ), file.path(root, "NAMESPACE"))
@@ -127,18 +128,18 @@ test_that("workspace handlers remove folders and ignore unrelated file events", 
     expect_true(package$documents$has(open_document$uri))
 })
 
-test_that("get_diagnostics_globals includes NAMESPACE and Depends imports via parseNamespaceFile", {
+test_that("get_diagnostics_globals includes NAMESPACE and Depends imports and preserves R precedence", {
     root <- withr::local_tempdir()
     dir.create(file.path(root, "R"), recursive = TRUE)
     writeLines(c(
         "Package: importglobalsfixture",
         "Version: 0.1.0",
-        "Depends: R (>= 4.0.0), methods"
+        "Depends: R (>= 4.0.0), methods, datasets, stats"
     ), file.path(root, "DESCRIPTION"))
     writeLines(c(
         "import(stats, except = c(mad))",
         "import(grDevices)",
-        "importFrom(utils, head, tail)",
+        "importFrom(utils, head, tail, filter = head, rgb = tail)",
         "importFrom(tools, file_ext)"
     ), file.path(root, "NAMESPACE"))
 
@@ -146,6 +147,7 @@ test_that("get_diagnostics_globals includes NAMESPACE and Depends imports via pa
     helper_lines <- c(
         "pkg_helper <- function(x, y = 1) x + y",
         "pkg_const <- 42",
+        "rgb <- function(custom_arg = 1) custom_arg",
         ""
     )
     writeLines(helper_lines, helper_path)
@@ -163,6 +165,8 @@ test_that("get_diagnostics_globals includes NAMESPACE and Depends imports via pa
     expect_true(exists("pkg_helper", envir = globals_indexed, mode = "function", inherits = FALSE))
     expect_equal(names(formals(globals_indexed$pkg_helper)), c("x", "y"))
     expect_true(exists("pkg_const", envir = globals_indexed, inherits = FALSE))
+    expect_false(exists("pkg_const", envir = globals_indexed, mode = "function", inherits = FALSE))
+    expect_null(globals_indexed$pkg_const)
     expect_true(exists("sd", envir = globals_indexed, mode = "function", inherits = FALSE))
     expect_equal(formals(globals_indexed$sd), formals(stats::sd))
     expect_false(exists("mad", envir = globals_indexed, inherits = FALSE))
@@ -171,8 +175,13 @@ test_that("get_diagnostics_globals includes NAMESPACE and Depends imports via pa
     expect_true(exists("tail", envir = globals_indexed, mode = "function", inherits = FALSE))
     expect_true(exists("file_ext", envir = globals_indexed, mode = "function", inherits = FALSE))
     expect_equal(formals(globals_indexed$file_ext), formals(tools::file_ext))
-    expect_true(exists("rgb", envir = globals_indexed, mode = "function", inherits = FALSE))
     expect_true(exists("is", envir = globals_indexed, mode = "function", inherits = FALSE))
+    expect_true(exists("mtcars", envir = globals_indexed, inherits = FALSE))
+    expect_null(globals_indexed$mtcars)
+    # NAMESPACE directive overrides Depends (stats::filter) and earlier import(stats)
+    expect_equal(formals(globals_indexed$filter), formals(utils::head))
+    # Package-local R/ definition overrides NAMESPACE imports (grDevices::rgb and utils::tail)
+    expect_equal(names(formals(globals_indexed$rgb)), "custom_arg")
 
     scripts_dir <- file.path(root, "scripts")
     dir.create(scripts_dir, recursive = TRUE)
@@ -184,6 +193,7 @@ test_that("get_diagnostics_globals includes NAMESPACE and Depends imports via pa
     workspace$index$discover()
     globals_script <- workspace$get_diagnostics_globals(path_to_uri(script_main))
     expect_true(exists("script_constant", envir = globals_script, inherits = FALSE))
+    expect_false(exists("script_constant", envir = globals_script, mode = "function", inherits = FALSE))
     expect_true(exists("file_ext", envir = globals_script, mode = "function", inherits = FALSE))
     expect_false(exists("pkg_const", envir = globals_script, inherits = FALSE))
 
@@ -193,6 +203,8 @@ test_that("get_diagnostics_globals includes NAMESPACE and Depends imports via pa
 
     globals_unindexed <- workspace$get_diagnostics_globals()
     expect_true(exists("pkg_helper", envir = globals_unindexed, mode = "function", inherits = FALSE))
+    expect_true(exists("pkg_const", envir = globals_unindexed, inherits = FALSE))
+    expect_false(exists("pkg_const", envir = globals_unindexed, mode = "function", inherits = FALSE))
     expect_true(exists("sd", envir = globals_unindexed, mode = "function", inherits = FALSE))
     expect_equal(formals(globals_unindexed$sd), formals(stats::sd))
     expect_false(exists("mad", envir = globals_unindexed, inherits = FALSE))
@@ -200,4 +212,6 @@ test_that("get_diagnostics_globals includes NAMESPACE and Depends imports via pa
     expect_equal(formals(globals_unindexed$head), formals(utils::head))
     expect_true(exists("file_ext", envir = globals_unindexed, mode = "function", inherits = FALSE))
     expect_equal(formals(globals_unindexed$file_ext), formals(tools::file_ext))
+    expect_equal(formals(globals_unindexed$filter), formals(utils::head))
+    expect_equal(names(formals(globals_unindexed$rgb)), "custom_arg")
 })

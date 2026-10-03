@@ -283,8 +283,8 @@ is_top_level <- function(arg_env, ...) {
     any(vapply(top_level_envs, identical, x = arg_env, FUN.VALUE = logical(1L)))
 }
 
-null_function <- local(function() NULL, baseenv())
-any_args_function <- local(function(...) NULL, baseenv())
+null_function <- utils::removeSource(local(function() NULL, baseenv()))
+any_args_function <- utils::removeSource(local(function(...) NULL, baseenv()))
 
 parser_hooks <- list(
     "{" = function(expr, action) {
@@ -492,7 +492,7 @@ parse_expr <- function(content, expr, env, srcref = attr(expr, "srcref")) {
                             env$functions_n <- env$functions_n + 1L
                             env$function_names[[env$functions_n]] <- symbol
                         }
-                        assign(symbol, fun, envir = env$functions_store)
+                        assign(symbol, utils::removeSource(fun), envir = env$functions_store)
                         assign(
                             symbol, get_signature(symbol, value),
                             envir = env$signatures_store)
