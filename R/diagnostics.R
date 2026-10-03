@@ -109,7 +109,7 @@ lintr_supports_text_terminal_newline <- function() {
     isFALSE(attr(lines, "terminal_newline", exact = TRUE))
 }
 
-lint_without_terminal_newline <- function(path, content, linters, cache) {
+lint_without_terminal_newline <- function(path, content, linters) {
     lintr_namespace <- asNamespace("lintr")
     settings <- lintr_namespace$settings
     previous_settings <- as.list(settings, all.names = TRUE)
@@ -117,25 +117,27 @@ lint_without_terminal_newline <- function(path, content, linters, cache) {
         rm(list = ls(settings, all.names = TRUE), envir = settings)
         list2env(previous_settings, envir = settings)
     }, add = TRUE)
-    if (nzchar(path)) {
-        lintr_namespace$read_settings(path)
-    }
+    lintr_namespace$read_settings(if (nzchar(path)) path else getwd())
     effective_linters <- lintr_namespace$define_linters(linters)
     if (!("trailing_blank_lines_linter" %in% names(effective_linters))) {
         return(list())
     }
+    noop_linter <- lintr::Linter(function(source_expression) list(), name = "noop")
+    attr(noop_linter, "linter_level") <- "file"
+    fallback_linters <- effective_linters
+    fallback_linters[names(fallback_linters) != "trailing_blank_lines_linter"] <- list(noop_linter)
     settings$encoding <- "UTF-8"
     tmp <- tempfile(fileext = ".R")
     on.exit(unlink(tmp), add = TRUE)
     writeBin(charToRaw(enc2utf8(paste(content, collapse = "\n"))), tmp)
     lints <- lintr::lint(
         filename = tmp,
-        linters = effective_linters["trailing_blank_lines_linter"],
-        cache = cache,
+        linters = fallback_linters,
+        cache = FALSE,
         parse_settings = FALSE
     )
     lints <- Filter(function(lint) {
-        identical(lint$message, "Add a terminal newline.")
+        grepl("terminal newline", lint$message, fixed = TRUE)
     }, lints)
     if (!nzchar(path) || !length(lints)) {
         return(lints)
@@ -196,7 +198,7 @@ diagnose_file <- function(uri, content, is_rmarkdown = FALSE, globals = NULL, ca
             lints <- lint_document_text(NULL, content)
         }
         if (!terminal_newline && (!nzchar(path) || !lintr_supports_text_terminal_newline())) {
-            lints <- c(lints, lint_without_terminal_newline(path, content, linters, cache))
+            lints <- c(lints, lint_without_terminal_newline(path, content, linters))
         }
     }
 
