@@ -129,8 +129,9 @@ diagnose_file <- function(uri, content, is_rmarkdown = FALSE, globals = NULL, ca
             populate_package_import_globals(
                 globals,
                 imported_packages = pkg_imports$packages,
-                imported_objects = names(pkg_imports$objects),
-                except_map = pkg_imports$except
+                imported_objects = pkg_imports$objects,
+                except_map = pkg_imports$except,
+                targets_map = pkg_imports$targets
             )
         }
     }

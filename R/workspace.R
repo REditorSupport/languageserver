@@ -506,11 +506,8 @@ Workspace <- R6::R6Class("Workspace",
                 }
                 globals <- new.env(parent = emptyenv())
                 package_root <- self$index$package_root_for_uri(uri)
-                if (is.null(package_root) && is_package(self$root)) {
-                    package_root <- self$root
-                }
                 uris <- if (is.null(package_root)) {
-                    self$index$source_closure(uri)
+                    self$index$source_closure(uri, update = TRUE)
                 } else {
                     self$index$package_source_uris(package_root)
                 }
@@ -537,24 +534,32 @@ Workspace <- R6::R6Class("Workspace",
                         globals[[symbol]] <- fn
                     }
                 }
-                if (!is.null(package_root)) {
-                    pkg_imports <- extract_package_imports(package_root)
+                import_root <- if (!is.null(package_root)) {
+                    package_root
+                } else if (is_package(self$root)) {
+                    self$root
+                } else {
+                    NULL
+                }
+                if (!is.null(import_root)) {
+                    pkg_imports <- extract_package_imports(import_root)
                     imported_packages <- pkg_imports$packages
-                    imported_objects <- names(pkg_imports$objects)
+                    imported_objects <- pkg_imports$objects
                     if (identical(
-                        index_normalize_path(package_root),
+                        index_normalize_path(import_root),
                         index_normalize_path(self$root)
                     )) {
                         imported_packages <- union(
                             imported_packages, self$imported_packages)
-                        imported_objects <- union(
-                            imported_objects, self$imported_objects$keys())
+                        imported_objects <- merge_imported_objects(
+                            imported_objects, self$imported_objects)
                     }
                     populate_package_import_globals(
                         globals,
                         imported_packages = imported_packages,
                         imported_objects = imported_objects,
-                        except_map = pkg_imports$except
+                        except_map = pkg_imports$except,
+                        targets_map = pkg_imports$targets
                     )
                 }
                 return(globals)
@@ -567,8 +572,8 @@ Workspace <- R6::R6Class("Workspace",
                 pkg_imports <- extract_package_imports(self$root)
                 imported_packages <- union(
                     pkg_imports$packages, self$imported_packages)
-                imported_objects <- union(
-                    names(pkg_imports$objects), self$imported_objects$keys())
+                imported_objects <- merge_imported_objects(
+                    pkg_imports$objects, self$imported_objects)
                 source_dir <- normalizePath(
                     file.path(self$root, "R"),
                     winslash = "/",
@@ -590,7 +595,8 @@ Workspace <- R6::R6Class("Workspace",
                     globals,
                     imported_packages = imported_packages,
                     imported_objects = imported_objects,
-                    except_map = pkg_imports$except
+                    except_map = pkg_imports$except,
+                    targets_map = pkg_imports$targets
                 )
             }
             self$diagnostics_globals_cache <- globals
@@ -698,28 +704,118 @@ assign_diagnostics_globals <- function(globals, symbols, value = any_args_functi
     globals
 }
 
+.missing_import <- new.env(parent = emptyenv())
+
+resolve_imported_global <- function(ns, target) {
+    if (is.null(ns) || !nzchar(target)) {
+        return(any_args_function)
+    }
+    obj <- get0(target, envir = ns, inherits = FALSE, ifnotfound = .missing_import)
+    if (identical(obj, .missing_import)) {
+        obj <- tryCatch(getExportedValue(ns, target), error = function(e) .missing_import)
+    }
+    if (identical(obj, .missing_import)) {
+        return(any_args_function)
+    }
+    if (!is.function(obj)) {
+        return(NULL)
+    }
+    if (is.primitive(obj)) {
+        return(obj)
+    }
+    fun <- null_function
+    formals(fun) <- formals(obj)
+    fun
+}
+
+merge_imported_objects <- function(objects, dict = NULL) {
+    if (!is.null(dict)) {
+        for (key in dict$keys()) {
+            if (is.null(objects[[key]])) {
+                objects[[key]] <- dict$get(key)
+            }
+        }
+    }
+    objects
+}
+
 populate_package_import_globals <- function(globals,
     imported_packages = character(),
-    imported_objects = character(),
-    except_map = list()) {
+    imported_objects = list(),
+    except_map = list(),
+    targets_map = list()) {
+    ns_cache <- new.env(hash = TRUE, parent = emptyenv())
+    get_ns <- function(pkg) {
+        if (!is.character(pkg) || length(pkg) != 1L || !nzchar(pkg)) {
+            return(NULL)
+        }
+        if (exists(pkg, envir = ns_cache, inherits = FALSE)) {
+            return(get(pkg, envir = ns_cache, inherits = FALSE))
+        }
+        ns <- tryCatch(asNamespace(pkg), error = function(e) NULL)
+        assign(pkg, ns, envir = ns_cache)
+        ns
+    }
+
+    if (is.character(imported_objects) && is.null(names(imported_objects))) {
+        assign_diagnostics_globals(globals, imported_objects)
+    } else if (length(imported_objects)) {
+        obj_names <- names(imported_objects)
+        for (i in seq_along(imported_objects)) {
+            symbol <- if (!is.null(obj_names) && nzchar(obj_names[[i]])) {
+                obj_names[[i]]
+            } else {
+                as.character(imported_objects[[i]])[1L]
+            }
+            if (!nzchar(symbol) || exists(symbol, envir = globals, inherits = FALSE)) {
+                next
+            }
+            pkg <- if (!is.null(obj_names) && nzchar(obj_names[[i]])) {
+                as.character(imported_objects[[i]])[1L]
+            } else {
+                NULL
+            }
+            target <- if (!is.null(targets_map[[symbol]])) {
+                targets_map[[symbol]]
+            } else {
+                symbol
+            }
+            globals[[symbol]] <- resolve_imported_global(get_ns(pkg), target)
+        }
+    }
+
     for (pkg in unique(imported_packages[nzchar(imported_packages)])) {
-        exports <- tryCatch(getNamespaceExports(pkg), error = function(e) character())
+        ns <- get_ns(pkg)
+        exports <- if (is.null(ns)) {
+            character()
+        } else {
+            tryCatch(getNamespaceExports(ns), error = function(e) character())
+        }
         if (length(except_map[[pkg]])) {
             exports <- setdiff(exports, except_map[[pkg]])
         }
-        assign_diagnostics_globals(globals, exports)
+        for (symbol in unique(exports[nzchar(exports)])) {
+            if (!exists(symbol, envir = globals, inherits = FALSE)) {
+                globals[[symbol]] <- resolve_imported_global(ns, symbol)
+            }
+        }
     }
-    assign_diagnostics_globals(globals, imported_objects)
     globals
 }
 
 extract_namespace_imports <- function(package_root) {
     packages <- character()
     objects <- list()
+    targets <- list()
     except_map <- list()
     namespace_file <- file.path(package_root, "NAMESPACE")
     if (!file.exists(namespace_file)) {
-        return(list(packages = packages, objects = objects, except = except_map))
+        return(list(
+            packages = packages,
+            objects = objects,
+            targets = targets,
+            except = except_map
+        ))
     }
     ns <- tryCatch(
         base::parseNamespaceFile(
@@ -730,7 +826,12 @@ extract_namespace_imports <- function(package_root) {
         error = function(e) NULL
     )
     if (is.null(ns)) {
-      return(list(packages = packages, objects = objects, except = except_map))
+        return(list(
+            packages = packages,
+            objects = objects,
+            targets = targets,
+            except = except_map
+        ))
     }
     for (imp in ns$imports) {
         if (is.character(imp) && length(imp) == 1L) {
@@ -748,14 +849,19 @@ extract_namespace_imports <- function(package_root) {
                 as.character(imp$except)
             )
         } else if (length(imp) >= 2L) {
-            syms <- as.character(imp[[2L]])
+            orig_syms <- as.character(imp[[2L]])
+            syms <- orig_syms
             aliases <- names(imp[[2L]])
             if (!is.null(aliases)) {
                 has_alias <- nzchar(aliases)
                 syms[has_alias] <- aliases[has_alias]
             }
-            for (sym in syms[nzchar(syms)]) {
-                objects[[sym]] <- pkg
+            for (i in seq_along(syms)) {
+                sym <- syms[[i]]
+                if (nzchar(sym)) {
+                    objects[[sym]] <- pkg
+                    targets[[sym]] <- orig_syms[[i]]
+                }
             }
         }
     }
@@ -768,18 +874,25 @@ extract_namespace_imports <- function(package_root) {
         syms <- syms[nzchar(syms)]
         for (sym in syms) {
             objects[[sym]] <- pkg
+            targets[[sym]] <- sym
         }
     }
     list(
         packages = unique(packages[nzchar(packages)]),
         objects = objects,
+        targets = targets,
         except = except_map
     )
 }
 
 extract_package_imports <- function(package_root) {
     if (is.null(package_root) || !length(package_root) || !nzchar(package_root)) {
-        return(list(packages = character(), objects = list(), except = list()))
+        return(list(
+            packages = character(),
+            objects = list(),
+            targets = list(),
+            except = list()
+        ))
     }
     ns_imports <- extract_namespace_imports(package_root)
     packages <- ns_imports$packages
@@ -801,6 +914,7 @@ extract_package_imports <- function(package_root) {
     list(
         packages = unique(packages[nzchar(packages)]),
         objects = ns_imports$objects,
+        targets = ns_imports$targets,
         except = ns_imports$except
     )
 }

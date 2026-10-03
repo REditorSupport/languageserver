@@ -613,7 +613,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             invisible(NULL)
         },
 
-        source_closure = function(uri) {
+        source_closure = function(uri, update = FALSE) {
             result <- character(self$max_files() + 1L)
             result_count <- 0L
             queue <- collections::queue()
@@ -623,6 +623,9 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                 current <- queue$pop()
                 if (exists(current, envir = visited, inherits = FALSE)) next
                 assign(current, TRUE, envir = visited)
+                if (isTRUE(update) && !self$summaries$has(current)) {
+                    self$update_path(path_from_uri(current))
+                }
                 result_count <- result_count + 1L
                 if (result_count > length(result)) {
                     result <- c(result, character(length(result)))

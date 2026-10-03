@@ -258,12 +258,33 @@ test_that("diagnose_file object_usage_linter acknowledges NAMESPACE imports and 
 
     bad_code <- c(
         main_code[seq_len(length(main_code) - 2L)],
+        "  rnorm(1, invalid_arg = 2)",
+        "  file_path_sans_ext('a.txt', invalid_ext_arg = 2)",
         "  missing_fn(missing_var)",
         "}",
         ""
     )
     bad_diags <- diagnose_file(path_to_uri(main_file), bad_code, globals = globals, cache = FALSE)
     messages <- vapply(bad_diags, `[[`, character(1L), "message")
+    expect_true(any(grepl("unused argument (invalid_arg = 2)", messages, fixed = TRUE)))
+    expect_true(any(grepl("unused argument (invalid_ext_arg = 2)", messages, fixed = TRUE)))
     expect_true(any(grepl("no visible global function definition for 'missing_fn'", messages, fixed = TRUE)))
     expect_true(any(grepl("no visible binding for global variable 'missing_var'", messages, fixed = TRUE)))
+
+    scripts_dir <- file.path(pkg_dir, "scripts")
+    dir.create(scripts_dir, recursive = TRUE)
+    script_helper <- file.path(scripts_dir, "helper.R")
+    writeLines(c("script_constant <- 42", ""), script_helper)
+    script_main <- file.path(scripts_dir, "main.R")
+    script_code <- c(
+        "source('helper.R')",
+        "f <- function() script_constant",
+        ""
+    )
+    writeLines(script_code, script_main)
+    ws$index$discover()
+    script_globals <- ws$get_diagnostics_globals(path_to_uri(script_main))
+    script_diags <- diagnose_file(
+        path_to_uri(script_main), script_code, globals = script_globals, cache = FALSE)
+    expect_length(script_diags, 0L)
 })

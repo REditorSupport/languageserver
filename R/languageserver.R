@@ -109,7 +109,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 if (isTRUE(workspace$poll_namespace_file())) {
                     for (doc in workspace$documents$values()) {
                         if (isTRUE(doc$is_open)) {
-                            diagnostics_task(self, workspace, doc, delay = 0)
+                            schedule_diagnostics(self, doc$uri, doc, delay = 0)
                         }
                     }
                 }
