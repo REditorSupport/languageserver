@@ -134,13 +134,14 @@ test_that("get_diagnostics_globals includes NAMESPACE and Depends imports and pr
     writeLines(c(
         "Package: importglobalsfixture",
         "Version: 0.1.0",
-        "Depends: R (>= 4.0.0), methods, datasets, stats"
+        "Depends: R (>= 4.0.0), methods, datasets"
     ), file.path(root, "DESCRIPTION"))
     writeLines(c(
         "import(stats, except = c(mad))",
         "import(grDevices)",
-        "importFrom(utils, head, tail, filter = head, rgb = tail)",
-        "importFrom(tools, file_ext)"
+        "importFrom(utils, head, tail, filter = head, show = head, rgb = tail)",
+        "if (getRversion() >= \"3.0.0\") importFrom(tools, file_ext)",
+        "{ importFrom(tools, file_path_sans_ext) }"
     ), file.path(root, "NAMESPACE"))
 
     helper_path <- file.path(root, "R", "helper.R")
@@ -175,10 +176,13 @@ test_that("get_diagnostics_globals includes NAMESPACE and Depends imports and pr
     expect_true(exists("tail", envir = globals_indexed, mode = "function", inherits = FALSE))
     expect_true(exists("file_ext", envir = globals_indexed, mode = "function", inherits = FALSE))
     expect_equal(formals(globals_indexed$file_ext), formals(tools::file_ext))
+    expect_true(exists("file_path_sans_ext", envir = globals_indexed, mode = "function", inherits = FALSE))
+    expect_equal(formals(globals_indexed$file_path_sans_ext), formals(tools::file_path_sans_ext))
     expect_true(exists("is", envir = globals_indexed, mode = "function", inherits = FALSE))
     expect_true(exists("mtcars", envir = globals_indexed, inherits = FALSE))
     expect_null(globals_indexed$mtcars)
-    # NAMESPACE directive overrides Depends (stats::filter) and earlier import(stats)
+    # NAMESPACE directive overrides Depends (methods::show) and earlier import(stats)
+    expect_equal(formals(globals_indexed$show), formals(utils::head))
     expect_equal(formals(globals_indexed$filter), formals(utils::head))
     # Package-local R/ definition overrides NAMESPACE imports (grDevices::rgb and utils::tail)
     expect_equal(names(formals(globals_indexed$rgb)), "custom_arg")
@@ -212,6 +216,57 @@ test_that("get_diagnostics_globals includes NAMESPACE and Depends imports and pr
     expect_equal(formals(globals_unindexed$head), formals(utils::head))
     expect_true(exists("file_ext", envir = globals_unindexed, mode = "function", inherits = FALSE))
     expect_equal(formals(globals_unindexed$file_ext), formals(tools::file_ext))
+    expect_equal(formals(globals_unindexed$show), formals(utils::head))
     expect_equal(formals(globals_unindexed$filter), formals(utils::head))
     expect_equal(names(formals(globals_unindexed$rgb)), "custom_arg")
+})
+
+test_that("get_diagnostics_globals handles failed namespace loads and retries newly available dependencies", {
+    root <- withr::local_tempdir()
+    dir.create(file.path(root, "R"), recursive = TRUE)
+    writeLines(c(
+        "Package: retryfixture",
+        "Version: 0.1.0",
+        "Depends: stats"
+    ), file.path(root, "DESCRIPTION"))
+    writeLines(c(
+        "import(stats, except = c(mad))",
+        "import(missingdepfixture)",
+        "import(brokenloadfixture)",
+        "importFrom(brokenloadfixture, broken_fn)"
+    ), file.path(root, "NAMESPACE"))
+    main_path <- file.path(root, "R", "main.R")
+    writeLines("f <- function(x) x", main_path)
+
+    workspace <- Workspace$new(root)
+    orig_get_namespace <- workspace$get_namespace
+    allow_missing_dep <- FALSE
+    unlockBinding("get_namespace", workspace)
+    workspace$get_namespace <- function(pkgname, uri = NULL) {
+        if (identical(pkgname, "brokenloadfixture")) {
+            stop("simulated .onLoad failure")
+        }
+        if (identical(pkgname, "missingdepfixture")) {
+            if (!allow_missing_dep) return(NULL)
+            return(orig_get_namespace("tools", uri = uri))
+        }
+        orig_get_namespace(pkgname, uri = uri)
+    }
+
+    expect_no_error(workspace$import_from_namespace_file())
+    globals_before <- workspace$get_diagnostics_globals(path_to_uri(main_path))
+    globals_unindexed_before <- workspace$get_diagnostics_globals()
+    # Depends: stats keeps mad available even when import(stats, except = c(mad)) excludes it
+    expect_true(exists("mad", envir = globals_before, mode = "function", inherits = FALSE))
+    expect_true(exists("broken_fn", envir = globals_before, mode = "function", inherits = FALSE))
+    expect_false(exists("file_ext", envir = globals_before, inherits = FALSE))
+    expect_false(exists("file_ext", envir = globals_unindexed_before, inherits = FALSE))
+
+    allow_missing_dep <- TRUE
+    globals_after <- workspace$get_diagnostics_globals(path_to_uri(main_path))
+    globals_unindexed_after <- workspace$get_diagnostics_globals()
+    expect_true(exists("file_ext", envir = globals_after, mode = "function", inherits = FALSE))
+    expect_equal(formals(globals_after$file_ext), formals(tools::file_ext))
+    expect_true(exists("file_ext", envir = globals_unindexed_after, mode = "function", inherits = FALSE))
+    expect_equal(formals(globals_unindexed_after$file_ext), formals(tools::file_ext))
 })
