@@ -206,9 +206,11 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
         error = function(e) NULL
     ) else NULL
     definitions <- list()
+    functions <- list()
     source_specs <- list()
     if (!is.null(parse_data)) {
         definitions <- as.list(parse_data$definitions)
+        functions <- as.list(parse_data$functions)
         source_specs <- parse_data$source_specs
     } else if (!is.null(expressions)) {
         srcrefs <- attr(expressions, "srcref")
@@ -230,9 +232,15 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
             }
             srcref <- if (length(srcrefs) >= i) srcrefs[[i]] else NULL
             if (is.null(srcref)) next
+            def_type <- get_expr_type(value)
+            if (def_type == "function") {
+                fun <- null_function
+                tryCatch(formals(fun) <- value[[2L]], error = function(e) NULL)
+                functions[[symbol]] <- utils::removeSource(fun)
+            }
             definitions[[symbol]] <- list(
                 name = symbol,
-                type = get_expr_type(value),
+                type = def_type,
                 range = expr_range(srcref)
             )
         }
@@ -260,6 +268,7 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
         mtime = as.numeric(mtime),
         content_hash = get_content_hash(content),
         definitions = definitions,
+        functions = functions,
         sources = sources,
         source_candidates = source_candidates,
         source_candidate_exists = source_candidate_exists,
@@ -363,7 +372,8 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                     !identical(cached$root, self$root) ||
                     !is.list(cached$summaries)) return(NULL)
             for (summary in cached$summaries) {
-                if (!is.list(summary) || !file.exists(summary$path)) next
+                if (!is.list(summary) || is.null(summary$functions) ||
+                        !file.exists(summary$path)) next
                 info <- file.info(summary$path)
                 if (!nrow(info) || is.na(info$size[[1L]]) ||
                         !identical(as.numeric(info$size[[1L]]), summary$size) ||
@@ -523,6 +533,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             if (isTRUE(summary$parse_error) && self$summaries$has(uri)) {
                 previous <- self$summaries$get(uri)
                 summary$definitions <- previous$definitions
+                summary$functions <- previous$functions
                 summary$sources <- previous$sources
                 summary$source_candidates <- previous$source_candidates
                 summary$source_candidate_exists <-
@@ -603,7 +614,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             invisible(NULL)
         },
 
-        source_closure = function(uri) {
+        source_closure = function(uri, update = FALSE) {
             result <- character(self$max_files() + 1L)
             result_count <- 0L
             queue <- collections::queue()
@@ -613,6 +624,9 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                 current <- queue$pop()
                 if (exists(current, envir = visited, inherits = FALSE)) next
                 assign(current, TRUE, envir = visited)
+                if (isTRUE(update) && !self$summaries$has(current)) {
+                    self$update_path(path_from_uri(current))
+                }
                 result_count <- result_count + 1L
                 if (result_count > length(result)) {
                     result <- c(result, character(length(result)))

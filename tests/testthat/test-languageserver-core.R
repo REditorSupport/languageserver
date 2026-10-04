@@ -204,3 +204,65 @@ test_that("run configures boolean and file debug modes", {
     expect_equal(lsp_settings$get("log_file"), log_file)
     expect_equal(fake_server$runs, 2L)
 })
+
+test_that("process_events schedules diagnostics for open documents when NAMESPACE changes", {
+    old_diagnostics <- lsp_settings$get("diagnostics")
+    withr::defer(lsp_settings$set("diagnostics", old_diagnostics))
+
+    root <- withr::local_tempdir()
+    dir.create(file.path(root, "R"), recursive = TRUE)
+    writeLines(c("Package: nspollpkg", "Version: 0.1.0"), file.path(root, "DESCRIPTION"))
+    namespace_file <- file.path(root, "NAMESPACE")
+    writeLines("importFrom(utils, head)", namespace_file)
+
+    server <- BareLanguageServer$new()
+    withr::defer(server$close_connections())
+    server$rootPath <- root
+
+    noop_manager <- list(
+        check_tasks = function() NULL,
+        run_tasks = function() NULL,
+        has_work = function() FALSE
+    )
+    added_tasks <- collections::dict()
+    diag_manager <- list(
+        check_tasks = function() NULL,
+        run_tasks = function() NULL,
+        has_work = function() FALSE,
+        add_task = function(id, task) added_tasks$set(id, task)
+    )
+    server$parse_task_manager <- noop_manager
+    server$diagnostics_task_manager <- diag_manager
+    server$resolve_task_manager <- noop_manager
+    server$formatting_task_manager <- noop_manager
+
+    workspace <- Workspace$new(root)
+    workspace$import_from_namespace_file()
+    doc_path <- file.path(root, "R", "main.R")
+    writeLines("f <- function(x) rnorm(x)", doc_path)
+    doc_uri <- path_to_uri(doc_path)
+    doc <- Document$new(doc_uri, content = "f <- function(x) rnorm(x)")
+    doc$did_open()
+    workspace$documents$set(doc_uri, doc)
+    server$workspaces$set(path_to_uri(root), workspace)
+
+    writeLines(c("importFrom(utils, head)", "importFrom(stats, rnorm)"), namespace_file)
+    Sys.setFileTime(namespace_file, Sys.time() - 2)
+    workspace$namespace_file_mt <- Sys.time() - 10
+
+    lsp_settings$set("diagnostics", TRUE)
+    expect_no_error(server$process_events())
+    expect_equal(workspace$imported_objects$get("rnorm"), "stats")
+    expect_true(added_tasks$has(doc_uri))
+    expect_s3_class(added_tasks$get(doc_uri), "Task")
+
+    added_tasks$clear()
+    writeLines("importFrom(stats, sd)", namespace_file)
+    Sys.setFileTime(namespace_file, Sys.time() - 2)
+    workspace$namespace_file_mt <- Sys.time() - 10
+
+    lsp_settings$set("diagnostics", FALSE)
+    expect_no_error(server$process_events())
+    expect_equal(workspace$imported_objects$get("sd"), "stats")
+    expect_false(added_tasks$has(doc_uri))
+})

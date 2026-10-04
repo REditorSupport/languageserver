@@ -106,7 +106,15 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$resolve_task_manager$run_tasks()
             self$formatting_task_manager$run_tasks()
             for (workspace in self$workspaces$values()) {
-                workspace$poll_namespace_file()
+                if (!isTRUE(workspace$poll_namespace_file())) {
+                    next
+                }
+                for (doc in workspace$documents$values()) {
+                    if (!isTRUE(doc$is_open)) {
+                        next
+                    }
+                    schedule_diagnostics(self, doc$uri, doc, delay = 0)
+                }
             }
         },
         add_workspace = function(uri) {
