@@ -196,15 +196,14 @@ code_action_direct_fix <- function(document, diagnostic) {
         priority <- 70L
     } else if (identical(code, "trailing_blank_lines_linter")) {
         if (grepl("terminal newline", message, fixed = TRUE)) {
-            if (!nzchar(document$line(document$nline))) return(NULL)
-            last_row <- document$nline - 1L
-            last_col <- nchar(document$line(document$nline))
+            if (row != document$nline - 1L || !nzchar(trimws(line))) return(NULL)
+            last_col <- nchar(line)
             edit <- code_action_text_edit(
-                document, last_row, last_col, last_col, "\n")
+                document, row, last_col, last_col, "\n")
             title <- "Add a terminal newline"
             priority <- 70L
         } else {
-            if (any(nzchar(document$content[(row + 1L):document$nline]))) return(NULL)
+            if (any(nzchar(trimws(document$content[(row + 1L):document$nline])))) return(NULL)
             edit <- text_edit(
                 range = range(
                     start = document$to_lsp_position(row, 0L),
@@ -214,7 +213,7 @@ code_action_direct_fix <- function(document, diagnostic) {
                 new_text = ""
             )
             title <- "Remove trailing blank lines"
-            priority <- 70L
+            priority <- 75L
         }
     } else if (identical(code, "semicolon_linter")) {
         semicolon <- code_action_nearest_character(line, ";", start, end)

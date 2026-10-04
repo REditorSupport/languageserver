@@ -119,34 +119,27 @@ lint_without_terminal_newline <- function(path, content, linters) {
     }, add = TRUE)
     lintr_namespace$read_settings(if (nzchar(path)) path else getwd())
     effective_linters <- lintr_namespace$define_linters(linters)
-    if (!("trailing_blank_lines_linter" %in% names(effective_linters))) {
+    linter <- effective_linters[["trailing_blank_lines_linter"]]
+    if (is.null(linter)) {
         return(list())
     }
-    noop_linter <- lintr::Linter(function(source_expression) list(), name = "noop")
-    attr(noop_linter, "linter_level") <- "file"
-    fallback_linters <- effective_linters
-    fallback_linters[names(fallback_linters) != "trailing_blank_lines_linter"] <- list(noop_linter)
-    settings$encoding <- "UTF-8"
-    tmp <- tempfile(fileext = ".R")
-    on.exit(unlink(tmp), add = TRUE)
-    writeBin(charToRaw(enc2utf8(paste(content, collapse = "\n"))), tmp)
-    lints <- lintr::lint(
-        filename = tmp,
-        linters = fallback_linters,
-        cache = FALSE,
-        parse_settings = FALSE
-    )
+    filename <- if (nzchar(path)) {
+        normalizePath(path, winslash = "/", mustWork = FALSE)
+    } else {
+        "<text>"
+    }
     lints <- Filter(function(lint) {
         grepl("terminal newline", lint$message, fixed = TRUE)
-    }, lints)
-    if (!nzchar(path) || !length(lints)) {
-        return(lints)
+    }, linter(list(
+        filename = filename,
+        file_lines = enc2utf8(content),
+        terminal_newline = FALSE
+    )))
+    for (i in seq_along(lints)) {
+        lints[[i]]$linter <- "trailing_blank_lines_linter"
     }
-    lints[] <- lapply(lints, function(lint) {
-        lint$filename <- normalizePath(path, winslash = "/", mustWork = FALSE)
-        lint
-    })
-    lintr_namespace$exclude(lints, lines = character())
+    class(lints) <- c("lints", "list")
+    lintr_namespace$exclude(lints, lines = content, linter_names = names(effective_linters))
 }
 
 #' Run diagnostic on a file

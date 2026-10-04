@@ -14,6 +14,7 @@
   avoiding zero-length allocations when definitions or occurrences are empty (#767).
 - Speed up test-coverage workflow by utilizing 4 CPUs, path filtering, and 4-way
   balanced test sharding (#769).
+- Preserve missing terminal newline state during diagnostics and provide a preferred quick fix for `trailing_blank_lines_linter` (#774, #772).
 
 **Closed issues:**
 
@@ -83,7 +84,6 @@
 - Update documentation for Emacs Eglot setup and libuv system dependency (#732, #733).
 - Reduce provider and typing latency with native C indexes, cached provider and namespace metadata, and responsive completion during typing (#758).
 - Safely handle namespaced calls in argument default values within `extract_default_values()` (#759).
-- Preserve missing terminal newline state during diagnostics and provide a preferred quick fix for `trailing_blank_lines_linter` (#772).
 
 **Closed issues:**
 

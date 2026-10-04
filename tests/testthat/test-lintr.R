@@ -20,7 +20,7 @@ test_that("lintr works", {
     expect_true(stringi::stri_detect_fixed(data$diagnostics[[1]]$message, "not ="))
 
     no_newline_file <- withr::local_tempfile(tmpdir = dir, fileext = ".R")
-    writeLines("x <- 1", no_newline_file)
+    cat("x <- 1", file = no_newline_file)
 
     client %>% did_open(no_newline_file)
     data_no_newline <- client %>% wait_for("textDocument/publishDiagnostics")
@@ -328,6 +328,21 @@ test_that("diagnose_file reports missing terminal newline for single-line and mu
     diag_multi_present <- diagnose_file(uri, c("x <- 1", "y <- 2", ""), cache = FALSE)
     expect_length(diag_multi_present, 0L)
 
+    diag_untitled_missing <- diagnose_file("untitled:1", "x <- 1", cache = FALSE)
+    expect_length(diag_untitled_missing, 1L)
+    expect_equal(diag_untitled_missing[[1L]]$code, "trailing_blank_lines_linter")
+    expect_match(diag_untitled_missing[[1L]]$message, "terminal newline", fixed = TRUE)
+
+    diag_untitled_present <- diagnose_file("untitled:1", c("x <- 1", ""), cache = FALSE)
+    expect_length(diag_untitled_present, 0L)
+})
+
+test_that("lint_without_terminal_newline respects linter configuration and lintr 3.0.0 wording", {
+    dir <- withr::local_tempdir()
+    withr::local_dir(dir)
+    temp_file <- withr::local_tempfile(tmpdir = dir, fileext = ".R")
+    cat("x <- 1", file = temp_file)
+
     fallback_lints <- lint_without_terminal_newline(
         temp_file, "x <- 1", lintr::linters_with_defaults()
     )
@@ -340,16 +355,19 @@ test_that("diagnose_file reports missing terminal newline for single-line and mu
     expect_length(fallback_untitled, 1L)
     expect_match(fallback_untitled[[1L]]$message, "terminal newline", fixed = TRUE)
 
-    fallback_v300 <- lint_without_terminal_newline
-    stub(fallback_v300, "lintr::lint", function(filename, ...) {
-        lints <- lintr::lint(filename = filename, ...)
-        lints[] <- lapply(lints, function(lint) {
-            lint$message <- "Missing terminal newline."
-            lint
-        })
-        lints
-    })
-    lints_v300 <- fallback_v300("", "x <- 1", lintr::linters_with_defaults())
+    v300_linter <- lintr::Linter(function(source_expression) {
+        list(lintr::Lint(
+            filename = source_expression$filename,
+            line_number = length(source_expression$file_lines),
+            column_number = 7L,
+            type = "style",
+            message = "Missing terminal newline.",
+            line = "x <- 1"
+        ))
+    }, name = "trailing_blank_lines_linter")
+    lints_v300 <- lint_without_terminal_newline(
+        "", "x <- 1", list(trailing_blank_lines_linter = v300_linter)
+    )
     expect_length(lints_v300, 1L)
     expect_equal(lints_v300[[1L]]$message, "Missing terminal newline.")
 
@@ -357,14 +375,23 @@ test_that("diagnose_file reports missing terminal newline for single-line and mu
         temp_file, "x <- 1", list(line_length_linter = lintr::line_length_linter())
     )
     expect_identical(fallback_disabled, list())
+})
 
-    diag_untitled_missing <- diagnose_file("untitled:1", "x <- 1", cache = FALSE)
-    expect_length(diag_untitled_missing, 1L)
-    expect_equal(diag_untitled_missing[[1L]]$code, "trailing_blank_lines_linter")
-    expect_match(diag_untitled_missing[[1L]]$message, "terminal newline", fixed = TRUE)
+test_that("diagnose_file fallback preserves encoding, nolint directives, caching, and package context", {
+    dir <- withr::local_tempdir()
+    withr::local_dir(dir)
+    temp_file <- withr::local_tempfile(tmpdir = dir, fileext = ".R")
+    cat("x <- 1", file = temp_file)
+    uri <- path_to_uri(temp_file)
 
-    diag_untitled_present <- diagnose_file("untitled:1", c("x <- 1", ""), cache = FALSE)
-    expect_length(diag_untitled_present, 0L)
+    diagnose_fallback <- diagnose_file
+    stub(diagnose_fallback, "lintr_supports_text_terminal_newline", function() FALSE)
+    if (lintr_supports_text_terminal_newline()) {
+        stub(diagnose_fallback, "lintr::lint", function(path, ..., text) {
+            if (nzchar(text[[length(text)]])) text <- c(text, "")
+            lintr::lint(path, ..., text = text)
+        })
+    }
 
     enc_dir <- withr::local_tempdir()
     writeLines(c(
@@ -385,13 +412,6 @@ test_that("diagnose_file reports missing terminal newline for single-line and mu
     expect_equal(diag_fallback_enc$code, "trailing_blank_lines_linter")
     expect_equal(diag_fallback_enc$range$start$character, 22L)
 
-    diagnose_fallback <- diagnose_file
-    stub(diagnose_fallback, "lintr_supports_text_terminal_newline", function() FALSE)
-    if (lintr_supports_text_terminal_newline()) {
-        stub(diagnose_fallback, "lintr::lint", function(path, ..., text) {
-            lintr::lint(path, ..., text = c(text, ""))
-        })
-    }
     diag_encoding_fallback <- diagnose_fallback(path_to_uri(enc_file), enc_line, cache = FALSE)
     expect_length(diag_encoding_fallback, 1L)
     expect_equal(diag_encoding_fallback[[1L]]$code, "trailing_blank_lines_linter")
@@ -410,8 +430,9 @@ test_that("diagnose_file reports missing terminal newline for single-line and mu
 
     cache_dir <- withr::local_tempdir()
     withr::with_options(list(lintr.cache_directory = cache_dir), {
-        diag_cached <- diagnose_fallback(uri, "x <- 1", cache = TRUE)
-        expect_length(diag_cached, 1L)
+        expect_length(diagnose_fallback(uri, "x <- 1", cache = TRUE), 1L)
+        expect_length(diagnose_fallback(uri, "x <- 1", cache = TRUE), 1L)
+        expect_length(diagnose_fallback(uri, c("x <- 1", ""), cache = TRUE), 0L)
         expect_length(list.files(cache_dir), 1L)
     })
 
