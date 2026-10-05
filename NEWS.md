@@ -14,6 +14,7 @@
   avoiding zero-length allocations when definitions or occurrences are empty (#767).
 - Speed up test-coverage workflow by utilizing 4 CPUs, path filtering, and 4-way
   balanced test sharding (#769).
+- Preserve missing terminal newline state during diagnostics and provide a preferred quick fix for `trailing_blank_lines_linter` (#774, #772).
 
 **Closed issues:**
 

@@ -101,12 +101,64 @@ lint_document_text <- function(path, content, linters = NULL, cache = FALSE) {
     lintr_namespace$exclude(lints, lines = character())
 }
 
+lintr_supports_text_terminal_newline <- function() {
+    lines <- asNamespace("lintr")$get_lines(
+        filename = "x.R",
+        text = "x"
+    )
+    isFALSE(attr(lines, "terminal_newline", exact = TRUE))
+}
+
+lint_without_terminal_newline <- function(path, content, linters) {
+    lintr_namespace <- asNamespace("lintr")
+    settings <- lintr_namespace$settings
+    previous_settings <- as.list(settings, all.names = TRUE)
+    on.exit({
+        rm(list = ls(settings, all.names = TRUE), envir = settings)
+        list2env(previous_settings, envir = settings)
+    }, add = TRUE)
+    lintr_namespace$read_settings(if (nzchar(path)) path else getwd())
+    effective_linters <- lintr_namespace$define_linters(linters)
+    linter <- effective_linters[["trailing_blank_lines_linter"]]
+    if (is.null(linter)) {
+        return(list())
+    }
+    filename <- if (nzchar(path)) {
+        normalizePath(path, winslash = "/", mustWork = FALSE)
+    } else {
+        "<text>"
+    }
+    source_exclusions <- lintr_namespace$parse_exclusions(
+        filename,
+        lines = content,
+        linter_names = names(effective_linters)
+    )
+    if (lintr_namespace$is_excluded(length(content), "trailing_blank_lines_linter", source_exclusions)) {
+        return(list())
+    }
+    lints <- Filter(function(lint) {
+        grepl("terminal newline", lint$message, fixed = TRUE)
+    }, linter(list(
+        filename = filename,
+        file_lines = enc2utf8(content),
+        terminal_newline = FALSE
+    )))
+    for (i in seq_along(lints)) {
+        lints[[i]]$linter <- "trailing_blank_lines_linter"
+    }
+    class(lints) <- c("lints", "list")
+    if (!nzchar(path)) {
+        return(lints)
+    }
+    lintr_namespace$exclude(lints, lines = character())
+}
+
 #' Run diagnostic on a file
 #'
 #' Lint and diagnose problems in a file.
 #' @noRd
 diagnose_file <- function(uri, content, is_rmarkdown = FALSE, globals = NULL, cache = FALSE) {
-    if (length(content) == 0) {
+    if (length(content) == 0 || identical(content, "")) {
         return(list())
     }
 
@@ -119,14 +171,12 @@ diagnose_file <- function(uri, content, is_rmarkdown = FALSE, globals = NULL, ca
 
     path <- path_from_uri(uri)
 
-    if (length(content) == 1) {
-        content <- c(content, "")
-    }
+    terminal_newline <- is_rmarkdown || !nzchar(content[[length(content)]])
 
     if (length(globals)) {
         env_name <- "languageserver:globals"
         do.call("attach", list(globals, name = env_name, warn.conflicts = FALSE))
-        on.exit(do.call("detach", list(env_name, character.only = TRUE)))
+        on.exit(do.call("detach", list(env_name, character.only = TRUE)), add = TRUE)
     }
 
     linters <- NULL
@@ -139,16 +189,21 @@ diagnose_file <- function(uri, content, is_rmarkdown = FALSE, globals = NULL, ca
 
     if (nzchar(path) && is_rmarkdown) {
         lints <- lint_document_text(path, content, linters, cache)
-    } else if (nzchar(path)) {
-        lints <- lintr::lint(path,
-            cache = cache,
-            text = content,
-            parse_settings = TRUE,
-            linters = linters
-        )
     } else {
-        # There is no stable filename to cache for a pathless document.
-        lints <- lint_document_text(NULL, content)
+        if (nzchar(path)) {
+            lints <- lintr::lint(path,
+                cache = cache,
+                text = content,
+                parse_settings = TRUE,
+                linters = linters
+            )
+        } else {
+            # There is no stable filename to cache for a pathless document.
+            lints <- lint_document_text(NULL, content)
+        }
+        if (!terminal_newline && (!nzchar(path) || !lintr_supports_text_terminal_newline())) {
+            lints <- c(lints, lint_without_terminal_newline(path, content, linters))
+        }
     }
 
     diagnostics <- lapply(lints, diagnostic_from_lint, content = content)

@@ -236,6 +236,10 @@ test_that("Direct fixes reject diagnostics that cannot be applied safely", {
     list("X", diagnostic("T_and_F_symbol_linter")),
     list("x", diagnostic("trailing_whitespace_linter")),
     list(c("", "x"), diagnostic("trailing_blank_lines_linter")),
+    list(c("x <- 1", ""), diagnostic("trailing_blank_lines_linter", 6L, 6L,
+      "Add a terminal newline.")),
+    list(c("x <- 1", "y <- 2"), diagnostic("trailing_blank_lines_linter", 6L, 6L,
+      "Add a terminal newline.", line = 0L)),
     list("x", diagnostic("semicolon_linter")),
     list("x", diagnostic("spaces_left_parentheses_linter")),
     list("if (x)", diagnostic("brace_linter", message =
@@ -347,4 +351,50 @@ test_that("Code action filtering ignores unrelated or invalid diagnostics", {
     list(diagnostics = NULL, only = list("quickfix"))
   )
   expect_identical(reply$result, list())
+})
+
+test_that("Code action provides quickfix for missing terminal newline", {
+  uri <- "file:///missing-newline.R"
+  document <- Document$new(uri, content = "x <- 1")
+  for (msg in c("Add a terminal newline.", "Missing terminal newline.")) {
+    diagnostics <- list(
+      list(
+        range = range(position(0L, 6L), position(0L, 6L)),
+        severity = DiagnosticSeverity$Information,
+        source = "lintr",
+        code = "trailing_blank_lines_linter",
+        message = msg
+      )
+    )
+
+    reply <- document_code_action_reply(
+      1L, uri, NULL, document, list(),
+      list(diagnostics = diagnostics, only = list("quickfix"))
+    )
+    titles <- vapply(reply$result, function(action) action$title, character(1L))
+    expect_true("Add a terminal newline" %in% titles)
+    action <- reply$result[[match("Add a terminal newline", titles)]]
+    expect_true(isTRUE(action$isPreferred))
+    expect_equal(action$edit$changes[[uri]][[1L]]$range, range(position(0L, 6L), position(0L, 6L)))
+    expect_equal(action$edit$changes[[uri]][[1L]]$newText, "\n")
+  }
+})
+
+test_that("Trailing blank line with spaces and no terminal newline fixes cleanly", {
+  withr::local_dir(withr::local_tempdir())
+  uri <- "untitled:1"
+  content <- c("x <- 1", "   ")
+  document <- Document$new(uri, content = content)
+  diagnostics <- diagnose_file(uri, content, cache = FALSE)
+
+  reply <- document_code_action_reply(
+    1L, uri, NULL, document, list(),
+    list(diagnostics = diagnostics, only = list("source.fixAll"))
+  )
+  edits <- reply$result[[1L]]$edit$changes[[uri]]
+  for (edit in rev(edits)) {
+    document$apply_content_changes(2L, list(list(range = edit$range, text = edit$newText)))
+  }
+  expect_equal(document$content, c("x <- 1", ""))
+  expect_length(diagnose_file(uri, document$content, cache = FALSE), 0L)
 })
