@@ -19,7 +19,7 @@ Description: An implementation of the Language Server Protocol
 License: MIT + file LICENSE
 URL: https://github.com/REditorSupport/languageserver/
 Depends:
-    R (>= 3.4.0)
+    R (>= 4.0.0)
 Imports:
     callr (>= 3.0.0),
     collections (>= 0.3.0),
