@@ -335,6 +335,16 @@ test_that("diagnose_file reports missing terminal newline for single-line and mu
 
     diag_untitled_present <- diagnose_file("untitled:1", c("x <- 1", ""), cache = FALSE)
     expect_length(diag_untitled_present, 0L)
+
+    expect_length(diagnose_file("untitled:1", "x <- 1 # nolint", cache = FALSE), 0L)
+    expect_length(
+        diagnose_file("untitled:1", "x <- 1 # nolint: trailing_blank_lines_linter.", cache = FALSE),
+        0L
+    )
+    expect_length(
+        diagnose_file("untitled:1", c("# nolint start", "x <- 1", "# nolint end"), cache = FALSE),
+        0L
+    )
 })
 
 test_that("lint_without_terminal_newline respects linter configuration and lintr 3.0.0 wording", {
@@ -381,7 +391,7 @@ test_that("diagnose_file fallback preserves encoding, nolint directives, caching
     dir <- withr::local_tempdir()
     withr::local_dir(dir)
     temp_file <- withr::local_tempfile(tmpdir = dir, fileext = ".R")
-    cat("x <- 1", file = temp_file)
+    writeLines("x <- 1", temp_file)
     uri <- path_to_uri(temp_file)
 
     diagnose_fallback <- diagnose_file
@@ -421,11 +431,21 @@ test_that("diagnose_file fallback preserves encoding, nolint directives, caching
         "x <- 1 # nolint: object_usage_linter.",
         "y <- 2"
     )
-    cat(paste(nolint_lines, collapse = "\n"), file = temp_file)
+    writeLines(nolint_lines, temp_file)
     withr::with_options(list(warn = 2L), {
         diag_nolint <- diagnose_fallback(uri, nolint_lines, cache = FALSE)
         expect_length(diag_nolint, 1L)
         expect_equal(diag_nolint[[1L]]$code, "trailing_blank_lines_linter")
+        expect_length(diagnose_fallback(uri, "x <- 1 # nolint", cache = FALSE), 0L)
+        expect_length(diagnose_fallback("untitled:1", "x <- 1 # nolint", cache = FALSE), 0L)
+        expect_length(
+            diagnose_fallback("untitled:1", "x <- 1 # nolint: trailing_blank_lines_linter.", cache = FALSE),
+            0L
+        )
+        expect_length(
+            diagnose_fallback("untitled:1", c("# nolint start", "x <- 1", "# nolint end"), cache = FALSE),
+            0L
+        )
     })
 
     cache_dir <- withr::local_tempdir()

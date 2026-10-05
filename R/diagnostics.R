@@ -128,6 +128,14 @@ lint_without_terminal_newline <- function(path, content, linters) {
     } else {
         "<text>"
     }
+    source_exclusions <- lintr_namespace$parse_exclusions(
+        filename,
+        lines = content,
+        linter_names = names(effective_linters)
+    )
+    if (lintr_namespace$is_excluded(length(content), "trailing_blank_lines_linter", source_exclusions)) {
+        return(list())
+    }
     lints <- Filter(function(lint) {
         grepl("terminal newline", lint$message, fixed = TRUE)
     }, linter(list(
@@ -139,7 +147,10 @@ lint_without_terminal_newline <- function(path, content, linters) {
         lints[[i]]$linter <- "trailing_blank_lines_linter"
     }
     class(lints) <- c("lints", "list")
-    lintr_namespace$exclude(lints, lines = content, linter_names = names(effective_linters))
+    if (!nzchar(path)) {
+        return(lints)
+    }
+    lintr_namespace$exclude(lints, lines = character())
 }
 
 #' Run diagnostic on a file
