@@ -1,3 +1,0 @@
-Runtime binding-inspection checks: 25 passed
-Active getter syntax read; lazy promise skipped; function bodies inferred without calls.
-Additions, removals, and return-body replacements detected by metadata fingerprints.
