@@ -1,0 +1,26 @@
+Source: pola-rs/r-polars 56c957815377bb16738df35cfff130c2b2eb43a5
+Languageserver base: 0b195a3c6facf7c58f9735751b82aee539ea5090
+Run date: 2026-10-07 (Asia/Hong_Kong)
+Command: Rscript inst/experiments/dollar-completion/run.R /private/tmp/r-polars-static-completion-source
+
+ cursor             receiver candidates expected
+      1                   pl         83 scan_csv
+      2    polars_lazy_frame         71   filter
+      3                   pl         83      col
+      4    polars_lazy_frame         71 group_by
+      5 polars_lazy_group_by         13      agg
+      6                   pl         83      all
+      7          polars_expr        211      sum
+                 type methods inferred
+                   pl      83       52
+    polars_lazy_frame      69       54
+ polars_lazy_group_by      12       12
+          polars_expr     202      198
+Checks passed: 60
+Index: 0.158 s; warm parse + inference: 0.198 ms/request
+Approximate retained metadata: 8.13 MiB
+R: R version 4.6.1 (2026-06-24)
+
+Existing test-completion-typing.R: FAIL 0 | WARN 0 | SKIP 0 | PASS 20
+Loaded using pkgload with helpers = FALSE and testthat with load_helpers = FALSE.
+Full repository suite not run: standard helpers require missing mockery.
