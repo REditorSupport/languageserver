@@ -46,6 +46,9 @@ member_s4_strings <- function(expr, index, bindings) {
 
 member_s4_arguments <- function(expr, first = "Class") {
     args <- as.list(expr)[-1L]
+    for (i in seq_along(args)) {
+        if (identical(args[[i]], quote(expr = ))) args[[i]] <- as.name(".__unknown_s4_argument__")
+    }
     if (is.null(names(args))) names(args) <- rep("", length(args))
     if (length(args) && (is.null(names(args)) || !nzchar(names(args)[[1L]]))) {
         names(args)[[1L]] <- first
@@ -58,7 +61,8 @@ member_s4_recipe <- function(expr, index, bindings) {
     method <- member_s4_method(expr, index, bindings)
     if (is.null(method) || !method %in% c("setClass", "setClassUnion")) return(NULL)
     args <- member_s4_arguments(expr, if (method == "setClassUnion") "name" else "Class")
-    name <- args[[if (method == "setClassUnion") "name" else "Class"]]
+    key <- if (method == "setClassUnion") "name" else "Class"
+    name <- args[[key]]
     if (!is.character(name) || length(name) != 1L || !nzchar(name)) return(NULL)
     if (method == "setClassUnion") {
         members <- if (!is.null(args$members)) args$members else if (length(args) >= 2L) args[[2L]]
@@ -86,6 +90,10 @@ member_s4_recipe <- function(expr, index, bindings) {
         }
         for (i in seq_along(values)) {
             key <- if (is.null(names(values))) "" else names(values)[[i]]
+            if (identical(values[[i]], quote(expr = ))) {
+                complete <<- FALSE
+                next
+            }
             type <- values[[i]]
             if (!is.character(type) || length(type) != 1L || !nzchar(type)) {
                 complete <<- FALSE
@@ -165,8 +173,13 @@ member_s4_shape <- function(name, index, bindings, package = NULL, trail = chara
     for (parent in descriptor$contains) {
         # R's built-in storage classes contribute the data part of an S4
         # extension, rather than a user-defined slot inheritance recipe.
-        if (parent %in% c("numeric", "integer", "double", "logical", "character", "complex", "raw", "list", "expression")) {
+        if (parent %in% c("numeric", "integer", "double", "logical", "character", "complex", "raw", "list", "expression",
+                "function", "language", "matrix", "array")) {
             slots[".Data"] <- list(parent)
+            next
+        }
+        if (parent %in% c("environment", "externalptr")) {
+            slots[".xData"] <- list(parent)
             next
         }
         inherited <- member_s4_shape(parent, index, bindings, package, trail, budget)
@@ -175,8 +188,10 @@ member_s4_shape <- function(name, index, bindings, package = NULL, trail = chara
         if (!is.null(inherited$slots)) defaults <- utils::modifyList(defaults, inherited$slots)
     }
     slots <- utils::modifyList(slots, descriptor$slots)
+    if (length(slots) > 256L) return(member_value(reason = "s4_slot_limit"))
     for (slot in intersect(names(descriptor$defaults), names(slots))) {
         # Prototype declarations supply syntax, not evaluated default objects.
+        if (identical(descriptor$defaults[[slot]], quote(expr = ))) next
         defaults[slot] <- list(member_value(binding_expr = descriptor$defaults[[slot]], binding_env = bindings))
     }
     owner <- if (is.null(descriptor$package)) package else descriptor$package

@@ -43,6 +43,7 @@ test_that("S4 slots follow declarations, inheritance, factories and aliases", {
         "new(\"Vector\")@"
     )), c(".Data", "label"))
     expect_true("@" %in% unlist(CompletionOptions$triggerCharacters))
+    expect_identical(s4_labels(c("setClass(\"Store\", contains=\"environment\")", "new(\"Store\")@")), ".xData")
 })
 
 test_that("S4 nested slots retain declared and supplied structures", {
@@ -96,6 +97,8 @@ test_that("S4 declarations remain conservative around shadowing and unknown type
     expect_length(s4_labels(c("setClass(\"Widget\", contains=\"Widget\")", "new(\"Widget\")@")), 0L)
     expect_length(s4_labels(c("setClass(\"Widget\", contains=\"VIRTUAL\")", "new(\"Widget\")@")), 0L)
     expect_identical(s4_labels(c(declaration, "setClass(\"Widget\", slots=c(changed=\"logical\"))", "new(\"Widget\")@")), "changed")
+    expect_length(s4_labels(c("setClass(\"Widget\", slots=c(value=))", "new(\"Widget\")@")), 0L)
+    expect_length(s4_labels(c("setClass(Class=, slots=c(value=\"numeric\"))", "new(\"Widget\")@")), 0L)
 })
 
 test_that("S4 hover and signatures use known function slot syntax without execution", {
@@ -143,6 +146,10 @@ test_that("S4 namespace constructors and objects use inert descriptor metadata",
     scope$Widget <- methods::setClass(name, slots = c(value = "numeric"), where = scope, package = "s4fixture")
     withr::defer(suppressWarnings(methods::removeClass(name, where = scope)))
     scope$object <- scope$Widget()
+    store <- paste0(name, "Store")
+    Store <- methods::setClass(store, contains = "environment", where = scope, package = "languageserver")
+    withr::defer(suppressWarnings(methods::removeClass(store, where = scope)))
+    scope$store <- Store()
     marker <- withr::local_tempfile()
     makeActiveBinding("unsafe", function() {
         writeLines("ran", marker)
@@ -153,6 +160,9 @@ test_that("S4 namespace constructors and objects use inert descriptor metadata",
     expect_identical(s4_labels(c("library(s4fixture)", "Widget()@"), list(s4fixture = snapshot)), "value")
     expect_identical(s4_labels("s4fixture::Widget()@", list(s4fixture = snapshot)), "value")
     expect_identical(s4_labels(c("library(s4fixture)", "object@"), list(s4fixture = snapshot)), "value")
+    store_input <- member_namespace_input(scope, package = "languageserver", exports = "store")
+    store_snapshot <- member_index_freeze(member_package_index(store_input))
+    expect_identical(s4_labels("languageserver::store@", list(languageserver = store_snapshot)), ".xData")
     expect_false(file.exists(marker))
     changed <- snapshot
     changed$s4_classes[[name]]$slots <- list(changed = "character")

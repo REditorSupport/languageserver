@@ -57,7 +57,8 @@ member_document_index <- function(content, parsed = NULL) {
             head <- declaration[[1L]]
             name <- if (member_head(head, "::")) member_name(head[[3L]]) else member_name(head)
             args <- as.list(declaration)[-1L]
-            class <- if (!is.null(args$Class)) args$Class else if (!is.null(args$name)) args$name else if (length(args)) args[[1L]]
+            key <- if ("Class" %in% names(args)) "Class" else if ("name" %in% names(args)) "name" else 1L
+            class <- if (length(args) && !identical(args[[key]], quote(expr = ))) args[[key]] else NULL
             if (!is.null(name) && name %in% c("setClass", "setClassUnion") &&
                     is.character(class) && length(class) == 1L) {
                 s4[[class]] <- c(s4[[class]], list(item))

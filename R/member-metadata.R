@@ -202,7 +202,7 @@ member_namespace_input <- function(
             if (!is.null(descriptor)) s4_classes[descriptor$name] <- list(descriptor)
             next
         }
-        if (isS4(value) && !is.environment(value) && typeof(value) != "closure") {
+        if (isS4(value) && typeof(value) != "closure") {
             classes <- attr(value, "class", exact = TRUE)
             if (is.character(classes) && length(classes) == 1L) {
                 owner <- attr(classes, "package", exact = TRUE)
