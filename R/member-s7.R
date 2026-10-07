@@ -152,7 +152,7 @@ member_s7_shape <- function(descriptor, bindings = list(), depth = 0L) {
     properties <- descriptor$properties
     slots <- lapply(properties, function(property) {
         value <- member_s7_shape(property$class, bindings, depth + 1L)
-        if (!property$getter && !is.null(property$default)) {
+        if (!property$getter && !property$setter && !is.null(property$default)) {
             value$binding_expr <- property$default
             value$binding_env <- bindings
         }

@@ -435,3 +435,13 @@ test_that("S7 new_object keeps statically known parent properties", {
         "Child <- new_class(\"Child\", parent=Parent, properties=list(label=class_character), constructor=function() new_object(Parent(items=list(alpha=1)), label=\"child\"))")
     expect_identical(s7_labels(c(code, "Child()@items$"), list(S7 = snapshot)), "alpha")
 })
+
+
+test_that("S7 setters never retain a stale default member shape", {
+    skip_if_not_installed("S7")
+    snapshot <- member_prepare_package("S7")
+    code <- c("library(S7)",
+        "Box <- new_class(\"Box\", properties=list(items=new_property(class_list, default=quote(list(old=1)), setter=function(self, value) stop(\"setter\"))))")
+    expect_length(s7_labels(c(code, "Box()@items$"), list(S7 = snapshot)), 0L)
+    expect_length(s7_labels(c(code, "set_props(Box(), items=list(new=2))@items$"), list(S7 = snapshot)), 0L)
+})
