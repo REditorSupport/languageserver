@@ -20,6 +20,25 @@ member_items <- function(code, snapshots = list(), point = NULL, language = "r",
 
 member_labels <- function(...) vapply(member_items(...), `[[`, character(1L), "label")
 
+test_that("Static inference stops at node, depth and time limits", {
+    index <- member_generic_index("")
+    budget <- new.env(parent = emptyenv())
+    budget$remaining <- 0L
+    budget$exhausted <- FALSE
+    expect_identical(member_infer(quote(list(alpha = 1)), index, budget = budget)$reason, "budget")
+    expect_true(budget$exhausted)
+
+    budget$remaining <- 20000L
+    budget$exhausted <- FALSE
+    expect_identical(member_infer(quote(list(alpha = 1)), index, depth = 65L, budget = budget)$reason, "budget")
+    expect_true(budget$exhausted)
+
+    budget$exhausted <- FALSE
+    budget$deadline <- proc.time()[[3L]] - 1
+    expect_identical(member_infer(quote(list(alpha = 1)), index, budget = budget)$reason, "budget")
+    expect_true(budget$exhausted)
+})
+
 test_that("Static members propagate through source factories and aliases", {
     expect_identical(member_labels("x <- list(alpha=1,beta=2)\ny <- x\ny$"), c("alpha", "beta"))
     expect_identical(member_labels(paste0(

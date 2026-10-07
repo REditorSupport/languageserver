@@ -46,6 +46,7 @@ Suggests:
     testthat (>= 2.1.0),
     withr (>= 2.3.0),
     rmarkdown (>= 2.0),
+    S7,
     stringr
 ByteCompile: yes
 Encoding: UTF-8
