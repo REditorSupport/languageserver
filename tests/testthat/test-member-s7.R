@@ -53,7 +53,7 @@ test_that("S7 properties and constructor signatures follow the user's declaratio
     expect_identical(s7_signature(fixture)$signatures[[1L]]$label, sub("Dog", "Alias", expected))
     fixture <- s7_fixture(c(code, "Dog@constructor("), list(S7 = snapshot))
     expect_identical(s7_signature(fixture)$signatures[[1L]]$label, sub("Dog", "constructor", expected))
-    expect_identical(s7_labels(c(code, "Dog@constructor()@"), list(S7 = snapshot)), c("age", "name"))
+    expect_length(s7_labels(c(code, "Dog@constructor()@"), list(S7 = snapshot)), 0L)
 })
 
 test_that("S7 inheritance, nested properties, defaults and unions remain static", {

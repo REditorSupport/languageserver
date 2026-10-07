@@ -103,8 +103,8 @@ member_s7_generator <- function(descriptor, bindings = list()) {
         parent = if (!is.null(descriptor$parent)) member_s7_generator(descriptor$parent, bindings) else member_literal(NULL),
         package = member_literal(descriptor$package), abstract = member_literal(isTRUE(descriptor$abstract)),
         properties = member_value(type = "list", fields = shape$slots),
-        constructor = member_s7_value(type = "function", function_expr = descriptor$constructor,
-            closure = bindings, s7_generator = descriptor),
+        constructor = member_value(type = "function", function_expr = descriptor$constructor,
+            closure = bindings),
         validator = member_value(type = "function"))
     constructor$slot_types <- lapply(constructor$slots, function(value) if (length(value$type)) value$type else "ANY")
     constructor$s7 <- TRUE
