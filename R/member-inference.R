@@ -226,7 +226,7 @@ member_cacheable <- function(value, depth = 0L) {
 member_assigned_names <- function(node) {
     out <- character()
     member_walk(node, function(x) {
-        if (member_head(x, "<-") || member_head(x, "=")) {
+        if (member_head(x, "<-") || member_head(x, "=") || member_head(x, ":=")) {
             target <- x[[2L]]
             while (is.call(target) && length(target) > 1L) target <- target[[2L]]
             name <- member_name(target)
@@ -352,6 +352,10 @@ member_infer <- function(
                 value = member_literal(NULL), env = env,
                 returns = if (has_return) unknown else member_value(type = ".never"), falls = TRUE
             ))
+        }
+        if (member_head(node, ":=")) {
+            bound <- member_s7_bind(node, index, env)
+            if (!is.null(bound)) node <- bound
         }
         if (member_head(node, "<-") || member_head(node, "=")) {
             lhs <- node[[2L]]
@@ -825,6 +829,13 @@ member_infer <- function(
         }
     }
     actuals <- expanded
+    if (head == "|" && intrinsic(head) && length(actuals) == 2L && isTRUE(member_s7_modes(index)$union)) {
+        classes <- lapply(actuals, function(value) member_s7_spec(value, index, bindings, budget, resolve = FALSE))
+        if (any(vapply(actuals, function(value) !is.null(value$s7_descriptor), logical(1L))) &&
+                !any(vapply(classes, is.null, logical(1L)))) {
+            return(member_s7_value(type = "S7_union", s7_descriptor = list(kind = "union", classes = classes)))
+        }
+    }
     arg <- function(i) if (length(actuals) >= i) actuals[[i]] else unknown
     if (!is.null(head) && intrinsic(head)) {
         if (head %in% c("list", "list2")) {

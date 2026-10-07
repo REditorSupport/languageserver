@@ -136,6 +136,7 @@ member_constructor_arguments <- function(uri, workspace, document, point, token)
     symbol <- member_constructor_symbol(uri, workspace, document, location)
     if (is.null(symbol)) return(NULL)
     args <- names(symbol$value$function_expr[[2L]])
+    args <- setdiff(args, "...")
     args <- args[match_with(args, token)]
     lapply(seq_along(args), function(i) {
         list(label = args[[i]], kind = CompletionItemKind$Variable,

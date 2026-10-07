@@ -64,9 +64,10 @@ member_document_index <- function(content, parsed = NULL) {
                 s4[[class]] <- c(s4[[class]], list(item))
             }
         }
-        if (member_head(expr, "<-") || member_head(expr, "=") || member_head(expr, "->")) {
+        if (member_head(expr, "<-") || member_head(expr, "=") || member_head(expr, "->") || member_head(expr, ":=")) {
             lhs <- if (member_head(expr, "->")) expr[[3L]] else expr[[2L]]
             rhs <- if (member_head(expr, "->")) expr[[2L]] else expr[[3L]]
+            if (member_head(expr, ":=")) rhs <- expr
             name <- member_name(lhs)
             if (is.null(name) && is.call(lhs)) {
                 name <- member_name(lhs[[2L]])
@@ -80,7 +81,7 @@ member_document_index <- function(content, parsed = NULL) {
         }
         if (member_head(expr, "library") || member_head(expr, "require")) imports[[length(imports) + 1L]] <- item
         if (is.call(expr) && !member_head(expr, "<-") && !member_head(expr, "=") &&
-                !member_head(expr, "->")) {
+                !member_head(expr, "->") && !member_head(expr, ":=")) {
             for (name in member_assigned_names(expr)) {
                 history <- get0(name, bindings, inherits = FALSE, ifnotfound = list())
                 history[[length(history) + 1L]] <- list(
@@ -287,6 +288,10 @@ member_context_index <- function(workspace, uri, document, at, parsed = NULL) {
         for (package in metadata$keys()) {
             package_index <- metadata$get(package)
             index$namespace_indices[package] <- list(package_index)
+            for (dependency in names(package_index$s7_dependencies)) {
+                if (!is.null(index$namespace_indices[[dependency]])) next
+                index$namespace_indices[dependency] <- package_index$s7_dependencies[dependency]
+            }
             if (!is.null(package_index$s4_dependencies)) {
                 index$s4_dependencies <- utils::modifyList(index$s4_dependencies, package_index$s4_dependencies)
             }
@@ -324,6 +329,7 @@ member_context_index <- function(workspace, uri, document, at, parsed = NULL) {
 }
 
 member_resolve_document <- function(name, index, bindings, budget, depth, trail) {
+    if (depth > 64L) return(member_value(reason = "binding_recursion"))
     history <- index$document_bindings[[name]]
     at <- bindings$.__member_position__
     if (is.null(at)) at <- c(Inf, Inf)
@@ -343,7 +349,13 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
     }
     env <- bindings
     if (!member_head(item$expr, "function")) env$.__member_position__ <- item$start
-    value <- member_infer(item$expr, index, env,
+    expr <- item$expr
+    if (member_head(expr, ":=")) {
+        bound <- member_s7_bind(expr, index, env)
+        if (is.null(bound)) return(member_resolve_document(name, index, env, budget, depth + 1L, c(trail, id)))
+        expr <- bound[[3L]]
+    }
+    value <- member_infer(expr, index, env,
         depth = depth + 1L,
         trail = c(trail, id), budget = budget
     )
@@ -408,6 +420,10 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
         if (member_head(node, "{") || is.expression(node)) {
             children <- if (is.expression(node)) as.list(node) else as.list(node)[-1L]
             for (child in children) {
+                if (member_head(child, ":=")) {
+                    bound <- member_s7_bind(child, index, env)
+                    if (!is.null(bound)) child <- bound
+                }
                 env <- member_s4_effect(child, index, env)
                 visit(child, env)
                 if (!is.null(result)) break

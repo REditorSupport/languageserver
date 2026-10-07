@@ -226,6 +226,8 @@ member_package_index <- function(input) {
     index$methods_attached <- FALSE
     index$s4_classes <- if (is.null(input$s4_classes)) list() else input$s4_classes
     index$s4_dependencies <- input$s4_dependencies
+    index$s7_capabilities <- input$s7_capabilities
+    index$s7_dependencies <- input$s7_dependencies
     index$s7_attached <- identical(input$package, "S7")
     for (name in names(input$s7_roots)) index$package_roots[name] <- input$s7_roots[name]
     declarations <- list()

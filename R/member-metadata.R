@@ -22,7 +22,7 @@ member_function_syntax <- function(fn) {
     as.call(list(as.name("function"), formals(fn), body(fn)))
 }
 
-member_snapshot <- function(env, max_depth = 4L, max_bindings = 5000L) {
+member_snapshot <- function(env, max_depth = 4L, max_bindings = 5000L, s7_modes = list()) {
     seen <- list()
     remaining <- max_bindings
     captures <- function(fn) {
@@ -81,7 +81,23 @@ member_snapshot <- function(env, max_depth = 4L, max_bindings = 5000L) {
         )
     }
     describe <- function(value, depth) {
-        descriptor <- member_s7_runtime_descriptor(value)
+        descriptor <- member_s7_instance_descriptor(value, s7_modes)
+        if (!is.null(descriptor)) {
+            if (depth > max_depth) return(list(kind = "unknown", reason = "snapshot_depth"))
+            slots <- list()
+            for (name in names(descriptor$properties)) {
+                property <- descriptor$properties[[name]]
+                if (property$getter || property$setter) next
+                # Reserved base attributes use underscore storage in S7 1.0.
+                storage <- if (!is.null(attr(value, "_S7_class", exact = TRUE)) && name %in% c(
+                    "names", "dim", "dimnames", "class", "tsp", "comment", "row.names"
+                )) paste0("_", name) else name
+                stored <- attr(value, storage, exact = TRUE)
+                if (!is.null(stored)) slots[name] <- list(describe(stored, depth + 1L))
+            }
+            return(list(kind = "s7_instance", descriptor = descriptor, slots = slots))
+        }
+        descriptor <- member_s7_runtime_descriptor(value, modes = s7_modes)
         if (!is.null(descriptor)) return(list(kind = "s7", descriptor = descriptor))
         if (typeof(value) == "closure") {
             list(kind = "function", syntax = member_function_syntax(value), captures = captures(value))
@@ -106,7 +122,11 @@ member_snapshot_shape <- function(snapshot) {
         if (identical(record$kind, "environment")) {
             records[[as.character(record$id)]] <<- record
             for (field in record$fields) collect(field)
-        } else if (identical(record$kind, "list")) for (field in record$elements) collect(field)
+        } else if (identical(record$kind, "list")) {
+            for (field in record$elements) collect(field)
+        } else if (identical(record$kind, "s7_instance")) {
+            for (field in record$slots) collect(field)
+        }
     }
     collect(snapshot)
     decode <- function(record, trail = integer()) {
@@ -132,6 +152,11 @@ member_snapshot_shape <- function(snapshot) {
                 type = "environment", classes = record$classes,
                 fields = lapply(record$fields, decode, c(trail, record$id))
             ))
+        }
+        if (identical(record$kind, "s7_instance")) {
+            value <- member_s7_shape(record$descriptor)
+            for (name in names(record$slots)) value$slots[name] <- list(decode(record$slots[[name]], trail))
+            return(value)
         }
         if (identical(record$kind, "s7")) {
             return(if (identical(record$descriptor$kind, "class")) member_s7_generator(record$descriptor) else
@@ -198,12 +223,13 @@ member_namespace_input <- function(
     if (length(nms) > 10000L) stop("Namespace exceeds metadata budget")
     definitions <- snapshots <- registries <- links <- descriptors <- s4_classes <- s4_roots <- s4_objects <- list()
     s7_roots <- list()
+    s7_modes <- member_s7_capabilities()
     functions <- values <- list()
     for (name in nms) {
         record <- member_binding(ns, name, materialize = TRUE)
         value <- record[[2L]]
         if (!identical(record[[1L]], "value")) next
-        descriptor <- member_s7_runtime_descriptor(value)
+        descriptor <- member_s7_runtime_descriptor(value, modes = s7_modes)
         if (!is.null(descriptor)) {
             s7_roots[name] <- list(if (identical(descriptor$kind, "class")) {
                 member_s7_generator(descriptor)
@@ -211,8 +237,12 @@ member_namespace_input <- function(
                 member_s7_value(type = "S7_descriptor", s7_descriptor = descriptor)
             })
         } else if ("S7_object" %in% attr(value, "class", exact = TRUE)) {
-            descriptor <- member_s7_runtime_descriptor(attr(value, "S7_class", exact = TRUE))
-            if (!is.null(descriptor)) s7_roots[name] <- list(member_s7_shape(descriptor))
+            descriptor <- member_s7_instance_descriptor(value, s7_modes)
+            if (!is.null(descriptor)) {
+                holder <- new.env(parent = emptyenv())
+                holder$object <- value
+                s7_roots[name] <- list(member_snapshot_shape(member_snapshot(holder, s7_modes = s7_modes))$fields$object)
+            }
         }
         if (isS4(value) && any(c("classRepresentation", "ClassUnionRepresentation") %in%
                     attr(value, "class", exact = TRUE))) {
@@ -220,7 +250,7 @@ member_namespace_input <- function(
             if (!is.null(descriptor)) s4_classes[descriptor$name] <- list(descriptor)
             next
         }
-        if (isS4(value) && typeof(value) != "closure") {
+        if (isS4(value) && typeof(value) != "closure" && is.null(s7_roots[[name]])) {
             classes <- attr(value, "class", exact = TRUE)
             if (is.character(classes) && length(classes) == 1L) {
                 owner <- attr(classes, "package", exact = TRUE)
@@ -265,7 +295,7 @@ member_namespace_input <- function(
         size <- length(ls(value, all.names = TRUE))
         if (size > remaining_bindings) stop("Namespace exceeds registry budget")
         remaining_bindings <- remaining_bindings - size
-        snapshots[name] <- list(member_snapshot(value, max_bindings = remaining_bindings + size))
+        snapshots[name] <- list(member_snapshot(value, max_bindings = remaining_bindings + size, s7_modes = s7_modes))
         definitions[name] <- list(quote(new.env(parent = emptyenv())))
         methods <- character()
         for (field in names(snapshots[[name]]$fields)) {
@@ -311,7 +341,8 @@ member_namespace_input <- function(
         exports = exports, registries = registries,
         snapshots = snapshots, links = links, descriptors = descriptors, package = package, intrinsics = intrinsics,
         s4_classes = s4_classes, s4_roots = s4_roots, s4_objects = s4_objects,
-        s7_roots = s7_roots,
+        s7_roots = s7_roots, s7_capabilities = s7_modes,
+        s7_dependencies = member_s7_dependencies(s7_roots, package, s7_modes),
         s4_dependencies = member_s4_dependencies(s4_classes, lapply(c(
             lapply(s4_roots, function(value) value$s4_generator), s4_objects
         ), function(class) structure(class$name, package = class$package)))

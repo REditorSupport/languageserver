@@ -16,6 +16,9 @@
   and installed descriptors, with constructor/property hover and signatures.
   Infer inheritance, nested properties and supported custom constructors
   without calling constructors, getters, setters, validators or defaults.
+  Follow installed S7 constructor semantics, including 1.0 development class
+  references, forwarding constructors, named bindings, list property updates,
+  external class references, S4 parents and deprecation declarations.
 
 - Run full-document, range, and multiple-range formatting in a lazy, cancellable
   background worker so other editor requests remain responsive during formatting (#764, #251).

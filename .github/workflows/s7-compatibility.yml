@@ -1,0 +1,50 @@
+name: S7 compatibility
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+
+permissions: read-all
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  s7-compatibility:
+    runs-on: ubuntu-latest
+    name: S7 (${{ matrix.s7 }})
+    strategy:
+      fail-fast: false
+      matrix:
+        s7: [stable, development]
+    env:
+      NOT_CRAN: true
+      TESTTHAT_CPUS: 1
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: release
+          use-public-rspm: true
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          extra-packages: any::remotes
+      - name: Install stable S7
+        if: matrix.s7 == 'stable'
+        run: remotes::install_version("S7", version = "0.2.2", upgrade = "never")
+        shell: Rscript {0}
+      - name: Install pinned S7 1.0 development revision
+        if: matrix.s7 == 'development'
+        run: remotes::install_github("RConsortium/S7@021846758e5d4520a56330d477066c25bd46d4f9", upgrade = "never")
+        shell: Rscript {0}
+      - name: Install languageserver
+        run: R CMD INSTALL .
+      - name: Test member providers
+        run: |
+          message("Testing S7 ", packageVersion("S7"))
+          testthat::test_local(filter = "^member-", load_package = "installed", reporter = "summary")
+        shell: Rscript {0}
