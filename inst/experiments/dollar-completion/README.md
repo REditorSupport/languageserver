@@ -3,6 +3,8 @@
 Research branch: `codex/r-polars-static-completion`. This branch contains an
 original experiments and the production provider. The package-independent
 implementation and its current limits are documented in [implementation.md](implementation.md).
+Editable examples and a provider checker are in [the demos](../../demos/members/README.md),
+covering Polars, base-R list factories, fluent environments and R6 inheritance.
 The experiment files below preserve the earlier prototypes.
 
 **Recommendation: implement a general receiver/shape analysis layer, with
