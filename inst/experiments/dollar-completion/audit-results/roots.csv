@@ -1,0 +1,7 @@
+"corpus","direct_root","dollars","offered","offered_percent"
+"articles",TRUE,65,62,95.4
+"articles",FALSE,103,47,45.6
+"reference",TRUE,2404,2121,88.2
+"reference",FALSE,2920,1224,41.9
+"supplemental",TRUE,26,24,92.3
+"supplemental",FALSE,22,2,9.1

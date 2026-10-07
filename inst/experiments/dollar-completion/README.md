@@ -5,11 +5,15 @@ isolated experiment and an implementation plan; it does not enable a production
 completion provider or change existing LSP behavior.
 
 **Recommendation: implement a general receiver/shape analysis layer, with
-declarative metadata adapters for object systems and native wrappers.** The
+extractors that derive metadata from the user's installed package.** The
 r-polars example is feasible without evaluating the query, its arguments, or
 its input files. Inferring the object's method surface is substantially easier
 than inferring its data schema. Complete method names first; treat unknown
-results conservatively.
+results conservatively. Extract once per package state in background indexing,
+then infer document expressions from the resulting data. The extractor encodes
+implementation conventions, rather than individual method names/return types.
+See [coverage.md](coverage.md) for the full documentation audit, remaining gaps,
+and the revised installed-package extraction plan.
 
 ## Experiment and reproduction
 
@@ -40,6 +44,12 @@ Files:
   constructors, and generated native wrappers of this r-polars revision.
 - `run.R`: executable experiments, negative cases, metadata mutation, delimiter
   recovery against languageserver, coverage counts, and timing.
+- `audit.R`: parses every canonical article and Rd example, records each `$`
+  receiver/member, and audits every extracted surface. Captured CSVs are under
+  `audit-results/`; these measure the unchanged initial prototype.
+- `runtime-inspection.R` and `run-inspection.R`: inspect binding kinds, closure
+  bodies/formals, and active-getter bodies without invoking methods, getters, or
+  promises. A generic fixture demonstrates 25 checks, including API changes.
 
 ## Results
 
@@ -91,7 +101,8 @@ and recursion stop inference. Changing the parsed native `filter` wrapper from
 returning a LazyFrame to returning a DataFrame changes the inferred completion
 receiver accordingly. There is no hard-coded `filter -> LazyFrame` rule.
 
-Exploratory coverage over methods in four registries:
+Exploratory coverage over methods in four registries (a narrow sample; the full
+audit below provides the more useful readiness assessment):
 
 | Surface | Methods inspected | Non-unknown return shape |
 | --- | ---: | ---: |
@@ -105,6 +116,16 @@ counts: for example, the prototype does not extract every datatype constant
 generated in a loop into `pl`. Coverage counts methods only. These counts
 measure whether the prototype finds a static shape; they are
 not a proof of correctness for every method or a runtime comparison.
+
+The subsequent corpus audit includes all six canonical article files and all
+713 Rd files (706 contain examples). Exact documented member availability at
+Polars-related `$` sites is **109/168 (64.9%)** in articles and **3,345/5,324
+(62.8%)** in reference examples. Beyond direct roots such as `pl$`, it is
+**47/103 (45.6%)** and **1,224/2,920 (41.9%)**, respectively. The original query
+is covered, but broad completion is not ready. Constructors using S3 dispatch,
+Series delegation, namespace method return values, selectors, operators,
+datatypes, and `when/then` expose important gaps. The audit does not establish
+precision or end-to-end cursor recovery across the corpus.
 
 One local run on macOS arm64, R 4.6.1, measured about **157 ms** to parse/index the
 upstream R source, **0.20 ms** per warm request over 1,000 repetitions of the
@@ -151,8 +172,10 @@ from the namespace registry and constructor source without invoking getters.
 
 `infer_schema_files`, the CSV location, the predicate, and aggregate validity do
 not affect these method surfaces. Completion may be useful even when the call
-would fail at runtime. CSV column names, dynamic schemas, and custom registered
-namespaces cannot generally be recovered from this information.
+would fail at runtime. CSV column names and dynamic schemas cannot generally be
+recovered from this information. Custom registered namespaces require bounded
+analysis of their source declarations, or inspection of current registration
+metadata without calling the namespace constructor; neither is implemented here.
 
 ## Current languageserver integration gaps
 
@@ -234,38 +257,53 @@ not poison shared caches with an otherwise resolvable Unknown.
 - Custom S3 `$` APIs require a recognized registry/dispatch convention or
   declarative metadata. Arbitrary `$` methods can compute names from anything;
   generic source analysis cannot guarantee complete results for all R programs.
-- The first specialized extractor targets r-polars/Savvy conventions. Generate
-  member/return/signature metadata from the exact package source at build time;
-  validate version/structure and keep its conventions out of the core engine.
+- The first specialized extractor targets r-polars/Savvy conventions. Read
+  actual populated registries and inspect dispatch, constructor, active-getter,
+  and native-wrapper bodies from the exact installed package; validate their
+  structure and keep these conventions out of the core engine. Use source
+  checkouts as equivalent development input, rather than requiring them from
+  users. Derive Series delegation and namespace return transformations from
+  their implementation instead of copying Expr result types.
 - Define a declarative package metadata format for classes, members, method
   signatures, return shapes, inheritance, and namespace properties. Packages
   using opaque `.Call`/Rcpp dispatch can supply this without exposing native
-  source analysis. Prefer an upstream-generated manifest over a growing
-  languageserver table of individual method names and return types.
+  source analysis. A manifest is an optional artifact/cache or fallback for
+  opaque returns, rather than a required version-specific API table.
 
 ### 4. Support installed packages without requiring source checkouts
 
-Installed R packages usually replace their source files with lazy-load databases.
-The source-checkout adapter is an experiment input, not a deployable discovery
-strategy. Prefer a versioned JSON manifest shipped under the installed package's
-`inst` contents (e.g. `lsp/member-metadata.json`), which can be read without loading
-the package. Validate it as data and do not execute manifest expressions.
+Installed R packages usually replace source files with lazy-load databases.
+Read actual package metadata at indexing time: ordinary registry values,
+`body()`/`formals()` of closures, literal attributes/class vectors, and active
+binding descriptors. `ls(..., all.names = TRUE)` discovers names without calling
+getters. Check binding kind before retrieval: `activeBindingFunction()` provides
+getter syntax without invoking it, whereas deferred promises remain Unknown
+unless they are deliberately materialized as trusted package metadata. Inspect
+plain environment/list contents with base operations that bypass S3 dispatch.
+Never invoke user-derived `$`, `.DollarNames`, getters, methods, constructors,
+or custom completion hooks.
 
-For existing, already-loaded package namespaces, an optional discovery path can
-inspect ordinary method registry bindings and `body()`/`formals()` of ordinary
-closures without calling them. Reading an active binding or forcing a promise
-can execute code: skip those bindings unless a separate, explicit trusted-package
-policy applies. Names from `ls()` need no getter execution, but retrieving their
-values is a separate operation. Never invoke `$`, `names()` methods,
-`.DollarNames`, getters, or custom completion hooks on user-derived instances.
+An already-loaded namespace can be inspected without loading it again. When it
+is unavailable in the server, prepare metadata in a dedicated vanilla worker
+using the selected installed package and library paths, without sourcing project
+files or startup profiles. Loading the package runs its initialization and
+loading deferred namespace bindings can run package-defined expressions: this
+is package execution, even though no document/query code is evaluated. r-polars'
+initialization includes native work. Separate this policy from the strict mode
+that permits only existing ordinary bindings/source/artifacts and skips promises.
+Do not do package loading or metadata preparation on the completion request
+path. Return Unknown while metadata is unavailable or structurally unsupported.
 
-Namespace loading itself executes package initialization. Existing
-`PackageNamespace` uses `asNamespace()`; this should not be presented as purely
-static or reused blindly for the new feature. Do not load packages or evaluate
-project code to discover member completions on request. If a supported package
-has neither a manifest nor safely available metadata, return Unknown. A bundled
-adapter/manifest needs exact-version compatibility checks and a maintenance
-strategy; coverage across released versions remains to be established.
+Cache by package path/build identity and extractor version, plus dependency
+fingerprints of registries, dispatch functions, getter bodies, wrappers and
+referenced lexical constants. Rebuild on namespace replacement or observed
+registry/function changes; invalidate document summaries that depend on changed
+metadata. A package version alone misses development reloads and runtime
+registration. Re-extraction follows API additions/removals while conventions
+hold; unsupported architectural changes must fail validation conservatively.
+Optional manifests must be validated as data and matched to the same dependency
+state. Historical-version compatibility and live namespace synchronization are
+not demonstrated by this prototype.
 
 ### 5. Resolve the current cursor and integrate LSP
 
@@ -293,8 +331,8 @@ just the label, so `sum` resolves against the inferred Expr or LazyFrame.
 
 Follow up with bound method argument completion, signature help, and static doc
 resolution using that same identity. A field named `sum` must not fall through
-to namespace lookup for `base::sum`. Package manifests can map methods to existing
-Rd topics such as `expr__sum` without running the method.
+to namespace lookup for `base::sum`. Extracted metadata or optional manifests can
+map methods to existing Rd topics such as `expr__sum` without running the method.
 
 ## Proposed implementation sequence and acceptance criteria
 
@@ -308,14 +346,17 @@ Rd topics such as `expr__sum` without running the method.
    at least one unrelated fluent R6 API and the ordinary factories as acceptance
    fixtures. Test inherited/overridden methods and active properties without
    constructing objects. Keep unsupported reflection conservative.
-3. **Declarative metadata and r-polars.** Settle the manifest schema/discovery
-   policy and generate a fixture from a pinned released r-polars version as
-   well as this development revision. Add the r-polars adapter with structural
-   checks. All seven example cursor positions, `q$`, `polars::pl`, and Expr
-   namespaces must pass without a CSV, installed Rust runtime, or user code
-   execution. A metadata change must change results without editing inference
-   rules. Establish how users with ordinary installed r-polars obtain metadata
-   before enabling this provider by default.
+3. **Installed-package extraction and r-polars.** Settle the serializable metadata
+   contract, binding-inspection compatibility for supported R versions, worker
+   initialization policy, structural validation, and dependency invalidation.
+   Add extraction fixtures for a released r-polars version and this development
+   revision. Derive roots/active datatypes, S3 constructors, namespace receivers,
+   Series delegation, eager groups, selectors/then inheritance and operators.
+   All seven query positions, `q$`, `polars::pl`, `polars::cs`, and representative
+   chains from each surface must pass without a CSV or document execution.
+   API additions/removals/body changes must alter results without editing name
+   tables. Re-run the full corpus audit, classify every remaining failure, and
+   independently verify result types; see coverage.md for the coverage gates.
 4. **Responsiveness and shared features.** Move summary preparation to background
    package/document indexing, invalidate on accepted edits, dependency changes,
    package paths/versions, or namespace replacement, and use byte-bounded caches.
@@ -325,7 +366,7 @@ Rd topics such as `expr__sum` without running the method.
    argument completion, hover, and documentation resolution using stable IDs.
 
 Correctness checks should compare against independently specified fixtures and
-generated manifest contracts. Keep execution canaries for user arguments,
+extracted metadata contracts. Keep execution canaries for user arguments,
 constructors, initializers, active bindings, `$`/`.DollarNames` dispatch, and
 native calls. Unknown cases must produce bounded responses. Runtime comparisons
 may be done only in explicit development tests against trusted package fixtures;
@@ -339,15 +380,18 @@ general control-flow proof. The generic engine implements only straightforward
 named-list/environment factories and limited tail branches. It does not cover
 full argument matching, local-function lexical scopes at the cursor, explicit
 returns, arbitrary mutations, R6, general S3 dispatch, inherited Expr properties,
-version invalidation, non-syntactic prefixes, or large-buffer recovery. Builtin
-recognition and error-path handling assume the fixture's reviewed bindings.
+installed r-polars extraction, version invalidation, non-syntactic prefixes, or
+large-buffer recovery. The separate generic inspection helper demonstrates
+binding safety and metadata changes, not compatibility with an installed
+r-polars. Builtin recognition and error-path handling assume the fixture's
+reviewed bindings.
 
 Some prototype summaries are deliberately argument-independent; others require
 argument shapes. This distinction must become explicit in the formal summary
 model. Properties such as LazyFrame `columns` can be offered by name, but their
 value is Unknown: never call `collect_schema()` to learn it. Literal user schema
-declarations could support a separate future column-name provider; CSV contents
-and runtime-added namespaces remain outside static method completion.
+declarations could support a separate future column-name provider. CSV contents
+and runtime-added namespaces remain outside this prototype's coverage.
 
 The experiment runner passes with `pkgload::load_all(helpers = FALSE)`. The
 existing `test-completion-typing.R` also passes all 20 assertions with test helper
