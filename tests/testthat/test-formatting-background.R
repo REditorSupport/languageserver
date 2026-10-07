@@ -31,6 +31,24 @@ formatting_test_task <- function(fixture, id) {
     fixture$manager$.__enclos_env__$private$pending_tasks$get(as.character(id))
 }
 
+formatting_wait_for_tasks <- function(fixture, timeout = 15) {
+    if (missing(timeout) && identical(Sys.getenv("R_COVR"), "true")) {
+        # Starting a worker and loading the instrumented namespace takes longer
+        # under coverage, especially alongside other parallel test processes.
+        timeout <- 60
+    }
+    deadline <- Sys.time() + timeout
+    while (fixture$manager$has_work() && Sys.time() < deadline) {
+        fixture$manager$run_tasks()
+        fixture$manager$check_tasks()
+        Sys.sleep(0.01)
+    }
+    if (fixture$manager$has_work()) {
+        stop("Background formatting did not complete within ", timeout, " seconds")
+    }
+    invisible(NULL)
+}
+
 test_that("explicit formatting handlers enqueue immutable snapshots", {
     fixture <- formatting_fixture(c("x=1", "y=2"))
     fixture$params$range <- list(start = position(0L, 0L), end = position(0L, 3L))
@@ -144,12 +162,7 @@ test_that("background formatting preserves custom styles and literate boundaries
         c("Prose", "```{r}", "x=1", "```", "```{python}", "x=1", "```"),
         "file:///formatting.qmd")
     text_document_formatting(fixture$self, 1L, fixture$params)
-    deadline <- Sys.time() + 15
-    while (fixture$manager$has_work() && Sys.time() < deadline) {
-        fixture$manager$run_tasks()
-        fixture$manager$check_tasks()
-        Sys.sleep(0.01)
-    }
+    formatting_wait_for_tasks(fixture)
     expect_length(fixture$self$deliveries, 1L)
     reply <- fixture$self$deliveries[[1L]]
     expect_null(reply$error)
@@ -161,12 +174,7 @@ test_that("background formatting preserves custom styles and literate boundaries
     # Reusing the same session must pick up a changed server-side option.
     options(languageserver.formatting_style = NULL)
     text_document_formatting(fixture$self, 2L, fixture$params)
-    deadline <- Sys.time() + 15
-    while (fixture$manager$has_work() && Sys.time() < deadline) {
-        fixture$manager$run_tasks()
-        fixture$manager$check_tasks()
-        Sys.sleep(0.01)
-    }
+    formatting_wait_for_tasks(fixture)
     expect_length(fixture$self$deliveries, 2L)
     expect_equal(fixture$self$deliveries[[2L]]$result[[1L]]$newText, "x <- 1")
 
@@ -174,12 +182,7 @@ test_that("background formatting preserves custom styles and literate boundaries
     fixture$params$ranges <- list(fixture$params$range, fixture$params$range)
     text_document_range_formatting(fixture$self, 3L, fixture$params)
     text_document_ranges_formatting(fixture$self, 4L, fixture$params)
-    deadline <- Sys.time() + 15
-    while (fixture$manager$has_work() && Sys.time() < deadline) {
-        fixture$manager$run_tasks()
-        fixture$manager$check_tasks()
-        Sys.sleep(0.01)
-    }
+    formatting_wait_for_tasks(fixture)
     expect_length(fixture$self$deliveries, 4L)
     for (id in 3:4) {
         reply <- fixture$self$deliveries[[id]]
