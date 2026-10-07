@@ -82,7 +82,7 @@ member_hover_location <- function(document, point) {
     )
 }
 
-member_call_location <- function(document, point, call = document$detect_call(point)) {
+member_call_location <- function(document, point, call = document$detect_call(point), symbols = FALSE) {
     opening <- call$opening
     if (is.null(opening) || !check_r_region(document, point)) {
         return(NULL)
@@ -94,7 +94,9 @@ member_call_location <- function(document, point, call = document$detect_call(po
         prefix <- substr(document$line0(row), 1L, col)
         col <- nchar(sub("[ \\t]+$", "", prefix))
         if (col > 0L) {
-            return(member_hover_location(document, list(row = row, col = col)))
+            location <- member_hover_location(document, list(row = row, col = col))
+            if (is.null(location) && symbols) location <- member_symbol_location(document, list(row = row, col = col))
+            return(location)
         }
         row <- row - 1L
         if (row < 0L || !check_r_region(document, list(row = row, col = 0L))) break
@@ -103,7 +105,47 @@ member_call_location <- function(document, point, call = document$detect_call(po
     NULL
 }
 
-member_argument_location <- function(document, point) {
+# Reuse bounded cursor recovery for callable class bindings and aliases. This
+# path is accepted by providers only when inference identifies a constructor.
+member_symbol_location <- function(document, point) {
+    if (!check_scope(document$uri, document, point)) return(NULL)
+    token <- document$detect_token(point)
+    if (!token$accessor %in% c("", "::") || !nzchar(token$token)) return(NULL)
+    bounds <- token$range
+    row <- bounds$end$row
+    start <- bounds$start$col
+    end <- bounds$end$col
+    if (identical(token$accessor, "::")) {
+        start <- start + nchar(token$package) + 2L
+        bounds$start$col <- start
+    }
+    list(point = list(row = row, col = end), range = bounds,
+        cursor = list(operator_row = row, operator = start + 1L, start = start, end = end,
+            accessor = NULL, token = token$token, before = substr(document$line0(row), 1L, start)))
+}
+
+member_constructor_symbol <- function(uri, workspace, document, location) {
+    if (is.null(location)) return(NULL)
+    symbol <- member_symbol(uri, workspace, document, location)
+    if (is.null(symbol$value$s7_generator)) return(NULL)
+    symbol
+}
+
+member_constructor_arguments <- function(uri, workspace, document, point, token) {
+    location <- member_call_location(document, point, symbols = TRUE)
+    symbol <- member_constructor_symbol(uri, workspace, document, location)
+    if (is.null(symbol)) return(NULL)
+    args <- names(symbol$value$function_expr[[2L]])
+    args <- args[match_with(args, token)]
+    lapply(seq_along(args), function(i) {
+        list(label = args[[i]], kind = CompletionItemKind$Variable,
+            detail = symbol$signature, sortText = sprintf("%s%03d", sort_prefixes$arg, i),
+            insertText = paste0(if (identical(make.names(args[[i]]), args[[i]])) args[[i]] else encodeString(args[[i]], quote = "`"), " = "),
+            insertTextFormat = InsertTextFormat$PlainText, data = list(type = "member", signature = symbol$signature))
+    })
+}
+
+member_argument_location <- function(document, point, symbols = FALSE) {
     if (!check_scope(document$uri, document, point)) {
         return(NULL)
     }
@@ -113,7 +155,7 @@ member_argument_location <- function(document, point) {
         !grepl("^[ \\t]*=(?!=)", substring(document$line0(end$row), end$col + 1L), perl = TRUE)) {
         return(NULL)
     }
-    location <- member_call_location(document, point)
+    location <- member_call_location(document, point, symbols = symbols)
     if (is.null(location)) {
         return(NULL)
     }

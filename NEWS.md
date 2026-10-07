@@ -12,6 +12,10 @@
 - Complete S4 `@` slots from source declarations and installed class metadata,
   including inheritance, aliases and factory results. Show slot types on hover
   and signatures for slots whose function definitions are known statically.
+- Complete S7 `@` properties and constructor arguments from source declarations
+  and installed descriptors, with constructor/property hover and signatures.
+  Infer inheritance, nested properties and supported custom constructors
+  without calling constructors, getters, setters, validators or defaults.
 
 - Run full-document, range, and multiple-range formatting in a lazy, cancellable
   background worker so other editor requests remain responsive during formatting (#764, #251).

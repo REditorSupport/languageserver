@@ -123,13 +123,15 @@ member_join <- function(a, b) {
             member_join(member_lookup(a$slots, n), member_lookup(b$slots, n))
         }), common)
     }
-    member_value(
+    value <- member_value(
         type = sort(unique(c(a$type, b$type))), fields = fields,
         slots = slots, slot_types = slot_types,
         s4_class = if (identical(a$s4_class, b$s4_class)) a$s4_class else NULL,
         element_shape = if (!is.null(a$element_shape) && !is.null(b$element_shape)) member_join(a$element_shape, b$element_shape) else NULL,
         classes = if (identical(a$classes, b$classes)) a$classes else NULL
     )
+    if (isTRUE(a$s7) && isTRUE(b$s7)) value$s7 <- TRUE
+    value
 }
 
 member_classes <- function(value, index) {
@@ -194,6 +196,7 @@ member_shape_key <- function(value, depth = 0L) {
         slots = lapply(value$slots, member_shape_key, depth + 1L),
         slot_types = value$slot_types, s4_class = value$s4_class,
         s4_generator = value$s4_generator,
+        s7 = value$s7, s7_descriptor = value$s7_descriptor,
         r6_private = member_shape_key(value$r6_private, depth + 1L),
         r6_super = member_shape_key(value$r6_super, depth + 1L),
         r6_self = member_shape_key(value$r6_self, depth + 1L),
@@ -691,6 +694,11 @@ member_infer <- function(
     }
     s4 <- member_s4_call(expr, index, bindings, budget)
     if (!is.null(s4)) return(s4)
+    if (head %in% member_s7_intrinsics || (member_head(expr[[1L]], "::") &&
+                identical(member_name(expr[[1L]][[2L]]), "S7"))) {
+        s7 <- member_s7_call(expr, index, bindings, budget)
+        if (!is.null(s7)) return(s7)
+    }
     if (member_head(expr, "::")) {
         package <- member_name(expr[[2L]])
         name <- member_name(expr[[3L]])
@@ -722,7 +730,7 @@ member_infer <- function(
         return(out)
     }
     if (member_head(expr, "@")) {
-        return(member_s4_slot(infer(expr[[2L]]), member_name(expr[[3L]]), index, bindings, budget))
+        return(member_slot(infer(expr[[2L]]), member_name(expr[[3L]]), index, bindings, budget))
     }
     if (head %in% c("[[", "[")) {
         lhs <- infer(expr[[2L]])
@@ -1048,6 +1056,12 @@ member_infer <- function(
         return(unknown)
     }
     callee <- infer(expr[[1L]])
+    if (identical(callee$metadata, "S7") && callee$function_key %in% member_s7_intrinsics) {
+        return(member_s7_call(expr, index, bindings, budget, callee$function_key))
+    }
+    if (!is.null(callee$s7_generator)) {
+        return(member_s7_construct(callee, actuals, index, bindings, budget))
+    }
     if (!is.null(callee$s4_generator)) {
         return(member_s4_construct(callee$s4_generator, actuals, index, bindings, budget))
     }

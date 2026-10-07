@@ -955,12 +955,15 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
     if (token_result$accessor == "") {
         call_result <- document$detect_call(point)
         if (nzchar(call_result$token)) {
+            constructor_args <- if (isTRUE(lsp_settings$get("member_completion"))) {
+                member_constructor_arguments(uri, workspace, document, point, token)
+            }
             completions <- c(
                 completions,
-                arg_completion(uri, workspace, point, token,
+                if (!is.null(constructor_args)) constructor_args else arg_completion(uri, workspace, point, token,
                     call_result$token, call_result$package,
                     exported_only = call_result$accessor != ":::"),
-                arg_value_completion(uri, workspace, document, point, token,
+                if (is.null(constructor_args)) arg_value_completion(uri, workspace, document, point, token,
                     call_result$token, call_result$package,
                     exported_only = call_result$accessor != ":::"))
         }

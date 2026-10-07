@@ -52,6 +52,11 @@ hover_reply <- function(id, uri, workspace, document, point) {
         if (!is.null(location)) {
             return(member_hover_reply(id, uri, workspace, document, location))
         }
+        location <- member_argument_location(document, point, symbols = TRUE)
+        if (is.null(location)) location <- member_symbol_location(document, point)
+        if (!is.null(member_constructor_symbol(uri, workspace, document, location))) {
+            return(member_hover_reply(id, uri, workspace, document, location))
+        }
     }
     if (!check_scope(uri, document, point)) {
         return(Response$new(id))

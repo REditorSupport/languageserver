@@ -189,7 +189,12 @@ member_recover <- function(document, point, cursor, data) {
         if (is.null(parsed)) next
         found <- FALSE
         member_walk(parsed, function(node) {
-            if (member_head(node, cursor$accessor) && identical(member_name(node[[3L]]), sentinel)) found <<- TRUE
+            at_cursor <- if (is.null(cursor$accessor)) {
+                is.symbol(node) && identical(member_name(node), sentinel)
+            } else {
+                member_head(node, cursor$accessor) && identical(member_name(node[[3L]]), sentinel)
+            }
+            if (at_cursor) found <<- TRUE
         })
         column <- if (skip == 1L && length(preceding) &&
                 items[[utils::tail(preceding, 1L)]]$end[[1L]] == start) {
@@ -305,12 +310,14 @@ member_context_index <- function(workspace, uri, document, at, parsed = NULL) {
                 }
                 for (name in intersect(package_index$exports, names(package_index$definitions))) {
                     if (member_head(package_index$definitions[[name]], "function") &&
-                            is.null(index$attached_roots[[name]]$s4_generator)) {
+                            is.null(index$attached_roots[[name]]$s4_generator) &&
+                            is.null(index$attached_roots[[name]]$s7_generator)) {
                         index$attached_roots[name] <- list(member_value(function_key = name, metadata = package))
                     }
                 }
             }
             if (identical(package, "R6")) index$r6_attached <- TRUE
+            if (identical(package, "S7")) index$s7_attached <- TRUE
         }
     }
     index
@@ -353,7 +360,16 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
         found
     }
     visit <- function(node, env) {
+        if (is.null(accessor) && is.symbol(node) && identical(member_name(node), sentinel)) {
+            result <<- member_infer(as.name(name), index, env, budget = budget)
+            return(invisible(NULL))
+        }
         if (!is.call(node) && !is.expression(node)) {
+            return(invisible(NULL))
+        }
+        if (is.null(accessor) && member_head(node, "::") && identical(member_name(node[[3L]]), sentinel)) {
+            node[[3L]] <- as.name(name)
+            result <<- member_infer(node, index, env, budget = budget)
             return(invisible(NULL))
         }
         if (member_head(node, accessor) && identical(member_name(node[[3L]]), sentinel)) {
@@ -473,7 +489,7 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
     labels <- labels[keep]
     items <- lapply(labels, function(label) {
         shape <- if (identical(cursor$accessor, "@")) {
-            member_s4_slot(value, label, index, bindings, budget)
+            member_slot(value, label, index, bindings, budget)
         } else {
             value$fields[[label]]
         }

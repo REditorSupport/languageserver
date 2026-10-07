@@ -81,6 +81,8 @@ member_snapshot <- function(env, max_depth = 4L, max_bindings = 5000L) {
         )
     }
     describe <- function(value, depth) {
+        descriptor <- member_s7_runtime_descriptor(value)
+        if (!is.null(descriptor)) return(list(kind = "s7", descriptor = descriptor))
         if (typeof(value) == "closure") {
             list(kind = "function", syntax = member_function_syntax(value), captures = captures(value))
         } else if (is.environment(value)) {
@@ -131,6 +133,10 @@ member_snapshot_shape <- function(snapshot) {
                 fields = lapply(record$fields, decode, c(trail, record$id))
             ))
         }
+        if (identical(record$kind, "s7")) {
+            return(if (identical(record$descriptor$kind, "class")) member_s7_generator(record$descriptor) else
+                    member_s7_value(type = "S7_descriptor", s7_descriptor = record$descriptor))
+        }
         if (identical(record$kind, "list")) {
             values <- lapply(record$elements, decode, trail)
             fields <- if (is.null(names(values))) list() else values[nzchar(names(values))]
@@ -158,7 +164,7 @@ member_source_input <- function(root) {
     providers <- list(rlang = c(
         "list2", "arg_match0", "arg_match", "try_fetch",
         "is_character", "is_list", "is_bool", "abort"
-    ), S7 = c("new_class", "set_props"), methods = member_methods_intrinsics)
+    ), S7 = member_s7_intrinsics, methods = member_methods_intrinsics)
     for (expr in parse(file.path(root, "NAMESPACE"))) {
         if (member_head(expr, "import") || member_head(expr, "importFrom")) {
             provider <- member_name(expr[[2L]])
@@ -191,11 +197,23 @@ member_namespace_input <- function(
     nms <- ls(ns, all.names = TRUE)
     if (length(nms) > 10000L) stop("Namespace exceeds metadata budget")
     definitions <- snapshots <- registries <- links <- descriptors <- s4_classes <- s4_roots <- s4_objects <- list()
+    s7_roots <- list()
     functions <- values <- list()
     for (name in nms) {
         record <- member_binding(ns, name, materialize = TRUE)
         value <- record[[2L]]
         if (!identical(record[[1L]], "value")) next
+        descriptor <- member_s7_runtime_descriptor(value)
+        if (!is.null(descriptor)) {
+            s7_roots[name] <- list(if (identical(descriptor$kind, "class")) {
+                member_s7_generator(descriptor)
+            } else {
+                member_s7_value(type = "S7_descriptor", s7_descriptor = descriptor)
+            })
+        } else if ("S7_object" %in% attr(value, "class", exact = TRUE)) {
+            descriptor <- member_s7_runtime_descriptor(attr(value, "S7_class", exact = TRUE))
+            if (!is.null(descriptor)) s7_roots[name] <- list(member_s7_shape(descriptor))
+        }
         if (isS4(value) && any(c("classRepresentation", "ClassUnionRepresentation") %in%
                     attr(value, "class", exact = TRUE))) {
             descriptor <- member_s4_runtime_descriptor(value)
@@ -275,7 +293,7 @@ member_namespace_input <- function(
     providers <- list(rlang = c(
         "list2", "arg_match0", "arg_match", "try_fetch",
         "is_character", "is_list", "is_bool", "abort"
-    ), S7 = c("new_class", "set_props"), methods = member_methods_intrinsics)
+    ), S7 = member_s7_intrinsics, methods = member_methods_intrinsics)
     for (provider in names(providers)) {
         if (!provider %in% loadedNamespaces()) next
         for (name in providers[[provider]]) {
@@ -293,6 +311,7 @@ member_namespace_input <- function(
         exports = exports, registries = registries,
         snapshots = snapshots, links = links, descriptors = descriptors, package = package, intrinsics = intrinsics,
         s4_classes = s4_classes, s4_roots = s4_roots, s4_objects = s4_objects,
+        s7_roots = s7_roots,
         s4_dependencies = member_s4_dependencies(s4_classes, lapply(c(
             lapply(s4_roots, function(value) value$s4_generator), s4_objects
         ), function(class) structure(class$name, package = class$package)))

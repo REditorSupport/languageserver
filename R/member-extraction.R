@@ -226,6 +226,8 @@ member_package_index <- function(input) {
     index$methods_attached <- FALSE
     index$s4_classes <- if (is.null(input$s4_classes)) list() else input$s4_classes
     index$s4_dependencies <- input$s4_dependencies
+    index$s7_attached <- identical(input$package, "S7")
+    for (name in names(input$s7_roots)) index$package_roots[name] <- input$s7_roots[name]
     declarations <- list()
     for (code in input$expressions) {
         for (node in code) declarations <- member_s4_effect(node, index, declarations)
@@ -312,7 +314,9 @@ member_package_index <- function(input) {
         shape <- member_snapshot_shape(snapshot)
         shape$type <- name
         for (field in names(index$registries[[name]])) {
-            shape$fields[field] <- list(member_value(function_key = index$registries[[name]][[field]]))
+            if (is.null(shape$fields[[field]]$s7_generator)) {
+                shape$fields[field] <- list(member_value(function_key = index$registries[[name]][[field]]))
+            }
         }
         for (field in names(input$links[[name]])) shape$fields[field] <- list(member_value(type = input$links[[name]][[field]]))
         index$package_roots[name] <- list(shape)
@@ -537,6 +541,14 @@ member_package_index <- function(input) {
         }
     }
     for (name in names(input$s4_roots)) index$package_roots[name] <- input$s4_roots[name]
+    for (name in names(index$definitions)) {
+        node <- index$definitions[[name]]
+        if (identical(member_s7_method(node, index, index$package_roots), "new_class")) {
+            value <- member_infer(node, index, index$package_roots)
+            if (!is.null(value$s7_generator)) index$package_roots[name] <- list(value)
+        }
+    }
+    for (name in names(input$s7_roots)) index$package_roots[name] <- input$s7_roots[name]
     for (name in names(input$s4_objects)) {
         class <- input$s4_objects[[name]]
         index$package_roots[name] <- list(member_s4_shape(class$name, index, list(), class$package))
