@@ -108,8 +108,28 @@ member_cursor <- function(document, point) {
     prefix <- substr(line, 1L, point$col)
     # Include a closing backtick in the replacement when editing a quoted name.
     match <- regexec("[$@][ \\t]*(`[^`]*`?|[[:alnum:]_.]*)$", prefix, perl = TRUE)[[1L]]
+    operator_row <- point$row
+    accessor <- NULL
     if (match[[1L]] < 0L) {
-        return(NULL)
+        # The member name can start on a later line, with intervening blank
+        # lines or comments. Recovery still validates the operator in the AST.
+        match <- regexec("^[ \\t]*(`[^`]*`?|[[:alnum:]_.]*)$", prefix, perl = TRUE)[[1L]]
+        if (match[[1L]] < 0L) return(NULL)
+        for (row in seq.int(point$row - 1L, max(0L, point$row - 128L))) {
+            if (row < 0L || !check_r_region(document, list(row = row, col = 0L))) break
+            previous <- document$line0(row)
+            if (grepl("^[ \\t]*(#.*)?$", previous)) next
+            operator <- regexpr("[$@][ \\t]*(#.*)?$", previous, perl = TRUE)[[1L]]
+            if (operator > 0L) {
+                operator_row <- row
+                accessor <- substr(previous, operator, operator)
+            }
+            break
+        }
+        if (is.null(accessor)) return(NULL)
+    } else {
+        operator <- match[[1L]]
+        accessor <- substr(prefix, operator, operator)
     }
     start <- match[[2L]] - 1L
     token <- substr(prefix, start + 1L, point$col)
@@ -121,8 +141,8 @@ member_cursor <- function(document, point) {
     end <- point$col + if (closed) 0L else attr(suffix, "match.length")[[1L]]
     # The sentinel must be a member of the cursor's AST, not a string/comment.
     list(
-        operator = match[[1L]], start = start, end = end, token = token,
-        accessor = substr(prefix, match[[1L]], match[[1L]]),
+        operator = operator, operator_row = operator_row, start = start, end = end, token = token,
+        accessor = accessor,
         before = substr(prefix, 1L, start), quoted = quoted
     )
 }
@@ -138,7 +158,7 @@ member_recover <- function(document, point, cursor, data) {
     preceding <- integer()
     while (lo <= hi) {
         middle <- as.integer(floor((lo + hi) / 2L))
-        if (member_before(items[[middle]]$end, c(point$row, cursor$operator - 1L))) {
+        if (member_before(items[[middle]]$end, c(cursor$operator_row, cursor$operator - 1L))) {
             preceding <- middle
             lo <- middle + 1L
         } else {
@@ -178,12 +198,41 @@ member_recover <- function(document, point, cursor, data) {
             0L
         }
         if (found) {
+            context <- member_recover_context(document, content, point, cursor, start + skip - 1L, column, sentinel, parsed)
             return(list(
                 parsed = parsed, sentinel = sentinel,
+                context = context,
                 start = c(start + skip - 1L, column)
             ))
         }
         return(NULL)
+    }
+    NULL
+}
+
+member_recover_context <- function(document, content, point, cursor, start, column, sentinel, parsed) {
+    # Only R6 declarations need later members for method-body context. Stop at
+    # the first complete declaration, before unrelated trailing syntax errors.
+    declaration <- FALSE
+    member_walk(parsed, function(node) {
+        if (is.call(node) && (identical(member_name(node[[1L]]), "R6Class") ||
+                    (member_head(node[[1L]], "::") && identical(member_name(node[[1L]][[3L]]), "R6Class")))) declaration <<- TRUE
+    })
+    if (!declaration) return(NULL)
+    last <- min(length(content) - 1L, start + 128L)
+    if (document$is_rmarkdown) {
+        cell <- literate_r_cell_at(document$regions, point$row)
+        last <- min(last, cell$body_end - 1L)
+    }
+    full <- content[seq.int(start + 1L, last + 1L)]
+    offset <- point$row - start + 1L
+    full[[offset]] <- paste0(cursor$before, sentinel, substring(document$line0(point$row), cursor$end + 1L))
+    if (column > 0L) full[[1L]] <- sub("^[ \\t]*;[ \\t]*", "", substring(full[[1L]], column + 1L))
+    for (end in seq.int(offset, length(full))) {
+        lines <- full[seq_len(end)]
+        if (sum(nchar(lines, type = "bytes")) > 65536L) break
+        context <- tryCatch(parse(text = lines), error = function(e) NULL)
+        if (!is.null(context)) return(context)
     }
     NULL
 }
@@ -294,8 +343,15 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
     value
 }
 
-member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name = NULL, accessor = "$") {
+member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name = NULL, accessor = "$", context = NULL) {
     result <- NULL
+    has_cursor <- function(node) {
+        found <- FALSE
+        member_walk(node, function(child) {
+            if (member_head(child, accessor) && identical(member_name(child[[3L]]), sentinel)) found <<- TRUE
+        })
+        found
+    }
     visit <- function(node, env) {
         if (!is.call(node) && !is.expression(node)) {
             return(invisible(NULL))
@@ -322,6 +378,17 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
             visit(node[[3L]], env)
             return(invisible(NULL))
         }
+        if (member_is_r6_call(node, index, env) && has_cursor(node)) {
+            scope <- member_r6_context(node, index, env, budget)
+            args <- as.list(node)[-1L]
+            for (section in c("public", "private", "active")) {
+                if (!member_head(args[[section]], "list")) next
+                for (method in as.list(args[[section]])[-1L]) {
+                    if (member_head(method, "function") && has_cursor(method)) visit(method, utils::modifyList(env, scope))
+                }
+            }
+            return(invisible(NULL))
+        }
         if (member_head(node, "{") || is.expression(node)) {
             children <- if (is.expression(node)) as.list(node) else as.list(node)[-1L]
             for (child in children) {
@@ -335,11 +402,12 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
                 }
             }
         } else {
-            for (child in as.list(node)[-1L]) visit(child, env)
+            # A member can be the callee of a call in the complete context.
+            for (child in as.list(node)) visit(child, env)
         }
         invisible(NULL)
     }
-    visit(parsed, bindings)
+    visit(if (is.null(context)) parsed else context, bindings)
     result
 }
 
@@ -376,7 +444,7 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
         }
     }
     bindings$.__member_position__ <- recovered$start
-    value <- member_cursor_value(recovered$parsed, recovered$sentinel, index, bindings, budget, name, cursor$accessor)
+    value <- member_cursor_value(recovered$parsed, recovered$sentinel, index, bindings, budget, name, cursor$accessor, recovered$context)
     list(value = value, index = index, bindings = bindings, budget = budget)
 }
 

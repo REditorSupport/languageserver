@@ -24,8 +24,14 @@ member_r6_shape <- function(expr, index, bindings, budget) {
         inherited <- generator$fields$new$result_shape
     }
     fields <- if (is.null(inherited$fields)) list() else inherited$fields
-    # Private fields are available to method summaries but never candidates.
-    private <- list()
+    # R6's super environment contains ancestor methods and active properties,
+    # including private methods, but does not expose ancestor data fields.
+    methods <- c(inherited$fields, inherited$r6_private$fields)
+    methods <- Filter(function(value) !is.null(value$function_expr) || identical(value$reason, "active_property"), methods)
+    super <- member_value(type = "environment", fields = methods)
+    # Private fields are available inside methods, outside the public surface.
+    private <- if (is.null(inherited$r6_private$fields)) list() else inherited$r6_private$fields
+    own <- list(public = character(), private = character())
     for (section in c("private", "public")) {
         node <- args[[section]]
         if (!member_head(node, "list")) next
@@ -35,14 +41,14 @@ member_r6_shape <- function(expr, index, bindings, budget) {
             if (!is.null(value$function_expr)) {
                 value$receiver_name <- "self"
                 value$closure$self <- NULL
-                value$closure$super <- inherited
-                value$closure$private <- member_value(type = "environment", fields = private)
+                value$closure$super <- super
             }
             if (section == "public") {
                 fields[name] <- list(value)
             } else {
                 private[name] <- list(value)
             }
+            own[[section]] <- c(own[[section]], name)
         }
     }
     if (member_head(active, "list")) {
@@ -50,10 +56,27 @@ member_r6_shape <- function(expr, index, bindings, budget) {
             fields[name] <- list(member_value(reason = "active_property"))
         }
     }
-    instance <- member_value(type = "environment", fields = fields, open = TRUE)
+    private_value <- member_value(type = "environment", fields = private)
+    for (name in own$public) {
+        if (!is.null(fields[[name]]$function_expr)) fields[[name]]$closure$private <- private_value
+    }
+    for (name in own$private) {
+        if (!is.null(private[[name]]$function_expr)) private[[name]]$closure$private <- private_value
+    }
+    instance <- member_value(type = "environment", fields = fields, open = TRUE,
+        r6_private = member_value(type = "environment", fields = private), r6_super = super)
     member_value(type = "environment", fields = list(new = member_value(
         type = "function", result_shape = instance
     )))
+}
+
+member_r6_context <- function(expr, index, bindings, budget) {
+    instance <- member_r6_shape(expr, index, bindings, budget)$fields$new$result_shape
+    super <- instance$r6_super
+    super$r6_self <- instance
+    private <- instance$r6_private
+    private$r6_self <- instance
+    list(self = instance, super = super, private = private)
 }
 
 member_r6_runtime_shape <- function(generator, index, trail = list()) {
@@ -63,6 +86,8 @@ member_r6_runtime_shape <- function(generator, index, trail = list()) {
     get_plain <- function(name) member_binding(generator, name)[[2L]]
     public <- get_plain("public_methods")
     public_fields <- get_plain("public_fields")
+    private_methods <- get_plain("private_methods")
+    private_fields <- get_plain("private_fields")
     active <- get_plain("active")
     inherited <- get_plain("inherit")
     if (!is.list(public) || is.object(public)) {
@@ -94,6 +119,7 @@ member_r6_runtime_shape <- function(generator, index, trail = list()) {
     }
     expr <- as.call(list(as.call(list(as.name("::"), as.name("R6"), as.name("R6Class"))),
             classname = "inspected", public = convert(c(public_fields, public)),
+            private = convert(c(private_fields, private_methods)),
             active = convert(active), inherit = as.name(".__r6_parent__")
         ))
     member_r6_shape(expr, index, bindings, NULL)

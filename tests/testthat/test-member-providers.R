@@ -32,6 +32,123 @@ member_provider_hover <- function(fixture, row, col) {
     )$result
 }
 
+test_that("Multiline dollar chains share completion, signatures and hover", {
+    code <- c(
+        "make_pipeline <- function(source) {",
+        "self <- new.env(parent = emptyenv())",
+        "self$source <- source",
+        "self$filter <- function(predicate) self",
+        "self$limit <- function(n = 10L) self",
+        "self$collect <- function(format = \"list\") {",
+        "list(data = source, format = format, metadata = list(cached = FALSE))",
+        "}", "self", "}", "pipeline <- make_pipeline(iris)",
+        "pipeline$", "  filter(\"Sepal.Length > 5\")$", "  limit(n = 5)$",
+        "  filter(\"Petal.Length < 2\")$", "  collect()"
+    )
+    fixture <- member_provider_fixture(code)
+    for (row in 11:15) {
+        col <- if (row == 11L) 9L else 4L
+        items <- member_completion(fixture$uri, fixture$workspace, fixture$document, list(row = row, col = col), TRUE, 200L)
+        labels <- vapply(items, `[[`, character(1L), "label")
+        expected <- if (row == 11L) c("collect", "filter", "limit", "source") else if (row == 13L) "limit" else if (row == 15L) "collect" else "filter"
+        expect_identical(labels, expected)
+        if (row > 11L) {
+            expect_identical(items[[1L]]$textEdit$range$start$line, row)
+            expect_identical(items[[1L]]$textEdit$range$start$character, 2L)
+            expect_false(grepl("[(]", items[[1L]]$textEdit$newText))
+        }
+    }
+    for (row in 12:15) {
+        col <- regexpr("[(]", code[[row + 1L]])[[1L]]
+        expected <- if (row == 13L) "limit(n = 10L)" else if (row == 15L) "collect(format = \"list\")" else "filter(predicate)"
+        expect_identical(member_provider_signature(fixture, row, col)$signatures[[1L]]$label, expected)
+        expect_identical(member_provider_hover(fixture, row, 4L)$contents, sprintf("```r\n%s\n```", expected))
+    }
+    fixture <- member_provider_fixture(c(code[1:11], "pipeline$ # continue", " # comment", "", "  collect(format = "))
+    expect_identical(member_provider_signature(fixture)$signatures[[1L]]$label, "collect(format = \"list\")")
+    expect_identical(member_provider_hover(fixture, 14L, 4L)$range$start$character, 2L)
+    fixture <- member_provider_fixture(c("x <- list(`a b`=function(value=1) NULL)", "x$", "  `a b`("))
+    expect_identical(member_provider_signature(fixture)$signatures[[1L]]$label, "`a b`(value = 1)")
+    expect_identical(member_provider_hover(fixture, 2L, 4L)$contents, "```r\n`a b`(value = 1)\n```")
+    for (lines in list(c("x <- list(run=function() NULL)", "\"x$\"", "run("),
+            c("x <- list(run=function() NULL)", "# x$", "run("))) {
+        fixture <- member_provider_fixture(lines)
+        expect_null(member_hover_location(fixture$document, list(row = 2L, col = 2L)))
+        expect_null(member_symbol(fixture$uri, fixture$workspace, fixture$document,
+                member_call_location(fixture$document, list(row = 2L, col = 4L)))$signature)
+    }
+})
+
+test_that("R6 self, super and private refer to their declared method contexts", {
+    parent <- paste0("Parent <- R6::R6Class(\"Parent\", public=list(run=function(value=1) self, base=42),",
+        "private=list(inherited=function(key=2) self), active=list(parent_active=function() stop(\"getter\")))")
+    code <- c(parent, "Child <- R6::R6Class(\"Child\", inherit=Parent,", "public=list(",
+        "test=function() {", "  self$child(option = TRUE)", "  super$run(value = 2)", "},",
+        "child=function(option=FALSE) self),", "private=list(secret=function(key=1) NULL),",
+        "active=list(current=function() self$child()))")
+    fixture <- member_provider_fixture(code)
+    for (case in list(list(row = 4L, col = 7L, expected = c("base", "child", "current", "parent_active", "run", "test")),
+            list(row = 5L, col = 8L, expected = c("inherited", "parent_active", "run")))) {
+        items <- member_completion(fixture$uri, fixture$workspace, fixture$document, case[c("row", "col")], TRUE, 200L)
+        expect_identical(vapply(items, `[[`, character(1L), "label"), case$expected)
+    }
+    expect_identical(member_provider_hover(fixture, 4L, 10L)$contents, "```r\nchild(option = FALSE)\n```")
+    expect_identical(member_provider_hover(fixture, 5L, 10L)$contents, "```r\nrun(value = 1)\n```")
+    expect_identical(member_provider_signature(fixture, 4L, 14L)$signatures[[1L]]$label, "child(option = FALSE)")
+    expect_identical(member_provider_hover(fixture, 9L, 37L)$contents, "```r\nchild(option = FALSE)\n```")
+
+    fixture <- member_provider_fixture(c(parent, "Child <- R6::R6Class(\"Child\", inherit=Parent,",
+            "private=list(test=function() private$secret(), secret=function(key=1) NULL))"))
+    expect_identical(member_provider_hover(fixture, 2L, 42L)$contents, "```r\nsecret(key = 1)\n```")
+    fixture <- member_provider_fixture(c(parent, "Child <- R6::R6Class(\"Child\", inherit=Parent,",
+            "public=list(test=function(self) self$run()))"))
+    expect_null(member_provider_hover(fixture, 2L, 38L))
+    fixture <- member_provider_fixture(c("f <- function() self$run()"))
+    expect_null(member_provider_hover(fixture, 0L, 23L))
+    # A trailing parse error cannot remove the class context before it.
+    fixture <- member_provider_fixture(c(code, "broken <- )"))
+    expect_identical(member_provider_hover(fixture, 4L, 10L)$contents, "```r\nchild(option = FALSE)\n```")
+    fixture <- member_provider_fixture(c(parent, "Child <- R6::R6Class(\"Child\", inherit=Parent,",
+            "public=list(test=function() super$run()$child(), child=function(option=FALSE) self))"))
+    expect_identical(member_provider_hover(fixture, 2L, 42L)$contents, "```r\nchild(option = FALSE)\n```")
+    fixture <- member_provider_fixture(c(parent, "Child <- R6::R6Class(\"Child\", inherit=Parent,",
+            "public=list(test=function() {self <- list(local=1); self$local}))"))
+    expect_identical(member_provider_hover(fixture, 2L, 59L)$contents, "```r\n1\n```")
+    fixture <- member_provider_fixture(c("```{r}", code, "```", "```{python}", "self$child()", "```"), language = "quarto")
+    expect_identical(member_provider_hover(fixture, 5L, 10L)$contents, "```r\nchild(option = FALSE)\n```")
+    expect_null(member_call_location(fixture$document, list(row = 13L, col = 11L)))
+})
+
+test_that("Multiline members and R6 method context work on the first LSP request after edits", {
+    skip_on_cran()
+    client <- language_client()
+    path <- withr::local_tempfile(fileext = ".R")
+    uri <- path_to_uri(path)
+    declarations <- c("x <- list(run=function(value=1) NULL)")
+    did_open(client, path, text = declarations)
+    notify(client, "workspace/didChangeConfiguration", list(settings = list(parse_delay = 0.5)))
+    edit <- function(lines, version) {
+        notify(client, "textDocument/didChange", list(textDocument = list(uri = uri, version = version),
+                contentChanges = list(list(text = paste(lines, collapse = "\n")))))
+    }
+    edit(c(declarations, "x$", "  ru"), 2L)
+    result <- respond_completion(client, path, c(2L, 4L), retry = FALSE)
+    expect_identical(vapply(result$items, `[[`, character(1L), "label"), "run")
+    edit(c(declarations, "x$", "  run(value = "), 3L)
+    expect_identical(respond_signature(client, path, c(2L, 14L), retry = FALSE)$signatures[[1L]]$label, "run(value = 1)")
+    edit(c(declarations, "x$", "  run()"), 4L)
+    expect_identical(respond_hover(client, path, c(2L, 4L), retry = FALSE)$contents[[1L]], "```r\nrun(value = 1)\n```")
+    code <- c("Parent <- R6::R6Class(\"Parent\", public=list(run=function(value=1) self))",
+        "Child <- R6::R6Class(\"Child\", inherit=Parent, public=list(",
+        "test=function() {self$},", "child=function(flag=TRUE) self))")
+    edit(code, 5L)
+    result <- respond_completion(client, path, c(2L, 22L), retry = FALSE)
+    expect_setequal(vapply(result$items, `[[`, character(1L), "label"), c("run", "test", "child"))
+    code[[3L]] <- "test=function() super$run(),"
+    edit(code, 6L)
+    expect_identical(respond_hover(client, path, c(2L, 24L), retry = FALSE)$contents[[1L]], "```r\nrun(value = 1)\n```")
+})
+
 test_that("Member signatures follow fluent source closures without calling arguments", {
     marker <- withr::local_tempfile()
     fixture <- member_provider_fixture(c(

@@ -73,7 +73,7 @@ member_value <- function(
   elements = NULL, classes = NULL, reason = NULL, element_shape = NULL,
   open = FALSE, result_shape = NULL, binding_expr = NULL, binding_env = NULL,
   metadata = NULL, slots = NULL, slot_types = NULL, s4_class = NULL,
-  s4_generator = NULL
+  s4_generator = NULL, r6_private = NULL, r6_super = NULL, r6_self = NULL
 ) {
     list(
         type = type, function_key = function_key, receiver = receiver,
@@ -84,7 +84,8 @@ member_value <- function(
         open = open, result_shape = result_shape,
         binding_expr = binding_expr, binding_env = binding_env, metadata = metadata,
         slots = slots, slot_types = slot_types, s4_class = s4_class,
-        s4_generator = s4_generator
+        s4_generator = s4_generator, r6_private = r6_private,
+        r6_super = r6_super, r6_self = r6_self
     )
 }
 
@@ -193,6 +194,9 @@ member_shape_key <- function(value, depth = 0L) {
         slots = lapply(value$slots, member_shape_key, depth + 1L),
         slot_types = value$slot_types, s4_class = value$s4_class,
         s4_generator = value$s4_generator,
+        r6_private = member_shape_key(value$r6_private, depth + 1L),
+        r6_super = member_shape_key(value$r6_super, depth + 1L),
+        r6_self = member_shape_key(value$r6_self, depth + 1L),
         elements = lapply(value$elements, member_shape_key, depth + 1L),
         element_shape = if (!is.null(value$element_shape)) member_shape_key(value$element_shape, depth + 1L) else NULL
     )
@@ -210,7 +214,8 @@ member_cacheable <- function(value, depth = 0L) {
         return(FALSE)
     }
     all(vapply(
-        c(value$fields, value$slots, value$elements, if (!is.null(value$element_shape)) list(value$element_shape)),
+        c(value$fields, value$slots, value$elements, value[c("r6_private", "r6_super", "r6_self")],
+            if (!is.null(value$element_shape)) list(value$element_shape)),
         member_cacheable, logical(1L), depth + 1L
     ))
 }
@@ -584,7 +589,14 @@ member_infer <- function(
         }
         value <- member_lookup(lhs$fields, name)
         if (!is.null(value)) {
-            if (!is.null(value$receiver_name)) value$receiver_value <- lhs
+            if (!is.null(value$receiver_name)) {
+                value$receiver_value <- if (is.null(lhs$r6_self)) lhs else lhs$r6_self
+                if (!is.null(value$receiver_value$r6_private)) {
+                    value$closure$private <- value$receiver_value$r6_private
+                    value$closure$private$r6_self <- value$receiver_value
+                }
+                if (!is.null(value$closure$super)) value$closure$super$r6_self <- value$receiver_value
+            }
             if (!is.null(value$function_key)) value$receiver_value <- lhs
             if (length(value$type) || !is.null(value$function_expr) || !is.null(value$function_key)) {
                 return(value)
