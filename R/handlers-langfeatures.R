@@ -41,6 +41,7 @@ text_document_completion  <- function(self, id, params) {
 completion_item_resolve  <- function(self, id, params) {
     # Resolve uri from completion item if possible
     uri <- params$data$uri
+    if (is.null(uri)) uri <- params$data$context_uri
     if (is.null(uri)) uri <- params$data$textDocument$uri
     workspace <- self$get_workspace(uri)
 

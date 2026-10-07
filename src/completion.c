@@ -2,6 +2,69 @@
 
 #include <limits.h>
 #include <string.h>
+#include <Rversion.h>
+
+/* Inspect binding kind before looking up a value. In particular, findVarInFrame
+ * must never reach an active binding. Unforced promises are returned as missing
+ * unless a package metadata worker explicitly requests materialization. */
+SEXP member_binding_c(SEXP env, SEXP name, SEXP materialize) {
+    if (TYPEOF(env) != ENVSXP || TYPEOF(name) != STRSXP || XLENGTH(name) != 1 ||
+            STRING_ELT(name, 0) == NA_STRING) Rf_error("Invalid binding");
+    SEXP sym = Rf_installChar(STRING_ELT(name, 0));
+    SEXP result = PROTECT(Rf_allocVector(VECSXP, 2));
+#if R_VERSION >= R_Version(4, 6, 0)
+    R_BindingType_t kind = R_GetBindingType(sym, env);
+    if (kind == R_BindingTypeActive) {
+        SET_VECTOR_ELT(result, 0, Rf_mkString("active"));
+        SET_VECTOR_ELT(result, 1, R_ActiveBindingFunction(sym, env));
+    } else if (kind == R_BindingTypeValue || kind == R_BindingTypeForced ||
+            (kind == R_BindingTypeDelayed && Rf_asLogical(materialize) == TRUE)) {
+        SEXP value = PROTECT(R_getVar(sym, env, FALSE));
+        SET_VECTOR_ELT(result, 0, Rf_mkString("value"));
+        SET_VECTOR_ELT(result, 1, value);
+        UNPROTECT(1);
+    } else {
+        SET_VECTOR_ELT(result, 0, Rf_mkString("deferred"));
+    }
+#else
+    /* Older R binding-kind APIs require an existing name. Enumerating names
+     * does not force promises or invoke active bindings. */
+    SEXP binding_names = PROTECT(R_lsInternal3(env, TRUE, FALSE));
+    int present = 0;
+    for (R_xlen_t i = 0; i < XLENGTH(binding_names); ++i) {
+        if (strcmp(CHAR(STRING_ELT(binding_names, i)), CHAR(STRING_ELT(name, 0))) == 0) {
+            present = 1;
+            break;
+        }
+    }
+    UNPROTECT(1);
+    if (!present) {
+        SET_VECTOR_ELT(result, 0, Rf_mkString("deferred"));
+    } else if (R_BindingIsActive(sym, env)) {
+        SET_VECTOR_ELT(result, 0, Rf_mkString("active"));
+#if R_VERSION >= R_Version(4, 0, 0)
+        SET_VECTOR_ELT(result, 1, R_ActiveBindingFunction(sym, env));
+#endif
+    } else {
+        SEXP value = Rf_findVarInFrame(env, sym);
+        if (TYPEOF(value) == PROMSXP && PRVALUE(value) != R_UnboundValue) {
+            value = PRVALUE(value);
+        } else if (TYPEOF(value) == PROMSXP && Rf_asLogical(materialize) == TRUE) {
+            /* This branch is only used on the selected package namespace in
+             * a background worker, never on document or getter bindings. */
+            value = Rf_eval(sym, env);
+        }
+        if (value == R_UnboundValue || TYPEOF(value) == PROMSXP) {
+            SET_VECTOR_ELT(result, 0, Rf_mkString("deferred"));
+        } else {
+            SET_VECTOR_ELT(result, 0, Rf_mkString("value"));
+            SET_VECTOR_ELT(result, 1, value);
+        }
+    }
+#endif
+    UNPROTECT(1);
+    return result;
+}
 
 typedef enum {
     TOKEN_OTHER = 0,

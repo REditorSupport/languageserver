@@ -1,8 +1,9 @@
 # Static completion of chained `$` methods
 
 Research branch: `codex/r-polars-static-completion`. This branch contains an
-isolated experiment and an implementation plan; it does not enable a production
-completion provider or change existing LSP behavior.
+original experiments and the production provider. The package-independent
+implementation and its current limits are documented in [implementation.md](implementation.md).
+The experiment files below preserve the earlier prototypes.
 
 **Recommendation: implement a general receiver/shape analysis layer, with
 extractors that derive metadata from the user's installed package.** The

@@ -1,5 +1,10 @@
 # languageserver 0.3.20
 
+- Complete chained `$` members using static receiver analysis, including source
+  list/environment factories, declarative R6 classes and package method
+  registries. Package metadata is prepared in a background worker; completion
+  never calls document expressions, constructors, methods or active getters.
+
 - Run full-document, range, and multiple-range formatting in a lazy, cancellable
   background worker so other editor requests remain responsive during formatting (#764, #251).
 - Stabilize diagnostics for Quarto and R Markdown documents by preserving

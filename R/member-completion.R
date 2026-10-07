@@ -1,0 +1,386 @@
+# Document indexes contain syntax and positions, never user values. Recovery
+# parses a bounded current expression; earlier statements come from the index.
+member_document_index <- function(content, parsed = NULL) {
+    items <- list()
+    append <- function(expr, start, end) {
+        items[[length(items) + 1L]] <<- list(expr = expr, start = start, end = end)
+    }
+    if (!is.null(parsed)) {
+        refs <- attr(parsed, "srcref")
+        for (i in seq_along(parsed)) {
+            ref <- refs[[i]]
+            append(parsed[[i]], c(ref[[1L]] - 1L, ref[[5L]] - 1L), c(ref[[3L]] - 1L, ref[[6L]]))
+        }
+    } else {
+        # Recover complete statements after unrelated syntax errors. Bounds
+        # apply to incomplete runs; valid large documents use the parser above.
+        start <- 1L
+        for (end in seq_along(content)) {
+            if (end - start > 128L) start <- end
+            text <- content[seq.int(start, end)]
+            if (sum(nchar(text, type = "bytes")) > 65536L) {
+                start <- end
+                next
+            }
+            parsed <- tryCatch(parse(text = text, keep.source = TRUE), error = function(e) NULL)
+            if (is.null(parsed)) {
+                # Discard an invalid single line but retain incomplete calls.
+                message <- tryCatch(
+                    {
+                        parse(text = text)
+                        ""
+                    },
+                    error = conditionMessage
+                )
+                if (!grepl("unexpected end of input|INCOMPLETE_STRING", message)) start <- end + 1L
+                next
+            }
+            refs <- attr(parsed, "srcref")
+            for (i in seq_along(parsed)) {
+                ref <- refs[[i]]
+                append(
+                    parsed[[i]], c(start + ref[[1L]] - 2L, ref[[5L]] - 1L),
+                    c(start + ref[[3L]] - 2L, ref[[6L]])
+                )
+            }
+            start <- end + 1L
+        }
+    }
+    bindings <- new.env(hash = TRUE, parent = emptyenv())
+    imports <- list()
+    effects <- list()
+    for (item in items) {
+        expr <- item$expr
+        if (member_head(expr, "<-") || member_head(expr, "=") || member_head(expr, "->")) {
+            lhs <- if (member_head(expr, "->")) expr[[3L]] else expr[[2L]]
+            rhs <- if (member_head(expr, "->")) expr[[2L]] else expr[[3L]]
+            name <- member_name(lhs)
+            if (is.null(name) && is.call(lhs)) {
+                name <- member_name(lhs[[2L]])
+                rhs <- quote(.__unknown_mutation__)
+            }
+            if (!is.null(name) && nzchar(name)) {
+                history <- get0(name, bindings, inherits = FALSE, ifnotfound = list())
+                history[[length(history) + 1L]] <- list(expr = rhs, start = item$start, end = item$end)
+                assign(name, history, bindings)
+            }
+        }
+        if (member_head(expr, "library") || member_head(expr, "require")) imports[[length(imports) + 1L]] <- item
+        if (is.call(expr) && !member_head(expr, "<-") && !member_head(expr, "=") &&
+                !member_head(expr, "->")) {
+            for (name in member_assigned_names(expr)) {
+                history <- get0(name, bindings, inherits = FALSE, ifnotfound = list())
+                history[[length(history) + 1L]] <- list(
+                    expr = quote(.__unknown_branch_write__),
+                    start = item$start, end = item$end
+                )
+                assign(name, history, bindings)
+            }
+            effects[[length(effects) + 1L]] <- item
+        }
+    }
+    list(items = items, bindings = as.list(bindings), imports = imports, effects = effects)
+}
+
+member_before <- function(a, b) {
+    a[[1L]] < b[[1L]] ||
+        (a[[1L]] == b[[1L]] && a[[2L]] <= b[[2L]])
+}
+
+member_cursor <- function(document, point) {
+    if (!check_r_region(document, point)) {
+        return(NULL)
+    }
+    line <- document$line0(point$row)
+    prefix <- substr(line, 1L, point$col)
+    # Include a closing backtick in the replacement when editing a quoted name.
+    match <- regexec("\\$[ \\t]*(`[^`]*`?|[[:alnum:]_.]*)$", prefix, perl = TRUE)[[1L]]
+    if (match[[1L]] < 0L) {
+        return(NULL)
+    }
+    start <- match[[2L]] - 1L
+    token <- substr(prefix, start + 1L, point$col)
+    quoted <- startsWith(token, "`")
+    token <- gsub("^`|`$", "", token)
+    rest <- substring(line, point$col + 1L)
+    suffix <- regexpr(if (quoted) "^[^`]*`?" else "^[[:alnum:]_.]*", rest, perl = TRUE)
+    end <- point$col + attr(suffix, "match.length")[[1L]]
+    # The sentinel must be a member of the cursor's AST, not a string/comment.
+    list(
+        dollar = match[[1L]], start = start, end = end, token = token,
+        before = substr(prefix, 1L, start), quoted = quoted
+    )
+}
+
+member_recover <- function(document, point, cursor, data) {
+    content <- if (document$is_rmarkdown) purl(document$content, parseable_only = FALSE) else document$content
+    content[[point$row + 1L]] <- cursor$before
+    items <- data$items
+    # Items are ordered by end position. Avoid scanning a long document on each
+    # request; only the bounded expression after the preceding item is parsed.
+    lo <- 1L
+    hi <- length(items)
+    preceding <- integer()
+    while (lo <= hi) {
+        middle <- as.integer(floor((lo + hi) / 2L))
+        if (member_before(items[[middle]]$end, c(point$row, cursor$dollar - 1L))) {
+            preceding <- middle
+            lo <- middle + 1L
+        } else {
+            hi <- middle - 1L
+        }
+    }
+    start <- if (length(preceding)) items[[utils::tail(preceding, 1L)]]$end[[1L]] else 0L
+    start <- max(start, point$row - 128L)
+    sentinel <- ".__languageserver_member_cursor__"
+    lines <- content[seq.int(start + 1L, point$row + 1L)]
+    if (length(preceding)) {
+        last <- items[[utils::tail(preceding, 1L)]]
+        if (last$end[[1L]] == start) {
+            lines[[1L]] <- sub(
+                "^[ \\t]*;[ \\t]*", "",
+                substring(lines[[1L]], last$end[[2L]] + 1L)
+            )
+        }
+    }
+    if (sum(nchar(lines, type = "bytes")) > 65536L || any(grepl(sentinel, lines, fixed = TRUE))) {
+        return(NULL)
+    }
+    for (skip in seq_len(min(length(lines), 129L))) {
+        local <- lines[seq.int(skip, length(lines))]
+        local[[length(local)]] <- paste0(local[[length(local)]], sentinel)
+        closers <- missing_closing_delimiters(local)
+        parsed <- tryCatch(parse(text = paste0(paste(local, collapse = "\n"), closers)), error = function(e) NULL)
+        if (is.null(parsed)) next
+        found <- FALSE
+        member_walk(parsed, function(node) {
+            if (member_head(node, "$") && identical(member_name(node[[3L]]), sentinel)) found <<- TRUE
+        })
+        column <- if (skip == 1L && length(preceding) &&
+                items[[utils::tail(preceding, 1L)]]$end[[1L]] == start) {
+            items[[utils::tail(preceding, 1L)]]$end[[2L]]
+        } else {
+            0L
+        }
+        if (found) {
+            return(list(
+                parsed = parsed, sentinel = sentinel,
+                start = c(start + skip - 1L, column)
+            ))
+        }
+        return(NULL)
+    }
+    NULL
+}
+
+member_context_index <- function(workspace, uri, document, at, parsed = NULL) {
+    metadata <- if (!is.null(workspace$member_metadata)) workspace$member_metadata else NULL
+    # Choose the extractor associated with roots actually referenced here. The
+    # core does not recognize package names, class names, or wrapper conventions.
+    referenced <- character()
+    member_walk(parsed, function(node) {
+        if (is.symbol(node)) referenced <<- c(referenced, as.character(node))
+    })
+    # Follow a bounded set of referenced assignments (q may have a package
+    # receiver several aliases back). Do this before choosing an extractor.
+    seen <- character()
+    for (pass in seq_len(16L)) {
+        pending <- setdiff(unique(referenced), seen)
+        if (!length(pending) || length(seen) > 256L) break
+        seen <- c(seen, pending)
+        for (name in pending) {
+            history <- document$parse_data$member_data$bindings[[name]]
+            for (item in utils::tail(history, 1L)) {
+                member_walk(item$expr, function(node) {
+                    if (is.symbol(node)) referenced <<- c(referenced, as.character(node))
+                })
+            }
+        }
+    }
+    index <- member_generic_index("")
+    if (!is.null(metadata)) {
+        for (package in metadata$keys()) {
+            candidate <- metadata$get(package)
+            if (length(intersect(referenced, c(names(candidate$roots), candidate$exports))) || package %in% referenced) {
+                index <- list2env(as.list(candidate), parent = emptyenv())
+                break
+            }
+        }
+    }
+    index$document_bindings <- document$parse_data$member_data$bindings
+    index$attached_roots <- list()
+    index$namespace_indices <- list()
+    if (!is.null(metadata)) {
+        for (package in metadata$keys()) {
+            package_index <- metadata$get(package)
+            index$namespace_indices[package] <- list(package_index)
+            for (name in names(package_index$namespace_roots)) index$namespace_roots[name] <- list(package_index$namespace_roots[[name]])
+        }
+    }
+    data <- document$parse_data$member_data
+    if (is.null(data)) {
+        return(index)
+    }
+    for (item in data$imports) {
+        if (!member_before(item$end, at)) next
+        expr <- item$expr
+        if (member_head(expr, "library") || member_head(expr, "require")) {
+            package <- member_name(expr[[2L]])
+            if (!is.null(package) && package %in% names(index$namespace_indices)) {
+                index$attached_roots <- utils::modifyList(index$attached_roots, index$namespace_indices[[package]]$roots)
+                package_index <- index$namespace_indices[[package]]
+                for (name in intersect(package_index$exports, names(package_index$definitions))) {
+                    if (member_head(package_index$definitions[[name]], "function")) {
+                        index$attached_roots[name] <- list(member_value(function_key = name, metadata = package))
+                    }
+                }
+            }
+            if (identical(package, "R6")) index$r6_attached <- TRUE
+        }
+    }
+    index
+}
+
+member_resolve_document <- function(name, index, bindings, budget, depth, trail) {
+    history <- index$document_bindings[[name]]
+    at <- bindings$.__member_position__
+    if (is.null(at)) at <- c(Inf, Inf)
+    candidates <- which(vapply(history, function(item) member_before(item$end, at), logical(1L)))
+    if (!length(candidates)) {
+        return(if (is.null(index$attached_roots[[name]])) {
+            member_value(reason = "not_yet_bound")
+        } else {
+            index$attached_roots[[name]]
+        })
+    }
+    position <- utils::tail(candidates, 1L)
+    item <- history[[position]]
+    id <- paste0("binding:", name, ":", position)
+    if (id %in% trail) {
+        return(member_value(reason = "binding_cycle"))
+    }
+    env <- bindings
+    if (!member_head(item$expr, "function")) env$.__member_position__ <- item$start
+    value <- member_infer(item$expr, index, env,
+        depth = depth + 1L,
+        trail = c(trail, id), budget = budget
+    )
+    value
+}
+
+member_cursor_value <- function(parsed, sentinel, index, bindings, budget) {
+    result <- NULL
+    visit <- function(node, env) {
+        if (!is.call(node) && !is.expression(node)) {
+            return(invisible(NULL))
+        }
+        if (member_head(node, "$") && identical(member_name(node[[3L]]), sentinel)) {
+            result <<- member_infer(node[[2L]], index, env, budget = budget)
+            return(invisible(NULL))
+        }
+        if (member_head(node, "function")) {
+            for (name in names(node[[2L]])) env[name] <- list(member_value(reason = "formal"))
+            visit(node[[3L]], env)
+            return(invisible(NULL))
+        }
+        if (member_head(node, "{") || is.expression(node)) {
+            children <- if (is.expression(node)) as.list(node) else as.list(node)[-1L]
+            for (child in children) {
+                visit(child, env)
+                if (!is.null(result)) break
+                if ((member_head(child, "<-") || member_head(child, "=")) && is.symbol(child[[2L]])) {
+                    env[as.character(child[[2L]])] <- list(member_infer(child[[3L]], index, env, budget = budget))
+                } else {
+                    for (name in member_assigned_names(child)) env[name] <- list(member_value(reason = "unknown_local_write"))
+                }
+            }
+        } else {
+            for (child in as.list(node)[-1L]) visit(child, env)
+        }
+        invisible(NULL)
+    }
+    visit(parsed, bindings)
+    result
+}
+
+member_completion <- function(uri, workspace, document, point, snippet_support, limit) {
+    if (!identical(document$version, document$parse_data$version) &&
+            !is.null(document$parse_data$version)) {
+        return(NULL)
+    }
+    cursor <- member_cursor(document, point)
+    if (is.null(cursor)) {
+        return(NULL)
+    }
+    data <- document$parse_data$member_data
+    if (is.null(data)) {
+        return(NULL)
+    }
+    recovered <- member_recover(document, point, cursor, data)
+    if (is.null(recovered)) {
+        return(NULL)
+    }
+    index <- member_context_index(workspace, uri, document, recovered$start, recovered$parsed)
+    budget <- new.env(parent = emptyenv())
+    budget$remaining <- 20000L
+    budget$exhausted <- budget$transient <- FALSE
+    budget$time_limit <- 0.25
+    bindings <- list(.__member_position__ = recovered$start)
+    if (length(index$registration_rules)) {
+        for (item in data$effects) {
+            if (!member_before(item$end, recovered$start)) next
+            env <- bindings
+            env$.__member_position__ <- item$start
+            bindings <- member_registration_effect(item$expr, index, env)
+        }
+    }
+    bindings$.__member_position__ <- recovered$start
+    value <- member_cursor_value(recovered$parsed, recovered$sentinel, index, bindings, budget)
+    if (is.null(value) || !length(value$type)) {
+        return(NULL)
+    }
+    members <- member_members(value, index, bindings)
+    labels <- as.character(names(members))
+    if (!length(labels)) {
+        return(list())
+    }
+    # Filter before pruning so unrelated labels cannot consume the limit.
+    matches <- sort(labels[fuzzy_find(labels, cursor$token)])
+    keep <- completion_select_indices(matches, matches, cursor$token, limit)
+    labels <- matches
+    labels <- labels[keep]
+    items <- lapply(labels, function(label) {
+        shape <- value$fields[[label]]
+        key <- members[[label]]
+        fn <- if (!is.null(shape$function_expr)) shape$function_expr else member_lookup(index$definitions, key)
+        is_function <- !is.null(shape$function_expr) || !is.null(shape$result_shape) ||
+            !is.null(shape$function_key) || (!is.null(key) && !is.na(key))
+        inserted <- if (identical(make.names(label), label) && !label %in% c("TRUE", "FALSE", "NULL", "NA")) {
+            label
+        } else {
+            paste0("`", gsub("`", "\\`", gsub("\\", "\\\\", label, fixed = TRUE), fixed = TRUE), "`")
+        }
+        following <- substring(document$line0(point$row), cursor$end + 1L)
+        snippet <- is_function && snippet_support && !startsWith(trimws(following), "(")
+        text <- if (snippet) paste0(gsub("[$}]", "\\\\&", inserted), "($0)") else inserted
+        signature <- if (member_head(fn, "function")) get_signature(label, fn) else NULL
+        documentation_id <- key
+        delegated <- member_lookup(index$delegation, key)
+        if (!is.null(delegated)) documentation_id <- delegated$original
+        list(
+            label = label, kind = if (is_function) CompletionItemKind$Method else CompletionItemKind$Field,
+            detail = if (!is.null(signature)) signature else "[static member]", sortText = label,
+            filterText = label, insertTextFormat = if (snippet) InsertTextFormat$Snippet else InsertTextFormat$PlainText,
+            textEdit = text_edit(range(
+                document$to_lsp_position(point$row, cursor$start),
+                document$to_lsp_position(point$row, cursor$end)
+            ), text),
+            data = list(
+                type = "member", package = index$package, function_id = documentation_id,
+                signature = signature, context_uri = uri, generation = index$generation
+            )
+        )
+    })
+    if (length(matches) > limit || budget$exhausted) attr(items, "truncated") <- TRUE
+    items
+}

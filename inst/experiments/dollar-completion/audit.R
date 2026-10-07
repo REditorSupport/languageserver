@@ -1,17 +1,27 @@
 # Corpus audit; optional third argument v2 selects extended inference/extraction.
-# Rscript inst/experiments/dollar-completion/audit.R /path/to/r-polars /output/dir [v2|v2-data]
+# Rscript inst/experiments/dollar-completion/audit.R /path/to/r-polars /output/dir [v2|v2-data|production]
 # Parses all canonical user articles and generated Rd examples; never runs them.
 args <- commandArgs(trailingOnly = TRUE)
 stopifnot(length(args) %in% c(2L, 3L))
 root <- normalizePath(args[[1L]])
 output <- args[[2L]]
 dir.create(output, recursive = TRUE, showWarnings = FALSE)
-source("inst/experiments/dollar-completion/inference.R")
-source("inst/experiments/dollar-completion/polars-adapter.R")
-extended <- length(args) == 3L && args[[3L]] %in% c("v2", "v2-data")
-if (extended) {
-    source("inst/experiments/dollar-completion/inference-v2.R")
-    source("inst/experiments/dollar-completion/polars-adapter-v2.R")
+production <- length(args) == 3L && identical(args[[3L]], "production")
+extended <- production || length(args) == 3L && args[[3L]] %in% c("v2", "v2-data")
+if (production) {
+    pkgload::load_all(quiet = TRUE, helpers = FALSE)
+    ns <- asNamespace("languageserver")
+    for (name in ls(ns, all.names = TRUE)) {
+        if (startsWith(name, "member_")) assign(sub("^member_", "static_", name), get(name, ns))
+    }
+    static_polars_index <- function(root) member_package_index(member_source_input(root))
+} else {
+    source("inst/experiments/dollar-completion/inference.R")
+    source("inst/experiments/dollar-completion/polars-adapter.R")
+    if (extended) {
+        source("inst/experiments/dollar-completion/inference-v2.R")
+        source("inst/experiments/dollar-completion/polars-adapter-v2.R")
+    }
 }
 index <- static_polars_index(root)
 data_roots <- list()

@@ -13,6 +13,7 @@ Document <- R6::R6Class(
         regions = NULL,
         loaded_packages = NULL,
         requested_packages = NULL,
+        member_refresh = FALSE,
         pending_diagnostics = FALSE,
         diagnostics_delay = 0,
 
@@ -568,6 +569,7 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
         env$xml_data <- NULL
         env$xml_doc <- NULL
         env$completion_data <- completion_parse_data(NULL)
+        env$member_data <- NULL
         env$semantic_data <- empty_semantic_data()
         env$range_data <- range_provider_parse_data(NULL, content)
         env$source_specs <- list()
@@ -632,6 +634,7 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
 
         env$packages <- basename(find.package(env$packages, quiet = TRUE))
         data <- utils::getParseData(expr)
+        env$member_data <- member_document_index(content, expr)
         env$completion_data <- completion_parse_data(data)
         env$semantic_data <- semantic_parse_data(data, content)
         env$range_data <- range_provider_parse_data(data, content)
@@ -648,6 +651,7 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
         # Keep the parse version current even while the user is typing an
         # incomplete expression. Providers can now return an empty result
         # instead of leaving requests queued until some later valid version.
+        env$member_data <- member_document_index(content)
         env$parse_error <- TRUE
         env$xml_data <- paste0(
             "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\" ?>\n",
@@ -709,8 +713,9 @@ parse_callback <- function(self, uri, version, parse_data) {
 
     if (!isTRUE(parse_data$parse_error)) {
         requested_packages <- normalize_package_request(parse_data$packages)
-        if (is.null(previous_packages) ||
+        if (is.null(previous_packages) || isTRUE(doc$member_refresh) ||
                 !identical(previous_packages, requested_packages)) {
+            doc$member_refresh <- FALSE
             doc$requested_packages <- requested_packages
             self$resolve_task_manager$add_task(
                 uri,
@@ -787,6 +792,18 @@ parse_task <- function(self, uri, document, delay = 0) {
 resolve_callback <- function(self, uri, version, packages) {
     workspace <- self$get_workspace(uri)
     if (!workspace$documents$has(uri)) return(NULL)
+    doc <- workspace$documents$get(uri)
+    if (!identical(doc$version, version) &&
+            !(is.list(packages) && !is.null(packages$requested) &&
+                identical(doc$requested_packages, packages$requested))) return(NULL)
+    if (is.list(packages) && !is.null(packages$members)) {
+        for (package in names(packages$members)) {
+            snapshot <- packages$members[[package]]
+            index <- member_index_thaw(snapshot)
+            if (!is.null(index)) workspace$member_metadata$set(package, as.list(index))
+        }
+        packages <- packages$packages
+    }
     logger$info("resolve_callback called:", list(uri = uri, version = version))
     workspace$load_packages(packages)
     doc <- workspace$documents$get(uri)
@@ -797,10 +814,12 @@ resolve_callback <- function(self, uri, version, packages) {
 resolve_task <- function(self, uri, document, packages, delay = 0) {
     version <- document$version
     create_task(
-        target = resolve_attached_packages,
-        args = list(pkgs = packages),
+        target = package_call(member_resolve_packages),
+        args = list(pkgs = packages, lib_paths = .libPaths(),
+            prepare = isTRUE(lsp_settings$get("member_completion"))),
         callback = function(result) resolve_callback(self, uri, version, result),
         error = function(e) logger$info("resolve_task:", e),
-        delay = 0
+        delay = delay,
+        profiles = FALSE
     )
 }

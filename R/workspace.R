@@ -236,6 +236,7 @@ Workspace <- R6::R6Class("Workspace",
         diagnostics_cache = NULL,  # Performance: Cache diagnostics by content hash
         diagnostics_globals_cache = NULL,
         type_hierarchy_cache = NULL,
+        member_metadata = NULL,
 
         initialize = function(root) {
             self$root <- root
@@ -270,6 +271,7 @@ Workspace <- R6::R6Class("Workspace",
             self$diagnostics_globals_cache <- NULL
             private$import_globals_cache <- collections::dict()
             self$type_hierarchy_cache <- collections::dict()
+            self$member_metadata <- ByteLruCache$new(32 * 1024^2, max_entries = 16L)
         },
 
         load_package = function(pkgname) {

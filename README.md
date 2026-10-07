@@ -185,6 +185,7 @@ settings | default | description
 `r.lsp.rich_documentation` | `true` | rich documentation with enhanced markdown features
 `r.lsp.snippet_support` | `true` | enable snippets in auto completion
 `r.lsp.max_completions` | 200 | maximum number of completion items
+`r.lsp.member_completion` | `true` | infer `$` members from document syntax and cached package metadata without executing document code
 `r.lsp.lint_cache` | `false` | toggle caching of lint results
 `r.lsp.parse_delay` | `0.15` | seconds to debounce parsing after an edit
 `r.lsp.diagnostics_delay` | `0.75` | seconds to debounce diagnostics after the current parse
