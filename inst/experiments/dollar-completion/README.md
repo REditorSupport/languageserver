@@ -13,7 +13,11 @@ results conservatively. Extract once per package state in background indexing,
 then infer document expressions from the resulting data. The extractor encodes
 implementation conventions, rather than individual method names/return types.
 See [coverage.md](coverage.md) for the full documentation audit, remaining gaps,
-and the revised installed-package extraction plan.
+and the revised installed-package extraction plan. The extended implementation
+and new audit are described in [robustness.md](robustness.md): it offers 98.9% of
+reference-example members using package source alone, and 100% with independently
+extracted installed `datasets` metadata. These are availability measurements,
+not a production integration or a type-correctness proof.
 
 ## Experiment and reproduction
 
@@ -26,6 +30,7 @@ source are passed to `parse()`, never `source()` or `eval()`.
 git clone https://github.com/pola-rs/r-polars.git /tmp/r-polars-completion-source
 git -C /tmp/r-polars-completion-source checkout 56c957815377bb16738df35cfff130c2b2eb43a5
 Rscript inst/experiments/dollar-completion/run.R /tmp/r-polars-completion-source
+Rscript inst/experiments/dollar-completion/run-v2.R /tmp/r-polars-completion-source
 ```
 
 The analyzed upstream revision is
@@ -42,16 +47,25 @@ Files:
   completion. Contains no r-polars class names or method return table.
 - `polars-adapter.R`: parses the registry declarations, `$` methods, public
   constructors, and generated native wrappers of this r-polars revision.
+- `inference-v2.R`, `polars-adapter-v2.R`, and `run-v2.R`: the extended analyzer,
+  metadata extractor and 101 checks; the original files remain the baseline.
 - `run.R`: executable experiments, negative cases, metadata mutation, delimiter
   recovery against languageserver, coverage counts, and timing.
 - `audit.R`: parses every canonical article and Rd example, records each `$`
   receiver/member, and audits every extracted surface. Captured CSVs are under
-  `audit-results/`; these measure the unchanged initial prototype.
+  `audit-results/` for the initial prototype and `audit-v2*-results/` for the
+  extended engine. Select `v2` or `v2-data` as the optional third argument.
 - `runtime-inspection.R` and `run-inspection.R`: inspect binding kinds, closure
   bodies/formals, and active-getter bodies without invoking methods, getters, or
-  promises. A generic fixture demonstrates 25 checks, including API changes.
+  promises. A generic fixture demonstrates 25 checks, including API changes;
+  the extended suite verifies the runtime snapshot bridge and serialized data
+  shape extraction too.
 
-## Results
+## Initial experiment results
+
+This section preserves the original runner's results and limitations. See
+[robustness.md](robustness.md) for the extended engine's results on the same
+query and the complete corpus.
 
 All seven `$` cursor positions in the original example resolve correctly,
 including the two inside incomplete argument lists. After the final expression
@@ -372,11 +386,11 @@ native calls. Unknown cases must produce bounded responses. Runtime comparisons
 may be done only in explicit development tests against trusted package fixtures;
 the server's request path must never perform them.
 
-## Limits of this prototype
+## Limits of the initial prototype and production work
 
-This is a feasibility experiment, not a sound R type checker. Its package adapter
-recognizes reviewed conventions in one revision; constructor scanning is not
-general control-flow proof. The generic engine implements only straightforward
+Both versions are feasibility experiments, not sound R type checkers. Their
+package adapters recognize reviewed conventions in one revision; constructor
+scanning is not general control-flow proof. The initial generic engine implements only straightforward
 named-list/environment factories and limited tail branches. It does not cover
 full argument matching, local-function lexical scopes at the cursor, explicit
 returns, arbitrary mutations, R6, general S3 dispatch, inherited Expr properties,
@@ -384,14 +398,18 @@ installed r-polars extraction, version invalidation, non-syntactic prefixes, or
 large-buffer recovery. The separate generic inspection helper demonstrates
 binding safety and metadata changes, not compatibility with an installed
 r-polars. Builtin recognition and error-path handling assume the fixture's
-reviewed bindings.
+reviewed bindings. The extended engine adds argument matching, explicit return
+paths, local closures, known-class S3 dispatch, inherited namespaces and literal
+document registrations. Its remaining limits and production priorities are
+listed in [robustness.md](robustness.md).
 
 Some prototype summaries are deliberately argument-independent; others require
 argument shapes. This distinction must become explicit in the formal summary
 model. Properties such as LazyFrame `columns` can be offered by name, but their
 value is Unknown: never call `collect_schema()` to learn it. Literal user schema
 declarations could support a separate future column-name provider. CSV contents
-and runtime-added namespaces remain outside this prototype's coverage.
+and registrations made in a separate running R process remain outside the
+extended prototype's coverage.
 
 The experiment runner passes with `pkgload::load_all(helpers = FALSE)`. The
 existing `test-completion-typing.R` also passes all 20 assertions with test helper

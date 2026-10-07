@@ -14,6 +14,12 @@ shows that the initial adapter is a useful starting point, not broad r-polars
 support. The recommendation here supersedes the initial manifest-first plan.
 Manifests remain useful optional caches or contracts for opaque native returns.
 
+**Subsequent work:** [robustness.md](robustness.md) documents the extended engine,
+101 checks and repeated full audit. It reaches 98.9% reference-example member
+availability from source alone, and 100% with extracted `datasets` metadata
+(99.4% articles). The baseline below is preserved for comparison; several gaps
+identified here are now implemented in the extended experiment.
+
 ## What is hard-coded, and where?
 
 Production languageserver files are unchanged. The following describes the
@@ -297,10 +303,11 @@ selected R installation + library path + installed package identity
    package metadata and dependent document summaries. Bounded refresh/explicit
    reload is needed for mutable registries; completion requests read snapshots.
 
-The fixture fingerprint covers syntax/literals; a production fingerprint also
-needs referenced lexical constants and identities. The fixture skips promises
-and does not follow getter closure environments, so it intentionally does not
-pretend to detect all possible semantic changes.
+The initial fixture fingerprint covers syntax/literals. The extended reader
+also captures bounded immediate lexical literals, including getter captures;
+it skips promises and arbitrary closure dependency graphs. A production
+fingerprint needs complete referenced dependency identities. Neither fixture
+detects all possible semantic changes.
 
 ## How adapters evolve with r-polars
 

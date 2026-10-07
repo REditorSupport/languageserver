@@ -1,14 +1,25 @@
-# Corpus audit of the unchanged inference.R + polars-adapter.R prototype.
-# Rscript inst/experiments/dollar-completion/audit.R /path/to/r-polars /output/dir
+# Corpus audit; optional third argument v2 selects extended inference/extraction.
+# Rscript inst/experiments/dollar-completion/audit.R /path/to/r-polars /output/dir [v2|v2-data]
 # Parses all canonical user articles and generated Rd examples; never runs them.
 args <- commandArgs(trailingOnly = TRUE)
-stopifnot(length(args) == 2L)
+stopifnot(length(args) %in% c(2L, 3L))
 root <- normalizePath(args[[1L]])
 output <- args[[2L]]
 dir.create(output, recursive = TRUE, showWarnings = FALSE)
 source("inst/experiments/dollar-completion/inference.R")
 source("inst/experiments/dollar-completion/polars-adapter.R")
+extended <- length(args) == 3L && args[[3L]] %in% c("v2", "v2-data")
+if (extended) {
+    source("inst/experiments/dollar-completion/inference-v2.R")
+    source("inst/experiments/dollar-completion/polars-adapter-v2.R")
+}
 index <- static_polars_index(root)
+data_roots <- list()
+if (length(args) == 3L && identical(args[[3L]], "v2-data")) {
+    source("inst/experiments/dollar-completion/runtime-inspection.R")
+    data_roots <- inspection_data_shapes("datasets")
+    for (name in names(data_roots)) index$namespace_roots[paste0("datasets::", name)] <- list(data_roots[[name]])
+}
 
 relative <- function(path) substring(path, nchar(root) + 2L)
 compact <- function(node, max_chars = 180L) {
@@ -93,7 +104,7 @@ for (path in files) {
     blocks <- if (path %in% manual) extract_rd(path) else extract_fences(path)
     file_inventory[[length(file_inventory) + 1L]] <- data.frame(
         corpus = corpus, path = relative(path), r_blocks = length(blocks))
-    bindings <- index$roots
+    bindings <- c(data_roots, index$roots)
     origins <- list(pl = TRUE, cs = TRUE)
     for (block_i in seq_along(blocks)) {
         block <- blocks[[block_i]]
@@ -113,8 +124,8 @@ for (path in files) {
             if (static_head(node, "$")) {
                 value <- safe_infer(node[[2L]], env)
                 type <- paste(value$type, collapse = "|")
-                members <- static_lookup(index$members, value$type)
-                if (!is.null(value$fields)) members <- setNames(rep(NA_character_, length(value$fields)), names(value$fields))
+                members <- if (extended) static_members(value, index, env) else static_lookup(index$members, value$type)
+                if (!extended && !is.null(value$fields)) members <- setNames(rep(NA_character_, length(value$fields)), names(value$fields))
                 member <- static_name(node[[3L]])
                 is_related <- related(node[[2L]], org)
                 reason <- if (is.null(member)) "dynamic_member" else if (!nzchar(type)) {
@@ -174,6 +185,7 @@ for (path in files) {
                 bindings[name] <<- list(safe_infer(expr[[3L]], bindings))
                 origins[name] <<- list(related(expr[[3L]], origins))
             }
+            if (extended) bindings <<- static_registration_effect(expr, index, bindings)
             invisible(NULL)
         }
         for (expr in parsed) consume(expr)
@@ -228,7 +240,9 @@ write.csv(source_inventory, file.path(output, "source-files.csv"), row.names = F
 # This metric deliberately does not assume examples successfully construct it.
 surfaces <- list()
 method_rows <- list()
-for (type in names(index$members)[!startsWith(names(index$members), "polars::")]) {
+types <- names(index$members)[!startsWith(names(index$members), "polars::")]
+if (extended) types <- setdiff(types, setdiff(names(index$registries), c("pl", "cs", "pl__api")))
+for (type in types) {
     members <- index$members[[type]]
     member_names <- as.character(names(members))
     methods <- member_names[!is.na(members) & !startsWith(member_names, "_")]

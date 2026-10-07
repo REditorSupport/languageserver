@@ -1,0 +1,3 @@
+Extended inference checks: 101 passed
+Source index 0.619 s; warm original query 3.990 ms/request
+No Polars namespace loaded and no user expression evaluated.
