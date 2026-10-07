@@ -37,8 +37,8 @@ test_that("Member signatures follow fluent source closures without calling argum
     fixture <- member_provider_fixture(c(
         "factory <- function(x) list(step=function() list(finish=function(value, flag=TRUE) x))",
         sprintf(
-            'factory({writeLines("ran", %s); stop("input")})$step()$finish(flag = ',
-            encodeString(marker, quote = '"')
+            "factory({writeLines(\"ran\", %s); stop(\"input\")})$step()$finish(flag = ",
+            encodeString(marker, quote = "\"")
         )
     ))
     result <- member_provider_signature(fixture)
@@ -61,7 +61,7 @@ test_that("Member signatures follow fluent source closures without calling argum
 test_that("Member hover preserves quoted names, fields and UTF-16 ranges", {
     fixture <- member_provider_fixture(c(
         "x <- list(`a b`=function(value=1) NULL, answer=42)",
-        '"\U0001f680"; x$`a b`(value=1)', "x$answer"
+        "\"\U0001f680\"; x$`a b`(value=1)", "x$answer"
     ))
     for (col in 7:12) {
         result <- member_provider_hover(fixture, 1L, col)
@@ -78,9 +78,9 @@ test_that("Member hover preserves quoted names, fields and UTF-16 ranges", {
 
 test_that("R6 members use public inherited declarations without initialization or getters", {
     fixture <- member_provider_fixture(c(
-        'Parent <- R6::R6Class("Parent", public=list(run=function(value, option=FALSE) self))',
-        'Child <- R6::R6Class("Child", inherit=Parent, public=list(initialize=function() stop("initialize")),',
-        'active=list(danger=function() stop("getter")))', "Child$new()$run(option = "
+        "Parent <- R6::R6Class(\"Parent\", public=list(run=function(value, option=FALSE) self))",
+        "Child <- R6::R6Class(\"Child\", inherit=Parent, public=list(initialize=function() stop(\"initialize\")),",
+        "active=list(danger=function() stop(\"getter\")))", "Child$new()$run(option = "
     ))
     expect_identical(
         member_provider_signature(fixture)$signatures[[1L]]$label,
@@ -130,7 +130,7 @@ test_that("Installed package members retain method signatures and documentation 
     snapshot <- member_prepare_package("polars")
     fixture <- member_provider_fixture(c(
         "library(polars)", "q <- pl$scan_csv(csv_file)",
-        'q$group_by("Species", .maintain_order = '
+        "q$group_by(\"Species\", .maintain_order = "
     ), list(polars = snapshot))
     queried <- character()
     fixture$workspace$get_documentation <- function(key, package, isf, uri) {
@@ -153,10 +153,10 @@ test_that("Installed package members retain method signatures and documentation 
     expect_true(all(queried == "lazyframe__group_by"))
 
     for (case in list(
-        c('pl$col("x")$sum(', "expr__sum"),
+        c("pl$col(\"x\")$sum(", "expr__sum"),
         # Series delegates this operation to Expr and copies its formals.
-        c('pl$Series("x", 1:3)$sum(', "expr__sum"),
-        c('pl$col("x")$str$to_uppercase(', "expr_str_to_uppercase")
+        c("pl$Series(\"x\", 1:3)$sum(", "expr__sum"),
+        c("pl$col(\"x\")$str$to_uppercase(", "expr_str_to_uppercase")
     )) {
         fixture$document$set_content(2L, c("library(polars)", case[[1L]]))
         data <- parse_document(fixture$uri, fixture$document$content)
@@ -183,7 +183,7 @@ test_that("Member signature and hover work over LSP immediately after an edit", 
     client <- language_client()
     path <- withr::local_tempfile(fileext = ".R")
     uri <- path_to_uri(path)
-    lines <- c("library(polars)", "q <- pl$scan_csv(csv_file)", 'q$group_by("Species")')
+    lines <- c("library(polars)", "q <- pl$scan_csv(csv_file)", "q$group_by(\"Species\")")
     did_open(client, path, text = paste(lines, collapse = "\n"))
     deadline <- Sys.time() + 15
     repeat {
@@ -194,7 +194,7 @@ test_that("Member signature and hover work over LSP immediately after an edit", 
     }
     expect_true(any(vapply(ready$items, function(item) identical(item$data$type, "member"), logical(1L))))
     notify(client, "workspace/didChangeConfiguration", list(settings = list(parse_delay = 0.5)))
-    lines[[3L]] <- 'q$group_by("Species", .maintain_order = '
+    lines[[3L]] <- "q$group_by(\"Species\", .maintain_order = "
     notify(client, "textDocument/didChange", list(
         textDocument = list(uri = uri, version = 2L),
         contentChanges = list(list(text = paste(lines, collapse = "\n")))
@@ -206,7 +206,7 @@ test_that("Member signature and hover work over LSP immediately after an edit", 
     expect_equal(result$activeParameter, 1L)
     expect_match(result$signatures[[1L]]$documentation$value, "group", ignore.case = TRUE)
 
-    lines[[3L]] <- 'q$group_by("Species", .maintain_order = TRUE)'
+    lines[[3L]] <- "q$group_by(\"Species\", .maintain_order = TRUE)"
     notify(client, "textDocument/didChange", list(
         textDocument = list(uri = uri, version = 3L),
         contentChanges = list(list(text = paste(lines, collapse = "\n")))

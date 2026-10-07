@@ -24,7 +24,7 @@ test_that("Static members propagate through source factories and aliases", {
     expect_identical(member_labels("x <- list(alpha=1,beta=2)\ny <- x\ny$"), c("alpha", "beta"))
     expect_identical(member_labels(paste0(
         "factory <- function(x) list(step=function() list(finish=x))\n",
-        'factory({stop("argument")})$step()$'
+        "factory({stop(\"argument\")})$step()$"
     )), "finish")
     expect_identical(member_labels(paste0(
         "factory <- function(x) {self <- new.env(); self$filter <- function(p) self;",
@@ -45,13 +45,13 @@ test_that("Cursor recovery respects quoting, comments, Unicode, and replacement 
     expect_identical(member_labels("x <- list(alpha=1)\nx $  al"), "alpha")
     expect_identical(member_labels("list(\n alpha=list(beta=1)\n)$alpha$"), "beta")
     expect_length(member_labels("# x$"), 0L)
-    expect_length(member_labels('"list(a=1)$"'), 0L)
+    expect_length(member_labels("\"list(a=1)$\""), 0L)
     code <- "x <- list(`a b`=1, beta=2)\nx$`a"
     item <- member_items(code)[[1L]]
     expect_identical(item$label, "a b")
     expect_identical(item$textEdit$newText, "`a b`")
     expect_identical(item$textEdit$range$start$character, 2L)
-    code <- 'x <- list(alpha=1)\n"\U0001f680"; x$alXYZ'
+    code <- "x <- list(alpha=1)\n\"\U0001f680\"; x$alXYZ"
     item <- member_items(code, point = list(row = 1L, col = 9L))[[1L]]
     expect_identical(item$textEdit$range$start$character, 8L)
     expect_identical(item$textEdit$range$end$character, 13L)
@@ -77,11 +77,11 @@ test_that("Lexical shadowing and source position prevent invented members", {
 
 test_that("R6 fluent APIs expose public inheritance without initialization", {
     code <- paste0(
-        'Parent <- R6::R6Class("Parent", public=list(base=function() self, ',
-        'field=1))\nChild <- R6::R6Class("Child", inherit=Parent, ',
-        'public=list(initialize=function() stop("must not initialize"),',
+        "Parent <- R6::R6Class(\"Parent\", public=list(base=function() self, ",
+        "field=1))\nChild <- R6::R6Class(\"Child\", inherit=Parent, ",
+        "public=list(initialize=function() stop(\"must not initialize\"),",
         "base=function() list(done=1), child=function() self),",
-        'private=list(secret=1), active=list(danger=function() stop("getter")))\n'
+        "private=list(secret=1), active=list(danger=function() stop(\"getter\")))\n"
     )
     expect_identical(
         member_labels(paste0(code, "Child$new()$child()$")),
@@ -121,7 +121,7 @@ test_that("Installed Polars metadata resolves all original query positions witho
     snapshot <- member_prepare_package("polars")
     query <- paste0(
         "q <- pl$scan_csv(csv_file, infer_schema_files=10)$filter(",
-        'pl$col("Sepal.Length") > 5)$group_by("Species", .maintain_order=TRUE)',
+        "pl$col(\"Sepal.Length\") > 5)$group_by(\"Species\", .maintain_order=TRUE)",
         "$agg(pl$all()$sum())"
     )
     positions <- gregexpr("$", query, fixed = TRUE)[[1L]]
@@ -141,8 +141,8 @@ test_that("Installed Polars metadata resolves all original query positions witho
     marker <- tempfile()
     on.exit(unlink(marker))
     code <- sprintf(
-        'library(polars)\npl$scan_csv({writeLines("ran",%s); stop("input")})$filter(stop("predicate"))$',
-        encodeString(marker, quote = '"')
+        "library(polars)\npl$scan_csv({writeLines(\"ran\",%s); stop(\"input\")})$filter(stop(\"predicate\"))$",
+        encodeString(marker, quote = "\"")
     )
     expect_true("collect" %in% member_labels(code, list(polars = snapshot)))
     expect_false(file.exists(marker))
@@ -198,7 +198,7 @@ test_that("Package metadata fingerprints follow actual API changes", {
 
 test_that("Unknown branch writes and unrecognized dollar dispatch stay conservative", {
     expect_length(member_labels("x <- list(a=1)\nif (unknown) x <- opaque()\nx$"), 0L)
-    expect_length(member_labels('x <- structure(list(a=list(b=1)),class="custom")\nx$a$'), 0L)
+    expect_length(member_labels("x <- structure(list(a=list(b=1)),class=\"custom\")\nx$a$"), 0L)
 })
 
 test_that("Literal custom namespace registration is document local", {
@@ -206,8 +206,8 @@ test_that("Literal custom namespace registration is document local", {
     snapshot <- member_prepare_package("polars")
     code <- paste(c(
         "library(polars)",
-        'shortcuts <- function(s) {self <- new.env(); self$`_s` <- s; self$square <- function() self$`_s`*self$`_s`; class(self) <- c("custom_namespace","polars_object"); self}',
-        'pl$api$register_series_namespace("math", shortcuts)',
+        "shortcuts <- function(s) {self <- new.env(); self$`_s` <- s; self$square <- function() self$`_s`*self$`_s`; class(self) <- c(\"custom_namespace\",\"polars_object\"); self}",
+        "pl$api$register_series_namespace(\"math\", shortcuts)",
         "s <- as_polars_series(1:3)", "s$math$square()$"
     ), collapse = "\n")
     expect_true("rename" %in% member_labels(code, list(polars = snapshot)))
@@ -219,10 +219,10 @@ test_that("Installed Polars namespaces preserve distinct result and signature id
     snapshot <- member_prepare_package("polars")
     index <- member_index_thaw(snapshot)
     expected <- c(
-        'pl$col("a")$str$to_uppercase()' = "polars_expr",
-        'pl$Series("a",1:3)$str$to_uppercase()' = "polars_series",
+        "pl$col(\"a\")$str$to_uppercase()" = "polars_expr",
+        "pl$Series(\"a\",1:3)$str$to_uppercase()" = "polars_series",
         "pl$DataFrame(a=1:3)$lazy()" = "polars_lazy_frame",
-        'pl$when(pl$col("a")>0)$then(1)$otherwise(0)' = "polars_expr"
+        "pl$when(pl$col(\"a\")>0)$then(1)$otherwise(0)" = "polars_expr"
     )
     for (code in names(expected)) {
         expect_identical(
@@ -241,15 +241,15 @@ test_that("Deferred values, dispatch hooks and defaults are never evaluated", {
     marker <- tempfile()
     on.exit(unlink(marker))
     code <- sprintf(paste0(
-        'f <- function(x={writeLines("ran",%s);stop("default")}) list(done=1)\n',
+        "f <- function(x={writeLines(\"ran\",%s);stop(\"default\")}) list(done=1)\n",
         "f()$"
-    ), encodeString(marker, quote = '"'))
+    ), encodeString(marker, quote = "\""))
     expect_identical(member_labels(code), "done")
     expect_false(file.exists(marker))
     code <- paste0(
-        '`$.custom` <- function(x,name) stop("dispatch")\n',
-        '`.DollarNames.custom` <- function(x,pattern) stop("hook")\n',
-        'x <- structure(list(a=1),class="custom")\nx$'
+        "`$.custom` <- function(x,name) stop(\"dispatch\")\n",
+        "`.DollarNames.custom` <- function(x,pattern) stop(\"hook\")\n",
+        "x <- structure(list(a=1),class=\"custom\")\nx$"
     )
     expect_length(member_labels(code), 0L)
 })
@@ -264,7 +264,7 @@ test_that("Local branch writes and later builtin shadowing respect position", {
 })
 
 test_that("Invalid empty binding names cannot break document parsing", {
-    content <- c("'' <- 2", "assign('', 3)", "d1 <- 1")
+    content <- c("\"\" <- 2", "assign(\"\", 3)", "d1 <- 1")
     parsed <- parse_document("file:///invalid.R", content)
     expect_true("d1" %in% names(parsed$definitions))
     expect_true("d1" %in% names(parsed$member_data$bindings))
@@ -298,17 +298,17 @@ test_that("Package extraction follows registries and factories with unrelated na
         "commands <- new.env(parent=emptyenv())",
         "tools <- new.env(parent=emptyenv())",
         "machine <- new.env(parent=emptyenv())",
-        'native_box <- function(pointer) {box <- new.env(); box$ptr <- pointer; box$advance <- make_step(pointer); class(box) <- "raw_box"; box}',
-        'make_step <- function(pointer) function(delta=1) native_box(.Call("never",pointer,delta))',
-        'adapt <- function(x) UseMethod("adapt")',
-        'adapt.raw_box <- function(x) {object <- new.env(); object$raw <- x; lapply(names(tools), function(label) makeActiveBinding(label,function() tools[[label]](object),object)); class(object) <- "public_box"; object}',
-        'toolbox <- function(x) {object <- new.env(); object$raw <- x$raw; class(object) <- "box_tools"; object}',
+        "native_box <- function(pointer) {box <- new.env(); box$ptr <- pointer; box$advance <- make_step(pointer); class(box) <- \"raw_box\"; box}",
+        "make_step <- function(pointer) function(delta=1) native_box(.Call(\"never\",pointer,delta))",
+        "adapt <- function(x) UseMethod(\"adapt\")",
+        "adapt.raw_box <- function(x) {object <- new.env(); object$raw <- x; lapply(names(tools), function(label) makeActiveBinding(label,function() tools[[label]](object),object)); class(object) <- \"public_box\"; object}",
+        "toolbox <- function(x) {object <- new.env(); object$raw <- x$raw; class(object) <- \"box_tools\"; object}",
         "`$.public_box` <- function(x,name) {method_names <- names(commands); if(name %in% method_names) {f <- commands[[name]]; current <- x; environment(f) <- environment(); f} else NextMethod()}",
         "`$.box_tools` <- function(x,name) {method_names <- names(commands); if(name %in% method_names) {f <- commands[[name]]; current <- x; environment(f) <- environment(); f} else NextMethod()}",
         "step <- function(delta=1) adapt(current$raw$advance(delta))",
         "commands$step <- step",
         "tools$tools <- toolbox",
-        'machine$create <- function(input) native_box(.Call("never",input))',
+        "machine$create <- function(input) native_box(.Call(\"never\",input))",
         "api$start <- function(input) adapt(machine$create(input))",
         "api$settings <- commands"
     ), collapse = "\n")
@@ -318,7 +318,7 @@ test_that("Package extraction follows registries and factories with unrelated na
     eval(parse(text = code), scope)
     input <- member_namespace_input(scope, package = "fluentfixture", exports = c("api", "adapt"))
     snapshot <- member_index_freeze(member_package_index(input))
-    expect_true("step" %in% member_labels('library(fluentfixture)\napi$start(stop("input"))$', list(fluentfixture = snapshot)))
+    expect_true("step" %in% member_labels("library(fluentfixture)\napi$start(stop(\"input\"))$", list(fluentfixture = snapshot)))
     expect_true("step" %in% member_labels("library(fluentfixture)\napi$start(x)$step()$tools$", list(fluentfixture = snapshot)))
     expect_true("step" %in% member_labels("library(fluentfixture)\napi$settings$", list(fluentfixture = snapshot)))
     index <- member_index_thaw(snapshot)
@@ -337,7 +337,7 @@ test_that("Delegation extraction derives captures and result bodies", {
         "api <- new.env(parent=emptyenv()); commands <- new.env(parent=emptyenv())",
         "original <- function(amount=1) list(ignored=amount)",
         "commands$run <- original",
-        'api$start <- function(input) {object <- new.env(); object$payload <- input; class(object) <- "delegating_box"; object}',
+        "api$start <- function(input) {object <- new.env(); object$payload <- input; class(object) <- \"delegating_box\"; object}",
         "build_delegate <- function(method,object) {saved <- object$payload; generated <- function() list(result=saved); formals(generated) <- formals(method); generated}",
         "`$.delegating_box` <- function(x,name) {allowed <- names(commands); if(name %in% allowed) {selected <- commands[[name]]; build_delegate(selected,x)} else NextMethod()}"
     ), collapse = "\n")

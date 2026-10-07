@@ -262,9 +262,9 @@ test_that("exit, cancellation, and trace notifications update server state", {
 
 test_that("Dollar completion waits for the current parse and replies once", {
     fixture <- langfeature_handler_fixture(c(
-        'fileext <- ".csv"',
+        "fileext <- \".csv\"",
         "q <- list(group_by=function(...) list(agg=function(...) NULL,head=function() NULL))",
-        'q$group_by("Species")'
+        "q$group_by(\"Species\")"
     ))
     document <- fixture$document
     self <- fixture$self
@@ -280,7 +280,7 @@ test_that("Dollar completion waits for the current parse and replies once", {
     document$requested_packages <- character()
     document$set_content(2L, c(
         document$content[-length(document$content)],
-        'q$group_by("Species")$'
+        "q$group_by(\"Species\")$"
     ))
     params <- list(
         textDocument = list(uri = fixture$uri),

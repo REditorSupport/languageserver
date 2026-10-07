@@ -1710,37 +1710,37 @@ test_that("Token completion supports indexed and XML parse data", {
     )
 })
 
-test_that('Static chained members are delivered over LSP without evaluating arguments', {
+test_that("Static chained members are delivered over LSP without evaluating arguments", {
     skip_on_cran()
     client <- language_client()
-    temp_file <- withr::local_tempfile(fileext='.R')
-    text <- paste0('factory <- function(x) list(step=function() list(finish=x))\n',
-        'factory(stop("do not execute"))$step()$')
+    temp_file <- withr::local_tempfile(fileext=".R")
+    text <- paste0("factory <- function(x) list(step=function() list(finish=x))\n",
+        "factory(stop(\"do not execute\"))$step()$")
     client %>% did_open(temp_file,text=text)
-    result <- client %>% respond_completion(temp_file,c(1L,nchar(strsplit(text,'\n',fixed=TRUE)[[1L]][[2L]])))
-    expect_true('finish' %in% vapply(result$items,`[[`,character(1L),'label'))
-    member <- result$items[[which(vapply(result$items,`[[`,character(1L),'label') == 'finish')]]
-    expect_identical(member$data$type,'member')
+    result <- client %>% respond_completion(temp_file,c(1L,nchar(strsplit(text,"\n",fixed=TRUE)[[1L]][[2L]])))
+    expect_true("finish" %in% vapply(result$items,`[[`,character(1L),"label"))
+    member <- result$items[[which(vapply(result$items,`[[`,character(1L),"label") == "finish")]]
+    expect_identical(member$data$type,"member")
 })
 
-test_that('Installed Polars metadata is prepared before chained LSP completion', {
+test_that("Installed Polars metadata is prepared before chained LSP completion", {
     skip_on_cran()
-    skip_if_not_installed('polars')
+    skip_if_not_installed("polars")
     client <- language_client()
-    temp_file <- withr::local_tempfile(fileext='.R')
-    lines <- c('library(polars)', 'q <- pl$scan_csv(csv_file)$filter(predicate)', 'q$collect')
-    client %>% did_open(temp_file,text=paste(lines,collapse='\n'))
+    temp_file <- withr::local_tempfile(fileext=".R")
+    lines <- c("library(polars)", "q <- pl$scan_csv(csv_file)$filter(predicate)", "q$collect")
+    client %>% did_open(temp_file,text=paste(lines,collapse="\n"))
     # Resolution is asynchronous; requests never initialize the package.
     deadline <- Sys.time() + 15
     repeat {
         result <- client %>% respond_completion(temp_file,c(2L,2L))
-        labels <- vapply(result$items,`[[`,character(1L),'label')
-        if ('collect' %in% labels && any(vapply(result$items,function(x) identical(x$data$type,'member'),logical(1L)))) break
+        labels <- vapply(result$items,`[[`,character(1L),"label")
+        if ("collect" %in% labels && any(vapply(result$items,function(x) identical(x$data$type,"member"),logical(1L)))) break
         if (Sys.time() > deadline) break
         Sys.sleep(0.1)
     }
-    expect_true('group_by' %in% labels)
-    expect_true(any(vapply(result$items,function(x) identical(x$data$type,'member'),logical(1L))))
+    expect_true("group_by" %in% labels)
+    expect_true(any(vapply(result$items,function(x) identical(x$data$type,"member"),logical(1L))))
 })
 
 test_that("The first dollar trigger after an edit uses current Polars members", {
@@ -1751,10 +1751,10 @@ test_that("The first dollar trigger after an edit uses current Polars members", 
     uri <- path_to_uri(temp_file)
     lines <- c(
         "library(polars)", "",
-        'csv_file <- tempfile(fileext = ".csv")',
+        "csv_file <- tempfile(fileext = \".csv\")",
         "write.csv(iris, csv_file, row.names = FALSE)", "",
         "q <- pl$scan_csv(csv_file, infer_schema_files = 10)",
-        'q$group_by("Species")'
+        "q$group_by(\"Species\")"
     )
     client %>% did_open(temp_file, text = paste(lines, collapse = "\n"))
     # Warm only package metadata; the tested completion follows didChange with
