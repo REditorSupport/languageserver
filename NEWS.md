@@ -4,6 +4,9 @@
   list/environment factories, declarative R6 classes and package method
   registries. Package metadata is prepared in a background worker; completion
   never calls document expressions, constructors, methods or active getters.
+- Use the same static member inference for signature help and hover, including
+  chained methods and named argument documentation. Member requests wait for the
+  current parse after edits, fixing stale completions on the first `$` trigger.
 
 - Run full-document, range, and multiple-range formatting in a lazy, cancellable
   background worker so other editor requests remain responsive during formatting (#764, #251).

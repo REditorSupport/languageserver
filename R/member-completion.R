@@ -103,8 +103,9 @@ member_cursor <- function(document, point) {
     quoted <- startsWith(token, "`")
     token <- gsub("^`|`$", "", token)
     rest <- substring(line, point$col + 1L)
+    closed <- quoted && endsWith(substr(prefix, start + 1L, point$col), "`") && point$col > start + 1L
     suffix <- regexpr(if (quoted) "^[^`]*`?" else "^[[:alnum:]_.]*", rest, perl = TRUE)
-    end <- point$col + attr(suffix, "match.length")[[1L]]
+    end <- point$col + if (closed) 0L else attr(suffix, "match.length")[[1L]]
     # The sentinel must be a member of the cursor's AST, not a string/comment.
     list(
         dollar = match[[1L]], start = start, end = end, token = token,
@@ -268,14 +269,27 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
     value
 }
 
-member_cursor_value <- function(parsed, sentinel, index, bindings, budget) {
+member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name = NULL) {
     result <- NULL
     visit <- function(node, env) {
         if (!is.call(node) && !is.expression(node)) {
             return(invisible(NULL))
         }
         if (member_head(node, "$") && identical(member_name(node[[3L]]), sentinel)) {
-            result <<- member_infer(node[[2L]], index, env, budget = budget)
+            if (is.null(name)) {
+                result <<- member_infer(node[[2L]], index, env, budget = budget)
+            } else {
+                receiver <- member_infer(node[[2L]], index, env, budget = budget)
+                env$.__member_receiver__ <- receiver
+                node[[2L]] <- as.name(".__member_receiver__")
+                node[[3L]] <- as.name(name)
+                result <<- member_infer(node, index, env, budget = budget)
+                key <- member_members(receiver, index, env)[name]
+                if (is.null(result$function_key) && length(key) && !is.na(key[[1L]]) &&
+                    !is.null(result$function_expr)) {
+                    result$function_key <<- key[[1L]]
+                }
+            }
             return(invisible(NULL))
         }
         if (member_head(node, "function")) {
@@ -303,12 +317,11 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget) {
     result
 }
 
-member_completion <- function(uri, workspace, document, point, snippet_support, limit) {
+member_resolve_cursor <- function(uri, workspace, document, point, cursor, name = NULL) {
     if (!identical(document$version, document$parse_data$version) &&
-            !is.null(document$parse_data$version)) {
+        !is.null(document$parse_data$version)) {
         return(NULL)
     }
-    cursor <- member_cursor(document, point)
     if (is.null(cursor)) {
         return(NULL)
     }
@@ -335,7 +348,20 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
         }
     }
     bindings$.__member_position__ <- recovered$start
-    value <- member_cursor_value(recovered$parsed, recovered$sentinel, index, bindings, budget)
+    value <- member_cursor_value(recovered$parsed, recovered$sentinel, index, bindings, budget, name)
+    list(value = value, index = index, bindings = bindings, budget = budget)
+}
+
+member_completion <- function(uri, workspace, document, point, snippet_support, limit) {
+    cursor <- member_cursor(document, point)
+    resolved <- member_resolve_cursor(uri, workspace, document, point, cursor)
+    if (is.null(resolved)) {
+        return(NULL)
+    }
+    value <- resolved$value
+    index <- resolved$index
+    bindings <- resolved$bindings
+    budget <- resolved$budget
     if (is.null(value) || !length(value$type)) {
         return(NULL)
     }
@@ -352,7 +378,7 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
     items <- lapply(labels, function(label) {
         shape <- value$fields[[label]]
         key <- members[[label]]
-        fn <- if (!is.null(shape$function_expr)) shape$function_expr else member_lookup(index$definitions, key)
+        symbol <- member_symbol_info(label, shape, key, index)
         is_function <- !is.null(shape$function_expr) || !is.null(shape$result_shape) ||
             !is.null(shape$function_key) || (!is.null(key) && !is.na(key))
         inserted <- if (identical(make.names(label), label) && !label %in% c("TRUE", "FALSE", "NULL", "NA")) {
@@ -363,10 +389,8 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
         following <- substring(document$line0(point$row), cursor$end + 1L)
         snippet <- is_function && snippet_support && !startsWith(trimws(following), "(")
         text <- if (snippet) paste0(gsub("[$}]", "\\\\&", inserted), "($0)") else inserted
-        signature <- if (member_head(fn, "function")) get_signature(label, fn) else NULL
-        documentation_id <- key
-        delegated <- member_lookup(index$delegation, key)
-        if (!is.null(delegated)) documentation_id <- delegated$original
+        signature <- symbol$signature
+        documentation_id <- symbol$function_id
         list(
             label = label, kind = if (is_function) CompletionItemKind$Method else CompletionItemKind$Field,
             detail = if (!is.null(signature)) signature else "[static member]", sortText = label,
@@ -376,7 +400,7 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
                 document$to_lsp_position(point$row, cursor$end)
             ), text),
             data = list(
-                type = "member", package = index$package, function_id = documentation_id,
+                type = "member", package = symbol$package, function_id = documentation_id,
                 signature = signature, context_uri = uri, generation = index$generation
             )
         )

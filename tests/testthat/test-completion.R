@@ -1742,3 +1742,45 @@ test_that('Installed Polars metadata is prepared before chained LSP completion',
     expect_true('group_by' %in% labels)
     expect_true(any(vapply(result$items,function(x) identical(x$data$type,'member'),logical(1L))))
 })
+
+test_that("The first dollar trigger after an edit uses current Polars members", {
+    skip_on_cran()
+    skip_if_not_installed("polars")
+    client <- language_client()
+    temp_file <- withr::local_tempfile(fileext = ".R")
+    uri <- path_to_uri(temp_file)
+    lines <- c(
+        "library(polars)", "",
+        'csv_file <- tempfile(fileext = ".csv")',
+        "write.csv(iris, csv_file, row.names = FALSE)", "",
+        "q <- pl$scan_csv(csv_file, infer_schema_files = 10)",
+        'q$group_by("Species")'
+    )
+    client %>% did_open(temp_file, text = paste(lines, collapse = "\n"))
+    # Warm only package metadata; the tested completion follows didChange with
+    # no sleep, request retry, or second dollar trigger. A long debounce makes
+    # the request arrive before the updated document has been parsed.
+    deadline <- Sys.time() + 15
+    repeat {
+        ready <- respond_completion(client, temp_file, c(6L, 2L), retry = FALSE)
+        if (any(vapply(ready$items, function(item) identical(item$data$type, "member"), logical(1L)))) break
+        if (Sys.time() > deadline) break
+        Sys.sleep(0.1)
+    }
+    expect_true(any(vapply(ready$items, function(item) identical(item$data$type, "member"), logical(1L))))
+    notify(client, "workspace/didChangeConfiguration", list(settings = list(parse_delay = 0.5)))
+    end <- list(line = 6L, character = nchar(lines[[7L]]))
+    notify(client, "textDocument/didChange", list(
+        textDocument = list(uri = uri, version = 2L),
+        contentChanges = list(list(range = list(start = end, end = end), text = "$"))
+    ))
+    result <- respond(client, "textDocument/completion", list(
+        textDocument = list(uri = uri),
+        position = list(line = 6L, character = end$character + 1L),
+        context = list(triggerKind = 2L, triggerCharacter = "$")
+    ), retry = FALSE)
+    labels <- vapply(result$items, `[[`, character(1L), "label")
+    expect_true("agg" %in% labels)
+    expect_false(any(c("fileext", "infer_schema_files", "row.names") %in% labels))
+    expect_true(all(vapply(result$items, function(item) identical(item$data$type, "member"), logical(1L))))
+})

@@ -154,7 +154,8 @@ Document <- R6::R6Class(
                 full_token = result$full_token,
                 package = result$package,
                 accessor = result$accessor,
-                token = result$token
+                token = result$token,
+                opening = list(row = loc[[1L]], col = loc[[2L]])
             )
         },
 

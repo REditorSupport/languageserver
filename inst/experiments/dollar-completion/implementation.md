@@ -65,6 +65,22 @@ receivers offer their static members, including backtick-quoted fields and metho
 snippets, with UTF-16 replacement ranges. Items store method IDs and signatures
 so resolution does not confuse an Expr `sum` with `base::sum`.
 
+Signature help and hover share the same bounded receiver resolver and method
+identity. Signatures come from inferred local closures or installed package
+syntax, following aliases, copied delegation formals and native bound method
+factories. Package documentation is looked up by the original method ID;
+named-argument hovers use that documentation with the actual member signature.
+Known literal fields expose their values, and other known fields expose their
+inferred types. Unknown members return no signature/hover instead of looking up
+an unrelated function with the same bare name. The `member_completion` setting
+controls this shared member analysis for all three providers.
+
+Member completion, signature and hover requests made during a debounced parse
+wait for the current document version through the existing cancellable reply
+queues. This fixes the first-trigger stale token list after adding `$`, and also
+prevents stale method signatures after a receiver edit. Ordinary requests keep
+their existing immediate behavior. No synchronous whole-document parse is added.
+
 ## Bounds and current limits
 
 The document parser records ASTs and source positions once per accepted revision.
@@ -94,6 +110,15 @@ canaries and installed/source extraction fixtures.
 - 94 member-provider assertions pass, plus live LSP tests for generic fluent
   factories and asynchronous installed-Polars preparation. Existing completion,
   typing, document/task, handler, workspace and cache tests pass.
+- Signature/hover acceptance covers source fluent closures, lexical shadowing,
+  public R6 inheritance, quoted members, literal fields, UTF-16 hover ranges,
+  R-cell isolation, named argument selection, delegated documentation and native
+  bound formals. Getter/argument canaries stay untouched. Live LSP tests on
+  installed Polars 1.16.0 cover the first completion after an edit, method
+  signature help, hover and named-argument documentation with no request retry
+  after the tested edit. Completion, signature, hover, member, text-sync,
+  cancellation and document regression suites pass together. This is automated
+  protocol verification; VS Code itself was not manually tested.
 - The complete source corpus run using the generic production engine retains
   133/168 article (79.2%), 5,267/5,324 reference (98.9%) and 44/48 supplemental
   (91.7%) members. It parses 820 R blocks with two intentionally incomplete

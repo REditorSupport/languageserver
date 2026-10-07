@@ -30,6 +30,17 @@ text_document_completion  <- function(self, id, params) {
     document <- workspace$documents$get(uri)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     point <- document$from_lsp_position(params$position)
+    # didChange schedules a debounced background parse. A dollar request can
+    # arrive immediately after the edit; falling back then uses stale tokens
+    # and the client keeps that list until another completion is triggered.
+    if (isTRUE(lsp_settings$get("member_completion")) &&
+        !identical(document$version, document$parse_data$version) &&
+        !is.null(member_cursor(document, point))) {
+        enqueue_latest_reply(self, uri, "textDocument/completion", list(
+            id = id, version = document$version, params = params
+        ))
+        return(invisible(NULL))
+    }
     self$deliver(completion_reply(id, uri, workspace, document, point,
         self$ClientCapabilities$textDocument$completion))
 }
@@ -61,6 +72,15 @@ text_document_hover  <- function(self, id, params) {
     document <- workspace$documents$get(uri)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     point <- document$from_lsp_position(params$position)
+    if (isTRUE(lsp_settings$get("member_completion")) &&
+        !identical(document$version, document$parse_data$version) &&
+        (!is.null(member_hover_location(document, point)) ||
+            !is.null(member_argument_location(document, point)))) {
+        enqueue_latest_reply(self, uri, "textDocument/hover", list(
+            id = id, version = document$version, params = params
+        ))
+        return(invisible(NULL))
+    }
     self$deliver(hover_reply(id, uri, workspace, document, point))
 }
 
@@ -76,6 +96,14 @@ text_document_signature_help  <- function(self, id, params) {
     document <- workspace$documents$get(uri)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     point <- document$from_lsp_position(params$position)
+    if (isTRUE(lsp_settings$get("member_completion")) &&
+        !identical(document$version, document$parse_data$version) &&
+        !is.null(member_call_location(document, point))) {
+        enqueue_latest_reply(self, uri, "textDocument/signatureHelp", list(
+            id = id, version = document$version, params = params
+        ))
+        return(invisible(NULL))
+    }
     self$deliver(signature_reply(id, uri, workspace, document, point))
 }
 
