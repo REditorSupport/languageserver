@@ -223,6 +223,16 @@ member_package_index <- function(input) {
     index$namespace_owners <- list()
     index$delegation <- list()
     index$method_receivers <- list()
+    index$methods_attached <- FALSE
+    index$s4_classes <- if (is.null(input$s4_classes)) list() else input$s4_classes
+    index$s4_dependencies <- input$s4_dependencies
+    declarations <- list()
+    for (code in input$expressions) {
+        for (node in code) declarations <- member_s4_effect(node, index, declarations)
+    }
+    if (!is.null(declarations$.__s4_classes__)) {
+        index$s4_classes <- utils::modifyList(index$s4_classes, declarations$.__s4_classes__)
+    }
     constants <- index$registries
     for (key in names(index$definitions)) {
         node <- index$definitions[[key]]
@@ -276,7 +286,8 @@ member_package_index <- function(input) {
             if (member_head(child, "UseMethod")) generic <<- member_strings(child[[2L]])
         }, descend_functions = FALSE)
         if (length(generic) != 1L) next
-        for (method in names(index$constructors)[startsWith(names(index$constructors), paste0(generic, "."))]) {
+        constructor_names <- as.character(names(index$constructors))
+        for (method in constructor_names[startsWith(constructor_names, paste0(generic, "."))]) {
             formal <- names(index$definitions[[method]][[2L]])[[1L]]
             index$constructor_inputs[[method]][formal] <- list(member_value(type = substring(method, nchar(generic) + 2L)))
         }
@@ -311,7 +322,8 @@ member_package_index <- function(input) {
     }
     # Registry lookup branches describe membership, precedence, lexical receiver
     # rebinding, returned method factories and delegation through closure factories.
-    for (key in names(index$definitions)[startsWith(names(index$definitions), "$.")]) {
+    definition_names <- as.character(names(index$definitions))
+    for (key in definition_names[startsWith(definition_names, "$.")]) {
         fn <- index$definitions[[key]]
         if (!member_head(fn, "function")) next
         type <- substring(key, 3L)
@@ -517,6 +529,18 @@ member_package_index <- function(input) {
         }
     }
     index$record_dispatch_classes <- unique(unlist(lapply(index$classes, function(x) utils::tail(x, 1L))))
+    for (name in names(index$definitions)) {
+        recipe <- member_s4_recipe(index$definitions[[name]], index, list())
+        if (!is.null(recipe) && is.null(recipe$union)) {
+            index$package_roots[name] <- list(member_value(type = "function",
+                    s4_generator = list(name = recipe$name, package = index$package)))
+        }
+    }
+    for (name in names(input$s4_roots)) index$package_roots[name] <- input$s4_roots[name]
+    for (name in names(input$s4_objects)) {
+        class <- input$s4_objects[[name]]
+        index$package_roots[name] <- list(member_s4_shape(class$name, index, list(), class$package))
+    }
     index$roots <- index$package_roots[intersect(names(index$package_roots), index$exports)]
     for (name in names(index$roots)) index$namespace_roots[paste(input$package, name, sep = "::")] <- list(index$roots[[name]])
     index$cache <- new.env(parent = emptyenv())

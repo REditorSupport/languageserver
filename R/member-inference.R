@@ -72,7 +72,8 @@ member_value <- function(
   receiver_value = NULL, literal = NULL, known_literal = FALSE,
   elements = NULL, classes = NULL, reason = NULL, element_shape = NULL,
   open = FALSE, result_shape = NULL, binding_expr = NULL, binding_env = NULL,
-  metadata = NULL
+  metadata = NULL, slots = NULL, slot_types = NULL, s4_class = NULL,
+  s4_generator = NULL
 ) {
     list(
         type = type, function_key = function_key, receiver = receiver,
@@ -81,7 +82,9 @@ member_value <- function(
         literal = literal, known_literal = known_literal, elements = elements,
         classes = classes, reason = reason, element_shape = element_shape,
         open = open, result_shape = result_shape,
-        binding_expr = binding_expr, binding_env = binding_env, metadata = metadata
+        binding_expr = binding_expr, binding_env = binding_env, metadata = metadata,
+        slots = slots, slot_types = slot_types, s4_class = s4_class,
+        s4_generator = s4_generator
     )
 }
 
@@ -108,8 +111,21 @@ member_join <- function(a, b) {
         common <- intersect(names(a$fields), names(b$fields))
         fields <- stats::setNames(lapply(common, function(n) member_join(a$fields[[n]], b$fields[[n]])), common)
     }
+    slots <- NULL
+    slot_types <- NULL
+    if (!is.null(a$slot_types) && !is.null(b$slot_types)) {
+        common <- intersect(names(a$slot_types), names(b$slot_types))
+        slot_types <- stats::setNames(lapply(common, function(n) {
+            member_s4_join_types(a$slot_types[[n]], b$slot_types[[n]], a$s4_class$package, b$s4_class$package)
+        }), common)
+        slots <- stats::setNames(lapply(common, function(n) {
+            member_join(member_lookup(a$slots, n), member_lookup(b$slots, n))
+        }), common)
+    }
     member_value(
         type = sort(unique(c(a$type, b$type))), fields = fields,
+        slots = slots, slot_types = slot_types,
+        s4_class = if (identical(a$s4_class, b$s4_class)) a$s4_class else NULL,
         element_shape = if (!is.null(a$element_shape) && !is.null(b$element_shape)) member_join(a$element_shape, b$element_shape) else NULL,
         classes = if (identical(a$classes, b$classes)) a$classes else NULL
     )
@@ -126,9 +142,13 @@ member_classes <- function(value, index) {
     if (is.null(classes)) value$type else classes
 }
 
-member_members <- function(value, index, bindings = list()) {
+member_members <- function(value, index, bindings = list(), accessor = "$") {
     if (!length(value$type) || any(value$type %in% c(".never", ".missing"))) {
         return(character())
+    }
+    if (identical(accessor, "@")) {
+        slots <- names(value$slot_types)
+        return(stats::setNames(rep(NA_character_, length(slots)), slots))
     }
     if (length(value$classes) && !all(value$classes %in% c("data.frame", "list", "environment", "R6")) &&
         !any(value$classes %in% names(index$members))) {
@@ -170,6 +190,9 @@ member_shape_key <- function(value, depth = 0L) {
         },
         known = value$known_literal, function_key = value$function_key,
         fields = lapply(value$fields, member_shape_key, depth + 1L),
+        slots = lapply(value$slots, member_shape_key, depth + 1L),
+        slot_types = value$slot_types, s4_class = value$s4_class,
+        s4_generator = value$s4_generator,
         elements = lapply(value$elements, member_shape_key, depth + 1L),
         element_shape = if (!is.null(value$element_shape)) member_shape_key(value$element_shape, depth + 1L) else NULL
     )
@@ -187,7 +210,7 @@ member_cacheable <- function(value, depth = 0L) {
         return(FALSE)
     }
     all(vapply(
-        c(value$fields, value$elements, if (!is.null(value$element_shape)) list(value$element_shape)),
+        c(value$fields, value$slots, value$elements, if (!is.null(value$element_shape)) list(value$element_shape)),
         member_cacheable, logical(1L), depth + 1L
     ))
 }
@@ -256,6 +279,7 @@ member_infer <- function(
     }
     # Flow records keep early returns separate from fall-through values.
     flow <- function(node, env) {
+        env <- member_s4_effect(node, index, env)
         if (member_head(node, "{")) {
             state <- list(
                 value = member_literal(NULL), env = env,
@@ -326,18 +350,21 @@ member_infer <- function(
             value <- infer(node[[3L]], env)
             if (is.symbol(lhs)) {
                 env[as.character(lhs)] <- list(value)
-            } else if (member_head(lhs, "$") || member_head(lhs, "[[")) {
+            } else if (member_head(lhs, "$") || member_head(lhs, "[[") || member_head(lhs, "@")) {
                 name <- member_name(lhs[[2L]])
                 field <- member_name(lhs[[3L]])
                 object <- member_lookup(env, name)
-                if (!is.null(object$fields) && !is.null(field)) {
+                surface <- if (member_head(lhs, "@")) "slots" else "fields"
+                if (!is.null(object[[surface]]) && !is.null(field)) {
                     if (!is.null(value$function_expr)) {
                         value$closure[name] <- NULL
                         value$receiver_name <- name
                     }
-                    object$fields[field] <- list(value)
+                    object[[surface]][field] <- list(value)
                     env[name] <- list(object)
-                } else if (!is.null(name)) env[name] <- list(unknown)
+                } else if (!is.null(name)) {
+                    env[name] <- list(unknown)
+                }
             } else if (member_head(lhs, "class")) {
                 name <- member_name(lhs[[2L]])
                 object <- member_lookup(env, name)
@@ -650,6 +677,8 @@ member_infer <- function(
     if (member_is_r6_call(expr, index, bindings)) {
         return(member_r6_shape(expr, index, bindings, budget))
     }
+    s4 <- member_s4_call(expr, index, bindings, budget)
+    if (!is.null(s4)) return(s4)
     if (member_head(expr, "::")) {
         package <- member_name(expr[[2L]])
         name <- member_name(expr[[3L]])
@@ -679,6 +708,9 @@ member_infer <- function(
             return(member_value(function_key = key))
         }
         return(out)
+    }
+    if (member_head(expr, "@")) {
+        return(member_s4_slot(infer(expr[[2L]]), member_name(expr[[3L]]), index, bindings, budget))
     }
     if (head %in% c("[[", "[")) {
         lhs <- infer(expr[[2L]])
@@ -1004,6 +1036,9 @@ member_infer <- function(
         return(unknown)
     }
     callee <- infer(expr[[1L]])
+    if (!is.null(callee$s4_generator)) {
+        return(member_s4_construct(callee$s4_generator, actuals, index, bindings, budget))
+    }
     if (!is.null(callee$result_shape)) {
         return(callee$result_shape)
     }
@@ -1104,5 +1139,7 @@ member_generic_index <- function(code) {
     index$constructor_types <- list()
     index$native_factories <- character()
     index$registration_rules <- list()
+    index$s4_classes <- list()
+    index$methods_attached <- TRUE
     index
 }

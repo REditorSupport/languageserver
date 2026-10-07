@@ -30,7 +30,7 @@ text_document_completion  <- function(self, id, params) {
     document <- workspace$documents$get(uri)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     point <- document$from_lsp_position(params$position)
-    # didChange schedules a debounced background parse. A dollar request can
+    # didChange schedules a debounced background parse. A member request can
     # arrive immediately after the edit; falling back then uses stale tokens
     # and the client keeps that list until another completion is triggered.
     if (isTRUE(lsp_settings$get("member_completion")) &&

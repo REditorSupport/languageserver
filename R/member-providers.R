@@ -54,7 +54,7 @@ member_symbol_documentation <- function(workspace, symbol, uri) {
 }
 
 # Find a complete member token, even when hovering inside a backtick name.
-# Recovery confirms that the apparent dollar belongs to R syntax, not a quote
+# Recovery confirms that the member operator belongs to R syntax, not a quote
 # or comment. Columns stay in code points until the provider returns LSP ranges.
 member_hover_location <- function(document, point) {
     if (point$row < 0L || point$row >= document$nline) {

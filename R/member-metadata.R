@@ -158,7 +158,7 @@ member_source_input <- function(root) {
     providers <- list(rlang = c(
         "list2", "arg_match0", "arg_match", "try_fetch",
         "is_character", "is_list", "is_bool", "abort"
-    ), S7 = c("new_class", "set_props"))
+    ), S7 = c("new_class", "set_props"), methods = member_methods_intrinsics)
     for (expr in parse(file.path(root, "NAMESPACE"))) {
         if (member_head(expr, "import") || member_head(expr, "importFrom")) {
             provider <- member_name(expr[[2L]])
@@ -190,13 +190,35 @@ member_namespace_input <- function(
 ) {
     nms <- ls(ns, all.names = TRUE)
     if (length(nms) > 10000L) stop("Namespace exceeds metadata budget")
-    definitions <- snapshots <- registries <- links <- descriptors <- list()
+    definitions <- snapshots <- registries <- links <- descriptors <- s4_classes <- s4_roots <- s4_objects <- list()
     functions <- values <- list()
     for (name in nms) {
         record <- member_binding(ns, name, materialize = TRUE)
         value <- record[[2L]]
         if (!identical(record[[1L]], "value")) next
+        if (isS4(value) && any(c("classRepresentation", "ClassUnionRepresentation") %in%
+                    attr(value, "class", exact = TRUE))) {
+            descriptor <- member_s4_runtime_descriptor(value)
+            if (!is.null(descriptor)) s4_classes[descriptor$name] <- list(descriptor)
+            next
+        }
+        if (isS4(value) && !is.environment(value) && typeof(value) != "closure") {
+            classes <- attr(value, "class", exact = TRUE)
+            if (is.character(classes) && length(classes) == 1L) {
+                owner <- attr(classes, "package", exact = TRUE)
+                s4_objects[name] <- list(list(name = as.character(classes), package = if (is.null(owner)) package else owner))
+            }
+        }
         if (typeof(value) == "closure") {
+            if ("classGeneratorFunction" %in% attr(value, "class", exact = TRUE)) {
+                class <- attr(value, "className", exact = TRUE)
+                if (is.character(class) && length(class) == 1L) {
+                    owner <- attr(class, "package", exact = TRUE)
+                    s4_roots[name] <- list(member_value(type = "function", s4_generator = list(
+                        name = as.character(class), package = if (is.null(owner)) package else owner
+                    )))
+                }
+            }
             if ("S7_class" %in% attr(value, "class", exact = TRUE)) {
                 type <- attr(value, "name", exact = TRUE)
                 properties <- attr(value, "properties", exact = TRUE)
@@ -253,7 +275,7 @@ member_namespace_input <- function(
     providers <- list(rlang = c(
         "list2", "arg_match0", "arg_match", "try_fetch",
         "is_character", "is_list", "is_bool", "abort"
-    ), S7 = c("new_class", "set_props"))
+    ), S7 = c("new_class", "set_props"), methods = member_methods_intrinsics)
     for (provider in names(providers)) {
         if (!provider %in% loadedNamespaces()) next
         for (name in providers[[provider]]) {
@@ -269,7 +291,11 @@ member_namespace_input <- function(
     list(
         definitions = definitions, locations = list(), expressions = list(),
         exports = exports, registries = registries,
-        snapshots = snapshots, links = links, descriptors = descriptors, package = package, intrinsics = intrinsics
+        snapshots = snapshots, links = links, descriptors = descriptors, package = package, intrinsics = intrinsics,
+        s4_classes = s4_classes, s4_roots = s4_roots, s4_objects = s4_objects,
+        s4_dependencies = member_s4_dependencies(s4_classes, lapply(c(
+            lapply(s4_roots, function(value) value$s4_generator), s4_objects
+        ), function(class) structure(class$name, package = class$package)))
     )
 }
 

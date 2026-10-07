@@ -7,6 +7,9 @@
 - Use the same static member inference for signature help and hover, including
   chained methods and named argument documentation. Member requests wait for the
   current parse after edits, fixing stale completions on the first `$` trigger.
+- Complete S4 `@` slots from source declarations and installed class metadata,
+  including inheritance, aliases and factory results. Show slot types on hover
+  and signatures for slots whose function definitions are known statically.
 
 - Run full-document, range, and multiple-range formatting in a lazy, cancellable
   background worker so other editor requests remain responsive during formatting (#764, #251).

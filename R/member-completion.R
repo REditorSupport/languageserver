@@ -47,10 +47,22 @@ member_document_index <- function(content, parsed = NULL) {
         }
     }
     bindings <- new.env(hash = TRUE, parent = emptyenv())
+    s4 <- list()
     imports <- list()
     effects <- list()
     for (item in items) {
         expr <- item$expr
+        declaration <- if (member_head(expr, "<-") || member_head(expr, "=")) expr[[3L]] else expr
+        if (is.call(declaration)) {
+            head <- declaration[[1L]]
+            name <- if (member_head(head, "::")) member_name(head[[3L]]) else member_name(head)
+            args <- as.list(declaration)[-1L]
+            class <- if (!is.null(args$Class)) args$Class else if (!is.null(args$name)) args$name else if (length(args)) args[[1L]]
+            if (!is.null(name) && name %in% c("setClass", "setClassUnion") &&
+                    is.character(class) && length(class) == 1L) {
+                s4[[class]] <- c(s4[[class]], list(item))
+            }
+        }
         if (member_head(expr, "<-") || member_head(expr, "=") || member_head(expr, "->")) {
             lhs <- if (member_head(expr, "->")) expr[[3L]] else expr[[2L]]
             rhs <- if (member_head(expr, "->")) expr[[2L]] else expr[[3L]]
@@ -79,7 +91,7 @@ member_document_index <- function(content, parsed = NULL) {
             effects[[length(effects) + 1L]] <- item
         }
     }
-    list(items = items, bindings = as.list(bindings), imports = imports, effects = effects)
+    list(items = items, bindings = as.list(bindings), imports = imports, effects = effects, s4 = s4)
 }
 
 member_before <- function(a, b) {
@@ -94,7 +106,7 @@ member_cursor <- function(document, point) {
     line <- document$line0(point$row)
     prefix <- substr(line, 1L, point$col)
     # Include a closing backtick in the replacement when editing a quoted name.
-    match <- regexec("\\$[ \\t]*(`[^`]*`?|[[:alnum:]_.]*)$", prefix, perl = TRUE)[[1L]]
+    match <- regexec("[$@][ \\t]*(`[^`]*`?|[[:alnum:]_.]*)$", prefix, perl = TRUE)[[1L]]
     if (match[[1L]] < 0L) {
         return(NULL)
     }
@@ -108,7 +120,8 @@ member_cursor <- function(document, point) {
     end <- point$col + if (closed) 0L else attr(suffix, "match.length")[[1L]]
     # The sentinel must be a member of the cursor's AST, not a string/comment.
     list(
-        dollar = match[[1L]], start = start, end = end, token = token,
+        operator = match[[1L]], start = start, end = end, token = token,
+        accessor = substr(prefix, match[[1L]], match[[1L]]),
         before = substr(prefix, 1L, start), quoted = quoted
     )
 }
@@ -124,7 +137,7 @@ member_recover <- function(document, point, cursor, data) {
     preceding <- integer()
     while (lo <= hi) {
         middle <- as.integer(floor((lo + hi) / 2L))
-        if (member_before(items[[middle]]$end, c(point$row, cursor$dollar - 1L))) {
+        if (member_before(items[[middle]]$end, c(point$row, cursor$operator - 1L))) {
             preceding <- middle
             lo <- middle + 1L
         } else {
@@ -155,7 +168,7 @@ member_recover <- function(document, point, cursor, data) {
         if (is.null(parsed)) next
         found <- FALSE
         member_walk(parsed, function(node) {
-            if (member_head(node, "$") && identical(member_name(node[[3L]]), sentinel)) found <<- TRUE
+            if (member_head(node, cursor$accessor) && identical(member_name(node[[3L]]), sentinel)) found <<- TRUE
         })
         column <- if (skip == 1L && length(preceding) &&
                 items[[utils::tail(preceding, 1L)]]$end[[1L]] == start) {
@@ -209,12 +222,19 @@ member_context_index <- function(workspace, uri, document, at, parsed = NULL) {
         }
     }
     index$document_bindings <- document$parse_data$member_data$bindings
+    index$methods_attached <- TRUE
     index$attached_roots <- list()
+    index$attached_s4 <- list()
+    index$document_s4 <- document$parse_data$member_data$s4
     index$namespace_indices <- list()
+    index$s4_dependencies <- list()
     if (!is.null(metadata)) {
         for (package in metadata$keys()) {
             package_index <- metadata$get(package)
             index$namespace_indices[package] <- list(package_index)
+            if (!is.null(package_index$s4_dependencies)) {
+                index$s4_dependencies <- utils::modifyList(index$s4_dependencies, package_index$s4_dependencies)
+            }
             for (name in names(package_index$namespace_roots)) index$namespace_roots[name] <- list(package_index$namespace_roots[[name]])
         }
     }
@@ -230,8 +250,12 @@ member_context_index <- function(workspace, uri, document, at, parsed = NULL) {
             if (!is.null(package) && package %in% names(index$namespace_indices)) {
                 index$attached_roots <- utils::modifyList(index$attached_roots, index$namespace_indices[[package]]$roots)
                 package_index <- index$namespace_indices[[package]]
+                if (!is.null(package_index$s4_classes)) {
+                    index$attached_s4 <- utils::modifyList(index$attached_s4, package_index$s4_classes)
+                }
                 for (name in intersect(package_index$exports, names(package_index$definitions))) {
-                    if (member_head(package_index$definitions[[name]], "function")) {
+                    if (member_head(package_index$definitions[[name]], "function") &&
+                            is.null(index$attached_roots[[name]]$s4_generator)) {
                         index$attached_roots[name] <- list(member_value(function_key = name, metadata = package))
                     }
                 }
@@ -269,13 +293,13 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
     value
 }
 
-member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name = NULL) {
+member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name = NULL, accessor = "$") {
     result <- NULL
     visit <- function(node, env) {
         if (!is.call(node) && !is.expression(node)) {
             return(invisible(NULL))
         }
-        if (member_head(node, "$") && identical(member_name(node[[3L]]), sentinel)) {
+        if (member_head(node, accessor) && identical(member_name(node[[3L]]), sentinel)) {
             if (is.null(name)) {
                 result <<- member_infer(node[[2L]], index, env, budget = budget)
             } else {
@@ -284,7 +308,7 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
                 node[[2L]] <- as.name(".__member_receiver__")
                 node[[3L]] <- as.name(name)
                 result <<- member_infer(node, index, env, budget = budget)
-                key <- member_members(receiver, index, env)[name]
+                key <- member_members(receiver, index, env, accessor)[name]
                 if (is.null(result$function_key) && length(key) && !is.na(key[[1L]]) &&
                     !is.null(result$function_expr)) {
                     result$function_key <<- key[[1L]]
@@ -300,6 +324,7 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
         if (member_head(node, "{") || is.expression(node)) {
             children <- if (is.expression(node)) as.list(node) else as.list(node)[-1L]
             for (child in children) {
+                env <- member_s4_effect(child, index, env)
                 visit(child, env)
                 if (!is.null(result)) break
                 if ((member_head(child, "<-") || member_head(child, "=")) && is.symbol(child[[2L]])) {
@@ -350,7 +375,7 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
         }
     }
     bindings$.__member_position__ <- recovered$start
-    value <- member_cursor_value(recovered$parsed, recovered$sentinel, index, bindings, budget, name)
+    value <- member_cursor_value(recovered$parsed, recovered$sentinel, index, bindings, budget, name, cursor$accessor)
     list(value = value, index = index, bindings = bindings, budget = budget)
 }
 
@@ -367,7 +392,7 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
     if (is.null(value) || !length(value$type)) {
         return(NULL)
     }
-    members <- member_members(value, index, bindings)
+    members <- member_members(value, index, bindings, cursor$accessor)
     labels <- as.character(names(members))
     if (!length(labels)) {
         return(list())
@@ -378,7 +403,11 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
     labels <- matches
     labels <- labels[keep]
     items <- lapply(labels, function(label) {
-        shape <- value$fields[[label]]
+        shape <- if (identical(cursor$accessor, "@")) {
+            member_s4_slot(value, label, index, bindings, budget)
+        } else {
+            value$fields[[label]]
+        }
         key <- members[[label]]
         symbol <- member_symbol_info(label, shape, key, index)
         is_function <- !is.null(shape$function_expr) || !is.null(shape$result_shape) ||
@@ -395,7 +424,13 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
         documentation_id <- symbol$function_id
         list(
             label = label, kind = if (is_function) CompletionItemKind$Method else CompletionItemKind$Field,
-            detail = if (!is.null(signature)) signature else "[static member]", sortText = label,
+            detail = if (!is.null(signature)) {
+                signature
+            } else if (identical(cursor$accessor, "@")) {
+                paste0(label, ": ", paste(value$slot_types[[label]], collapse = " | "))
+            } else {
+                "[static member]"
+            }, sortText = label,
             filterText = label, insertTextFormat = if (snippet) InsertTextFormat$Snippet else InsertTextFormat$PlainText,
             textEdit = text_edit(range(
                 document$to_lsp_position(point$row, cursor$start),
