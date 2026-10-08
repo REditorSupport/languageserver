@@ -277,6 +277,9 @@ test_that("callr and processx members work through LSP without library calls or 
     root <- withr::local_tempdir()
     marker <- file.path(root, "executed")
     client <- language_client(working_dir = root)
+    # Coverage loads the instrumented namespace in both parse and metadata
+    # workers, alongside the other parallel tests in this shard.
+    timeout <- if (identical(Sys.getenv("R_COVR"), "true")) 60 else 15
     cases <- list(
         list(package = "callr", receiver = "job", method = "get_result", signature = "get_result()",
             code = sprintf('job <- callr::r_bg(function() {writeLines("ran", %s); stop("input")})',
@@ -289,7 +292,7 @@ test_that("callr and processx members work through LSP without library calls or 
         path <- file.path(root, paste0(case$package, ".R"))
         call <- paste0(case$receiver, "$", case$method, "()")
         did_open(client, path, text = paste(case$code, call, sep = "\n"))
-        deadline <- Sys.time() + 15
+        deadline <- Sys.time() + timeout
         repeat {
             result <- respond_completion(client, path, c(1L, nchar(case$receiver) + 1L), retry = FALSE)
             labels <- vapply(result$items, `[[`, character(1L), "label")
@@ -298,6 +301,8 @@ test_that("callr and processx members work through LSP without library calls or 
         }
         expect_true(case$method %in% labels, info = case$package)
         result <- respond_signature(client, path, c(1L, nchar(call) - 1L), retry = FALSE)
+        expect_length(result$signatures, 1L)
+        if (length(result$signatures) != 1L) next
         expect_identical(result$signatures[[1L]]$label, case$signature)
         result <- respond_hover(client, path, c(1L, nchar(case$receiver) + 2L), retry = FALSE)
         expect_identical(result$contents[[1L]], sprintf("```r\n%s\n```", case$signature))
