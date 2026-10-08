@@ -44,6 +44,7 @@ Suggests:
     pacman,
     processx (>= 3.4.1),
     purrr (>= 0.3.3),
+    redux,
     testthat (>= 2.1.0),
     withr (>= 2.3.0),
     rmarkdown (>= 2.0),
