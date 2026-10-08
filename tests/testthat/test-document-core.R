@@ -107,4 +107,24 @@ test_that("Parse callbacks only resolve when the package request changes", {
     # Adding or removing a package must also trigger resolution.
     parse_callback(self, uri, 1L, parse_data(c("utils", "stats", "methods")))
     expect_equal(resolve_count, 3L)
+
+    data <- parse_data(c("utils", "stats", "methods"))
+    data$member_data$packages <- "namespacefixture"
+    parse_callback(self, uri, 1L, data)
+    expect_equal(resolve_count, 4L)
+    expect_identical(document$requested_packages, c("utils", "stats", "methods", "namespacefixture"))
+    expect_identical(document$loaded_packages, c("utils", "stats", "methods"))
+    parse_callback(self, uri, 1L, data)
+    expect_equal(resolve_count, 4L)
+})
+
+test_that("Namespace-qualified factories request package metadata without library calls", {
+    data <- parse_document("file:///namespace.R", c(
+        "x <- stats::setNames(list(value=1), \"value\")",
+        "factory <- function() utils::head(x)", "x$value"
+    ))
+    expect_length(data$packages, 0L)
+    expect_identical(member_package_request(data), c("stats", "utils"))
+    expect_identical(data$member_data$packages, c("stats", "utils"))
+    expect_length(data$member_data$imports, 0L)
 })

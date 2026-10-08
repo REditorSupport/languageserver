@@ -236,6 +236,22 @@ member_assigned_names <- function(node) {
     unique(out)
 }
 
+# Retain lexical inputs used by the function (including nested closures and
+# defaults), rather than copying an entire instance into every generated method.
+member_function_closure <- function(expr, bindings) {
+    if (!length(bindings)) return(list())
+    referenced <- all.names(expr)
+    member_walk(expr, function(node) {
+        if (member_head(node, "function")) {
+            referenced <<- c(referenced, all.names(as.expression(as.list(node[[2L]]))))
+        }
+    })
+    referenced <- setdiff(referenced, names(expr[[2L]]))
+    internal <- intersect(names(bindings), c(".__member_position__", ".__member_properties__",
+            ".__s4_classes__", ".__s7_package__", ".__s7_constructing__"))
+    bindings[intersect(names(bindings), c(referenced, internal))]
+}
+
 member_infer <- function(
   expr, index, bindings = list(), receiver = NULL,
   depth = 0L, trail = character(), budget = NULL, context = NULL
@@ -282,7 +298,8 @@ member_infer <- function(
         stats::setNames(lapply(keys, function(key) {
             x <- member_lookup(a, key)
             y <- member_lookup(b, key)
-            if (is.null(x) || is.null(y)) unknown else member_join(x, y)
+            if (identical(x, y)) return(x)
+            if (!is.list(x) || !is.list(y)) unknown else member_join(x, y)
         }), keys)
     }
     # Flow records keep early returns separate from fall-through values.
@@ -339,6 +356,38 @@ member_infer <- function(
             ))
         }
         if (member_head(node, "for") || member_head(node, "while")) {
+            # A literal named collection copied field-for-field has a finite
+            # surface. Other loops retain the conservative invalidation below.
+            if (member_head(node, "for") && member_head(node[[3L]], "names") && length(node[[3L]]) == 2L &&
+                    intrinsic("names") && !"names" %in% names(env)) {
+                body <- node[[4L]]
+                if (member_head(body, "{") && length(body) == 2L) body <- body[[2L]]
+                variable <- member_name(node[[2L]])
+                if (member_head(body, "<-") && member_head(body[[2L]], "[[") &&
+                        member_head(body[[3L]], "[[") && length(body[[2L]]) == 3L && length(body[[3L]]) == 3L &&
+                        identical(member_name(body[[2L]][[3L]]), variable) &&
+                        identical(member_name(body[[3L]][[3L]]), variable) &&
+                        identical(body[[3L]][[2L]], node[[3L]][[2L]])) {
+                    target <- member_name(body[[2L]][[2L]])
+                    object <- member_lookup(env, target)
+                    source <- infer(node[[3L]][[2L]], env)
+                    if (identical(object$type, "environment") && identical(source$type, "list") &&
+                            !isTRUE(source$open) && !is.null(source$fields) && length(source$fields) <= 256L) {
+                        for (name in unique(names(source$fields))) {
+                            value <- source$fields[[name]]
+                            if (!is.null(value$function_expr) && target %in% names(value$closure)) {
+                                value$closure[target] <- NULL
+                                value$receiver_name <- target
+                            }
+                            object$fields[name] <- list(value)
+                        }
+                        env[target] <- list(object)
+                        env[variable] <- list(member_value(type = "character"))
+                        return(list(value = member_literal(NULL), env = env,
+                                returns = member_value(type = ".never"), falls = TRUE))
+                    }
+                }
+            }
             # Preserve bindings not assigned by the loop. Never assume one
             # iteration represents all iterations of an unknown loop.
             writes <- member_assigned_names(node)
@@ -368,7 +417,7 @@ member_infer <- function(
                 object <- member_lookup(env, name)
                 surface <- if (member_head(lhs, "@")) "slots" else "fields"
                 if (!is.null(object[[surface]]) && !is.null(field)) {
-                    if (!is.null(value$function_expr)) {
+                    if (!is.null(value$function_expr) && name %in% names(value$closure)) {
                         value$closure[name] <- NULL
                         value$receiver_name <- name
                     }
@@ -691,7 +740,7 @@ member_infer <- function(
         return(if (length(results)) Reduce(member_join, results) else member_literal(NULL))
     }
     if (member_head(expr, "function")) {
-        return(member_value(function_expr = expr, closure = bindings))
+        return(member_value(function_expr = expr, closure = member_function_closure(expr, bindings)))
     }
     if (member_is_r6_call(expr, index, bindings)) {
         return(member_r6_shape(expr, index, bindings, budget))
@@ -1077,7 +1126,7 @@ member_infer <- function(
         return(member_s4_construct(callee$s4_generator, actuals, index, bindings, budget))
     }
     if (!is.null(callee$result_shape)) {
-        return(callee$result_shape)
+        return(member_r6_construct(callee, actuals, index, budget, depth, trail))
     }
     if (!is.null(callee$metadata)) {
         package_index <- member_lookup(index$namespace_indices, callee$metadata)

@@ -110,6 +110,93 @@ test_that("R6 fluent APIs expose public inheritance without initialization", {
     expect_length(member_labels(paste0(code, "Child$new()$danger$")), 0L)
 })
 
+test_that("R6 initialization exposes finite copied methods without executing code", {
+    marker <- withr::local_tempfile()
+    declarations <- paste0(
+        "commands <- function(send) list(GET=function(key) send(key), ",
+        "SET=function(key, value, option=NULL) send(key, value))\n",
+        "Client <- R6::R6Class(\"Client\", public=list(initialize=function(send) {",
+        sprintf("writeLines(\"ran\", %s);", encodeString(marker, quote = "\"")),
+        "methods <- commands(send); for (name in names(methods)) self[[name]] <- methods[[name]]",
+        "}, ready=function() self))\n"
+    )
+    expect_identical(member_labels(paste0(declarations, "Client$new(unknown)$")),
+        c("GET", "SET", "initialize", "ready"))
+    expect_identical(member_labels(paste0(declarations, "Client$new(unknown)$ready()$")),
+        c("GET", "SET", "initialize", "ready"))
+    expect_false(file.exists(marker))
+
+    for (body in c("for (name in names(unknown)) self[[name]] <- unknown[[name]]",
+            "methods <- list(run=function() NULL); for (name in unknown) self[[name]] <- methods[[name]]",
+            "methods <- list(run=function() NULL); for (name in names(methods)) self[[name]] <- opaque()")) {
+        code <- sprintf("Client <- R6::R6Class(\"Client\", public=list(initialize=function() {%s}, ready=1))\nClient$new()$", body)
+        expect_identical(member_labels(code), c("initialize", "ready"))
+    }
+    code <- paste0("Client <- R6::R6Class(\"Client\", public=list(initialize=function(flag) {",
+        "if (flag) {methods <- list(run=function() NULL); for (name in names(methods)) self[[name]] <- methods[[name]]}",
+        "}, ready=1))\n")
+    expect_identical(member_labels(paste0(code, "Client$new(unknown)$")), c("initialize", "ready"))
+    expect_identical(member_labels(paste0(code, "Client$new(FALSE)$")), c("initialize", "ready"))
+    expect_identical(member_labels(paste0(code, "Client$new(TRUE)$")), c("initialize", "ready", "run"))
+})
+
+test_that("Internal package R6 generators are available to exported factories", {
+    marker <- withr::local_tempfile()
+    ns <- new.env(parent = emptyenv())
+    ns$commands <- function() list(extra = function(key) NULL)
+    ns$Internal <- R6::R6Class("Internal", public = list(
+        initialize = function() {
+            writeLines("ran", marker)
+            methods <- commands()
+            for (name in names(methods)) self[[name]] <- methods[[name]]
+        },
+        run = function(value = 1) self
+    ))
+    ns$client <- function() Internal$new()
+    input <- member_namespace_input(ns, package = "fixture", exports = c("client", "Internal"))
+    index <- member_package_index(input)
+    index$package_roots$Internal <- member_r6_runtime_shape(ns$Internal, index)
+    index$namespace_roots$`fixture::Internal` <- index$package_roots$Internal
+    snapshot <- member_index_freeze(index)
+    expect_identical(member_labels("fixture::client()$", list(fixture = snapshot)),
+        c("clone", "extra", "initialize", "run"))
+    expect_identical(member_labels("fixture::Internal$new()$", list(fixture = snapshot)),
+        c("clone", "extra", "initialize", "run"))
+    expect_false(file.exists(marker))
+})
+
+test_that("Installed Redux members resolve without a Redis connection", {
+    skip_if_not_installed("redux")
+    marker <- withr::local_tempfile()
+    snapshot <- member_prepare_package("redux")
+    expect_false("R6_redis_api" %in% names(snapshot$roots))
+    expect_length(member_labels("redux::R6_redis_api$new()$", list(redux = snapshot)), 0L)
+    for (code in c('redis <- redux::hiredis(host = "127.0.0.1")',
+            "library(redux)\nredis <- hiredis(host = unknown)",
+            sprintf("redis <- redux::hiredis(host = {writeLines(\"ran\", %s); stop(\"host\")})",
+                encodeString(marker, quote = "\"")))) {
+        labels <- member_labels(paste0(code, "\nredis$"), list(redux = snapshot), limit = 300L)
+        expect_true(all(c("GET", "SET", "PING", "pipeline", "subscribe", "config", "reconnect") %in% labels))
+        expect_false(any(c(".pipeline", ".subscribe", ".version") %in% labels))
+        items <- member_items(paste0(code, "\nredis$GE"), list(redux = snapshot))
+        item <- Filter(function(item) identical(item$label, "GET"), items)[[1L]]
+        expect_identical(item$detail, "GET(key)")
+        expect_identical(item$kind, CompletionItemKind$Method)
+    }
+    expect_false(file.exists(marker))
+})
+
+test_that("Generated closures retain referenced lexical inputs only", {
+    index <- member_generic_index("")
+    env <- list(used = member_literal(42), unused = member_value(type = "environment", fields = list()))
+    value <- member_infer(quote(function(x = used) list(run = function() x)), index, env)
+    expect_identical(names(value$closure), "used")
+    expect_identical(member_infer(quote(f()$run()), index, list(f = value))$literal, 42)
+    value <- member_infer(quote(function() function(x = used) x), index, env)
+    expect_identical(names(value$closure), "used")
+    expect_identical(member_infer(quote(f()()), index, list(f = value))$literal, 42)
+})
+
 test_that("Runtime metadata skips deferred values and active getters", {
     marker <- tempfile()
     on.exit(unlink(marker))

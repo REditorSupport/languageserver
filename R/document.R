@@ -667,6 +667,10 @@ normalize_package_request <- function(packages) {
     enc2utf8(unname(as.character(packages)))
 }
 
+member_package_request <- function(parse_data) {
+    normalize_package_request(unique(c(parse_data$packages, parse_data$member_data$packages)))
+}
+
 
 parse_callback <- function(self, uri, version, parse_data) {
     workspace <- self$get_workspace(uri)
@@ -687,7 +691,7 @@ parse_callback <- function(self, uri, version, parse_data) {
     previous_packages <- doc$requested_packages
     if (is.null(previous_packages) && !is.null(old_parse_data) &&
             !isTRUE(old_parse_data$parse_error)) {
-        previous_packages <- normalize_package_request(old_parse_data$packages)
+        previous_packages <- member_package_request(old_parse_data)
     }
     workspace$update_parse_data(uri, parse_data)
     if (!is.null(workspace$index) && isTRUE(workspace$index$enabled) &&
@@ -713,16 +717,17 @@ parse_callback <- function(self, uri, version, parse_data) {
     }
 
     if (!isTRUE(parse_data$parse_error)) {
-        requested_packages <- normalize_package_request(parse_data$packages)
+        requested_packages <- member_package_request(parse_data)
         if (is.null(previous_packages) || isTRUE(doc$member_refresh) ||
                 !identical(previous_packages, requested_packages)) {
             doc$member_refresh <- FALSE
             doc$requested_packages <- requested_packages
             self$resolve_task_manager$add_task(
                 uri,
-                resolve_task(self, uri, doc, requested_packages)
+                resolve_task(self, uri, doc, normalize_package_request(parse_data$packages),
+                    namespace_packages = parse_data$member_data$packages)
             )
-            doc$loaded_packages <- requested_packages
+            doc$loaded_packages <- normalize_package_request(parse_data$packages)
             workspace$update_loaded_packages()
         } else if (is.null(doc$requested_packages)) {
             doc$requested_packages <- requested_packages
@@ -812,11 +817,11 @@ resolve_callback <- function(self, uri, version, packages) {
     workspace$update_loaded_packages()
 }
 
-resolve_task <- function(self, uri, document, packages, delay = 0) {
+resolve_task <- function(self, uri, document, packages, delay = 0, namespace_packages = character()) {
     version <- document$version
     create_task(
         target = package_call(member_resolve_packages),
-        args = list(pkgs = packages, lib_paths = .libPaths(),
+        args = list(pkgs = packages, lib_paths = .libPaths(), namespace_packages = namespace_packages,
             prepare = isTRUE(lsp_settings$get("member_completion"))),
         callback = function(result) resolve_callback(self, uri, version, result),
         error = function(e) logger$info("resolve_task:", e),

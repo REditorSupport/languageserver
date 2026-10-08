@@ -214,6 +214,59 @@ test_that("R6 members use public inherited declarations without initialization o
     expect_null(member_provider_hover(fixture, 3L, 14L))
 })
 
+test_that("Copied R6 command methods share completion, signatures and hover", {
+    lines <- c(
+        "commands <- function(send) list(GET=function(key) send(key), SET=function(key, value, option=NULL) send(key, value))",
+        "Client <- R6::R6Class(\"Client\", public=list(initialize=function(send) {",
+        "methods <- commands(send); for (name in names(methods)) {self[[name]] <- methods[[name]]}",
+        "}))", "client <- Client$new(unknown)", "client$SET(option = "
+    )
+    fixture <- member_provider_fixture(lines)
+    result <- member_provider_signature(fixture)
+    expect_identical(result$signatures[[1L]]$label, "SET(key, value, option = NULL)")
+    expect_identical(result$activeParameter, 2L)
+    expect_identical(member_provider_hover(fixture, 5L, 8L)$contents,
+        "```r\nSET(key, value, option = NULL)\n```")
+})
+
+test_that("Installed Redux methods provide signatures and hover without connecting", {
+    skip_if_not_installed("redux")
+    snapshot <- member_prepare_package("redux")
+    for (case in list(c("GET(key = ", "GET(key)", "0"),
+            c("SET(value = ", "SET(key, value, EX = NULL, PX = NULL, condition = NULL)", "1"),
+            c("PING(message = ", "PING(message = NULL)", "0"))) {
+        fixture <- member_provider_fixture(c('redis <- redux::hiredis(host = "127.0.0.1")',
+                paste0("redis$", case[[1L]])), list(redux = snapshot))
+        result <- member_provider_signature(fixture)
+        expect_identical(result$signatures[[1L]]$label, case[[2L]])
+        expect_identical(result$activeParameter, as.integer(case[[3L]]))
+        expect_identical(member_provider_hover(fixture, 1L, 7L)$contents,
+            sprintf("```r\n%s\n```", case[[2L]]))
+    }
+})
+
+test_that("Redux completion, signature and hover work through LSP without a server", {
+    skip_on_cran()
+    skip_if_not_installed("redux")
+    root <- withr::local_tempdir()
+    path <- file.path(root, "redis.R")
+    client <- language_client(working_dir = root)
+    lines <- c('redis <- redux::hiredis(host = "127.0.0.1")', "redis$GET(key = \"key\")")
+    did_open(client, path, text = paste(lines, collapse = "\n"))
+    deadline <- Sys.time() + 15
+    repeat {
+        result <- respond_completion(client, path, c(1L, 6L), retry = FALSE)
+        labels <- vapply(result$items, `[[`, character(1L), "label")
+        if ("GET" %in% labels || Sys.time() > deadline) break
+        Sys.sleep(0.1)
+    }
+    expect_true(all(c("GET", "SET", "PING") %in% labels))
+    result <- respond_signature(client, path, c(1L, 10L), retry = FALSE)
+    expect_identical(result$signatures[[1L]]$label, "GET(key)")
+    result <- respond_hover(client, path, c(1L, 7L), retry = FALSE)
+    expect_identical(result$contents[[1L]], "```r\nGET(key)\n```")
+})
+
 test_that("Unknown and shadowed member receivers never resolve unrelated bare functions", {
     for (lines in list(
         c("unknown$sum("),
