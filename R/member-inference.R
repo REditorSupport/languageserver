@@ -60,9 +60,13 @@ member_strings <- function(x) {
 }
 
 member_lookup <- function(x, key) {
-    if (is.null(x) || is.null(key) || length(key) != 1L || is.na(key) || !key %in% names(x)) {
+    if (is.null(x) || !is.character(key) || length(key) != 1L || is.na(key) || !nzchar(key)) {
         return(NULL)
     }
+    # Lists and environments return NULL for absent names. Avoid scanning
+    # large namespace maps twice for each syntax node.
+    if (is.list(x) || is.environment(x)) return(x[[key]])
+    if (!key %in% names(x)) return(NULL)
     x[[key]]
 }
 
@@ -255,9 +259,18 @@ member_infer <- function(
     # start timing after R's first-call JIT compilation, before traversing ASTs.
     if (!is.null(budget$time_limit) && is.null(budget$deadline)) {
         budget$deadline <- proc.time()[[3L]] + budget$time_limit
+        budget$next_time_check <- budget$remaining - 128L
     }
-    if (depth > 64L || budget$remaining < 0L ||
-        (!is.null(budget$deadline) && proc.time()[[3L]] > budget$deadline)) {
+    # Reading the clock for every AST node can consume most of the request's
+    # time limit itself. Check periodically; node and depth bounds still apply
+    # on every visit, and an externally supplied deadline is checked first.
+    timed_out <- FALSE
+    if (!is.null(budget$deadline) && (is.null(budget$next_time_check) ||
+                budget$remaining <= budget$next_time_check)) {
+        budget$next_time_check <- budget$remaining - 128L
+        timed_out <- proc.time()[[3L]] > budget$deadline
+    }
+    if (isTRUE(budget$exhausted) || depth > 64L || budget$remaining < 0L || timed_out) {
         budget$exhausted <- TRUE
         return(member_value(reason = "budget"))
     }
@@ -273,8 +286,8 @@ member_infer <- function(
         )))
         !name %in% names(bindings) &&
             !shadowed &&
-            ((!name %in% names(index$definitions) && name %in% member_base_intrinsics) ||
-                (name %in% index$intrinsics && (is.null(index$document_bindings) || !is.null(context$key))))
+            ((is.null(member_lookup(index$definitions, name)) && name %in% member_base_intrinsics) ||
+                    (name %in% index$intrinsics && (is.null(index$document_bindings) || !is.null(context$key))))
     }
     package_env <- if (!is.null(index$package_roots)) index$package_roots else index$roots
     join_env <- function(a, b) {
@@ -404,7 +417,7 @@ member_infer <- function(
         state <- flow(body, env)
         if (state$falls) member_join(state$returns, state$value) else state$returns
     }
-    bind_arguments <- function(fn, actuals, env) {
+    bind_arguments <- function(fn, actuals, env, defaults = TRUE) {
         formals <- as.list(fn[[2L]])
         keys <- names(formals)
         dots <- match("...", keys)
@@ -441,7 +454,9 @@ member_infer <- function(
         }
         if (!is.na(dots)) env["..."] <- list(member_value(type = "list", elements = actuals[!matched]))
         for (name in setdiff(keys, c(used, "..."))) {
-            env[name] <- list(if (identical(formals[[name]], quote(expr = ))) {
+            env[name] <- list(if (!defaults) {
+                unknown
+            } else if (identical(formals[[name]], quote(expr = ))) {
                 member_value(type = ".missing")
             } else {
                 infer(formals[[name]], env)
@@ -641,8 +656,8 @@ member_infer <- function(
         if (identical(key, "self") && !is.null(receiver)) {
             return(member_value(type = receiver))
         }
-        if (key %in% names(index$definitions) && (is.null(index$document_bindings) ||
-            !is.null(context$key))) {
+        if (!is.null(member_lookup(index$definitions, key)) && (is.null(index$document_bindings) ||
+                    !is.null(context$key))) {
             return(member_value(function_key = key))
         }
         # Imported roots must be supplied by the document/package lexical
@@ -809,6 +824,26 @@ member_infer <- function(
         return(member_value(type = ".never"))
     }
     args <- as.list(expr)[-1L]
+    callee <- NULL
+    if (!intrinsic(head)) {
+        callee <- infer(expr[[1L]])
+        if (!is.null(callee$function_key) && is.null(callee$metadata)) {
+            self <- callee$receiver_value
+            key <- if (is.null(self)) callee$function_key else paste(self$type, callee$function_key, sep = "|")
+            summary <- member_lookup(index$method_results, key)
+            if (is.null(summary)) summary <- member_lookup(index$method_results, callee$function_key)
+            if (!is.null(summary) && !any(vapply(args, identical, logical(1L), as.name("...")))) {
+                fn <- member_definition(index$definitions, callee$function_key)
+                if (member_head(fn, "function")) {
+                    actuals <- lapply(args, function(arg) unknown)
+                    if (is.null(bind_arguments(fn, actuals, list(), defaults = FALSE))) {
+                        return(member_value(reason = "argument_matching"))
+                    }
+                    return(summary)
+                }
+            }
+        }
+    }
     if (head == "missing" && intrinsic(head) && length(args) == 1L &&
         identical(args[[1L]], as.name("..."))) {
         dots <- member_lookup(bindings, "...")
@@ -1066,7 +1101,7 @@ member_infer <- function(
         }
         return(unknown)
     }
-    callee <- infer(expr[[1L]])
+    if (is.null(callee)) callee <- infer(expr[[1L]])
     if (identical(callee$metadata, "S7") && callee$function_key %in% member_s7_intrinsics) {
         return(member_s7_call(expr, index, bindings, budget, callee$function_key))
     }

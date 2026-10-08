@@ -159,8 +159,11 @@ test_that("Installed S7 metadata supplies current properties and constructor for
 test_that("S7 constructor and property providers work on first requests after edits", {
     skip_on_cran()
     skip_if_not_installed("S7")
-    client <- language_client()
-    path <- withr::local_tempfile(fileext = ".R")
+    # This regression needs only its open document. Scanning the test checkout
+    # queues unrelated package preparation and can delay S7 under parallel covr.
+    root <- withr::local_tempdir()
+    client <- language_client(working_dir = root)
+    path <- file.path(root, "s7-members.R")
     uri <- path_to_uri(path)
     code <- c("library(S7)", "Dog <- new_class(\"Dog\", properties=list(name=class_character, age=class_numeric))", "lola <- Dog(name=\"Lola\", age=11)")
     did_open(client, path, text = c(code, "lola"))

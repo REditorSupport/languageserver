@@ -1784,3 +1784,59 @@ test_that("The first dollar trigger after an edit uses current Polars members", 
     expect_false(any(c("fileext", "infer_schema_files", "row.names") %in% labels))
     expect_true(all(vapply(result$items, function(item) identical(item$data$type, "member"), logical(1L))))
 })
+
+test_that("The first dollar trigger completes assigned and collected Polars queries", {
+    skip_on_cran()
+    skip_if_not_installed("polars")
+    client <- language_client()
+    temp_file <- withr::local_tempfile(fileext = ".R")
+    uri <- path_to_uri(temp_file)
+    lines <- c(
+        "library(polars)", "",
+        "csv_file <- tempfile(fileext = \".csv\")",
+        "write.csv(iris, csv_file, row.names = FALSE)", "",
+        "q <- pl$scan_csv(csv_file, infer_schema_files = 10)", "",
+        "q1 <- q$filter(pl$col(\"Sepal.Length\") > 5)", "q1", "",
+        "q1 <- q$filter(pl$col(\"Sepal.Length\") > 5)$group_by(\"Species\")$agg(pl$all()$median())$collect()",
+        "q1 # collected", "",
+        "q2 <- q1$group_by(\"Species\")$agg(pl$all()$sum())", "q2 # collected"
+    )
+    did_open(client, temp_file, text = paste(lines, collapse = "\n"))
+    # Prepare package metadata using only q; q1 and q2 must complete on their
+    # first request, without warming their method summaries or retrying.
+    deadline <- Sys.time() + 15
+    repeat {
+        ready <- respond_completion(client, temp_file, c(7L, 8L), retry = FALSE)
+        if (any(vapply(ready$items, function(item) identical(item$data$type, "member"), logical(1L)))) break
+        if (Sys.time() > deadline) break
+        Sys.sleep(0.1)
+    }
+    expect_true(any(vapply(ready$items, function(item) identical(item$data$type, "member"), logical(1L))))
+    notify(client, "workspace/didChangeConfiguration", list(settings = list(parse_delay = 0.5)))
+    for (row in c(8L, 11L, 14L)) {
+        end <- list(line = row, character = 2L)
+        notify(client, "textDocument/didChange", list(
+            textDocument = list(uri = uri, version = row),
+            contentChanges = list(list(range = list(start = end, end = end), text = "$"))
+        ))
+        result <- respond(client, "textDocument/completion", list(
+            textDocument = list(uri = uri),
+            position = list(line = row, character = end$character + 1L),
+            context = list(triggerKind = 2L, triggerCharacter = "$")
+        ), retry = FALSE)
+        labels <- vapply(result$items, `[[`, character(1L), "label")
+        expect_true(all(c("filter", "group_by") %in% labels))
+        expect_identical("collect" %in% labels, row == 8L)
+        expect_identical("lazy" %in% labels, row != 8L)
+        expect_true(all(vapply(result$items, function(item) identical(item$data$type, "member"), logical(1L))))
+        expect_false(any(c("fileext", "infer_schema_files", "row.names") %in% labels))
+        # Restore a complete statement before editing the next receiver.
+        notify(client, "textDocument/didChange", list(
+            textDocument = list(uri = uri, version = row + 1L),
+            contentChanges = list(list(
+                range = list(start = end, end = list(line = row, character = end$character + 1L)),
+                text = ""
+            ))
+        ))
+    }
+})
