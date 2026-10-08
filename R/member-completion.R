@@ -260,6 +260,9 @@ member_context_index <- function(workspace, uri, document, at, parsed = NULL) {
         seen <- c(seen, pending)
         for (name in pending) {
             history <- document$parse_data$member_data$bindings[[name]]
+            # A dangling $ can make the following assignment parse as a
+            # member write. Later bindings must not hide the receiver's package.
+            history <- Filter(function(item) member_before(item$end, at), history)
             for (item in utils::tail(history, 1L)) {
                 member_walk(item$expr, function(node) {
                     if (is.symbol(node)) referenced <<- c(referenced, as.character(node))

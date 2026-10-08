@@ -39,6 +39,23 @@ test_that("Static inference stops at node, depth and time limits", {
     expect_true(budget$exhausted)
 })
 
+test_that("Static inference notices deadlines that expire during traversal", {
+    calls <- 0L
+    clock <- function() {
+        calls <<- calls + 1L
+        c(0, 0, if (calls == 1L) 0 else 2)
+    }
+    stub(member_infer, "proc.time", clock, depth = 2L)
+    budget <- new.env(parent = emptyenv())
+    budget$remaining <- 20000L
+    budget$exhausted <- FALSE
+    budget$deadline <- 1
+    expr <- as.call(c(list(as.name("list")), rep(list(1L), 256L)))
+    value <- member_infer(expr, member_generic_index(""), budget = budget)
+    expect_true(budget$exhausted)
+    expect_identical(tail(value$elements, 1L)[[1L]]$reason, "budget")
+})
+
 test_that("Static members propagate through source factories and aliases", {
     expect_identical(member_labels("x <- list(alpha=1,beta=2)\ny <- x\ny$"), c("alpha", "beta"))
     expect_identical(member_labels(paste0(
@@ -92,6 +109,20 @@ test_that("Lexical shadowing and source position prevent invented members", {
     expect_length(member_labels("x <- list(a=1)\nf <- function(x) { x$\n}", point = list(row = 1L, col = 22L)), 0L)
     expect_identical(member_labels("f <- function() {x <- list(a=1); x$\n}", point = list(row = 0L, col = 44L)), "a")
     expect_length(member_labels("x <- list(a=1)\nx$a <- opaque()\nx$"), 0L)
+})
+
+test_that("Package selection ignores bindings after an incomplete member access", {
+    index <- member_generic_index("factory <- function() opaque()")
+    index$package <- "fixture"
+    index$exports <- "factory"
+    index$roots$factory <- member_value(function_key = "factory")
+    index$constructor_types$factory <- "box"
+    index$members$box <- c(collect = NA_character_)
+    snapshot <- member_index_freeze(index)
+    expect_identical(member_labels(
+        "library(fixture)\nx <- factory()\nx$\ny <- NULL",
+        list(fixture = snapshot), point = list(row = 2L, col = 2L)
+    ), "collect")
 })
 
 test_that("R6 fluent APIs expose public inheritance without initialization", {
@@ -182,6 +213,42 @@ test_that("Installed Polars metadata resolves all original query positions witho
     idx <- member_index_thaw(changed)
     expect_identical(member_infer(quote(pl$scan_csv(x)$filter(y)), idx, idx$roots)$type, "polars_data_frame")
     expect_identical(unserialize(serialize(snapshot, NULL)), snapshot)
+})
+
+test_that("Polars query assignments retain LazyFrame members within the request budget", {
+    skip_if_not_installed("polars")
+    snapshot <- member_prepare_package("polars")
+    lines <- c(
+        "library(polars)", "",
+        "csv_file <- tempfile(fileext = \".csv\")",
+        "write.csv(iris, csv_file, row.names = FALSE)", "",
+        "q <- pl$scan_csv(csv_file, infer_schema_files = 10)", "",
+        "q1 <- q$filter(pl$col(\"Sepal.Length\") > 5)", "q1", "",
+        "q2 <- q1$group_by(\"Species\")$agg(pl$all()$sum())", "q2"
+    )
+    for (row in c(8L, 11L)) {
+        edited <- lines
+        name <- edited[[row + 1L]]
+        edited[[row + 1L]] <- paste0(name, "$")
+        fixture <- member_fixture(
+            paste(edited, collapse = "\n"), list(polars = snapshot),
+            point = list(row = row, col = 3L)
+        )
+        resolved <- member_resolve_cursor(
+            fixture$document$uri, fixture$workspace, fixture$document, fixture$point,
+            member_cursor(fixture$document, fixture$point)
+        )
+        expect_identical(resolved$value$type, "polars_lazy_frame", info = name)
+        expect_false(resolved$budget$exhausted, info = name)
+        items <- member_completion(
+            fixture$document$uri, fixture$workspace, fixture$document, fixture$point,
+            TRUE, 200L
+        )
+        labels <- vapply(items, `[[`, character(1L), "label")
+        expect_true(all(c("collect", "filter", "group_by") %in% labels), info = name)
+        expect_true(all(vapply(items, function(item) identical(item$data$type, "member"), logical(1L))))
+        expect_false(any(c("fileext", "infer_schema_files", "row.names") %in% labels))
+    }
 })
 
 test_that("LSP completion returns member identity and preserves calls", {

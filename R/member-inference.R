@@ -60,9 +60,13 @@ member_strings <- function(x) {
 }
 
 member_lookup <- function(x, key) {
-    if (is.null(x) || is.null(key) || length(key) != 1L || is.na(key) || !key %in% names(x)) {
+    if (is.null(x) || !is.character(key) || length(key) != 1L || is.na(key) || !nzchar(key)) {
         return(NULL)
     }
+    # Lists and environments return NULL for absent names. Avoid scanning
+    # large namespace maps twice for each syntax node.
+    if (is.list(x) || is.environment(x)) return(x[[key]])
+    if (!key %in% names(x)) return(NULL)
     x[[key]]
 }
 
@@ -255,9 +259,18 @@ member_infer <- function(
     # start timing after R's first-call JIT compilation, before traversing ASTs.
     if (!is.null(budget$time_limit) && is.null(budget$deadline)) {
         budget$deadline <- proc.time()[[3L]] + budget$time_limit
+        budget$next_time_check <- budget$remaining - 128L
     }
-    if (depth > 64L || budget$remaining < 0L ||
-        (!is.null(budget$deadline) && proc.time()[[3L]] > budget$deadline)) {
+    # Reading the clock for every AST node can consume most of the request's
+    # time limit itself. Check periodically; node and depth bounds still apply
+    # on every visit, and an externally supplied deadline is checked first.
+    timed_out <- FALSE
+    if (!is.null(budget$deadline) && (is.null(budget$next_time_check) ||
+                budget$remaining <= budget$next_time_check)) {
+        budget$next_time_check <- budget$remaining - 128L
+        timed_out <- proc.time()[[3L]] > budget$deadline
+    }
+    if (isTRUE(budget$exhausted) || depth > 64L || budget$remaining < 0L || timed_out) {
         budget$exhausted <- TRUE
         return(member_value(reason = "budget"))
     }
@@ -273,8 +286,8 @@ member_infer <- function(
         )))
         !name %in% names(bindings) &&
             !shadowed &&
-            ((!name %in% names(index$definitions) && name %in% member_base_intrinsics) ||
-                (name %in% index$intrinsics && (is.null(index$document_bindings) || !is.null(context$key))))
+            ((is.null(member_lookup(index$definitions, name)) && name %in% member_base_intrinsics) ||
+                    (name %in% index$intrinsics && (is.null(index$document_bindings) || !is.null(context$key))))
     }
     package_env <- if (!is.null(index$package_roots)) index$package_roots else index$roots
     join_env <- function(a, b) {
@@ -641,8 +654,8 @@ member_infer <- function(
         if (identical(key, "self") && !is.null(receiver)) {
             return(member_value(type = receiver))
         }
-        if (key %in% names(index$definitions) && (is.null(index$document_bindings) ||
-            !is.null(context$key))) {
+        if (!is.null(member_lookup(index$definitions, key)) && (is.null(index$document_bindings) ||
+                    !is.null(context$key))) {
             return(member_value(function_key = key))
         }
         # Imported roots must be supplied by the document/package lexical
