@@ -1,5 +1,25 @@
 # languageserver 0.3.20
 
+- Complete chained `$` members using static receiver analysis, including source
+  list/environment factories, declarative R6 classes and package method
+  registries. Package metadata is prepared in a background worker; completion
+  never calls document expressions, constructors, methods or active getters.
+- Use the same static member inference for signature help and hover, including
+  chained methods and named argument documentation. Member requests wait for the
+  current parse after edits, fixing stale completions on the first `$` trigger.
+- Resolve member names across line breaks and infer `self`, `super` and
+  `private` inside supported R6 methods for completion, hover and signatures.
+- Complete S4 `@` slots from source declarations and installed class metadata,
+  including inheritance, aliases and factory results. Show slot types on hover
+  and signatures for slots whose function definitions are known statically.
+- Complete S7 `@` properties and constructor arguments from source declarations
+  and installed descriptors, with constructor/property hover and signatures.
+  Infer inheritance, nested properties and supported custom constructors
+  without calling constructors, getters, setters, validators or defaults.
+  Follow installed S7 constructor semantics, including 1.0 development class
+  references, forwarding constructors, named bindings, list property updates,
+  external class references, S4 parents and deprecation declarations.
+
 - Run full-document, range, and multiple-range formatting in a lazy, cancellable
   background worker so other editor requests remain responsive during formatting (#764, #251).
 - Stabilize diagnostics for Quarto and R Markdown documents by preserving

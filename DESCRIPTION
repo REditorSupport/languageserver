@@ -39,6 +39,7 @@ Imports:
 Suggests:
     covr (>= 3.4.0),
     magrittr (>= 1.5),
+    methods,
     mockery (>= 0.4.2),
     pacman,
     processx (>= 3.4.1),
@@ -46,6 +47,8 @@ Suggests:
     testthat (>= 2.1.0),
     withr (>= 2.3.0),
     rmarkdown (>= 2.0),
+    S7,
+    stats4,
     stringr
 ByteCompile: yes
 Encoding: UTF-8

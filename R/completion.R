@@ -898,7 +898,7 @@ completion_has_call_parens <- function(document, token_result) {
 #' The response to a textDocument/completion request
 #' @noRd
 completion_reply <- function(id, uri, workspace, document, point, capabilities) {
-    if (!check_scope(uri, document, point)) {
+    if (!check_scope(uri, document, point) && is.null(member_cursor(document, point))) {
         return(Response$new(
             id,
             result = list(
@@ -911,6 +911,15 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
     snippet_support <- isTRUE(capabilities$completionItem$snippetSupport) &&
         lsp_settings$get("snippet_support")
     nmax <- lsp_settings$get("max_completions")
+    if (isTRUE(lsp_settings$get("member_completion"))) {
+        members <- tryCatch(member_completion(uri, workspace, document, point,
+            snippet_support, nmax), error = function(e) {
+                logger$info("static member completion:", e)
+                NULL
+            })
+        if (!is.null(members)) return(Response$new(id, result = list(
+            isIncomplete = isTRUE(attr(members, "truncated")), items = unname(members))))
+    }
 
     token_result <- document$detect_token(point, forward = FALSE)
 
@@ -946,12 +955,15 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
     if (token_result$accessor == "") {
         call_result <- document$detect_call(point)
         if (nzchar(call_result$token)) {
+            constructor_args <- if (isTRUE(lsp_settings$get("member_completion"))) {
+                member_constructor_arguments(uri, workspace, document, point, token)
+            }
             completions <- c(
                 completions,
-                arg_completion(uri, workspace, point, token,
+                if (!is.null(constructor_args)) constructor_args else arg_completion(uri, workspace, point, token,
                     call_result$token, call_result$package,
                     exported_only = call_result$accessor != ":::"),
-                arg_value_completion(uri, workspace, document, point, token,
+                if (is.null(constructor_args)) arg_value_completion(uri, workspace, document, point, token,
                     call_result$token, call_result$package,
                     exported_only = call_result$accessor != ":::"))
         }
@@ -1006,7 +1018,19 @@ completion_item_resolve_reply <- function(id, workspace, params, capabilities) {
     resolved <- FALSE
     if (is.null(params$data) || is.null(params$data$type)) {
     } else {
-        if (params$data$type == "package") {
+        if (params$data$type == "member") {
+            if (isTRUE(capabilities$completionItem$labelDetailsSupport) &&
+                    !is.null(params$data$signature)) params$labelDetails <- list(
+                detail = substring(params$data$signature, nchar(params$label) + 1L))
+            if (!is.null(params$data$package) && is.character(params$data$function_id) &&
+                    length(params$data$function_id) == 1L && !is.na(params$data$function_id)) {
+                doc <- workspace$get_documentation(params$data$function_id,
+                    params$data$package, isf = TRUE, uri = params$data$context_uri)
+                if (is.list(doc) && !is.null(doc$description)) params$documentation <- list(
+                    kind = "markdown", value = doc$description)
+            }
+            resolved <- TRUE
+        } else if (params$data$type == "package") {
             if (length(find.package(params$label, quiet = TRUE))) {
                 desc <- utils::packageDescription(params$label, fields = c("Title", "Description"))
                 description <- gsub("\\s*\n\\s*", " ", desc$Description)

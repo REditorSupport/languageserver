@@ -332,6 +332,9 @@ LanguageServer <- R6::R6Class("LanguageServer",
             diagnostics_delay = delay) {
             if (!self$pending_replies$has(uri)) {
                 self$pending_replies$set(uri, list(
+                    `textDocument/completion` = collections::queue(),
+                    `textDocument/hover` = collections::queue(),
+                    `textDocument/signatureHelp` = collections::queue(),
                     `textDocument/documentSymbol` = collections::queue(),
                     `textDocument/foldingRange` = collections::queue(),
                     `textDocument/documentLink` = collections::queue(),

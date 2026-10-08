@@ -5,6 +5,7 @@ Task <- R6::R6Class("Task",
         session = NULL,
         target = NULL,
         args = NULL,
+        profiles = TRUE,
         callback = NULL,
         error = NULL,
         cancelled = FALSE,
@@ -25,9 +26,11 @@ Task <- R6::R6Class("Task",
     public = list(
         time = NULL,
         delay = NULL,
-        initialize = function(target, args, callback = NULL, error = NULL, delay = 0) {
+        initialize = function(target, args, callback = NULL, error = NULL, delay = 0,
+            profiles = TRUE) {
             private$target <- target
             private$args <- args
+            private$profiles <- profiles
             private$callback <- callback
             private$error <- error
             self$time <- Sys.time()
@@ -42,7 +45,7 @@ Task <- R6::R6Class("Task",
                 private$process <- callr::r_bg(
                     private$target,
                     private$args,
-                    system_profile = TRUE, user_profile = TRUE
+                    system_profile = private$profiles, user_profile = private$profiles
                 )
             } else {
                 private$session <- session
@@ -552,12 +555,14 @@ package_call <- function(target) {
     ), envir = baseenv())
 }
 
-create_task <- function(target, args, callback = NULL, error = NULL, delay = 0) {
+create_task <- function(target, args, callback = NULL, error = NULL, delay = 0,
+    profiles = TRUE) {
     Task$new(
         target = target,
         args = args,
         callback = callback,
         error = error,
-        delay = delay
+        delay = delay,
+        profiles = profiles
     )
 }

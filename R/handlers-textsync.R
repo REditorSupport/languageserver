@@ -144,6 +144,7 @@ text_document_did_save <- function(self, params) {
             message = "Request superseded by updated document content")
     }
     doc$set_content(doc$version, content)
+    doc$member_refresh <- isTRUE(lsp_settings$get("member_completion"))
     doc$did_open()
     update_document_index(
         self, workspace, uri, doc$content, cacheable = TRUE)

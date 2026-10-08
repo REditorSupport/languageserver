@@ -48,6 +48,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"fuzzy_find_c", (DL_FUNC) &fuzzy_find_c, 2},
     {"completion_parse_index_c", (DL_FUNC) &completion_parse_index_c, 7},
     {"completion_select_c", (DL_FUNC) &completion_select_c, 4},
+    {"member_binding_c", (DL_FUNC) &member_binding_c, 3},
     {"source_calls_c", (DL_FUNC) &source_calls_c, 1},
     {"navigation_find_token_c", (DL_FUNC) &navigation_find_token_c, 6},
     {"reference_resolve_local_c", (DL_FUNC) &reference_resolve_local_c, 8},

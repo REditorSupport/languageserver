@@ -82,6 +82,33 @@ signature_reply <- function(id, uri, workspace, document, point) {
     }
 
     result <- document$detect_call(point)
+    if (isTRUE(lsp_settings$get("member_completion"))) {
+        location <- member_call_location(document, point, result, symbols = TRUE)
+        if (!is.null(location)) {
+            symbol <- member_symbol(uri, workspace, document, location)
+            if (is.null(location$cursor$accessor) && is.null(symbol$value$s7_generator)) location <- NULL
+        }
+        if (!is.null(location)) {
+            sig <- symbol$signature
+            if (is.null(sig)) {
+                return(Response$new(id, list(signatures = list())))
+            }
+            doc <- member_symbol_documentation(workspace, symbol, uri)
+            description <- if (is.character(doc)) doc else if (is.list(doc)) doc$description
+            return(Response$new(id, result = list(
+                signatures = list(list(
+                    label = sig,
+                    documentation = list(kind = "markdown", value = if (is.null(description)) "" else description),
+                    parameters = parse_signature_parameters(sig)
+                )),
+                activeSignature = 0L,
+                activeParameter = detect_active_parameter(
+                    document$content,
+                    result$opening$row, result$opening$col, point$row, point$col, sig
+                )
+            )))
+        }
+    }
 
     SignatureInformation <- list()
     activeSignature <- NULL

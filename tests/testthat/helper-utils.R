@@ -501,6 +501,11 @@ respond_semantic_tokens_range <- function(client, path, start_pos, end_pos, ...,
 }
 
 wait_for <- function(client, method, timeout = 30) {
+    if (missing(timeout) && identical(Sys.getenv("R_COVR"), "true")) {
+        # Diagnostics now wait for parsing. Coverage adds overhead to both
+        # workers, especially when several test processes start them together.
+        timeout <- 60
+    }
     storage <- new.env(parent = .GlobalEnv)
     start_time <- Sys.time()
     remaining <- timeout

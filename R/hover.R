@@ -18,17 +18,20 @@ function_argument_hover_contents <- function(workspace, funct, package, paramete
             funct, package, isf = TRUE, uri = uri)
     }
     if (!is.list(doc)) return(NULL)
+    sig <- if (is.null(uri)) workspace$get_signature(funct, package)
+    else call_with_optional_uri(
+        workspace$get_signature, funct, package, uri = uri)
+    argument_hover_contents(doc, sig, parameter)
+}
 
+argument_hover_contents <- function(doc, sig, parameter) {
+    if (!is.list(doc)) return(NULL)
     doc_string <- doc$arguments[[parameter]]
     if (is.null(doc_string)) {
         doc_string <- doc$arguments$...
         parameter <- "..."
     }
     if (is.null(doc_string)) return(NULL)
-
-    sig <- if (is.null(uri)) workspace$get_signature(funct, package)
-    else call_with_optional_uri(
-        workspace$get_signature, funct, package, uri = uri)
     if (is.null(sig)) return(doc_string)
 
     c(
@@ -43,6 +46,18 @@ function_argument_hover_contents <- function(workspace, funct, package, paramete
 #' if it exists in the current [Workspace].
 #' @noRd
 hover_reply <- function(id, uri, workspace, document, point) {
+    if (isTRUE(lsp_settings$get("member_completion"))) {
+        location <- member_hover_location(document, point)
+        if (is.null(location)) location <- member_argument_location(document, point)
+        if (!is.null(location)) {
+            return(member_hover_reply(id, uri, workspace, document, location))
+        }
+        location <- member_argument_location(document, point, symbols = TRUE)
+        if (is.null(location)) location <- member_symbol_location(document, point)
+        if (!is.null(member_constructor_symbol(uri, workspace, document, location))) {
+            return(member_hover_reply(id, uri, workspace, document, location))
+        }
+    }
     if (!check_scope(uri, document, point)) {
         return(Response$new(id))
     }
