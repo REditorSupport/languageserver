@@ -4,6 +4,8 @@
   list/environment factories, declarative R6 classes and package method
   registries. Package metadata is prepared in a background worker; completion
   never calls document expressions, constructors, methods or active getters.
+- Preserve member completion for assigned and reassigned Polars query chains,
+  including DataFrame results after `collect()`, within the inference budget.
 - Use the same static member inference for signature help and hover, including
   chained methods and named argument documentation. Member requests wait for the
   current parse after edits, fixing stale completions on the first `$` trigger.

@@ -417,7 +417,7 @@ member_infer <- function(
         state <- flow(body, env)
         if (state$falls) member_join(state$returns, state$value) else state$returns
     }
-    bind_arguments <- function(fn, actuals, env) {
+    bind_arguments <- function(fn, actuals, env, defaults = TRUE) {
         formals <- as.list(fn[[2L]])
         keys <- names(formals)
         dots <- match("...", keys)
@@ -454,7 +454,9 @@ member_infer <- function(
         }
         if (!is.na(dots)) env["..."] <- list(member_value(type = "list", elements = actuals[!matched]))
         for (name in setdiff(keys, c(used, "..."))) {
-            env[name] <- list(if (identical(formals[[name]], quote(expr = ))) {
+            env[name] <- list(if (!defaults) {
+                unknown
+            } else if (identical(formals[[name]], quote(expr = ))) {
                 member_value(type = ".missing")
             } else {
                 infer(formals[[name]], env)
@@ -822,6 +824,26 @@ member_infer <- function(
         return(member_value(type = ".never"))
     }
     args <- as.list(expr)[-1L]
+    callee <- NULL
+    if (!intrinsic(head)) {
+        callee <- infer(expr[[1L]])
+        if (!is.null(callee$function_key) && is.null(callee$metadata)) {
+            self <- callee$receiver_value
+            key <- if (is.null(self)) callee$function_key else paste(self$type, callee$function_key, sep = "|")
+            summary <- member_lookup(index$method_results, key)
+            if (is.null(summary)) summary <- member_lookup(index$method_results, callee$function_key)
+            if (!is.null(summary) && !any(vapply(args, identical, logical(1L), as.name("...")))) {
+                fn <- member_definition(index$definitions, callee$function_key)
+                if (member_head(fn, "function")) {
+                    actuals <- lapply(args, function(arg) unknown)
+                    if (is.null(bind_arguments(fn, actuals, list(), defaults = FALSE))) {
+                        return(member_value(reason = "argument_matching"))
+                    }
+                    return(summary)
+                }
+            }
+        }
+    }
     if (head == "missing" && intrinsic(head) && length(args) == 1L &&
         identical(args[[1L]], as.name("..."))) {
         dots <- member_lookup(bindings, "...")
@@ -1079,7 +1101,7 @@ member_infer <- function(
         }
         return(unknown)
     }
-    callee <- infer(expr[[1L]])
+    if (is.null(callee)) callee <- infer(expr[[1L]])
     if (identical(callee$metadata, "S7") && callee$function_key %in% member_s7_intrinsics) {
         return(member_s7_call(expr, index, bindings, budget, callee$function_key))
     }

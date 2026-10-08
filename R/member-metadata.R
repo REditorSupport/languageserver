@@ -363,6 +363,10 @@ member_index_thaw <- function(snapshot) {
         return(NULL)
     }
     index <- list2env(snapshot, parent = emptyenv())
+    if (!is.null(index$return_definitions) &&
+            !identical(index$return_definitions, digest::digest(index$definitions, algo = "xxhash64"))) {
+        index$method_results <- list()
+    }
     index$cache <- new.env(parent = emptyenv())
     index
 }

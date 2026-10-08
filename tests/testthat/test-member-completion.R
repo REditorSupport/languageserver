@@ -251,6 +251,37 @@ test_that("Polars query assignments retain LazyFrame members within the request 
     }
 })
 
+test_that("Reassigned collected Polars queries retain their current DataFrame members", {
+    skip_if_not_installed("polars")
+    snapshot <- member_prepare_package("polars")
+    lines <- c(
+        "library(polars)", "",
+        "csv_file <- tempfile(fileext = \".csv\")",
+        "write.csv(iris, csv_file, row.names = FALSE)", "",
+        "q <- pl$scan_csv(csv_file, infer_schema_files = 10)", "",
+        "q1 <- q$filter(pl$col(\"Sepal.Length\") > 5)", "q1 # working here", "",
+        "q1 <- q$filter(pl$col(\"Sepal.Length\") > 5)$group_by(\"Species\")$agg(pl$all()$median())$collect()",
+        "q1 # collected", "",
+        "q2 <- q1$group_by(\"Species\")$agg(pl$all()$sum())", "q2 # collected"
+    )
+    for (row in c(8L, 11L, 14L)) {
+        edited <- lines
+        edited[[row + 1L]] <- paste0(substr(edited[[row + 1L]], 1L, 2L), "$", substring(edited[[row + 1L]], 3L))
+        fixture <- member_fixture(paste(edited, collapse = "\n"), list(polars = snapshot),
+            point = list(row = row, col = 3L))
+        resolved <- member_resolve_cursor(
+            fixture$document$uri, fixture$workspace, fixture$document, fixture$point,
+            member_cursor(fixture$document, fixture$point)
+        )
+        expect_identical(resolved$value$type, if (row == 8L) "polars_lazy_frame" else "polars_data_frame")
+        expect_false(resolved$budget$exhausted)
+        labels <- names(member_members(resolved$value, resolved$index))
+        expect_true(all(c("filter", "group_by") %in% labels))
+        expect_identical("collect" %in% labels, row == 8L)
+        expect_identical("lazy" %in% labels, row != 8L)
+    }
+})
+
 test_that("LSP completion returns member identity and preserves calls", {
     fixture <- member_fixture("factory <- function() list(run=function(arg=1) list(done=1))\nfactory()$ru()")
     fixture$point <- list(row = 1L, col = 12L)
@@ -415,6 +446,40 @@ test_that("Package extraction follows registries and factories with unrelated na
     )))
     expect_true("finish" %in% member_labels("library(fluentfixture)\napi$start(x)$", list(fluentfixture = updated)))
     expect_false(identical(snapshot$generation, updated$generation))
+    expect_false(file.exists(marker))
+})
+
+test_that("Prepared returns preserve argument-dependent results and metadata changes", {
+    marker <- tempfile()
+    on.exit(unlink(marker))
+    code <- paste(c(
+        "api <- new.env(parent=emptyenv())",
+        "native_box <- function(pointer) {box <- new.env(); box$step <- make_step(pointer); class(box) <- \"raw_box\"; box}",
+        "make_step <- function(pointer) function() native_box(.Call(\"never\",pointer))",
+        "adapt <- function(x) UseMethod(\"adapt\")",
+        "adapt.raw_box <- function(x) {box <- new.env(); box$raw <- x; class(box) <- \"public_box\"; box}",
+        sprintf("fixed <- function(first={writeLines(\"ran\",%s)}, second=1, third=1, fourth=1, fifth=1, sixth=1, seventh=1, eighth=1, ninth=1, tenth=1) adapt(native_box(.Call(\"never\")))", deparse(marker)),
+        "varying <- function(first, second=1, third=1, fourth=1, fifth=1, sixth=1, seventh=1, eighth=1, ninth=1, tenth=1) if(first) adapt(native_box(NULL)) else list(other=1)",
+        "api$fixed <- fixed", "api$varying <- varying"
+    ), collapse = "\n")
+    scope <- new.env(parent = baseenv())
+    eval(parse(text = code), scope)
+    index <- member_package_index(member_namespace_input(scope,
+            package = "returnfixture", exports = "api"))
+    snapshot <- member_index_freeze(index)
+    expect_identical(member_infer(quote(api$fixed()), index, index$roots)$type, "public_box")
+    expect_identical(member_infer(quote(api$fixed(stop("unused input"))), index, index$roots)$type, "public_box")
+    expect_identical(member_infer(quote(api$fixed(fir = 1)), index, index$roots)$type, "public_box")
+    expect_identical(member_infer(quote(api$fixed(first = 1, first = 2)), index, index$roots)$reason, "argument_matching")
+    expect_identical(member_infer(quote(api$fixed(unknown = 1)), index, index$roots)$reason, "argument_matching")
+    expect_identical(member_infer(quote(api$varying(FALSE)), index, index$roots)$type, "list")
+    expect_identical(member_infer(quote(api$varying(TRUE)), index, index$roots)$type, "public_box")
+    expect_identical(sort(member_infer(quote(api$varying(flag)), index, index$roots)$type), c("list", "public_box"))
+    # A snapshot edited before loading cannot retain a prepared result derived
+    # from an old method or one of its helpers.
+    snapshot$definitions$fixed[[3L]] <- quote(list(updated = TRUE))
+    changed <- member_index_thaw(snapshot)
+    expect_identical(member_infer(quote(api$fixed()), changed, changed$roots)$type, "list")
     expect_false(file.exists(marker))
 })
 

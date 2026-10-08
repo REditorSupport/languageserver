@@ -557,6 +557,53 @@ member_package_index <- function(input) {
     }
     index$roots <- index$package_roots[intersect(names(index$package_roots), index$exports)]
     for (name in names(index$roots)) index$namespace_roots[paste(input$package, name, sep = "::")] <- list(index$roots[[name]])
+    member_prepare_returns(index)
     index$cache <- new.env(parent = emptyenv())
     index
+}
+
+# Binding many defaults can dominate a request even when the result class does
+# not depend on any argument. Prepare those guarantees in the package worker.
+member_prepare_returns <- function(index) {
+    index$method_results <- list()
+    backed <- names(index$properties)[vapply(index$properties, function(fields) {
+        any(vapply(fields, function(value) {
+            length(value$type) == 1L &&
+                any(index$members[[value$type]] %in% index$native_factories, na.rm = TRUE)
+        }, logical(1L)))
+    }, logical(1L))]
+    backed <- intersect(backed, names(index$classes))
+    if (!length(backed)) return(invisible(NULL))
+    prepare <- function(key, type = NULL) {
+        fn <- member_definition(index$definitions, key)
+        # This is a preparation-cost heuristic, not a return-type rule. Small
+        # functions keep using ordinary argument-sensitive request inference.
+        if (!member_head(fn, "function") || length(fn[[2L]]) < 10L) return()
+        env <- index$package_roots
+        for (name in names(fn[[2L]])) env[name] <- list(member_value())
+        if (!is.null(type)) {
+            receiver <- member_lookup(index$method_receivers, paste(type, key, sep = "|"))
+            if (is.null(receiver)) receiver <- "self"
+            # Use only class guarantees, never a representative instance's fields.
+            env[receiver] <- list(member_value(type = type))
+        }
+        budget <- new.env(parent = emptyenv())
+        budget$remaining <- 10000L
+        budget$exhausted <- budget$transient <- FALSE
+        result <- member_infer(fn[[3L]], index, env, budget = budget,
+            context = list(key = key, formals = names(fn[[2L]]), actuals = list()))
+        if (!budget$exhausted && length(result$type) == 1L && result$type %in% backed) {
+            id <- if (is.null(type)) key else paste(type, key, sep = "|")
+            # Native-backed declarative classes expose their members in the
+            # index. Argument-dependent fields must not enter a universal summary.
+            index$method_results[id] <- list(member_value(type = result$type, classes = result$classes))
+        }
+    }
+    for (key in names(index$definitions)) prepare(key)
+    for (type in intersect(names(index$members), names(index$classes))) {
+        if (any(index$members[[type]] %in% index$native_factories, na.rm = TRUE)) next
+        for (key in unique(unname(index$members[[type]]))) if (!is.na(key)) prepare(key, type)
+    }
+    index$return_definitions <- digest::digest(index$definitions, algo = "xxhash64")
+    invisible(NULL)
 }
