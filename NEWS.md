@@ -1,5 +1,9 @@
 # languageserver 0.3.20
 
+- Keep parameter-name inlay hints for untouched calls during incomplete edits,
+  moving their positions with incremental changes and refreshing after a valid
+  parse, so a temporary syntax error does not clear hints across the document.
+
 - Complete chained `$` members using static receiver analysis, including source
   list/environment factories, declarative R6 classes and package method
   registries. Package metadata is prepared in a background worker; completion
