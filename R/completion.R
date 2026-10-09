@@ -34,6 +34,16 @@ InsertTextFormat <- list(
     Snippet = 2
 )
 
+quote_completion_name <- function(name) {
+    if (identical(make.names(name), name)) name else encodeString(name, quote = "`")
+}
+
+escape_completion_snippet <- function(text) {
+    text <- gsub("\\", "\\\\", text, fixed = TRUE)
+    text <- gsub("$", "\\$", text, fixed = TRUE)
+    gsub("}", "\\}", text, fixed = TRUE)
+}
+
 sort_prefixes <- list(
     arg = "0-",
     scope = "1-",
@@ -364,11 +374,13 @@ arg_completion <- function(uri, workspace, point, token, funct, package = NULL, 
     }
 
     completions <- .mapply(function(arg, sort_text) {
+        # XML formals already include source backticks; namespace formals do not.
+        inserted <- if (is.null(token_data$uri)) quote_completion_name(arg) else arg
         list(label = arg,
             kind = CompletionItemKind$Variable,
             detail = "parameter",
             sortText = sort_text,
-            insertText = paste0(arg, " = "),
+            insertText = paste0(inserted, " = "),
             insertTextFormat = InsertTextFormat$PlainText,
             data = token_data
         )
@@ -395,7 +407,7 @@ ns_function_completion <- function(ns, token, exported_only, snippet_support) {
                 kind = CompletionItemKind$Function,
                 detail = tag,
                 sortText = paste0(sort_prefix, object),
-                insertText = paste0(object, "($0)"),
+                insertText = paste0(escape_completion_snippet(quote_completion_name(object)), "($0)"),
                 insertTextFormat = InsertTextFormat$Snippet,
                 data = list(
                     type = "function",
@@ -404,7 +416,8 @@ ns_function_completion <- function(ns, token, exported_only, snippet_support) {
         })
     } else {
         completions <- lapply(functs, function(object) {
-            list(label = object,
+            inserted <- quote_completion_name(object)
+            item <- list(label = object,
                 kind = CompletionItemKind$Function,
                 detail = tag,
                 sortText = paste0(sort_prefix, object),
@@ -412,6 +425,8 @@ ns_function_completion <- function(ns, token, exported_only, snippet_support) {
                     type = "function",
                     package = nsname
             ))
+            if (!identical(inserted, object)) item$insertText <- inserted
+            item
         })
     }
     completions
@@ -436,13 +451,14 @@ imported_object_completion <- function(workspace, token, snippet_support) {
                     kind = CompletionItemKind$Function,
                     detail = paste0("{", nsname, "}"),
                     sortText = paste0(sort_prefixes$imported, object),
-                    insertText = paste0(object, "($0)"),
+                    insertText = paste0(escape_completion_snippet(quote_completion_name(object)), "($0)"),
                     insertTextFormat = InsertTextFormat$Snippet,
                     data = list(
                         type = "function",
                         package = nsname
                 ))
             } else {
+                inserted <- quote_completion_name(object)
                 item <- list(label = object,
                     kind = CompletionItemKind$Function,
                     detail = paste0("{", nsname, "}"),
@@ -451,6 +467,7 @@ imported_object_completion <- function(workspace, token, snippet_support) {
                         type = "function",
                         package = nsname
                 ))
+                if (!identical(inserted, object)) item$insertText <- inserted
             }
             idx <- idx + 1L
             completions[[idx]] <- item
@@ -651,6 +668,7 @@ workspace_completion <- function(workspace, token,
 
     completions <- unname(Map(function(label, kind, detail, sort_text,
         type, package, is_function) {
+        inserted <- quote_completion_name(label)
         data <- list(type = type, package = package)
         if (!is.null(uri)) data$context_uri <- uri
         if (isTRUE(snippet_support) && is_function) {
@@ -659,18 +677,20 @@ workspace_completion <- function(workspace, token,
                 kind = kind,
                 detail = detail,
                 sortText = sort_text,
-                insertText = paste0(label, "($0)"),
+                insertText = paste0(escape_completion_snippet(inserted), "($0)"),
                 insertTextFormat = InsertTextFormat$Snippet,
                 data = data
             )
         } else {
-            list(
+            item <- list(
                 label = label,
                 kind = kind,
                 detail = detail,
                 sortText = sort_text,
                 data = data
             )
+            if (!identical(inserted, label)) item$insertText <- inserted
+            item
         }
     }, labels, kinds, details, sort_text, types, packages, functions))
 
@@ -794,7 +814,7 @@ scope_completion <- function(uri, workspace, token, point,
                 kind = CompletionItemKind$Function,
                 detail = "[scope]",
                 sortText = paste0(sort_prefixes$scope, symbol),
-                insertText = paste0(symbol, "($0)"),
+                insertText = paste0(escape_completion_snippet(symbol), "($0)"),
                 insertTextFormat = InsertTextFormat$Snippet,
                 data = list(
                     type = "function",

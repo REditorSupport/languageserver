@@ -516,14 +516,10 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
         symbol <- member_symbol_info(label, shape, key, index)
         is_function <- !is.null(shape$function_expr) || !is.null(shape$result_shape) ||
             !is.null(shape$function_key) || (!is.null(key) && !is.na(key))
-        inserted <- if (identical(make.names(label), label) && !label %in% c("TRUE", "FALSE", "NULL", "NA")) {
-            label
-        } else {
-            paste0("`", gsub("`", "\\`", gsub("\\", "\\\\", label, fixed = TRUE), fixed = TRUE), "`")
-        }
+        inserted <- quote_completion_name(label)
         following <- substring(document$line0(point$row), cursor$end + 1L)
         snippet <- is_function && snippet_support && !startsWith(trimws(following), "(")
-        text <- if (snippet) paste0(gsub("[$}]", "\\\\&", inserted), "($0)") else inserted
+        text <- if (snippet) paste0(escape_completion_snippet(inserted), "($0)") else inserted
         signature <- symbol$signature
         documentation_id <- symbol$function_id
         list(

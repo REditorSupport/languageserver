@@ -1494,6 +1494,71 @@ completion_test_namespace <- function(name, functions = character(),
     namespace
 }
 
+test_that("Object completions quote non-syntactic names", {
+    namespace <- completion_test_namespace(
+        "example", functions = "run task", values = "Mazda RX4"
+    )
+    workspace <- new.env(parent = baseenv())
+    workspace$loaded_packages <- "example"
+    workspace$imported_objects <- collections::dict()
+    workspace$imported_objects$set("run task", "example")
+    workspace$get_namespace <- function(name) {
+        if (identical(name, "example")) namespace else NULL
+    }
+
+    for (snippets in c(FALSE, TRUE)) {
+        expected <- if (snippets) "`run task`($0)" else "`run task`"
+        item <- ns_function_completion(namespace, "run", TRUE, snippets)[[1L]]
+        expect_identical(item$label, "run task")
+        expect_identical(item$insertText, expected)
+        item <- imported_object_completion(workspace, "run", snippets)[[1L]]
+        expect_identical(item$insertText, expected)
+        items <- workspace_completion(workspace, "", snippet_support = snippets)
+        functions <- Filter(function(item) identical(item$label, "run task"), items)
+        expect_length(functions, 2L)
+        expect_true(all(vapply(functions, function(item) identical(item$insertText, expected), logical(1L))))
+        value <- Filter(function(item) identical(item$label, "Mazda RX4"), items)[[1L]]
+        expect_identical(value$insertText, "`Mazda RX4`")
+        expect_identical(as.character(parse(text = value$insertText)[[1L]]), value$label)
+    }
+})
+
+test_that("Argument completions quote names from namespace formals", {
+    fixture <- provider_fixture("target(", formals_resolver = function(...) {
+        alist(`a b` = , `if` = , normal = )
+    })
+    items <- arg_completion(fixture$uri, fixture$workspace, list(row = 0L, col = 7L),
+        "", "target", package = "example")
+    expect_identical(vapply(items, `[[`, character(1L), "insertText"),
+        c("`a b` = ", "`if` = ", "normal = "))
+    for (item in items) {
+        call <- parse(text = paste0("target(", item$insertText, "1)"))[[1L]]
+        expect_identical(names(call)[[2L]], item$label)
+    }
+
+    fixture <- provider_fixture(c("local({", "target <- function(`a b`) NULL", "target(", ")", "})"))
+    items <- arg_completion(fixture$uri, fixture$workspace, list(row = 2L, col = 7L),
+        "", "target")
+    expect_identical(items[[1L]]$insertText, "`a b` = ")
+})
+
+test_that("LSP completion quotes names without duplicating existing calls", {
+    fixture <- provider_fixture(c("example::run", "example::run()"))
+    namespace <- completion_test_namespace("example", functions = "run task")
+    fixture$workspace$get_namespace <- function(name) namespace
+    for (snippets in c(FALSE, TRUE)) {
+        for (row in 0:1) {
+            items <- completion_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+                list(row = row, col = 12L),
+                list(completionItem = list(snippetSupport = snippets)))$result$items
+            expect_length(items, 1L)
+            expect_identical(items[[1L]]$label, "run task")
+            expect_identical(items[[1L]]$insertText,
+                if (snippets && row == 0L) "`run task`($0)" else "`run task`")
+        }
+    }
+})
+
 test_that("Function completions preserve existing call parentheses", {
     fixture <- provider_fixture(c("mea(x)", "mea"))
     namespace <- completion_test_namespace("base", functions = "mean")
