@@ -71,7 +71,7 @@ on_initialized <- function(self, params) {
 #' @noRd
 on_shutdown <- function(self, id, params) {
     self$exit_flag <- TRUE
-    self$deliver(Response$new(id = id, result = list()))
+    self$deliver(Response$new(id = id, result = NULL))
 }
 
 
