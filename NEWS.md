@@ -9,9 +9,10 @@
   current parse after edits, fixing stale completions on the first `$` trigger.
 - Resolve member names across line breaks and infer `self`, `super` and
   `private` inside supported R6 methods for completion, hover and signatures.
-- Infer methods copied into R6 instances during initialization, including
-  Redux Redis commands, without running constructors or connecting to servers.
-  Prepare metadata for namespace-qualified factories without a `library()` call.
+- Extend member completion, signature help and hover to package factories backed
+  by internal R6 classes and methods assigned during initialization. Support
+  namespace-qualified factories and R6 constructors without a `library()` call,
+  without executing constructors, methods or user arguments.
 - Complete S4 `@` slots from source declarations and installed class metadata,
   including inheritance, aliases and factory results. Show slot types on hover
   and signatures for slots whose function definitions are known statically.
