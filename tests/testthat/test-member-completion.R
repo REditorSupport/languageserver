@@ -115,7 +115,7 @@ test_that("R6 initialization exposes finite copied methods without executing cod
     declarations <- paste0(
         "commands <- function(send) list(GET=function(key) send(key), ",
         "SET=function(key, value, option=NULL) send(key, value))\n",
-        "Client <- R6::R6Class(\"Client\", public=list(initialize=function(send) {",
+        "Client <- R6::R6Class(\"Client\", lock_objects=FALSE, public=list(initialize=function(send) {",
         sprintf("writeLines(\"ran\", %s);", encodeString(marker, quote = "\"")),
         "methods <- commands(send); for (name in names(methods)) self[[name]] <- methods[[name]]",
         "}, ready=function() self))\n"
@@ -129,10 +129,10 @@ test_that("R6 initialization exposes finite copied methods without executing cod
     for (body in c("for (name in names(unknown)) self[[name]] <- unknown[[name]]",
             "methods <- list(run=function() NULL); for (name in unknown) self[[name]] <- methods[[name]]",
             "methods <- list(run=function() NULL); for (name in names(methods)) self[[name]] <- opaque()")) {
-        code <- sprintf("Client <- R6::R6Class(\"Client\", public=list(initialize=function() {%s}, ready=1))\nClient$new()$", body)
+        code <- sprintf("Client <- R6::R6Class(\"Client\", lock_objects=FALSE, public=list(initialize=function() {%s}, ready=1))\nClient$new()$", body)
         expect_identical(member_labels(code), c("initialize", "ready"))
     }
-    code <- paste0("Client <- R6::R6Class(\"Client\", public=list(initialize=function(flag) {",
+    code <- paste0("Client <- R6::R6Class(\"Client\", lock_objects=FALSE, public=list(initialize=function(flag) {",
         "if (flag) {methods <- list(run=function() NULL); for (name in names(methods)) self[[name]] <- methods[[name]]}",
         "}, ready=1))\n")
     expect_identical(member_labels(paste0(code, "Client$new(unknown)$")), c("initialize", "ready"))
@@ -144,7 +144,7 @@ test_that("Internal package R6 generators are available to exported factories", 
     marker <- withr::local_tempfile()
     ns <- new.env(parent = emptyenv())
     ns$commands <- function() list(extra = function(key) NULL)
-    ns$Internal <- R6::R6Class("Internal", public = list(
+    ns$Internal <- R6::R6Class("Internal", lock_objects = FALSE, public = list(
         initialize = function() {
             writeLines("ran", marker)
             methods <- commands()
@@ -163,6 +163,47 @@ test_that("Internal package R6 generators are available to exported factories", 
     expect_identical(member_labels("fixture::Internal$new()$", list(fixture = snapshot)),
         c("clone", "extra", "initialize", "run"))
     expect_false(file.exists(marker))
+})
+
+test_that("R6 initialization respects locking and ignores initializer return values", {
+    for (locking in c("", ", lock_objects=TRUE", ", lock_objects=unknown")) {
+        for (body in c("self$extra <- 1",
+                "methods <- list(extra=function() NULL); for (name in names(methods)) self[[name]] <- methods[[name]]")) {
+            code <- sprintf('Client <- R6::R6Class("Client"%s, public=list(initialize=function() {%s}, ready=1))\nClient$new()$', locking, body)
+            expect_identical(member_labels(code), c("initialize", "ready"))
+        }
+    }
+    for (body in c("self$extra <- 1; return(private)",
+            "self$extra <- 1; return(invisible(NULL))", "self$extra <- 1; return(list(secret=1))",
+            "self$extra <- 1; self <- private; return(self)", "return({self$extra <- 1; NULL})")) {
+        code <- sprintf('Client <- R6::R6Class("Client", lock_objects=FALSE, public=list(initialize=function() {%s}), private=list(secret=1))\nClient$new()$', body)
+        expect_identical(member_labels(code), c("extra", "initialize"), info = body)
+    }
+    for (body in c("self$run <- function(value=2) NULL; return(private)",
+            "alias <- self; alias$run <- function(value=2) NULL; return(NULL)")) {
+        code <- sprintf('Client <- R6::R6Class("Client", public=list(run=NULL, initialize=function() {%s}), private=list(secret=1))\nClient$new()$ru', body)
+        expect_identical(member_items(code)[[1L]]$detail, "run(value = 2)")
+    }
+    code <- paste0('Client <- R6::R6Class("Client", lock_objects=FALSE, public=list(initialize=function(flag) {',
+        "self$common <- 1; if(flag) {self$early <- 1; return(private)}; self$late <- 1; return(NULL)",
+        "}), private=list(secret=1))\nClient$new(unknown)$")
+    expect_identical(member_labels(code), c("common", "initialize"))
+    code <- paste0('Client <- R6::R6Class("Client", lock_objects=FALSE, public=list(initialize=function() {',
+        "value <- if(TRUE) 42 else 0; self$answer <- value; return(private)",
+        "}), private=list(secret=1))\nClient$new()$answer")
+    index <- member_generic_index(code)
+    bindings <- list(Client = member_infer(index$definitions$Client, index))
+    expect_identical(member_infer(quote(Client$new()$answer), index, bindings)$literal, 42)
+
+    # Runtime generator metadata must preserve the actual locking setting.
+    for (locked in c(TRUE, FALSE)) {
+        generator <- R6::R6Class("Client", lock_objects = locked, public = list(
+            initialize = function() self$extra <- 1))
+        index <- member_generic_index("")
+        index$roots$Client <- member_r6_runtime_shape(generator, index)
+        labels <- member_labels("library(fixture)\nClient$new()$", list(fixture = member_index_freeze(index)))
+        expect_identical("extra" %in% labels, !locked)
+    }
 })
 
 test_that("Installed Redux members resolve without a Redis connection", {
@@ -379,7 +420,7 @@ test_that("Invalid empty binding names cannot break document parsing", {
 test_that("Metadata resolution survives edits with unchanged package requests", {
     uri <- "file:///resolution.R"
     document <- Document$new(uri, version = 2L, content = "library(fixture)")
-    document$requested_packages <- "fixture"
+    document$requested_packages <- list(packages = "fixture", namespace_packages = character())
     docs <- collections::dict()
     docs$set(uri, document)
     metadata <- collections::dict()
@@ -389,10 +430,11 @@ test_that("Metadata resolution survives edits with unchanged package requests", 
     )
     self <- list(get_workspace = function(...) workspace)
     snapshot <- member_index_freeze(member_generic_index(""))
-    resolve_callback(self, uri, 1L, list(packages = "fixture", members = list(fixture = snapshot), requested = "fixture"))
+    resolve_callback(self, uri, 1L, list(packages = "fixture", members = list(fixture = snapshot), requested = document$requested_packages))
     expect_true(metadata$has("fixture"))
     metadata$clear()
-    resolve_callback(self, uri, 1L, list(packages = "other", members = list(other = snapshot), requested = "other"))
+    resolve_callback(self, uri, 1L, list(packages = "other", members = list(other = snapshot),
+            requested = list(packages = "other", namespace_packages = character())))
     expect_false(metadata$has("other"))
 })
 

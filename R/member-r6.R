@@ -56,7 +56,12 @@ member_r6_shape <- function(expr, index, bindings, budget) {
             fields[name] <- list(member_value(reason = "active_property"))
         }
     }
+    # R6 locks instance environments before initialize() runs. Only an explicit
+    # FALSE can allow new bindings; an unknown setting remains conservative.
+    locked <- is.null(args$lock_objects) ||
+        !identical(member_infer(args$lock_objects, index, bindings, budget = budget)$literal, FALSE)
     private_value <- member_value(type = "environment", fields = private)
+    private_value$r6_locked <- locked
     for (name in own$public) {
         if (!is.null(fields[[name]]$function_expr)) fields[[name]]$closure$private <- private_value
     }
@@ -65,6 +70,8 @@ member_r6_shape <- function(expr, index, bindings, budget) {
     }
     instance <- member_value(type = "environment", fields = fields, open = TRUE,
         r6_private = member_value(type = "environment", fields = private), r6_super = super)
+    instance$r6_private$r6_locked <- locked
+    instance$r6_locked <- locked
     generator <- member_value(type = "environment", fields = list(new = member_value(
         type = "function", result_shape = instance
     )))
@@ -90,12 +97,18 @@ member_r6_construct <- function(callee, actuals, index, budget, depth, trail) {
     initialize <- callee$r6_initialize
     fn <- initialize$function_expr
     if (!member_head(fn, "function")) return(instance)
-    fn[[3L]] <- as.call(list(as.name("{"), fn[[3L]], as.name("self")))
+    # Track the original instance independently of the self binding and the
+    # initializer's ignored return value. Aliases carry the same inert identity.
+    budget$r6_identity <- if (is.null(budget$r6_identity)) 1L else budget$r6_identity + 1L
+    instance$r6_identity <- budget$r6_identity
+    fn[[3L]] <- as.call(list(as.name("{"), fn[[3L]]))
     env <- index$package_roots
     for (name in names(initialize$closure)) env[name] <- initialize$closure[name]
     env$self <- instance
+    env$.__r6_instance__ <- instance
     env$private <- instance$r6_private
     env$.__r6_initialize__ <- member_value(function_expr = fn, closure = env)
+    env$.__r6_initialize__$r6_initialize <- TRUE
     for (i in seq_along(actuals)) env[paste0(".__r6_arg", i)] <- list(actuals[[i]])
     call <- as.call(c(list(as.name(".__r6_initialize__")),
             stats::setNames(lapply(seq_along(actuals), function(i) as.name(paste0(".__r6_arg", i))), names(actuals))))
@@ -103,6 +116,7 @@ member_r6_construct <- function(callee, actuals, index, budget, depth, trail) {
     if (identical(result$type, "environment") && !is.null(result$fields)) {
         for (name in names(result$fields)) instance$fields[name] <- result$fields[name]
     }
+    instance$r6_identity <- NULL
     instance
 }
 
@@ -156,7 +170,8 @@ member_r6_runtime_shape <- function(generator, index, trail = list()) {
     expr <- as.call(list(as.call(list(as.name("::"), as.name("R6"), as.name("R6Class"))),
             classname = "inspected", public = convert(c(public_fields, public)),
             private = convert(c(private_fields, private_methods)),
-            active = convert(active), inherit = as.name(".__r6_parent__")
+            active = convert(active), inherit = as.name(".__r6_parent__"),
+            lock_objects = get_plain("lock_objects")
         ))
     shape <- member_r6_shape(expr, index, bindings, NULL)
     shape$fields$new$r6_package <- index$package

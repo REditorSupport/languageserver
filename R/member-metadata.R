@@ -408,6 +408,7 @@ member_resolve_packages <- function(pkgs, lib_paths, prepare = TRUE, namespace_p
     }
     list(
         packages = packages, members = snapshots,
-        requested = normalize_package_request(unique(c(pkgs, namespace_packages)))
+        requested = list(packages = normalize_package_request(pkgs),
+            namespace_packages = normalize_package_request(unique(namespace_packages)))
     )
 }

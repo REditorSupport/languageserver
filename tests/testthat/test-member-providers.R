@@ -217,7 +217,7 @@ test_that("R6 members use public inherited declarations without initialization o
 test_that("Copied R6 command methods share completion, signatures and hover", {
     lines <- c(
         "commands <- function(send) list(GET=function(key) send(key), SET=function(key, value, option=NULL) send(key, value))",
-        "Client <- R6::R6Class(\"Client\", public=list(initialize=function(send) {",
+        "Client <- R6::R6Class(\"Client\", lock_objects=FALSE, public=list(initialize=function(send) {",
         "methods <- commands(send); for (name in names(methods)) {self[[name]] <- methods[[name]]}",
         "}))", "client <- Client$new(unknown)", "client$SET(option = "
     )
@@ -227,6 +227,20 @@ test_that("Copied R6 command methods share completion, signatures and hover", {
     expect_identical(result$activeParameter, 2L)
     expect_identical(member_provider_hover(fixture, 5L, 8L)$contents,
         "```r\nSET(key, value, option = NULL)\n```")
+})
+
+test_that("R6 initializer early returns preserve public method providers", {
+    for (result in c("private", "invisible(NULL)", "list(secret=1)")) {
+        fixture <- member_provider_fixture(c(
+            sprintf('Client <- R6::R6Class("Client", public=list(run=NULL, initialize=function() {self$run <- function(value, flag=TRUE) NULL; return(%s)}), private=list(secret=1))', result),
+            "client <- Client$new()", "client$run(flag = "
+        ))
+        signature <- member_provider_signature(fixture)
+        expect_identical(signature$signatures[[1L]]$label, "run(value, flag = TRUE)")
+        expect_identical(signature$activeParameter, 1L)
+        expect_identical(member_provider_hover(fixture, 2L, 8L)$contents,
+            "```r\nrun(value, flag = TRUE)\n```")
+    }
 })
 
 test_that("Installed callr factory members share completion, signatures and hover", {

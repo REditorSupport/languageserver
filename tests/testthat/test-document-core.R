@@ -88,7 +88,7 @@ test_that("Parse callbacks only resolve when the package request changes", {
     named_packages <- c(first = "stats", second = "utils")
     parse_callback(self, uri, 1L, parse_data(named_packages))
     expect_equal(resolve_count, 1L)
-    expect_identical(document$requested_packages, c("stats", "utils"))
+    expect_identical(document$requested_packages, list(packages = c("stats", "utils"), namespace_packages = character()))
 
     # Representation-only differences must not schedule another subprocess.
     parse_callback(self, uri, 1L, parse_data(c("stats", "utils")))
@@ -102,7 +102,7 @@ test_that("Parse callbacks only resolve when the package request changes", {
     # Package order controls masking, so reordering must trigger resolution.
     parse_callback(self, uri, 1L, parse_data(c("utils", "stats")))
     expect_equal(resolve_count, 2L)
-    expect_identical(document$requested_packages, c("utils", "stats"))
+    expect_identical(document$requested_packages, list(packages = c("utils", "stats"), namespace_packages = character()))
 
     # Adding or removing a package must also trigger resolution.
     parse_callback(self, uri, 1L, parse_data(c("utils", "stats", "methods")))
@@ -112,7 +112,8 @@ test_that("Parse callbacks only resolve when the package request changes", {
     data$member_data$packages <- "namespacefixture"
     parse_callback(self, uri, 1L, data)
     expect_equal(resolve_count, 4L)
-    expect_identical(document$requested_packages, c("utils", "stats", "methods", "namespacefixture"))
+    expect_identical(document$requested_packages,
+        list(packages = c("utils", "stats", "methods"), namespace_packages = "namespacefixture"))
     expect_identical(document$loaded_packages, c("utils", "stats", "methods"))
     parse_callback(self, uri, 1L, data)
     expect_equal(resolve_count, 4L)
@@ -124,7 +125,28 @@ test_that("Namespace-qualified factories request package metadata without librar
         "factory <- function() utils::head(x)", "x$value"
     ))
     expect_length(data$packages, 0L)
-    expect_identical(member_package_request(data), c("stats", "utils"))
+    expect_identical(member_package_request(data), list(packages = character(), namespace_packages = c("stats", "utils")))
     expect_identical(data$member_data$packages, c("stats", "utils"))
     expect_length(data$member_data$imports, 0L)
+})
+
+test_that("Package requests distinguish attachment changes from namespace references", {
+    uri <- "file:///package-attachment.R"
+    workspace <- Workspace$new(NULL)
+    document <- Document$new(uri, version = 1L, content = "")
+    workspace$documents$set(uri, document)
+    count <- 0L
+    self <- list(get_workspace = function(...) workspace,
+        resolve_task_manager = list(add_task = function(...) count <<- count + 1L),
+        pending_replies = collections::dict(), request_handlers = list())
+    code <- c("x <- callr::r_bg(function() 42)", "library(callr); x <- r_bg(function() 42)")
+    for (i in c(1L, 2L, 1L)) {
+        parse_callback(self, uri, 1L, parse_document(uri, code[[i]]))
+        expect_identical(document$loaded_packages, if (i == 1L) character() else "callr")
+    }
+    expect_identical(count, 3L)
+    # An older resolution with the same merged names must not restore attachment.
+    requested <- member_package_request(parse_document(uri, code[[2L]]))
+    resolve_callback(self, uri, 0L, list(packages = "callr", members = list(), requested = requested))
+    expect_length(document$loaded_packages, 0L)
 })

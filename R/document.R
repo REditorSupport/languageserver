@@ -668,7 +668,10 @@ normalize_package_request <- function(packages) {
 }
 
 member_package_request <- function(parse_data) {
-    normalize_package_request(unique(c(parse_data$packages, parse_data$member_data$packages)))
+    list(
+        packages = normalize_package_request(parse_data$packages),
+        namespace_packages = normalize_package_request(unique(parse_data$member_data$packages))
+    )
 }
 
 
