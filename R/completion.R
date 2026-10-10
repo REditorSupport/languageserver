@@ -901,8 +901,12 @@ scope_completion <- function(uri, workspace, token, point,
             if (name %in% context$value$context_bindings) return(FALSE)
             value <- context$value$fields[[name]]
             if (is.null(value)) return(TRUE)
-            if (!length(value$type) && is.null(value$function_expr) && is.null(value$function_key) &&
-                    !identical(value$reason, "formal")) return(TRUE)
+            if (!length(value$type) && is.null(value$function_expr) && is.null(value$function_key)) {
+                # A method-local binding hides an outer function even when
+                # its value is opaque. Do not resurrect the outer call snippet.
+                if (name %in% context$value$context_locals) return(!functions)
+                if (!identical(value$reason, "formal")) return(TRUE)
+            }
             is_function <- !is.null(value$function_expr) || !is.null(value$function_key) ||
                 "function" %in% value$type
             identical(is_function, functions)

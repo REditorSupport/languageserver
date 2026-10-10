@@ -232,7 +232,8 @@ test_that("R6 context bindings hide enclosing functions without hiding method lo
                 name = "value", description = "Public field of R6 class `C`"),
             list(outer = "run <- 1", declaration = 'R6::R6Class("C", portable = FALSE, public = list(run = function() NULL,',
                 name = "run", description = "Public method of R6 class `C`"))) {
-            for (local in c("", paste0(case$name, " <- 1"), paste0(case$name, " <- function() NULL"))) {
+            for (local in c("", paste0(case$name, " <- 1"), paste0(case$name, " <- function() NULL"),
+                    paste0(case$name, " <- unknown"), paste0(case$name, " <- unknown()"))) {
                 fixture <- class_scope_fixture(c("make_class <- function() {", case$outer,
                         case$declaration, "probe = function() {", local), c("}))", "}"), token = case$name)
                 if (!indexed) fixture$document$parse_data$completion_data <- NULL
@@ -265,4 +266,25 @@ test_that("Ordinary completion reuses its lexical inference context", {
     items <- completion_reply(1L, fixture$uri, fixture$workspace, fixture$document, fixture$point, list())$result$items
     expect_identical(calls, 1L)
     expect_true("self" %in% vapply(items, `[[`, character(1L), "label"))
+})
+
+test_that("Opaque method locals hide enclosing function snippets in completion replies", {
+    for (nested in c(FALSE, TRUE)) {
+        fixture <- class_scope_fixture(c(
+            "make_class <- function() {", "self <- function() NULL",
+            'R6::R6Class("C", public = list(run = function() {',
+            if (nested) "nested <- function() {",
+            "self <- unknown()"
+        ), c(if (nested) "}", "}))", "}"), token = "se")
+        fixture$workspace$loaded_packages <- character()
+        fixture$workspace$imported_objects <- collections::dict()
+        fixture$workspace$get_namespace <- function(...) NULL
+        items <- completion_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+            fixture$point, list(completionItem = list(snippetSupport = TRUE)))$result$items
+        items <- Filter(function(item) identical(item$label, "self"), items)
+        expect_length(items, 1L)
+        expect_identical(items[[1L]]$kind, CompletionItemKind$Field)
+        expect_null(items[[1L]]$insertText)
+        expect_null(items[[1L]]$documentation)
+    }
 })

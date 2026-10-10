@@ -410,9 +410,10 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
         if (is.null(accessor) && is.symbol(node) && identical(member_name(node), sentinel)) {
             result <<- if (is.null(name)) {
                 internal <- c(".__member_position__", ".__s4_classes__", ".__member_properties__",
-                    ".__member_context_bindings__")
+                    ".__member_context_bindings__", ".__member_context_locals__")
                 value <- member_value(type = "environment", fields = env[setdiff(names(env), internal)])
                 value$context_bindings <- env$.__member_context_bindings__
+                value$context_locals <- env$.__member_context_locals__
                 value
             } else {
                 member_infer(as.name(name), index, env, budget = budget)
@@ -447,6 +448,9 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
         if (member_head(node, "function")) {
             for (formal in names(node[[2L]])) env[formal] <- list(member_value(reason = "formal"))
             env$.__member_context_bindings__ <- setdiff(env$.__member_context_bindings__, names(node[[2L]]))
+            if (!is.null(env$.__member_context_locals__)) {
+                env$.__member_context_locals__ <- union(env$.__member_context_locals__, names(node[[2L]]))
+            }
             for (i in seq_along(node[[2L]])) {
                 if (!identical(node[[2L]][[i]], quote(expr = )) && has_cursor(node[[2L]][[i]])) {
                     visit(node[[2L]][[i]], env)
@@ -459,6 +463,7 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
         if (member_is_r6_call(node, index, env) && has_cursor(node)) {
             scope <- member_r6_context(node, index, env, budget)
             scope$.__member_context_bindings__ <- names(scope)
+            scope$.__member_context_locals__ <- character()
             args <- as.list(node)[-1L]
             for (section in c("public", "private", "active")) {
                 if (!member_head(args[[section]], "list")) next
@@ -486,6 +491,9 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
                     for (name in assigned) env[name] <- list(member_value(reason = "unknown_local_write"))
                 }
                 env$.__member_context_bindings__ <- setdiff(env$.__member_context_bindings__, assigned)
+                if (!is.null(env$.__member_context_locals__)) {
+                    env$.__member_context_locals__ <- union(env$.__member_context_locals__, assigned)
+                }
             }
         } else {
             # A member can be the callee of a call in the complete context.
