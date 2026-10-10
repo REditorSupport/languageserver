@@ -52,9 +52,12 @@ hover_reply <- function(id, uri, workspace, document, point) {
         if (!is.null(location)) {
             return(member_hover_reply(id, uri, workspace, document, location))
         }
-        location <- member_argument_location(document, point, symbols = TRUE)
-        if (is.null(location)) location <- member_symbol_location(document, point)
-        symbol <- member_symbol(uri, workspace, document, location)
+        location <- if (member_symbol_required(workspace, document)) {
+            found <- member_argument_location(document, point, symbols = TRUE)
+            if (is.null(found)) found <- member_symbol_location(document, point)
+            found
+        }
+        symbol <- if (!is.null(location)) member_symbol(uri, workspace, document, location)
         if (!is.null(symbol$value$s7_generator) || !is.null(symbol$value$r6_role) ||
                 !is.null(symbol$value$r6_owner)) {
             return(member_hover_reply(id, uri, workspace, document, location, symbol))

@@ -355,8 +355,11 @@ member_index_freeze <- function(index) {
     # Prepare a cheap request-time hint in the metadata worker. Check syntax
     # and already inferred roots, including runtime R6 generators.
     value$class_scope <- isTRUE(value$r6_attached) ||
-        any(vapply(value$definitions, function(expr) any(grepl("R6Class", deparse(expr), fixed = TRUE)), logical(1L))) ||
+        any(vapply(value$definitions, function(expr) "R6Class" %in% member_syntax_names(expr), logical(1L))) ||
         any(vapply(value$package_roots, function(root) !is.null(root$r6_class), logical(1L)))
+    value$symbol_scope <- value$class_scope ||
+        any(vapply(value$definitions, function(expr) any(member_syntax_names(expr) %in% member_s7_intrinsics), logical(1L))) ||
+        any(vapply(value$package_roots, function(root) !is.null(root$s7_generator), logical(1L)))
     value$generation <- digest::digest(value, algo = "sha256")
     value$schema <- 1L
     if (as.numeric(utils::object.size(value)) > 32 * 1024^2) stop("Namespace exceeds snapshot budget")

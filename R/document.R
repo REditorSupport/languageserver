@@ -16,6 +16,9 @@ Document <- R6::R6Class(
         loaded_packages = NULL,
         requested_packages = NULL,
         member_refresh = FALSE,
+        member_receivers = NULL,
+        member_revision = NULL,
+        member_ordinary_edit = FALSE,
         pending_diagnostics = FALSE,
         diagnostics_delay = 0,
 
@@ -24,6 +27,7 @@ Document <- R6::R6Class(
             self$language <- language
             self$version <- version
             self$is_rmarkdown <- is_rmarkdown(uri, language)
+            self$member_receivers <- ByteLruCache$new(4 * 1024^2, max_entries = 32L)
             self$set_content(version, content)
             self$loaded_packages <- character()
             self$requested_packages <- NULL
@@ -38,6 +42,27 @@ Document <- R6::R6Class(
         },
 
         set_content = function(version, content, change = NULL) {
+            self$member_receivers$clear()
+            current <- identical(self$version, self$parse_data$version) || isTRUE(self$member_ordinary_edit)
+            # A standalone identifier changes no declaration, call, delimiter
+            # or lexical scope. Full replacements and all structural edits
+            # still require the accepted current-version parse.
+            self$member_ordinary_edit <- FALSE
+            if (current && !self$is_rmarkdown && !isTRUE(self$parse_data$parse_error) &&
+                    !is.null(change$range) && length(content) == length(self$content)) {
+                changed <- which(content != self$content)
+                items <- self$parse_data$member_data$items
+                last <- if (length(items)) items[[length(items)]]
+                standalone <- is.null(last) || last$end[[1L]] < length(content) - 1L ||
+                    (is.symbol(last$expr) && last$start[[1L]] == length(content) - 1L)
+                if (length(changed) == 1L && changed == length(content) && standalone &&
+                        change$range$start$line == length(content) - 1L &&
+                        change$range$end$line == length(content) - 1L) {
+                    pattern <- "^[ \\t]*[[:alnum:]_.]*[ \\t]*$"
+                    self$member_ordinary_edit <- grepl(pattern, self$content[[changed]]) &&
+                        grepl(pattern, content[[changed]])
+                }
+            }
             if (!identical(self$content, content)) {
                 self$inlay_hint_data <- inlay_hint_apply_change(self$inlay_hint_data, change, self$content)
             }
@@ -104,6 +129,8 @@ Document <- R6::R6Class(
         },
 
         update_parse_data = function(parse_data) {
+            self$member_receivers$clear()
+            self$member_ordinary_edit <- FALSE
             self$parse_data <- parse_data
             if (!isTRUE(parse_data$parse_error) && !isTRUE(parse_data$inlay_hint_incomplete)) {
                 self$inlay_hint_data <- parse_data$range_data[c(
@@ -834,6 +861,12 @@ resolve_callback <- function(self, uri, version, packages) {
         }), use.names = FALSE))
         for (package in names(packages$members)) {
             snapshot <- packages$members[[package]]
+            if (inherits(workspace$member_metadata, "MemberMetadataCache")) {
+                previous <- workspace$member_metadata$catalog(package)
+                if (isTRUE(nzchar(snapshot$generation)) && identical(previous$generation, snapshot$generation)) next
+                workspace$member_metadata$set(package, snapshot, protect = protect)
+                next
+            }
             index <- member_index_thaw(snapshot)
             if (!is.null(index)) {
                 if (inherits(workspace$member_metadata, c("ByteLruCache", "MemberMetadataCache"))) {

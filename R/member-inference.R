@@ -271,20 +271,20 @@ member_assigned_names <- function(node) {
 # defaults), rather than copying an entire instance into every generated method.
 member_function_closure <- function(expr, bindings) {
     if (!length(bindings)) return(list())
-    referenced <- all.names(expr)
-    member_walk(expr, function(node) {
-        if (member_head(node, "function")) {
-            referenced <<- c(referenced, all.names(as.expression(as.list(node[[2L]]))))
-        }
-    })
-    referenced <- setdiff(referenced, names(expr[[2L]]))
     internal <- intersect(names(bindings), c(".__member_position__", ".__member_properties__",
             ".__s4_classes__", ".__s7_package__", ".__s7_constructing__"))
+    if (length(internal) == length(bindings)) return(bindings)
+    referenced <- setdiff(member_syntax_names(expr), names(expr[[2L]]))
     bindings[intersect(names(bindings), c(referenced, internal))]
 }
 
 # Select a member from an already inferred receiver. This does not traverse
 # syntax, so a known declaration remains usable after inference hits a limit.
+member_slot <- function(value, name, index, bindings, budget = NULL) {
+    if (isTRUE(value$s7)) member_s7_slot(value, name, index, bindings, budget) else
+        member_s4_slot(value, name, index, bindings, budget)
+}
+
 member_access <- function(lhs, name, index, bindings) {
     unknown <- member_value(reason = "unsupported")
     dispatch_classes <- c(
@@ -383,10 +383,7 @@ member_infer <- function(
     intrinsic <- function(name) {
         at <- bindings$.__member_position__
         history <- member_lookup(index$document_bindings, name)
-        shadowed <- length(history) && (is.null(at) || any(vapply(
-            history,
-            function(item) member_before(item$end, at), logical(1L)
-        )))
+        shadowed <- length(history) && (is.null(at) || member_history_position(history, at) > 0L)
         !name %in% names(bindings) &&
             !shadowed &&
             ((is.null(member_lookup(index$definitions, name)) && name %in% member_base_intrinsics) ||
@@ -662,6 +659,17 @@ member_infer <- function(
         if (!member_head(fn, "function")) {
             return(unknown)
         }
+        # Package syntax and captures are immutable. A cached invocation has
+        # already passed matching; look it up before defaults and delegation.
+        cache_values <- c(list(self), actuals)
+        cache_key <- if (!is.null(key) && all(vapply(cache_values, member_cacheable, logical(1L)))) {
+            digest::digest(list(key, lapply(cache_values, member_shape_key), dispatch), algo = "xxhash64")
+        } else {
+            NULL
+        }
+        if (!is.null(cache_key) && exists(cache_key, index$cache, inherits = FALSE)) {
+            return(get(cache_key, index$cache, inherits = FALSE))
+        }
         # A native instance binding exposes the inner method's formals. The
         # outer factory takes the pointer and is never called for inference.
         body <- fn[[3L]]
@@ -697,19 +705,6 @@ member_infer <- function(
         }
         # Only package summaries are cached. Local closures can share syntax
         # while capturing different values and must keep their lexical identity.
-        cache_values <- env[intersect(names(env), c(names(fn[[2L]]), "self"))]
-        cache_key <- if (!is.null(key) && all(vapply(cache_values, member_cacheable, logical(1L)))) {
-            digest::digest(list(
-                key,
-                member_shape_key(self), lapply(env[intersect(names(env), c(names(fn[[2L]]), "self"))], member_shape_key),
-                dispatch
-            ), algo = "xxhash64")
-        } else {
-            NULL
-        }
-        if (!is.null(cache_key) && exists(cache_key, index$cache, inherits = FALSE)) {
-            return(get(cache_key, index$cache, inherits = FALSE))
-        }
         ctor <- member_lookup(index$constructors, key)
         summary_index <- index
         if (!is.null(key) && !is.null(index$document_bindings)) {
@@ -768,6 +763,9 @@ member_infer <- function(
         if (key %in% names(bindings)) {
             value <- bindings[[key]]
             if (!is.null(value$binding_expr)) {
+                if (!is.null(value$binding_cache)) {
+                    return(member_local_value(value, index, budget, depth, trail, receiver, context))
+                }
                 return(infer(value$binding_expr, value$binding_env))
             }
             return(value)
@@ -1274,11 +1272,11 @@ member_infer <- function(
 
 # Apply only statically described registration effects to a document context.
 # The registration call itself is never evaluated. Unknown name/factory stops.
-member_registration_effect <- function(expr, index, bindings) {
+member_registration_effect <- function(expr, index, bindings, budget = NULL) {
     if (!is.call(expr)) {
         return(bindings)
     }
-    callee <- member_infer(expr[[1L]], index, bindings)
+    callee <- member_infer(expr[[1L]], index, bindings, budget = budget)
     rule <- member_lookup(index$registration_rules, callee$function_key)
     if (is.null(rule)) {
         return(bindings)
@@ -1297,7 +1295,7 @@ member_registration_effect <- function(expr, index, bindings) {
             name <- rule$formals[[positional]]
             positional <- positional + 1L
         }
-        values[name] <- list(member_infer(args[[i]], index, bindings))
+        values[name] <- list(member_infer(args[[i]], index, bindings, budget = budget))
     }
     name <- values[[rule$name_arg]]
     factory <- values[[rule$value_arg]]
@@ -1308,7 +1306,7 @@ member_registration_effect <- function(expr, index, bindings) {
         env <- bindings
         env$.__factory__ <- factory
         env$.__input__ <- member_value(type = type)
-        value <- member_infer(quote(.__factory__(.__input__)), index, env)
+        value <- member_infer(quote(.__factory__(.__input__)), index, env, budget = budget)
         if (length(value$type)) bindings$.__member_properties__[[type]][name$literal] <- list(value)
     }
     bindings
