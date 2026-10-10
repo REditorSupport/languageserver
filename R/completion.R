@@ -34,6 +34,16 @@ InsertTextFormat <- list(
     Snippet = 2
 )
 
+quote_completion_name <- function(name) {
+    if (identical(make.names(name), name)) name else encodeString(name, quote = "`")
+}
+
+escape_completion_snippet <- function(text) {
+    text <- gsub("\\", "\\\\", text, fixed = TRUE)
+    text <- gsub("$", "\\$", text, fixed = TRUE)
+    gsub("}", "\\}", text, fixed = TRUE)
+}
+
 sort_prefixes <- list(
     arg = "0-",
     scope = "1-",
@@ -364,11 +374,13 @@ arg_completion <- function(uri, workspace, point, token, funct, package = NULL, 
     }
 
     completions <- .mapply(function(arg, sort_text) {
+        # XML formals already include source backticks; namespace formals do not.
+        inserted <- if (is.null(token_data$uri)) quote_completion_name(arg) else arg
         list(label = arg,
             kind = CompletionItemKind$Variable,
             detail = "parameter",
             sortText = sort_text,
-            insertText = paste0(arg, " = "),
+            insertText = paste0(inserted, " = "),
             insertTextFormat = InsertTextFormat$PlainText,
             data = token_data
         )
@@ -395,7 +407,7 @@ ns_function_completion <- function(ns, token, exported_only, snippet_support) {
                 kind = CompletionItemKind$Function,
                 detail = tag,
                 sortText = paste0(sort_prefix, object),
-                insertText = paste0(object, "($0)"),
+                insertText = paste0(escape_completion_snippet(quote_completion_name(object)), "($0)"),
                 insertTextFormat = InsertTextFormat$Snippet,
                 data = list(
                     type = "function",
@@ -404,7 +416,8 @@ ns_function_completion <- function(ns, token, exported_only, snippet_support) {
         })
     } else {
         completions <- lapply(functs, function(object) {
-            list(label = object,
+            inserted <- quote_completion_name(object)
+            item <- list(label = object,
                 kind = CompletionItemKind$Function,
                 detail = tag,
                 sortText = paste0(sort_prefix, object),
@@ -412,6 +425,8 @@ ns_function_completion <- function(ns, token, exported_only, snippet_support) {
                     type = "function",
                     package = nsname
             ))
+            if (!identical(inserted, object)) item$insertText <- inserted
+            item
         })
     }
     completions
@@ -436,13 +451,14 @@ imported_object_completion <- function(workspace, token, snippet_support) {
                     kind = CompletionItemKind$Function,
                     detail = paste0("{", nsname, "}"),
                     sortText = paste0(sort_prefixes$imported, object),
-                    insertText = paste0(object, "($0)"),
+                    insertText = paste0(escape_completion_snippet(quote_completion_name(object)), "($0)"),
                     insertTextFormat = InsertTextFormat$Snippet,
                     data = list(
                         type = "function",
                         package = nsname
                 ))
             } else {
+                inserted <- quote_completion_name(object)
                 item <- list(label = object,
                     kind = CompletionItemKind$Function,
                     detail = paste0("{", nsname, "}"),
@@ -451,6 +467,7 @@ imported_object_completion <- function(workspace, token, snippet_support) {
                         type = "function",
                         package = nsname
                 ))
+                if (!identical(inserted, object)) item$insertText <- inserted
             }
             idx <- idx + 1L
             completions[[idx]] <- item
@@ -651,6 +668,7 @@ workspace_completion <- function(workspace, token,
 
     completions <- unname(Map(function(label, kind, detail, sort_text,
         type, package, is_function) {
+        inserted <- quote_completion_name(label)
         data <- list(type = type, package = package)
         if (!is.null(uri)) data$context_uri <- uri
         if (isTRUE(snippet_support) && is_function) {
@@ -659,18 +677,20 @@ workspace_completion <- function(workspace, token,
                 kind = kind,
                 detail = detail,
                 sortText = sort_text,
-                insertText = paste0(label, "($0)"),
+                insertText = paste0(escape_completion_snippet(inserted), "($0)"),
                 insertTextFormat = InsertTextFormat$Snippet,
                 data = data
             )
         } else {
-            list(
+            item <- list(
                 label = label,
                 kind = kind,
                 detail = detail,
                 sortText = sort_text,
                 data = data
             )
+            if (!identical(inserted, label)) item$insertText <- inserted
+            item
         }
     }, labels, kinds, details, sort_text, types, packages, functions))
 
@@ -794,7 +814,7 @@ scope_completion <- function(uri, workspace, token, point,
                 kind = CompletionItemKind$Function,
                 detail = "[scope]",
                 sortText = paste0(sort_prefixes$scope, symbol),
-                insertText = paste0(symbol, "($0)"),
+                insertText = paste0(escape_completion_snippet(symbol), "($0)"),
                 insertTextFormat = InsertTextFormat$Snippet,
                 data = list(
                     type = "function",
@@ -885,6 +905,33 @@ token_completion <- function(uri, workspace, token, exclude = NULL, limit = Inf)
     completions
 }
 
+completion_token <- function(document, point) {
+    result <- document$detect_token(point, forward = FALSE)
+    line <- document$line0(point$row)
+    quoted <- .Call("scan_backtick_completion_c", line, as.integer(point$col),
+        PACKAGE = "languageserver")
+    if (is.null(quoted)) return(result)
+
+    before <- substr(line, 1L, quoted$start)
+    # Member providers handle their own quoted names and replacement ranges.
+    if (grepl("[$@][ \\t]*$", before)) return(result)
+    namespace <- document$detect_token(
+        list(row = point$row, col = quoted$start), forward = FALSE)
+    result$package <- namespace$package
+    result$accessor <- namespace$accessor
+    result$full_token <- paste0("`", quoted$token)
+    result$token <- tryCatch(
+        as.character(parse(text = paste0("`", quoted$token, "`"))[[1L]]),
+        error = function(e) quoted$token
+    )
+    result$range <- list(
+        start = list(row = point$row, col = quoted$start),
+        end = list(row = point$row, col = quoted$end)
+    )
+    result$quoted <- TRUE
+    result
+}
+
 completion_has_call_parens <- function(document, token_result) {
     line_text <- document$line0(token_result$range$end$row)
     rest_of_line <- substr(
@@ -921,7 +968,7 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
             isIncomplete = isTRUE(attr(members, "truncated")), items = unname(members))))
     }
 
-    token_result <- document$detect_token(point, forward = FALSE)
+    token_result <- completion_token(document, point)
 
     full_token <- token_result$full_token
     token <- token_result$token
@@ -992,6 +1039,23 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
         completions <- completions[selected]
     } else {
         isIncomplete <- FALSE
+    }
+
+    if (isTRUE(token_result$quoted)) {
+        edit_range <- range(
+            document$to_lsp_position(point$row, token_result$range$start$col),
+            document$to_lsp_position(point$row, token_result$range$end$col)
+        )
+        completions <- lapply(completions, function(item) {
+            inserted <- if (is.null(item$insertText)) item$label else item$insertText
+            item$textEdit <- text_edit(edit_range, inserted)
+            item$filterText <- if (is.null(item$data$package) && startsWith(item$label, "`")) {
+                item$label
+            } else {
+                encodeString(item$label, quote = "`")
+            }
+            item
+        })
     }
 
     t1 <- Sys.time()

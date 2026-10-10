@@ -125,6 +125,43 @@ test_that("Package selection ignores bindings after an incomplete member access"
     ), "collect")
 })
 
+test_that("Member completion inserts parseable non-syntactic names", {
+    labels <- c("Mazda RX4", "1st", "if", "NA_real_", "a`b", "a\\b", "a\nb", "plain")
+    for (label in labels) {
+        code <- paste0("x <- list(", encodeString(label, quote = "`"), "=1)\nx$")
+        item <- member_items(code)[[1L]]
+        expect_identical(item$label, label)
+        parsed <- parse(text = paste0("x$", item$textEdit$newText))[[1L]]
+        expect_identical(as.character(parsed[[3L]]), label)
+    }
+    code <- "x <- data.frame(`Mazda RX4`=1, check.names=FALSE)\nx$Ma"
+    fixture <- member_fixture(code)
+    reply <- completion_reply(1L, fixture$document$uri, fixture$workspace,
+        fixture$document, fixture$point, list())
+    item <- reply$result$items[[1L]]
+    expect_identical(item$textEdit$newText, "`Mazda RX4`")
+    expect_identical(item$textEdit$range$start$character, 2L)
+    expect_identical(item$textEdit$range$end$character, 4L)
+})
+
+test_that("Member snippets preserve R escapes in quoted method names", {
+    label <- "run\\$task}`"
+    code <- paste0("x <- list(", encodeString(label, quote = "`"), "=function() 1)\nx$")
+    item <- member_items(code)[[1L]]
+    # These are the literal characters a snippet client inserts before ().
+    inserted <- sub("($0)", "()", item$textEdit$newText, fixed = TRUE)
+    inserted <- gsub("\\\\([\\\\$}])", "\\1", inserted, perl = TRUE)
+    parsed <- parse(text = paste0("x$", inserted))[[1L]]
+    expect_identical(as.character(parsed[[1L]][[3L]]), label)
+    expect_identical(item$insertTextFormat, InsertTextFormat$Snippet)
+
+    fixture <- member_fixture(paste0(code, "()"), point = list(row = 1L, col = 2L))
+    plain <- member_completion(fixture$document$uri, fixture$workspace, fixture$document,
+        fixture$point, TRUE, 200L)[[1L]]
+    expect_identical(plain$textEdit$newText, encodeString(label, quote = "`"))
+    expect_identical(plain$insertTextFormat, InsertTextFormat$PlainText)
+})
+
 test_that("R6 fluent APIs expose public inheritance without initialization", {
     code <- paste0(
         "Parent <- R6::R6Class(\"Parent\", public=list(base=function() self, ",

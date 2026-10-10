@@ -44,6 +44,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"code_point_to_unit_c", (DL_FUNC) &code_point_to_unit_c, 2},
     {"code_point_from_unit_c", (DL_FUNC) &code_point_from_unit_c, 2},
     {"scan_token_c", (DL_FUNC) &scan_token_c, 3},
+    {"scan_backtick_completion_c", (DL_FUNC) &scan_backtick_completion_c, 2},
     {"match_with_c", (DL_FUNC) &match_with_c, 2},
     {"fuzzy_find_c", (DL_FUNC) &fuzzy_find_c, 2},
     {"completion_parse_index_c", (DL_FUNC) &completion_parse_index_c, 7},

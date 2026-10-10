@@ -1,4 +1,5 @@
 #include "token.h"
+#include "fsm.h"
 
 #include <ctype.h>
 #include <string.h>
@@ -101,6 +102,70 @@ static SEXP make_str(const char *text, int start, int len) {
     SEXP res = Rf_ScalarString(chr);
     UNPROTECT(1);
     return res;
+}
+
+/* Keep source offsets separate from the decoded name used for completion. */
+SEXP scan_backtick_completion_c(SEXP line, SEXP col) {
+    if (!Rf_isString(line) || Rf_length(line) != 1) {
+        Rf_error("line must be a single character string");
+    }
+    if (!Rf_isInteger(col) || Rf_length(col) != 1) {
+        Rf_error("col must be a single integer");
+    }
+    const char *text = Rf_translateCharUTF8(STRING_ELT(line, 0));
+    int len = (int) strlen(text);
+    int cursor = byte_index_for_cp(text, len, INTEGER(col)[0]);
+    if (memchr(text, '`', cursor) == NULL) return R_NilValue;
+
+    fsm_state state;
+    fsm_initialize(&state);
+    int start = -1;
+    int closing = -1;
+    for (int i = 0; i < cursor; i++) {
+        if (!state.single_quoted && !state.double_quoted &&
+                !state.backticked && !state.escaped && text[i] == '#') {
+            return R_NilValue;
+        }
+        int backticked = state.backticked;
+        fsm_feed(&state, text[i]);
+        if (!backticked && state.backticked) start = i;
+        if (backticked && !state.backticked) closing = i;
+    }
+    if (start < 0 || (!state.backticked && closing + 1 != cursor)) {
+        return R_NilValue;
+    }
+
+    int prefix_end = state.backticked ? cursor : closing;
+    int end = cursor;
+    if (state.backticked) {
+        end = len;
+        for (int i = cursor; i < len; i++) {
+            fsm_feed(&state, text[i]);
+            if (!state.backticked) {
+                end = i + 1;
+                break;
+            }
+        }
+    }
+    int start_col = 0;
+    int end_col = 0;
+    unsigned int cp = 0;
+    for (int i = 0; i < end; end_col++) {
+        if (i < start) start_col++;
+        i = utf8_decode(text, len, i, &cp);
+    }
+
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 3));
+    SET_VECTOR_ELT(out, 0, make_str(text, start + 1, prefix_end - start - 1));
+    SET_VECTOR_ELT(out, 1, Rf_ScalarInteger(start_col));
+    SET_VECTOR_ELT(out, 2, Rf_ScalarInteger(end_col));
+    SEXP names = PROTECT(Rf_allocVector(STRSXP, 3));
+    SET_STRING_ELT(names, 0, Rf_mkChar("token"));
+    SET_STRING_ELT(names, 1, Rf_mkChar("start"));
+    SET_STRING_ELT(names, 2, Rf_mkChar("end"));
+    Rf_setAttrib(out, R_NamesSymbol, names);
+    UNPROTECT(2);
+    return out;
 }
 
 SEXP scan_token_c(SEXP line, SEXP col, SEXP forward) {
