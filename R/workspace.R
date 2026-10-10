@@ -180,7 +180,7 @@ MemberMetadataCache <- R6::R6Class(
             snapshot$cache <- NULL
             # Selection, imports and dispatch need only this compact catalog.
             # Keep it in the snapshot budget without decoding function bodies.
-            fields <- c("package", "roots", "exports", "namespace_roots", "classes",
+            fields <- c("package", "roots", "exports", "namespace_roots", "classes", "class_scope",
                 "s4_classes", "s4_dependencies", "s7_dependencies", "s7_capabilities")
             entry <- list(
                 compressed = memCompress(serialize(snapshot, NULL), "gzip"),

@@ -92,14 +92,14 @@ test_that("R6 self, super and private refer to their declared method contexts", 
         items <- member_completion(fixture$uri, fixture$workspace, fixture$document, case[c("row", "col")], TRUE, 200L)
         expect_identical(vapply(items, `[[`, character(1L), "label"), case$expected)
     }
-    expect_identical(member_provider_hover(fixture, 4L, 10L)$contents, "```r\nchild(option = FALSE)\n```")
-    expect_identical(member_provider_hover(fixture, 5L, 10L)$contents, "```r\nrun(value = 1)\n```")
+    expect_identical(member_provider_hover(fixture, 4L, 10L)$contents[[1L]], "```r\nchild(option = FALSE)\n```")
+    expect_identical(member_provider_hover(fixture, 5L, 10L)$contents[[1L]], "```r\nrun(value = 1)\n```")
     expect_identical(member_provider_signature(fixture, 4L, 14L)$signatures[[1L]]$label, "child(option = FALSE)")
-    expect_identical(member_provider_hover(fixture, 9L, 37L)$contents, "```r\nchild(option = FALSE)\n```")
+    expect_identical(member_provider_hover(fixture, 9L, 37L)$contents[[1L]], "```r\nchild(option = FALSE)\n```")
 
     fixture <- member_provider_fixture(c(parent, "Child <- R6::R6Class(\"Child\", inherit=Parent,",
             "private=list(test=function() private$secret(), secret=function(key=1) NULL))"))
-    expect_identical(member_provider_hover(fixture, 2L, 42L)$contents, "```r\nsecret(key = 1)\n```")
+    expect_identical(member_provider_hover(fixture, 2L, 42L)$contents[[1L]], "```r\nsecret(key = 1)\n```")
     fixture <- member_provider_fixture(c(parent, "Child <- R6::R6Class(\"Child\", inherit=Parent,",
             "public=list(test=function(self) self$run()))"))
     expect_null(member_provider_hover(fixture, 2L, 38L))
@@ -107,15 +107,15 @@ test_that("R6 self, super and private refer to their declared method contexts", 
     expect_null(member_provider_hover(fixture, 0L, 23L))
     # A trailing parse error cannot remove the class context before it.
     fixture <- member_provider_fixture(c(code, "broken <- )"))
-    expect_identical(member_provider_hover(fixture, 4L, 10L)$contents, "```r\nchild(option = FALSE)\n```")
+    expect_identical(member_provider_hover(fixture, 4L, 10L)$contents[[1L]], "```r\nchild(option = FALSE)\n```")
     fixture <- member_provider_fixture(c(parent, "Child <- R6::R6Class(\"Child\", inherit=Parent,",
             "public=list(test=function() super$run()$child(), child=function(option=FALSE) self))"))
-    expect_identical(member_provider_hover(fixture, 2L, 42L)$contents, "```r\nchild(option = FALSE)\n```")
+    expect_identical(member_provider_hover(fixture, 2L, 42L)$contents[[1L]], "```r\nchild(option = FALSE)\n```")
     fixture <- member_provider_fixture(c(parent, "Child <- R6::R6Class(\"Child\", inherit=Parent,",
             "public=list(test=function() {self <- list(local=1); self$local}))"))
     expect_identical(member_provider_hover(fixture, 2L, 59L)$contents, "```r\n1\n```")
     fixture <- member_provider_fixture(c("```{r}", code, "```", "```{python}", "self$child()", "```"), language = "quarto")
-    expect_identical(member_provider_hover(fixture, 5L, 10L)$contents, "```r\nchild(option = FALSE)\n```")
+    expect_identical(member_provider_hover(fixture, 5L, 10L)$contents[[1L]], "```r\nchild(option = FALSE)\n```")
     expect_null(member_call_location(fixture$document, list(row = 13L, col = 11L)))
 })
 
@@ -204,14 +204,14 @@ test_that("R6 members use public inherited declarations without initialization o
         "run(value, option = FALSE)"
     )
     expect_identical(
-        member_provider_hover(fixture, 3L, 13L)$contents,
+        member_provider_hover(fixture, 3L, 13L)$contents[[1L]],
         "```r\nrun(value, option = FALSE)\n```"
     )
     fixture$document$set_content(2L, c(fixture$document$content[1:3], "Child$new()$danger"))
     data <- parse_document(fixture$uri, fixture$document$content)
     data$version <- 2L
     fixture$document$update_parse_data(data)
-    expect_null(member_provider_hover(fixture, 3L, 14L))
+    expect_identical(member_provider_hover(fixture, 3L, 14L)$contents, "Active binding of R6 class `Child`")
 })
 
 test_that("Copied R6 command methods share completion, signatures and hover", {
@@ -225,7 +225,7 @@ test_that("Copied R6 command methods share completion, signatures and hover", {
     result <- member_provider_signature(fixture)
     expect_identical(result$signatures[[1L]]$label, "SET(key, value, option = NULL)")
     expect_identical(result$activeParameter, 2L)
-    expect_identical(member_provider_hover(fixture, 5L, 8L)$contents,
+    expect_identical(member_provider_hover(fixture, 5L, 8L)$contents[[1L]],
         "```r\nSET(key, value, option = NULL)\n```")
 })
 
@@ -238,7 +238,7 @@ test_that("R6 initializer early returns preserve public method providers", {
         signature <- member_provider_signature(fixture)
         expect_identical(signature$signatures[[1L]]$label, "run(value, flag = TRUE)")
         expect_identical(signature$activeParameter, 1L)
-        expect_identical(member_provider_hover(fixture, 2L, 8L)$contents,
+        expect_identical(member_provider_hover(fixture, 2L, 8L)$contents[[1L]],
             "```r\nrun(value, flag = TRUE)\n```")
     }
 })
@@ -249,10 +249,10 @@ test_that("R6 assignment attempts retain original method signatures and opaque a
         declaration <- sprintf('Client <- R6::R6Class("Client", lock_objects=FALSE, public=list(run=function(original=1) NULL, initialize=function() {%s}), active=list(x=function(value) NULL))', body)
         fixture <- member_provider_fixture(c(declaration, "client <- Client$new()", "client$run("))
         expect_identical(member_provider_signature(fixture)$signatures[[1L]]$label, "run(original = 1)")
-        expect_identical(member_provider_hover(fixture, 2L, 8L)$contents, "```r\nrun(original = 1)\n```")
+        expect_identical(member_provider_hover(fixture, 2L, 8L)$contents[[1L]], "```r\nrun(original = 1)\n```")
         fixture <- member_provider_fixture(c(declaration, "client <- Client$new()", "client$x("))
         expect_length(member_provider_signature(fixture)$signatures, 0L)
-        expect_null(member_provider_hover(fixture, 2L, 8L))
+        expect_identical(member_provider_hover(fixture, 2L, 8L)$contents, "Active binding of R6 class `Client`")
     }
 })
 
@@ -269,7 +269,7 @@ test_that("Installed callr factory members share completion, signatures and hove
     expect_identical(item$detail, "get_result()")
     expect_identical(item$kind, CompletionItemKind$Method)
     expect_identical(member_provider_signature(fixture)$signatures[[1L]]$label, "get_result()")
-    expect_identical(member_provider_hover(fixture, 1L, 5L)$contents, "```r\nget_result()\n```")
+    expect_identical(member_provider_hover(fixture, 1L, 5L)$contents[[1L]], "```r\nget_result()\n```")
 })
 
 test_that("Installed processx members preserve method parameters across providers", {
@@ -293,7 +293,7 @@ test_that("Installed processx members preserve method parameters across provider
             expect_identical(result$activeParameter, 0L)
             expect_identical(result$signatures[[1L]]$parameters[[1L]]$label, c(5L, 17L))
         }
-        expect_identical(member_provider_hover(fixture, 1L, 6L)$contents,
+        expect_identical(member_provider_hover(fixture, 1L, 6L)$contents[[1L]],
             sprintf("```r\n%s\n```", case[[2L]]))
     }
 })
@@ -348,7 +348,7 @@ test_that("Installed Redux methods provide signatures and hover without connecti
         result <- member_provider_signature(fixture)
         expect_identical(result$signatures[[1L]]$label, case[[2L]])
         expect_identical(result$activeParameter, as.integer(case[[3L]]))
-        expect_identical(member_provider_hover(fixture, 1L, 7L)$contents,
+        expect_identical(member_provider_hover(fixture, 1L, 7L)$contents[[1L]],
             sprintf("```r\n%s\n```", case[[2L]]))
     }
 })

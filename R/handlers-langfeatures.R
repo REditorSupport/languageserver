@@ -30,12 +30,14 @@ text_document_completion  <- function(self, id, params) {
     document <- workspace$documents$get(uri)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     point <- document$from_lsp_position(params$position)
-    # didChange schedules a debounced background parse. A member request can
-    # arrive immediately after the edit; falling back then uses stale tokens
-    # and the client keeps that list until another completion is triggered.
+    # didChange schedules a debounced background parse. Scope and member
+    # completion need current syntax; an immediate reply would omit new
+    # context bindings and leave the client with that list until retriggered.
     if (isTRUE(lsp_settings$get("member_completion")) &&
         !identical(document$version, document$parse_data$version) &&
-        (!is.null(member_cursor(document, point)) ||
+        ((check_scope(uri, document, point) &&
+                    identical(completion_token(document, point)$accessor, "")) ||
+                    !is.null(member_cursor(document, point)) ||
                     !is.null(member_call_location(document, point, symbols = TRUE)))) {
         enqueue_latest_reply(self, uri, "textDocument/completion", list(
             id = id, version = document$version, params = params

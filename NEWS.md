@@ -1,5 +1,12 @@
 # languageserver 0.3.20
 
+- Complete bindings available in R6 method scopes, including `self`, `private`,
+  `super`, inherited members in non-portable classes, and nested closures,
+  using static context analysis during incomplete edits. Respect method-local
+  shadowing and prefer class bindings over enclosing declarations. Include
+  class information in completion, hover and signature help, and derive R6
+  `new()` signatures and argument completion from public initializers.
+
 - Preserve Polars member completion, signature help and hover when other
   packages are cached. Prefer receiver roots over incidental exported names
   and keep metadata requested by open documents ahead of background entries.

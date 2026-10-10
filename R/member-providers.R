@@ -17,8 +17,28 @@ member_symbol_info <- function(label, value, key, index) {
     if (!is.null(delegated)) key <- delegated$original
     list(
         label = label, signature = signature, function_id = key,
-        package = index$package, value = value
+        package = index$package, value = value,
+        description = member_r6_description(value)
     )
+}
+
+member_r6_description <- function(value) {
+    role <- if (!is.null(value$r6_role)) switch(value$r6_role,
+        instance = "R6 instance", private = "Private environment", super = "Superclass methods",
+        generator = "R6 class generator", constructor = "Create an R6 instance",
+        active = "Active bindings", enclosure = "Enclosing environment", clone = "Clone an R6 instance",
+        NULL)
+    describe <- function(role, class, member = FALSE) {
+        if (is.null(role)) return(NULL)
+        if (is.null(class$name)) return(role)
+        description <- sprintf(if (member) "%s of R6 class `%s`" else "%s of `%s`", role, class$name)
+        if (isTRUE(nzchar(class$package))) description <- sprintf("%s (package `%s`)", description, class$package)
+        description
+    }
+    kind <- value$r6_member_kind
+    if (!is.null(kind)) kind <- paste0(toupper(substr(kind, 1L, 1L)), substring(kind, 2L))
+    descriptions <- c(describe(kind, value$r6_owner, TRUE), describe(role, value$r6_class))
+    if (length(descriptions)) paste(descriptions, collapse = "\n\n") else NULL
 }
 
 member_symbol <- function(uri, workspace, document, location) {
@@ -40,12 +60,20 @@ member_symbol_documentation <- function(workspace, symbol, uri) {
     key <- symbol$function_id
     if (is.null(symbol) || is.null(workspace$get_documentation) || !nzchar(symbol$package) || !is.character(key) ||
         length(key) != 1L || is.na(key)) {
-        return(NULL)
+        return(symbol$description)
     }
-    call_with_optional_uri(workspace$get_documentation,
+    doc <- call_with_optional_uri(workspace$get_documentation,
         key, symbol$package,
         isf = TRUE, uri = uri
     )
+    if (is.null(symbol$description)) return(doc)
+    if (is.list(doc)) {
+        doc$description <- paste(c(symbol$description, doc$description), collapse = "\n\n")
+        if (!is.null(doc$markdown)) doc$markdown <- paste(symbol$description, doc$markdown, sep = "\n\n")
+        doc
+    } else {
+        paste(c(symbol$description, doc), collapse = "\n\n")
+    }
 }
 
 # Find a complete member token, even when hovering inside a backtick name.
@@ -100,10 +128,16 @@ member_call_location <- function(document, point, call = document$detect_call(po
     NULL
 }
 
-# Reuse bounded cursor recovery for callable class bindings and aliases. This
-# path is accepted by providers only when inference identifies a constructor.
+# Reuse cursor recovery for class references, callable bindings and aliases.
+# Providers accept this path only when inference identifies class metadata.
 member_symbol_location <- function(document, point) {
     if (!check_scope(document$uri, document, point)) return(NULL)
+    semantic <- document$parse_data$semantic_data
+    col <- document$to_lsp_position(point$row, point$col)$character
+    excluded <- semantic$lines == point$row & semantic$cols <= col &
+        ((semantic$types == SemanticTokenTypes$comment & semantic$cols + semantic$lengths >= col) |
+                (semantic$types == SemanticTokenTypes$string & semantic$cols + semantic$lengths > col))
+    if (identical(document$version, document$parse_data$version) && any(excluded)) return(NULL)
     token <- document$detect_token(point)
     if (!token$accessor %in% c("", "::") || !nzchar(token$token)) return(NULL)
     bounds <- token$range
@@ -122,7 +156,7 @@ member_symbol_location <- function(document, point) {
 member_constructor_symbol <- function(uri, workspace, document, location) {
     if (is.null(location)) return(NULL)
     symbol <- member_symbol(uri, workspace, document, location)
-    if (is.null(symbol$value$s7_generator)) return(NULL)
+    if (is.null(symbol$value$s7_generator) && !identical(symbol$value$r6_role, "constructor")) return(NULL)
     symbol
 }
 
@@ -136,8 +170,10 @@ member_constructor_arguments <- function(uri, workspace, document, point, token)
     lapply(seq_along(args), function(i) {
         list(label = args[[i]], kind = CompletionItemKind$Variable,
             detail = symbol$signature, sortText = sprintf("%s%03d", sort_prefixes$arg, i),
+            documentation = if (!is.null(symbol$description)) list(kind = "markdown", value = symbol$description),
             insertText = paste0(quote_completion_name(args[[i]]), " = "),
-            insertTextFormat = InsertTextFormat$PlainText, data = list(type = "member", signature = symbol$signature))
+            insertTextFormat = InsertTextFormat$PlainText,
+            data = list(type = "member", signature = symbol$signature, parameter = args[[i]]))
     })
 }
 
@@ -160,13 +196,17 @@ member_argument_location <- function(document, point, symbols = FALSE) {
     location
 }
 
-member_hover_reply <- function(id, uri, workspace, document, location) {
-    symbol <- member_symbol(uri, workspace, document, location)
+member_hover_reply <- function(id, uri, workspace, document, location,
+    symbol = member_symbol(uri, workspace, document, location)) {
     doc <- member_symbol_documentation(workspace, symbol, uri)
     signature <- symbol$signature
     contents <- NULL
     if (!is.null(location$parameter)) {
         if (is.list(doc)) contents <- argument_hover_contents(doc, signature, location$parameter)
+        if (!is.null(symbol$description)) {
+            if (is.null(contents) && !is.null(signature)) contents <- sprintf("```r\n%s\n```", signature)
+            contents <- c(contents, symbol$description)
+        }
     } else {
         description <- if (is.character(doc)) {
             doc

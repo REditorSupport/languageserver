@@ -51,8 +51,11 @@ member_document_index <- function(content, parsed = NULL) {
     imports <- list()
     effects <- list()
     packages <- character()
+    class_scope <- FALSE
     for (item in items) {
         expr <- item$expr
+        # Deparsed syntax includes formal defaults, which all.names() omits.
+        if (!class_scope && any(grepl("R6Class", deparse(expr), fixed = TRUE))) class_scope <- TRUE
         member_walk(expr, function(node) {
             if (member_head(node, "::") || member_head(node, ":::")) {
                 package <- member_name(node[[2L]])
@@ -101,7 +104,24 @@ member_document_index <- function(content, parsed = NULL) {
         }
     }
     list(items = items, bindings = as.list(bindings), imports = imports, effects = effects, s4 = s4,
-        packages = packages)
+        packages = packages, class_scope = class_scope)
+}
+
+# Complete valid ordinary scopes from their source index. Class analysis is
+# needed only when source syntax or package metadata could supply R6 values;
+# incomplete scopes still use recovery to discover newly typed local bindings.
+member_scope_required <- function(workspace, document) {
+    data <- document$parse_data
+    if (!identical(document$version, data$version) || isTRUE(data$parse_error)) return(TRUE)
+    if (!identical(data$member_data$class_scope, FALSE)) return(TRUE)
+    metadata <- workspace$member_metadata
+    if (is.null(metadata)) return(FALSE)
+    for (package in metadata$keys()) {
+        # Older snapshots without the hint retain the inference path.
+        candidate <- if (is.function(metadata$catalog)) metadata$catalog(package) else metadata$get(package)
+        if (!identical(candidate$class_scope, FALSE)) return(TRUE)
+    }
+    FALSE
 }
 
 member_before <- function(a, b) {
@@ -221,6 +241,20 @@ member_recover <- function(document, point, cursor, data) {
         }
         return(NULL)
     }
+    # A cursor in a formal default may leave a function without its body.
+    # Recover from the following text when closing delimiters alone cannot
+    # complete the prefix, using the same bounded forward scan as methods.
+    if (is.null(cursor$accessor)) {
+        column <- if (length(preceding) && items[[preceding]]$end[[1L]] == start) {
+            items[[preceding]]$end[[2L]]
+        } else {
+            0L
+        }
+        context <- member_recover_context(document, content, point, cursor, start, column, sentinel, NULL)
+        if (!is.null(context)) return(list(
+            parsed = context, sentinel = sentinel, context = context, start = c(start, column)
+        ))
+    }
     NULL
 }
 
@@ -232,7 +266,7 @@ member_recover_context <- function(document, content, point, cursor, start, colu
         if (is.call(node) && (identical(member_name(node[[1L]]), "R6Class") ||
                     (member_head(node[[1L]], "::") && identical(member_name(node[[1L]][[3L]]), "R6Class")))) declaration <<- TRUE
     })
-    if (!declaration) return(NULL)
+    if (!is.null(parsed) && !declaration) return(NULL)
     last <- min(length(content) - 1L, start + 128L)
     if (document$is_rmarkdown) {
         cell <- literate_r_cell_at(document$regions, point$row)
@@ -408,13 +442,32 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
     has_cursor <- function(node) {
         found <- FALSE
         member_walk(node, function(child) {
-            if (member_head(child, accessor) && identical(member_name(child[[3L]]), sentinel)) found <<- TRUE
+            at_cursor <- if (is.null(accessor)) {
+                is.symbol(child) && identical(member_name(child), sentinel)
+            } else {
+                member_head(child, accessor) && identical(member_name(child[[3L]]), sentinel)
+            }
+            if (at_cursor) found <<- TRUE
+            if (member_head(child, "function")) {
+                for (i in seq_along(child[[2L]])) {
+                    if (!identical(child[[2L]][[i]], quote(expr = )) && has_cursor(child[[2L]][[i]])) found <<- TRUE
+                }
+            }
         })
         found
     }
     visit <- function(node, env) {
         if (is.null(accessor) && is.symbol(node) && identical(member_name(node), sentinel)) {
-            result <<- member_infer(as.name(name), index, env, budget = budget)
+            result <<- if (is.null(name)) {
+                internal <- c(".__member_position__", ".__s4_classes__", ".__member_properties__",
+                    ".__member_context_bindings__", ".__member_context_locals__")
+                value <- member_value(type = "environment", fields = env[setdiff(names(env), internal)])
+                value$context_bindings <- env$.__member_context_bindings__
+                value$context_locals <- env$.__member_context_locals__
+                value
+            } else {
+                member_infer(as.name(name), index, env, budget = budget)
+            }
             return(invisible(NULL))
         }
         if (!is.call(node) && !is.expression(node)) {
@@ -443,12 +496,24 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
             return(invisible(NULL))
         }
         if (member_head(node, "function")) {
-            for (name in names(node[[2L]])) env[name] <- list(member_value(reason = "formal"))
+            for (formal in names(node[[2L]])) env[formal] <- list(member_value(reason = "formal"))
+            env$.__member_context_bindings__ <- setdiff(env$.__member_context_bindings__, names(node[[2L]]))
+            if (!is.null(env$.__member_context_locals__)) {
+                env$.__member_context_locals__ <- union(env$.__member_context_locals__, names(node[[2L]]))
+            }
+            for (i in seq_along(node[[2L]])) {
+                if (!identical(node[[2L]][[i]], quote(expr = )) && has_cursor(node[[2L]][[i]])) {
+                    visit(node[[2L]][[i]], env)
+                }
+            }
+            if (!is.null(result)) return(invisible(NULL))
             visit(node[[3L]], env)
             return(invisible(NULL))
         }
         if (member_is_r6_call(node, index, env) && has_cursor(node)) {
             scope <- member_r6_context(node, index, env, budget)
+            scope$.__member_context_bindings__ <- names(scope)
+            scope$.__member_context_locals__ <- character()
             args <- as.list(node)[-1L]
             for (section in c("public", "private", "active")) {
                 if (!member_head(args[[section]], "list")) next
@@ -469,19 +534,145 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
                 visit(child, env)
                 if (!is.null(result)) break
                 if ((member_head(child, "<-") || member_head(child, "=")) && is.symbol(child[[2L]])) {
-                    env[as.character(child[[2L]])] <- list(member_infer(child[[3L]], index, env, budget = budget))
+                    assigned <- as.character(child[[2L]])
+                    env[assigned] <- list(member_infer(child[[3L]], index, env, budget = budget))
                 } else {
-                    for (name in member_assigned_names(child)) env[name] <- list(member_value(reason = "unknown_local_write"))
+                    assigned <- member_assigned_names(child)
+                    for (name in assigned) env[name] <- list(member_value(reason = "unknown_local_write"))
+                }
+                env$.__member_context_bindings__ <- setdiff(env$.__member_context_bindings__, assigned)
+                if (!is.null(env$.__member_context_locals__)) {
+                    env$.__member_context_locals__ <- union(env$.__member_context_locals__, assigned)
                 }
             }
         } else {
             # A member can be the callee of a call in the complete context.
-            for (child in as.list(node)) visit(child, env)
+            for (child in as.list(node)) {
+                visit(child, env)
+                if (!is.null(result)) break
+            }
         }
         invisible(NULL)
     }
     visit(if (is.null(context)) parsed else context, bindings)
     result
+}
+
+# Use source references for complete documents so scope lookup also works in
+# methods and class declarations larger than the bounded recovery window.
+member_recover_scope <- function(document, point, cursor, data) {
+    at <- c(point$row, point$col)
+    items <- data$items
+    lo <- 1L
+    hi <- length(items)
+    while (lo <= hi) {
+        middle <- as.integer(floor((lo + hi) / 2L))
+        if (member_before(at, items[[middle]]$end)) hi <- middle - 1L else lo <- middle + 1L
+    }
+    if (!isTRUE(document$parse_data$parse_error) && lo <= length(items) &&
+            member_before(items[[lo]]$start, at)) {
+        sentinel <- ".__languageserver_member_cursor__"
+        found <- FALSE
+        source <- NULL
+        syntax <- NULL
+        contains <- function(ref) {
+            !is.null(ref) && member_before(c(ref[[1L]] - 1L, ref[[5L]] - 1L), at) &&
+                member_before(at, c(ref[[3L]] - 1L, ref[[6L]]))
+        }
+        recover_node <- function(node, ref) {
+            if (!contains(ref)) return(node)
+            if (is.null(source)) source <<- normalize_parse_content(document$content, document$is_rmarkdown)
+            lines <- source[seq.int(ref[[1L]], ref[[3L]])]
+            offset <- point$row - ref[[1L]] + 2L
+            lines[[offset]] <- paste0(gsub("\t", " ", cursor$before, fixed = TRUE), sentinel,
+                substring(source[[point$row + 1L]], cursor$end + 1L))
+            # Trim the source range after replacing the token: its last column
+            # moves when the cursor and range end share a line.
+            end <- ref[[6L]]
+            if (point$row == ref[[3L]] - 1L) end <- end + nchar(sentinel) - (cursor$end - cursor$start)
+            lines[[length(lines)]] <- substr(lines[[length(lines)]], 1L, end)
+            lines[[1L]] <- substring(lines[[1L]], ref[[5L]])
+            parsed <- tryCatch(parse(text = lines), error = function(e) NULL)
+            if (length(parsed) == 1L) {
+                found <<- TRUE
+                return(parsed[[1L]])
+            }
+            node
+        }
+        insert_cursor <- function(node, ref = NULL) {
+            if (!is.call(node)) return(node)
+            if (member_head(node, "function")) {
+                ref <- if (length(node) >= 4L) node[[4L]]
+                if (!contains(ref)) return(node)
+                # Function source references cover defaults as well as the
+                # body. Locate each part in the parser's child rows so a
+                # default closure keeps its own formals and earlier locals.
+                if (is.null(syntax)) syntax <<- utils::getParseData(attr(ref, "srcfile"))
+                rows <- which(syntax$token == "expr" & syntax$line1 == ref[[1L]] &
+                        syntax$col1 == ref[[5L]] & syntax$line2 == ref[[3L]] & syntax$col2 == ref[[6L]])
+                parts <- syntax[syntax$parent %in% syntax$id[rows] & syntax$token == "expr", ]
+                parts <- parts[order(parts$line1, parts$col1), ]
+                defaults <- which(vapply(as.list(node[[2L]]), function(x) !identical(x, quote(expr = )), logical(1L)))
+                if (nrow(parts) == length(defaults) + 1L) {
+                    for (i in seq_len(nrow(parts))) {
+                        part <- parts[i, ]
+                        part_ref <- c(part$line1, 0L, part$line2, 0L, part$col1, part$col2)
+                        if (!contains(part_ref)) next
+                        child <- if (i <= length(defaults)) node[[2L]][[defaults[[i]]]] else node[[3L]]
+                        child <- insert_cursor(child, part_ref)
+                        if (!found) child <- recover_node(child, part_ref)
+                        if (i <= length(defaults)) node[[2L]][defaults[[i]]] <- list(child) else node[[3L]] <- child
+                        return(node)
+                    }
+                }
+                if (is.null(cursor$accessor)) {
+                    node[[3L]] <- as.name(sentinel)
+                    found <<- TRUE
+                }
+                return(node)
+            }
+            if (member_head(node, "{")) {
+                ref <- attr(node, "wholeSrcref")
+                if (!is.null(ref) && (!member_before(c(ref[[1L]] - 1L, ref[[5L]] - 1L), at) ||
+                            !member_before(at, c(ref[[3L]] - 1L, ref[[6L]])))) return(node)
+                refs <- attr(node, "srcref")
+                if (length(node) > 1L && length(refs) == length(node)) {
+                    for (i in seq.int(2L, length(node))) {
+                        ref <- refs[[i]]
+                        if (member_before(at, c(ref[[1L]] - 1L, ref[[5L]] - 1L))) {
+                            node <- as.call(c(as.list(node)[seq_len(i - 1L)], list(as.name(sentinel))))
+                            found <<- TRUE
+                            return(node)
+                        }
+                        if (member_before(at, c(ref[[3L]] - 1L, ref[[6L]]))) {
+                            child <- insert_cursor(node[[i]], ref)
+                            if (!found) child <- recover_node(child, ref)
+                            if (!found && is.null(cursor$accessor)) child <- as.name(sentinel)
+                            if (!found && !is.null(cursor$accessor)) return(node)
+                            node <- as.call(c(as.list(node)[seq_len(i - 1L)], list(child)))
+                            found <<- TRUE
+                            return(node)
+                        }
+                    }
+                    node <- as.call(c(as.list(node), list(as.name(sentinel))))
+                    found <<- TRUE
+                    return(node)
+                }
+            }
+            for (i in seq_along(node)) {
+                if (is.call(node[[i]])) node[[i]] <- insert_cursor(node[[i]])
+                if (found) break
+            }
+            if (!found) node <- recover_node(node, ref)
+            node
+        }
+        expr <- insert_cursor(items[[lo]]$expr)
+        if (found) return(list(
+            parsed = as.expression(list(expr)), sentinel = sentinel,
+            context = NULL, start = items[[lo]]$start
+        ))
+    }
+    member_recover(document, point, cursor, data)
 }
 
 member_resolve_cursor <- function(uri, workspace, document, point, cursor, name = NULL) {
@@ -496,7 +687,7 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
     if (is.null(data)) {
         return(NULL)
     }
-    recovered <- member_recover(document, point, cursor, data)
+    recovered <- member_recover_scope(document, point, cursor, data)
     if (is.null(recovered)) {
         return(NULL)
     }
@@ -550,6 +741,7 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
         } else {
             value$fields[[label]]
         }
+        if (!is.null(shape)) shape <- member_r6_member_info(shape, value)
         key <- members[[label]]
         symbol <- member_symbol_info(label, shape, key, index)
         is_function <- !is.null(shape$function_expr) || !is.null(shape$result_shape) ||
@@ -569,6 +761,7 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
             } else {
                 "[static member]"
             }, sortText = label,
+            documentation = if (!is.null(symbol$description)) list(kind = "markdown", value = symbol$description),
             filterText = label, insertTextFormat = if (snippet) InsertTextFormat$Snippet else InsertTextFormat$PlainText,
             textEdit = text_edit(range(
                 document$to_lsp_position(point$row, cursor$start),
@@ -581,5 +774,37 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
         )
     })
     if (length(matches) > limit || budget$exhausted) attr(items, "truncated") <- TRUE
+    items
+}
+
+# Ordinary document/workspace items may represent a class generator, instance,
+# or method alias. Enrich the already-pruned list using one bounded lexical
+# inference context, leaving unknown symbols to their existing providers.
+member_class_completion_info <- function(uri, workspace, document, point, token, items, resolved = NULL) {
+    if (!length(items) || !is.null(token$package) || !identical(token$accessor, "")) return(items)
+    if (identical(resolved, FALSE)) return(items)
+    start <- token$range$start$col
+    cursor <- list(operator = start + 1L, operator_row = point$row,
+        start = start, end = token$range$end$col, accessor = NULL,
+        before = substr(document$line0(point$row), 1L, start))
+    if (is.null(resolved)) resolved <- member_resolve_cursor(uri, workspace, document, point, cursor)
+    if (is.null(resolved$value)) return(items)
+    env <- resolved$bindings
+    for (name in names(resolved$value$fields)) env[name] <- resolved$value$fields[name]
+    for (i in seq_along(items)) {
+        if (isTRUE(resolved$budget$exhausted)) break
+        package <- items[[i]]$data$package
+        if (!is.null(package) && !package %in% c("", WORKSPACE)) next
+        if (identical(items[[i]]$data$type, "parameter") || !is.null(items[[i]]$data$parameter)) next
+        label <- items[[i]]$label
+        if (startsWith(label, "`")) label <- tryCatch(as.character(parse(text = label)[[1L]]), error = function(e) label)
+        if (!label %in% names(env) && !label %in% names(resolved$index$document_bindings)) next
+        value <- member_infer(as.name(label), resolved$index, env, budget = resolved$budget)
+        description <- member_r6_description(value)
+        if (!is.null(description)) {
+            doc <- unique(c(description, items[[i]]$documentation$value))
+            items[[i]]$documentation <- list(kind = "markdown", value = paste(doc, collapse = "\n\n"))
+        }
+    }
     items
 }

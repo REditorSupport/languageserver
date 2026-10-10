@@ -86,7 +86,8 @@ member_value <- function(
   elements = NULL, classes = NULL, reason = NULL, element_shape = NULL,
   open = FALSE, result_shape = NULL, binding_expr = NULL, binding_env = NULL,
   metadata = NULL, slots = NULL, slot_types = NULL, s4_class = NULL,
-  s4_generator = NULL, r6_private = NULL, r6_super = NULL, r6_self = NULL
+  s4_generator = NULL, r6_private = NULL, r6_super = NULL, r6_self = NULL,
+  r6_class = NULL, r6_role = NULL
 ) {
     list(
         type = type, function_key = function_key, receiver = receiver,
@@ -98,7 +99,8 @@ member_value <- function(
         binding_expr = binding_expr, binding_env = binding_env, metadata = metadata,
         slots = slots, slot_types = slot_types, s4_class = s4_class,
         s4_generator = s4_generator, r6_private = r6_private,
-        r6_super = r6_super, r6_self = r6_self
+        r6_super = r6_super, r6_self = r6_self,
+        r6_class = r6_class, r6_role = r6_role
     )
 }
 
@@ -144,6 +146,10 @@ member_join <- function(a, b) {
         classes = if (identical(a$classes, b$classes)) a$classes else NULL
     )
     if (isTRUE(a$s7) && isTRUE(b$s7)) value$s7 <- TRUE
+    if (identical(a$r6_class, b$r6_class)) value$r6_class <- a$r6_class
+    if (identical(a$r6_role, b$r6_role)) value$r6_role <- a$r6_role
+    if (identical(a$r6_owner, b$r6_owner)) value$r6_owner <- a$r6_owner
+    if (identical(a$r6_member_kind, b$r6_member_kind)) value$r6_member_kind <- a$r6_member_kind
     if (identical(a$r6_locked, b$r6_locked)) value$r6_locked <- a$r6_locked
     if (!is.null(a$r6_bindings) || !is.null(b$r6_bindings)) {
         bindings <- c(a$r6_bindings, b$r6_bindings)
@@ -222,7 +228,9 @@ member_shape_key <- function(value, depth = 0L) {
         r6_super = member_shape_key(value$r6_super, depth + 1L),
         r6_self = member_shape_key(value$r6_self, depth + 1L),
         r6_locked = value$r6_locked, r6_bindings = value$r6_bindings,
-        r6_identity = value$r6_identity,
+        r6_identity = value$r6_identity, r6_class = value$r6_class,
+        r6_role = value$r6_role,
+        r6_owner = value$r6_owner, r6_member_kind = value$r6_member_kind,
         elements = lapply(value$elements, member_shape_key, depth + 1L),
         element_shape = if (!is.null(value$element_shape)) member_shape_key(value$element_shape, depth + 1L) else NULL
     )
@@ -722,6 +730,7 @@ member_infer <- function(
         }
         value <- member_lookup(lhs$fields, name)
         if (!is.null(value)) {
+            value <- member_r6_member_info(value, lhs)
             if (!is.null(value$receiver_name)) {
                 value$receiver_value <- if (is.null(lhs$r6_self)) lhs else lhs$r6_self
                 if (!is.null(value$receiver_value$r6_private)) {
@@ -731,7 +740,8 @@ member_infer <- function(
                 if (!is.null(value$closure$super)) value$closure$super$r6_self <- value$receiver_value
             }
             if (!is.null(value$function_key)) value$receiver_value <- lhs
-            if (length(value$type) || !is.null(value$function_expr) || !is.null(value$function_key)) {
+            if (length(value$type) || !is.null(value$function_expr) || !is.null(value$function_key) ||
+                    !is.null(value$r6_owner)) {
                 return(value)
             }
         }
@@ -820,7 +830,7 @@ member_infer <- function(
         return(member_value(function_expr = expr, closure = member_function_closure(expr, bindings)))
     }
     if (member_is_r6_call(expr, index, bindings)) {
-        return(member_r6_shape(expr, index, bindings, budget))
+        return(member_r6_shape(expr, index, bindings, budget, depth, trail))
     }
     s4 <- member_s4_call(expr, index, bindings, budget)
     if (!is.null(s4)) return(s4)

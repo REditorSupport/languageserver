@@ -175,6 +175,24 @@ static int top_row(
     return row;
 }
 
+static int scope_row(
+    int row,
+    const int *id,
+    const int *parent,
+    const int *row_by_id,
+    int max_id,
+    const int *function_scope
+) {
+    int ancestor = row;
+    while (parent[ancestor] > 0) {
+        int parent_id = parent[ancestor];
+        if (parent_id > max_id || row_by_id[parent_id] < 0) return -1;
+        ancestor = row_by_id[parent_id];
+        if (function_scope[id[ancestor]]) return ancestor;
+    }
+    return top_row(row, parent, row_by_id, max_id);
+}
+
 static SEXP row_vector(const int *rows, int size) {
     SEXP result = Rf_allocVector(INTSXP, size);
     int *out = INTEGER(result);
@@ -382,6 +400,7 @@ SEXP completion_parse_index_c(
     int *last_child = (int *) R_alloc((size_t) max_id + 1, sizeof(int));
     int *next_sibling = (int *) R_alloc((size_t) n, sizeof(int));
     int *parent_has_dollar = (int *) R_alloc((size_t) max_id + 1, sizeof(int));
+    int *function_scope = (int *) R_alloc((size_t) max_id + 1, sizeof(int));
     completion_token_kind *kind = (completion_token_kind *)
         R_alloc((size_t) n, sizeof(completion_token_kind));
 
@@ -390,6 +409,7 @@ SEXP completion_parse_index_c(
         first_child[i] = -1;
         last_child[i] = -1;
         parent_has_dollar[i] = 0;
+        function_scope[i] = 0;
     }
     for (int i = 0; i < n; i++) {
         next_sibling[i] = -1;
@@ -413,6 +433,9 @@ SEXP completion_parse_index_c(
             last_child[parent_id] = i;
             if (kind[i] == TOKEN_DOLLAR) {
                 parent_has_dollar[parent_id] = 1;
+            }
+            if (kind[i] == TOKEN_FUNCTION || kind[i] == TOKEN_LAMBDA) {
+                function_scope[parent_id] = 1;
             }
         }
     }
@@ -486,7 +509,8 @@ SEXP completion_parse_index_c(
         int name_row = simple_symbol_row(
             name_expr, id_ptr, first_child, next_sibling, kind);
         if (name_row < 0) continue;
-        int range_row = top_row(name_row, parent_ptr, row_by_id, max_id);
+        int range_row = scope_row(name_row, id_ptr, parent_ptr, row_by_id,
+            max_id, function_scope);
         if (range_row < 0) continue;
 
         if (is_function_expr(value_expr, id_ptr, first_child, next_sibling, kind)) {
@@ -504,7 +528,8 @@ SEXP completion_parse_index_c(
         int child = first_child[id_ptr[i]];
         while (child >= 0) {
             if (kind[child] == TOKEN_SYMBOL) {
-                int range_row = top_row(child, parent_ptr, row_by_id, max_id);
+                int range_row = scope_row(child, id_ptr, parent_ptr, row_by_id,
+                    max_id, function_scope);
                 if (range_row >= 0) {
                     symbol_name[symbol_count] = child;
                     symbol_range[symbol_count++] = range_row;
