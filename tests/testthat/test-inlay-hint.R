@@ -498,23 +498,27 @@ test_that("inlay fallback drops callees after whitespace-separated prefix edits"
     cases <- expand.grid(
         prefix = c("obj$", "obj@", "pkg::"),
         separator = c(" ", "  ", "\t"),
-        assignment = c("x <-", "\U00010400 <-"),
+        # Keep the quoted Unicode name outside the edit so this tests UTF-16
+        # offsets without activating the backtick invalidation rule.
+        before = c("", "`\U00010400` <- NULL; "),
         stringsAsFactors = FALSE
     )
     for (i in seq_len(nrow(cases))) {
         case <- cases[i, ]
         fixture <- provider_fixture(
-            c(paste0(case$assignment, case$separator, "target(one, two)"),
+            c(paste0(case$before, "x <-", case$separator, "target(one, two)"),
                 "", "target(three, four)"),
             function(...) formals(function(first, second) NULL)
         )
         request <- range(position(0L, 0L), position(20L, 0L))
+        expect_false(fixture$document$parse_data$parse_error)
         original <- inlay_hint_reply(
             1L, fixture$uri, fixture$workspace, fixture$document, request
         )$result
         expect_length(original, 4L)
         fixture$document$apply_content_changes(2L, list(list(
-            range = range(position(0L, 0L), position(0L, ncodeunit(case$assignment))),
+            range = range(position(0L, ncodeunit(case$before)),
+                position(0L, ncodeunit(paste0(case$before, "x <-")))),
             text = case$prefix
         )))
         parsed <- inlay_hint_edit(fixture, 3L, list(list(
