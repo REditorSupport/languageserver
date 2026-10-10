@@ -569,7 +569,7 @@ member_s7_external <- function(descriptor, index, bindings, budget) {
     on.exit(budget$s7_external <- trail)
     local <- identical(descriptor$package, index$package)
     same <- local || identical(descriptor$package, bindings$.__s7_package__)
-    target <- if (local) index else member_lookup(index$namespace_indices, descriptor$package)
+    target <- if (local) index else member_namespace_index(index, descriptor$package)
     if (is.null(target)) target <- member_lookup(index$s7_dependencies, descriptor$package)
     if (is.null(target) && same && !is.null(index$document_bindings)) target <- index
     if (is.null(target) || (!same && !descriptor$name %in% target$exports)) return(NULL)

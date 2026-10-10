@@ -7,6 +7,14 @@
   class information in completion, hover and signature help, and derive R6
   `new()` signatures and argument completion from public initializers.
 
+- Preserve Polars member completion, signature help and hover when other
+  packages are cached. Prefer receiver roots over incidental exported names
+  and keep metadata requested by open documents ahead of background entries.
+  Retain compact inert snapshots so indexes evicted from the decoded cache
+  can be restored when multiple open documents need large package metadata.
+  Use compact catalogs for context selection and restore full namespace indexes
+  only when inference needs them, avoiding repeated eviction on each request.
+
 - Keep parameter-name inlay hints for untouched calls during incomplete edits,
   moving their positions with incremental changes and refreshing after a valid
   parse, so a temporary syntax error does not clear hints across the document.

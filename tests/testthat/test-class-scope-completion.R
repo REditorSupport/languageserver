@@ -361,9 +361,30 @@ test_that("Package class hints retain class information for ordinary scope varia
     index$package_roots$C <- value
     index$roots$C <- value
     index$namespace_roots[["fixture::C"]] <- value
-    fixture$workspace$member_metadata <- collections::dict()
-    fixture$workspace$member_metadata$set("fixture", member_index_thaw(member_index_freeze(index)))
+    fixture$workspace$member_metadata <- MemberMetadataCache$new(32 * 1024^2)
+    fixture$workspace$member_metadata$set("fixture", member_index_freeze(index))
     items <- class_scope_items(fixture, token = "obj")
     object <- items[[match("object", vapply(items, `[[`, character(1L), "label"))]]
     expect_match(object$documentation$value, "R6 instance of `Widget`", fixed = TRUE)
+})
+
+test_that("Scope inference hints use compact catalogs without decoding package indexes", {
+    fixture <- class_scope_fixture("probe <- function(argument) {", "}")
+    cache <- MemberMetadataCache$new(32 * 1024^2)
+    ordinary <- member_index_freeze(member_generic_index("identity <- function(x) x"))
+    cache$set("ordinary", ordinary)
+    fixture$workspace$member_metadata <- list(keys = cache$keys, catalog = cache$catalog,
+        get = function(...) stop("The scope hint must not decode metadata"))
+    expect_identical(cache$catalog("ordinary")$class_scope, FALSE)
+    expect_false(member_scope_required(fixture$workspace, fixture$document))
+    expect_true("argument" %in% class_scope_labels(fixture))
+
+    classes <- member_index_freeze(member_generic_index('factory <- function() R6::R6Class("C")'))
+    cache$set("classes", classes)
+    expect_identical(cache$catalog("classes")$class_scope, TRUE)
+    expect_true(member_scope_required(fixture$workspace, fixture$document))
+    cache$remove("classes")
+    ordinary$class_scope <- NULL
+    cache$set("ordinary", ordinary)
+    expect_true(member_scope_required(fixture$workspace, fixture$document))
 })

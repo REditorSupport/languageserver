@@ -118,7 +118,8 @@ member_scope_required <- function(workspace, document) {
     if (is.null(metadata)) return(FALSE)
     for (package in metadata$keys()) {
         # Older snapshots without the hint retain the inference path.
-        if (!identical(metadata$get(package)$class_scope, FALSE)) return(TRUE)
+        candidate <- if (is.function(metadata$catalog)) metadata$catalog(package) else metadata$get(package)
+        if (!identical(candidate$class_scope, FALSE)) return(TRUE)
     }
     FALSE
 }
@@ -312,13 +313,27 @@ member_context_index <- function(workspace, uri, document, at, parsed = NULL) {
         }
     }
     index <- member_generic_index("")
+    selected <- NULL
+    package_catalogs <- list()
     if (!is.null(metadata)) {
+        fallback <- NULL
         for (package in metadata$keys()) {
-            candidate <- metadata$get(package)
-            if (length(intersect(referenced, c(names(candidate$roots), candidate$exports))) || package %in% referenced) {
-                index <- list2env(as.list(candidate), parent = emptyenv())
+            candidate <- if (is.function(metadata$catalog)) metadata$catalog(package) else metadata$get(package)
+            package_catalogs[package] <- list(candidate)
+            # A receiver root identifies its package more precisely than an
+            # exported name used as a member or argument (for example filter).
+            # Cache order must not let those incidental names hide the root.
+            if (length(intersect(referenced, names(candidate$roots))) || package %in% referenced) {
+                selected <- metadata$get(package)
+                index <- list2env(as.list(selected), parent = emptyenv())
+                fallback <- NULL
                 break
             }
+            if (is.null(fallback) && length(intersect(referenced, candidate$exports))) fallback <- package
+        }
+        if (!is.null(fallback)) {
+            selected <- metadata$get(fallback)
+            index <- list2env(as.list(selected), parent = emptyenv())
         }
     }
     index$document_bindings <- document$parse_data$member_data$bindings
@@ -327,10 +342,21 @@ member_context_index <- function(workspace, uri, document, at, parsed = NULL) {
     index$attached_s4 <- list()
     index$document_s4 <- document$parse_data$member_data$s4
     index$namespace_indices <- list()
+    index$namespace_metadata <- metadata
     index$s4_dependencies <- list()
     if (!is.null(metadata)) {
         for (package in metadata$keys()) {
-            package_index <- metadata$get(package)
+            package_index <- package_catalogs[[package]]
+            if (is.null(package_index)) {
+                package_index <- if (is.function(metadata$catalog)) metadata$catalog(package) else metadata$get(package)
+            }
+            # Full indexes are restored only if inference follows this package.
+            # The chosen receiver index is already decoded for this request.
+            if (identical(package, index$package)) {
+                package_index <- as.list(selected)
+            } else if (is.function(metadata$catalog)) {
+                package_index$.metadata_lazy <- TRUE
+            }
             index$namespace_indices[package] <- list(package_index)
             for (dependency in names(package_index$s7_dependencies)) {
                 if (!is.null(index$namespace_indices[[dependency]])) next
@@ -357,9 +383,14 @@ member_context_index <- function(workspace, uri, document, at, parsed = NULL) {
                 if (!is.null(package_index$s4_classes)) {
                     index$attached_s4 <- utils::modifyList(index$attached_s4, package_index$s4_classes)
                 }
-                for (name in intersect(package_index$exports, names(package_index$definitions))) {
-                    if (member_head(package_index$definitions[[name]], "function") &&
-                            is.null(index$attached_roots[[name]]$s4_generator) &&
+                functions <- if (isTRUE(package_index$.metadata_lazy)) {
+                    package_index$functions
+                } else {
+                    Filter(function(name) member_head(package_index$definitions[[name]], "function"),
+                        intersect(package_index$exports, names(package_index$definitions)))
+                }
+                for (name in functions) {
+                    if (is.null(index$attached_roots[[name]]$s4_generator) &&
                             is.null(index$attached_roots[[name]]$s7_generator)) {
                         index$attached_roots[name] <- list(member_value(function_key = name, metadata = package))
                     }

@@ -455,6 +455,133 @@ test_that("Installed package members retain method signatures and documentation 
     expect_identical(tail(queried, 1L), "PlRLazyFrame_collect")
 })
 
+test_that("Polars query providers prefer receiver metadata over competing cached exports", {
+    skip_if_not_installed("polars")
+    snapshot <- member_prepare_package("polars")
+    unrelated <- member_generic_index("")
+    unrelated$package <- "unrelated"
+    unrelated$exports <- c("scan_csv", "csv_file", "filter", "col", "group_by", "agg", "all", "median", "collect", "sum")
+    lines <- c(
+        "library(polars)", "",
+        "csv_file <- tempfile(fileext = \".csv\")",
+        "write.csv(iris, csv_file, row.names = FALSE)", "",
+        "q <- pl$scan_csv(csv_file, infer_schema_files = 10)", "q # not working", "",
+        "q1 <- q$filter(pl$col(\"Sepal.Length\") > 5)", "q1 # not working", "",
+        "q1 <- q$filter(pl$col(\"Sepal.Length\") > 5)$group_by(\"Species\")$agg(pl$all()$median())$collect()",
+        "q1 # not working", "",
+        "q2 <- q1$group_by(\"Species\")$agg(pl$all()$sum())", "q2 # not working"
+    )
+    metadata <- MemberMetadataCache$new(32 * 1024^2)
+    metadata$set("unrelated", as.list(member_index_thaw(member_index_freeze(unrelated))))
+    metadata$set("polars", as.list(member_index_thaw(snapshot)))
+    # Prepare in a clean worker, as production does, so S4 fixtures declared by
+    # other tests do not inflate the methods namespace snapshot.
+    methods_snapshot <- callr::r(function() languageserver:::member_prepare_package("methods"))
+    metadata$set("methods", as.list(member_index_thaw(methods_snapshot)))
+    expect_true(metadata$has("polars"))
+    restored <- character()
+    cache <- metadata
+    metadata <- list(keys = cache$keys, catalog = cache$catalog, get = function(package) {
+        if (!cache$.__enclos_env__$private$indexes$has(package)) restored <<- c(restored, package)
+        cache$get(package)
+    })
+    for (row in c(6L, 9L, 12L, 15L)) {
+        edited <- lines
+        name <- sub(" .*", "", edited[[row + 1L]])
+        edited[[row + 1L]] <- paste0(name, "$group_by(\"Species\", .maintain_order = ")
+        fixture <- member_provider_fixture(edited)
+        fixture$workspace$member_metadata <- metadata
+        queried <- character()
+        fixture$workspace$get_documentation <- function(key, package, isf, uri) {
+            expect_identical(package, "polars")
+            queried <<- c(queried, key)
+            list(description = paste("Documentation for", key))
+        }
+        point <- list(row = row, col = nchar(name) + 1L)
+        resolved <- member_resolve_cursor(fixture$uri, fixture$workspace, fixture$document, point,
+            member_cursor(fixture$document, point))
+        expect_identical(resolved$value$type, if (row < 12L) "polars_lazy_frame" else "polars_data_frame")
+        expect_false(resolved$budget$exhausted)
+        items <- member_completion(fixture$uri, fixture$workspace, fixture$document, point, TRUE, 200L)
+        labels <- vapply(items, `[[`, character(1L), "label")
+        expect_true(all(c("filter", "group_by") %in% labels))
+        expect_identical("collect" %in% labels, row < 12L)
+        expect_identical("lazy" %in% labels, row >= 12L)
+        item <- items[[match("group_by", labels)]]
+        signature <- "group_by(..., .maintain_order = FALSE)"
+        expect_identical(item$data$type, "member")
+        expect_identical(item$data$package, "polars")
+        expect_identical(item$detail, signature)
+        expect_identical(member_provider_signature(fixture, row)$signatures[[1L]]$label, signature)
+        hover <- member_provider_hover(fixture, row, nchar(name) + 3L)
+        expect_identical(hover$contents[[1L]], sprintf("```r\n%s\n```", signature))
+        expect_true(all(queried == if (row < 12L) "lazyframe__group_by" else "dataframe__group_by"))
+    }
+    expect_identical(restored, "polars")
+})
+
+test_that("Polars providers survive large metadata for several open documents over LSP", {
+    skip_on_cran()
+    skip_if_not_installed("polars")
+    root <- withr::local_tempdir()
+    # A test-only request reads the actual server cache. Namespace completion
+    # can succeed before member metadata arrives, so it is not a readiness test.
+    script <- paste(
+        "languageserver:::lsp_settings$update_from_options()",
+        "server <- languageserver:::LanguageServer$new('localhost', NULL)",
+        "server$request_handlers[['test/memberMetadata']] <- function(self, id, params) {",
+        "cache <- self$get_workspace(params$uri)$member_metadata",
+        "ready <- all(c('polars', 'methods', 'R6') %in% cache$keys())",
+        "if (ready && isTRUE(params$evict)) cache$get('methods')",
+        "decoded <- cache$.__enclos_env__$private$indexes$keys()",
+        "self$deliver(languageserver:::Response$new(id, result = list(ready = ready, decoded = decoded)))",
+        "}", "server$run()", sep = "; "
+    )
+    original_new <- LanguageClient$new
+    mockery::stub(language_client, "LanguageClient$new", function(command, args) {
+        original_new(command, c("--no-echo", "-e", script))
+    })
+    client <- language_client(working_dir = root)
+    path <- file.path(root, "polars.R")
+    lines <- c(
+        "library(polars)",
+        "q <- pl$scan_csv(csv_file, infer_schema_files = 10)",
+        "q1 <- q$filter(pl$col(\"Sepal.Length\") > 5)", "q1",
+        "q1 <- q$filter(pl$col(\"Sepal.Length\") > 5)$group_by(\"Species\")$agg(pl$all()$median())$collect()",
+        "q1", "q2 <- q1$group_by(\"Species\")$agg(pl$all()$sum())", "q2",
+        "Leaf <- methods::setClass(\"Leaf\", slots = c(value = \"numeric\"))",
+        "Dataset <- R6::R6Class(\"Dataset\", public = list(value = 1))"
+    )
+    did_open(client, path, text = lines)
+    other <- file.path(root, "other.R")
+    did_open(client, other, text = "methods::setClass(\"Other\", slots = c(value = \"numeric\"))")
+    ready <- respond(client, "test/memberMetadata", list(uri = path_to_uri(path), evict = TRUE),
+        timeout = if (identical(Sys.getenv("R_COVR"), "true")) 60 else 20,
+        retry_when = function(result) !isTRUE(result$ready))
+    expect_true(ready$ready)
+    expect_true("methods" %in% ready$decoded)
+    expect_false("polars" %in% ready$decoded)
+    for (row in c(3L, 5L, 7L)) {
+        edited <- lines
+        name <- edited[[row + 1L]]
+        edited[[row + 1L]] <- paste0(name, "$group_by(\"Species\", .maintain_order = ")
+        notify(client, "textDocument/didChange", list(
+            textDocument = list(uri = path_to_uri(path), version = row),
+            contentChanges = list(list(text = paste(edited, collapse = "\n")))
+        ))
+        completion <- respond_completion(client, path, c(row, nchar(name) + 1L), retry = FALSE)
+        expect_true(all(vapply(completion$items, function(item) identical(item$data$type, "member"), logical(1L))))
+        labels <- vapply(completion$items, `[[`, character(1L), "label")
+        expect_true(all(c("filter", "group_by") %in% labels))
+        expect_identical("collect" %in% labels, row == 3L)
+        expect_identical("lazy" %in% labels, row != 3L)
+        signature <- respond_signature(client, path, c(row, nchar(edited[[row + 1L]])), retry = FALSE)
+        expect_identical(signature$signatures[[1L]]$label, "group_by(..., .maintain_order = FALSE)")
+        hover <- respond_hover(client, path, c(row, nchar(name) + 3L), retry = FALSE)
+        expect_identical(hover$contents[[1L]], "```r\ngroup_by(..., .maintain_order = FALSE)\n```")
+    }
+})
+
 test_that("Member signature and hover work over LSP immediately after an edit", {
     skip_on_cran()
     skip_if_not_installed("polars")
