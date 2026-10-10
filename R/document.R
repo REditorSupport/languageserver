@@ -9,6 +9,8 @@ Document <- R6::R6Class(
         content = NULL,
         call_scan_cache = NULL,
         parse_data = NULL,
+        inlay_hint_data = NULL,
+        inlay_hint_formals = NULL,
         is_rmarkdown = NULL,
         regions = NULL,
         loaded_packages = NULL,
@@ -35,7 +37,10 @@ Document <- R6::R6Class(
             self$is_open <- FALSE
         },
 
-        set_content = function(version, content) {
+        set_content = function(version, content, change = NULL) {
+            if (!identical(self$content, content)) {
+                self$inlay_hint_data <- inlay_hint_apply_change(self$inlay_hint_data, change, self$content)
+            }
             self$version <- version
             self$nline <- length(content)
             self$content <- content
@@ -94,12 +99,18 @@ Document <- R6::R6Class(
                 } else {
                     character()
                 }
-                self$set_content(version, c(before, changed, after))
+                self$set_content(version, c(before, changed, after), change)
             }
         },
 
         update_parse_data = function(parse_data) {
             self$parse_data <- parse_data
+            if (!isTRUE(parse_data$parse_error) && !isTRUE(parse_data$inlay_hint_incomplete)) {
+                self$inlay_hint_data <- parse_data$range_data[c(
+                    "calls", "arguments", "argument_order", "argument_lines"
+                )]
+                self$inlay_hint_formals <- new.env(parent = emptyenv())
+            }
         },
 
         line = function(row) {
@@ -554,7 +565,14 @@ get_content_hash <- function(content) {
 
 parse_document <- function(uri, content, is_rmarkdown = FALSE,
     content_hash = NULL) {
-    content <- normalize_parse_content(content, is_rmarkdown)
+    parse_content <- normalize_parse_content(content, is_rmarkdown)
+    inlay_hint_incomplete_lines <- if (is_rmarkdown) {
+        which(parse_content != normalize_parse_content(
+            content, is_rmarkdown, parseable_only = FALSE)) - 1L
+    } else {
+        integer()
+    }
+    content <- parse_content
     if (is.null(content_hash)) content_hash <- get_content_hash(content)
 
     parse_env <- function() {
@@ -578,6 +596,8 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
             NULL, content, env$completion_data, uri, env$definitions)
         env$content_hash <- content_hash
         env$parse_error <- FALSE
+        env$inlay_hint_incomplete <- length(inlay_hint_incomplete_lines) > 0L
+        env$inlay_hint_incomplete_lines <- inlay_hint_incomplete_lines
         env
     }
     env <- parse_env()

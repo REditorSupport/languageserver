@@ -8,7 +8,9 @@ range_provider_parse_data <- function(data, content) {
         ),
         calls = list(
             name = character(), package = character(),
-            first_argument = integer(), last_argument = integer()
+            first_argument = integer(), last_argument = integer(),
+            line = integer(), col = integer(),
+            end_line = integer(), end_col = integer()
         ),
         arguments = list(
             call = integer(), line = integer(), col = integer(),
@@ -57,7 +59,11 @@ range_provider_parse_data <- function(data, content) {
         name = data$text[index[["function"]]],
         package = text_at(index$package),
         first_argument = index$first_argument,
-        last_argument = index$last_argument
+        last_argument = index$last_argument,
+        line = as.integer(data$line1[index$call] - 1L),
+        col = convert_columns(data$line1[index$call] - 1L, data$col1[index$call] - 1L),
+        end_line = as.integer(data$line2[index$call] - 1L),
+        end_col = convert_columns(data$line2[index$call] - 1L, data$col2[index$call])
     )
     first <- index$argument_first
     present <- first > 0L

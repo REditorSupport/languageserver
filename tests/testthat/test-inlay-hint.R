@@ -168,6 +168,18 @@ test_that("inlay hints work through the language server", {
     resolved <- respond(client, "inlayHint/resolve", hints[[1L]])
     expect_match(resolved$tooltip$value, "```r\\nrnorm\\(")
     expect_match(resolved$tooltip$value, "`mean` - vector of means")
+
+    notify(client, "textDocument/didChange", list(
+        textDocument = list(uri = path_to_uri(path), version = 2L),
+        contentChanges = list(list(
+            range = range(position(0L, 22L), position(0L, 22L)), text = "\nother("
+        ))
+    ))
+    preserved <- respond(client, "textDocument/inlayHint", list(
+        textDocument = list(uri = path_to_uri(path)),
+        range = range(position(0L, 0L), position(2L, 0L))
+    ), retry = FALSE)
+    expect_equal(preserved, hints)
 })
 
 test_that("inlay hint helpers handle malformed and empty calls", {
@@ -286,4 +298,356 @@ test_that("inlay hint resolution tolerates missing metadata and documentation", 
         resolved$tooltip$value,
         "Parameter `parameter` of `pkg::target()`."
     )
+})
+
+inlay_hint_edit <- function(fixture, version, changes) {
+    document <- fixture$document
+    document$apply_content_changes(version, changes)
+    parsed <- parse_document(fixture$uri, document$content, document$is_rmarkdown)
+    parsed$version <- version
+    parsed$xml_doc <- xml2::read_xml(parsed$xml_data)
+    document$update_parse_data(parsed)
+    parsed
+}
+
+test_that("inlay hints survive unrelated incomplete edits and refresh after parsing", {
+    fixture <- provider_fixture(
+        c("target(one, two)", "", "target(three, four)"),
+        function(...) formals(function(first, second) NULL)
+    )
+    request <- range(position(0L, 0L), position(20L, 0L))
+    hints <- function() {
+        inlay_hint_reply(
+            1L, fixture$uri, fixture$workspace, fixture$document, request
+        )$result
+    }
+    original <- hints()
+    expect_length(original, 4L)
+
+    parsed <- inlay_hint_edit(fixture, 2L, list(list(
+        range = range(position(1L, 0L), position(1L, 0L)), text = "other("
+    )))
+    expect_true(parsed$parse_error)
+    expect_identical(hints(), original)
+
+    parsed <- inlay_hint_edit(fixture, 3L, list(list(
+        range = range(position(1L, 6L), position(1L, 6L)), text = "one, two)"
+    )))
+    expect_false(parsed$parse_error)
+    expect_length(hints(), 6L)
+
+    parsed <- inlay_hint_edit(fixture, 4L, list(list(
+        range = range(position(0L, 0L), position(3L, 0L)), text = ""
+    )))
+    expect_false(parsed$parse_error)
+    expect_length(hints(), 0L)
+})
+
+test_that("inlay hints move untouched calls through sequential Unicode edits", {
+    fixture <- provider_fixture(
+        c('label <- "\U0001f600"; target(one, two)', "", "target(, two, three)"),
+        function(...) formals(function(first, second, third) NULL)
+    )
+    request <- range(position(0L, 0L), position(20L, 0L))
+    hints <- function(request_range = request) {
+        inlay_hint_reply(
+            1L, fixture$uri, fixture$workspace, fixture$document, request_range
+        )$result
+    }
+    original <- hints()
+    expect_length(original, 4L)
+
+    parsed <- inlay_hint_edit(fixture, 2L, list(
+        list(range = range(position(0L, 0L), position(0L, 0L)), text = "\n"),
+        list(range = range(position(1L, 0L), position(1L, 0L)), text = "  "),
+        list(range = range(position(2L, 0L), position(2L, 0L)), text = "other(")
+    ))
+    expect_true(parsed$parse_error)
+    expected <- original
+    for (i in seq_along(expected)) {
+        expected[[i]]$position$line <- expected[[i]]$position$line + 1L
+        if (expected[[i]]$position$line == 1L) {
+            expected[[i]]$position$character <- expected[[i]]$position$character + 2L
+        }
+    }
+    expect_equal(hints(), expected)
+    expect_equal(hints(range(position(3L, 0L), position(4L, 0L))), expected[3:4])
+    expect_equal(hints(range(position(0L, 0L), position(1L, 0L))), list())
+
+    parsed <- inlay_hint_edit(fixture, 3L, list(list(
+        range = range(position(0L, 0L), position(1L, 2L)), text = "\U00010400 <- 1; "
+    )))
+    expect_true(parsed$parse_error)
+    for (i in seq_along(expected)) {
+        expected[[i]]$position$line <- expected[[i]]$position$line - 1L
+        if (expected[[i]]$position$line == 0L) {
+            expected[[i]]$position$character <- expected[[i]]$position$character + 7L
+        }
+    }
+    expect_equal(hints(), expected)
+})
+
+test_that("inlay hints discard changed outer calls while retaining untouched nested calls", {
+    fixture <- provider_fixture(
+        c("target(one, inner(two, three))", "", "target(four, five)"),
+        function(...) formals(function(first, second) NULL)
+    )
+    request <- range(position(0L, 0L), position(20L, 0L))
+    hints <- function() {
+        inlay_hint_reply(
+            1L, fixture$uri, fixture$workspace, fixture$document, request
+        )$result
+    }
+    original <- hints()
+    expect_length(original, 6L)
+    parsed <- inlay_hint_edit(fixture, 2L, list(list(
+        range = range(position(0L, 10L), position(0L, 10L)), text = " +"
+    )))
+    expect_true(parsed$parse_error)
+    expected <- original[3:6]
+    expected[[1L]]$position$character <- expected[[1L]]$position$character + 2L
+    expected[[2L]]$position$character <- expected[[2L]]$position$character + 2L
+    expect_equal(hints(), expected)
+
+    parsed <- inlay_hint_edit(fixture, 3L, list(list(
+        range = range(position(2L, 0L), position(2L, 0L)), text = "object$"
+    )))
+    expect_true(parsed$parse_error)
+    expect_equal(hints(), expected[1:2])
+
+    inlay_hint_edit(fixture, 4L, list(list(
+        range = range(position(0L, 17L), position(0L, 22L)), text = "other"
+    )))
+    expect_length(hints(), 0L)
+})
+
+test_that("inlay fallback drops calls when prefix replacements change their callee", {
+    for (prefix in c("obj$", "obj@", "pkg::", "renamed", "obj$\n")) {
+        fixture <- provider_fixture(
+            c("x <- target(one, two)", "", "target(three, four)"),
+            function(...) formals(function(first, second) NULL)
+        )
+        request <- range(position(0L, 0L), position(20L, 0L))
+        original <- inlay_hint_reply(
+            1L, fixture$uri, fixture$workspace, fixture$document, request
+        )$result
+        expect_length(original, 4L)
+        # A second edit can fail parsing before the prefix replacement has
+        # produced a successful parse and replaced the cached call index.
+        fixture$document$apply_content_changes(2L, list(list(
+            range = range(position(0L, 0L), position(0L, 5L)), text = prefix
+        )))
+        added_lines <- length(stringi::stri_split_lines(prefix)[[1L]]) - 1L
+        parsed <- inlay_hint_edit(fixture, 3L, list(list(
+            range = range(position(1L + added_lines, 0L), position(1L + added_lines, 0L)),
+            text = "other("
+        )))
+        expect_true(parsed$parse_error)
+        expected <- original[3:4]
+        for (i in seq_along(expected)) {
+            expected[[i]]$position$line <- expected[[i]]$position$line + added_lines
+        }
+        expect_equal(inlay_hint_reply(
+            1L, fixture$uri, fixture$workspace, fixture$document, request
+        )$result, expected, info = prefix)
+    }
+})
+
+test_that("inlay fallback treats deletions and whitespace at callee boundaries conservatively", {
+    fixture <- provider_fixture(
+        c("x <-  target(one, two)", "", "target(three, four)"),
+        function(...) formals(function(first, second) NULL)
+    )
+    request <- range(position(0L, 0L), position(20L, 0L))
+    original <- inlay_hint_reply(
+        1L, fixture$uri, fixture$workspace, fixture$document, request
+    )$result
+    expect_length(original, 4L)
+    fixture$document$apply_content_changes(2L, list(list(
+        range = range(position(0L, 0L), position(0L, 5L)), text = "obj$ "
+    )))
+    parsed <- inlay_hint_edit(fixture, 3L, list(
+        list(range = range(position(0L, 5L), position(0L, 6L)), text = ""),
+        list(range = range(position(1L, 0L), position(1L, 0L)), text = "other(")
+    ))
+    expect_true(parsed$parse_error)
+    expect_equal(inlay_hint_reply(
+        1L, fixture$uri, fixture$workspace, fixture$document, request
+    )$result, original[3:4])
+
+    fixture <- provider_fixture(
+        c("x <- target(one, two)", "", "target(three, four)"),
+        function(...) formals(function(first, second) NULL)
+    )
+    original <- inlay_hint_reply(
+        1L, fixture$uri, fixture$workspace, fixture$document, request
+    )$result
+    parsed <- inlay_hint_edit(fixture, 2L, list(
+        list(range = range(position(0L, 0L), position(0L, 5L)), text = "  "),
+        list(range = range(position(1L, 0L), position(1L, 0L)), text = "other(")
+    ))
+    expect_true(parsed$parse_error)
+    original[[1L]]$position$character <- original[[1L]]$position$character - 3L
+    original[[2L]]$position$character <- original[[2L]]$position$character - 3L
+    expect_equal(inlay_hint_reply(
+        1L, fixture$uri, fixture$workspace, fixture$document, request
+    )$result, original)
+})
+
+test_that("inlay fallback drops callees after whitespace-separated prefix edits", {
+    cases <- expand.grid(
+        prefix = c("obj$", "obj@", "pkg::"),
+        separator = c(" ", "  ", "\t"),
+        # Keep the quoted Unicode name outside the edit so this tests UTF-16
+        # offsets without activating the backtick invalidation rule.
+        before = c("", "`\U00010400` <- NULL; "),
+        stringsAsFactors = FALSE
+    )
+    for (i in seq_len(nrow(cases))) {
+        case <- cases[i, ]
+        fixture <- provider_fixture(
+            c(paste0(case$before, "x <-", case$separator, "target(one, two)"),
+                "", "target(three, four)"),
+            function(...) formals(function(first, second) NULL)
+        )
+        request <- range(position(0L, 0L), position(20L, 0L))
+        expect_false(fixture$document$parse_data$parse_error)
+        original <- inlay_hint_reply(
+            1L, fixture$uri, fixture$workspace, fixture$document, request
+        )$result
+        expect_length(original, 4L)
+        fixture$document$apply_content_changes(2L, list(list(
+            range = range(position(0L, ncodeunit(case$before)),
+                position(0L, ncodeunit(paste0(case$before, "x <-")))),
+            text = case$prefix
+        )))
+        parsed <- inlay_hint_edit(fixture, 3L, list(list(
+            range = range(position(1L, 0L), position(1L, 0L)), text = "other("
+        )))
+        expect_true(parsed$parse_error)
+        expect_equal(inlay_hint_reply(
+            1L, fixture$uri, fixture$workspace, fixture$document, request
+        )$result, original[3:4], info = paste(case, collapse = "; "))
+    }
+})
+
+test_that("inlay fallback preserves a call after intervening tokens on the edited line", {
+    fixture <- provider_fixture(
+        c("x <- one; target(two, three)", "", "target(four, five)"),
+        function(...) formals(function(first, second) NULL)
+    )
+    request <- range(position(0L, 0L), position(20L, 0L))
+    original <- inlay_hint_reply(
+        1L, fixture$uri, fixture$workspace, fixture$document, request
+    )$result
+    parsed <- inlay_hint_edit(fixture, 2L, list(
+        list(range = range(position(0L, 0L), position(0L, 4L)), text = "obj$"),
+        list(range = range(position(1L, 0L), position(1L, 0L)), text = "other(")
+    ))
+    expect_true(parsed$parse_error)
+    expect_equal(inlay_hint_reply(
+        1L, fixture$uri, fixture$workspace, fixture$document, request
+    )$result, original)
+})
+
+test_that("inlay fallback retains local parameter names and honors settings", {
+    available <- TRUE
+    fixture <- provider_fixture(
+        c("target <- function(first, second) NULL", "target(one, two)", ""),
+        function(...) if (available) formals(function(first, second) NULL)
+    )
+    request <- range(position(0L, 0L), position(20L, 0L))
+    hints <- function() {
+        inlay_hint_reply(
+            1L, fixture$uri, fixture$workspace, fixture$document, request
+        )$result
+    }
+    original <- hints()
+    available <- FALSE
+    parsed <- inlay_hint_edit(fixture, 2L, list(list(
+        range = range(position(2L, 0L), position(2L, 0L)), text = "other("
+    )))
+    expect_true(parsed$parse_error)
+    expect_identical(hints(), original)
+
+    old_minimum <- lsp_settings$get("inlay_hints_minimum_arguments")
+    withr::defer(lsp_settings$set("inlay_hints_minimum_arguments", old_minimum))
+    lsp_settings$set("inlay_hints_minimum_arguments", 3L)
+    expect_length(hints(), 0L)
+    lsp_settings$set("inlay_hints_minimum_arguments", old_minimum)
+
+    inlay_hint_edit(fixture, 3L, list(list(
+        range = range(position(2L, 6L), position(2L, 6L)), text = ")"
+    )))
+    expect_length(hints(), 0L)
+})
+
+test_that("inlay fallback clears on full replacement and waits for current parsing", {
+    fixture <- provider_fixture("target(one, two)", function(...) formals(function(first, second) NULL))
+    request <- range(position(0L, 0L), position(1L, 0L))
+    fixture$document$apply_content_changes(2L, list(list(
+        range = range(position(0L, 16L), position(0L, 16L)), text = " +"
+    )))
+    expect_null(inlay_hint_reply(
+        1L, fixture$uri, fixture$workspace, fixture$document, request
+    ))
+    parsed <- inlay_hint_edit(fixture, 3L, list(list(text = "target(")))
+    expect_true(parsed$parse_error)
+    expect_null(fixture$document$inlay_hint_data)
+    expect_length(inlay_hint_reply(
+        1L, fixture$uri, fixture$workspace, fixture$document, request
+    )$result, 0L)
+})
+
+test_that("inlay fallback drops calls affected by comments and strings", {
+    for (text in c("#", "\"", "'", "`")) {
+        fixture <- provider_fixture(
+            c("target(one, two)", "", "target(three, four)"),
+            function(...) formals(function(first, second) NULL)
+        )
+        request <- range(position(0L, 0L), position(20L, 0L))
+        original <- inlay_hint_reply(
+            1L, fixture$uri, fixture$workspace, fixture$document, request
+        )$result
+        inlay_hint_edit(fixture, 2L, list(list(
+            range = range(position(1L, 0L), position(1L, 0L)), text = paste0("other(", text)
+        )))
+        expect_equal(inlay_hint_reply(
+            1L, fixture$uri, fixture$workspace, fixture$document, request
+        )$result, original[1:2])
+    }
+})
+
+test_that("inlay fallback preserves hints in an incomplete literate R cell", {
+    fixture <- provider_fixture("", function(...) formals(function(first, second) NULL))
+    fixture$document <- Document$new(fixture$uri, language = "quarto", version = 1L,
+        content = c("```{r}", "target(one, two)", "", "```",
+            "```{r}", "target(three, four)", "```"))
+    fixture$workspace$documents$set(fixture$uri, fixture$document)
+    inlay_hint_edit(fixture, 1L, list())
+    request <- range(position(0L, 0L), position(20L, 0L))
+    hints <- function() {
+        inlay_hint_reply(
+            1L, fixture$uri, fixture$workspace, fixture$document, request
+        )$result
+    }
+    original <- hints()
+    expect_length(original, 4L)
+    parsed <- inlay_hint_edit(fixture, 2L, list(list(
+        range = range(position(2L, 0L), position(2L, 0L)), text = "other("
+    )))
+    expect_false(parsed$parse_error)
+    expect_true(parsed$inlay_hint_incomplete)
+    expect_equal(hints()[order(vapply(hints(), function(hint) hint$position$line, integer(1L)))],
+        original)
+
+    fixture$workspace$get_formals <- function(...) formals(function(first) NULL)
+    expect_equal(hints(), c(list(original[[3L]]), original[1:2]))
+    fixture$workspace$get_formals <- function(...) formals(function(first, second) NULL)
+
+    # Changing the engine must not leave R hints in a Python cell.
+    inlay_hint_edit(fixture, 3L, list(list(
+        range = range(position(0L, 4L), position(0L, 5L)), text = "python"
+    )))
+    expect_equal(hints(), original[3:4])
 })

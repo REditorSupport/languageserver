@@ -1,5 +1,9 @@
 # languageserver 0.3.20
 
+- Keep parameter-name inlay hints for untouched calls during incomplete edits,
+  moving their positions with incremental changes and refreshing after a valid
+  parse, so a temporary syntax error does not clear hints across the document.
+
 - Enclose non-syntactic completion names in backticks and preserve escaped names
   in function snippets, including completion inside partially typed quoted names (#781).
 - Complete chained `$` members using static receiver analysis, including source

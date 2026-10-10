@@ -47,17 +47,118 @@ match_named_formal <- function(name, formal_names) {
     if (length(partial) == 1L) partial else NA_integer_
 }
 
+#' Move untouched calls with an incremental edit, discarding intersecting calls
+#' @noRd
+inlay_hint_apply_change <- function(indexed, change, content) {
+    if (is.null(indexed) || is.null(change$range)) return(NULL)
+    calls <- indexed$calls
+    if (!length(calls$name)) return(indexed)
+    start <- change$range$start
+    end <- change$range$end
+    before <- calls$end_line < start$line |
+        calls$end_line == start$line & calls$end_col <= start$character
+    after <- calls$line > end$line |
+        calls$line == end$line & calls$col >= end$character
+    line_text <- function(row) if (row < length(content)) content[[row + 1L]] else ""
+    # Inserts, replacements and deletions ending at a callee can change its
+    # name or turn it into a member call, even with spaces or tabs in between.
+    # Only retain whitespace replacements here; an empty replacement can
+    # join the callee to preceding text.
+    if (!nzchar(change$text) || grepl("[^[:space:]]", change$text)) {
+        end_text <- line_text(end$line)
+        end_col <- code_point_from_unit(end_text, end$character)
+        following <- substring(end_text, end_col + 1L)
+        first_token <- regexpr("[^[:space:]]", following)[[1L]]
+        boundary <- if (first_token > 0L) {
+            code_point_to_unit(end_text, end_col + first_token - 1L)
+        } else {
+            end$character
+        }
+        at_start <- calls$line == end$line & calls$col == boundary
+        after[at_start] <- FALSE
+    }
+    # An edit outside a call can still put it in a comment, string or
+    # backtick name. Drop following calls when lexical context may change.
+    removed <- get_range_text(
+        content, start$line + 1L,
+        code_point_from_unit(line_text(start$line), start$character) + 1L,
+        end$line + 1L,
+        code_point_from_unit(line_text(end$line), end$character)
+    )
+    if (any(grepl("[#\"'`\\\\]", c(change$text, removed), useBytes = TRUE), na.rm = TRUE)) {
+        after[] <- FALSE
+    }
+    keep <- before | after
+    if (!any(keep)) return(NULL)
+
+    replacement <- stringi::stri_split_lines(change$text)[[1L]]
+    new_end_line <- start$line + length(replacement) - 1L
+    new_end_col <- code_point_to_unit(utils::tail(replacement, 1L), Inf)
+    if (length(replacement) == 1L) new_end_col <- new_end_col + start$character
+    shift <- function(lines, cols, move) {
+        same_line <- move & !is.na(lines) & lines == end$line
+        cols[same_line] <- cols[same_line] + new_end_col - end$character
+        lines[move] <- lines[move] + new_end_line - end$line
+        list(line = lines, col = cols)
+    }
+    for (fields in list(c("line", "col"), c("end_line", "end_col"))) {
+        moved <- shift(calls[[fields[[1L]]]], calls[[fields[[2L]]]], after)
+        calls[[fields[[1L]]]] <- moved$line
+        calls[[fields[[2L]]]] <- moved$col
+    }
+    arguments <- indexed$arguments
+    moved <- shift(arguments$line, arguments$col, after[arguments$call])
+    arguments$line <- moved$line
+    arguments$col <- moved$col
+
+    kept_arguments <- which(keep[arguments$call])
+    arguments <- lapply(arguments, `[`, kept_arguments)
+    arguments$call <- match(arguments$call, which(keep))
+    calls <- lapply(calls, `[`, which(keep))
+    calls$first_argument <- match(calls$first_argument, kept_arguments)
+    calls$last_argument <- match(calls$last_argument, kept_arguments)
+    indexed$calls <- calls
+    indexed$arguments <- arguments
+    indexed$argument_order <- which(arguments$present)
+    indexed$argument_order <- indexed$argument_order[order(
+        arguments$line[indexed$argument_order], arguments$col[indexed$argument_order]
+    )]
+    indexed$argument_lines <- arguments$line[indexed$argument_order]
+    indexed
+}
+
 #' Extract parameter-name inlay hints for calls in a requested range
 #' @noRd
 inlay_hint_reply <- function(id, uri, workspace, document, request_range) {
     parse_data <- current_parse_data(uri, workspace, document)
     if (is.null(parse_data)) return(NULL)
+    incomplete <- isTRUE(parse_data$parse_error) || isTRUE(parse_data$inlay_hint_incomplete)
+    if (incomplete && !is.null(document$inlay_hint_data)) {
+        previous <- indexed_inlay_hint_reply(
+            id, uri, workspace, document$inlay_hint_data, request_range,
+            document$inlay_hint_formals, use_previous_formals = TRUE,
+            regions = document$regions,
+            fallback_lines = if (isTRUE(parse_data$parse_error)) NULL else
+                parse_data$inlay_hint_incomplete_lines
+        )
+        if (isTRUE(parse_data$parse_error)) return(previous)
+        # Literate documents still parse their other R cells successfully.
+        current <- indexed_inlay_hint_reply(
+            id, uri, workspace, parse_data$range_data, request_range
+        )
+        hints <- c(current$result, previous$result)
+        positions <- vapply(hints, function(hint) {
+            paste(hint$position$line, hint$position$character, sep = ":")
+        }, character(1L))
+        return(Response$new(id, result = utils::head(hints[!duplicated(positions)], 200L)))
+    }
     xdoc <- parse_data$xml_doc
     if (is.null(xdoc)) return(Response$new(id, result = list()))
 
     if (!is.null(parse_data$range_data)) {
         return(indexed_inlay_hint_reply(
-            id, uri, workspace, parse_data$range_data, request_range
+            id, uri, workspace, parse_data$range_data, request_range,
+            document$inlay_hint_formals
         ))
     }
 
@@ -177,7 +278,9 @@ inlay_hint_reply <- function(id, uri, workspace, document, request_range) {
 
 #' Resolve hints only for calls with an argument visible in the viewport
 #' @noRd
-indexed_inlay_hint_reply <- function(id, uri, workspace, indexed, request_range) {
+indexed_inlay_hint_reply <- function(id, uri, workspace, indexed, request_range,
+    previous_formals = NULL, use_previous_formals = FALSE, regions = NULL,
+    fallback_lines = NULL) {
     arguments <- indexed$arguments
     visible <- indexed$argument_order[range_line_indices(
         indexed$argument_lines,
@@ -186,6 +289,12 @@ indexed_inlay_hint_reply <- function(id, uri, workspace, indexed, request_range)
     visible <- visible[range_position_selected(
         arguments$line[visible], arguments$col[visible], request_range
     )]
+    if (!is.null(regions)) {
+        visible <- visible[regions$line_type[arguments$line[visible] + 1L] == "r"]
+    }
+    if (!is.null(fallback_lines)) {
+        visible <- visible[arguments$line[visible] %in% fallback_lines]
+    }
     if (!length(visible)) return(Response$new(id, result = list()))
     calls <- indexed$calls
     call_indices <- sort(unique(arguments$call[visible]))
@@ -215,10 +324,20 @@ indexed_inlay_hint_reply <- function(id, uri, workspace, indexed, request_range)
         if (exists(cache_key, envir = formals_cache, inherits = FALSE)) {
             formal_names <- get(cache_key, envir = formals_cache, inherits = FALSE)
         } else {
-            function_formals <- tryCatch(call_with_optional_uri(
-                workspace$get_formals, function_name, package, uri = uri),
-            error = function(e) NULL)
-            formal_names <- names(function_formals)
+            formal_names <- if (use_previous_formals && !is.null(previous_formals)) {
+                get0(cache_key, envir = previous_formals, inherits = FALSE)
+            } else {
+                NULL
+            }
+            if (is.null(formal_names)) {
+                function_formals <- tryCatch(call_with_optional_uri(
+                    workspace$get_formals, function_name, package, uri = uri),
+                error = function(e) NULL)
+                formal_names <- names(function_formals)
+                if (!use_previous_formals && !is.null(previous_formals)) {
+                    assign(cache_key, formal_names, envir = previous_formals)
+                }
+            }
             assign(cache_key, formal_names, envir = formals_cache)
         }
         if (!length(formal_names)) next
