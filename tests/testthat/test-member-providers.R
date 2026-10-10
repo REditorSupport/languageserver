@@ -479,6 +479,12 @@ test_that("Polars query providers prefer receiver metadata over competing cached
     methods_snapshot <- callr::r(function() languageserver:::member_prepare_package("methods"))
     metadata$set("methods", as.list(member_index_thaw(methods_snapshot)))
     expect_true(metadata$has("polars"))
+    restored <- character()
+    cache <- metadata
+    metadata <- list(keys = cache$keys, catalog = cache$catalog, get = function(package) {
+        if (!cache$.__enclos_env__$private$indexes$has(package)) restored <<- c(restored, package)
+        cache$get(package)
+    })
     for (row in c(6L, 9L, 12L, 15L)) {
         edited <- lines
         name <- sub(" .*", "", edited[[row + 1L]])
@@ -511,12 +517,30 @@ test_that("Polars query providers prefer receiver metadata over competing cached
         expect_identical(hover$contents[[1L]], sprintf("```r\n%s\n```", signature))
         expect_true(all(queried == if (row < 12L) "lazyframe__group_by" else "dataframe__group_by"))
     }
+    expect_identical(restored, "polars")
 })
 
 test_that("Polars providers survive large metadata for several open documents over LSP", {
     skip_on_cran()
     skip_if_not_installed("polars")
     root <- withr::local_tempdir()
+    # A test-only request reads the actual server cache. Namespace completion
+    # can succeed before member metadata arrives, so it is not a readiness test.
+    script <- paste(
+        "languageserver:::lsp_settings$update_from_options()",
+        "server <- languageserver:::LanguageServer$new('localhost', NULL)",
+        "server$request_handlers[['test/memberMetadata']] <- function(self, id, params) {",
+        "cache <- self$get_workspace(params$uri)$member_metadata",
+        "ready <- all(c('polars', 'methods', 'R6') %in% cache$keys())",
+        "if (ready && isTRUE(params$evict)) cache$get('methods')",
+        "decoded <- cache$.__enclos_env__$private$indexes$keys()",
+        "self$deliver(languageserver:::Response$new(id, result = list(ready = ready, decoded = decoded)))",
+        "}", "server$run()", sep = "; "
+    )
+    original_new <- LanguageClient$new
+    mockery::stub(language_client, "LanguageClient$new", function(command, args) {
+        original_new(command, c("--no-echo", "-e", script))
+    })
     client <- language_client(working_dir = root)
     path <- file.path(root, "polars.R")
     lines <- c(
@@ -531,19 +555,12 @@ test_that("Polars providers survive large metadata for several open documents ov
     did_open(client, path, text = lines)
     other <- file.path(root, "other.R")
     did_open(client, other, text = "methods::setClass(\"Other\", slots = c(value = \"numeric\"))")
-    # The S4 completion confirms that the larger methods snapshot has arrived.
-    # Polars must remain available even if its decoded index was evicted.
-    ready <- respond_completion(client, other, c(0L, 14L),
-        retry_when = function(result) !"setClass" %in% vapply(result$items, `[[`, character(1L), "label"))
-    expect_true("setClass" %in% vapply(ready$items, `[[`, character(1L), "label"))
-    deadline <- Sys.time() + if (identical(Sys.getenv("R_COVR"), "true")) 60 else 20
-    repeat {
-        ready <- respond_completion(client, path, c(1L, 8L), retry = FALSE)
-        if (any(vapply(ready$items, function(item) identical(item$data$type, "member"), logical(1L)))) break
-        if (Sys.time() > deadline) break
-        Sys.sleep(0.2)
-    }
-    expect_true(any(vapply(ready$items, function(item) identical(item$data$type, "member"), logical(1L))))
+    ready <- respond(client, "test/memberMetadata", list(uri = path_to_uri(path), evict = TRUE),
+        timeout = if (identical(Sys.getenv("R_COVR"), "true")) 60 else 20,
+        retry_when = function(result) !isTRUE(result$ready))
+    expect_true(ready$ready)
+    expect_true("methods" %in% ready$decoded)
+    expect_false("polars" %in% ready$decoded)
     for (row in c(3L, 5L, 7L)) {
         edited <- lines
         name <- edited[[row + 1L]]

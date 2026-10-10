@@ -2,7 +2,7 @@
 # contains syntax only; resolving a signature never calls the selected member.
 member_symbol_info <- function(label, value, key, index) {
     if (!is.null(value$metadata)) {
-        package_index <- member_lookup(index$namespace_indices, value$metadata)
+        package_index <- member_namespace_index(index, value$metadata)
         if (!is.null(package_index)) index <- package_index
     }
     if (!is.null(value$function_key)) key <- value$function_key

@@ -57,6 +57,7 @@ test_that("ByteLruCache prefers protected entries while retaining its bounds", {
 
 test_that("Member metadata restores decoded indexes from bounded inert snapshots", {
     index <- member_generic_index("run <- function(value = 1) list(done = value)")
+    index$exports <- "run"
     index$padding <- raw(10000L)
     snapshot <- member_index_freeze(index)
     budget <- as.numeric(object.size(snapshot)) + 1024
@@ -74,8 +75,17 @@ test_that("Member metadata restores decoded indexes from bounded inert snapshots
     expect_identical(member_infer(quote(run()$done), list2env(restored))$literal, 1)
     expect_lte(cache$bytes(), 3 * budget)
 
+    # Reading selection metadata must not bring back an evicted decoded index.
+    decoded <- cache$.__enclos_env__$private$indexes$keys()
+    expect_false("second" %in% decoded)
+    catalog <- cache$catalog("second")
+    expect_identical(catalog$functions, "run")
+    expect_null(catalog$definitions)
+    expect_identical(cache$.__enclos_env__$private$indexes$keys(), decoded)
+    expect_null(cache$catalog("missing"))
+
     cache$set("third", as.list(member_index_thaw(snapshot)))
-    expect_false(cache$has("second"))
+    expect_false(cache$has("first"))
     expect_identical(cache$get("missing", "fallback"), "fallback")
     expect_null(cache$remove("missing"))
     cache$remove("third")

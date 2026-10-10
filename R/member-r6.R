@@ -102,7 +102,7 @@ member_r6_construct <- function(callee, actuals, index, budget, depth, trail) {
     instance <- callee$result_shape
     package <- callee$r6_package
     if (!is.null(package)) {
-        package_index <- member_lookup(index$namespace_indices, package)
+        package_index <- member_namespace_index(index, package)
         if (!is.null(package_index)) index <- package_index
         if (!identical(package, index$package)) return(instance)
         if (!is.null(index$document_bindings)) {

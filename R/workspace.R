@@ -160,10 +160,14 @@ MemberMetadataCache <- R6::R6Class(
             if (private$indexes$has(key)) return(private$indexes$get(key))
             # Snapshots were validated on insertion. Restoring their unchanged
             # syntax need not hash every package definition on each request.
-            value <- unserialize(memDecompress(snapshot, "gzip"))
+            value <- unserialize(memDecompress(snapshot$compressed, "gzip"))
             value$cache <- cache
             private$indexes$set(key, value)
             value
+        },
+        catalog = function(key) {
+            entry <- private$snapshots$get(key)
+            if (is.null(entry)) NULL else entry$catalog
         },
         set = function(key, value, protect = character()) {
             snapshot <- as.list(value)
@@ -174,7 +178,18 @@ MemberMetadataCache <- R6::R6Class(
             value <- as.list(index)
             snapshot$method_results <- index$method_results
             snapshot$cache <- NULL
-            private$snapshots$set(key, memCompress(serialize(snapshot, NULL), "gzip"), protect)
+            # Selection, imports and dispatch need only this compact catalog.
+            # Keep it in the snapshot budget without decoding function bodies.
+            fields <- c("package", "roots", "exports", "namespace_roots", "classes",
+                "s4_classes", "s4_dependencies", "s7_dependencies", "s7_capabilities")
+            entry <- list(
+                compressed = memCompress(serialize(snapshot, NULL), "gzip"),
+                catalog = snapshot[intersect(fields, names(snapshot))]
+            )
+            entry$catalog$functions <- Filter(function(name) {
+                member_head(snapshot$definitions[[name]], "function")
+            }, intersect(snapshot$exports, names(snapshot$definitions)))
+            private$snapshots$set(key, entry, protect)
             private$indexes$remove(key)
             private$summaries$pop(key, NULL)
             if (self$has(key)) {
