@@ -87,7 +87,7 @@ signature_reply <- function(id, uri, workspace, document, point) {
         if (!is.null(location)) {
             symbol <- member_symbol(uri, workspace, document, location)
             if (is.null(location$cursor$accessor) && is.null(symbol$value$s7_generator) &&
-                    !identical(symbol$value$r6_role, "constructor")) location <- NULL
+                    !identical(symbol$value$r6_role, "constructor") && is.null(symbol$value$r6_owner)) location <- NULL
         }
         if (!is.null(location)) {
             sig <- symbol$signature

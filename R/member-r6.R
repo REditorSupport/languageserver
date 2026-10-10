@@ -50,6 +50,9 @@ member_r6_shape <- function(expr, index, bindings, budget) {
         values <- as.list(node)[-1L]
         for (name in names(values)) {
             value <- member_infer(values[[name]], index, bindings, budget = budget)
+            value$r6_owner <- class
+            value$r6_member_kind <- paste(section,
+                if (!is.null(value$function_expr) || "function" %in% value$type) "method" else "field")
             if (!is.null(value$function_expr)) {
                 value$receiver_name <- "self"
                 value$closure$self <- NULL
@@ -67,7 +70,10 @@ member_r6_shape <- function(expr, index, bindings, budget) {
     }
     if (member_head(active, "list")) {
         for (name in names(as.list(active)[-1L])) {
-            fields[name] <- list(member_value(reason = "active_property"))
+            value <- member_value(reason = "active_property")
+            value$r6_owner <- class
+            value$r6_member_kind <- "active binding"
+            fields[name] <- list(value)
             bindings_public[name] <- "active"
         }
     }
@@ -112,6 +118,23 @@ member_r6_shape <- function(expr, index, bindings, budget) {
     )), r6_class = class, r6_role = "generator")
     generator$fields$new$r6_initialize <- fields$initialize
     generator
+}
+
+# Members inferred from initialize() or inert runtime fields may not have a
+# declaration owner. Use their R6 receiver when available, without changing
+# the member's own type or class (a field can itself contain an R6 instance).
+member_r6_member_info <- function(value, receiver) {
+    if (is.null(receiver$r6_class) || !is.null(value$r6_owner) ||
+            !any(receiver$r6_role %in% c("instance", "private", "super"))) return(value)
+    value$r6_owner <- receiver$r6_class
+    kind <- if (identical(value$reason, "active_property")) {
+        "active binding"
+    } else {
+        paste(if (identical(receiver$r6_role, "private")) "private" else "public",
+            if (!is.null(value$function_expr) || "function" %in% value$type) "method" else "field")
+    }
+    value$r6_member_kind <- kind
+    value
 }
 
 # Binding kinds come from declarations, not their current values. R6 locks

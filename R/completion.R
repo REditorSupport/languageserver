@@ -756,6 +756,22 @@ context_scope_completion <- function(uri, workspace, token, point,
         if (!startsWith(name, "`")) return(name)
         tryCatch(as.character(parse(text = name)[[1L]]), error = function(e) name)
     }, character(1L))
+    # Source-indexed candidates still need inferred class information. Resolve
+    # a bounded set in the same lexical environment, so aliases and shadowing
+    # agree with hover rather than falling back to a global binding.
+    candidates <- exclude[match_with(exclude, token)]
+    selected <- completion_select_indices(candidates, candidates, token, limit)
+    class_info <- list()
+    for (label in candidates[selected]) {
+        if (isTRUE(resolved$budget$exhausted)) break
+        value <- if (label %in% names(fields)) {
+            fields[[label]]
+        } else {
+            member_infer(as.name(label), resolved$index, resolved$bindings, budget = resolved$budget)
+        }
+        description <- member_r6_description(value)
+        if (!is.null(description)) class_info[[label]] <- description
+    }
     labels <- setdiff(labels[match_with(labels, token)], exclude)
     selected <- completion_select_indices(labels, labels, token, limit)
     items <- lapply(labels[selected], function(label) {
@@ -780,6 +796,7 @@ context_scope_completion <- function(uri, workspace, token, point,
         }
         item
     })
+    attr(items, "class_info") <- class_info
     if (length(labels) > limit || resolved$budget$exhausted) attr(items, "truncated") <- TRUE
     items
 }
@@ -925,6 +942,16 @@ scope_completion <- function(uri, workspace, token, point,
     }
 
     completions <- c(scope_symbol_completions, scope_funct_completions, context_completions)
+    class_info <- attr(context_completions, "class_info")
+    for (i in seq_along(completions)) {
+        label <- completions[[i]]$label
+        if (startsWith(label, "`")) label <- tryCatch(as.character(parse(text = label)[[1L]]), error = function(e) label)
+        description <- class_info[[label]]
+        if (!is.null(description)) {
+            completions[[i]]$detail <- paste("[scope]", gsub("`", "", description, fixed = TRUE))
+            completions[[i]]$documentation <- list(kind = "markdown", value = description)
+        }
+    }
     truncated <- truncated || isTRUE(attr(context_completions, "truncated")) ||
         length(completions) > limit
     if (length(completions) > limit) {
@@ -1132,6 +1159,10 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
         isIncomplete <- FALSE
     }
 
+    if (isTRUE(lsp_settings$get("member_completion"))) {
+        completions <- member_class_completion_info(uri, workspace, document, point, token_result, completions)
+    }
+
     if (isTRUE(token_result$quoted)) {
         edit_range <- range(
             document$to_lsp_position(point$row, token_result$range$start$col),
@@ -1259,7 +1290,8 @@ completion_item_resolve_reply <- function(id, workspace, params, capabilities) {
             }
 
             if (!is.null(doc_string)) {
-                params$documentation <- list(kind = "markdown", value = doc_string)
+                params$documentation <- list(kind = "markdown",
+                    value = paste(c(params$documentation$value, doc_string), collapse = "\n\n"))
                 resolved <- TRUE
             }
         }

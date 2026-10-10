@@ -139,6 +139,8 @@ member_join <- function(a, b) {
     if (isTRUE(a$s7) && isTRUE(b$s7)) value$s7 <- TRUE
     if (identical(a$r6_class, b$r6_class)) value$r6_class <- a$r6_class
     if (identical(a$r6_role, b$r6_role)) value$r6_role <- a$r6_role
+    if (identical(a$r6_owner, b$r6_owner)) value$r6_owner <- a$r6_owner
+    if (identical(a$r6_member_kind, b$r6_member_kind)) value$r6_member_kind <- a$r6_member_kind
     if (identical(a$r6_locked, b$r6_locked)) value$r6_locked <- a$r6_locked
     if (!is.null(a$r6_bindings) || !is.null(b$r6_bindings)) {
         bindings <- c(a$r6_bindings, b$r6_bindings)
@@ -219,6 +221,7 @@ member_shape_key <- function(value, depth = 0L) {
         r6_locked = value$r6_locked, r6_bindings = value$r6_bindings,
         r6_identity = value$r6_identity, r6_class = value$r6_class,
         r6_role = value$r6_role,
+        r6_owner = value$r6_owner, r6_member_kind = value$r6_member_kind,
         elements = lapply(value$elements, member_shape_key, depth + 1L),
         element_shape = if (!is.null(value$element_shape)) member_shape_key(value$element_shape, depth + 1L) else NULL
     )
@@ -716,6 +719,7 @@ member_infer <- function(
         }
         value <- member_lookup(lhs$fields, name)
         if (!is.null(value)) {
+            value <- member_r6_member_info(value, lhs)
             if (!is.null(value$receiver_name)) {
                 value$receiver_value <- if (is.null(lhs$r6_self)) lhs else lhs$r6_self
                 if (!is.null(value$receiver_value$r6_private)) {
@@ -725,7 +729,8 @@ member_infer <- function(
                 if (!is.null(value$closure$super)) value$closure$super$r6_self <- value$receiver_value
             }
             if (!is.null(value$function_key)) value$receiver_value <- lhs
-            if (length(value$type) || !is.null(value$function_expr) || !is.null(value$function_key)) {
+            if (length(value$type) || !is.null(value$function_expr) || !is.null(value$function_key) ||
+                    !is.null(value$r6_owner)) {
                 return(value)
             }
         }

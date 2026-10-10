@@ -633,6 +633,7 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
         } else {
             value$fields[[label]]
         }
+        if (!is.null(shape)) shape <- member_r6_member_info(shape, value)
         key <- members[[label]]
         symbol <- member_symbol_info(label, shape, key, index)
         is_function <- !is.null(shape$function_expr) || !is.null(shape$result_shape) ||
@@ -665,5 +666,36 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
         )
     })
     if (length(matches) > limit || budget$exhausted) attr(items, "truncated") <- TRUE
+    items
+}
+
+# Ordinary document/workspace items may represent a class generator, instance,
+# or method alias. Enrich the already-pruned list using one bounded lexical
+# inference context, leaving unknown symbols to their existing providers.
+member_class_completion_info <- function(uri, workspace, document, point, token, items) {
+    if (!length(items) || !is.null(token$package) || !identical(token$accessor, "")) return(items)
+    start <- token$range$start$col
+    cursor <- list(operator = start + 1L, operator_row = point$row,
+        start = start, end = token$range$end$col, accessor = NULL,
+        before = substr(document$line0(point$row), 1L, start))
+    resolved <- member_resolve_cursor(uri, workspace, document, point, cursor)
+    if (is.null(resolved$value)) return(items)
+    env <- resolved$bindings
+    for (name in names(resolved$value$fields)) env[name] <- resolved$value$fields[name]
+    for (i in seq_along(items)) {
+        if (isTRUE(resolved$budget$exhausted)) break
+        package <- items[[i]]$data$package
+        if (!is.null(package) && !package %in% c("", WORKSPACE)) next
+        if (identical(items[[i]]$data$type, "parameter")) next
+        label <- items[[i]]$label
+        if (startsWith(label, "`")) label <- tryCatch(as.character(parse(text = label)[[1L]]), error = function(e) label)
+        if (!label %in% names(env) && !label %in% names(resolved$index$document_bindings)) next
+        value <- member_infer(as.name(label), resolved$index, env, budget = resolved$budget)
+        description <- member_r6_description(value)
+        if (!is.null(description)) {
+            doc <- unique(c(description, items[[i]]$documentation$value))
+            items[[i]]$documentation <- list(kind = "markdown", value = paste(doc, collapse = "\n\n"))
+        }
+    }
     items
 }

@@ -23,18 +23,22 @@ member_symbol_info <- function(label, value, key, index) {
 }
 
 member_r6_description <- function(value) {
-    if (is.null(value$r6_role)) return(NULL)
-    role <- switch(value$r6_role,
+    role <- if (!is.null(value$r6_role)) switch(value$r6_role,
         instance = "R6 instance", private = "Private environment", super = "Superclass methods",
         generator = "R6 class generator", constructor = "Create an R6 instance",
         active = "Active bindings", enclosure = "Enclosing environment", clone = "Clone an R6 instance",
         NULL)
-    if (is.null(role)) return(NULL)
-    class <- value$r6_class
-    if (is.null(class$name)) return(role)
-    description <- sprintf("%s of `%s`", role, class$name)
-    if (isTRUE(nzchar(class$package))) description <- sprintf("%s (package `%s`)", description, class$package)
-    description
+    describe <- function(role, class, member = FALSE) {
+        if (is.null(role)) return(NULL)
+        if (is.null(class$name)) return(role)
+        description <- sprintf(if (member) "%s of R6 class `%s`" else "%s of `%s`", role, class$name)
+        if (isTRUE(nzchar(class$package))) description <- sprintf("%s (package `%s`)", description, class$package)
+        description
+    }
+    kind <- value$r6_member_kind
+    if (!is.null(kind)) kind <- paste0(toupper(substr(kind, 1L, 1L)), substring(kind, 2L))
+    descriptions <- c(describe(kind, value$r6_owner, TRUE), describe(role, value$r6_class))
+    if (length(descriptions)) paste(descriptions, collapse = "\n\n") else NULL
 }
 
 member_symbol <- function(uri, workspace, document, location) {
@@ -166,6 +170,7 @@ member_constructor_arguments <- function(uri, workspace, document, point, token)
     lapply(seq_along(args), function(i) {
         list(label = args[[i]], kind = CompletionItemKind$Variable,
             detail = symbol$signature, sortText = sprintf("%s%03d", sort_prefixes$arg, i),
+            documentation = if (!is.null(symbol$description)) list(kind = "markdown", value = symbol$description),
             insertText = paste0(quote_completion_name(args[[i]]), " = "),
             insertTextFormat = InsertTextFormat$PlainText, data = list(type = "member", signature = symbol$signature))
     })
@@ -197,6 +202,10 @@ member_hover_reply <- function(id, uri, workspace, document, location,
     contents <- NULL
     if (!is.null(location$parameter)) {
         if (is.list(doc)) contents <- argument_hover_contents(doc, signature, location$parameter)
+        if (!is.null(symbol$description)) {
+            if (is.null(contents) && !is.null(signature)) contents <- sprintf("```r\n%s\n```", signature)
+            contents <- c(contents, symbol$description)
+        }
     } else {
         description <- if (is.character(doc)) {
             doc
