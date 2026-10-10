@@ -283,6 +283,63 @@ member_function_closure <- function(expr, bindings) {
     bindings[intersect(names(bindings), c(referenced, internal))]
 }
 
+# Select a member from an already inferred receiver. This does not traverse
+# syntax, so a known declaration remains usable after inference hits a limit.
+member_access <- function(lhs, name, index, bindings) {
+    unknown <- member_value(reason = "unsupported")
+    dispatch_classes <- c(
+        names(index$members), names(index$classes),
+        unlist(lapply(index$namespace_indices, function(x) names(x$classes)))
+    )
+    if (!is.null(lhs$fields) && any(lhs$classes %in% index$record_dispatch_classes)) {
+        dispatch_classes <- c(dispatch_classes, lhs$classes)
+    }
+    if (length(lhs$classes) && !all(lhs$classes %in% c("list", "environment", "data.frame", "R6")) &&
+            !any(lhs$classes %in% dispatch_classes)) {
+        return(member_value(reason = "unresolved_dollar_dispatch"))
+    }
+    if (is.null(name)) {
+        return(unknown)
+    }
+    if (length(lhs$type) > 1L) {
+        return(Reduce(member_join, lapply(lhs$type, function(type) member_access(member_value(type = type), name, index, bindings))))
+    }
+    dynamic <- member_lookup(member_lookup(member_lookup(bindings, ".__member_properties__"), lhs$type), name)
+    if (!is.null(dynamic)) {
+        return(dynamic)
+    }
+    value <- member_lookup(lhs$fields, name)
+    if (!is.null(value)) {
+        value <- member_r6_member_info(value, lhs)
+        if (!is.null(value$receiver_name)) {
+            value$receiver_value <- if (is.null(lhs$r6_self)) lhs else lhs$r6_self
+            if (!is.null(value$receiver_value$r6_private)) {
+                value$closure$private <- value$receiver_value$r6_private
+                value$closure$private$r6_self <- value$receiver_value
+            }
+            if (!is.null(value$closure$super)) value$closure$super$r6_self <- value$receiver_value
+        }
+        if (!is.null(value$function_key)) value$receiver_value <- lhs
+        if (length(value$type) || !is.null(value$function_expr) || !is.null(value$function_key) ||
+                !is.null(value$r6_owner)) {
+            return(value)
+        }
+    }
+    property <- member_lookup(member_lookup(index$properties, lhs$type), name)
+    if (!is.null(property)) {
+        return(if (is.character(property)) member_value(type = property) else property)
+    }
+    raw <- member_lookup(member_lookup(index$raw_fields, lhs$type), name)
+    if (!is.null(raw)) {
+        return(member_value(type = raw))
+    }
+    members <- member_lookup(index$members, lhs$type)
+    if (name %in% names(members) && !is.na(members[[name]])) {
+        return(member_value(function_key = members[[name]], receiver_value = lhs))
+    }
+    unknown
+}
+
 member_infer <- function(
   expr, index, bindings = list(), receiver = NULL,
   depth = 0L, trail = character(), budget = NULL, context = NULL
@@ -706,59 +763,6 @@ member_infer <- function(
         }
         result
     }
-    member <- function(lhs, name) {
-        dispatch_classes <- c(
-            names(index$members), names(index$classes),
-            unlist(lapply(index$namespace_indices, function(x) names(x$classes)))
-        )
-        if (!is.null(lhs$fields) && any(lhs$classes %in% index$record_dispatch_classes)) {
-            dispatch_classes <- c(dispatch_classes, lhs$classes)
-        }
-        if (length(lhs$classes) && !all(lhs$classes %in% c("list", "environment", "data.frame", "R6")) &&
-            !any(lhs$classes %in% dispatch_classes)) {
-            return(member_value(reason = "unresolved_dollar_dispatch"))
-        }
-        if (is.null(name)) {
-            return(unknown)
-        }
-        if (length(lhs$type) > 1L) {
-            return(Reduce(member_join, lapply(lhs$type, function(type) member(member_value(type = type), name))))
-        }
-        dynamic <- member_lookup(member_lookup(member_lookup(bindings, ".__member_properties__"), lhs$type), name)
-        if (!is.null(dynamic)) {
-            return(dynamic)
-        }
-        value <- member_lookup(lhs$fields, name)
-        if (!is.null(value)) {
-            value <- member_r6_member_info(value, lhs)
-            if (!is.null(value$receiver_name)) {
-                value$receiver_value <- if (is.null(lhs$r6_self)) lhs else lhs$r6_self
-                if (!is.null(value$receiver_value$r6_private)) {
-                    value$closure$private <- value$receiver_value$r6_private
-                    value$closure$private$r6_self <- value$receiver_value
-                }
-                if (!is.null(value$closure$super)) value$closure$super$r6_self <- value$receiver_value
-            }
-            if (!is.null(value$function_key)) value$receiver_value <- lhs
-            if (length(value$type) || !is.null(value$function_expr) || !is.null(value$function_key) ||
-                    !is.null(value$r6_owner)) {
-                return(value)
-            }
-        }
-        property <- member_lookup(member_lookup(index$properties, lhs$type), name)
-        if (!is.null(property)) {
-            return(if (is.character(property)) member_value(type = property) else property)
-        }
-        raw <- member_lookup(member_lookup(index$raw_fields, lhs$type), name)
-        if (!is.null(raw)) {
-            return(member_value(type = raw))
-        }
-        members <- member_lookup(index$members, lhs$type)
-        if (name %in% names(members) && !is.na(members[[name]])) {
-            return(member_value(function_key = members[[name]], receiver_value = lhs))
-        }
-        unknown
-    }
     if (is.symbol(expr)) {
         key <- as.character(expr)
         if (key %in% names(bindings)) {
@@ -861,7 +865,7 @@ member_infer <- function(
     }
     if (member_head(expr, "$")) {
         lhs <- infer(expr[[2L]])
-        out <- member(lhs, member_name(expr[[3L]]))
+        out <- member_access(lhs, member_name(expr[[3L]]), index, bindings)
         key <- member_key(expr)
         if (!length(out$type) && is.null(out$function_key) && !is.null(key) &&
             key %in% names(index$definitions) && !member_name(expr[[2L]]) %in% names(bindings)) {
@@ -878,7 +882,7 @@ member_infer <- function(
         if (isTRUE(selector$known_literal) && length(selector$literal) == 1L) {
             name <- selector$literal
             if (is.character(name)) {
-                return(member(lhs, name))
+                return(member_access(lhs, name, index, bindings))
             }
             if (head == "[[" && !is.null(lhs$elements) && is.numeric(name) &&
                 name >= 1L && name <= length(lhs$elements)) {

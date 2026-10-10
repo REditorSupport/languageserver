@@ -483,10 +483,11 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
                 result <<- member_infer(node[[2L]], index, env, budget = budget)
             } else {
                 receiver <- member_infer(node[[2L]], index, env, budget = budget)
-                env$.__member_receiver__ <- receiver
-                node[[2L]] <- as.name(".__member_receiver__")
-                node[[3L]] <- as.name(name)
-                result <<- member_infer(node, index, env, budget = budget)
+                result <<- if (identical(accessor, "@")) {
+                    member_slot(receiver, name, index, env, budget)
+                } else {
+                    member_access(receiver, name, index, env)
+                }
                 key <- member_members(receiver, index, env, accessor)[name]
                 if (is.null(result$function_key) && length(key) && !is.na(key[[1L]]) &&
                     !is.null(result$function_expr)) {
