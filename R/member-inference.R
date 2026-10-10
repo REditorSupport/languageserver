@@ -135,6 +135,14 @@ member_join <- function(a, b) {
         classes = if (identical(a$classes, b$classes)) a$classes else NULL
     )
     if (isTRUE(a$s7) && isTRUE(b$s7)) value$s7 <- TRUE
+    if (identical(a$r6_locked, b$r6_locked)) value$r6_locked <- a$r6_locked
+    if (!is.null(a$r6_bindings) || !is.null(b$r6_bindings)) {
+        bindings <- c(a$r6_bindings, b$r6_bindings)
+        # A binding must be writable on every branch to infer replacement.
+        bindings <- c(bindings[bindings %in% c("method", "active")], bindings)
+        value$r6_bindings <- bindings[!duplicated(names(bindings))]
+    }
+    if (identical(a$r6_identity, b$r6_identity)) value$r6_identity <- a$r6_identity
     value
 }
 
@@ -204,6 +212,8 @@ member_shape_key <- function(value, depth = 0L) {
         r6_private = member_shape_key(value$r6_private, depth + 1L),
         r6_super = member_shape_key(value$r6_super, depth + 1L),
         r6_self = member_shape_key(value$r6_self, depth + 1L),
+        r6_locked = value$r6_locked, r6_bindings = value$r6_bindings,
+        r6_identity = value$r6_identity,
         elements = lapply(value$elements, member_shape_key, depth + 1L),
         element_shape = if (!is.null(value$element_shape)) member_shape_key(value$element_shape, depth + 1L) else NULL
     )
@@ -238,6 +248,22 @@ member_assigned_names <- function(node) {
         }
     }, descend_functions = FALSE)
     unique(out)
+}
+
+# Retain lexical inputs used by the function (including nested closures and
+# defaults), rather than copying an entire instance into every generated method.
+member_function_closure <- function(expr, bindings) {
+    if (!length(bindings)) return(list())
+    referenced <- all.names(expr)
+    member_walk(expr, function(node) {
+        if (member_head(node, "function")) {
+            referenced <<- c(referenced, all.names(as.expression(as.list(node[[2L]]))))
+        }
+    })
+    referenced <- setdiff(referenced, names(expr[[2L]]))
+    internal <- intersect(names(bindings), c(".__member_position__", ".__member_properties__",
+            ".__s4_classes__", ".__s7_package__", ".__s7_constructing__"))
+    bindings[intersect(names(bindings), c(referenced, internal))]
 }
 
 member_infer <- function(
@@ -275,6 +301,9 @@ member_infer <- function(
         return(member_value(reason = "budget"))
     }
     infer <- function(x, env = bindings, ctx = context) {
+        # Only the initializer's outer body returns its instance effects.
+        # Nested expressions and called functions keep ordinary return values.
+        if (isTRUE(ctx$r6_initialize)) ctx$r6_initialize <- FALSE
         member_infer(x, index, env, receiver, depth + 1L, trail, budget, ctx)
     }
     intrinsic <- function(name) {
@@ -295,8 +324,26 @@ member_infer <- function(
         stats::setNames(lapply(keys, function(key) {
             x <- member_lookup(a, key)
             y <- member_lookup(b, key)
-            if (is.null(x) || is.null(y)) unknown else member_join(x, y)
+            if (identical(x, y)) return(x)
+            if (!is.list(x) || !is.list(y)) unknown else member_join(x, y)
         }), keys)
+    }
+    join_effects <- function(a, b) {
+        if (is.null(a)) return(b)
+        if (is.null(b)) return(a)
+        member_join(a, b)
+    }
+    update_object <- function(env, name, object) {
+        identity <- object$r6_identity
+        if (!is.null(identity)) {
+            for (alias in names(env)) {
+                if (is.list(env[[alias]]) && identical(env[[alias]]$r6_identity, identity)) {
+                    env[alias] <- list(object)
+                }
+            }
+        }
+        env[name] <- list(object)
+        env
     }
     # Flow records keep early returns separate from fall-through values.
     flow <- function(node, env) {
@@ -310,6 +357,9 @@ member_infer <- function(
                 if (!state$falls) break
                 next_state <- flow(child, state$env)
                 state$returns <- member_join(state$returns, next_state$returns)
+                if (isTRUE(context$r6_initialize)) {
+                    state$r6_returns <- join_effects(state$r6_returns, next_state$r6_returns)
+                }
                 state$value <- next_state$value
                 state$env <- next_state$env
                 state$falls <- next_state$falls
@@ -317,8 +367,17 @@ member_infer <- function(
             return(state)
         }
         if (member_head(node, "return")) {
-            result <- if (length(node) > 1L) infer(node[[2L]], env) else member_literal(NULL)
-            return(list(value = result, env = env, returns = result, falls = FALSE))
+            if (!isTRUE(context$r6_initialize)) {
+                result <- if (length(node) > 1L) infer(node[[2L]], env) else member_literal(NULL)
+                return(list(value = result, env = env, returns = result, falls = FALSE))
+            }
+            state <- if (length(node) > 1L) flow(node[[2L]], env) else
+                list(value = member_literal(NULL), env = env, falls = TRUE)
+            returns <- if (is.null(state$returns)) member_value(type = ".never") else state$returns
+            result <- if (state$falls) member_join(returns, state$value) else returns
+            effects <- state$r6_returns
+            if (state$falls) effects <- join_effects(effects, state$env$.__r6_instance__)
+            return(list(value = result, env = state$env, returns = result, falls = FALSE, r6_returns = effects))
         }
         if (member_head(node, "if")) {
             cond <- infer(node[[2L]], env)
@@ -348,10 +407,44 @@ member_infer <- function(
             value <- if (!a$falls) b$value else if (!b$falls) a$value else member_join(a$value, b$value)
             return(list(
                 value = value, env = out_env,
-                returns = member_join(a$returns, b$returns), falls = falls
+                returns = member_join(a$returns, b$returns), falls = falls,
+                r6_returns = if (isTRUE(context$r6_initialize)) join_effects(a$r6_returns, b$r6_returns)
             ))
         }
         if (member_head(node, "for") || member_head(node, "while")) {
+            # A literal named collection copied field-for-field has a finite
+            # surface. Other loops retain the conservative invalidation below.
+            if (member_head(node, "for") && member_head(node[[3L]], "names") && length(node[[3L]]) == 2L &&
+                    intrinsic("names") && !"names" %in% names(env)) {
+                body <- node[[4L]]
+                if (member_head(body, "{") && length(body) == 2L) body <- body[[2L]]
+                variable <- member_name(node[[2L]])
+                if (member_head(body, "<-") && member_head(body[[2L]], "[[") &&
+                        member_head(body[[3L]], "[[") && length(body[[2L]]) == 3L && length(body[[3L]]) == 3L &&
+                        identical(member_name(body[[2L]][[3L]]), variable) &&
+                        identical(member_name(body[[3L]][[3L]]), variable) &&
+                        identical(body[[3L]][[2L]], node[[3L]][[2L]])) {
+                    target <- member_name(body[[2L]][[2L]])
+                    object <- member_lookup(env, target)
+                    source <- infer(node[[3L]][[2L]], env)
+                    if (identical(object$type, "environment") && identical(source$type, "list") &&
+                            !isTRUE(source$open) && !is.null(source$fields) && length(source$fields) <= 256L) {
+                        for (name in unique(names(source$fields))) {
+                            if (!member_r6_writable(object, name)) next
+                            value <- source$fields[[name]]
+                            if (!is.null(value$function_expr) && target %in% names(value$closure)) {
+                                value$closure[target] <- NULL
+                                value$receiver_name <- target
+                            }
+                            object$fields[name] <- list(value)
+                        }
+                        env <- update_object(env, target, object)
+                        env[variable] <- list(member_value(type = "character"))
+                        return(list(value = member_literal(NULL), env = env,
+                                returns = member_value(type = ".never"), falls = TRUE))
+                    }
+                }
+            }
             # Preserve bindings not assigned by the loop. Never assume one
             # iteration represents all iterations of an unknown loop.
             writes <- member_assigned_names(node)
@@ -381,12 +474,15 @@ member_infer <- function(
                 object <- member_lookup(env, name)
                 surface <- if (member_head(lhs, "@")) "slots" else "fields"
                 if (!is.null(object[[surface]]) && !is.null(field)) {
-                    if (!is.null(value$function_expr)) {
+                    if (!member_r6_writable(object, field)) {
+                        return(list(value = value, env = env, returns = member_value(type = ".never"), falls = TRUE))
+                    }
+                    if (!is.null(value$function_expr) && name %in% names(value$closure)) {
                         value$closure[name] <- NULL
                         value$receiver_name <- name
                     }
                     object[[surface]][field] <- list(value)
-                    env[name] <- list(object)
+                    env <- update_object(env, name, object)
                 } else if (!is.null(name)) {
                     env[name] <- list(unknown)
                 }
@@ -415,6 +511,9 @@ member_infer <- function(
     }
     analyze <- function(body, env) {
         state <- flow(body, env)
+        if (isTRUE(context$r6_initialize)) {
+            return(join_effects(state$r6_returns, if (state$falls) state$env$.__r6_instance__ else NULL))
+        }
         if (state$falls) member_join(state$returns, state$value) else state$returns
     }
     bind_arguments <- function(fn, actuals, env, defaults = TRUE) {
@@ -465,7 +564,7 @@ member_infer <- function(
         env
     }
     apply_function <- function(key = NULL, self = NULL, actuals = list(),
-                               fn = NULL, lexical = package_env, dispatch = NULL) {
+        fn = NULL, lexical = package_env, dispatch = NULL, r6_initialize = FALSE) {
         if (!is.null(key)) {
             aliases <- character()
             while (is.symbol(member_lookup(index$definitions, key))) {
@@ -567,7 +666,8 @@ member_infer <- function(
             result <- member_value(type = ctor$type, classes = ctor$classes, fields = fields)
         } else {
             body <- fn[[3L]]
-            ctx <- list(key = key, actuals = actuals, formals = names(fn[[2L]]), dispatch = dispatch)
+            ctx <- list(key = key, actuals = actuals, formals = names(fn[[2L]]), dispatch = dispatch,
+                r6_initialize = r6_initialize)
             result <- member_infer(body, summary_index, env,
                 depth = depth + 1L,
                 trail = if (is.null(key)) trail else c(trail, key), budget = budget, context = ctx
@@ -706,7 +806,7 @@ member_infer <- function(
         return(if (length(results)) Reduce(member_join, results) else member_literal(NULL))
     }
     if (member_head(expr, "function")) {
-        return(member_value(function_expr = expr, closure = bindings))
+        return(member_value(function_expr = expr, closure = member_function_closure(expr, bindings)))
     }
     if (member_is_r6_call(expr, index, bindings)) {
         return(member_r6_shape(expr, index, bindings, budget))
@@ -1112,7 +1212,7 @@ member_infer <- function(
         return(member_s4_construct(callee$s4_generator, actuals, index, bindings, budget))
     }
     if (!is.null(callee$result_shape)) {
-        return(callee$result_shape)
+        return(member_r6_construct(callee, actuals, index, budget, depth, trail))
     }
     if (!is.null(callee$metadata)) {
         package_index <- member_lookup(index$namespace_indices, callee$metadata)
@@ -1131,7 +1231,8 @@ member_infer <- function(
     if (!is.null(callee$function_expr)) {
         env <- callee$closure
         if (!is.null(callee$receiver_name)) env[callee$receiver_name] <- list(callee$receiver_value)
-        return(apply_function(actuals = actuals, fn = callee$function_expr, lexical = env))
+        return(apply_function(actuals = actuals, fn = callee$function_expr, lexical = env,
+                r6_initialize = isTRUE(callee$r6_initialize)))
     }
     key <- callee$function_key
     # Follow named aliases with the original abstract arguments intact.

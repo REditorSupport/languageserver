@@ -50,8 +50,15 @@ member_document_index <- function(content, parsed = NULL) {
     s4 <- list()
     imports <- list()
     effects <- list()
+    packages <- character()
     for (item in items) {
         expr <- item$expr
+        member_walk(expr, function(node) {
+            if (member_head(node, "::") || member_head(node, ":::")) {
+                package <- member_name(node[[2L]])
+                if (!is.null(package)) packages <<- union(packages, package)
+            }
+        })
         declaration <- if (member_head(expr, "<-") || member_head(expr, "=")) expr[[3L]] else expr
         if (is.call(declaration)) {
             head <- declaration[[1L]]
@@ -93,7 +100,8 @@ member_document_index <- function(content, parsed = NULL) {
             effects[[length(effects) + 1L]] <- item
         }
     }
-    list(items = items, bindings = as.list(bindings), imports = imports, effects = effects, s4 = s4)
+    list(items = items, bindings = as.list(bindings), imports = imports, effects = effects, s4 = s4,
+        packages = packages)
 }
 
 member_before <- function(a, b) {
