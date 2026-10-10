@@ -20,6 +20,32 @@ member_items <- function(code, snapshots = list(), point = NULL, language = "r",
 
 member_labels <- function(...) vapply(member_items(...), `[[`, character(1L), "label")
 
+test_that("Member inference allows test overhead without changing the production limit", {
+    fixture <- member_fixture(paste0("x <- list(alpha = list(", paste(rep("1", 256L), collapse = ","), "))\nx$"))
+    calls <- 0L
+    clock <- function() {
+        calls <<- calls + 1L
+        c(0, 0, if (calls == 1L) 0 else 0.3)
+    }
+    infer <- member_infer
+    environment(infer) <- list2env(list(proc.time = clock), parent = environment(infer))
+    assign("member_infer", infer, environment(infer))
+    testthat::local_mocked_bindings(member_infer = infer, .package = "languageserver")
+    resolve <- function() {
+        calls <<- 0L
+        member_resolve_cursor(fixture$document$uri, fixture$workspace, fixture$document,
+            fixture$point, member_cursor(fixture$document, fixture$point))
+    }
+    withr::local_envvar(c(TESTTHAT = "", R_COVR = ""))
+    expect_true(resolve()$budget$exhausted)
+    withr::local_envvar(c(TESTTHAT = "true"))
+    result <- resolve()
+    expect_false(result$budget$exhausted)
+    expect_length(result$value$fields$alpha$elements, 256L)
+    withr::local_envvar(c(R_COVR = "true"))
+    expect_false(resolve()$budget$exhausted)
+})
+
 test_that("Static inference stops at node, depth and time limits", {
     index <- member_generic_index("")
     budget <- new.env(parent = emptyenv())
@@ -45,7 +71,10 @@ test_that("Static inference notices deadlines that expire during traversal", {
         calls <<- calls + 1L
         c(0, 0, if (calls == 1L) 0 else 2)
     }
-    stub(member_infer, "proc.time", clock, depth = 2L)
+    infer <- member_infer
+    environment(infer) <- list2env(list(proc.time = clock), parent = environment(infer))
+    assign("member_infer", infer, environment(infer))
+    testthat::local_mocked_bindings(member_infer = infer, .package = "languageserver")
     budget <- new.env(parent = emptyenv())
     budget$remaining <- 20000L
     budget$exhausted <- FALSE

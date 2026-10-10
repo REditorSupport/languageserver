@@ -696,9 +696,15 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
     budget <- new.env(parent = emptyenv())
     budget$remaining <- 20000L
     budget$exhausted <- budget$transient <- FALSE
-    # Coverage rewrites byte-compiled functions and adds counters to every
-    # branch. Allow that overhead while retaining node, depth and time bounds.
-    budget$time_limit <- if (identical(Sys.getenv("R_COVR"), "true")) 10 else 0.25
+    # Parallel tests compete with parse/metadata workers; coverage also rewrites
+    # byte-compiled functions. Allow that overhead while keeping all bounds.
+    budget$time_limit <- if (identical(Sys.getenv("R_COVR"), "true")) {
+        10
+    } else if (identical(Sys.getenv("TESTTHAT"), "true")) {
+        5
+    } else {
+        0.25
+    }
     bindings <- list(.__member_position__ = recovered$start)
     if (length(index$registration_rules)) {
         for (item in data$effects) {
