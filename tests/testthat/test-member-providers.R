@@ -214,6 +214,167 @@ test_that("R6 members use public inherited declarations without initialization o
     expect_null(member_provider_hover(fixture, 3L, 14L))
 })
 
+test_that("Copied R6 command methods share completion, signatures and hover", {
+    lines <- c(
+        "commands <- function(send) list(GET=function(key) send(key), SET=function(key, value, option=NULL) send(key, value))",
+        "Client <- R6::R6Class(\"Client\", lock_objects=FALSE, public=list(initialize=function(send) {",
+        "methods <- commands(send); for (name in names(methods)) {self[[name]] <- methods[[name]]}",
+        "}))", "client <- Client$new(unknown)", "client$SET(option = "
+    )
+    fixture <- member_provider_fixture(lines)
+    result <- member_provider_signature(fixture)
+    expect_identical(result$signatures[[1L]]$label, "SET(key, value, option = NULL)")
+    expect_identical(result$activeParameter, 2L)
+    expect_identical(member_provider_hover(fixture, 5L, 8L)$contents,
+        "```r\nSET(key, value, option = NULL)\n```")
+})
+
+test_that("R6 initializer early returns preserve public method providers", {
+    for (result in c("private", "invisible(NULL)", "list(secret=1)")) {
+        fixture <- member_provider_fixture(c(
+            sprintf('Client <- R6::R6Class("Client", public=list(run=NULL, initialize=function() {self$run <- function(value, flag=TRUE) NULL; return(%s)}), private=list(secret=1))', result),
+            "client <- Client$new()", "client$run(flag = "
+        ))
+        signature <- member_provider_signature(fixture)
+        expect_identical(signature$signatures[[1L]]$label, "run(value, flag = TRUE)")
+        expect_identical(signature$activeParameter, 1L)
+        expect_identical(member_provider_hover(fixture, 2L, 8L)$contents,
+            "```r\nrun(value, flag = TRUE)\n```")
+    }
+})
+
+test_that("R6 assignment attempts retain original method signatures and opaque active bindings", {
+    for (body in c("self$run <- function(replacement=2) NULL; self$x <- function(fake=1) NULL",
+            "methods <- list(run=function(replacement=2) NULL, x=function(fake=1) NULL); for (name in names(methods)) self[[name]] <- methods[[name]]")) {
+        declaration <- sprintf('Client <- R6::R6Class("Client", lock_objects=FALSE, public=list(run=function(original=1) NULL, initialize=function() {%s}), active=list(x=function(value) NULL))', body)
+        fixture <- member_provider_fixture(c(declaration, "client <- Client$new()", "client$run("))
+        expect_identical(member_provider_signature(fixture)$signatures[[1L]]$label, "run(original = 1)")
+        expect_identical(member_provider_hover(fixture, 2L, 8L)$contents, "```r\nrun(original = 1)\n```")
+        fixture <- member_provider_fixture(c(declaration, "client <- Client$new()", "client$x("))
+        expect_length(member_provider_signature(fixture)$signatures, 0L)
+        expect_null(member_provider_hover(fixture, 2L, 8L))
+    }
+})
+
+test_that("Installed callr factory members share completion, signatures and hover", {
+    snapshot <- member_prepare_package("callr")
+    fixture <- member_provider_fixture(c(
+        'job <- callr::r_bg(function() stop("must not run"))', "job$get_result("
+    ), list(callr = snapshot))
+    items <- member_completion(fixture$uri, fixture$workspace, fixture$document,
+        list(row = 1L, col = 4L), TRUE, 200L)
+    labels <- vapply(items, `[[`, character(1L), "label")
+    expect_true(all(c("cleanup", "get_result") %in% labels))
+    item <- items[[match("get_result", labels)]]
+    expect_identical(item$detail, "get_result()")
+    expect_identical(item$kind, CompletionItemKind$Method)
+    expect_identical(member_provider_signature(fixture)$signatures[[1L]]$label, "get_result()")
+    expect_identical(member_provider_hover(fixture, 1L, 5L)$contents, "```r\nget_result()\n```")
+})
+
+test_that("Installed processx members preserve method parameters across providers", {
+    skip_if_not_installed("processx")
+    snapshot <- member_prepare_package("processx")
+    for (case in list(c("is_alive(", "is_alive()"), c("wait(timeout = ", "wait(timeout = -1)"))) {
+        fixture <- member_provider_fixture(c(
+            'proc <- processx::process$new("must-not-launch")', paste0("proc$", case[[1L]])
+        ), list(processx = snapshot))
+        items <- member_completion(fixture$uri, fixture$workspace, fixture$document,
+            list(row = 1L, col = 5L), TRUE, 200L)
+        labels <- vapply(items, `[[`, character(1L), "label")
+        expect_true(all(c("is_alive", "wait", "get_exit_status") %in% labels))
+        method <- sub("[(].*", "", case[[1L]])
+        item <- items[[match(method, labels)]]
+        expect_identical(item$detail, case[[2L]])
+        expect_identical(item$kind, CompletionItemKind$Method)
+        result <- member_provider_signature(fixture)
+        expect_identical(result$signatures[[1L]]$label, case[[2L]])
+        if (method == "wait") {
+            expect_identical(result$activeParameter, 0L)
+            expect_identical(result$signatures[[1L]]$parameters[[1L]]$label, c(5L, 17L))
+        }
+        expect_identical(member_provider_hover(fixture, 1L, 6L)$contents,
+            sprintf("```r\n%s\n```", case[[2L]]))
+    }
+})
+
+test_that("callr and processx members work through LSP without library calls or execution", {
+    skip_on_cran()
+    skip_if_not_installed("processx")
+    root <- withr::local_tempdir()
+    marker <- file.path(root, "executed")
+    client <- language_client(working_dir = root)
+    # Coverage loads the instrumented namespace in both parse and metadata
+    # workers, alongside the other parallel tests in this shard.
+    timeout <- if (identical(Sys.getenv("R_COVR"), "true")) 60 else 15
+    cases <- list(
+        list(package = "callr", receiver = "job", method = "get_result", signature = "get_result()",
+            code = sprintf('job <- callr::r_bg(function() {writeLines("ran", %s); stop("input")})',
+                encodeString(marker, quote = "\""))),
+        list(package = "processx", receiver = "proc", method = "is_alive", signature = "is_alive()",
+            code = sprintf('proc <- processx::process$new({writeLines("ran", %s); stop("command")})',
+                encodeString(marker, quote = "\"")))
+    )
+    for (case in cases) {
+        path <- file.path(root, paste0(case$package, ".R"))
+        call <- paste0(case$receiver, "$", case$method, "()")
+        did_open(client, path, text = paste(case$code, call, sep = "\n"))
+        deadline <- Sys.time() + timeout
+        repeat {
+            result <- respond_completion(client, path, c(1L, nchar(case$receiver) + 1L), retry = FALSE)
+            labels <- vapply(result$items, `[[`, character(1L), "label")
+            if (case$method %in% labels || Sys.time() > deadline) break
+            Sys.sleep(0.1)
+        }
+        expect_true(case$method %in% labels, info = case$package)
+        result <- respond_signature(client, path, c(1L, nchar(call) - 1L), retry = FALSE)
+        expect_length(result$signatures, 1L)
+        if (length(result$signatures) != 1L) next
+        expect_identical(result$signatures[[1L]]$label, case$signature)
+        result <- respond_hover(client, path, c(1L, nchar(case$receiver) + 2L), retry = FALSE)
+        expect_identical(result$contents[[1L]], sprintf("```r\n%s\n```", case$signature))
+        expect_false(file.exists(marker))
+    }
+})
+
+test_that("Installed Redux methods provide signatures and hover without connecting", {
+    skip_if_not_installed("redux")
+    snapshot <- member_prepare_package("redux")
+    for (case in list(c("GET(key = ", "GET(key)", "0"),
+            c("SET(value = ", "SET(key, value, EX = NULL, PX = NULL, condition = NULL)", "1"),
+            c("PING(message = ", "PING(message = NULL)", "0"))) {
+        fixture <- member_provider_fixture(c('redis <- redux::hiredis(host = "127.0.0.1")',
+                paste0("redis$", case[[1L]])), list(redux = snapshot))
+        result <- member_provider_signature(fixture)
+        expect_identical(result$signatures[[1L]]$label, case[[2L]])
+        expect_identical(result$activeParameter, as.integer(case[[3L]]))
+        expect_identical(member_provider_hover(fixture, 1L, 7L)$contents,
+            sprintf("```r\n%s\n```", case[[2L]]))
+    }
+})
+
+test_that("Redux completion, signature and hover work through LSP without a server", {
+    skip_on_cran()
+    skip_if_not_installed("redux")
+    root <- withr::local_tempdir()
+    path <- file.path(root, "redis.R")
+    client <- language_client(working_dir = root)
+    lines <- c('redis <- redux::hiredis(host = "127.0.0.1")', "redis$GET(key = \"key\")")
+    did_open(client, path, text = paste(lines, collapse = "\n"))
+    deadline <- Sys.time() + 15
+    repeat {
+        result <- respond_completion(client, path, c(1L, 6L), retry = FALSE)
+        labels <- vapply(result$items, `[[`, character(1L), "label")
+        if ("GET" %in% labels || Sys.time() > deadline) break
+        Sys.sleep(0.1)
+    }
+    expect_true(all(c("GET", "SET", "PING") %in% labels))
+    result <- respond_signature(client, path, c(1L, 10L), retry = FALSE)
+    expect_identical(result$signatures[[1L]]$label, "GET(key)")
+    result <- respond_hover(client, path, c(1L, 7L), retry = FALSE)
+    expect_identical(result$contents[[1L]], "```r\nGET(key)\n```")
+})
+
 test_that("Unknown and shadowed member receivers never resolve unrelated bare functions", {
     for (lines in list(
         c("unknown$sum("),

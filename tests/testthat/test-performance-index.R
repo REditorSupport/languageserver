@@ -98,13 +98,13 @@ test_that("parse cache hits retain document identity", {
     self$get_workspace <- function(...) workspace
     self$pending_replies <- collections::dict()
     first <- Document$new(uri, version = 1L, content = content)
-    first$requested_packages <- character()
+    first$requested_packages <- list(packages = character(), namespace_packages = character())
     workspace$documents$set(uri, first)
     parse_callback(self, uri, 1L, parse_document(uri, content))
     expect_null(parse_task(self, uri, first))
 
     second <- Document$new(other_uri, version = 1L, content = content)
-    second$requested_packages <- character()
+    second$requested_packages <- list(packages = character(), namespace_packages = character())
     workspace$documents$set(other_uri, second)
     expect_s3_class(parse_task(self, other_uri, second), "Task")
     expect_null(second$parse_data)

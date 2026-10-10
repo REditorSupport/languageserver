@@ -11,12 +11,7 @@ member_symbol_info <- function(label, value, key, index) {
     if (!is.null(key) && key %in% index$native_factories) {
         fn <- member_returned_function(fn)$fn
     }
-    display <- if (identical(make.names(label), label) &&
-        !label %in% c("TRUE", "FALSE", "NULL", "NA")) {
-        label
-    } else {
-        encodeString(label, quote = "`")
-    }
+    display <- quote_completion_name(label)
     signature <- if (member_head(fn, "function")) get_signature(display, fn) else NULL
     delegated <- member_lookup(index$delegation, key)
     if (!is.null(delegated)) key <- delegated$original
@@ -141,7 +136,7 @@ member_constructor_arguments <- function(uri, workspace, document, point, token)
     lapply(seq_along(args), function(i) {
         list(label = args[[i]], kind = CompletionItemKind$Variable,
             detail = symbol$signature, sortText = sprintf("%s%03d", sort_prefixes$arg, i),
-            insertText = paste0(if (identical(make.names(args[[i]]), args[[i]])) args[[i]] else encodeString(args[[i]], quote = "`"), " = "),
+            insertText = paste0(quote_completion_name(args[[i]]), " = "),
             insertTextFormat = InsertTextFormat$PlainText, data = list(type = "member", signature = symbol$signature))
     })
 }

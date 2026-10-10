@@ -44,6 +44,16 @@ test_that("native string matching validates its low-level inputs", {
     )
 })
 
+test_that("Unicode completion matching treats quoted punctuation literally", {
+    values <- c("[<-", "a\\b", "a.b", "a*b", "a+b", "a(b", "a?b", "a{b", "a$b",
+        paste0(intToUtf8(0xe9), "clair"), NA_character_)
+    for (i in seq_len(9L)) {
+        expect_identical(which(match_with(values, toupper(values[[i]]))), i)
+    }
+    expect_identical(match_with(values, ""), !is.na(values))
+    expect_identical(match_with(values, NA_character_), rep(NA, length(values)))
+})
+
 test_that("token scanning recognizes namespace and identifier boundaries", {
     expect_equal(
         scan_token("pkg::", 5L),
@@ -84,6 +94,32 @@ test_that("native token scanning validates scalar input types", {
         .Call("scan_token_c", "x", 0, TRUE, PACKAGE = "languageserver"),
         "col must be a single integer"
     )
+})
+
+test_that("Backtick completion scanning respects escapes and source offsets", {
+    scan <- function(text, col = nchar(text)) {
+        .Call("scan_backtick_completion_c", text, as.integer(col),
+            PACKAGE = "languageserver")
+    }
+    expect_identical(scan("pkg::`run"), list(token = "run", start = 5L, end = 9L))
+    expect_identical(scan("pkg::`run task`()", 9L),
+        list(token = "run", start = 5L, end = 15L))
+    expect_identical(scan("pkg::`run`", 10L),
+        list(token = "run", start = 5L, end = 10L))
+    expect_identical(scan("pkg::`"), list(token = "", start = 5L, end = 6L))
+    expect_identical(scan("`a\\`b`", 5L),
+        list(token = "a\\`b", start = 0L, end = 6L))
+    unicode <- paste0("\"", intToUtf8(0x1f680), "\"; pkg::`", intToUtf8(0xe9), " task`")
+    expect_identical(scan(unicode, 12L),
+        list(token = intToUtf8(0xe9), start = 10L, end = 18L))
+    for (text in c("plain", "`closed` + ", "# pkg::`run", '"pkg::`run',
+            "'pkg::`run", 'r"(pkg::`run)"', "'escaped\\' `run'")) {
+        expect_null(scan(text))
+    }
+    expect_error(.Call("scan_backtick_completion_c", c("x", "y"), 0L,
+            PACKAGE = "languageserver"), "line must be a single character string")
+    expect_error(.Call("scan_backtick_completion_c", "x", 0,
+            PACKAGE = "languageserver"), "col must be a single integer")
 })
 
 test_that("UTF-16 conversion handles every UTF-8 width and boundary", {

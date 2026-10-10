@@ -74,7 +74,7 @@ PackageNamespace <- R6::R6Class("PackageNamespace",
             private$namespace <- ns
             exports <- getNamespaceExports(ns)
             objects <- union(names(ns), exports)
-            private$objects <- sanitize_names(objects)
+            private$objects <- objects
             is_function <- vapply(private$objects, function(x) {
                 tryCatch(is.function(get0(x, ns)), error = function(e) FALSE)
             }, logical(1L), USE.NAMES = FALSE)

@@ -125,6 +125,43 @@ test_that("Package selection ignores bindings after an incomplete member access"
     ), "collect")
 })
 
+test_that("Member completion inserts parseable non-syntactic names", {
+    labels <- c("Mazda RX4", "1st", "if", "NA_real_", "a`b", "a\\b", "a\nb", "plain")
+    for (label in labels) {
+        code <- paste0("x <- list(", encodeString(label, quote = "`"), "=1)\nx$")
+        item <- member_items(code)[[1L]]
+        expect_identical(item$label, label)
+        parsed <- parse(text = paste0("x$", item$textEdit$newText))[[1L]]
+        expect_identical(as.character(parsed[[3L]]), label)
+    }
+    code <- "x <- data.frame(`Mazda RX4`=1, check.names=FALSE)\nx$Ma"
+    fixture <- member_fixture(code)
+    reply <- completion_reply(1L, fixture$document$uri, fixture$workspace,
+        fixture$document, fixture$point, list())
+    item <- reply$result$items[[1L]]
+    expect_identical(item$textEdit$newText, "`Mazda RX4`")
+    expect_identical(item$textEdit$range$start$character, 2L)
+    expect_identical(item$textEdit$range$end$character, 4L)
+})
+
+test_that("Member snippets preserve R escapes in quoted method names", {
+    label <- "run\\$task}`"
+    code <- paste0("x <- list(", encodeString(label, quote = "`"), "=function() 1)\nx$")
+    item <- member_items(code)[[1L]]
+    # These are the literal characters a snippet client inserts before ().
+    inserted <- sub("($0)", "()", item$textEdit$newText, fixed = TRUE)
+    inserted <- gsub("\\\\([\\\\$}])", "\\1", inserted, perl = TRUE)
+    parsed <- parse(text = paste0("x$", inserted))[[1L]]
+    expect_identical(as.character(parsed[[1L]][[3L]]), label)
+    expect_identical(item$insertTextFormat, InsertTextFormat$Snippet)
+
+    fixture <- member_fixture(paste0(code, "()"), point = list(row = 1L, col = 2L))
+    plain <- member_completion(fixture$document$uri, fixture$workspace, fixture$document,
+        fixture$point, TRUE, 200L)[[1L]]
+    expect_identical(plain$textEdit$newText, encodeString(label, quote = "`"))
+    expect_identical(plain$insertTextFormat, InsertTextFormat$PlainText)
+})
+
 test_that("R6 fluent APIs expose public inheritance without initialization", {
     code <- paste0(
         "Parent <- R6::R6Class(\"Parent\", public=list(base=function() self, ",
@@ -139,6 +176,200 @@ test_that("R6 fluent APIs expose public inheritance without initialization", {
     )
     expect_identical(member_labels(paste0(code, "Child$new()$base()$")), "done")
     expect_length(member_labels(paste0(code, "Child$new()$danger$")), 0L)
+})
+
+test_that("R6 initialization exposes finite copied methods without executing code", {
+    marker <- withr::local_tempfile()
+    declarations <- paste0(
+        "commands <- function(send) list(GET=function(key) send(key), ",
+        "SET=function(key, value, option=NULL) send(key, value))\n",
+        "Client <- R6::R6Class(\"Client\", lock_objects=FALSE, public=list(initialize=function(send) {",
+        sprintf("writeLines(\"ran\", %s);", encodeString(marker, quote = "\"")),
+        "methods <- commands(send); for (name in names(methods)) self[[name]] <- methods[[name]]",
+        "}, ready=function() self))\n"
+    )
+    expect_identical(member_labels(paste0(declarations, "Client$new(unknown)$")),
+        c("GET", "SET", "initialize", "ready"))
+    expect_identical(member_labels(paste0(declarations, "Client$new(unknown)$ready()$")),
+        c("GET", "SET", "initialize", "ready"))
+    expect_false(file.exists(marker))
+
+    for (body in c("for (name in names(unknown)) self[[name]] <- unknown[[name]]",
+            "methods <- list(run=function() NULL); for (name in unknown) self[[name]] <- methods[[name]]",
+            "methods <- list(run=function() NULL); for (name in names(methods)) self[[name]] <- opaque()")) {
+        code <- sprintf("Client <- R6::R6Class(\"Client\", lock_objects=FALSE, public=list(initialize=function() {%s}, ready=1))\nClient$new()$", body)
+        expect_identical(member_labels(code), c("initialize", "ready"))
+    }
+    code <- paste0("Client <- R6::R6Class(\"Client\", lock_objects=FALSE, public=list(initialize=function(flag) {",
+        "if (flag) {methods <- list(run=function() NULL); for (name in names(methods)) self[[name]] <- methods[[name]]}",
+        "}, ready=1))\n")
+    expect_identical(member_labels(paste0(code, "Client$new(unknown)$")), c("initialize", "ready"))
+    expect_identical(member_labels(paste0(code, "Client$new(FALSE)$")), c("initialize", "ready"))
+    expect_identical(member_labels(paste0(code, "Client$new(TRUE)$")), c("initialize", "ready", "run"))
+})
+
+test_that("Internal package R6 generators are available to exported factories", {
+    marker <- withr::local_tempfile()
+    ns <- new.env(parent = emptyenv())
+    ns$commands <- function() list(extra = function(key) NULL)
+    ns$Internal <- R6::R6Class("Internal", lock_objects = FALSE, public = list(
+        initialize = function() {
+            writeLines("ran", marker)
+            methods <- commands()
+            for (name in names(methods)) self[[name]] <- methods[[name]]
+        },
+        run = function(value = 1) self
+    ))
+    ns$client <- function() Internal$new()
+    input <- member_namespace_input(ns, package = "fixture", exports = c("client", "Internal"))
+    index <- member_package_index(input)
+    index$package_roots$Internal <- member_r6_runtime_shape(ns$Internal, index)
+    index$namespace_roots$`fixture::Internal` <- index$package_roots$Internal
+    snapshot <- member_index_freeze(index)
+    expect_identical(member_labels("fixture::client()$", list(fixture = snapshot)),
+        c("clone", "extra", "initialize", "run"))
+    expect_identical(member_labels("fixture::Internal$new()$", list(fixture = snapshot)),
+        c("clone", "extra", "initialize", "run"))
+    expect_false(file.exists(marker))
+})
+
+test_that("R6 initialization respects locking and ignores initializer return values", {
+    for (locking in c("", ", lock_objects=TRUE", ", lock_objects=unknown")) {
+        for (body in c("self$extra <- 1",
+                "methods <- list(extra=function() NULL); for (name in names(methods)) self[[name]] <- methods[[name]]")) {
+            code <- sprintf('Client <- R6::R6Class("Client"%s, public=list(initialize=function() {%s}, ready=1))\nClient$new()$', locking, body)
+            expect_identical(member_labels(code), c("initialize", "ready"))
+        }
+    }
+    for (body in c("self$extra <- 1; return(private)",
+            "self$extra <- 1; return(invisible(NULL))", "self$extra <- 1; return(list(secret=1))",
+            "self$extra <- 1; self <- private; return(self)", "return({self$extra <- 1; NULL})")) {
+        code <- sprintf('Client <- R6::R6Class("Client", lock_objects=FALSE, public=list(initialize=function() {%s}), private=list(secret=1))\nClient$new()$', body)
+        expect_identical(member_labels(code), c("extra", "initialize"), info = body)
+    }
+    for (body in c("self$run <- function(value=2) NULL; return(private)",
+            "alias <- self; alias$run <- function(value=2) NULL; return(NULL)")) {
+        code <- sprintf('Client <- R6::R6Class("Client", public=list(run=NULL, initialize=function() {%s}), private=list(secret=1))\nClient$new()$ru', body)
+        expect_identical(member_items(code)[[1L]]$detail, "run(value = 2)")
+    }
+    code <- paste0('Client <- R6::R6Class("Client", lock_objects=FALSE, public=list(initialize=function(flag) {',
+        "self$common <- 1; if(flag) {self$early <- 1; return(private)}; self$late <- 1; return(NULL)",
+        "}), private=list(secret=1))\nClient$new(unknown)$")
+    expect_identical(member_labels(code), c("common", "initialize"))
+    code <- paste0('Client <- R6::R6Class("Client", lock_objects=FALSE, public=list(initialize=function() {',
+        "value <- if(TRUE) 42 else 0; self$answer <- value; return(private)",
+        "}), private=list(secret=1))\nClient$new()$answer")
+    index <- member_generic_index(code)
+    bindings <- list(Client = member_infer(index$definitions$Client, index))
+    expect_identical(member_infer(quote(Client$new()$answer), index, bindings)$literal, 42)
+
+    # Runtime generator metadata must preserve the actual locking setting.
+    for (locked in c(TRUE, FALSE)) {
+        generator <- R6::R6Class("Client", lock_objects = locked, public = list(
+            initialize = function() self$extra <- 1))
+        index <- member_generic_index("")
+        index$roots$Client <- member_r6_runtime_shape(generator, index)
+        labels <- member_labels("library(fixture)\nClient$new()$", list(fixture = member_index_freeze(index)))
+        expect_identical("extra" %in% labels, !locked)
+    }
+})
+
+test_that("R6 assignments preserve declared methods and active bindings", {
+    for (locked in c(TRUE, FALSE)) {
+        for (body in c("self$run <- function(replacement=2) list(fake=1)",
+                'self[["run"]] <- function(replacement=2) list(fake=1)',
+                "alias <- self; alias$run <- function(replacement=2) list(fake=1)",
+                "methods <- list(run=function(replacement=2) list(fake=1)); for (name in names(methods)) self[[name]] <- methods[[name]]")) {
+            code <- sprintf('Client <- R6::R6Class("Client", lock_objects=%s, public=list(run=function(original=1) list(real=1), initialize=function() {%s}))\n', locked, body)
+            expect_identical(member_items(paste0(code, "Client$new()$ru"))[[1L]]$detail, "run(original = 1)", info = body)
+            expect_identical(member_labels(paste0(code, "Client$new()$run()$")), "real", info = body)
+        }
+        for (body in c("self$x <- list(fake=1)", 'self[["x"]] <- list(fake=1)',
+                "alias <- self; alias$x <- list(fake=1)",
+                "values <- list(x=list(fake=1)); for (name in names(values)) self[[name]] <- values[[name]]")) {
+            code <- sprintf('Client <- R6::R6Class("Client", lock_objects=%s, public=list(initialize=function() {%s}), active=list(x=function(value) {if (missing(value)) NULL else invisible(NULL)}))\n', locked, body)
+            expect_length(member_labels(paste0(code, "Client$new()$x$")), 0L)
+        }
+        # Data bindings stay writable after being assigned a function.
+        for (body in c("self$run <- function(first=1) NULL; self$run <- function(second=2) NULL",
+                "methods <- list(run=function(first=1) NULL); for (name in names(methods)) self[[name]] <- methods[[name]]; self$run <- function(second=2) NULL")) {
+            code <- sprintf('Client <- R6::R6Class("Client", lock_objects=%s, public=list(run=NULL, initialize=function() {%s}))\nClient$new()$ru', locked, body)
+            expect_identical(member_items(code)[[1L]]$detail, "run(second = 2)", info = body)
+        }
+    }
+})
+
+test_that("R6 inherited and private bindings retain their assignment semantics", {
+    parent <- 'Parent <- R6::R6Class("Parent", public=list(run=function(original=1) list(real=1)), private=list(hidden=function() list(real=1)), active=list(x=function(value) NULL))\n'
+    child <- paste0('Child <- R6::R6Class("Child", inherit=Parent, lock_objects=FALSE, public=list(initialize=function(flag) {',
+        "if (flag) self$data <- 1 else self$data <- 2;",
+        "self$run <- function(replacement=2) list(fake=1); self$x <- list(fake=1)",
+        "}))\n")
+    code <- paste0(parent, child)
+    expect_identical(member_items(paste0(code, "Child$new(unknown)$ru"))[[1L]]$detail, "run(original = 1)")
+    expect_length(member_labels(paste0(code, "Child$new(unknown)$x$")), 0L)
+    # Check the private method within the flow that attempts to replace it.
+    for (body in c("private$hidden <- function() list(fake=1)",
+            "methods <- list(hidden=function() list(fake=1)); for (name in names(methods)) private[[name]] <- methods[[name]]")) {
+        code <- paste0(parent, 'Child <- R6::R6Class("Child", inherit=Parent, lock_objects=FALSE, public=list(read=function() {',
+            body, "; private$hidden()", "}))\n")
+        expect_identical(member_labels(paste0(code, "Child$new()$read()$")), "real")
+    }
+})
+
+test_that("Runtime R6 metadata preserves method and active binding kinds", {
+    marker <- withr::local_tempfile()
+    for (locked in c(TRUE, FALSE)) {
+        generator <- R6::R6Class("Client", lock_objects = locked, public = list(
+            run = function(original = 1) list(real = 1),
+            initialize = function() {
+                self$run <- function(replacement = 2) list(fake = 1)
+                self$x <- list(fake = 1)
+            }
+        ), active = list(x = function(value) {
+            writeLines("ran", marker)
+            if (missing(value)) NULL else invisible(NULL)
+        }))
+        index <- member_generic_index("")
+        index$roots$Client <- member_r6_runtime_shape(generator, index)
+        snapshot <- list(fixture = member_index_freeze(index))
+        code <- "library(fixture)\nClient$new()$"
+        expect_identical(member_items(paste0(code, "ru"), snapshot)[[1L]]$detail, "run(original = 1)")
+        expect_length(member_labels(paste0(code, "x$"), snapshot), 0L)
+    }
+    expect_false(file.exists(marker))
+})
+
+test_that("Installed Redux members resolve without a Redis connection", {
+    skip_if_not_installed("redux")
+    marker <- withr::local_tempfile()
+    snapshot <- member_prepare_package("redux")
+    expect_false("R6_redis_api" %in% names(snapshot$roots))
+    expect_length(member_labels("redux::R6_redis_api$new()$", list(redux = snapshot)), 0L)
+    for (code in c('redis <- redux::hiredis(host = "127.0.0.1")',
+            "library(redux)\nredis <- hiredis(host = unknown)",
+            sprintf("redis <- redux::hiredis(host = {writeLines(\"ran\", %s); stop(\"host\")})",
+                encodeString(marker, quote = "\"")))) {
+        labels <- member_labels(paste0(code, "\nredis$"), list(redux = snapshot), limit = 300L)
+        expect_true(all(c("GET", "SET", "PING", "pipeline", "subscribe", "config", "reconnect") %in% labels))
+        expect_false(any(c(".pipeline", ".subscribe", ".version") %in% labels))
+        items <- member_items(paste0(code, "\nredis$GE"), list(redux = snapshot))
+        item <- Filter(function(item) identical(item$label, "GET"), items)[[1L]]
+        expect_identical(item$detail, "GET(key)")
+        expect_identical(item$kind, CompletionItemKind$Method)
+    }
+    expect_false(file.exists(marker))
+})
+
+test_that("Generated closures retain referenced lexical inputs only", {
+    index <- member_generic_index("")
+    env <- list(used = member_literal(42), unused = member_value(type = "environment", fields = list()))
+    value <- member_infer(quote(function(x = used) list(run = function() x)), index, env)
+    expect_identical(names(value$closure), "used")
+    expect_identical(member_infer(quote(f()$run()), index, list(f = value))$literal, 42)
+    value <- member_infer(quote(function() function(x = used) x), index, env)
+    expect_identical(names(value$closure), "used")
+    expect_identical(member_infer(quote(f()()), index, list(f = value))$literal, 42)
 })
 
 test_that("Runtime metadata skips deferred values and active getters", {
@@ -390,7 +621,7 @@ test_that("Invalid empty binding names cannot break document parsing", {
 test_that("Metadata resolution survives edits with unchanged package requests", {
     uri <- "file:///resolution.R"
     document <- Document$new(uri, version = 2L, content = "library(fixture)")
-    document$requested_packages <- "fixture"
+    document$requested_packages <- list(packages = "fixture", namespace_packages = character())
     docs <- collections::dict()
     docs$set(uri, document)
     metadata <- collections::dict()
@@ -400,10 +631,11 @@ test_that("Metadata resolution survives edits with unchanged package requests", 
     )
     self <- list(get_workspace = function(...) workspace)
     snapshot <- member_index_freeze(member_generic_index(""))
-    resolve_callback(self, uri, 1L, list(packages = "fixture", members = list(fixture = snapshot), requested = "fixture"))
+    resolve_callback(self, uri, 1L, list(packages = "fixture", members = list(fixture = snapshot), requested = document$requested_packages))
     expect_true(metadata$has("fixture"))
     metadata$clear()
-    resolve_callback(self, uri, 1L, list(packages = "other", members = list(other = snapshot), requested = "other"))
+    resolve_callback(self, uri, 1L, list(packages = "other", members = list(other = snapshot),
+            requested = list(packages = "other", namespace_packages = character())))
     expect_false(metadata$has("other"))
 })
 

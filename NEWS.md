@@ -4,6 +4,8 @@
   moving their positions with incremental changes and refreshing after a valid
   parse, so a temporary syntax error does not clear hints across the document.
 
+- Enclose non-syntactic completion names in backticks and preserve escaped names
+  in function snippets, including completion inside partially typed quoted names (#781).
 - Complete chained `$` members using static receiver analysis, including source
   list/environment factories, declarative R6 classes and package method
   registries. Package metadata is prepared in a background worker; completion
@@ -15,6 +17,10 @@
   current parse after edits, fixing stale completions on the first `$` trigger.
 - Resolve member names across line breaks and infer `self`, `super` and
   `private` inside supported R6 methods for completion, hover and signatures.
+- Extend member completion, signature help and hover to package factories backed
+  by internal R6 classes and methods assigned during initialization. Support
+  namespace-qualified factories and R6 constructors without a `library()` call,
+  without executing constructors, methods or user arguments.
 - Complete S4 `@` slots from source declarations and installed class metadata,
   including inheritance, aliases and factory results. Show slot types on hover
   and signatures for slots whose function definitions are known statically.
@@ -41,6 +47,7 @@
 - Speed up test-coverage workflow by utilizing 4 CPUs, path filtering, and 4-way
   balanced test sharding (#769).
 - Preserve missing terminal newline state during diagnostics and provide a preferred quick fix for `trailing_blank_lines_linter` (#774, #772).
+- Respond to `shutdown` with a `null` result instead of `[]`, which clients that type the result strictly fail to decode.
 
 **Closed issues:**
 

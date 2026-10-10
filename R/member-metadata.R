@@ -376,14 +376,15 @@ member_prepare_package <- function(package, lib_paths = .libPaths()) {
     ns <- asNamespace(package)
     input <- member_namespace_input(ns)
     index <- member_package_index(input)
-    for (name in intersect(index$exports, names(index$roots))) {
+    for (name in names(index$package_roots)) {
         record <- member_binding(ns, name)
         value <- record[[2L]]
         if (identical(record[[1L]], "value") && is.environment(value) &&
             "R6ClassGenerator" %in% attr(value, "class", exact = TRUE)) {
-            index$roots[name] <- list(member_r6_runtime_shape(value, index))
+            index$package_roots[name] <- list(member_r6_runtime_shape(value, index))
         }
     }
+    index$roots <- index$package_roots[intersect(index$exports, names(index$package_roots))]
     index$r6_attached <- identical(package, "R6")
     for (name in names(index$roots)) index$namespace_roots[paste(package, name, sep = "::")] <- list(index$roots[[name]])
     index$identity <- list(
@@ -393,12 +394,12 @@ member_prepare_package <- function(package, lib_paths = .libPaths()) {
     member_index_freeze(index)
 }
 
-member_resolve_packages <- function(pkgs, lib_paths, prepare = TRUE) {
+member_resolve_packages <- function(pkgs, lib_paths, prepare = TRUE, namespace_packages = character()) {
     .libPaths(lib_paths)
     packages <- resolve_attached_packages(pkgs)
     snapshots <- list()
     if (isTRUE(prepare)) {
-        for (package in setdiff(packages, startup_packages)) {
+        for (package in unique(c(setdiff(packages, startup_packages), namespace_packages))) {
             snapshots[package] <- list(tryCatch(member_prepare_package(package, lib_paths),
                 error = function(e) {
                     list(
@@ -411,6 +412,7 @@ member_resolve_packages <- function(pkgs, lib_paths, prepare = TRUE) {
     }
     list(
         packages = packages, members = snapshots,
-        requested = normalize_package_request(pkgs)
+        requested = list(packages = normalize_package_request(pkgs),
+            namespace_packages = normalize_package_request(unique(namespace_packages)))
     )
 }

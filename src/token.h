@@ -6,5 +6,6 @@
 
 /* Scan a line for tokens around a column index (ASCII fast-path). */
 SEXP scan_token_c(SEXP line, SEXP col, SEXP forward);
+SEXP scan_backtick_completion_c(SEXP line, SEXP col);
 
 #endif /* end of include guard: TOKEN_H__ */

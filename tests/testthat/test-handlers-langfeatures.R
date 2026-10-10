@@ -277,7 +277,7 @@ test_that("Dollar completion waits for the current parse and replies once", {
     workspace$update_parse_data <- function(uri, data) document$update_parse_data(data)
     workspace$parse_cache <- list(set = function(...) NULL)
     workspace$update_loaded_packages <- function() NULL
-    document$requested_packages <- character()
+    document$requested_packages <- list(packages = character(), namespace_packages = character())
     document$set_content(2L, c(
         document$content[-length(document$content)],
         "q$group_by(\"Species\")$"

@@ -218,10 +218,11 @@ test_that("plain projects load source closures without merging unrelated scripts
     client <- language_client(root)
     client %>% did_open(main)
 
-    # Both the main file and its source closure must finish background parsing.
-    # Coverage instrumentation slows these workers during parallel tests.
+    # Signature help waits for both the entry document and its sourced helper.
+    # Instrumented workers can take longer to start alongside parallel tests.
     timeout <- if (identical(Sys.getenv("R_COVR"), "true")) 60 else 10
-    sourced <- client %>% respond_signature(main, c(1, 11), timeout = timeout,
+    sourced <- client %>% respond_signature(main, c(1, 11),
+        timeout = timeout,
         retry_when = function(result) length(result$signatures) == 0L)
     expect_length(sourced$signatures, 1L)
     expect_match(sourced$signatures[[1L]]$label, "helper_fun\\(value")

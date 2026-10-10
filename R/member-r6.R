@@ -24,6 +24,8 @@ member_r6_shape <- function(expr, index, bindings, budget) {
         inherited <- generator$fields$new$result_shape
     }
     fields <- if (is.null(inherited$fields)) list() else inherited$fields
+    bindings_public <- inherited$r6_bindings
+    bindings_private <- inherited$r6_private$r6_bindings
     # R6's super environment contains ancestor methods and active properties,
     # including private methods, but does not expose ancestor data fields.
     methods <- c(inherited$fields, inherited$r6_private$fields)
@@ -45,8 +47,10 @@ member_r6_shape <- function(expr, index, bindings, budget) {
             }
             if (section == "public") {
                 fields[name] <- list(value)
+                bindings_public[name] <- if (is.null(value$function_expr)) "data" else "method"
             } else {
                 private[name] <- list(value)
+                bindings_private[name] <- if (is.null(value$function_expr)) "data" else "method"
             }
             own[[section]] <- c(own[[section]], name)
         }
@@ -54,9 +58,16 @@ member_r6_shape <- function(expr, index, bindings, budget) {
     if (member_head(active, "list")) {
         for (name in names(as.list(active)[-1L])) {
             fields[name] <- list(member_value(reason = "active_property"))
+            bindings_public[name] <- "active"
         }
     }
+    # R6 locks instance environments before initialize() runs. Only an explicit
+    # FALSE can allow new bindings; an unknown setting remains conservative.
+    locked <- is.null(args$lock_objects) ||
+        !identical(member_infer(args$lock_objects, index, bindings, budget = budget)$literal, FALSE)
     private_value <- member_value(type = "environment", fields = private)
+    private_value$r6_locked <- locked
+    private_value$r6_bindings <- bindings_private
     for (name in own$public) {
         if (!is.null(fields[[name]]$function_expr)) fields[[name]]$closure$private <- private_value
     }
@@ -65,9 +76,64 @@ member_r6_shape <- function(expr, index, bindings, budget) {
     }
     instance <- member_value(type = "environment", fields = fields, open = TRUE,
         r6_private = member_value(type = "environment", fields = private), r6_super = super)
-    member_value(type = "environment", fields = list(new = member_value(
+    instance$r6_private$r6_locked <- locked
+    instance$r6_private$r6_bindings <- bindings_private
+    instance$r6_locked <- locked
+    instance$r6_bindings <- bindings_public
+    generator <- member_value(type = "environment", fields = list(new = member_value(
         type = "function", result_shape = instance
     )))
+    generator$fields$new$r6_initialize <- fields$initialize
+    generator
+}
+
+# Binding kinds come from declarations, not their current values. R6 locks
+# methods independently of lock_objects; active writes invoke opaque setters.
+# A writable data field remains writable after receiving a function.
+member_r6_writable <- function(object, name) {
+    !any(member_lookup(object$r6_bindings, name) %in% c("method", "active")) &&
+        (!isTRUE(object$r6_locked) || name %in% names(object$fields))
+}
+
+# Initialization is inspected as syntax with inert self/private shapes. The
+# declared surface survives opaque initialization; proven field assignments and
+# finite named-list copies can add methods without constructing a live object.
+member_r6_construct <- function(callee, actuals, index, budget, depth, trail) {
+    instance <- callee$result_shape
+    package <- callee$r6_package
+    if (!is.null(package)) {
+        package_index <- member_lookup(index$namespace_indices, package)
+        if (!is.null(package_index)) index <- package_index
+        if (!identical(package, index$package)) return(instance)
+        if (!is.null(index$document_bindings)) {
+            index <- list2env(as.list(index), parent = emptyenv())
+            index$document_bindings <- index$attached_roots <- NULL
+        }
+    }
+    initialize <- callee$r6_initialize
+    fn <- initialize$function_expr
+    if (!member_head(fn, "function")) return(instance)
+    # Track the original instance independently of the self binding and the
+    # initializer's ignored return value. Aliases carry the same inert identity.
+    budget$r6_identity <- if (is.null(budget$r6_identity)) 1L else budget$r6_identity + 1L
+    instance$r6_identity <- budget$r6_identity
+    fn[[3L]] <- as.call(list(as.name("{"), fn[[3L]]))
+    env <- index$package_roots
+    for (name in names(initialize$closure)) env[name] <- initialize$closure[name]
+    env$self <- instance
+    env$.__r6_instance__ <- instance
+    env$private <- instance$r6_private
+    env$.__r6_initialize__ <- member_value(function_expr = fn, closure = env)
+    env$.__r6_initialize__$r6_initialize <- TRUE
+    for (i in seq_along(actuals)) env[paste0(".__r6_arg", i)] <- list(actuals[[i]])
+    call <- as.call(c(list(as.name(".__r6_initialize__")),
+            stats::setNames(lapply(seq_along(actuals), function(i) as.name(paste0(".__r6_arg", i))), names(actuals))))
+    result <- member_infer(call, index, env, budget = budget, depth = depth + 1L, trail = trail)
+    if (identical(result$type, "environment") && !is.null(result$fields)) {
+        for (name in names(result$fields)) instance$fields[name] <- result$fields[name]
+    }
+    instance$r6_identity <- NULL
+    instance
 }
 
 member_r6_context <- function(expr, index, bindings, budget) {
@@ -120,7 +186,10 @@ member_r6_runtime_shape <- function(generator, index, trail = list()) {
     expr <- as.call(list(as.call(list(as.name("::"), as.name("R6"), as.name("R6Class"))),
             classname = "inspected", public = convert(c(public_fields, public)),
             private = convert(c(private_fields, private_methods)),
-            active = convert(active), inherit = as.name(".__r6_parent__")
+            active = convert(active), inherit = as.name(".__r6_parent__"),
+            lock_objects = get_plain("lock_objects")
         ))
-    member_r6_shape(expr, index, bindings, NULL)
+    shape <- member_r6_shape(expr, index, bindings, NULL)
+    shape$fields$new$r6_package <- index$package
+    shape
 }
