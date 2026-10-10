@@ -31,7 +31,7 @@ test_that("R6 methods complete their available references before any usage", {
         refs <- Filter(function(item) item$label %in% c("self", "private", "super"),
             class_scope_items(fixture))
         expect_length(refs, 3L)
-        expect_true(all(vapply(refs, function(item) identical(item$detail, "[scope]"), logical(1L))))
+        expect_true(all(vapply(refs, function(item) startsWith(item$detail, "[scope] "), logical(1L))))
         expect_true(all(vapply(refs, function(item) is.null(item$insertText), logical(1L))))
         resolved <- completion_item_resolve_reply(1L, fixture$workspace, refs[[1L]], list())$result
         expect_identical(resolved$label, refs[[1L]]$label)
