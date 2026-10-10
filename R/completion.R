@@ -763,10 +763,13 @@ context_scope_completion <- function(uri, workspace, token, point,
         is_function <- !is.null(value$function_expr) || !is.null(value$function_key) ||
             "function" %in% value$type
         inserted <- quote_completion_name(label)
+        description <- member_r6_description(value)
         item <- list(
             label = label,
             kind = if (is_function) CompletionItemKind$Function else CompletionItemKind$Field,
-            detail = "[scope]", sortText = paste0(sort_prefixes$scope, label),
+            detail = paste(c("[scope]", if (!is.null(description)) gsub("`", "", description, fixed = TRUE)), collapse = " "),
+            documentation = if (!is.null(description)) list(kind = "markdown", value = description),
+            sortText = paste0(sort_prefixes$scope, label),
             data = list(type = "scope", context_uri = uri)
         )
         if (is_function && isTRUE(snippet_support)) {
@@ -1179,7 +1182,7 @@ completion_item_resolve_reply <- function(id, workspace, params, capabilities) {
                 doc <- workspace$get_documentation(params$data$function_id,
                     params$data$package, isf = TRUE, uri = params$data$context_uri)
                 if (is.list(doc) && !is.null(doc$description)) params$documentation <- list(
-                    kind = "markdown", value = doc$description)
+                    kind = "markdown", value = paste(c(params$documentation$value, doc$description), collapse = "\n\n"))
             }
             resolved <- TRUE
         } else if (params$data$type == "package") {

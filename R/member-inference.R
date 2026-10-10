@@ -77,7 +77,8 @@ member_value <- function(
   elements = NULL, classes = NULL, reason = NULL, element_shape = NULL,
   open = FALSE, result_shape = NULL, binding_expr = NULL, binding_env = NULL,
   metadata = NULL, slots = NULL, slot_types = NULL, s4_class = NULL,
-  s4_generator = NULL, r6_private = NULL, r6_super = NULL, r6_self = NULL
+  s4_generator = NULL, r6_private = NULL, r6_super = NULL, r6_self = NULL,
+  r6_class = NULL, r6_role = NULL
 ) {
     list(
         type = type, function_key = function_key, receiver = receiver,
@@ -89,7 +90,8 @@ member_value <- function(
         binding_expr = binding_expr, binding_env = binding_env, metadata = metadata,
         slots = slots, slot_types = slot_types, s4_class = s4_class,
         s4_generator = s4_generator, r6_private = r6_private,
-        r6_super = r6_super, r6_self = r6_self
+        r6_super = r6_super, r6_self = r6_self,
+        r6_class = r6_class, r6_role = r6_role
     )
 }
 
@@ -135,6 +137,8 @@ member_join <- function(a, b) {
         classes = if (identical(a$classes, b$classes)) a$classes else NULL
     )
     if (isTRUE(a$s7) && isTRUE(b$s7)) value$s7 <- TRUE
+    if (identical(a$r6_class, b$r6_class)) value$r6_class <- a$r6_class
+    if (identical(a$r6_role, b$r6_role)) value$r6_role <- a$r6_role
     if (identical(a$r6_locked, b$r6_locked)) value$r6_locked <- a$r6_locked
     if (!is.null(a$r6_bindings) || !is.null(b$r6_bindings)) {
         bindings <- c(a$r6_bindings, b$r6_bindings)
@@ -213,7 +217,8 @@ member_shape_key <- function(value, depth = 0L) {
         r6_super = member_shape_key(value$r6_super, depth + 1L),
         r6_self = member_shape_key(value$r6_self, depth + 1L),
         r6_locked = value$r6_locked, r6_bindings = value$r6_bindings,
-        r6_identity = value$r6_identity,
+        r6_identity = value$r6_identity, r6_class = value$r6_class,
+        r6_role = value$r6_role,
         elements = lapply(value$elements, member_shape_key, depth + 1L),
         element_shape = if (!is.null(value$element_shape)) member_shape_key(value$element_shape, depth + 1L) else NULL
     )

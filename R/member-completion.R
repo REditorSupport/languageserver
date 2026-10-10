@@ -522,6 +522,32 @@ member_recover_scope <- function(document, point, cursor, data) {
                 }
                 return(node)
             }
+            if (member_head(node, "{")) {
+                ref <- attr(node, "wholeSrcref")
+                if (!is.null(ref) && (!member_before(c(ref[[1L]] - 1L, ref[[5L]] - 1L), at) ||
+                            !member_before(at, c(ref[[3L]] - 1L, ref[[6L]])))) return(node)
+                refs <- attr(node, "srcref")
+                if (length(node) > 1L && length(refs) == length(node)) {
+                    for (i in seq.int(2L, length(node))) {
+                        ref <- refs[[i]]
+                        if (member_before(at, c(ref[[1L]] - 1L, ref[[5L]] - 1L))) {
+                            node <- as.call(c(as.list(node)[seq_len(i - 1L)], list(as.name(sentinel))))
+                            found <<- TRUE
+                            return(node)
+                        }
+                        if (!member_before(c(ref[[3L]] - 1L, ref[[6L]]), at)) {
+                            child <- insert_cursor(node[[i]])
+                            if (!found) child <- as.name(sentinel)
+                            node <- as.call(c(as.list(node)[seq_len(i - 1L)], list(child)))
+                            found <<- TRUE
+                            return(node)
+                        }
+                    }
+                    node <- as.call(c(as.list(node), list(as.name(sentinel))))
+                    found <<- TRUE
+                    return(node)
+                }
+            }
             for (i in seq_along(node)) {
                 if (is.call(node[[i]])) node[[i]] <- insert_cursor(node[[i]])
                 if (found) break
@@ -549,7 +575,7 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
     if (is.null(data)) {
         return(NULL)
     }
-    recovered <- if (is.null(name) && is.null(cursor$accessor)) {
+    recovered <- if (is.null(cursor$accessor)) {
         member_recover_scope(document, point, cursor, data)
     } else {
         member_recover(document, point, cursor, data)
@@ -626,6 +652,7 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
             } else {
                 "[static member]"
             }, sortText = label,
+            documentation = if (!is.null(symbol$description)) list(kind = "markdown", value = symbol$description),
             filterText = label, insertTextFormat = if (snippet) InsertTextFormat$Snippet else InsertTextFormat$PlainText,
             textEdit = text_edit(range(
                 document$to_lsp_position(point$row, cursor$start),

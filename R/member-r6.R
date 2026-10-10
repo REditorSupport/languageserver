@@ -17,6 +17,15 @@ member_is_r6_call <- function(expr, index, bindings) {
 
 member_r6_shape <- function(expr, index, bindings, budget) {
     args <- as.list(expr)[-1L]
+    classname <- args$classname
+    if (is.null(classname) && length(args) && (is.null(names(args)) || !nzchar(names(args)[[1L]]))) {
+        classname <- args[[1L]]
+    }
+    if (!is.character(classname) && !is.null(classname)) {
+        classname <- member_infer(classname, index, bindings, budget = budget)$literal
+    }
+    class <- list(name = if (is.character(classname) && length(classname) == 1L) classname else NULL,
+        package = if (is.null(index$document_bindings)) index$package else "")
     active <- args$active
     inherited <- member_value()
     if (!is.null(args$inherit)) {
@@ -30,7 +39,8 @@ member_r6_shape <- function(expr, index, bindings, budget) {
     # including private methods, but does not expose ancestor data fields.
     methods <- c(inherited$fields, inherited$r6_private$fields)
     methods <- Filter(function(value) !is.null(value$function_expr) || identical(value$reason, "active_property"), methods)
-    super <- member_value(type = "environment", fields = methods)
+    super <- member_value(type = "environment", fields = methods,
+        r6_class = inherited$r6_class, r6_role = "super")
     # Private fields are available inside methods, outside the public surface.
     private <- if (is.null(inherited$r6_private$fields)) list() else inherited$r6_private$fields
     own <- list(public = character(), private = character())
@@ -65,7 +75,8 @@ member_r6_shape <- function(expr, index, bindings, budget) {
     # FALSE can allow new bindings; an unknown setting remains conservative.
     locked <- is.null(args$lock_objects) ||
         !identical(member_infer(args$lock_objects, index, bindings, budget = budget)$literal, FALSE)
-    private_value <- member_value(type = "environment", fields = private)
+    private_value <- member_value(type = "environment", fields = private,
+        r6_class = class, r6_role = "private")
     private_value$r6_locked <- locked
     private_value$r6_bindings <- bindings_private
     for (name in own$public) {
@@ -75,16 +86,30 @@ member_r6_shape <- function(expr, index, bindings, budget) {
         if (!is.null(private[[name]]$function_expr)) private[[name]]$closure$private <- private_value
     }
     instance <- member_value(type = "environment", fields = fields, open = TRUE,
-        r6_private = member_value(type = "environment", fields = private), r6_super = super)
+        r6_private = member_value(type = "environment", fields = private,
+            r6_class = class, r6_role = "private"), r6_super = super,
+        r6_class = class, r6_role = "instance")
     instance$r6_private$r6_locked <- locked
     instance$r6_private$r6_bindings <- bindings_private
     instance$r6_locked <- locked
     instance$r6_bindings <- bindings_public
     instance$r6_cloneable <- !identical(args$cloneable, FALSE) &&
         !identical(inherited$r6_cloneable, FALSE)
+    # new() forwards its arguments to the public (possibly inherited)
+    # initialize method. Preserve defaults as syntax, without evaluating them.
+    unknown_parent <- !is.null(args$inherit) && !identical(args$inherit, quote(NULL)) &&
+        is.null(inherited$r6_class)
+    initialize <- fields$initialize
+    has_initializer <- !is.null(initialize) &&
+        (!length(initialize$type) || "function" %in% initialize$type)
+    constructor <- if (has_initializer || unknown_parent) quote(function(...) NULL) else quote(function() NULL)
+    if (member_head(fields$initialize$function_expr, "function")) {
+        constructor[[2L]] <- fields$initialize$function_expr[[2L]]
+    }
     generator <- member_value(type = "environment", fields = list(new = member_value(
-        type = "function", result_shape = instance
-    )))
+        type = "function", function_expr = constructor, result_shape = instance,
+        r6_class = class, r6_role = "constructor"
+    )), r6_class = class, r6_role = "generator")
     generator$fields$new$r6_initialize <- fields$initialize
     generator
 }
@@ -149,15 +174,16 @@ member_r6_context <- function(expr, index, bindings, budget) {
     if (length(private$fields)) scope$private <- private
     if (!is.null(args$inherit) && !identical(args$inherit, quote(NULL))) scope$super <- super
     if (any(instance$r6_bindings == "active")) {
-        scope$.__active__ <- member_value(type = "list")
+        scope$.__active__ <- member_value(type = "list", r6_class = instance$r6_class, r6_role = "active")
     }
     if (identical(args$portable, FALSE)) {
         # Non-portable methods enclose the public environment, whose parent
         # contains private bindings. Public bindings win on lookup.
         scope <- utils::modifyList(private$fields, utils::modifyList(instance$fields, scope))
-        scope$.__enclos_env__ <- member_value(type = "environment")
+        scope$.__enclos_env__ <- member_value(type = "environment", r6_class = instance$r6_class, r6_role = "enclosure")
         if (isTRUE(instance$r6_cloneable)) {
-            scope$clone <- member_value(function_expr = quote(function(deep = FALSE) NULL))
+            scope$clone <- member_value(function_expr = quote(function(deep = FALSE) NULL),
+                r6_class = instance$r6_class, r6_role = "clone")
         }
     }
     scope
@@ -202,9 +228,9 @@ member_r6_runtime_shape <- function(generator, index, trail = list()) {
         }
     }
     expr <- as.call(list(as.call(list(as.name("::"), as.name("R6"), as.name("R6Class"))),
-            classname = "inspected", public = convert(c(public_fields, public)),
+            classname = get_plain("classname"), public = convert(c(public_fields, public)),
             private = convert(c(private_fields, private_methods)),
-            active = convert(active), inherit = as.name(".__r6_parent__"),
+            active = convert(active), inherit = if (is.null(inherited)) NULL else as.name(".__r6_parent__"),
             lock_objects = get_plain("lock_objects"), cloneable = get_plain("cloneable")
         ))
     shape <- member_r6_shape(expr, index, bindings, NULL)
