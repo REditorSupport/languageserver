@@ -277,7 +277,11 @@ test_that("Completion of function arguments is case insensitive", {
 
     client %>% did_open(temp_file)
 
-    result <- client %>% respond_completion(temp_file, c(0, 6))
+    # The first request waits for parsing and namespace startup, which can
+    # exceed 10 seconds in parallel Windows checks or under coverage.
+    timeout <- if (.Platform$OS.type == "windows" ||
+            identical(Sys.getenv("R_COVR"), "true")) 30 else 10
+    result <- client %>% respond_completion(temp_file, c(0, 6), timeout = timeout)
     arg_items <- result$items %>% keep(~ .$label == "object")
     expect_length(arg_items, 1)
 
