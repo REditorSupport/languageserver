@@ -819,7 +819,7 @@ member_infer <- function(
         return(member_value(function_expr = expr, closure = member_function_closure(expr, bindings)))
     }
     if (member_is_r6_call(expr, index, bindings)) {
-        return(member_r6_shape(expr, index, bindings, budget))
+        return(member_r6_shape(expr, index, bindings, budget, depth, trail))
     }
     s4 <- member_s4_call(expr, index, bindings, budget)
     if (!is.null(s4)) return(s4)

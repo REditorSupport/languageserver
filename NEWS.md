@@ -2,7 +2,10 @@
 
 - Complete bindings available in R6 method scopes, including `self`, `private`,
   `super`, inherited members in non-portable classes, and nested closures,
-  using static context analysis during incomplete edits.
+  using static context analysis during incomplete edits. Respect method-local
+  shadowing and prefer class bindings over enclosing declarations. Include
+  class information in completion, hover and signature help, and derive R6
+  `new()` signatures and argument completion from public initializers.
 
 - Keep parameter-name inlay hints for untouched calls during incomplete edits,
   moving their positions with incremental changes and refreshing after a valid

@@ -172,7 +172,8 @@ member_constructor_arguments <- function(uri, workspace, document, point, token)
             detail = symbol$signature, sortText = sprintf("%s%03d", sort_prefixes$arg, i),
             documentation = if (!is.null(symbol$description)) list(kind = "markdown", value = symbol$description),
             insertText = paste0(quote_completion_name(args[[i]]), " = "),
-            insertTextFormat = InsertTextFormat$PlainText, data = list(type = "member", signature = symbol$signature))
+            insertTextFormat = InsertTextFormat$PlainText,
+            data = list(type = "member", signature = symbol$signature, parameter = args[[i]]))
     })
 }
 

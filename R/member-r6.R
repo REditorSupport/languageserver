@@ -15,21 +15,25 @@ member_is_r6_call <- function(expr, index, bindings) {
         isTRUE(index$r6_attached)
 }
 
-member_r6_shape <- function(expr, index, bindings, budget) {
+member_r6_shape <- function(expr, index, bindings, budget, depth = 0L, trail = character()) {
+    infer <- function(expr) {
+        member_infer(expr, index, bindings,
+            budget = budget, depth = depth + 1L, trail = trail)
+    }
     args <- as.list(expr)[-1L]
     classname <- args$classname
     if (is.null(classname) && length(args) && (is.null(names(args)) || !nzchar(names(args)[[1L]]))) {
         classname <- args[[1L]]
     }
     if (!is.character(classname) && !is.null(classname)) {
-        classname <- member_infer(classname, index, bindings, budget = budget)$literal
+        classname <- infer(classname)$literal
     }
     class <- list(name = if (is.character(classname) && length(classname) == 1L) classname else NULL,
         package = if (is.null(index$document_bindings)) index$package else "")
     active <- args$active
     inherited <- member_value()
     if (!is.null(args$inherit)) {
-        generator <- member_infer(args$inherit, index, bindings, budget = budget)
+        generator <- infer(args$inherit)
         inherited <- generator$fields$new$result_shape
     }
     fields <- if (is.null(inherited$fields)) list() else inherited$fields
@@ -49,7 +53,7 @@ member_r6_shape <- function(expr, index, bindings, budget) {
         if (!member_head(node, "list")) next
         values <- as.list(node)[-1L]
         for (name in names(values)) {
-            value <- member_infer(values[[name]], index, bindings, budget = budget)
+            value <- infer(values[[name]])
             value$r6_owner <- class
             value$r6_member_kind <- paste(section,
                 if (!is.null(value$function_expr) || "function" %in% value$type) "method" else "field")
@@ -80,7 +84,7 @@ member_r6_shape <- function(expr, index, bindings, budget) {
     # R6 locks instance environments before initialize() runs. Only an explicit
     # FALSE can allow new bindings; an unknown setting remains conservative.
     locked <- is.null(args$lock_objects) ||
-        !identical(member_infer(args$lock_objects, index, bindings, budget = budget)$literal, FALSE)
+        !identical(infer(args$lock_objects)$literal, FALSE)
     private_value <- member_value(type = "environment", fields = private,
         r6_class = class, r6_role = "private")
     private_value$r6_locked <- locked
