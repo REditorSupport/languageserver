@@ -1,5 +1,9 @@
 # languageserver 0.3.20
 
+- Complete bindings available in R6 method scopes, including `self`, `private`,
+  `super`, inherited members in non-portable classes, and nested closures,
+  using static context analysis during incomplete edits.
+
 - Keep parameter-name inlay hints for untouched calls during incomplete edits,
   moving their positions with incremental changes and refreshing after a valid
   parse, so a temporary syntax error does not clear hints across the document.

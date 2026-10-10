@@ -80,6 +80,8 @@ member_r6_shape <- function(expr, index, bindings, budget) {
     instance$r6_private$r6_bindings <- bindings_private
     instance$r6_locked <- locked
     instance$r6_bindings <- bindings_public
+    instance$r6_cloneable <- !identical(args$cloneable, FALSE) &&
+        !identical(inherited$r6_cloneable, FALSE)
     generator <- member_value(type = "environment", fields = list(new = member_value(
         type = "function", result_shape = instance
     )))
@@ -137,12 +139,28 @@ member_r6_construct <- function(callee, actuals, index, budget, depth, trail) {
 }
 
 member_r6_context <- function(expr, index, bindings, budget) {
+    args <- as.list(expr)[-1L]
     instance <- member_r6_shape(expr, index, bindings, budget)$fields$new$result_shape
     super <- instance$r6_super
     super$r6_self <- instance
     private <- instance$r6_private
     private$r6_self <- instance
-    list(self = instance, super = super, private = private)
+    scope <- list(self = instance)
+    if (length(private$fields)) scope$private <- private
+    if (!is.null(args$inherit) && !identical(args$inherit, quote(NULL))) scope$super <- super
+    if (any(instance$r6_bindings == "active")) {
+        scope$.__active__ <- member_value(type = "list")
+    }
+    if (identical(args$portable, FALSE)) {
+        # Non-portable methods enclose the public environment, whose parent
+        # contains private bindings. Public bindings win on lookup.
+        scope <- utils::modifyList(private$fields, utils::modifyList(instance$fields, scope))
+        scope$.__enclos_env__ <- member_value(type = "environment")
+        if (isTRUE(instance$r6_cloneable)) {
+            scope$clone <- member_value(function_expr = quote(function(deep = FALSE) NULL))
+        }
+    }
+    scope
 }
 
 member_r6_runtime_shape <- function(generator, index, trail = list()) {
@@ -187,7 +205,7 @@ member_r6_runtime_shape <- function(generator, index, trail = list()) {
             classname = "inspected", public = convert(c(public_fields, public)),
             private = convert(c(private_fields, private_methods)),
             active = convert(active), inherit = as.name(".__r6_parent__"),
-            lock_objects = get_plain("lock_objects")
+            lock_objects = get_plain("lock_objects"), cloneable = get_plain("cloneable")
         ))
     shape <- member_r6_shape(expr, index, bindings, NULL)
     shape$fields$new$r6_package <- index$package
