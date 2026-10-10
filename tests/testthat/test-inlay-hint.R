@@ -494,6 +494,58 @@ test_that("inlay fallback treats deletions and whitespace at callee boundaries c
     )$result, original)
 })
 
+test_that("inlay fallback drops callees after whitespace-separated prefix edits", {
+    cases <- expand.grid(
+        prefix = c("obj$", "obj@", "pkg::"),
+        separator = c(" ", "  ", "\t"),
+        assignment = c("x <-", "\U00010400 <-"),
+        stringsAsFactors = FALSE
+    )
+    for (i in seq_len(nrow(cases))) {
+        case <- cases[i, ]
+        fixture <- provider_fixture(
+            c(paste0(case$assignment, case$separator, "target(one, two)"),
+                "", "target(three, four)"),
+            function(...) formals(function(first, second) NULL)
+        )
+        request <- range(position(0L, 0L), position(20L, 0L))
+        original <- inlay_hint_reply(
+            1L, fixture$uri, fixture$workspace, fixture$document, request
+        )$result
+        expect_length(original, 4L)
+        fixture$document$apply_content_changes(2L, list(list(
+            range = range(position(0L, 0L), position(0L, ncodeunit(case$assignment))),
+            text = case$prefix
+        )))
+        parsed <- inlay_hint_edit(fixture, 3L, list(list(
+            range = range(position(1L, 0L), position(1L, 0L)), text = "other("
+        )))
+        expect_true(parsed$parse_error)
+        expect_equal(inlay_hint_reply(
+            1L, fixture$uri, fixture$workspace, fixture$document, request
+        )$result, original[3:4], info = paste(case, collapse = "; "))
+    }
+})
+
+test_that("inlay fallback preserves a call after intervening tokens on the edited line", {
+    fixture <- provider_fixture(
+        c("x <- one; target(two, three)", "", "target(four, five)"),
+        function(...) formals(function(first, second) NULL)
+    )
+    request <- range(position(0L, 0L), position(20L, 0L))
+    original <- inlay_hint_reply(
+        1L, fixture$uri, fixture$workspace, fixture$document, request
+    )$result
+    parsed <- inlay_hint_edit(fixture, 2L, list(
+        list(range = range(position(0L, 0L), position(0L, 4L)), text = "obj$"),
+        list(range = range(position(1L, 0L), position(1L, 0L)), text = "other(")
+    ))
+    expect_true(parsed$parse_error)
+    expect_equal(inlay_hint_reply(
+        1L, fixture$uri, fixture$workspace, fixture$document, request
+    )$result, original)
+})
+
 test_that("inlay fallback retains local parameter names and honors settings", {
     available <- TRUE
     fixture <- provider_fixture(

@@ -59,16 +59,26 @@ inlay_hint_apply_change <- function(indexed, change, content) {
         calls$end_line == start$line & calls$end_col <= start$character
     after <- calls$line > end$line |
         calls$line == end$line & calls$col >= end$character
+    line_text <- function(row) if (row < length(content)) content[[row + 1L]] else ""
     # Inserts, replacements and deletions ending at a callee can change its
-    # name or turn it into a member call. Only retain whitespace replacements
-    # here; an empty replacement can join the callee to preceding text.
-    at_start <- calls$line == end$line & calls$col == end$character
+    # name or turn it into a member call, even with spaces or tabs in between.
+    # Only retain whitespace replacements here; an empty replacement can
+    # join the callee to preceding text.
     if (!nzchar(change$text) || grepl("[^[:space:]]", change$text)) {
+        end_text <- line_text(end$line)
+        end_col <- code_point_from_unit(end_text, end$character)
+        following <- substring(end_text, end_col + 1L)
+        first_token <- regexpr("[^[:space:]]", following)[[1L]]
+        boundary <- if (first_token > 0L) {
+            code_point_to_unit(end_text, end_col + first_token - 1L)
+        } else {
+            end$character
+        }
+        at_start <- calls$line == end$line & calls$col == boundary
         after[at_start] <- FALSE
     }
     # An edit outside a call can still put it in a comment, string or
     # backtick name. Drop following calls when lexical context may change.
-    line_text <- function(row) if (row < length(content)) content[[row + 1L]] else ""
     removed <- get_range_text(
         content, start$line + 1L,
         code_point_from_unit(line_text(start$line), start$character) + 1L,
