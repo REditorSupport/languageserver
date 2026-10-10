@@ -288,3 +288,82 @@ test_that("Opaque method locals hide enclosing function snippets in completion r
         expect_null(items[[1L]]$documentation)
     }
 })
+
+test_that("Ordinary completion avoids class inference without source or package classes", {
+    fixture <- class_scope_fixture(c("probe <- function(argument) {",
+            sprintf("  value%d <- list(first = 1, second = list(a = 2))", seq_len(1000L))), "}")
+    fixture$workspace$loaded_packages <- character()
+    fixture$workspace$imported_objects <- collections::dict()
+    fixture$workspace$get_namespace <- function(...) NULL
+    fixture$workspace$member_metadata <- collections::dict()
+    ordinary <- member_index_freeze(member_generic_index("identity <- function(x) x"))
+    expect_false(ordinary$class_scope)
+    fixture$workspace$member_metadata$set("ordinary", member_index_thaw(ordinary))
+    resolve <- member_resolve_cursor
+    calls <- new.env(parent = emptyenv())
+    calls$count <- 0L
+    testthat::local_mocked_bindings(member_resolve_cursor = function(uri, workspace, document, point, cursor, ...) {
+        if (!is.null(cursor)) calls$count <- calls$count + 1L
+        resolve(uri, workspace, document, point, cursor, ...)
+    }, .package = "languageserver")
+    for (token in c("", "value999")) {
+        items <- scope_completion(fixture$uri, fixture$workspace, token, fixture$point)
+        labels <- vapply(items, `[[`, character(1L), "label")
+        expect_true("value999" %in% labels)
+        expect_null(attr(items, "member_context"))
+    }
+    items <- completion_reply(1L, fixture$uri, fixture$workspace, fixture$document, fixture$point, list())$result$items
+    expect_true("argument" %in% vapply(items, `[[`, character(1L), "label"))
+    expect_identical(calls$count, 0L)
+})
+
+test_that("Class inference hints preserve source, package and incomplete contexts", {
+    fixture <- class_scope_fixture("probe <- function() {", "}")
+    expect_false(member_scope_required(fixture$workspace, fixture$document))
+    fixture$document$set_content(2L, fixture$document$content)
+    expect_true(member_scope_required(fixture$workspace, fixture$document))
+    fixture <- class_scope_fixture("probe <- function() {", token = "value")
+    expect_true(member_scope_required(fixture$workspace, fixture$document))
+
+    for (head in c("R6::R6Class", "R6Class")) {
+        fixture <- class_scope_fixture(c(sprintf('C <- %s("C", public = list(run = function() {', head)), "}))")
+        expect_true(member_scope_required(fixture$workspace, fixture$document))
+    }
+    fixture <- class_scope_fixture('probe <- function(C = R6::R6Class("C")) {', "}")
+    expect_true(member_scope_required(fixture$workspace, fixture$document))
+    fixture <- class_scope_fixture('probe <- function(C = R6::R6Class("C", public = list(run = function() {',
+        "}))) NULL", token = "se")
+    expect_true("self" %in% class_scope_labels(fixture, token = "se"))
+    fixture <- class_scope_fixture("probe <- function() {", "}")
+    fixture$workspace$member_metadata <- collections::dict()
+    index <- member_generic_index('factory <- function() R6::R6Class("C")')
+    snapshot <- member_index_freeze(index)
+    expect_true(snapshot$class_scope)
+    fixture$workspace$member_metadata$set("fixture", member_index_thaw(snapshot))
+    expect_true(member_scope_required(fixture$workspace, fixture$document))
+
+    defaults <- member_generic_index('factory <- function(C = R6::R6Class("C")) C')
+    expect_true(member_index_freeze(defaults)$class_scope)
+
+    index <- member_generic_index("")
+    index$package_roots$C <- member_r6_runtime_shape(R6::R6Class("C"), index)
+    expect_true(member_index_freeze(index)$class_scope)
+    snapshot$class_scope <- NULL
+    fixture$workspace$member_metadata$set("fixture", member_index_thaw(snapshot))
+    expect_true(member_scope_required(fixture$workspace, fixture$document))
+})
+
+test_that("Package class hints retain class information for ordinary scope variables", {
+    fixture <- class_scope_fixture(c("probe <- function() {", "  object <- fixture::C$new()"),
+        "}", token = "obj")
+    index <- member_package_index(list(package = "fixture", exports = "C"))
+    value <- member_r6_runtime_shape(R6::R6Class("Widget"), index)
+    index$package_roots$C <- value
+    index$roots$C <- value
+    index$namespace_roots[["fixture::C"]] <- value
+    fixture$workspace$member_metadata <- collections::dict()
+    fixture$workspace$member_metadata$set("fixture", member_index_thaw(member_index_freeze(index)))
+    items <- class_scope_items(fixture, token = "obj")
+    object <- items[[match("object", vapply(items, `[[`, character(1L), "label"))]]
+    expect_match(object$documentation$value, "R6 instance of `Widget`", fixed = TRUE)
+})

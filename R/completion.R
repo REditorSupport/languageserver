@@ -721,6 +721,7 @@ context_scope_completion <- function(uri, workspace, token, point,
     snippet_support, limit, exclude) {
     document <- if (!is.null(workspace$documents)) workspace$documents$get(uri, NULL)
     if (is.null(document) || !check_scope(uri, document, point)) return(list())
+    if (!member_scope_required(workspace, document)) return(list())
     if (!is.null(member_cursor(document, point))) return(list())
     semantic <- document$parse_data$semantic_data
     col <- document$to_lsp_position(point$row, point$col)$character

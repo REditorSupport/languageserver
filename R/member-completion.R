@@ -51,8 +51,11 @@ member_document_index <- function(content, parsed = NULL) {
     imports <- list()
     effects <- list()
     packages <- character()
+    class_scope <- FALSE
     for (item in items) {
         expr <- item$expr
+        # Deparsed syntax includes formal defaults, which all.names() omits.
+        if (!class_scope && any(grepl("R6Class", deparse(expr), fixed = TRUE))) class_scope <- TRUE
         member_walk(expr, function(node) {
             if (member_head(node, "::") || member_head(node, ":::")) {
                 package <- member_name(node[[2L]])
@@ -101,7 +104,23 @@ member_document_index <- function(content, parsed = NULL) {
         }
     }
     list(items = items, bindings = as.list(bindings), imports = imports, effects = effects, s4 = s4,
-        packages = packages)
+        packages = packages, class_scope = class_scope)
+}
+
+# Complete valid ordinary scopes from their source index. Class analysis is
+# needed only when source syntax or package metadata could supply R6 values;
+# incomplete scopes still use recovery to discover newly typed local bindings.
+member_scope_required <- function(workspace, document) {
+    data <- document$parse_data
+    if (!identical(document$version, data$version) || isTRUE(data$parse_error)) return(TRUE)
+    if (!identical(data$member_data$class_scope, FALSE)) return(TRUE)
+    metadata <- workspace$member_metadata
+    if (is.null(metadata)) return(FALSE)
+    for (package in metadata$keys()) {
+        # Older snapshots without the hint retain the inference path.
+        if (!identical(metadata$get(package)$class_scope, FALSE)) return(TRUE)
+    }
+    FALSE
 }
 
 member_before <- function(a, b) {
