@@ -37,6 +37,7 @@
 - Speed up test-coverage workflow by utilizing 4 CPUs, path filtering, and 4-way
   balanced test sharding (#769).
 - Preserve missing terminal newline state during diagnostics and provide a preferred quick fix for `trailing_blank_lines_linter` (#774, #772).
+- Respond to `shutdown` with a `null` result instead of `[]`, which clients that type the result strictly fail to decode.
 
 **Closed issues:**
 
