@@ -51,12 +51,13 @@ ByteLruCache <- R6::R6Class(
         current_bytes = 0,
         max_bytes = NULL,
         max_entries = NULL,
-        trim = function() {
+        trim = function(protect = character()) {
             while (private$entries$size() > private$max_entries ||
                     private$current_bytes > private$max_bytes) {
                 keys <- private$entries$keys()
                 if (!length(keys)) break
-                self$remove(keys[[1L]])
+                candidates <- setdiff(keys, protect)
+                self$remove(if (length(candidates)) candidates[[1L]] else keys[[1L]])
             }
         }
     ),
@@ -74,7 +75,7 @@ ByteLruCache <- R6::R6Class(
             private$entries$set(key, value)
             value
         },
-        set = function(key, value) {
+        set = function(key, value, protect = character()) {
             if (private$entries$has(key)) self$remove(key)
             size <- as.numeric(object.size(value))
             # An individual value larger than the whole budget would evict
@@ -83,7 +84,7 @@ ByteLruCache <- R6::R6Class(
             private$entries$set(key, value)
             private$sizes$set(key, size)
             private$current_bytes <- private$current_bytes + size
-            private$trim()
+            private$trim(protect)
             invisible(value)
         },
         remove = function(key) {
@@ -103,6 +104,117 @@ ByteLruCache <- R6::R6Class(
         size = function() private$entries$size(),
         keys = function() private$entries$keys(),
         bytes = function() private$current_bytes
+    )
+)
+
+# Keep compact, inert snapshots when decoded package indexes compete for space.
+# A request can restore an evicted index without waiting for another package
+# resolution task or requiring an edit to the document's library calls.
+MemberMetadataCache <- R6::R6Class(
+    "MemberMetadataCache",
+    private = list(
+        snapshots = NULL, indexes = NULL, summaries = NULL,
+        max_summary_bytes = NULL,
+        summary_sizes = function() {
+            vapply(private$summaries$values(), function(cache) {
+                if (is.null(cache$.bytes)) 0 else cache$.bytes
+            }, numeric(1L))
+        },
+        reserve_summary = function(size) {
+            if (size > private$max_summary_bytes) return(FALSE)
+            sizes <- private$summary_sizes()
+            total <- sum(sizes)
+            for (key in private$summaries$keys()) {
+                if (total + size <= private$max_summary_bytes) break
+                cache <- private$summaries$get(key)
+                # Clear the environment itself: decoded indexes may still
+                # reference it after another package becomes most recent.
+                total <- total - if (is.null(cache$.bytes)) 0 else cache$.bytes
+                rm(list = setdiff(ls(cache, all.names = TRUE), ".reserve"), envir = cache)
+                cache$.bytes <- 0
+            }
+            TRUE
+        },
+        summary_cache = function(key) {
+            cache <- private$summaries$pop(key, NULL)
+            if (is.null(cache)) cache <- new.env(parent = emptyenv())
+            # Inference reserves space before each write, including decoded
+            # cache hits, so retained summaries share one bounded budget.
+            cache$.reserve <- private$reserve_summary
+            private$summaries$set(key, cache)
+            cache
+        }
+    ),
+    public = list(
+        initialize = function(max_bytes, max_entries = 16L) {
+            private$snapshots <- ByteLruCache$new(max_bytes, max_entries)
+            private$indexes <- ByteLruCache$new(max_bytes, max_entries)
+            private$summaries <- collections::ordered_dict()
+            private$max_summary_bytes <- min(max(as.numeric(max_bytes), 0), 4 * 1024^2)
+        },
+        has = function(key) private$snapshots$has(key),
+        get = function(key, default = NULL) {
+            if (!self$has(key)) return(default)
+            snapshot <- private$snapshots$get(key)
+            cache <- private$summary_cache(key)
+            if (private$indexes$has(key)) return(private$indexes$get(key))
+            # Snapshots were validated on insertion. Restoring their unchanged
+            # syntax need not hash every package definition on each request.
+            value <- unserialize(memDecompress(snapshot$compressed, "gzip"))
+            value$cache <- cache
+            private$indexes$set(key, value)
+            value
+        },
+        catalog = function(key) {
+            entry <- private$snapshots$get(key)
+            if (is.null(entry)) NULL else entry$catalog
+        },
+        set = function(key, value, protect = character()) {
+            snapshot <- as.list(value)
+            index <- member_index_thaw(snapshot)
+            if (is.null(index)) return(invisible(NULL))
+            # A replacement must use validated returns and fresh summaries,
+            # even when the caller supplied an already decoded index.
+            value <- as.list(index)
+            snapshot$method_results <- index$method_results
+            snapshot$cache <- NULL
+            # Selection, imports and dispatch need only this compact catalog.
+            # Keep it in the snapshot budget without decoding function bodies.
+            fields <- c("package", "roots", "exports", "namespace_roots", "classes",
+                "s4_classes", "s4_dependencies", "s7_dependencies", "s7_capabilities")
+            entry <- list(
+                compressed = memCompress(serialize(snapshot, NULL), "gzip"),
+                catalog = snapshot[intersect(fields, names(snapshot))]
+            )
+            entry$catalog$functions <- Filter(function(name) {
+                member_head(snapshot$definitions[[name]], "function")
+            }, intersect(snapshot$exports, names(snapshot$definitions)))
+            private$snapshots$set(key, entry, protect)
+            private$indexes$remove(key)
+            private$summaries$pop(key, NULL)
+            if (self$has(key)) {
+                value$cache <- private$summary_cache(key)
+                private$indexes$set(key, value, protect)
+            }
+            for (expired in setdiff(private$indexes$keys(), self$keys())) private$indexes$remove(expired)
+            for (expired in setdiff(private$summaries$keys(), self$keys())) private$summaries$remove(expired)
+            invisible(value)
+        },
+        remove = function(key) {
+            private$snapshots$remove(key)
+            private$indexes$remove(key)
+            private$summaries$pop(key, NULL)
+            invisible(NULL)
+        },
+        clear = function() {
+            private$snapshots$clear()
+            private$indexes$clear()
+            private$summaries$clear()
+            invisible(NULL)
+        },
+        size = function() private$snapshots$size(),
+        keys = function() private$snapshots$keys(),
+        bytes = function() private$snapshots$bytes() + private$indexes$bytes() + sum(private$summary_sizes())
     )
 )
 
@@ -271,7 +383,7 @@ Workspace <- R6::R6Class("Workspace",
             self$diagnostics_globals_cache <- NULL
             private$import_globals_cache <- collections::dict()
             self$type_hierarchy_cache <- collections::dict()
-            self$member_metadata <- ByteLruCache$new(32 * 1024^2, max_entries = 16L)
+            self$member_metadata <- MemberMetadataCache$new(32 * 1024^2, max_entries = 16L)
         },
 
         load_package = function(pkgname) {

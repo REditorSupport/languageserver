@@ -826,10 +826,22 @@ resolve_callback <- function(self, uri, version, packages) {
             !(is.list(packages) && !is.null(packages$requested) &&
                 identical(doc$requested_packages, packages$requested))) return(NULL)
     if (is.list(packages) && !is.null(packages$members)) {
+        # Background workspace files also prepare metadata. Prefer packages
+        # requested by open documents when those results compete for space.
+        open_documents <- Filter(function(document) isTRUE(document$is_open), workspace$documents$values())
+        protect <- unique(unlist(lapply(open_documents, function(document) {
+            c(document$requested_packages$packages, document$requested_packages$namespace_packages)
+        }), use.names = FALSE))
         for (package in names(packages$members)) {
             snapshot <- packages$members[[package]]
             index <- member_index_thaw(snapshot)
-            if (!is.null(index)) workspace$member_metadata$set(package, as.list(index))
+            if (!is.null(index)) {
+                if (inherits(workspace$member_metadata, c("ByteLruCache", "MemberMetadataCache"))) {
+                    workspace$member_metadata$set(package, as.list(index), protect = protect)
+                } else {
+                    workspace$member_metadata$set(package, as.list(index))
+                }
+            }
         }
         packages <- packages$packages
     }

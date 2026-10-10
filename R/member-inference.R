@@ -70,6 +70,15 @@ member_lookup <- function(x, key) {
     x[[key]]
 }
 
+member_namespace_index <- function(index, package) {
+    value <- member_lookup(index$namespace_indices, package)
+    if (isTRUE(value$.metadata_lazy)) {
+        value <- index$namespace_metadata$get(package)
+        index$namespace_indices[package] <- list(value)
+    }
+    value
+}
+
 member_value <- function(
   type = NULL, function_key = NULL, receiver = NULL,
   fields = NULL, function_expr = NULL, closure = NULL, receiver_name = NULL,
@@ -678,11 +687,13 @@ member_infer <- function(
             if (size <= 1024^2) {
                 if (is.null(index$cache$.bytes)) index$cache$.bytes <- 0
                 if (length(index$cache) >= 512L || index$cache$.bytes + size > 4 * 1024^2) {
-                    rm(list = ls(index$cache, all.names = TRUE), envir = index$cache)
+                    rm(list = setdiff(ls(index$cache, all.names = TRUE), ".reserve"), envir = index$cache)
                     index$cache$.bytes <- 0
                 }
-                assign(cache_key, result, index$cache)
-                index$cache$.bytes <- index$cache$.bytes + size
+                if (!is.function(index$cache$.reserve) || index$cache$.reserve(size)) {
+                    assign(cache_key, result, index$cache)
+                    index$cache$.bytes <- index$cache$.bytes + size
+                }
             }
         }
         result
@@ -825,7 +836,7 @@ member_infer <- function(
         if (!is.null(root)) {
             return(root)
         }
-        package_index <- member_lookup(index$namespace_indices, package)
+        package_index <- member_namespace_index(index, package)
         if (!is.null(package_index) && name %in% package_index$exports &&
             name %in% names(package_index$definitions)) {
             return(member_value(
@@ -1215,7 +1226,7 @@ member_infer <- function(
         return(member_r6_construct(callee, actuals, index, budget, depth, trail))
     }
     if (!is.null(callee$metadata)) {
-        package_index <- member_lookup(index$namespace_indices, callee$metadata)
+        package_index <- member_namespace_index(index, callee$metadata)
         if (is.null(package_index)) {
             return(unknown)
         }

@@ -397,6 +397,73 @@ test_that("Runtime metadata skips deferred values and active getters", {
     expect_identical(member_binding(env, "deferred")[[1L]], "deferred")
 })
 
+test_that("Receiver roots take precedence over unrelated exports regardless of cache order", {
+    unrelated <- member_generic_index("")
+    unrelated$package <- "unrelated"
+    unrelated$exports <- c("scan", "keep", "finish", "path")
+    receiver <- member_generic_index("scan <- function(path) NULL\nkeep <- function(value) self\nfinish <- function() NULL")
+    receiver$package <- "receiverfixture"
+    receiver$exports <- "api"
+    receiver$roots <- receiver$package_roots <- list(api = member_value(type = "api"))
+    receiver$constructor_types <- list(scan = "query")
+    receiver$members <- list(api = c(scan = "scan"), query = c(keep = "keep", finish = "finish"))
+    snapshots <- lapply(list(unrelated = unrelated, receiverfixture = receiver), member_index_freeze)
+    fixture <- member_fixture("library(receiverfixture)\nq <- api$scan(path)\nq1 <- q$keep(value)\nq1$")
+    for (order in list(names(snapshots), rev(names(snapshots)))) {
+        metadata <- collections::ordered_dict()
+        for (package in order) metadata$set(package, as.list(member_index_thaw(snapshots[[package]])))
+        fixture$workspace$member_metadata <- metadata
+        resolved <- member_resolve_cursor(
+            fixture$document$uri, fixture$workspace, fixture$document, fixture$point,
+            member_cursor(fixture$document, fixture$point)
+        )
+        expect_identical(resolved$index$package, "receiverfixture")
+        expect_identical(resolved$value$type, "query")
+        items <- member_completion(fixture$document$uri, fixture$workspace, fixture$document,
+            fixture$point, TRUE, 200L)
+        expect_setequal(vapply(items, `[[`, character(1L), "label"), c("keep", "finish"))
+    }
+})
+
+test_that("Lazy namespace indexes preserve attached and qualified calls without unrelated restores", {
+    receiver <- member_generic_index("scan <- function(value) NULL")
+    receiver$package <- "receiverfixture"
+    receiver$exports <- "api"
+    receiver$roots <- receiver$package_roots <- list(api = member_value(type = "api"))
+    receiver$constructor_types <- list(scan = "query")
+    receiver$members <- list(api = c(scan = "scan"))
+    helper <- member_generic_index("finish <- function(value) list(done = value)")
+    helper$package <- "helperfixture"
+    helper$exports <- "finish"
+    unrelated <- member_generic_index("")
+    unrelated$package <- "unrelated"
+    for (index in list(receiver, helper, unrelated)) index$padding <- raw(30000L)
+    snapshots <- lapply(list(receiverfixture = receiver, helperfixture = helper, unrelated = unrelated), member_index_freeze)
+    budget <- max(vapply(snapshots, function(x) as.numeric(object.size(x)), numeric(1L))) + 1024
+    cache <- MemberMetadataCache$new(budget)
+    for (package in names(snapshots)) cache$set(package, snapshots[[package]])
+    fetched <- character()
+    metadata <- list(keys = cache$keys, catalog = cache$catalog, get = function(package) {
+        fetched <<- c(fetched, package)
+        cache$get(package)
+    })
+    for (call in c("finish(api$scan(x))", "helperfixture::finish(api$scan(x))")) {
+        fetched <- character()
+        fixture <- member_fixture(paste("library(receiverfixture)", "library(helperfixture)", paste0(call, "$"), sep = "\n"))
+        fixture$workspace$member_metadata <- metadata
+        items <- member_completion(fixture$document$uri, fixture$workspace, fixture$document, fixture$point, TRUE, 200L)
+        expect_identical(vapply(items, `[[`, character(1L), "label"), "done")
+        expect_setequal(fetched, c("receiverfixture", "helperfixture"))
+    }
+    fetched <- character()
+    fixture <- member_fixture("library(receiverfixture)\napi$scan(x)$")
+    fixture$workspace$member_metadata <- metadata
+    resolved <- member_resolve_cursor(fixture$document$uri, fixture$workspace, fixture$document,
+        fixture$point, member_cursor(fixture$document, fixture$point))
+    expect_identical(resolved$value$type, "query")
+    expect_identical(fetched, "receiverfixture")
+})
+
 test_that("Installed Polars metadata resolves all original query positions without execution", {
     skip_if_not_installed("polars")
     snapshot <- member_prepare_package("polars")

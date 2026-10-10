@@ -5,6 +5,34 @@ latency of interactive requests. The baseline is commit `9618b5b`. Measurements
 below were taken locally with R 4.6.1 on macOS arm64; they are reproducible
 workloads, not timing assertions in the test suite.
 
+## Member metadata cache
+
+Run `R_LIBS=/path/to/library Rscript inst/benchmarks/member-metadata.R results.csv 10`
+against an installed package with Polars and R6 available. An optional third
+argument selects an R document. The benchmark prepares Polars, methods and R6
+metadata in a clean worker, then measures consecutive completion, signature and
+hover requests at each standalone `q`, `q1` and `q2` expression. It validates
+the provider results and records decoded cache hits and restores. Preparation,
+document parsing and explicit garbage collection are outside the timer;
+context selection, restoration and inference are inside it.
+
+Measured locally with R 4.6.1, Polars 1.16.0 and R6 2.6.1 on macOS arm64,
+using the affected document's three query positions, ten passes and 90 requests:
+
+| Provider | Before median / p95 (ms) | After median / p95 (ms) | Before / after restores |
+| --- | ---: | ---: | ---: |
+| Completion | 137 / 183.3 | 92 / 137 | 90 / 1 |
+| Signature help | 128 / 172 | 86 / 128 | 90 / 0 |
+| Hover | 129 / 166 | 86 / 128 | 90 / 0 |
+
+The baseline is `6365c20`. Polars and methods decoded indexes together exceed
+the 32 MB budget. The baseline restores all three packages on every request;
+catalog selection restores Polars once, then uses decoded hits. Catalogs share
+the existing snapshot budget, and full namespace indexes load on demand for
+cross-package inference. These timings include the first restore and remain
+machine-dependent; the regression tests assert cache behavior without timing
+thresholds.
+
 ## Design and implementation
 
 1. **Remove repeated parse-tree scans.** Native parent/child indexes classify
