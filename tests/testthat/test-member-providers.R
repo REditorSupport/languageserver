@@ -243,6 +243,19 @@ test_that("R6 initializer early returns preserve public method providers", {
     }
 })
 
+test_that("R6 assignment attempts retain original method signatures and opaque active bindings", {
+    for (body in c("self$run <- function(replacement=2) NULL; self$x <- function(fake=1) NULL",
+            "methods <- list(run=function(replacement=2) NULL, x=function(fake=1) NULL); for (name in names(methods)) self[[name]] <- methods[[name]]")) {
+        declaration <- sprintf('Client <- R6::R6Class("Client", lock_objects=FALSE, public=list(run=function(original=1) NULL, initialize=function() {%s}), active=list(x=function(value) NULL))', body)
+        fixture <- member_provider_fixture(c(declaration, "client <- Client$new()", "client$run("))
+        expect_identical(member_provider_signature(fixture)$signatures[[1L]]$label, "run(original = 1)")
+        expect_identical(member_provider_hover(fixture, 2L, 8L)$contents, "```r\nrun(original = 1)\n```")
+        fixture <- member_provider_fixture(c(declaration, "client <- Client$new()", "client$x("))
+        expect_length(member_provider_signature(fixture)$signatures, 0L)
+        expect_null(member_provider_hover(fixture, 2L, 8L))
+    }
+})
+
 test_that("Installed callr factory members share completion, signatures and hover", {
     snapshot <- member_prepare_package("callr")
     fixture <- member_provider_fixture(c(

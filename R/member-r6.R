@@ -24,6 +24,8 @@ member_r6_shape <- function(expr, index, bindings, budget) {
         inherited <- generator$fields$new$result_shape
     }
     fields <- if (is.null(inherited$fields)) list() else inherited$fields
+    bindings_public <- inherited$r6_bindings
+    bindings_private <- inherited$r6_private$r6_bindings
     # R6's super environment contains ancestor methods and active properties,
     # including private methods, but does not expose ancestor data fields.
     methods <- c(inherited$fields, inherited$r6_private$fields)
@@ -45,8 +47,10 @@ member_r6_shape <- function(expr, index, bindings, budget) {
             }
             if (section == "public") {
                 fields[name] <- list(value)
+                bindings_public[name] <- if (is.null(value$function_expr)) "data" else "method"
             } else {
                 private[name] <- list(value)
+                bindings_private[name] <- if (is.null(value$function_expr)) "data" else "method"
             }
             own[[section]] <- c(own[[section]], name)
         }
@@ -54,6 +58,7 @@ member_r6_shape <- function(expr, index, bindings, budget) {
     if (member_head(active, "list")) {
         for (name in names(as.list(active)[-1L])) {
             fields[name] <- list(member_value(reason = "active_property"))
+            bindings_public[name] <- "active"
         }
     }
     # R6 locks instance environments before initialize() runs. Only an explicit
@@ -62,6 +67,7 @@ member_r6_shape <- function(expr, index, bindings, budget) {
         !identical(member_infer(args$lock_objects, index, bindings, budget = budget)$literal, FALSE)
     private_value <- member_value(type = "environment", fields = private)
     private_value$r6_locked <- locked
+    private_value$r6_bindings <- bindings_private
     for (name in own$public) {
         if (!is.null(fields[[name]]$function_expr)) fields[[name]]$closure$private <- private_value
     }
@@ -71,12 +77,22 @@ member_r6_shape <- function(expr, index, bindings, budget) {
     instance <- member_value(type = "environment", fields = fields, open = TRUE,
         r6_private = member_value(type = "environment", fields = private), r6_super = super)
     instance$r6_private$r6_locked <- locked
+    instance$r6_private$r6_bindings <- bindings_private
     instance$r6_locked <- locked
+    instance$r6_bindings <- bindings_public
     generator <- member_value(type = "environment", fields = list(new = member_value(
         type = "function", result_shape = instance
     )))
     generator$fields$new$r6_initialize <- fields$initialize
     generator
+}
+
+# Binding kinds come from declarations, not their current values. R6 locks
+# methods independently of lock_objects; active writes invoke opaque setters.
+# A writable data field remains writable after receiving a function.
+member_r6_writable <- function(object, name) {
+    !any(member_lookup(object$r6_bindings, name) %in% c("method", "active")) &&
+        (!isTRUE(object$r6_locked) || name %in% names(object$fields))
 }
 
 # Initialization is inspected as syntax with inert self/private shapes. The

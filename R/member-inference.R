@@ -132,6 +132,12 @@ member_join <- function(a, b) {
     )
     if (isTRUE(a$s7) && isTRUE(b$s7)) value$s7 <- TRUE
     if (identical(a$r6_locked, b$r6_locked)) value$r6_locked <- a$r6_locked
+    if (!is.null(a$r6_bindings) || !is.null(b$r6_bindings)) {
+        bindings <- c(a$r6_bindings, b$r6_bindings)
+        # A binding must be writable on every branch to infer replacement.
+        bindings <- c(bindings[bindings %in% c("method", "active")], bindings)
+        value$r6_bindings <- bindings[!duplicated(names(bindings))]
+    }
     if (identical(a$r6_identity, b$r6_identity)) value$r6_identity <- a$r6_identity
     value
 }
@@ -202,7 +208,8 @@ member_shape_key <- function(value, depth = 0L) {
         r6_private = member_shape_key(value$r6_private, depth + 1L),
         r6_super = member_shape_key(value$r6_super, depth + 1L),
         r6_self = member_shape_key(value$r6_self, depth + 1L),
-        r6_locked = value$r6_locked, r6_identity = value$r6_identity,
+        r6_locked = value$r6_locked, r6_bindings = value$r6_bindings,
+        r6_identity = value$r6_identity,
         elements = lapply(value$elements, member_shape_key, depth + 1L),
         element_shape = if (!is.null(value$element_shape)) member_shape_key(value$element_shape, depth + 1L) else NULL
     )
@@ -410,7 +417,7 @@ member_infer <- function(
                     if (identical(object$type, "environment") && identical(source$type, "list") &&
                             !isTRUE(source$open) && !is.null(source$fields) && length(source$fields) <= 256L) {
                         for (name in unique(names(source$fields))) {
-                            if (isTRUE(object$r6_locked) && !name %in% names(object$fields)) next
+                            if (!member_r6_writable(object, name)) next
                             value <- source$fields[[name]]
                             if (!is.null(value$function_expr) && target %in% names(value$closure)) {
                                 value$closure[target] <- NULL
@@ -454,7 +461,7 @@ member_infer <- function(
                 object <- member_lookup(env, name)
                 surface <- if (member_head(lhs, "@")) "slots" else "fields"
                 if (!is.null(object[[surface]]) && !is.null(field)) {
-                    if (isTRUE(object$r6_locked) && !field %in% names(object[[surface]])) {
+                    if (!member_r6_writable(object, field)) {
                         return(list(value = value, env = env, returns = member_value(type = ".never"), falls = TRUE))
                     }
                     if (!is.null(value$function_expr) && name %in% names(value$closure)) {

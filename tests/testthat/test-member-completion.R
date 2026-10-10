@@ -206,6 +206,72 @@ test_that("R6 initialization respects locking and ignores initializer return val
     }
 })
 
+test_that("R6 assignments preserve declared methods and active bindings", {
+    for (locked in c(TRUE, FALSE)) {
+        for (body in c("self$run <- function(replacement=2) list(fake=1)",
+                'self[["run"]] <- function(replacement=2) list(fake=1)',
+                "alias <- self; alias$run <- function(replacement=2) list(fake=1)",
+                "methods <- list(run=function(replacement=2) list(fake=1)); for (name in names(methods)) self[[name]] <- methods[[name]]")) {
+            code <- sprintf('Client <- R6::R6Class("Client", lock_objects=%s, public=list(run=function(original=1) list(real=1), initialize=function() {%s}))\n', locked, body)
+            expect_identical(member_items(paste0(code, "Client$new()$ru"))[[1L]]$detail, "run(original = 1)", info = body)
+            expect_identical(member_labels(paste0(code, "Client$new()$run()$")), "real", info = body)
+        }
+        for (body in c("self$x <- list(fake=1)", 'self[["x"]] <- list(fake=1)',
+                "alias <- self; alias$x <- list(fake=1)",
+                "values <- list(x=list(fake=1)); for (name in names(values)) self[[name]] <- values[[name]]")) {
+            code <- sprintf('Client <- R6::R6Class("Client", lock_objects=%s, public=list(initialize=function() {%s}), active=list(x=function(value) {if (missing(value)) NULL else invisible(NULL)}))\n', locked, body)
+            expect_length(member_labels(paste0(code, "Client$new()$x$")), 0L)
+        }
+        # Data bindings stay writable after being assigned a function.
+        for (body in c("self$run <- function(first=1) NULL; self$run <- function(second=2) NULL",
+                "methods <- list(run=function(first=1) NULL); for (name in names(methods)) self[[name]] <- methods[[name]]; self$run <- function(second=2) NULL")) {
+            code <- sprintf('Client <- R6::R6Class("Client", lock_objects=%s, public=list(run=NULL, initialize=function() {%s}))\nClient$new()$ru', locked, body)
+            expect_identical(member_items(code)[[1L]]$detail, "run(second = 2)", info = body)
+        }
+    }
+})
+
+test_that("R6 inherited and private bindings retain their assignment semantics", {
+    parent <- 'Parent <- R6::R6Class("Parent", public=list(run=function(original=1) list(real=1)), private=list(hidden=function() list(real=1)), active=list(x=function(value) NULL))\n'
+    child <- paste0('Child <- R6::R6Class("Child", inherit=Parent, lock_objects=FALSE, public=list(initialize=function(flag) {',
+        "if (flag) self$data <- 1 else self$data <- 2;",
+        "self$run <- function(replacement=2) list(fake=1); self$x <- list(fake=1)",
+        "}))\n")
+    code <- paste0(parent, child)
+    expect_identical(member_items(paste0(code, "Child$new(unknown)$ru"))[[1L]]$detail, "run(original = 1)")
+    expect_length(member_labels(paste0(code, "Child$new(unknown)$x$")), 0L)
+    # Check the private method within the flow that attempts to replace it.
+    for (body in c("private$hidden <- function() list(fake=1)",
+            "methods <- list(hidden=function() list(fake=1)); for (name in names(methods)) private[[name]] <- methods[[name]]")) {
+        code <- paste0(parent, 'Child <- R6::R6Class("Child", inherit=Parent, lock_objects=FALSE, public=list(read=function() {',
+            body, "; private$hidden()", "}))\n")
+        expect_identical(member_labels(paste0(code, "Child$new()$read()$")), "real")
+    }
+})
+
+test_that("Runtime R6 metadata preserves method and active binding kinds", {
+    marker <- withr::local_tempfile()
+    for (locked in c(TRUE, FALSE)) {
+        generator <- R6::R6Class("Client", lock_objects = locked, public = list(
+            run = function(original = 1) list(real = 1),
+            initialize = function() {
+                self$run <- function(replacement = 2) list(fake = 1)
+                self$x <- list(fake = 1)
+            }
+        ), active = list(x = function(value) {
+            writeLines("ran", marker)
+            if (missing(value)) NULL else invisible(NULL)
+        }))
+        index <- member_generic_index("")
+        index$roots$Client <- member_r6_runtime_shape(generator, index)
+        snapshot <- list(fixture = member_index_freeze(index))
+        code <- "library(fixture)\nClient$new()$"
+        expect_identical(member_items(paste0(code, "ru"), snapshot)[[1L]]$detail, "run(original = 1)")
+        expect_length(member_labels(paste0(code, "x$"), snapshot), 0L)
+    }
+    expect_false(file.exists(marker))
+})
+
 test_that("Installed Redux members resolve without a Redis connection", {
     skip_if_not_installed("redux")
     marker <- withr::local_tempfile()
