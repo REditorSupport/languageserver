@@ -302,15 +302,15 @@ test_that("Dollar completion waits for the current parse and replies once", {
     expect_identical(queue$size(), 0L)
 })
 
-test_that("Nonmember completion remains immediate while parsing an edit", {
+test_that("Namespace completion remains immediate while parsing an edit", {
     fixture <- langfeature_handler_fixture("value <- 1")
-    fixture$document$set_content(2L, "val")
+    fixture$document$set_content(2L, "base::mea")
     stub(text_document_completion, "completion_reply", function(id, ...) {
         Response$new(id = id, result = list(items = list()))
     })
     text_document_completion(fixture$self, 102L, list(
         textDocument = list(uri = fixture$uri),
-        position = list(line = 0L, character = 3L)
+        position = list(line = 0L, character = 9L)
     ))
     expect_length(fixture$self$deliveries, 1L)
     expect_identical(fixture$self$deliveries[[1L]]$id, 102L)
@@ -354,4 +354,38 @@ test_that("Member signature and hover wait for current syntax and cancel superse
     expect_identical(hover$contents, "```r\nrun(current, flag = TRUE)\n```")
     expect_identical(queues[["textDocument/hover"]]$size(), 0L)
     expect_identical(queues[["textDocument/signatureHelp"]]$size(), 0L)
+})
+
+test_that("Bare scope completion waits for current syntax and cancels superseded requests", {
+    fixture <- langfeature_handler_fixture(c(
+        'C <- R6::R6Class("Widget", public = list(probe = function() {',
+        "  # se", "}))"
+    ))
+    document <- fixture$document
+    self <- fixture$self
+    workspace <- fixture$workspace
+    self$request_handlers <- list(`textDocument/completion` = text_document_completion)
+    workspace$update_parse_data <- function(uri, data) document$update_parse_data(data)
+    workspace$parse_cache <- list(set = function(...) NULL)
+    workspace$loaded_packages <- character()
+    workspace$imported_objects <- collections::dict()
+    workspace$get_namespace <- function(...) NULL
+    document$requested_packages <- member_package_request(document$parse_data)
+    document$set_content(2L, c(document$content[[1L]], "  se", "}))"))
+    params <- list(textDocument = list(uri = fixture$uri),
+        position = list(line = 1L, character = 4L))
+    text_document_completion(self, 401L, params)
+    text_document_completion(self, 402L, params)
+    expect_length(self$deliveries, 1L)
+    expect_identical(self$deliveries[[1L]]$id, 401L)
+    expect_identical(self$deliveries[[1L]]$error$code, ErrorCodes$RequestCancelled)
+    queue <- self$pending_replies$get(fixture$uri)[["textDocument/completion"]]
+    expect_identical(queue$size(), 1L)
+    parse_callback(self, fixture$uri, 2L, parse_document(fixture$uri, document$content))
+    expect_length(self$deliveries, 2L)
+    expect_identical(self$deliveries[[2L]]$id, 402L)
+    labels <- vapply(self$deliveries[[2L]]$result$items, `[[`, character(1L), "label")
+    item <- self$deliveries[[2L]]$result$items[[match("self", labels)]]
+    expect_identical(item$documentation$value, "R6 instance of `Widget`")
+    expect_identical(queue$size(), 0L)
 })

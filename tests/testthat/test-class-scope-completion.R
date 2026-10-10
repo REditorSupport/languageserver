@@ -222,3 +222,47 @@ test_that("Completion replies include class references on empty and partial toke
         expect_true("self" %in% vapply(items, `[[`, character(1L), "label"))
     }
 })
+
+test_that("R6 context bindings hide enclosing functions without hiding method locals", {
+    for (indexed in c(TRUE, FALSE)) {
+        for (case in list(
+            list(outer = "self <- function() NULL", declaration = 'R6::R6Class("C", public = list(',
+                name = "self", description = "R6 instance of `C`"),
+            list(outer = "value <- function() NULL", declaration = 'R6::R6Class("C", portable = FALSE, public = list(value = 1,',
+                name = "value", description = "Public field of R6 class `C`"),
+            list(outer = "run <- 1", declaration = 'R6::R6Class("C", portable = FALSE, public = list(run = function() NULL,',
+                name = "run", description = "Public method of R6 class `C`"))) {
+            for (local in c("", paste0(case$name, " <- 1"), paste0(case$name, " <- function() NULL"))) {
+                fixture <- class_scope_fixture(c("make_class <- function() {", case$outer,
+                        case$declaration, "probe = function() {", local), c("}))", "}"), token = case$name)
+                if (!indexed) fixture$document$parse_data$completion_data <- NULL
+                items <- class_scope_items(fixture, token = case$name)
+                items <- Filter(function(item) identical(item$label, case$name), items)
+                expect_length(items, 1L)
+                item <- items[[1L]]
+                function_expected <- endsWith(local, "function() NULL") || (!nzchar(local) && case$name == "run")
+                expect_identical(item$kind, if (function_expected) CompletionItemKind$Function else CompletionItemKind$Field)
+                expect_identical(item$insertText, if (function_expected) paste0(case$name, "($0)") else NULL)
+                expect_identical(item$documentation$value, if (!nzchar(local)) case$description else NULL)
+            }
+        }
+    }
+})
+
+test_that("Ordinary completion reuses its lexical inference context", {
+    fixture <- class_scope_fixture(c(
+        'C <- R6::R6Class("C", public = list(probe = function() {'
+    ), "}))", token = "se")
+    fixture$workspace$loaded_packages <- character()
+    fixture$workspace$imported_objects <- collections::dict()
+    fixture$workspace$get_namespace <- function(...) NULL
+    calls <- 0L
+    resolve <- member_resolve_cursor
+    testthat::local_mocked_bindings(member_resolve_cursor = function(uri, workspace, document, point, cursor, ...) {
+        if (!is.null(cursor)) calls <<- calls + 1L
+        resolve(uri, workspace, document, point, cursor, ...)
+    }, .package = "languageserver")
+    items <- completion_reply(1L, fixture$uri, fixture$workspace, fixture$document, fixture$point, list())$result$items
+    expect_identical(calls, 1L)
+    expect_true("self" %in% vapply(items, `[[`, character(1L), "label"))
+})

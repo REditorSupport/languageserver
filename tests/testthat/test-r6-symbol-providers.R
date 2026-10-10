@@ -211,6 +211,9 @@ test_that("R6 references and new providers refresh on the first request after ed
         "  initialize = function(value, flag = TRUE) NULL,", "  probe = function() self))")
     notify(client, "textDocument/didChange", list(textDocument = list(uri = uri, version = 2L),
             contentChanges = list(list(text = paste(code, collapse = "\n")))))
+    items <- respond_completion(client, path, c(2L, 22L), retry = FALSE)$items
+    item <- items[[match("self", vapply(items, `[[`, character(1L), "label"))]]
+    expect_identical(item$documentation$value, "R6 instance of `Widget`")
     expect_identical(respond_hover(client, path, c(2L, 23L), retry = FALSE)$contents[[2L]], "R6 instance of `Widget`")
     code <- c(code, "C$new(flag = ")
     notify(client, "textDocument/didChange", list(textDocument = list(uri = uri, version = 3L),
@@ -365,4 +368,93 @@ test_that("R6 class descriptions are retained alongside package documentation", 
         data = list(type = "member", package = "fixture", function_id = "Widget$run"))
     expect_identical(completion_item_resolve_reply(1L, workspace, item, list())$result$documentation$value,
         result$description)
+})
+
+test_that("R6 default expressions preserve aliases and nested formal shadowing", {
+    fixture <- r6_symbol_fixture(c(
+        'C <- R6::R6Class("Widget", public = list(probe = function(arg = {',
+        "  alias <- self", "  alias", "}) NULL))"
+    ))
+    expect_identical(r6_symbol_hover(fixture, 2L, "alias")$contents[[2L]], "R6 instance of `Widget`")
+    fixture <- r6_symbol_fixture(c(
+        'C <- R6::R6Class("Widget", public = list(probe = function(arg = function(self, inner) {',
+        "  self", "}) NULL))"
+    ))
+    location <- member_symbol_location(fixture$document, list(row = 1L, col = 4L))
+    symbol <- member_symbol(fixture$uri, fixture$workspace, fixture$document, location)
+    expect_null(symbol$description)
+    items <- scope_completion(fixture$uri, fixture$workspace, "", list(row = 1L, col = 4L))
+    labels <- vapply(items, `[[`, character(1L), "label")
+    expect_true("inner" %in% labels)
+    expect_null(items[[match("self", labels)]]$documentation)
+})
+
+test_that("R6 member providers recover large methods and formal defaults", {
+    fixture <- r6_symbol_fixture(c(
+        'C <- R6::R6Class("Widget", public = list(',
+        rep("  earlier = function() NULL,", 150L),
+        "  run = function(value = 1) NULL, probe = function() {",
+        "    alias <- self", rep("    1", 150L), "    alias$run(value = 2)", "  }))"
+    ))
+    row <- 303L
+    expect_identical(r6_symbol_hover(fixture, row, "run")$contents,
+        c("```r\nrun(value = 1)\n```", "Public method of R6 class `Widget`"))
+    items <- member_completion(fixture$uri, fixture$workspace, fixture$document,
+        list(row = row, col = 12L), FALSE, 200L)
+    expect_identical(items[[1L]]$documentation$value, "Public method of R6 class `Widget`")
+    signature <- signature_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+        list(row = row, col = 22L))$result$signatures[[1L]]
+    expect_identical(signature$label, "run(value = 1)")
+    expect_identical(signature$documentation$value, "Public method of R6 class `Widget`")
+
+    fixture <- r6_symbol_fixture(c(
+        'C <- R6::R6Class("Widget", public = list(',
+        "  run = function(value = 1) NULL, probe = function(arg = {",
+        "    alias <- self", "    alias$run(value = 2)", "  }) NULL))"
+    ))
+    expect_identical(r6_symbol_hover(fixture, 3L, "run")$contents[[2L]], "Public method of R6 class `Widget`")
+    signature <- signature_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+        list(row = 3L, col = 22L))$result$signatures[[1L]]
+    expect_identical(signature$label, "run(value = 1)")
+})
+
+test_that("Recursive R6 class-name inference retains the traversal depth limit", {
+    fixture <- r6_symbol_fixture(c(
+        "factory <- function() R6::R6Class(classname = factory())", "factory()$new()"
+    ))
+    index <- member_context_index(fixture$workspace, fixture$uri, fixture$document, c(1L, 0L))
+    budget <- new.env(parent = emptyenv())
+    budget$remaining <- 300L
+    budget$exhausted <- FALSE
+    value <- member_infer(quote(factory()), index, budget = budget)
+    expect_true(budget$exhausted)
+    expect_gt(budget$remaining, 0L)
+    expect_null(value$r6_class$name)
+})
+
+test_that("Completion replies offer R6 constructor arguments and resolve them correctly", {
+    fixture <- r6_symbol_fixture(c(
+        'Inner <- R6::R6Class("Inner")', "value <- Inner$new()",
+        'C <- R6::R6Class("Widget", public = list(initialize = function(value, flag = TRUE) NULL))',
+        "C$new(va"
+    ))
+    fixture$workspace$loaded_packages <- character()
+    fixture$workspace$imported_objects <- collections::dict()
+    fixture$workspace$get_namespace <- function(...) NULL
+    for (col in c(6L, 8L)) {
+        items <- completion_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+            list(row = 3L, col = col), list())$result$items
+        items <- Filter(function(item) !is.null(item$data$parameter), items)
+        labels <- vapply(items, `[[`, character(1L), "label")
+        expect_true("value" %in% labels)
+        if (col == 6L) expect_true("flag" %in% labels)
+        item <- items[[match("value", labels)]]
+        expect_identical(item$insertText, "value = ")
+        expect_identical(item$documentation$value, "Create an R6 instance of `Widget`")
+        resolved <- completion_item_resolve_reply(1L, fixture$workspace, item,
+            list(completionItem = list(labelDetailsSupport = TRUE)))$result
+        expect_identical(resolved$detail, "new(value, flag = TRUE)")
+        expect_identical(resolved$documentation$value, "Create an R6 instance of `Widget`")
+        expect_null(resolved$labelDetails)
+    }
 })
