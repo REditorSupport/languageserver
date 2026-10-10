@@ -34,3 +34,23 @@ test_that("ByteLruCache exposes safe collection operations", {
     expect_length(cache$keys(), 0L)
     expect_equal(cache$bytes(), 0)
 })
+
+test_that("ByteLruCache prefers protected entries while retaining its bounds", {
+    cache <- ByteLruCache$new(max_bytes = 2 * as.numeric(object.size(raw(100))), max_entries = 2L)
+    cache$set("open", raw(100))
+    cache$set("background", raw(100), protect = "open")
+    cache$set("new", raw(100), protect = "open")
+    expect_setequal(cache$keys(), c("open", "new"))
+
+    # A background result too large to coexist with open metadata is dropped.
+    cache$set("large", raw(150), protect = "open")
+    expect_setequal(cache$keys(), "open")
+    expect_lte(cache$bytes(), 2 * as.numeric(object.size(raw(100))))
+
+    # Protected entries still compete in LRU order when they exceed the limit.
+    cache$set("second", raw(100), protect = c("open", "second"))
+    cache$set("third", raw(100), protect = c("open", "second", "third"))
+    expect_setequal(cache$keys(), c("second", "third"))
+    expect_lte(cache$size(), 2L)
+    expect_lte(cache$bytes(), 2 * as.numeric(object.size(raw(100))))
+})

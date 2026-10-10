@@ -150,3 +150,32 @@ test_that("Package requests distinguish attachment changes from namespace refere
     resolve_callback(self, uri, 0L, list(packages = "callr", members = list(), requested = requested))
     expect_length(document$loaded_packages, 0L)
 })
+
+test_that("Background metadata resolution preserves packages requested by open documents", {
+    open_uri <- "file:///open.R"
+    background_uri <- "file:///background.R"
+    documents <- collections::dict()
+    document <- Document$new(open_uri, version = 1L)
+    document$did_open()
+    document$requested_packages <- list(packages = "attached", namespace_packages = "qualified")
+    documents$set(open_uri, document)
+    documents$set(background_uri, Document$new(background_uri, version = 1L))
+    metadata <- ByteLruCache$new(1024^2, max_entries = 2L)
+    workspace <- list(documents = documents, member_metadata = metadata,
+        load_packages = function(...) NULL, update_loaded_packages = function(...) NULL)
+    self <- list(get_workspace = function(...) workspace)
+    snapshot <- member_index_freeze(member_generic_index(""))
+    resolve_callback(self, open_uri, 1L, list(packages = "attached",
+            members = list(attached = snapshot, qualified = snapshot)))
+    resolve_callback(self, background_uri, 1L, list(packages = "background",
+            members = list(background = snapshot)))
+    expect_setequal(metadata$keys(), c("attached", "qualified"))
+
+    # Closing a document removes its preference on the next insertion.
+    document$did_close()
+    resolve_callback(self, background_uri, 1L, list(packages = "background",
+            members = list(background = snapshot)))
+    expect_true(metadata$has("background"))
+    expect_equal(metadata$size(), 2L)
+    expect_lte(metadata$bytes(), 1024^2)
+})

@@ -1,5 +1,9 @@
 # languageserver 0.3.20
 
+- Preserve Polars member completion, signature help and hover when other
+  packages are cached. Prefer receiver roots over incidental exported names
+  and keep metadata requested by open documents ahead of background entries.
+
 - Keep parameter-name inlay hints for untouched calls during incomplete edits,
   moving their positions with incremental changes and refreshing after a valid
   parse, so a temporary syntax error does not clear hints across the document.

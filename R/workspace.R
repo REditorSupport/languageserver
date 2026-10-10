@@ -51,12 +51,13 @@ ByteLruCache <- R6::R6Class(
         current_bytes = 0,
         max_bytes = NULL,
         max_entries = NULL,
-        trim = function() {
+        trim = function(protect = character()) {
             while (private$entries$size() > private$max_entries ||
                     private$current_bytes > private$max_bytes) {
                 keys <- private$entries$keys()
                 if (!length(keys)) break
-                self$remove(keys[[1L]])
+                candidates <- setdiff(keys, protect)
+                self$remove(if (length(candidates)) candidates[[1L]] else keys[[1L]])
             }
         }
     ),
@@ -74,7 +75,7 @@ ByteLruCache <- R6::R6Class(
             private$entries$set(key, value)
             value
         },
-        set = function(key, value) {
+        set = function(key, value, protect = character()) {
             if (private$entries$has(key)) self$remove(key)
             size <- as.numeric(object.size(value))
             # An individual value larger than the whole budget would evict
@@ -83,7 +84,7 @@ ByteLruCache <- R6::R6Class(
             private$entries$set(key, value)
             private$sizes$set(key, size)
             private$current_bytes <- private$current_bytes + size
-            private$trim()
+            private$trim(protect)
             invisible(value)
         },
         remove = function(key) {
