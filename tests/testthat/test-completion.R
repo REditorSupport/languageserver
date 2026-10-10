@@ -1588,6 +1588,150 @@ test_that("Function completions preserve existing call parentheses", {
     expect_equal(bare_mean[[1L]]$insertTextFormat, InsertTextFormat$Snippet)
 })
 
+test_that("Quoted namespace completion replaces the complete source name", {
+    namespace <- completion_test_namespace("example", functions = "run task")
+    cases <- list(
+        list(text = "example::`run", col = 13L, end = 13L, call = FALSE),
+        list(text = "example::`run`", col = 13L, end = 14L, call = FALSE),
+        list(text = "example::`run`", col = 14L, end = 14L, call = FALSE),
+        list(text = "example::`run old`(1)", col = 13L, end = 18L, call = TRUE),
+        list(text = "example::`", col = 10L, end = 10L, call = FALSE),
+        list(text = "example:::`run", col = 14L, end = 14L, call = FALSE)
+    )
+    for (case in cases) {
+        fixture <- provider_fixture(case$text)
+        fixture$workspace$get_namespace <- function(name) {
+            if (identical(name, "example")) namespace else NULL
+        }
+        start <- if (startsWith(case$text, "example:::")) 10L else 9L
+        for (snippets in c(FALSE, TRUE)) {
+            items <- completion_reply(1L, fixture$uri, fixture$workspace,
+                fixture$document, list(row = 0L, col = case$col),
+                list(completionItem = list(snippetSupport = snippets)))$result$items
+            expect_length(items, 1L)
+            item <- items[[1L]]
+            expect_identical(item$label, "run task")
+            expect_identical(item$filterText, "`run task`")
+            expect_identical(item$textEdit$range, range(
+                position(0L, start), position(0L, case$end)))
+            snippet <- snippets && !case$call
+            expect_identical(item$textEdit$newText,
+                if (snippet) "`run task`($0)" else "`run task`")
+            inserted <- sub("($0)", "()", item$textEdit$newText, fixed = TRUE)
+            code <- paste0(substr(case$text, 1L, start), inserted,
+                substring(case$text, case$end + 1L))
+            expr <- parse(text = code)[[1L]]
+            if (snippet || case$call) expr <- expr[[1L]]
+            expect_identical(as.character(expr[[3L]]), "run task")
+        }
+    }
+})
+
+test_that("Namespace indexes retain names that need quoting", {
+    namespace <- PackageNamespace$new("base")
+    expect_true("[<-" %in% namespace$get_symbols(want_functs = TRUE))
+    expect_true(namespace$exists_funct("[<-"))
+    items <- ns_function_completion(namespace, "[<-", TRUE, FALSE)
+    item <- Filter(function(item) identical(item$label, "[<-"), items)[[1L]]
+    expect_identical(item$insertText, "`[<-`")
+})
+
+test_that("Quoted workspace and imported names complete with decoded prefixes", {
+    names <- c("run task", "a`b", "`lead", "a\\b", "a\nb", paste0(intToUtf8(0xe9), " task"))
+    for (name in names) {
+        quoted <- encodeString(name, quote = "`")
+        prefix <- substr(quoted, 1L, nchar(quoted) - 1L)
+        fixture <- provider_fixture(prefix)
+        namespace <- completion_test_namespace("example", values = name)
+        fixture$workspace$loaded_packages <- "example"
+        fixture$workspace$imported_objects <- collections::dict()
+        fixture$workspace$get_namespace <- function(package) {
+            if (identical(package, "example")) namespace else NULL
+        }
+        items <- completion_reply(1L, fixture$uri, fixture$workspace,
+            fixture$document, list(row = 0L, col = nchar(prefix)), list())$result$items
+        items <- Filter(function(item) identical(item$label, name), items)
+        expect_length(items, 1L)
+        expect_identical(items[[1L]]$label, name)
+        expect_identical(items[[1L]]$filterText, quoted)
+        expect_identical(items[[1L]]$textEdit$newText, quoted)
+        expect_identical(as.character(parse(text = items[[1L]]$textEdit$newText)[[1L]]), name)
+    }
+
+    fixture <- provider_fixture("`run")
+    namespace <- completion_test_namespace("example", functions = "run task")
+    fixture$workspace$loaded_packages <- character()
+    fixture$workspace$imported_objects <- collections::dict()
+    fixture$workspace$imported_objects$set("run task", "example")
+    fixture$workspace$get_namespace <- function(package) {
+        if (identical(package, "example")) namespace else NULL
+    }
+    items <- completion_reply(1L, fixture$uri, fixture$workspace,
+        fixture$document, list(row = 0L, col = 4L), list())$result$items
+    expect_length(items, 1L)
+    expect_identical(items[[1L]]$textEdit$newText, "`run task`")
+})
+
+test_that("Quoted completion edit ranges use UTF-16 positions", {
+    text <- paste0('"', intToUtf8(0x1f680), '"; example::`run old`(1)')
+    fixture <- provider_fixture(text)
+    namespace <- completion_test_namespace("example", functions = "run task")
+    fixture$workspace$get_namespace <- function(name) namespace
+    items <- completion_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+        list(row = 0L, col = 18L), list())$result$items
+    expect_length(items, 1L)
+    expect_identical(items[[1L]]$textEdit$range,
+        range(position(0L, 15L), position(0L, 24L)))
+    expect_identical(items[[1L]]$textEdit$newText, "`run task`")
+})
+
+test_that("Quoted local names and argument prefixes retain their context", {
+    fixture <- provider_fixture(c("local({", "target <- function(`a b`) NULL",
+            "`run task` <- function() NULL", "target(`a`)", "`run`", "})"))
+    fixture$workspace$loaded_packages <- character()
+    fixture$workspace$imported_objects <- collections::dict()
+    fixture$workspace$get_namespace <- function(...) NULL
+    fixture$workspace$guess_namespace <- function(...) NULL
+    capabilities <- list(completionItem = list(snippetSupport = TRUE))
+
+    items <- completion_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+        list(row = 3L, col = 9L), capabilities)$result$items
+    item <- Filter(function(item) identical(item$detail, "parameter"), items)[[1L]]
+    expect_identical(item$textEdit$newText, "`a b` = ")
+    expect_identical(item$textEdit$range, range(position(3L, 7L), position(3L, 10L)))
+
+    items <- completion_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+        list(row = 4L, col = 4L), capabilities)$result$items
+    item <- Filter(function(item) identical(item$detail, "[scope]"), items)[[1L]]
+    expect_identical(item$textEdit$newText, "`run task`($0)")
+    expect_identical(item$filterText, "`run task`")
+})
+
+test_that("Quoted namespace completion works through the language client", {
+    skip_on_cran()
+    working_dir <- withr::local_tempdir()
+    client <- language_client(working_dir = working_dir)
+    path <- withr::local_tempfile(fileext = ".R")
+    writeLines("base::`row", path)
+    client %>% did_open(path)
+
+    result <- client %>% respond_completion(path, c(0L, 10L))
+    item <- keep(result$items, ~ .$label == "row.names")
+    expect_length(item, 1L)
+    expect_equal(item[[1L]]$textEdit$range,
+        range(position(0L, 6L), position(0L, 10L)), ignore_attr = TRUE)
+
+    call_path <- withr::local_tempfile(fileext = ".R")
+    writeLines("base::`[<`(x, 1, value = 2)", call_path)
+    client %>% did_open(call_path)
+    result <- client %>% respond_completion(call_path, c(0L, 9L))
+    item <- keep(result$items, ~ .$label == "[<-")
+    expect_length(item, 1L)
+    expect_equal(item[[1L]]$textEdit$range,
+        range(position(0L, 6L), position(0L, 10L)), ignore_attr = TRUE)
+    expect_identical(item[[1L]]$textEdit$newText, "`[<-`")
+})
+
 test_that("Namespace completions distinguish workspace and package functions", {
     package <- completion_test_namespace(
         "example", functions = c("alpha", "beta")

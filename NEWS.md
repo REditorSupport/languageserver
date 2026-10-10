@@ -1,7 +1,7 @@
 # languageserver 0.3.20
 
 - Enclose non-syntactic completion names in backticks and preserve escaped names
-  in function snippets (#781).
+  in function snippets, including completion inside partially typed quoted names (#781).
 - Complete chained `$` members using static receiver analysis, including source
   list/environment factories, declarative R6 classes and package method
   registries. Package metadata is prepared in a background worker; completion

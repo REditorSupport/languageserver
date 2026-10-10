@@ -268,8 +268,11 @@ match_with <- function(x, token) {
     if (is_ascii_string(token) && is_ascii_vector(x)) {
         return(.Call("match_with_c", PACKAGE = "languageserver", x, token))
     }
-    pattern <- gsub(".", "\\.", token, fixed = TRUE)
-    grepl(pattern, x, ignore.case = TRUE)
+    if (is.na(token)) return(rep(NA, length(x)))
+    if (!nzchar(token)) return(!is.na(x))
+    matches <- stringi::stri_detect_fixed(x, token, case_insensitive = TRUE)
+    matches[is.na(matches)] <- FALSE
+    matches
 }
 
 fuzzy_find <- function(x, pattern) {

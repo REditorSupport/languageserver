@@ -905,6 +905,33 @@ token_completion <- function(uri, workspace, token, exclude = NULL, limit = Inf)
     completions
 }
 
+completion_token <- function(document, point) {
+    result <- document$detect_token(point, forward = FALSE)
+    line <- document$line0(point$row)
+    quoted <- .Call("scan_backtick_completion_c", line, as.integer(point$col),
+        PACKAGE = "languageserver")
+    if (is.null(quoted)) return(result)
+
+    before <- substr(line, 1L, quoted$start)
+    # Member providers handle their own quoted names and replacement ranges.
+    if (grepl("[$@][ \\t]*$", before)) return(result)
+    namespace <- document$detect_token(
+        list(row = point$row, col = quoted$start), forward = FALSE)
+    result$package <- namespace$package
+    result$accessor <- namespace$accessor
+    result$full_token <- paste0("`", quoted$token)
+    result$token <- tryCatch(
+        as.character(parse(text = paste0("`", quoted$token, "`"))[[1L]]),
+        error = function(e) quoted$token
+    )
+    result$range <- list(
+        start = list(row = point$row, col = quoted$start),
+        end = list(row = point$row, col = quoted$end)
+    )
+    result$quoted <- TRUE
+    result
+}
+
 completion_has_call_parens <- function(document, token_result) {
     line_text <- document$line0(token_result$range$end$row)
     rest_of_line <- substr(
@@ -941,7 +968,7 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
             isIncomplete = isTRUE(attr(members, "truncated")), items = unname(members))))
     }
 
-    token_result <- document$detect_token(point, forward = FALSE)
+    token_result <- completion_token(document, point)
 
     full_token <- token_result$full_token
     token <- token_result$token
@@ -1012,6 +1039,23 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
         completions <- completions[selected]
     } else {
         isIncomplete <- FALSE
+    }
+
+    if (isTRUE(token_result$quoted)) {
+        edit_range <- range(
+            document$to_lsp_position(point$row, token_result$range$start$col),
+            document$to_lsp_position(point$row, token_result$range$end$col)
+        )
+        completions <- lapply(completions, function(item) {
+            inserted <- if (is.null(item$insertText)) item$label else item$insertText
+            item$textEdit <- text_edit(edit_range, inserted)
+            item$filterText <- if (is.null(item$data$package) && startsWith(item$label, "`")) {
+                item$label
+            } else {
+                encodeString(item$label, quote = "`")
+            }
+            item
+        })
     }
 
     t1 <- Sys.time()
