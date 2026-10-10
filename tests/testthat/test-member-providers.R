@@ -471,9 +471,14 @@ test_that("Polars query providers prefer receiver metadata over competing cached
         "q1 # not working", "",
         "q2 <- q1$group_by(\"Species\")$agg(pl$all()$sum())", "q2 # not working"
     )
-    metadata <- ByteLruCache$new(32 * 1024^2)
+    metadata <- MemberMetadataCache$new(32 * 1024^2)
     metadata$set("unrelated", as.list(member_index_thaw(member_index_freeze(unrelated))))
     metadata$set("polars", as.list(member_index_thaw(snapshot)))
+    # Prepare in a clean worker, as production does, so S4 fixtures declared by
+    # other tests do not inflate the methods namespace snapshot.
+    methods_snapshot <- callr::r(function() languageserver:::member_prepare_package("methods"))
+    metadata$set("methods", as.list(member_index_thaw(methods_snapshot)))
+    expect_true(metadata$has("polars"))
     for (row in c(6L, 9L, 12L, 15L)) {
         edited <- lines
         name <- sub(" .*", "", edited[[row + 1L]])
@@ -505,6 +510,58 @@ test_that("Polars query providers prefer receiver metadata over competing cached
         hover <- member_provider_hover(fixture, row, nchar(name) + 3L)
         expect_identical(hover$contents[[1L]], sprintf("```r\n%s\n```", signature))
         expect_true(all(queried == if (row < 12L) "lazyframe__group_by" else "dataframe__group_by"))
+    }
+})
+
+test_that("Polars providers survive large metadata for several open documents over LSP", {
+    skip_on_cran()
+    skip_if_not_installed("polars")
+    root <- withr::local_tempdir()
+    client <- language_client(working_dir = root)
+    path <- file.path(root, "polars.R")
+    lines <- c(
+        "library(polars)",
+        "q <- pl$scan_csv(csv_file, infer_schema_files = 10)",
+        "q1 <- q$filter(pl$col(\"Sepal.Length\") > 5)", "q1",
+        "q1 <- q$filter(pl$col(\"Sepal.Length\") > 5)$group_by(\"Species\")$agg(pl$all()$median())$collect()",
+        "q1", "q2 <- q1$group_by(\"Species\")$agg(pl$all()$sum())", "q2",
+        "Leaf <- methods::setClass(\"Leaf\", slots = c(value = \"numeric\"))",
+        "Dataset <- R6::R6Class(\"Dataset\", public = list(value = 1))"
+    )
+    did_open(client, path, text = lines)
+    other <- file.path(root, "other.R")
+    did_open(client, other, text = "methods::setClass(\"Other\", slots = c(value = \"numeric\"))")
+    # The S4 completion confirms that the larger methods snapshot has arrived.
+    # Polars must remain available even if its decoded index was evicted.
+    ready <- respond_completion(client, other, c(0L, 14L),
+        retry_when = function(result) !"setClass" %in% vapply(result$items, `[[`, character(1L), "label"))
+    expect_true("setClass" %in% vapply(ready$items, `[[`, character(1L), "label"))
+    deadline <- Sys.time() + if (identical(Sys.getenv("R_COVR"), "true")) 60 else 20
+    repeat {
+        ready <- respond_completion(client, path, c(1L, 8L), retry = FALSE)
+        if (any(vapply(ready$items, function(item) identical(item$data$type, "member"), logical(1L)))) break
+        if (Sys.time() > deadline) break
+        Sys.sleep(0.2)
+    }
+    expect_true(any(vapply(ready$items, function(item) identical(item$data$type, "member"), logical(1L))))
+    for (row in c(3L, 5L, 7L)) {
+        edited <- lines
+        name <- edited[[row + 1L]]
+        edited[[row + 1L]] <- paste0(name, "$group_by(\"Species\", .maintain_order = ")
+        notify(client, "textDocument/didChange", list(
+            textDocument = list(uri = path_to_uri(path), version = row),
+            contentChanges = list(list(text = paste(edited, collapse = "\n")))
+        ))
+        completion <- respond_completion(client, path, c(row, nchar(name) + 1L), retry = FALSE)
+        expect_true(all(vapply(completion$items, function(item) identical(item$data$type, "member"), logical(1L))))
+        labels <- vapply(completion$items, `[[`, character(1L), "label")
+        expect_true(all(c("filter", "group_by") %in% labels))
+        expect_identical("collect" %in% labels, row == 3L)
+        expect_identical("lazy" %in% labels, row != 3L)
+        signature <- respond_signature(client, path, c(row, nchar(edited[[row + 1L]])), retry = FALSE)
+        expect_identical(signature$signatures[[1L]]$label, "group_by(..., .maintain_order = FALSE)")
+        hover <- respond_hover(client, path, c(row, nchar(name) + 3L), retry = FALSE)
+        expect_identical(hover$contents[[1L]], "```r\ngroup_by(..., .maintain_order = FALSE)\n```")
     }
 })
 

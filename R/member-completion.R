@@ -279,10 +279,12 @@ member_context_index <- function(workspace, uri, document, at, parsed = NULL) {
         }
     }
     index <- member_generic_index("")
+    package_indices <- list()
     if (!is.null(metadata)) {
         fallback <- NULL
         for (package in metadata$keys()) {
             candidate <- metadata$get(package)
+            package_indices[package] <- list(candidate)
             # A receiver root identifies its package more precisely than an
             # exported name used as a member or argument (for example filter).
             # Cache order must not let those incidental names hide the root.
@@ -304,7 +306,8 @@ member_context_index <- function(workspace, uri, document, at, parsed = NULL) {
     index$s4_dependencies <- list()
     if (!is.null(metadata)) {
         for (package in metadata$keys()) {
-            package_index <- metadata$get(package)
+            package_index <- package_indices[[package]]
+            if (is.null(package_index)) package_index <- metadata$get(package)
             index$namespace_indices[package] <- list(package_index)
             for (dependency in names(package_index$s7_dependencies)) {
                 if (!is.null(index$namespace_indices[[dependency]])) next

@@ -678,11 +678,13 @@ member_infer <- function(
             if (size <= 1024^2) {
                 if (is.null(index$cache$.bytes)) index$cache$.bytes <- 0
                 if (length(index$cache) >= 512L || index$cache$.bytes + size > 4 * 1024^2) {
-                    rm(list = ls(index$cache, all.names = TRUE), envir = index$cache)
+                    rm(list = setdiff(ls(index$cache, all.names = TRUE), ".reserve"), envir = index$cache)
                     index$cache$.bytes <- 0
                 }
-                assign(cache_key, result, index$cache)
-                index$cache$.bytes <- index$cache$.bytes + size
+                if (!is.function(index$cache$.reserve) || index$cache$.reserve(size)) {
+                    assign(cache_key, result, index$cache)
+                    index$cache$.bytes <- index$cache$.bytes + size
+                }
             }
         }
         result

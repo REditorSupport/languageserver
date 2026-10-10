@@ -836,7 +836,7 @@ resolve_callback <- function(self, uri, version, packages) {
             snapshot <- packages$members[[package]]
             index <- member_index_thaw(snapshot)
             if (!is.null(index)) {
-                if (inherits(workspace$member_metadata, "ByteLruCache")) {
+                if (inherits(workspace$member_metadata, c("ByteLruCache", "MemberMetadataCache"))) {
                     workspace$member_metadata$set(package, as.list(index), protect = protect)
                 } else {
                     workspace$member_metadata$set(package, as.list(index))
