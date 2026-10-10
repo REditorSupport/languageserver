@@ -219,6 +219,16 @@ test_that("R6 references and new providers refresh on the first request after ed
     expect_identical(result$signatures[[1L]]$label, "new(value, flag = TRUE)")
     expect_identical(result$activeParameter, 1L)
     expect_identical(respond_hover(client, path, c(3L, 3L), retry = FALSE)$contents[[2L]], "Create an R6 instance of `Widget`")
+    code <- c(code[1:3], "object <- C$new(1)", "object$probe(")
+    notify(client, "textDocument/didChange", list(textDocument = list(uri = uri, version = 4L),
+            contentChanges = list(list(text = paste(code, collapse = "\n")))))
+    result <- respond_signature(client, path, c(4L, 13L), retry = FALSE)
+    expect_identical(result$signatures[[1L]]$documentation$value, "Public method of R6 class `Widget`")
+    result <- respond_hover(client, path, c(4L, 8L), retry = FALSE)
+    expect_identical(result$contents[[2L]], "Public method of R6 class `Widget`")
+    items <- respond_completion(client, path, c(4L, 8L), retry = FALSE)$items
+    item <- items[[match("probe", vapply(items, `[[`, character(1L), "label"))]]
+    expect_identical(item$documentation$value, "Public method of R6 class `Widget`")
 })
 
 test_that("Stale comment ranges do not hide edited R6 references", {
@@ -226,4 +236,133 @@ test_that("Stale comment ranges do not hide edited R6 references", {
             "  # self", "}))"))
     fixture$document$set_content(2L, c(fixture$document$content[[1L]], "  self", "}))"))
     expect_false(is.null(member_symbol_location(fixture$document, list(row = 1L, col = 3L))))
+})
+
+test_that("R6 members share declaring-class information across providers", {
+    parent <- 'Base <- R6::R6Class("Parent", public = list(run = function(value = 1) self, field = 42), private = list(hidden = function(key = 2) self))'
+    fixture <- r6_symbol_fixture(c(
+        parent,
+        'C <- R6::R6Class("Widget", inherit = Base, public = list(',
+        "  own = function(flag = TRUE) self, probe = function() {",
+        "    self$run(value = 2)", "    self$own(flag = FALSE)", "    private$secret(key = 1)",
+        "    super$hidden(key = 2)", "    self$field", "    self$active",
+        "  }), private = list(secret = function(key = 0) NULL), active = list(active = function() stop()))"
+    ))
+    for (case in list(
+        list(row = 3L, label = "run", signature = "run(value = 1)", description = "Public method of R6 class `Parent`"),
+        list(row = 4L, label = "own", signature = "own(flag = TRUE)", description = "Public method of R6 class `Widget`"),
+        list(row = 5L, label = "secret", signature = "secret(key = 0)", description = "Private method of R6 class `Widget`"),
+        list(row = 6L, label = "hidden", signature = "hidden(key = 2)", description = "Private method of R6 class `Parent`"))) {
+        line <- fixture$document$line0(case$row)
+        col <- regexpr(case$label, line, fixed = TRUE)[[1L]] + 1L
+        items <- member_completion(fixture$uri, fixture$workspace, fixture$document,
+            list(row = case$row, col = col), FALSE, 200L)
+        item <- items[[match(case$label, vapply(items, `[[`, character(1L), "label"))]]
+        expect_identical(item$documentation$value, case$description)
+        resolved <- completion_item_resolve_reply(1L, fixture$workspace, item, list())$result
+        expect_identical(resolved$documentation$value, case$description)
+        expect_identical(r6_symbol_hover(fixture, case$row, case$label)$contents,
+            c(sprintf("```r\n%s\n```", case$signature), case$description))
+        signature <- signature_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+            list(row = case$row, col = nchar(line) - 1L))$result$signatures[[1L]]
+        expect_identical(signature$label, case$signature)
+        expect_identical(signature$documentation$value, case$description)
+    }
+    expect_identical(r6_symbol_hover(fixture, 7L, "field")$contents,
+        c("```r\n42\n```", "Public field of R6 class `Parent`"))
+    expect_identical(r6_symbol_hover(fixture, 8L, "active")$contents, "Active binding of R6 class `Widget`")
+})
+
+test_that("R6 method aliases and non-portable methods retain class information", {
+    for (body in c("    call <- self$run; call(flag = TRUE)", "    run(flag = TRUE)")) {
+        fixture <- r6_symbol_fixture(c(
+            'C <- R6::R6Class("Widget", portable = FALSE, public = list(',
+            "  run = function(flag = FALSE) self, probe = function() {", body, "  }))"
+        ))
+        label <- if (startsWith(body, "    call")) "call" else "run"
+        signature <- signature_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+            list(row = 2L, col = nchar(body) - 1L))$result$signatures[[1L]]
+        expect_identical(signature$label, paste0(label, "(flag = FALSE)"))
+        expect_identical(signature$documentation$value, "Public method of R6 class `Widget`")
+        col <- regexpr(paste0(label, "("), body, fixed = TRUE)[[1L]] + 1L
+        hover <- hover_reply(1L, fixture$uri, fixture$workspace, fixture$document, list(row = 2L, col = col))$result
+        expect_identical(hover$contents[[2L]], "Public method of R6 class `Widget`")
+    }
+})
+
+test_that("Scope completion enriches class-valued variables and preserves source documentation", {
+    fixture <- r6_symbol_fixture(c(
+        "f <- function() {", 'C <- R6::R6Class("Widget")',
+        "# An instance used by this method.", "object <- C$new()", "alias <- object", "object", "}"
+    ))
+    for (indexed in c(TRUE, FALSE)) {
+        if (!indexed) fixture$document$parse_data$completion_data <- NULL
+        items <- scope_completion(fixture$uri, fixture$workspace, "", list(row = 5L, col = 2L))
+        labels <- vapply(items, `[[`, character(1L), "label")
+        for (label in c("object", "alias", "C")) {
+            item <- items[[match(label, labels)]]
+            expected <- if (label == "C") "R6 class generator of `Widget`" else "R6 instance of `Widget`"
+            expect_identical(item$documentation$value, expected)
+            resolved <- completion_item_resolve_reply(1L, fixture$workspace, item, list())$result
+            expect_match(resolved$documentation$value, expected, fixed = TRUE)
+            if (label == "object") expect_match(resolved$documentation$value, "An instance used by this method.", fixed = TRUE)
+        }
+    }
+    fixture <- r6_symbol_fixture(c(
+        'C <- R6::R6Class("Widget")',
+        "object <- C$new()", "f <- function(object) {", "  object", "}"))
+    item <- scope_completion(fixture$uri, fixture$workspace, "object", list(row = 3L, col = 4L))[[1L]]
+    expect_null(item$documentation)
+})
+
+test_that("R6 constructor argument completion and hover include the class", {
+    fixture <- r6_symbol_fixture(c(
+        'C <- R6::R6Class("Widget", public = list(initialize = function(value, flag = TRUE) NULL))',
+        "C$new(flag = TRUE)"
+    ))
+    items <- member_constructor_arguments(fixture$uri, fixture$workspace, fixture$document,
+        list(row = 1L, col = 13L), "")
+    expect_true(all(vapply(items, function(item) {
+        identical(item$documentation$value, "Create an R6 instance of `Widget`")
+    }, logical(1L))))
+    expect_identical(r6_symbol_hover(fixture, 1L, "flag")$contents,
+        c("```r\nnew(value, flag = TRUE)\n```", "Create an R6 instance of `Widget`"))
+})
+
+test_that("Ordinary token completion includes the inferred R6 class", {
+    fixture <- r6_symbol_fixture(c('C <- R6::R6Class("Widget")', "object <- C$new()", "obj"))
+    fixture$workspace$loaded_packages <- character()
+    fixture$workspace$imported_objects <- collections::dict()
+    fixture$workspace$get_namespace <- function(...) NULL
+    items <- completion_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+        list(row = 2L, col = 3L), list())$result$items
+    item <- items[[match("object", vapply(items, `[[`, character(1L), "label"))]]
+    expect_identical(item$documentation$value, "R6 instance of `Widget`")
+})
+
+test_that("R6 field descriptions distinguish the owner from the contained class", {
+    fixture <- r6_symbol_fixture(c(
+        'Inner <- R6::R6Class("Inner")',
+        'Outer <- R6::R6Class("Outer", public = list(value = Inner$new()))',
+        "object <- Outer$new()", "object$value"
+    ))
+    expect_identical(r6_symbol_hover(fixture, 3L, "value")$contents,
+        c("```r\nenvironment\n```", "Public field of R6 class `Outer`\n\nR6 instance of `Inner`"))
+})
+
+test_that("R6 class descriptions are retained alongside package documentation", {
+    generator <- R6::R6Class("Widget", public = list(run = function(value = 1) NULL))
+    index <- member_package_index(list(package = "fixture"))
+    value <- member_r6_runtime_shape(generator, index)$fields$new$result_shape$fields$run
+    value$function_key <- "Widget$run"
+    symbol <- member_symbol_info("run", value, NULL, index)
+    doc <- list(description = "Run the operation.", markdown = "Run **the operation**.", arguments = list(value = "Input value."))
+    workspace <- list(get_documentation = function(...) doc)
+    result <- member_symbol_documentation(workspace, symbol, "file:///fixture.R")
+    expect_identical(result$description, "Public method of R6 class `Widget` (package `fixture`)\n\nRun the operation.")
+    expect_identical(result$markdown, "Public method of R6 class `Widget` (package `fixture`)\n\nRun **the operation**.")
+    item <- list(label = "run", documentation = list(kind = "markdown", value = symbol$description),
+        data = list(type = "member", package = "fixture", function_id = "Widget$run"))
+    expect_identical(completion_item_resolve_reply(1L, workspace, item, list())$result$documentation$value,
+        result$description)
 })
