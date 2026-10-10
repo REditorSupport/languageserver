@@ -59,10 +59,11 @@ inlay_hint_apply_change <- function(indexed, change, content) {
         calls$end_line == start$line & calls$end_col <= start$character
     after <- calls$line > end$line |
         calls$line == end$line & calls$col >= end$character
-    # Text inserted at the callee boundary can change its name or turn it
-    # into a member call. Retain that call only for whitespace insertions.
-    at_start <- calls$line == start$line & calls$col == start$character
-    if (identical(start, end) && grepl("[^[:space:]]", change$text)) {
+    # Inserts, replacements and deletions ending at a callee can change its
+    # name or turn it into a member call. Only retain whitespace replacements
+    # here; an empty replacement can join the callee to preceding text.
+    at_start <- calls$line == end$line & calls$col == end$character
+    if (!nzchar(change$text) || grepl("[^[:space:]]", change$text)) {
         after[at_start] <- FALSE
     }
     # An edit outside a call can still put it in a comment, string or
