@@ -280,13 +280,20 @@ member_context_index <- function(workspace, uri, document, at, parsed = NULL) {
     }
     index <- member_generic_index("")
     if (!is.null(metadata)) {
+        fallback <- NULL
         for (package in metadata$keys()) {
             candidate <- metadata$get(package)
-            if (length(intersect(referenced, c(names(candidate$roots), candidate$exports))) || package %in% referenced) {
+            # A receiver root identifies its package more precisely than an
+            # exported name used as a member or argument (for example filter).
+            # Cache order must not let those incidental names hide the root.
+            if (length(intersect(referenced, names(candidate$roots))) || package %in% referenced) {
                 index <- list2env(as.list(candidate), parent = emptyenv())
+                fallback <- NULL
                 break
             }
+            if (is.null(fallback) && length(intersect(referenced, candidate$exports))) fallback <- candidate
         }
+        if (!is.null(fallback)) index <- list2env(as.list(fallback), parent = emptyenv())
     }
     index$document_bindings <- document$parse_data$member_data$bindings
     index$methods_attached <- TRUE

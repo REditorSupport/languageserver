@@ -455,6 +455,59 @@ test_that("Installed package members retain method signatures and documentation 
     expect_identical(tail(queried, 1L), "PlRLazyFrame_collect")
 })
 
+test_that("Polars query providers prefer receiver metadata over competing cached exports", {
+    skip_if_not_installed("polars")
+    snapshot <- member_prepare_package("polars")
+    unrelated <- member_generic_index("")
+    unrelated$package <- "unrelated"
+    unrelated$exports <- c("scan_csv", "csv_file", "filter", "col", "group_by", "agg", "all", "median", "collect", "sum")
+    lines <- c(
+        "library(polars)", "",
+        "csv_file <- tempfile(fileext = \".csv\")",
+        "write.csv(iris, csv_file, row.names = FALSE)", "",
+        "q <- pl$scan_csv(csv_file, infer_schema_files = 10)", "q # not working", "",
+        "q1 <- q$filter(pl$col(\"Sepal.Length\") > 5)", "q1 # not working", "",
+        "q1 <- q$filter(pl$col(\"Sepal.Length\") > 5)$group_by(\"Species\")$agg(pl$all()$median())$collect()",
+        "q1 # not working", "",
+        "q2 <- q1$group_by(\"Species\")$agg(pl$all()$sum())", "q2 # not working"
+    )
+    metadata <- ByteLruCache$new(32 * 1024^2)
+    metadata$set("unrelated", as.list(member_index_thaw(member_index_freeze(unrelated))))
+    metadata$set("polars", as.list(member_index_thaw(snapshot)))
+    for (row in c(6L, 9L, 12L, 15L)) {
+        edited <- lines
+        name <- sub(" .*", "", edited[[row + 1L]])
+        edited[[row + 1L]] <- paste0(name, "$group_by(\"Species\", .maintain_order = ")
+        fixture <- member_provider_fixture(edited)
+        fixture$workspace$member_metadata <- metadata
+        queried <- character()
+        fixture$workspace$get_documentation <- function(key, package, isf, uri) {
+            expect_identical(package, "polars")
+            queried <<- c(queried, key)
+            list(description = paste("Documentation for", key))
+        }
+        point <- list(row = row, col = nchar(name) + 1L)
+        resolved <- member_resolve_cursor(fixture$uri, fixture$workspace, fixture$document, point,
+            member_cursor(fixture$document, point))
+        expect_identical(resolved$value$type, if (row < 12L) "polars_lazy_frame" else "polars_data_frame")
+        expect_false(resolved$budget$exhausted)
+        items <- member_completion(fixture$uri, fixture$workspace, fixture$document, point, TRUE, 200L)
+        labels <- vapply(items, `[[`, character(1L), "label")
+        expect_true(all(c("filter", "group_by") %in% labels))
+        expect_identical("collect" %in% labels, row < 12L)
+        expect_identical("lazy" %in% labels, row >= 12L)
+        item <- items[[match("group_by", labels)]]
+        signature <- "group_by(..., .maintain_order = FALSE)"
+        expect_identical(item$data$type, "member")
+        expect_identical(item$data$package, "polars")
+        expect_identical(item$detail, signature)
+        expect_identical(member_provider_signature(fixture, row)$signatures[[1L]]$label, signature)
+        hover <- member_provider_hover(fixture, row, nchar(name) + 3L)
+        expect_identical(hover$contents[[1L]], sprintf("```r\n%s\n```", signature))
+        expect_true(all(queried == if (row < 12L) "lazyframe__group_by" else "dataframe__group_by"))
+    }
+})
+
 test_that("Member signature and hover work over LSP immediately after an edit", {
     skip_on_cran()
     skip_if_not_installed("polars")

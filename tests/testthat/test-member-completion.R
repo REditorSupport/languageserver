@@ -397,6 +397,34 @@ test_that("Runtime metadata skips deferred values and active getters", {
     expect_identical(member_binding(env, "deferred")[[1L]], "deferred")
 })
 
+test_that("Receiver roots take precedence over unrelated exports regardless of cache order", {
+    unrelated <- member_generic_index("")
+    unrelated$package <- "unrelated"
+    unrelated$exports <- c("scan", "keep", "finish", "path")
+    receiver <- member_generic_index("scan <- function(path) NULL\nkeep <- function(value) self\nfinish <- function() NULL")
+    receiver$package <- "receiverfixture"
+    receiver$exports <- "api"
+    receiver$roots <- receiver$package_roots <- list(api = member_value(type = "api"))
+    receiver$constructor_types <- list(scan = "query")
+    receiver$members <- list(api = c(scan = "scan"), query = c(keep = "keep", finish = "finish"))
+    snapshots <- lapply(list(unrelated = unrelated, receiverfixture = receiver), member_index_freeze)
+    fixture <- member_fixture("library(receiverfixture)\nq <- api$scan(path)\nq1 <- q$keep(value)\nq1$")
+    for (order in list(names(snapshots), rev(names(snapshots)))) {
+        metadata <- collections::ordered_dict()
+        for (package in order) metadata$set(package, as.list(member_index_thaw(snapshots[[package]])))
+        fixture$workspace$member_metadata <- metadata
+        resolved <- member_resolve_cursor(
+            fixture$document$uri, fixture$workspace, fixture$document, fixture$point,
+            member_cursor(fixture$document, fixture$point)
+        )
+        expect_identical(resolved$index$package, "receiverfixture")
+        expect_identical(resolved$value$type, "query")
+        items <- member_completion(fixture$document$uri, fixture$workspace, fixture$document,
+            fixture$point, TRUE, 200L)
+        expect_setequal(vapply(items, `[[`, character(1L), "label"), c("keep", "finish"))
+    }
+})
+
 test_that("Installed Polars metadata resolves all original query positions without execution", {
     skip_if_not_installed("polars")
     snapshot <- member_prepare_package("polars")
