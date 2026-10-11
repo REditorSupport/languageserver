@@ -645,7 +645,17 @@ member_prepare_returns <- function(index, max_nodes = 40000L, max_bytes = 1024^2
         used <- before - budget$remaining
         state$remaining <- state$remaining - used
         if (!budget$exhausted &&
-                length(result$type) == 1L && result$type %in% backed) {
+                !isTRUE(result$open) && length(result$type) == 1L && result$type %in% backed) {
+            # A wrapper may add instance fields beyond its declarative class.
+            # Keep full inference when the index cannot recover their shapes.
+            if (any(vapply(names(result$fields), function(name) {
+                value <- result$fields[[name]]
+                declared <- member_access(member_value(type = result$type), name, index, list())
+                !name %in% c(names(index$members[[result$type]]),
+                    names(index$properties[[result$type]]), names(index$raw_fields[[result$type]])) ||
+                    !identical(value$type, declared$type) ||
+                    !identical(value$function_key, declared$function_key)
+            }, logical(1L)))) return(FALSE)
             id <- if (is.null(type)) key else paste(type, key, sep = "|")
             # Native-backed declarative classes expose their members in the
             # index. Argument-dependent fields must not enter a universal summary.
