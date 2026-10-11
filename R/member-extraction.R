@@ -623,6 +623,23 @@ member_prepare_returns <- function(index, max_nodes = 40000L, max_bytes = 1024^2
     state <- new.env(hash = FALSE, parent = emptyenv())
     state$remaining <- max_nodes
     state$bytes <- 0
+    recoverable <- function(value, declared, depth = 0L) {
+        if (depth > 16L || isTRUE(value$open) ||
+                (length(value$type) && !identical(value$type, declared$type)) ||
+                (!is.null(value$function_key) && !identical(value$function_key, declared$function_key)) ||
+                !is.null(value$function_expr) || !is.null(value$closure) ||
+                !is.null(value$elements) ||
+                (!is.null(value$element_shape) && (is.null(declared$element_shape) ||
+                    !recoverable(value$element_shape, declared$element_shape, depth + 1L))) ||
+                (isTRUE(value$known_literal) && !identical(value$literal, declared$literal))) return(FALSE)
+        declared_names <- c(names(member_lookup(index$members, value$type)),
+            names(member_lookup(index$properties, value$type)),
+            names(member_lookup(index$raw_fields, value$type)), names(declared$fields))
+        all(vapply(names(value$fields), function(name) {
+            name %in% declared_names && recoverable(value$fields[[name]],
+                member_access(declared, name, index, list()), depth + 1L)
+        }, logical(1L)))
+    }
     prepare <- function(item, limit) {
         key <- item$key
         type <- item$type
@@ -648,14 +665,7 @@ member_prepare_returns <- function(index, max_nodes = 40000L, max_bytes = 1024^2
                 !isTRUE(result$open) && length(result$type) == 1L && result$type %in% backed) {
             # A wrapper may add instance fields beyond its declarative class.
             # Keep full inference when the index cannot recover their shapes.
-            if (any(vapply(names(result$fields), function(name) {
-                value <- result$fields[[name]]
-                declared <- member_access(member_value(type = result$type), name, index, list())
-                !name %in% c(names(index$members[[result$type]]),
-                    names(index$properties[[result$type]]), names(index$raw_fields[[result$type]])) ||
-                    !identical(value$type, declared$type) ||
-                    !identical(value$function_key, declared$function_key)
-            }, logical(1L)))) return(FALSE)
+            if (!recoverable(result, member_value(type = result$type))) return(FALSE)
             id <- if (is.null(type)) key else paste(type, key, sep = "|")
             # Native-backed declarative classes expose their members in the
             # index. Argument-dependent fields must not enter a universal summary.

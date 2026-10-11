@@ -140,7 +140,8 @@ member_join <- function(a, b) {
     }
     value <- member_value(
         type = sort(unique(c(a$type, b$type))), fields = fields,
-        open = isTRUE(a$open) || isTRUE(b$open) || !identical(names(a$fields), names(b$fields)),
+        open = isTRUE(a$open) || isTRUE(b$open) || !identical(names(a$fields), names(b$fields)) ||
+            !is.null(a$elements) || !is.null(b$elements),
         slots = slots, slot_types = slot_types,
         s4_class = if (identical(a$s4_class, b$s4_class)) a$s4_class else NULL,
         element_shape = if (!is.null(a$element_shape) && !is.null(b$element_shape)) member_join(a$element_shape, b$element_shape) else NULL,

@@ -801,11 +801,12 @@ test_that("Prepared returns preserve argument-dependent results and metadata cha
         "dots_null <- function(...) if(is.null(...)) list(other=1) else adapt(native_box(NULL))",
         "with_payload <- function(input) {box <- adapt(native_box(NULL)); box$payload <- input; box}",
         "conditional_payload <- function(flag) {box <- adapt(native_box(NULL)); if(flag) box$payload <- list(extra=1); box}",
+        "nested_payload <- function(input) {box <- adapt(native_box(NULL)); raw <- native_box(NULL); raw$payload <- input; box$raw <- raw; box}",
         "api$fixed <- fixed", "api$varying <- varying", "api$short <- short",
         "api$short_varying <- short_varying", "api$forward <- forward",
         "api$missing_arg <- missing_arg", "api$empty_dots <- empty_dots", "api$count_dots <- count_dots",
         "api$forward_count <- forward_count", "api$dots_null <- dots_null", "api$with_payload <- with_payload",
-        "api$conditional_payload <- conditional_payload"
+        "api$conditional_payload <- conditional_payload", "api$nested_payload <- nested_payload"
     ), collapse = "\n")
     scope <- new.env(parent = baseenv())
     eval(parse(text = code), scope)
@@ -821,6 +822,7 @@ test_that("Prepared returns preserve argument-dependent results and metadata cha
     expect_null(index$method_results$dots_null)
     expect_null(index$method_results$with_payload)
     expect_null(index$method_results$conditional_payload)
+    expect_null(index$method_results$nested_payload)
     expect_identical(member_infer(quote(api$fixed()), index, index$roots)$type, "public_box")
     expect_identical(member_infer(quote(api$fixed(stop("unused input"))), index, index$roots)$type, "public_box")
     expect_identical(member_infer(quote(api$fixed(fir = 1)), index, index$roots)$type, "public_box")
@@ -855,6 +857,8 @@ test_that("Prepared returns preserve argument-dependent results and metadata cha
     payload <- member_infer(quote(api$conditional_payload(TRUE)$payload), index, index$roots)
     expect_named(payload$fields, "extra")
     expect_true(member_infer(quote(api$conditional_payload(flag)), index, index$roots)$open)
+    payload <- member_infer(quote(api$nested_payload(list(extra = 1))$raw$payload), index, index$roots)
+    expect_named(payload$fields, "extra")
     expect_false(member_cacheable(member_value(type = "list", open = TRUE)))
     bounded <- member_index_thaw(snapshot)
     member_prepare_returns(bounded, max_nodes = 0L)
