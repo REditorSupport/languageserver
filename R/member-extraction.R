@@ -623,14 +623,14 @@ member_prepare_returns <- function(index, max_nodes = 40000L, max_bytes = 1024^2
     state <- new.env(hash = FALSE, parent = emptyenv())
     state$remaining <- max_nodes
     state$bytes <- 0
-    recoverable <- function(value, declared, depth = 0L) {
+    recoverable <- function(value, declared, depth = 0L, element = FALSE) {
         if (depth > 16L || isTRUE(value$open) ||
-                (length(value$type) && !identical(value$type, declared$type)) ||
-                (!is.null(value$function_key) && !identical(value$function_key, declared$function_key)) ||
+                ((!element || length(value$type)) && !identical(value$type, declared$type)) ||
+                !identical(value$function_key, declared$function_key) ||
                 !is.null(value$function_expr) || !is.null(value$closure) ||
                 !is.null(value$elements) ||
                 (!is.null(value$element_shape) && (is.null(declared$element_shape) ||
-                    !recoverable(value$element_shape, declared$element_shape, depth + 1L))) ||
+                            !recoverable(value$element_shape, declared$element_shape, depth + 1L, element = TRUE))) ||
                 (isTRUE(value$known_literal) && !identical(value$literal, declared$literal))) return(FALSE)
         declared_names <- c(names(member_lookup(index$members, value$type)),
             names(member_lookup(index$properties, value$type)),
