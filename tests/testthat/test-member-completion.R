@@ -31,6 +31,9 @@ test_that("Member inference allows test overhead without changing the production
     environment(infer) <- list2env(list(proc.time = clock), parent = environment(infer))
     assign("member_infer", infer, environment(infer))
     testthat::local_mocked_bindings(member_infer = infer, .package = "languageserver")
+    budget <- member_request_budget
+    environment(budget) <- list2env(list(proc.time = clock), parent = environment(budget))
+    testthat::local_mocked_bindings(member_request_budget = budget, .package = "languageserver")
     resolve <- function() {
         calls <<- 0L
         member_resolve_cursor(fixture$document$uri, fixture$workspace, fixture$document,

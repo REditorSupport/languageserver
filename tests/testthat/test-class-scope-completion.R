@@ -250,6 +250,47 @@ test_that("R6 context bindings hide enclosing functions without hiding method lo
     }
 })
 
+test_that("Scope limits count visible candidates after lexical shadow filtering", {
+    for (indexed in c(TRUE, FALSE)) {
+        for (local in c("pick_a <- 1", "pick_a <- unknown()", "pick_a <- function() NULL")) {
+            outer <- if (endsWith(local, "function() NULL")) "pick_a <- 1" else "pick_a <- function() NULL"
+            fixture <- class_scope_fixture(c("make_class <- function() {", outer,
+                    "pick_b <- 2", "pick_c <- 3",
+                    'R6::R6Class("C", public = list(probe = function() {', local),
+                c("}))", "}"), token = "pick_")
+            if (!indexed) fixture$document$parse_data$completion_data <- NULL
+            for (limit in c(0L, 1L, 2L, 3L, 4L, Inf)) {
+                items <- class_scope_items(fixture, token = "pick_", limit = limit)
+                expect_setequal(vapply(items, `[[`, character(1L), "label"),
+                    c("pick_a", "pick_b", "pick_c")[seq_len(min(limit, 3L))])
+                expect_identical(isTRUE(attr(items, "truncated")), limit < 3L)
+                if (limit == 0L) next
+                expected <- if (endsWith(local, "function() NULL")) CompletionItemKind$Function else CompletionItemKind$Field
+                item <- Filter(function(item) identical(item$label, "pick_a"), items)[[1L]]
+                expect_identical(item$kind, expected)
+            }
+        }
+    }
+})
+
+test_that("Scope refills retain prefix ranking across multiple shadowed names", {
+    for (indexed in c(TRUE, FALSE)) {
+        fixture <- class_scope_fixture(c("make_class <- function() {",
+                "pick_a <- function() NULL", "pick_b <- function() NULL", "pick_c <- function() NULL",
+                "other_pick <- 1", "pick_d <- 2",
+                'R6::R6Class("C", public = list(probe = function() {',
+                "pick_a <- 1", "pick_b <- 2", "pick_c <- 3"), c("}))", "}"), token = "pick")
+        if (!indexed) fixture$document$parse_data$completion_data <- NULL
+        for (limit in 1:6) {
+            items <- class_scope_items(fixture, token = "pick", limit = limit)
+            expect_setequal(vapply(items, `[[`, character(1L), "label"),
+                c("pick_a", "pick_b", "pick_c", "pick_d", "other_pick")[seq_len(min(limit, 5L))])
+            expect_identical(isTRUE(attr(items, "truncated")), limit < 5L)
+            expect_true(all(vapply(items, function(item) identical(item$kind, CompletionItemKind$Field), logical(1L))))
+        }
+    }
+})
+
 test_that("Ordinary completion reuses its lexical inference context", {
     fixture <- class_scope_fixture(c(
         'C <- R6::R6Class("C", public = list(probe = function() {'
@@ -366,6 +407,26 @@ test_that("Package class hints retain class information for ordinary scope varia
     items <- class_scope_items(fixture, token = "obj")
     object <- items[[match("object", vapply(items, `[[`, character(1L), "label"))]]
     expect_match(object$documentation$value, "R6 instance of `Widget`", fixed = TRUE)
+})
+
+test_that("Scope outlines avoid nested constructors but preserve class aliases", {
+    fixture <- class_scope_fixture(c(
+        'Widget <- R6::R6Class("Widget", public = list(run = function(value = 1) NULL))',
+        'C <- R6::R6Class("C", public = list(probe = function() {',
+        "outline_list <- list(nested = Widget$new())",
+        "outline_instance <- Widget$new()", "outline_alias <- outline_instance"
+    ), "}))", token = "outline_")
+    infer <- member_infer
+    testthat::local_mocked_bindings(member_infer = function(expr, ...) {
+        if (identical(expr, quote(list(nested = Widget$new())))) stop("List elements inferred")
+        infer(expr, ...)
+    }, .package = "languageserver")
+    items <- class_scope_items(fixture, token = "outline_")
+    labels <- vapply(items, `[[`, character(1L), "label")
+    expect_setequal(labels, c("outline_list", "outline_alias", "outline_instance"))
+    expect_null(items[[match("outline_list", labels)]]$documentation)
+    expect_match(items[[match("outline_alias", labels)]]$documentation$value, "R6 instance of `Widget`", fixed = TRUE)
+    expect_match(items[[match("outline_instance", labels)]]$documentation$value, "R6 instance of `Widget`", fixed = TRUE)
 })
 
 test_that("Scope inference hints use compact catalogs without decoding package indexes", {

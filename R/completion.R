@@ -719,9 +719,10 @@ scope_completion_functs_xpath <- paste(
 #' @noRd
 context_scope_completion <- function(uri, workspace, token, point,
     snippet_support, limit, exclude) {
+    if (!isTRUE(lsp_settings$get("member_completion"))) return(list())
     document <- if (!is.null(workspace$documents)) workspace$documents$get(uri, NULL)
     if (is.null(document) || !check_scope(uri, document, point)) return(list())
-    if (!member_scope_required(workspace, document)) return(list())
+    if (!member_scope_required(workspace, document, point)) return(list())
     if (!is.null(member_cursor(document, point))) return(list())
     semantic <- document$parse_data$semantic_data
     col <- document$to_lsp_position(point$row, point$col)$character
@@ -766,7 +767,7 @@ context_scope_completion <- function(uri, workspace, token, point,
     for (label in candidates[selected]) {
         if (isTRUE(resolved$budget$exhausted)) break
         value <- if (label %in% names(fields)) {
-            fields[[label]]
+            member_completion_value(fields[[label]], resolved$index, resolved$budget)
         } else {
             member_infer(as.name(label), resolved$index, resolved$bindings, budget = resolved$budget)
         }
@@ -779,7 +780,7 @@ context_scope_completion <- function(uri, workspace, token, point,
     labels <- setdiff(labels[match_with(labels, token)], setdiff(exclude, context_names))
     selected <- completion_select_indices(labels, labels, token, limit)
     items <- lapply(labels[selected], function(label) {
-        value <- fields[[label]]
+        value <- member_completion_value(fields[[label]], resolved$index, resolved$budget)
         is_function <- !is.null(value$function_expr) || !is.null(value$function_key) ||
             "function" %in% value$type
         inserted <- quote_completion_name(label)
@@ -901,6 +902,9 @@ scope_completion <- function(uri, workspace, token, point,
         vapply(normalize_names(names), function(name) {
             if (name %in% context$value$context_bindings) return(FALSE)
             value <- context$value$fields[[name]]
+            if (!is.null(value$binding_cache)) {
+                value <- member_completion_value(value, context$index, context$budget)
+            }
             if (is.null(value)) return(TRUE)
             if (!length(value$type) && is.null(value$function_expr) && is.null(value$function_key)) {
                 # A method-local binding hides an outer function even when
@@ -913,26 +917,55 @@ scope_completion <- function(uri, workspace, token, point,
             identical(is_function, functions)
         }, logical(1L))
     }
-    keep <- keep_source(scope_symbol_names, FALSE)
-    scope_symbol_names <- scope_symbol_names[keep]
-    scope_symbol_lines <- scope_symbol_lines[keep]
-    keep <- keep_source(scope_funct_names, TRUE)
-    scope_funct_names <- scope_funct_names[keep]
-    scope_funct_lines <- scope_funct_lines[keep]
-    candidate_names <- c(scope_symbol_names, scope_funct_names)
-    truncated <- length(candidate_names) > limit
-    if (truncated) {
-        keep <- completion_select_indices(
-            candidate_names, candidate_names, token, limit)
-        symbol_keep <- keep[keep <= length(scope_symbol_names)]
-        function_keep <- keep[keep > length(scope_symbol_names)] -
-            length(scope_symbol_names)
-        scope_symbol_names <- scope_symbol_names[symbol_keep]
-        scope_symbol_lines <- scope_symbol_lines[symbol_keep]
-        scope_funct_names <- scope_funct_names[function_keep]
-        scope_funct_lines <- scope_funct_lines[function_keep]
+    # Classify ranked batches until the limit is filled, with one extra
+    # visible candidate to detect truncation. Hidden candidates do not consume
+    # slots, and rejected batches never repeat lexical binding inference.
+    symbol_count <- length(scope_symbol_names)
+    pending <- seq_along(candidate_names)
+    keep <- integer()
+    if (is.null(context$value)) {
+        truncated <- length(pending) > limit
+        keep <- completion_select_indices(candidate_names, candidate_names, token, limit)
+    } else {
+        target <- limit + 1L
+        ranked <- FALSE
+        first <- 1L
+        while (first <= length(pending) && length(keep) < target) {
+            batch <- if (ranked) {
+                last <- min(length(pending), first + target - length(keep) - 1L)
+                selected <- pending[seq.int(first, last)]
+                first <- last + 1L
+                selected
+            } else {
+                names <- candidate_names[pending]
+                pending[completion_select_indices(names, names, token, target - length(keep))]
+            }
+            functions <- batch > symbol_count
+            visible <- logical(length(batch))
+            visible[!functions] <- keep_source(candidate_names[batch[!functions]], FALSE)
+            visible[functions] <- keep_source(candidate_names[batch[functions]], TRUE)
+            keep <- c(keep, batch[visible])
+            if (!ranked && length(keep) < target) {
+                # Rank the remainder once if refilling is necessary, so a
+                # long run of hidden candidates cannot trigger repeated sorts.
+                pending <- pending[!pending %in% batch]
+                names <- candidate_names[pending]
+                pending <- pending[order(!startsWith(names, token), names, method = "radix")]
+                ranked <- TRUE
+            }
+        }
+        truncated <- length(keep) > limit
+        if (truncated) {
+            names <- candidate_names[keep]
+            keep <- keep[completion_select_indices(names, names, token, limit)]
+        }
     }
-
+    symbol_keep <- keep[keep <= symbol_count]
+    function_keep <- keep[keep > symbol_count] - symbol_count
+    scope_symbol_names <- scope_symbol_names[symbol_keep]
+    scope_symbol_lines <- scope_symbol_lines[symbol_keep]
+    scope_funct_names <- scope_funct_names[function_keep]
+    scope_funct_lines <- scope_funct_lines[function_keep]
     scope_symbol_completions <- .mapply(function(symbol, line) {
         list(
             label = symbol,
@@ -1163,7 +1196,7 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
         call_result <- document$detect_call(point)
         if (!is.null(call_result$opening)) {
             constructor_args <- if (isTRUE(lsp_settings$get("member_completion"))) {
-                member_constructor_arguments(uri, workspace, document, point, token)
+                member_constructor_arguments(uri, workspace, document, point, token, call_result)
             }
             completions <- c(
                 completions,
