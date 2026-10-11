@@ -89,3 +89,17 @@ test_that("obsolete workers are retired after the bounded cancellation grace", {
     expect_length(private$sessions, 0L)
     expect_equal(private$superseded_tasks$size(), 0L)
 })
+
+test_that("Member requests promote the existing debounced parse without replacement", {
+    manager <- TaskManager$new("promotion", max_running_tasks = 1L)
+    withr::defer(manager$stop())
+    task <- create_task(function() TRUE, list(), delay = 60)
+    manager$add_task("doc", task)
+    manager$promote("doc")
+    manager$promote("doc")
+    manager$promote("missing")
+    private <- manager$.__enclos_env__$private
+    expect_identical(private$pending_tasks$get("doc"), task)
+    expect_equal(task$delay, 0)
+    expect_equal(private$pending_tasks$size(), 1L)
+})

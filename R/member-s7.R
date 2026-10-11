@@ -487,8 +487,7 @@ member_s7_runtime_descriptor <- function(value, depth = 0L, modes = list(), budg
     NULL
 }
 
-member_slot <- function(value, name, index, bindings, budget = NULL) {
-    if (!isTRUE(value$s7)) return(member_s4_slot(value, name, index, bindings, budget))
+member_s7_slot <- function(value, name, index, bindings, budget = NULL) {
     property <- member_lookup(value$slots, name)
     if (is.null(property)) return(member_value(reason = "unknown_s7_property"))
     spec <- property$s7_descriptor

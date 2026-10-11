@@ -160,8 +160,9 @@ member_constructor_symbol <- function(uri, workspace, document, location) {
     symbol
 }
 
-member_constructor_arguments <- function(uri, workspace, document, point, token) {
-    location <- member_call_location(document, point, symbols = TRUE)
+member_constructor_arguments <- function(uri, workspace, document, point, token, call = document$detect_call(point)) {
+    location <- member_call_location(document, point, call,
+        symbols = member_symbol_required(workspace, document))
     symbol <- member_constructor_symbol(uri, workspace, document, location)
     if (is.null(symbol)) return(NULL)
     args <- names(symbol$value$function_expr[[2L]])

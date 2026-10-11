@@ -331,6 +331,13 @@ TaskManager <- R6::R6Class("TaskManager",
             self$cancel(id)
             private$pending_tasks$set(id, task)
         },
+        promote = function(id) {
+            if (private$pending_tasks$has(id)) {
+                task <- private$pending_tasks$get(id)
+                task$delay <- 0
+            }
+            invisible(NULL)
+        },
         cancel = function(id) {
             if (private$pending_tasks$has(id)) {
                 private$pending_tasks$remove(id)

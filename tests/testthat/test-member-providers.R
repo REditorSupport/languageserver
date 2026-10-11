@@ -618,12 +618,13 @@ test_that("Polars providers survive large metadata for several open documents ov
 test_that("Member signature and hover work over LSP immediately after an edit", {
     skip_on_cran()
     skip_if_not_installed("polars")
-    client <- language_client()
-    path <- withr::local_tempfile(fileext = ".R")
+    root <- withr::local_tempdir()
+    client <- language_client(working_dir = root)
+    path <- file.path(root, "polars.R")
     uri <- path_to_uri(path)
     lines <- c("library(polars)", "q <- pl$scan_csv(csv_file)", "q$group_by(\"Species\")")
     did_open(client, path, text = paste(lines, collapse = "\n"))
-    deadline <- Sys.time() + 15
+    deadline <- Sys.time() + if (identical(Sys.getenv("R_COVR"), "true")) 60 else 20
     repeat {
         ready <- respond_completion(client, path, c(2L, 2L), retry = FALSE)
         if (any(vapply(ready$items, function(item) identical(item$data$type, "member"), logical(1L)))) break

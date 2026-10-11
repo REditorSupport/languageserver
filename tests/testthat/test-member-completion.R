@@ -31,6 +31,9 @@ test_that("Member inference allows test overhead without changing the production
     environment(infer) <- list2env(list(proc.time = clock), parent = environment(infer))
     assign("member_infer", infer, environment(infer))
     testthat::local_mocked_bindings(member_infer = infer, .package = "languageserver")
+    budget <- member_request_budget
+    environment(budget) <- list2env(list(proc.time = clock), parent = environment(budget))
+    testthat::local_mocked_bindings(member_request_budget = budget, .package = "languageserver")
     resolve <- function() {
         calls <<- 0L
         member_resolve_cursor(fixture$document$uri, fixture$workspace, fixture$document,
@@ -788,13 +791,41 @@ test_that("Prepared returns preserve argument-dependent results and metadata cha
         "adapt.raw_box <- function(x) {box <- new.env(); box$raw <- x; class(box) <- \"public_box\"; box}",
         sprintf("fixed <- function(first={writeLines(\"ran\",%s)}, second=1, third=1, fourth=1, fifth=1, sixth=1, seventh=1, eighth=1, ninth=1, tenth=1) adapt(native_box(.Call(\"never\")))", deparse(marker)),
         "varying <- function(first, second=1, third=1, fourth=1, fifth=1, sixth=1, seventh=1, eighth=1, ninth=1, tenth=1) if(first) adapt(native_box(NULL)) else list(other=1)",
-        "api$fixed <- fixed", "api$varying <- varying"
+        "short <- function(first, flag=TRUE) {if(flag) native_box(NULL); adapt(native_box(.Call(\"never\")))}",
+        "short_varying <- function(flag) if(flag) adapt(native_box(NULL)) else list(other=1)",
+        "forward <- function(...) short(...)",
+        "missing_arg <- function(first) if(missing(first)) list(absent=TRUE) else adapt(native_box(NULL))",
+        "empty_dots <- function(...) if(missing(...)) list(absent=TRUE) else adapt(native_box(NULL))",
+        "count_dots <- function(...) {args <- list(...); if(length(args) == 1L) adapt(native_box(NULL)) else list(other=1)}",
+        "forward_count <- function(...) count_dots(...)",
+        "dots_null <- function(...) if(is.null(...)) list(other=1) else adapt(native_box(NULL))",
+        "with_payload <- function(input) {box <- adapt(native_box(NULL)); box$payload <- input; box}",
+        "conditional_payload <- function(flag) {box <- adapt(native_box(NULL)); if(flag) box$payload <- list(extra=1); box}",
+        "nested_payload <- function(input) {box <- adapt(native_box(NULL)); raw <- native_box(NULL); raw$payload <- input; box$raw <- raw; box}",
+        "replace_raw <- function(input) {box <- adapt(native_box(NULL)); box$raw <- input; box}",
+        "api$fixed <- fixed", "api$varying <- varying", "api$short <- short",
+        "api$short_varying <- short_varying", "api$forward <- forward",
+        "api$missing_arg <- missing_arg", "api$empty_dots <- empty_dots", "api$count_dots <- count_dots",
+        "api$forward_count <- forward_count", "api$dots_null <- dots_null", "api$with_payload <- with_payload",
+        "api$conditional_payload <- conditional_payload", "api$nested_payload <- nested_payload",
+        "api$replace_raw <- replace_raw"
     ), collapse = "\n")
     scope <- new.env(parent = baseenv())
     eval(parse(text = code), scope)
     index <- member_package_index(member_namespace_input(scope,
             package = "returnfixture", exports = "api"))
     snapshot <- member_index_freeze(index)
+    expect_identical(index$method_results$short$type, "public_box")
+    expect_null(index$method_results$short_varying)
+    expect_null(index$method_results$missing_arg)
+    expect_null(index$method_results$empty_dots)
+    expect_null(index$method_results$count_dots)
+    expect_null(index$method_results$forward_count)
+    expect_null(index$method_results$dots_null)
+    expect_null(index$method_results$with_payload)
+    expect_null(index$method_results$conditional_payload)
+    expect_null(index$method_results$nested_payload)
+    expect_null(index$method_results$replace_raw)
     expect_identical(member_infer(quote(api$fixed()), index, index$roots)$type, "public_box")
     expect_identical(member_infer(quote(api$fixed(stop("unused input"))), index, index$roots)$type, "public_box")
     expect_identical(member_infer(quote(api$fixed(fir = 1)), index, index$roots)$type, "public_box")
@@ -803,11 +834,51 @@ test_that("Prepared returns preserve argument-dependent results and metadata cha
     expect_identical(member_infer(quote(api$varying(FALSE)), index, index$roots)$type, "list")
     expect_identical(member_infer(quote(api$varying(TRUE)), index, index$roots)$type, "public_box")
     expect_identical(sort(member_infer(quote(api$varying(flag)), index, index$roots)$type), c("list", "public_box"))
+    expect_identical(member_infer(quote(api$short(first = stop("unused"))), index, index$roots)$type, "public_box")
+    expect_identical(member_infer(quote(api$short(fi = 1)), index, index$roots)$type, "public_box")
+    expect_identical(member_infer(quote(api$short(f = 1)), index, index$roots)$reason, "argument_matching")
+    expect_identical(member_infer(quote(api$short(first = 1, first = 2)), index, index$roots)$reason, "argument_matching")
+    expect_identical(member_infer(quote(api$short(unknown = 1)), index, index$roots)$reason, "argument_matching")
+    expect_identical(member_infer(quote(api$forward(first = 1)), index, index$roots)$type, "public_box")
+    expect_identical(member_infer(quote(api$forward(unknown = 1)), index, index$roots)$reason, "argument_matching")
+    expect_identical(member_infer(quote(api$short_varying(FALSE)), index, index$roots)$type, "list")
+    expect_identical(member_infer(quote(api$short_varying(TRUE)), index, index$roots)$type, "public_box")
+    expect_identical(member_infer(quote(api$missing_arg()), index, index$roots)$type, "list")
+    expect_identical(member_infer(quote(api$missing_arg(1)), index, index$roots)$type, "public_box")
+    expect_identical(member_infer(quote(api$empty_dots()), index, index$roots)$type, "list")
+    expect_identical(member_infer(quote(api$empty_dots(1)), index, index$roots)$type, "public_box")
+    expect_identical(member_infer(quote(api$count_dots()), index, index$roots)$type, "list")
+    expect_identical(member_infer(quote(api$count_dots(1)), index, index$roots)$type, "public_box")
+    expect_identical(member_infer(quote(api$count_dots(1, 2)), index, index$roots)$type, "list")
+    expect_identical(member_infer(quote(api$forward_count()), index, index$roots)$type, "list")
+    expect_identical(member_infer(quote(api$forward_count(1)), index, index$roots)$type, "public_box")
+    expect_identical(member_infer(quote(api$dots_null(NULL)), index, index$roots)$type, "list")
+    expect_identical(member_infer(quote(api$dots_null(1)), index, index$roots)$type, "public_box")
+    payload <- member_infer(quote(api$with_payload(list(extra = 1))$payload), index, index$roots)
+    expect_identical(payload$type, "list")
+    expect_named(payload$fields, "extra")
+    expect_identical(member_infer(quote(api$replace_raw(list(extra = 1))$raw), index, index$roots)$type, "list")
+    payload <- member_infer(quote(api$conditional_payload(TRUE)$payload), index, index$roots)
+    expect_named(payload$fields, "extra")
+    expect_true(member_infer(quote(api$conditional_payload(flag)), index, index$roots)$open)
+    payload <- member_infer(quote(api$nested_payload(list(extra = 1))$raw$payload), index, index$roots)
+    expect_named(payload$fields, "extra")
+    expect_false(member_cacheable(member_value(type = "list", open = TRUE)))
+    bounded <- member_index_thaw(snapshot)
+    member_prepare_returns(bounded, max_nodes = 0L)
+    expect_length(bounded$method_results, 0L)
+    member_prepare_returns(bounded, max_nodes = 1L)
+    expect_length(bounded$method_results, 0L)
+    member_prepare_returns(bounded, max_bytes = 1)
+    expect_length(bounded$method_results, 0L)
     # A snapshot edited before loading cannot retain a prepared result derived
     # from an old method or one of its helpers.
     snapshot$definitions$fixed[[3L]] <- quote(list(updated = TRUE))
     changed <- member_index_thaw(snapshot)
     expect_identical(member_infer(quote(api$fixed()), changed, changed$roots)$type, "list")
+    snapshot$definitions$short[[3L]] <- quote(list(updated = TRUE))
+    changed <- member_index_thaw(snapshot)
+    expect_identical(member_infer(quote(api$short()), changed, changed$roots)$type, "list")
     expect_false(file.exists(marker))
 })
 

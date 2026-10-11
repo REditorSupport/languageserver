@@ -17,6 +17,8 @@ enqueue_latest_reply <- function(self, uri, method, item) {
     }
     for (previous in retained) queue$push(previous)
     queue$push(item)
+    # Share the pending current-version parse and dispatch without debounce.
+    if (is.function(self$parse_task_manager$promote)) self$parse_task_manager$promote(uri)
 }
 
 #' `textDocument/completion` request handler
@@ -35,6 +37,7 @@ text_document_completion  <- function(self, id, params) {
     # context bindings and leave the client with that list until retriggered.
     if (isTRUE(lsp_settings$get("member_completion")) &&
         !identical(document$version, document$parse_data$version) &&
+        !member_ordinary_request(workspace, document) &&
         ((check_scope(uri, document, point) &&
                     identical(completion_token(document, point)$accessor, "")) ||
                     !is.null(member_cursor(document, point)) ||

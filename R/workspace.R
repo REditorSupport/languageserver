@@ -75,9 +75,9 @@ ByteLruCache <- R6::R6Class(
             private$entries$set(key, value)
             value
         },
-        set = function(key, value, protect = character()) {
+        set = function(key, value, protect = character(), additional_bytes = 0) {
             if (private$entries$has(key)) self$remove(key)
-            size <- as.numeric(object.size(value))
+            size <- as.numeric(object.size(value)) + additional_bytes
             # An individual value larger than the whole budget would evict
             # every useful entry and still leave the cache over budget.
             if (size > private$max_bytes) return(invisible(NULL))
@@ -113,7 +113,7 @@ ByteLruCache <- R6::R6Class(
 MemberMetadataCache <- R6::R6Class(
     "MemberMetadataCache",
     private = list(
-        snapshots = NULL, indexes = NULL, summaries = NULL,
+        snapshots = NULL, indexes = NULL, summaries = NULL, semantic_revision = 0L, cache_identity = NULL,
         max_summary_bytes = NULL,
         summary_sizes = function() {
             vapply(private$summaries$values(), function(cache) {
@@ -147,6 +147,7 @@ MemberMetadataCache <- R6::R6Class(
     ),
     public = list(
         initialize = function(max_bytes, max_entries = 16L) {
+            private$cache_identity <- new.env(parent = emptyenv())
             private$snapshots <- ByteLruCache$new(max_bytes, max_entries)
             private$indexes <- ByteLruCache$new(max_bytes, max_entries)
             private$summaries <- collections::ordered_dict()
@@ -173,6 +174,7 @@ MemberMetadataCache <- R6::R6Class(
             snapshot <- as.list(value)
             index <- member_index_thaw(snapshot)
             if (is.null(index)) return(invisible(NULL))
+            private$semantic_revision <- private$semantic_revision + 1L
             # A replacement must use validated returns and fresh summaries,
             # even when the caller supplied an already decoded index.
             value <- as.list(index)
@@ -180,7 +182,7 @@ MemberMetadataCache <- R6::R6Class(
             snapshot$cache <- NULL
             # Selection, imports and dispatch need only this compact catalog.
             # Keep it in the snapshot budget without decoding function bodies.
-            fields <- c("package", "roots", "exports", "namespace_roots", "classes", "class_scope",
+            fields <- c("package", "generation", "roots", "exports", "namespace_roots", "classes", "class_scope", "symbol_scope",
                 "s4_classes", "s4_dependencies", "s7_dependencies", "s7_capabilities")
             entry <- list(
                 compressed = memCompress(serialize(snapshot, NULL), "gzip"),
@@ -201,18 +203,22 @@ MemberMetadataCache <- R6::R6Class(
             invisible(value)
         },
         remove = function(key) {
+            if (self$has(key)) private$semantic_revision <- private$semantic_revision + 1L
             private$snapshots$remove(key)
             private$indexes$remove(key)
             private$summaries$pop(key, NULL)
             invisible(NULL)
         },
         clear = function() {
+            if (self$size()) private$semantic_revision <- private$semantic_revision + 1L
             private$snapshots$clear()
             private$indexes$clear()
             private$summaries$clear()
             invisible(NULL)
         },
         size = function() private$snapshots$size(),
+        revision = function() private$semantic_revision,
+        identity = function() private$cache_identity,
         keys = function() private$snapshots$keys(),
         bytes = function() private$snapshots$bytes() + private$indexes$bytes() + sum(private$summary_sizes())
     )

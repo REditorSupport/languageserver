@@ -1,6 +1,13 @@
+# Cross-file signature tests depend on the definition parse, not a fixed delay.
+signature_open_files <- function(client, definition, call) {
+    did_open(client, definition)
+    expect_gt(length(respond_document_symbol(client, definition)), 0L)
+    did_open(client, call)
+}
+
 test_that("Simple signature works", {
     skip_on_cran()
-    client <- language_client()
+    client <- language_client(working_dir = withr::local_tempdir())
 
     temp_file <- withr::local_tempfile(fileext = ".R")
     writeLines(
@@ -29,7 +36,7 @@ test_that("Simple signature works", {
 
 test_that("Signature of user function works", {
     skip_on_cran()
-    client <- language_client()
+    client <- language_client(working_dir = withr::local_tempdir())
 
     defn_file <- withr::local_tempfile(fileext = ".R")
     temp_file <- withr::local_tempfile(fileext = ".R")
@@ -37,7 +44,7 @@ test_that("Signature of user function works", {
     writeLines(c("foo <- function(x, y = 3) { x + y }"), defn_file)
     writeLines(c("foo(3, "), temp_file)
 
-    client %>% did_open(defn_file) %>% did_open(temp_file)
+    signature_open_files(client, defn_file, temp_file)
 
     result <- client %>% respond_signature(
         temp_file, c(0, 7),
@@ -48,7 +55,7 @@ test_that("Signature of user function works", {
 
 test_that("Signature of user function works with semi-colon", {
     skip_on_cran()
-    client <- language_client()
+    client <- language_client(working_dir = withr::local_tempdir())
 
     defn_file <- withr::local_tempfile(fileext = ".R")
     temp_file <- withr::local_tempfile(fileext = ".R")
@@ -56,7 +63,7 @@ test_that("Signature of user function works with semi-colon", {
     writeLines(c("foo <- function(x, y = 3) { x + y };"), defn_file)
     writeLines(c("foo(3, "), temp_file)
 
-    client %>% did_open(defn_file) %>% did_open(temp_file)
+    signature_open_files(client, defn_file, temp_file)
 
     result <- client %>% respond_signature(
         temp_file, c(0, 7),
@@ -67,7 +74,7 @@ test_that("Signature of user function works with semi-colon", {
 
 test_that("Signature in Rmarkdown works", {
     skip_on_cran()
-    client <- language_client()
+    client <- language_client(working_dir = withr::local_tempdir())
 
     temp_file <- withr::local_tempfile(fileext = ".Rmd")
     writeLines(
@@ -99,7 +106,7 @@ test_that("Signature in Rmarkdown works", {
 
 test_that("activeParameter is correctly computed", {
     skip_on_cran()
-    client <- language_client()
+    client <- language_client(working_dir = withr::local_tempdir())
 
     defn_file <- withr::local_tempfile(fileext = ".R")
     temp_file <- withr::local_tempfile(fileext = ".R")
@@ -107,7 +114,7 @@ test_that("activeParameter is correctly computed", {
     writeLines(c("foo <- function(a, b, c, d) { a + b + c + d }"), defn_file)
     writeLines(c("foo(1, "), temp_file)
 
-    client %>% did_open(defn_file) %>% did_open(temp_file)
+    signature_open_files(client, defn_file, temp_file)
 
     # Test at first parameter (after opening parenthesis)
     result <- client %>% respond_signature(
@@ -136,7 +143,7 @@ test_that("activeParameter is correctly computed", {
 
 test_that("activeParameter handles nested calls", {
     skip_on_cran()
-    client <- language_client()
+    client <- language_client(working_dir = withr::local_tempdir())
 
     defn_file <- withr::local_tempfile(fileext = ".R")
     temp_file <- withr::local_tempfile(fileext = ".R")
@@ -144,7 +151,7 @@ test_that("activeParameter handles nested calls", {
     writeLines(c("foo <- function(a, b, c) { a + b + c }"), defn_file)
     writeLines(c("foo(1, foo(2, 3), "), temp_file)
 
-    client %>% did_open(defn_file) %>% did_open(temp_file)
+    signature_open_files(client, defn_file, temp_file)
 
     # Test at outer function's third parameter
     result <- client %>% respond_signature(
@@ -155,7 +162,7 @@ test_that("activeParameter handles nested calls", {
 
 test_that("activeParameter correctly handles named arguments", {
     skip_on_cran()
-    client <- language_client()
+    client <- language_client(working_dir = withr::local_tempdir())
 
     defn_file <- withr::local_tempfile(fileext = ".R")
     temp_file <- withr::local_tempfile(fileext = ".R")
@@ -164,7 +171,7 @@ test_that("activeParameter correctly handles named arguments", {
     
     # Test 1: Named argument z= should activate parameter z (index 2), not y
     writeLines(c("fun(1, z = "), temp_file)
-    client %>% did_open(defn_file) %>% did_open(temp_file)
+    signature_open_files(client, defn_file, temp_file)
     
     result <- client %>% respond_signature(
         temp_file, c(0, 11),
@@ -202,7 +209,7 @@ test_that("activeParameter correctly handles named arguments", {
 
 test_that("activeParameter correctly handles ... (ellipsis)", {
     skip_on_cran()
-    client <- language_client()
+    client <- language_client(working_dir = withr::local_tempdir())
 
     defn_file <- withr::local_tempfile(fileext = ".R")
     temp_file <- withr::local_tempfile(fileext = ".R")
@@ -211,7 +218,7 @@ test_that("activeParameter correctly handles ... (ellipsis)", {
     
     # Test 1: Positional args after 'a' should stick to ... (index 1)
     writeLines(c("fun(1, 2, "), temp_file)
-    client %>% did_open(defn_file) %>% did_open(temp_file)
+    signature_open_files(client, defn_file, temp_file)
     
     result <- client %>% respond_signature(
         temp_file, c(0, 10),
@@ -249,7 +256,7 @@ test_that("activeParameter correctly handles ... (ellipsis)", {
 
 test_that("activeParameter handles ... at different positions", {
     skip_on_cran()
-    client <- language_client()
+    client <- language_client(working_dir = withr::local_tempdir())
 
     defn_file <- withr::local_tempfile(fileext = ".R")
     temp_file <- withr::local_tempfile(fileext = ".R")
@@ -257,7 +264,7 @@ test_that("activeParameter handles ... at different positions", {
     # Test with ... at the end
     writeLines(c("fun2 <- function(a, b, ...) { a + b }"), defn_file)
     writeLines(c("fun2(1, 2, 3, 4, "), temp_file)
-    client %>% did_open(defn_file) %>% did_open(temp_file)
+    signature_open_files(client, defn_file, temp_file)
     
     result <- client %>% respond_signature(
         temp_file, c(0, 17),
@@ -267,7 +274,7 @@ test_that("activeParameter handles ... at different positions", {
     # Test with ... at the beginning
     writeLines(c("fun3 <- function(..., x, y = 1) { x + y }"), defn_file)
     writeLines(c("fun3(1, 2, "), temp_file)
-    client %>% did_open(defn_file) %>% did_open(temp_file)
+    signature_open_files(client, defn_file, temp_file)
     
     result <- client %>% respond_signature(
         temp_file, c(0, 11),

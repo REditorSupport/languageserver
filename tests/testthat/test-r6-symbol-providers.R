@@ -202,10 +202,16 @@ test_that("Runtime R6 metadata retains declared names and constructor signatures
 
 test_that("R6 references and new providers refresh on the first request after edits", {
     skip_on_cran()
-    client <- language_client()
-    path <- withr::local_tempfile(fileext = ".R")
+    root <- withr::local_tempdir()
+    client <- language_client(working_dir = root)
+    path <- file.path(root, "widget.R")
     uri <- path_to_uri(path)
-    did_open(client, path, text = 'C <- R6::R6Class("Widget")')
+    did_open(client, path, text = 'C <- R6::R6Class("Widget")\nC')
+    # Finish initial parsing before testing edit promotion. Starting several
+    # instrumented servers and indexing the package workspace are separate
+    # from the first-request-after-edit behavior this regression exercises.
+    expect_identical(respond_hover(client, path, c(1L, 1L), retry = FALSE)$contents[[2L]],
+        "R6 class generator of `Widget`")
     notify(client, "workspace/didChangeConfiguration", list(settings = list(parse_delay = 0.5)))
     code <- c('C <- R6::R6Class("Widget", public = list(',
         "  initialize = function(value, flag = TRUE) NULL,", "  probe = function() self))")
