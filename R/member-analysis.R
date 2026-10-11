@@ -1,15 +1,7 @@
 # Syntax summaries include defaults, which all.names() omits on pairlists.
-# Accumulate whole vectors instead of growing a vector for every syntax node.
+# The native walk deduplicates symbols without allocating per-node R lists.
 member_syntax_names <- function(expr) {
-    names <- all.names(expr, unique = TRUE)
-    if (!"function" %in% names) return(names)
-    defaults <- list()
-    member_walk(expr, function(node) {
-        if (member_head(node, "function")) {
-            defaults[[length(defaults) + 1L]] <<- member_syntax_names(as.expression(as.list(node[[2L]])))
-        }
-    })
-    unique(c(names, unlist(defaults, use.names = FALSE)))
+    .Call("member_syntax_names_c", expr, PACKAGE = "languageserver")
 }
 
 member_symbol_required <- function(workspace, document) {
@@ -54,10 +46,9 @@ member_history_position <- function(history, at) {
 
 # Lazy local values keep the lexical state from before the assignment. The
 # memo belongs to this recovered scope, never to a package-wide summary.
-member_local_binding <- function(expr, bindings) {
+member_local_binding <- function(expr, bindings, referenced = member_syntax_names(expr)) {
     # Keep only lexical dependencies. Copying every earlier local into every
     # deferred binding makes a flat method quadratic in retained state.
-    referenced <- member_syntax_names(expr)
     internal <- c(".__member_position__", ".__member_properties__", ".__s4_classes__",
         ".__s7_package__", ".__s7_constructing__")
     list(binding_expr = expr, binding_env = bindings[intersect(names(bindings), c(referenced, internal))],

@@ -682,7 +682,7 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
 
         env$packages <- basename(find.package(env$packages, quiet = TRUE))
         data <- utils::getParseData(expr)
-        env$member_data <- member_document_index(content, expr)
+        env$member_data <- member_document_index(content, expr, data)
         env$completion_data <- completion_parse_data(data)
         env$semantic_data <- semantic_parse_data(data, content)
         env$range_data <- range_provider_parse_data(data, content)
@@ -763,7 +763,14 @@ parse_callback <- function(self, uri, version, parse_data) {
         # Identical text in another file may share semantic tokens, but must
         # not reuse those document-specific provider results.
         cache_entry$cache_uri <- uri
-        workspace$parse_cache$set(parse_data$content_hash, cache_entry)
+        source_bytes <- sum(vapply(cache_entry$member_data$items, function(item) {
+            if (is.null(item$source$bytes)) 0 else item$source$bytes
+        }, numeric(1L)))
+        if (inherits(workspace$parse_cache, "ByteLruCache")) {
+            workspace$parse_cache$set(parse_data$content_hash, cache_entry, additional_bytes = source_bytes)
+        } else {
+            workspace$parse_cache$set(parse_data$content_hash, cache_entry)
+        }
     }
 
     if (!isTRUE(parse_data$parse_error)) {

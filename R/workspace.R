@@ -75,9 +75,9 @@ ByteLruCache <- R6::R6Class(
             private$entries$set(key, value)
             value
         },
-        set = function(key, value, protect = character()) {
+        set = function(key, value, protect = character(), additional_bytes = 0) {
             if (private$entries$has(key)) self$remove(key)
-            size <- as.numeric(object.size(value))
+            size <- as.numeric(object.size(value)) + additional_bytes
             # An individual value larger than the whole budget would evict
             # every useful entry and still leave the cache over budget.
             if (size > private$max_bytes) return(invisible(NULL))
