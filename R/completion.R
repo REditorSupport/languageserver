@@ -895,20 +895,6 @@ scope_completion <- function(uri, workspace, token, point,
             tryCatch(as.character(parse(text = name)[[1L]]), error = function(e) name)
         }, character(1L))
     }
-    candidate_names <- c(scope_symbol_names, scope_funct_names)
-    truncated <- length(candidate_names) > limit
-    if (truncated) {
-        keep <- completion_select_indices(
-            candidate_names, candidate_names, token, limit)
-        symbol_keep <- keep[keep <= length(scope_symbol_names)]
-        function_keep <- keep[keep > length(scope_symbol_names)] -
-            length(scope_symbol_names)
-        scope_symbol_names <- scope_symbol_names[symbol_keep]
-        scope_symbol_lines <- scope_symbol_lines[symbol_keep]
-        scope_funct_names <- scope_funct_names[function_keep]
-        scope_funct_lines <- scope_funct_lines[function_keep]
-    }
-
     # Drop enclosing candidates hidden by the method context. For source
     # locals, use the final lexical value to choose the function/field item;
     # this also removes duplicates when a local changes an outer binding kind.
@@ -931,12 +917,55 @@ scope_completion <- function(uri, workspace, token, point,
             identical(is_function, functions)
         }, logical(1L))
     }
-    keep <- keep_source(scope_symbol_names, FALSE)
-    scope_symbol_names <- scope_symbol_names[keep]
-    scope_symbol_lines <- scope_symbol_lines[keep]
-    keep <- keep_source(scope_funct_names, TRUE)
-    scope_funct_names <- scope_funct_names[keep]
-    scope_funct_lines <- scope_funct_lines[keep]
+    # Classify ranked batches until the limit is filled, with one extra
+    # visible candidate to detect truncation. Hidden candidates do not consume
+    # slots, and rejected batches never repeat lexical binding inference.
+    symbol_count <- length(scope_symbol_names)
+    pending <- seq_along(candidate_names)
+    keep <- integer()
+    if (is.null(context$value)) {
+        truncated <- length(pending) > limit
+        keep <- completion_select_indices(candidate_names, candidate_names, token, limit)
+    } else {
+        target <- limit + 1L
+        ranked <- FALSE
+        first <- 1L
+        while (first <= length(pending) && length(keep) < target) {
+            batch <- if (ranked) {
+                last <- min(length(pending), first + target - length(keep) - 1L)
+                selected <- pending[seq.int(first, last)]
+                first <- last + 1L
+                selected
+            } else {
+                names <- candidate_names[pending]
+                pending[completion_select_indices(names, names, token, target - length(keep))]
+            }
+            functions <- batch > symbol_count
+            visible <- logical(length(batch))
+            visible[!functions] <- keep_source(candidate_names[batch[!functions]], FALSE)
+            visible[functions] <- keep_source(candidate_names[batch[functions]], TRUE)
+            keep <- c(keep, batch[visible])
+            if (!ranked && length(keep) < target) {
+                # Rank the remainder once if refilling is necessary, so a
+                # long run of hidden candidates cannot trigger repeated sorts.
+                pending <- pending[!pending %in% batch]
+                names <- candidate_names[pending]
+                pending <- pending[order(!startsWith(names, token), names, method = "radix")]
+                ranked <- TRUE
+            }
+        }
+        truncated <- length(keep) > limit
+        if (truncated) {
+            names <- candidate_names[keep]
+            keep <- keep[completion_select_indices(names, names, token, limit)]
+        }
+    }
+    symbol_keep <- keep[keep <= symbol_count]
+    function_keep <- keep[keep > symbol_count] - symbol_count
+    scope_symbol_names <- scope_symbol_names[symbol_keep]
+    scope_symbol_lines <- scope_symbol_lines[symbol_keep]
+    scope_funct_names <- scope_funct_names[function_keep]
+    scope_funct_lines <- scope_funct_lines[function_keep]
     scope_symbol_completions <- .mapply(function(symbol, line) {
         list(
             label = symbol,

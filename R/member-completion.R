@@ -377,6 +377,7 @@ member_context_index <- function(workspace, uri, document, at, parsed = NULL,
     for (item in data$imports) {
         if (!member_before(item$end, at)) next
         expr <- item$expr
+        if (length(expr) < 2L) next
         if (member_head(expr, "library") || member_head(expr, "require")) {
             package <- member_name(expr[[2L]])
             if (!is.null(package) && package %in% names(index$namespace_indices)) {

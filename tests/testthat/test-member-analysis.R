@@ -36,6 +36,36 @@ test_that("Request capability hints ignore unrelated cached packages and include
     expect_true(member_symbol_required(fixture$workspace, fixture$document))
 })
 
+test_that("Argument-less package calls preserve ordinary and member providers", {
+    for (call in c("library()", "require()")) {
+        fixture <- provider_fixture(c(call, "outer <- function() {",
+                "probe <- function(argument = 1) NULL", "probe(argument = 2)", "}"))
+        fixture$workspace$member_metadata <- MemberMetadataCache$new(1024^2)
+        expect_false(member_symbol_required(fixture$workspace, fixture$document))
+        expect_false(member_scope_required(fixture$workspace, fixture$document, list(row = 3L, col = 3L)))
+        expect_identical(signature_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+                list(row = 3L, col = 18L))$result$signatures[[1L]]$label, "probe(argument = 1)")
+        expect_match(hover_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+                list(row = 3L, col = 3L))$result$contents[[1L]], "probe\\(argument = 1\\)")
+        fixture$workspace$loaded_packages <- character()
+        fixture$workspace$imported_objects <- collections::dict()
+        fixture$workspace$get_namespace <- function(...) NULL
+        items <- completion_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+            list(row = 3L, col = 0L), list())$result$items
+        expect_true("probe" %in% vapply(items, `[[`, character(1L), "label"))
+
+        fixture <- provider_fixture(c(call, "x <- list(run = function(argument = 1) NULL)", "x$run(argument = 2)"))
+        fixture$workspace$member_metadata <- MemberMetadataCache$new(1024^2)
+        items <- member_completion(fixture$uri, fixture$workspace, fixture$document,
+            list(row = 2L, col = 2L), TRUE, 200L)
+        expect_identical(vapply(items, `[[`, character(1L), "label"), "run")
+        expect_identical(signature_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+                list(row = 2L, col = 18L))$result$signatures[[1L]]$label, "run(argument = 1)")
+        expect_identical(hover_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+                list(row = 2L, col = 4L))$result$contents, "```r\nrun(argument = 1)\n```")
+    }
+})
+
 test_that("Lazy lexical locals evaluate only dependencies and respect alias history", {
     fixture <- provider_fixture(c("probe <- function() {",
             sprintf("unused%d <- expensive(value)", seq_len(1000L)),

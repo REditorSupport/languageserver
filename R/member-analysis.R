@@ -22,6 +22,7 @@ member_package_scope_required <- function(workspace, data, capability) {
     metadata <- workspace$member_metadata
     if (is.null(metadata)) return(FALSE)
     packages <- unique(c(data$packages, vapply(data$imports, function(item) {
+        if (length(item$expr) < 2L) return("")
         name <- member_name(item$expr[[2L]])
         if (is.null(name)) "" else name
     }, character(1L))))
