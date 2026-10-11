@@ -240,7 +240,7 @@ member_cacheable <- function(value, depth = 0L) {
     if (is.null(value)) {
         return(TRUE)
     }
-    if (depth > 4L || !is.null(value$function_expr) || !is.null(value$closure) ||
+    if (depth > 4L || isTRUE(value$open) || !is.null(value$function_expr) || !is.null(value$closure) ||
         !is.null(value$binding_expr)) {
         return(FALSE)
     }
@@ -590,6 +590,13 @@ member_infer <- function(
     bind_arguments <- function(fn, actuals, env, defaults = TRUE) {
         formals <- as.list(fn[[2L]])
         keys <- names(formals)
+        # An open forwarded dots list can fill any formal. Preparation must
+        # explore unknown values instead of treating it as one supplied item.
+        if (isTRUE(attr(actuals, "member_open_dots"))) {
+            for (name in keys) env[name] <- list(unknown)
+            if ("..." %in% keys) env["..."] <- list(member_value(type = "list", open = TRUE))
+            return(env)
+        }
         dots <- match("...", keys)
         before_dots <- if (is.na(dots)) keys else keys[seq_len(dots - 1L)]
         supplied <- names(actuals)
@@ -662,7 +669,8 @@ member_infer <- function(
         # Package syntax and captures are immutable. A cached invocation has
         # already passed matching; look it up before defaults and delegation.
         cache_values <- c(list(self), actuals)
-        cache_key <- if (!is.null(key) && all(vapply(cache_values, member_cacheable, logical(1L)))) {
+        cache_key <- if (!is.null(key) && !isTRUE(attr(actuals, "member_open_dots")) &&
+                all(vapply(cache_values, member_cacheable, logical(1L)))) {
             digest::digest(list(key, lapply(cache_values, member_shape_key), dispatch), algo = "xxhash64")
         } else {
             NULL
@@ -979,14 +987,17 @@ member_infer <- function(
     })
     # Expand syntactic dots from a known argument list without evaluating it.
     expanded <- list()
+    open_dots <- FALSE
     for (i in seq_along(args)) {
         if (identical(args[[i]], as.name("...")) && !is.null(actuals[[i]]$elements)) {
             expanded <- c(expanded, actuals[[i]]$elements)
         } else {
+            if (identical(args[[i]], as.name("...")) && isTRUE(actuals[[i]]$open)) open_dots <- TRUE
             expanded <- c(expanded, actuals[i])
         }
     }
     actuals <- expanded
+    if (open_dots) attr(actuals, "member_open_dots") <- TRUE
     if (head == "|" && intrinsic(head) && length(actuals) == 2L && isTRUE(member_s7_modes(index)$union)) {
         classes <- lapply(actuals, function(value) member_s7_spec(value, index, bindings, budget, resolve = FALSE))
         if (any(vapply(actuals, function(value) !is.null(value$s7_descriptor), logical(1L))) &&
@@ -996,6 +1007,17 @@ member_infer <- function(
     }
     arg <- function(i) if (length(actuals) >= i) actuals[[i]] else unknown
     if (!is.null(head) && intrinsic(head)) {
+        # Forwarded open dots have unknown cardinality and argument types.
+        # Do not inspect the list placeholder as if it were one real argument.
+        if (open_dots) {
+            return(if (head %in% c("list", "list2")) {
+                member_value(type = "list", open = TRUE)
+            } else if (head == "missing") {
+                member_value(type = "logical")
+            } else {
+                unknown
+            })
+        }
         if (head %in% c("list", "list2")) {
             if (length(actuals) > 256L) {
                 return(member_value(type = "list", open = TRUE))
@@ -1238,6 +1260,7 @@ member_infer <- function(
         return(member_r6_construct(callee, actuals, index, budget, depth, trail))
     }
     if (!is.null(callee$metadata)) {
+        if (open_dots) return(unknown)
         package_index <- member_namespace_index(index, callee$metadata)
         if (is.null(package_index)) {
             return(unknown)

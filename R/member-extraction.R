@@ -562,9 +562,10 @@ member_package_index <- function(input) {
     index
 }
 
-# Binding many defaults can dominate a request even when the result class does
-# not depend on any argument. Prepare those guarantees in the package worker.
-member_prepare_returns <- function(index) {
+# Probe callable package surfaces in the worker, then spend the remaining
+# budget on expensive bodies. Parameter count alone misses short wrappers
+# which repeatedly infer argument conversion, dispatch and delegated methods.
+member_prepare_returns <- function(index, max_nodes = 40000L, max_bytes = 1024^2) {
     index$method_results <- list()
     backed <- names(index$properties)[vapply(index$properties, function(fields) {
         any(vapply(fields, function(value) {
@@ -574,13 +575,61 @@ member_prepare_returns <- function(index) {
     }, logical(1L))]
     backed <- intersect(backed, names(index$classes))
     if (!length(backed)) return(invisible(NULL))
-    prepare <- function(key, type = NULL) {
-        fn <- member_definition(index$definitions, key)
-        # This is a preparation-cost heuristic, not a return-type rule. Small
-        # functions keep using ordinary argument-sensitive request inference.
-        if (!member_head(fn, "function") || length(fn[[2L]]) < 10L) return()
+    candidates <- new.env(hash = TRUE, parent = emptyenv())
+    add <- function(keys, type = NULL) {
+        for (key in unique(keys[!is.na(keys)])) {
+            fn <- member_definition(index$definitions, key)
+            if (!member_head(fn, "function")) next
+            cost <- length(member_syntax_names(fn)) + length(fn[[2L]])
+            if (cost < 6L) next
+            id <- if (is.null(type)) key else paste(type, key, sep = "|")
+            candidates[[id]] <- list(key = key, type = type, fn = fn)
+        }
+    }
+    add(names(index$definitions)[vapply(index$definitions, function(fn) {
+        member_head(fn, "function") && length(fn[[2L]]) >= 10L
+    }, logical(1L))])
+    for (key in index$exports) {
+        add(key)
+        add(unname(index$members[[key]]))
+    }
+    types <- intersect(names(index$members), names(index$classes))
+    types <- types[order(vapply(index$members[types], length, integer(1L)), types)]
+    for (type in types) {
+        if (any(index$members[[type]] %in% index$native_factories, na.rm = TRUE)) next
+        fields <- names(index$properties[[type]])[vapply(index$properties[[type]], function(value) {
+            length(value$type) == 1L &&
+                any(index$members[[value$type]] %in% index$native_factories, na.rm = TRUE)
+        }, logical(1L))]
+        keys <- unique(unname(index$members[[type]]))
+        keys <- keys[!is.na(keys)]
+        add(keys[vapply(keys, function(key) {
+            fn <- member_definition(index$definitions, key)
+            member_head(fn, "function") && (length(fn[[2L]]) >= 10L ||
+                    any(fields %in% member_syntax_names(fn)))
+        }, logical(1L))], type)
+    }
+    candidates <- as.list(candidates, all.names = TRUE)
+    if (!length(candidates)) return(invisible(NULL))
+    # Cover exported surfaces and small receiver interfaces before large
+    # method registries can spend the whole package's preparation budget.
+    candidates <- candidates[order(vapply(candidates, function(item) {
+        if (length(item$fn[[2L]]) >= 10L) -1L else if (is.null(item$type)) 0L else match(item$type, types)
+    }, integer(1L)), names(candidates))]
+    # Probe new wrappers independently. Feeding their class-only results back
+    # into preparation can hide fields needed by subsequent dispatch.
+    preparation_index <- list2env(as.list(index), parent = emptyenv())
+    preparation_index$method_results <- list()
+    state <- new.env(hash = FALSE, parent = emptyenv())
+    state$remaining <- max_nodes
+    state$bytes <- 0
+    prepare <- function(item, limit) {
+        key <- item$key
+        type <- item$type
+        fn <- item$fn
         env <- index$package_roots
         for (name in names(fn[[2L]])) env[name] <- list(member_value())
+        if ("..." %in% names(fn[[2L]])) env["..."] <- list(member_value(type = "list", open = TRUE))
         if (!is.null(type)) {
             receiver <- member_lookup(index$method_receivers, paste(type, key, sep = "|"))
             if (is.null(receiver)) receiver <- "self"
@@ -588,21 +637,44 @@ member_prepare_returns <- function(index) {
             env[receiver] <- list(member_value(type = type))
         }
         budget <- new.env(parent = emptyenv())
-        budget$remaining <- 10000L
+        budget$remaining <- min(limit, state$remaining)
         budget$exhausted <- budget$transient <- FALSE
-        result <- member_infer(fn[[3L]], index, env, budget = budget,
+        before <- budget$remaining
+        result <- member_infer(fn[[3L]], preparation_index, env, budget = budget,
             context = list(key = key, formals = names(fn[[2L]]), actuals = list()))
-        if (!budget$exhausted && length(result$type) == 1L && result$type %in% backed) {
+        used <- before - budget$remaining
+        state$remaining <- state$remaining - used
+        if (!budget$exhausted &&
+                length(result$type) == 1L && result$type %in% backed) {
             id <- if (is.null(type)) key else paste(type, key, sep = "|")
             # Native-backed declarative classes expose their members in the
             # index. Argument-dependent fields must not enter a universal summary.
-            index$method_results[id] <- list(member_value(type = result$type, classes = result$classes))
+            value <- member_value(type = result$type, classes = result$classes)
+            size <- as.numeric(utils::object.size(stats::setNames(list(value), id)))
+            if (state$bytes + size <= max_bytes) {
+                index$method_results[id] <- list(value)
+                state$bytes <- state$bytes + size
+            }
         }
+        budget$exhausted
     }
-    for (key in names(index$definitions)) prepare(key)
-    for (type in intersect(names(index$members), names(index$classes))) {
-        if (any(index$members[[type]] %in% index$native_factories, na.rm = TRUE)) next
-        for (key in unique(unname(index$members[[type]]))) if (!is.na(key)) prepare(key, type)
+    # Keep the existing expensive-default guarantees available to subsequent
+    # probes, but do not feed the new short-wrapper results back into analysis.
+    for (item in candidates) {
+        if (length(item$fn[[2L]]) < 10L) next
+        if (state$remaining <= 0L || state$bytes >= max_bytes) break
+        prepare(item, 10000L)
+    }
+    preparation_index$method_results <- index$method_results
+    candidates <- Filter(function(item) length(item$fn[[2L]]) < 10L, candidates)
+    unfinished <- list()
+    for (item in candidates) {
+        if (state$remaining <= 0L || state$bytes >= max_bytes) break
+        if (prepare(item, 64L)) unfinished[[length(unfinished) + 1L]] <- item
+    }
+    for (item in unfinished) {
+        if (state$remaining <= 0L || state$bytes >= max_bytes) break
+        prepare(item, 2048L)
     }
     index$return_definitions <- digest::digest(index$definitions, algo = "xxhash64")
     invisible(NULL)
