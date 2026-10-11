@@ -483,10 +483,11 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
                 result <<- member_infer(node[[2L]], index, env, budget = budget)
             } else {
                 receiver <- member_infer(node[[2L]], index, env, budget = budget)
-                env$.__member_receiver__ <- receiver
-                node[[2L]] <- as.name(".__member_receiver__")
-                node[[3L]] <- as.name(name)
-                result <<- member_infer(node, index, env, budget = budget)
+                result <<- if (identical(accessor, "@")) {
+                    member_slot(receiver, name, index, env, budget)
+                } else {
+                    member_access(receiver, name, index, env)
+                }
                 key <- member_members(receiver, index, env, accessor)[name]
                 if (is.null(result$function_key) && length(key) && !is.na(key[[1L]]) &&
                     !is.null(result$function_expr)) {
@@ -695,9 +696,15 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
     budget <- new.env(parent = emptyenv())
     budget$remaining <- 20000L
     budget$exhausted <- budget$transient <- FALSE
-    # Coverage rewrites byte-compiled functions and adds counters to every
-    # branch. Allow that overhead while retaining node, depth and time bounds.
-    budget$time_limit <- if (identical(Sys.getenv("R_COVR"), "true")) 10 else 0.25
+    # Parallel tests compete with parse/metadata workers; coverage also rewrites
+    # byte-compiled functions. Allow that overhead while keeping all bounds.
+    budget$time_limit <- if (identical(Sys.getenv("R_COVR"), "true")) {
+        10
+    } else if (identical(Sys.getenv("TESTTHAT"), "true")) {
+        5
+    } else {
+        0.25
+    }
     bindings <- list(.__member_position__ = recovered$start)
     if (length(index$registration_rules)) {
         for (item in data$effects) {

@@ -272,6 +272,39 @@ test_that("Installed callr factory members share completion, signatures and hove
     expect_identical(member_provider_hover(fixture, 1L, 5L)$contents[[1L]], "```r\nget_result()\n```")
 })
 
+test_that("Declared R6 members survive an initializer inference timeout across providers", {
+    marker <- withr::local_tempfile()
+    fixture <- member_provider_fixture(c(
+        'Client <- R6::R6Class("Client", public = list(get_result = function() NULL, initialize = function(command) stop("opaque")))',
+        sprintf('job <- Client$new({writeLines("ran", %s); stop("input")})', encodeString(marker, quote = "\"")),
+        "job$get_result("
+    ))
+    construct <- member_r6_construct
+    expired <- 0L
+    testthat::local_mocked_bindings(member_r6_construct = function(callee, actuals, index, budget, depth, trail) {
+        if (is.null(callee$result_shape$fields$get_result)) {
+            return(construct(callee, actuals, index, budget, depth, trail))
+        }
+        # Expire during initializer analysis, after the declared receiver is
+        # known. Selecting its public method must not start another traversal.
+        budget$deadline <- -Inf
+        budget$next_time_check <- NULL
+        value <- construct(callee, actuals, index, budget, depth, trail)
+        expect_true(budget$exhausted)
+        expired <<- expired + 1L
+        value
+    }, .package = "languageserver")
+    items <- member_completion(fixture$uri, fixture$workspace, fixture$document,
+        list(row = 2L, col = 4L), TRUE, 200L)
+    expect_true("get_result" %in% vapply(items, `[[`, character(1L), "label"))
+    expect_identical(member_provider_signature(fixture)$signatures[[1L]]$label, "get_result()")
+    expect_identical(member_provider_hover(fixture, 2L, 5L)$contents[[1L]], "```r\nget_result()\n```")
+    expect_identical(expired, 3L)
+    fixture <- member_provider_fixture(c("x <- opaque()", "x$get_result("))
+    expect_null(member_provider_hover(fixture, 1L, 3L))
+    expect_false(file.exists(marker))
+})
+
 test_that("Installed processx members preserve method parameters across providers", {
     skip_if_not_installed("processx")
     snapshot <- member_prepare_package("processx")

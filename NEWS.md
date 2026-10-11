@@ -1,5 +1,9 @@
 # languageserver 0.3.20
 
+- Keep known R6 member signatures and hover when initializer analysis reaches
+  its inference limit. Select members directly from the inferred receiver and
+  allow more time in parallel tests without changing the normal request budget.
+
 - Complete bindings available in R6 method scopes, including `self`, `private`,
   `super`, inherited members in non-portable classes, and nested closures,
   using static context analysis during incomplete edits. Respect method-local
