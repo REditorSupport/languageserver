@@ -409,6 +409,26 @@ test_that("Package class hints retain class information for ordinary scope varia
     expect_match(object$documentation$value, "R6 instance of `Widget`", fixed = TRUE)
 })
 
+test_that("Scope outlines avoid nested constructors but preserve class aliases", {
+    fixture <- class_scope_fixture(c(
+        'Widget <- R6::R6Class("Widget", public = list(run = function(value = 1) NULL))',
+        'C <- R6::R6Class("C", public = list(probe = function() {',
+        "outline_list <- list(nested = Widget$new())",
+        "outline_instance <- Widget$new()", "outline_alias <- outline_instance"
+    ), "}))", token = "outline_")
+    infer <- member_infer
+    testthat::local_mocked_bindings(member_infer = function(expr, ...) {
+        if (identical(expr, quote(list(nested = Widget$new())))) stop("List elements inferred")
+        infer(expr, ...)
+    }, .package = "languageserver")
+    items <- class_scope_items(fixture, token = "outline_")
+    labels <- vapply(items, `[[`, character(1L), "label")
+    expect_setequal(labels, c("outline_list", "outline_alias", "outline_instance"))
+    expect_null(items[[match("outline_list", labels)]]$documentation)
+    expect_match(items[[match("outline_alias", labels)]]$documentation$value, "R6 instance of `Widget`", fixed = TRUE)
+    expect_match(items[[match("outline_instance", labels)]]$documentation$value, "R6 instance of `Widget`", fixed = TRUE)
+})
+
 test_that("Scope inference hints use compact catalogs without decoding package indexes", {
     fixture <- class_scope_fixture("probe <- function(argument) {", "}")
     cache <- MemberMetadataCache$new(32 * 1024^2)

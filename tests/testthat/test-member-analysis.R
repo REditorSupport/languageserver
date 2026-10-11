@@ -85,6 +85,51 @@ test_that("Lazy lexical locals evaluate only dependencies and respect alias hist
             member_generic_index(""), member_request_budget())$literal, 1)
 })
 
+test_that("Hashed dependency captures keep preceding values and internal state", {
+    index <- member_generic_index("")
+    bindings <- list(x = member_literal(1), unrelated = member_literal(9),
+        .__member_position__ = c(3L, 0L), .__s4_classes__ = list(Leaf = list(name = "Leaf")))
+    lookup <- list2env(bindings, hash = TRUE, parent = emptyenv())
+    captured <- member_local_binding(quote(list(value = x, missing = unbound)), bindings, lookup = lookup)
+    expect_equal(captured$binding_env, bindings[c("x", ".__member_position__", ".__s4_classes__")])
+    expect_false(any(vapply(captured$binding_env, identical, logical(1L), lookup)))
+    lookup$x <- member_literal(2)
+    lookup$.__s4_classes__ <- list(Other = list(name = "Other"))
+    value <- member_local_value(captured, index, member_request_budget())
+    expect_identical(value$fields$value$literal, 1)
+    expect_identical(names(captured$binding_env$.__s4_classes__), "Leaf")
+})
+
+test_that("Completion outlines leave list elements deferred for member access", {
+    index <- member_generic_index("")
+    value <- member_local_binding(quote(list(run = function(argument = 1) NULL)), list())
+    budget <- member_request_budget()
+    outline <- member_completion_value(value, index, budget)
+    expect_identical(outline$type, "list")
+    expect_null(outline$fields)
+    expect_false(exists("value", value$binding_cache, inherits = FALSE))
+    expect_identical(budget$remaining, 20000L)
+    full <- member_local_value(value, index, budget)
+    expect_identical(full$fields$run$function_expr[[2L]]$argument, 1)
+    expect_identical(member_local_value(value, index, budget), full)
+    index$document_bindings <- list(list = list(list(expr = quote(function(...) function(value) value),
+                start = c(0L, 0L), end = c(0L, 40L))))
+    shadowed <- member_local_binding(quote(list()), list(.__member_position__ = c(1L, 0L)))
+    expect_true(!is.null(member_completion_value(shadowed, index, member_request_budget())$function_expr))
+    index$document_bindings <- NULL
+
+    for (shadow in list(
+        member_value(function_expr = quote(function(...) R6::R6Class("Widget")$new())),
+        member_value(function_expr = quote(function(...) function(value) value)))) {
+        value <- member_local_binding(quote(list()), list(list = shadow))
+        outline <- member_completion_value(value, index, member_request_budget())
+        expect_true(!is.null(outline$r6_class) || !is.null(outline$function_expr))
+    }
+    index <- member_generic_index('list <- function(...) R6::R6Class("Widget")$new()')
+    value <- member_local_binding(quote(list()), list())
+    expect_identical(member_completion_value(value, index, member_request_budget())$r6_class$name, "Widget")
+})
+
 test_that("Member providers reuse receivers and invalidate on edits and metadata changes", {
     fixture <- provider_fixture(c("value <- list(run = function(argument = 1) NULL)", "value$run(argument = 2)"))
     fixture$workspace$member_metadata <- MemberMetadataCache$new(1024^2)

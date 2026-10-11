@@ -47,13 +47,22 @@ member_history_position <- function(history, at) {
 
 # Lazy local values keep the lexical state from before the assignment. The
 # memo belongs to this recovered scope, never to a package-wide summary.
-member_local_binding <- function(expr, bindings, referenced = member_syntax_names(expr)) {
+member_local_binding <- function(expr, bindings, referenced = member_syntax_names(expr), lookup = NULL) {
     # Keep only lexical dependencies. Copying every earlier local into every
     # deferred binding makes a flat method quadratic in retained state.
     internal <- c(".__member_position__", ".__member_properties__", ".__s4_classes__",
         ".__s7_package__", ".__s7_constructing__")
-    list(binding_expr = expr, binding_env = bindings[intersect(names(bindings), c(referenced, internal))],
-        binding_cache = new.env(parent = emptyenv()))
+    captured <- if (is.null(lookup)) {
+        bindings[intersect(names(bindings), c(referenced, internal))]
+    } else {
+        # The mutable lookup stays in the scope walker. Copy its current
+        # values so later assignments cannot change this lexical snapshot.
+        keys <- unique(c(referenced, internal))
+        values <- mget(keys, lookup, inherits = FALSE, ifnotfound = list(NULL))
+        values[!vapply(values, is.null, logical(1L))]
+    }
+    list(binding_expr = expr, binding_env = captured,
+        binding_cache = new.env(hash = FALSE, parent = emptyenv()))
 }
 
 member_local_value <- function(value, index, budget, depth = 0L, trail = character(),
@@ -65,6 +74,23 @@ member_local_value <- function(value, index, budget, depth = 0L, trail = charact
         depth = depth + 1L, trail = trail, budget = budget, context = context)
     if (!is.null(cache) && !isTRUE(budget$exhausted) && !isTRUE(budget$transient)) cache$value <- result
     result
+}
+
+# Ordinary completion needs the binding kind and R6 identity, not every list
+# element. A proven base list cannot be a function or R6 instance, even when
+# its arguments contain constructors. Keep the full deferred value for member
+# access and never store this outline in its inference memo.
+member_completion_value <- function(value, index, budget) {
+    if (!is.null(value$binding_expr) && !is.null(value$binding_cache) && !isTRUE(budget$exhausted)) {
+        expr <- value$binding_expr
+        if (!is.call(expr) && !is.symbol(expr) && !is.object(expr)) return(member_literal(expr))
+        if (member_head(expr, "list") && !"list" %in% names(value$binding_env) &&
+                is.null(member_lookup(index$definitions, "list")) &&
+                !length(member_lookup(index$document_bindings, "list"))) {
+            return(member_value(type = "list"))
+        }
+    }
+    member_local_value(value, index, budget)
 }
 
 member_receiver_cacheable <- function(value, index, budget) {

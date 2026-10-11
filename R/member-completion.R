@@ -457,7 +457,7 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
                     ".__member_context_bindings__", ".__member_context_locals__")
                 value <- member_value(type = "environment", fields = env[setdiff(names(env), internal)])
                 value$context_bindings <- env$.__member_context_bindings__
-                value$context_locals <- env$.__member_context_locals__
+                value$context_locals <- unique(env$.__member_context_locals__)
                 value
             } else {
                 member_infer(as.name(name), index, env, budget = budget)
@@ -494,7 +494,7 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
             for (formal in names(node[[2L]])) env[formal] <- list(member_value(reason = "formal"))
             env$.__member_context_bindings__ <- setdiff(env$.__member_context_bindings__, names(node[[2L]]))
             if (!is.null(env$.__member_context_locals__)) {
-                env$.__member_context_locals__ <- union(env$.__member_context_locals__, names(node[[2L]]))
+                env$.__member_context_locals__ <- c(env$.__member_context_locals__, names(node[[2L]]))
             }
             if (length(path) && path[[1L]] == 2L) {
                 visit(node[[2L]][[path[[2L]]]], env, path[-c(1L, 2L)], c(ast_path, 2L, path[[2L]]))
@@ -546,6 +546,9 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
                 }
                 selected <- which(keep)
             }
+            # Hash current values for dependency capture, while retaining
+            # ordinary lists as immutable snapshots consumed by inference.
+            lookup <- list2env(env, hash = TRUE, parent = emptyenv())
             for (i in selected) {
                 child <- children[[i]]
                 if (member_head(child, ":=")) {
@@ -553,6 +556,7 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
                     if (!is.null(bound)) child <- bound
                 }
                 env <- member_s4_effect(child, index, env)
+                if (!is.null(env$.__s4_classes__)) lookup$.__s4_classes__ <- env$.__s4_classes__
                 if (i == target) {
                     visit(child, env, path[-1L], c(ast_path, path[[1L]]))
                     break
@@ -563,15 +567,16 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
                         member_infer(child[[3L]], index, env, budget = budget)
                     } else {
                         member_local_binding(child[[3L]], env,
-                            if (!is.null(summary)) summary$reads[[i]] else member_syntax_names(child[[3L]]))
+                            if (!is.null(summary)) summary$reads[[i]] else member_syntax_names(child[[3L]]), lookup)
                     })
                 } else {
                     assigned <- if (!is.null(summary)) summary$writes[[i]] else member_assigned_names(child)
                     for (name in assigned) env[name] <- list(member_value(reason = "unknown_local_write"))
                 }
+                for (name in assigned) lookup[[name]] <- env[[name]]
                 env$.__member_context_bindings__ <- setdiff(env$.__member_context_bindings__, assigned)
                 if (!is.null(env$.__member_context_locals__)) {
-                    env$.__member_context_locals__ <- union(env$.__member_context_locals__, assigned)
+                    env$.__member_context_locals__ <- c(env$.__member_context_locals__, assigned)
                 }
             }
         } else {
@@ -902,8 +907,11 @@ member_class_completion_info <- function(uri, workspace, document, point, token,
         before = substr(document$line0(point$row), 1L, start))
     if (is.null(resolved)) resolved <- member_resolve_cursor(uri, workspace, document, point, cursor)
     if (is.null(resolved$value)) return(items)
-    env <- resolved$bindings
-    for (name in names(resolved$value$fields)) env[name] <- resolved$value$fields[name]
+    fields <- resolved$value$fields
+    env <- c(fields, resolved$bindings[setdiff(names(resolved$bindings), names(fields))])
+    field_names <- names(fields)
+    local_names <- names(env)
+    document_names <- names(resolved$index$document_bindings)
     for (i in seq_along(items)) {
         if (isTRUE(resolved$budget$exhausted)) break
         package <- items[[i]]$data$package
@@ -911,8 +919,12 @@ member_class_completion_info <- function(uri, workspace, document, point, token,
         if (identical(items[[i]]$data$type, "parameter") || !is.null(items[[i]]$data$parameter)) next
         label <- items[[i]]$label
         if (startsWith(label, "`")) label <- tryCatch(as.character(parse(text = label)[[1L]]), error = function(e) label)
-        if (!label %in% names(env) && !label %in% names(resolved$index$document_bindings)) next
-        value <- member_infer(as.name(label), resolved$index, env, budget = resolved$budget)
+        if (!label %in% local_names && !label %in% document_names) next
+        value <- if (label %in% field_names) {
+            member_completion_value(fields[[label]], resolved$index, resolved$budget)
+        } else {
+            member_infer(as.name(label), resolved$index, env, budget = resolved$budget)
+        }
         description <- member_r6_description(value)
         if (!is.null(description)) {
             doc <- unique(c(description, items[[i]]$documentation$value))

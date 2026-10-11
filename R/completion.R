@@ -767,7 +767,7 @@ context_scope_completion <- function(uri, workspace, token, point,
     for (label in candidates[selected]) {
         if (isTRUE(resolved$budget$exhausted)) break
         value <- if (label %in% names(fields)) {
-            member_local_value(fields[[label]], resolved$index, resolved$budget)
+            member_completion_value(fields[[label]], resolved$index, resolved$budget)
         } else {
             member_infer(as.name(label), resolved$index, resolved$bindings, budget = resolved$budget)
         }
@@ -780,7 +780,7 @@ context_scope_completion <- function(uri, workspace, token, point,
     labels <- setdiff(labels[match_with(labels, token)], setdiff(exclude, context_names))
     selected <- completion_select_indices(labels, labels, token, limit)
     items <- lapply(labels[selected], function(label) {
-        value <- member_local_value(fields[[label]], resolved$index, resolved$budget)
+        value <- member_completion_value(fields[[label]], resolved$index, resolved$budget)
         is_function <- !is.null(value$function_expr) || !is.null(value$function_key) ||
             "function" %in% value$type
         inserted <- quote_completion_name(label)
@@ -903,7 +903,7 @@ scope_completion <- function(uri, workspace, token, point,
             if (name %in% context$value$context_bindings) return(FALSE)
             value <- context$value$fields[[name]]
             if (!is.null(value$binding_cache)) {
-                value <- member_local_value(value, context$index, context$budget)
+                value <- member_completion_value(value, context$index, context$budget)
             }
             if (is.null(value)) return(TRUE)
             if (!length(value$type) && is.null(value$function_expr) && is.null(value$function_key)) {
