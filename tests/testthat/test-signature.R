@@ -1,6 +1,6 @@
 test_that("Simple signature works", {
     skip_on_cran()
-    client <- language_client()
+    client <- language_client(working_dir = withr::local_tempdir())
 
     temp_file <- withr::local_tempfile(fileext = ".R")
     writeLines(
@@ -29,7 +29,7 @@ test_that("Simple signature works", {
 
 test_that("Signature of user function works", {
     skip_on_cran()
-    client <- language_client()
+    client <- language_client(working_dir = withr::local_tempdir())
 
     defn_file <- withr::local_tempfile(fileext = ".R")
     temp_file <- withr::local_tempfile(fileext = ".R")
@@ -48,7 +48,7 @@ test_that("Signature of user function works", {
 
 test_that("Signature of user function works with semi-colon", {
     skip_on_cran()
-    client <- language_client()
+    client <- language_client(working_dir = withr::local_tempdir())
 
     defn_file <- withr::local_tempfile(fileext = ".R")
     temp_file <- withr::local_tempfile(fileext = ".R")
@@ -67,7 +67,7 @@ test_that("Signature of user function works with semi-colon", {
 
 test_that("Signature in Rmarkdown works", {
     skip_on_cran()
-    client <- language_client()
+    client <- language_client(working_dir = withr::local_tempdir())
 
     temp_file <- withr::local_tempfile(fileext = ".Rmd")
     writeLines(
@@ -99,7 +99,7 @@ test_that("Signature in Rmarkdown works", {
 
 test_that("activeParameter is correctly computed", {
     skip_on_cran()
-    client <- language_client()
+    client <- language_client(working_dir = withr::local_tempdir())
 
     defn_file <- withr::local_tempfile(fileext = ".R")
     temp_file <- withr::local_tempfile(fileext = ".R")
@@ -136,7 +136,7 @@ test_that("activeParameter is correctly computed", {
 
 test_that("activeParameter handles nested calls", {
     skip_on_cran()
-    client <- language_client()
+    client <- language_client(working_dir = withr::local_tempdir())
 
     defn_file <- withr::local_tempfile(fileext = ".R")
     temp_file <- withr::local_tempfile(fileext = ".R")
@@ -155,7 +155,7 @@ test_that("activeParameter handles nested calls", {
 
 test_that("activeParameter correctly handles named arguments", {
     skip_on_cran()
-    client <- language_client()
+    client <- language_client(working_dir = withr::local_tempdir())
 
     defn_file <- withr::local_tempfile(fileext = ".R")
     temp_file <- withr::local_tempfile(fileext = ".R")
@@ -202,7 +202,7 @@ test_that("activeParameter correctly handles named arguments", {
 
 test_that("activeParameter correctly handles ... (ellipsis)", {
     skip_on_cran()
-    client <- language_client()
+    client <- language_client(working_dir = withr::local_tempdir())
 
     defn_file <- withr::local_tempfile(fileext = ".R")
     temp_file <- withr::local_tempfile(fileext = ".R")
@@ -249,7 +249,7 @@ test_that("activeParameter correctly handles ... (ellipsis)", {
 
 test_that("activeParameter handles ... at different positions", {
     skip_on_cran()
-    client <- language_client()
+    client <- language_client(working_dir = withr::local_tempdir())
 
     defn_file <- withr::local_tempfile(fileext = ".R")
     temp_file <- withr::local_tempfile(fileext = ".R")
