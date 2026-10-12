@@ -17,9 +17,6 @@ position_is_in_lsp_range <- function(document, row, col, request_range) {
 inline_value_reply <- function(id, uri, workspace, document, request_range) {
     parse_data <- current_parse_data(uri, workspace, document)
     if (is.null(parse_data)) return(NULL)
-    xdoc <- parse_data$xml_doc
-    if (is.null(xdoc)) return(Response$new(id, result = list()))
-
     indexed <- parse_data$range_data$variables
     if (!is.null(indexed)) {
         selected <- range_line_indices(
@@ -44,6 +41,9 @@ inline_value_reply <- function(id, uri, workspace, document, request_range) {
             )
         })))
     }
+
+    xdoc <- parse_data_xml(parse_data)
+    if (is.null(xdoc)) return(Response$new(id, result = list()))
 
     start_line <- request_range$start$line + 1L
     end_line <- request_range$end$line + 1L

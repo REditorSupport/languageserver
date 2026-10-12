@@ -98,9 +98,7 @@ linked_editing_range_reply <- function(id, uri, workspace, document, point) {
 
     parse_data <- current_parse_data(uri, workspace, document)
     if (is.null(parse_data)) return(NULL)
-    xdoc <- parse_data$xml_doc
-    if (is.null(xdoc)) return(Response$new(id, result = NULL))
-
+    syntax <- parse_data$syntax_data
     definitions <- parse_data$definitions
     indexed <- linked_editing_index(parse_data, document)
     candidates <- which(indexed$starts <= point$line & indexed$ends >= point$line)
@@ -121,34 +119,65 @@ linked_editing_range_reply <- function(id, uri, workspace, document, point) {
             assign(symbol, list(), envir = indexed$ranges)
             next
         }
-        xpath <- glue(
-            signature_xpath,
-            row = definition_row + 1L,
-            token_quote = xml_single_quote(symbol)
-        )
-        scopes <- xdoc_find_enclosing_scopes(xdoc, definition_row + 1L,
-            definition$range$start$character + 1L)
-        context <- if (length(scopes)) scopes[[1L]] else xdoc
-        function_nodes <- xml_find_all(context, xpath)
-        if (!length(function_nodes)) next
-        function_node <- function_nodes[[length(function_nodes)]]
-        formal_nodes <- xml_find_all(function_node, "SYMBOL_FORMALS")
-        if (!length(formal_nodes)) next
+        formal_rows <- integer()
+        formal_nodes <- NULL
+        if (!is.null(syntax) && !is.null(parse_data$navigation_data)) {
+            enclosing <- .Call("syntax_enclosing_c", syntax,
+                as.integer(c(definition_row + 1L, definition$range$start$character + 1L)),
+                PACKAGE = "languageserver")
+            functions <- navigation_definitions(parse_data, definition_row + 1L,
+                definition$range$start$character + 1L, symbol, "signature")
+            if (length(enclosing)) {
+                context <- enclosing[[1L]]
+                selected <- syntax$line1[functions] >= syntax$line1[[context]] &
+                    syntax$line2[functions] <= syntax$line2[[context]] &
+                    (syntax$line1[functions] != syntax$line1[[context]] |
+                            syntax$col1[functions] >= syntax$col1[[context]]) &
+                    (syntax$line2[functions] != syntax$line2[[context]] |
+                            syntax$col2[functions] <= syntax$col2[[context]])
+                functions <- functions[selected]
+            }
+            if (!length(functions)) next
+            children <- syntax_children(syntax, functions[[length(functions)]])
+            formal_rows <- children[syntax$token[children] == "SYMBOL_FORMALS"]
+            if (!length(formal_rows)) next
+        } else {
+            xdoc <- parse_data_xml(parse_data)
+            if (is.null(xdoc)) return(Response$new(id, result = NULL))
+            xpath <- glue(
+                signature_xpath,
+                row = definition_row + 1L,
+                token_quote = xml_single_quote(symbol)
+            )
+            scopes <- xdoc_find_enclosing_scopes(xdoc, definition_row + 1L,
+                definition$range$start$character + 1L)
+            context <- if (length(scopes)) scopes[[1L]] else xdoc
+            function_nodes <- xml_find_all(context, xpath)
+            if (!length(function_nodes)) next
+            function_node <- function_nodes[[length(function_nodes)]]
+            formal_nodes <- xml_find_all(function_node, "SYMBOL_FORMALS")
+            if (!length(formal_nodes)) next
+        }
 
         linked <- list()
-        for (formal_node in formal_nodes) {
-            name <- xml_text(formal_node)
+        for (i in seq_len(if (length(formal_rows)) length(formal_rows) else length(formal_nodes))) {
+            if (length(formal_rows)) {
+                formal <- formal_rows[[i]]
+                name <- syntax$text[[formal]]
+                formal_range <- navigation_range(document, syntax, formal)
+            } else {
+                formal <- formal_nodes[[i]]
+                name <- xml_text(formal)
+                formal_range <- range(
+                    document$to_lsp_position(as.integer(xml_attr(formal, "line1")) - 1L,
+                        as.integer(xml_attr(formal, "col1")) - 1L),
+                    document$to_lsp_position(as.integer(xml_attr(formal, "line2")) - 1L,
+                        as.integer(xml_attr(formal, "col2")))
+                )
+            }
             documentation_ranges <- documented[[name]]
             if (!length(documentation_ranges)) next
 
-            line1 <- as.integer(xml_attr(formal_node, "line1"))
-            col1 <- as.integer(xml_attr(formal_node, "col1"))
-            line2 <- as.integer(xml_attr(formal_node, "line2"))
-            col2 <- as.integer(xml_attr(formal_node, "col2"))
-            formal_range <- range(
-                document$to_lsp_position(line1 - 1L, col1 - 1L),
-                document$to_lsp_position(line2 - 1L, col2)
-            )
             ranges <- c(list(formal_range), documentation_ranges)
             linked[[length(linked) + 1L]] <- ranges
         }

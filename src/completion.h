@@ -14,7 +14,8 @@ SEXP completion_parse_index_c(
     SEXP line1,
     SEXP col1,
     SEXP line2,
-    SEXP col2
+    SEXP col2,
+    SEXP syntax
 );
 
 /* Select the best completion candidate indexes with bounded memory. */

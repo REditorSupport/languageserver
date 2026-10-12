@@ -204,7 +204,8 @@ test_that("inlay hint helpers handle malformed and empty calls", {
 
 test_that("inlay hints handle empty parse data and boundary ranges", {
     fixture <- provider_fixture("target(one, two)")
-    fixture$document$parse_data$xml_doc <- NULL
+    fixture$document$parse_data$range_data <- NULL
+    fixture$document$parse_data$xml_doc <- fixture$document$parse_data$xml_data <- NULL
     request <- list(
         start = list(line = 0L, character = 0L),
         end = list(line = 1L, character = 0L)
@@ -341,6 +342,34 @@ test_that("inlay hints survive unrelated incomplete edits and refresh after pars
     )))
     expect_false(parsed$parse_error)
     expect_length(hints(), 0L)
+})
+
+test_that("edits strictly after the final call retain the inlay index directly", {
+    fixture <- provider_fixture(c("outer(target(one, two))", ""))
+    indexed <- fixture$document$inlay_hint_data
+    expect_equal(indexed$last_call_end, c(0L, 23L))
+    testthat::local_mocked_bindings(
+        get_range_text = function(...) stop("unexpected call scan"),
+        .package = "languageserver"
+    )
+    expect_identical(inlay_hint_apply_change(indexed, list(
+        range = range(position(1L, 0L), position(1L, 0L)),
+        text = "# incomplete("
+    ), fixture$document$content), indexed)
+})
+
+test_that("inlay edit bound covers nested outer calls and moves with edits", {
+    fixture <- provider_fixture(c("outer(", "  target(one, two)", ")", ""))
+    indexed <- fixture$document$inlay_hint_data
+    expect_equal(indexed$last_call_end, c(2L, 1L))
+    moved <- inlay_hint_apply_change(indexed, list(
+        range = range(position(0L, 0L), position(0L, 0L)), text = "\n"
+    ), fixture$document$content)
+    expect_equal(moved$last_call_end, c(3L, 1L))
+    changed <- inlay_hint_apply_change(indexed, list(
+        range = range(position(1L, 2L), position(1L, 2L)), text = "x"
+    ), fixture$document$content)
+    expect_null(changed)
 })
 
 test_that("inlay hints move untouched calls through sequential Unicode edits", {

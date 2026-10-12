@@ -54,7 +54,7 @@ static provider_token provider_kind(SEXP value) {
 
 /* Parse ids are dense integer identifiers, not data-frame row numbers.
  * Adjacency is built once and preserves source order amongst siblings. */
-static provider_tree provider_tree_init(SEXP data) {
+static provider_tree provider_tree_init(SEXP data, SEXP syntax) {
     SEXP ids = parse_column(data, "id", INTSXP);
     SEXP parents = parse_column(data, "parent", INTSXP);
     SEXP tokens = parse_column(data, "token", STRSXP);
@@ -74,6 +74,24 @@ static provider_tree provider_tree_init(SEXP data) {
         }
         if (tree.id[i] > tree.max_id) tree.max_id = tree.id[i];
         if (tree.parent[i] > tree.max_id) tree.max_id = tree.parent[i];
+    }
+    if (syntax != R_NilValue) {
+        SEXP row = parse_column(syntax, "id_row", INTSXP);
+        SEXP first = parse_column(syntax, "id_first", INTSXP);
+        SEXP next = parse_column(syntax, "id_next", INTSXP);
+        if (XLENGTH(row) <= tree.max_id || XLENGTH(first) <= tree.max_id || XLENGTH(next) != n) Rf_error("invalid shared provider syntax");
+        tree.row = INTEGER(row);
+        tree.first = INTEGER(first);
+        tree.next = INTEGER(next);
+        for (int i = 0; i <= tree.max_id; ++i) {
+            if (tree.row[i] < -1 || tree.row[i] >= tree.n || tree.first[i] < -1 || tree.first[i] >= tree.n) Rf_error("invalid shared provider row");
+        }
+        for (int i = 0; i < tree.n; ++i) {
+            if (tree.next[i] < -1 || tree.next[i] >= tree.n) Rf_error("invalid shared provider adjacency");
+        }
+        tree.kind = (provider_token *) R_alloc((size_t) tree.n, sizeof(provider_token));
+        for (int i = 0; i < tree.n; ++i) tree.kind[i] = provider_kind(STRING_ELT(tokens, i));
+        return tree;
     }
     size_t capacity = (size_t) tree.max_id + 1;
     tree.row = (int *) R_alloc(capacity, sizeof(int));
@@ -117,8 +135,8 @@ static SEXP provider_rows(const int *rows, int n, int offset) {
     return result;
 }
 
-SEXP function_assignment_ids_c(SEXP data) {
-    provider_tree tree = provider_tree_init(data);
+SEXP function_assignment_ids_c(SEXP data, SEXP syntax) {
+    provider_tree tree = provider_tree_init(data, syntax);
     int *function_expr = (int *) R_alloc((size_t) tree.max_id + 1, sizeof(int));
     memset(function_expr, 0, ((size_t) tree.max_id + 1) * sizeof(int));
     for (int i = 0; i < tree.n; i++) {
@@ -170,8 +188,8 @@ SEXP function_assignment_ids_c(SEXP data) {
     return provider_rows(result, count, 0);
 }
 
-SEXP range_provider_index_c(SEXP data) {
-    provider_tree tree = provider_tree_init(data);
+SEXP range_provider_index_c(SEXP data, SEXP syntax) {
+    provider_tree tree = provider_tree_init(data, syntax);
     int n = tree.n;
     int *pending = (int *) R_alloc((size_t) n, sizeof(int));
     int *queue = (int *) R_alloc((size_t) n, sizeof(int));

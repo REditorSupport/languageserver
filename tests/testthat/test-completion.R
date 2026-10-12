@@ -1893,6 +1893,12 @@ test_that("Indexed and XML scope completions agree on local symbols", {
     )
 
     parse_data$xml_doc <- NULL
+    restored <- scope_completion(fixture$uri, legacy_workspace, "local_", point,
+        snippet_support = FALSE)
+    expect_setequal(vapply(restored, `[[`, character(1L), "label"),
+        vapply(legacy, `[[`, character(1L), "label"))
+    expect_s3_class(parse_data$xml_doc, "xml_document")
+    parse_data$xml_doc <- parse_data$xml_data <- NULL
     expect_identical(
         scope_completion(fixture$uri, legacy_workspace, "x", point),
         list()
@@ -1917,6 +1923,10 @@ test_that("Token completion supports indexed and XML parse data", {
     expect_true("member" %in% vapply(legacy, `[[`, character(1L), "label"))
 
     parse_data$xml_doc <- NULL
+    restored <- token_completion(fixture$uri, legacy_workspace, "mem")
+    expect_equal(restored, legacy)
+    expect_s3_class(parse_data$xml_doc, "xml_document")
+    parse_data$xml_doc <- parse_data$xml_data <- NULL
     expect_identical(
         token_completion(fixture$uri, legacy_workspace, "mem"),
         list()

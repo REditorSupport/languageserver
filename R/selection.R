@@ -10,7 +10,27 @@ selection_range_reply <- function(id, uri, workspace, document, points) {
         return(Response$new(id))
     }
 
-    xdoc <- parse_data$xml_doc
+    syntax <- parse_data$syntax_data
+    if (!is.null(syntax)) {
+        result <- lapply(points, function(point) {
+            if (!check_r_region(document, point)) return(NULL)
+            row <- navigation_token(parse_data, point$row + 1L, point$col + 1L)
+            ancestors <- collections::stack()
+            while (row) {
+                ancestors$push(row)
+                row <- syntax$parent_row[[row]]
+            }
+            result <- NULL
+            while (ancestors$size()) {
+                row <- ancestors$pop()
+                result <- list(range = navigation_range(document, syntax, row), parent = result)
+            }
+            result
+        })
+        return(Response$new(id, result = result))
+    }
+
+    xdoc <- parse_data_xml(parse_data)
     if (!is.null(xdoc)) {
         result <- lapply(points, function(point) {
             if (!check_r_region(document, point)) return(NULL)

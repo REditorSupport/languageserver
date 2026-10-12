@@ -15,6 +15,8 @@ DEFAULT_WORKSPACE <- "_default_"
 LanguageServer <- R6::R6Class("LanguageServer",
     inherit = LanguageBase,
     private = list(
+        ready_reply_uris = NULL,
+        ready_reply_methods = NULL,
         finalize = function() {
             close(self$inputcon)
             super$finalize()
@@ -38,6 +40,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
         parse_task_manager = NULL,
         resolve_task_manager = NULL,
         formatting_task_manager = NULL,
+        index_task_manager = NULL,
         formatting_requests = NULL,
         pending_replies = NULL,
         initialize = function(host, port) {
@@ -50,7 +53,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             } else {
                 self$tcp <- TRUE
                 logger$info("connection type: tcp at ", port)
-                inputcon <- socketConnection(host = host, port = port, open = "r+b")
+                inputcon <- socketConnection(host = host, port = port, open = "r+b", blocking = FALSE)
                 logger$info("connected")
                 outputcon <- inputcon
             }
@@ -78,6 +81,10 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 "formatting", use_session = TRUE,
                 max_running_tasks = 1, min_idle_sessions = 0
             )
+            self$index_task_manager <- TaskManager$new(
+                "index", use_session = TRUE,
+                max_running_tasks = 1, min_idle_sessions = 0
+            )
             self$formatting_requests <- collections::dict()
 
             self$pending_replies <- collections::dict()
@@ -92,21 +99,26 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$diagnostics_task_manager$check_tasks()
             self$resolve_task_manager$check_tasks()
             self$formatting_task_manager$check_tasks()
+            if (!is.null(self$index_task_manager)) self$index_task_manager$check_tasks()
+            self$process_pending_replies()
             # Start latency-sensitive parse work before diagnostics.
             self$parse_task_manager$run_tasks()
-            if (!self$parse_task_manager$has_work()) {
-                for (workspace in self$workspaces$values()) {
-                    if (!is.null(workspace$index) &&
-                            isTRUE(workspace$index$enabled)) {
+            for (workspace in self$workspaces$values()) {
+                if (!is.null(workspace$index) && isTRUE(workspace$index$enabled)) {
+                    # Disk parsing and cache compression use one bounded worker
+                    # and can progress while the parse pool handles edits.
+                    if (!is.null(self$index_task_manager) ||
+                            !self$parse_task_manager$has_work()) {
                         workspace$index$process_batch()
                     }
                 }
-                self$diagnostics_task_manager$run_tasks()
             }
+            if (!is.null(self$index_task_manager)) self$index_task_manager$run_tasks()
+            self$diagnostics_task_manager$run_tasks()
             self$resolve_task_manager$run_tasks()
             self$formatting_task_manager$run_tasks()
             for (workspace in self$workspaces$values()) {
-                if (!isTRUE(workspace$poll_namespace_file())) {
+                if (!isTRUE(workspace$poll_namespace_file(throttle = TRUE))) {
                     next
                 }
                 for (doc in workspace$documents$values()) {
@@ -144,6 +156,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             }
             if (self$workspaces$has(key)) {
                 workspace <- self$workspaces$get(key)
+                if (!is.null(workspace$index)) workspace$index$detach_worker()
                 for (doc_uri in workspace$documents$keys()) {
                     diagnostics_callback(self, doc_uri, NULL, list())
                     doc <- workspace$documents$get(doc_uri)
@@ -204,6 +217,9 @@ LanguageServer <- R6::R6Class("LanguageServer",
             doc <- Document$new(
                 uri, language = "r", version = NULL, content = content)
             workspace$documents$set(uri, doc)
+            if (!is.null(workspace$index$task_manager)) {
+                workspace$index$await_parse(uri, cacheable = TRUE)
+            }
             self$text_sync(uri, document = doc, parse = TRUE)
             invisible(doc)
         },
@@ -229,7 +245,8 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     if (exists(uri, envir = visited, inherits = FALSE)) next
                     assign(uri, TRUE, envir = visited)
                     if (!index$summaries$has(uri)) {
-                        index$update_path(path_from_uri(uri))
+                        if (is.null(index$task_manager)) index$update_path(path_from_uri(uri))
+                        else index$queue_path(path_from_uri(uri))
                     }
                     if (!identical(uri, entry_key)) {
                         self$load_index_document(workspace, uri)
@@ -312,11 +329,19 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 return(invisible(NULL))
             }
             logger$info("load workspace:", workspace$root)
+            if (!is.null(self$index_task_manager)) {
+                workspace$index$attach_worker(self$index_task_manager,
+                    on_update = function(uris) self$refresh_index_documents(workspace))
+            }
             workspace$index$discover()
             for (uri in workspace$index$package_source_uris()) {
                 logger$info("load package file:", path_from_uri(uri))
                 if (!workspace$index$summaries$has(uri)) {
-                    workspace$index$update_path(path_from_uri(uri))
+                    if (is.null(workspace$index$task_manager)) {
+                        workspace$index$update_path(path_from_uri(uri))
+                    } else {
+                        workspace$index$await_parse(uri, cacheable = TRUE)
+                    }
                 }
                 self$load_index_document(workspace, uri)
             }
@@ -402,6 +427,72 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 stdin_read_char(n)
             }
         },
+        read_raw = function(n) {
+            self$check_connection()
+            if (isTRUE(self$exit_flag)) return(structure(raw(), eof = TRUE))
+            if (self$tcp) {
+                if (!socketSelect(list(self$inputcon), timeout = 0)) return(raw())
+                data <- readBin(self$inputcon, what = "raw", n = n)
+                if (!length(data)) attr(data, "eof") <- TRUE
+                data
+            } else {
+                .Call("stdin_read_raw", as.integer(n), PACKAGE = "languageserver")
+            }
+        },
+        wait_input = function(timeout) {
+            if (!isOpen(self$inputcon)) return(TRUE)
+            if (self$tcp) {
+                socketSelect(list(self$inputcon), timeout = timeout)[[1L]]
+            } else {
+                .Call("stdin_wait", timeout * 1000, PACKAGE = "languageserver")
+            }
+        },
+        on_input_eof = function() {
+            self$exit_flag <- TRUE
+            invisible(NULL)
+        },
+        input_wait_timeout = function(max_timeout = 0.01) {
+            if (!is.null(private$ready_reply_uris) && private$ready_reply_uris$size()) return(0)
+            timeout <- max_timeout
+            for (manager in list(self$parse_task_manager, self$diagnostics_task_manager,
+                    self$resolve_task_manager, self$formatting_task_manager, self$index_task_manager)) {
+                if (is.function(manager$wait_timeout)) timeout <- min(timeout, manager$wait_timeout(max_timeout))
+            }
+            timeout
+        },
+        queue_pending_replies = function(uri) {
+            if (is.null(private$ready_reply_uris)) {
+                private$ready_reply_uris <- collections::queue()
+                private$ready_reply_methods <- collections::dict()
+            }
+            if (!private$ready_reply_methods$has(uri)) {
+                private$ready_reply_methods$set(uri, 1L)
+                private$ready_reply_uris$push(uri)
+            }
+            invisible(NULL)
+        },
+        process_pending_replies = function(max_replies = 20L, time_budget_ms = 5) {
+            processed <- 0L
+            if (is.null(private$ready_reply_uris)) return(processed)
+            started <- proc.time()[[3L]]
+            while (private$ready_reply_uris$size() && processed < max_replies) {
+                uri <- private$ready_reply_uris$pop()
+                first <- private$ready_reply_methods$pop(uri)
+                document <- self$get_workspace(uri)$documents$get(uri, NULL)
+                if (!is.null(document$parse_data) &&
+                        identical(document$version, document$parse_data$version) &&
+                        identical(document$content, document$parsed_content)) {
+                    result <- drain_pending_replies(self, uri, document$version, 1L, first)
+                    processed <- processed + result$processed
+                    if (result$ready) {
+                        private$ready_reply_methods$set(uri, result$first)
+                        private$ready_reply_uris$push(uri)
+                    }
+                }
+                if ((proc.time()[[3L]] - started) * 1000 >= time_budget_ms) break
+            }
+            processed
+        },
         process_input = function(max_messages = 20L) {
             processed <- 0L
             # Apply queued edits and serve their requests before installing
@@ -422,6 +513,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     if (!is.null(self$diagnostics_task_manager)) self$diagnostics_task_manager$stop()
                     if (!is.null(self$resolve_task_manager)) self$resolve_task_manager$stop()
                     if (!is.null(self$formatting_task_manager)) self$formatting_task_manager$stop()
+                    if (!is.null(self$index_task_manager)) self$index_task_manager$stop()
                 },
                 add = TRUE
             )
@@ -436,8 +528,9 @@ LanguageServer <- R6::R6Class("LanguageServer",
                         processed <- self$process_input()
                         if (isTRUE(self$exit_flag)) next
                         self$process_events()
-                        if (!processed) {
-                            Sys.sleep(0.01)
+                        if (!processed && !(is.function(self$input_read_pending) && self$input_read_pending())) {
+                            timeout <- self$input_wait_timeout()
+                            if (timeout > 0) self$wait_input(timeout)
                         }
                     },
                     error = function(e) e

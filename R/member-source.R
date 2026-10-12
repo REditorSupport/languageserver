@@ -18,6 +18,24 @@ member_function_parts <- function(data) {
     parts
 }
 
+# Source references share one srcfile environment. Retain the small function
+# part table needed by recovery instead of its duplicate complete parse table.
+member_compact_source <- function(parsed, parts) {
+    srcfile <- attr(parsed, "srcfile")
+    if (!is.environment(srcfile)) return(0)
+    srcfile$.languageserver_function_parts <- parts
+    if (exists("parseData", envir = srcfile, inherits = FALSE)) rm("parseData", envir = srcfile)
+    as.numeric(utils::object.size(srcfile$lines)) + as.numeric(utils::object.size(as.list(parts)))
+}
+
+member_function_descriptor <- function(node, ref, parts) {
+    if (is.null(parts) || is.null(ref)) return(NULL)
+    key <- paste(ref[[1L]], ref[[5L]], ref[[3L]], ref[[6L]], sep = ":")
+    ranges <- parts[[key]]
+    defaults <- which(vapply(as.list(node[[2L]]), function(x) !identical(x, quote(expr = )), logical(1L)))
+    if (length(ranges) == length(defaults) + 1L) list(defaults = defaults, refs = ranges) else NULL
+}
+
 member_scope_index <- function(node) {
     children <- as.list(node)[-1L]
     assigned <- vapply(children, function(child) {
@@ -71,7 +89,7 @@ member_source_index <- function(expr, parts) {
         }
         if (member_head(node, "{")) {
             scope <- member_scope_index(node)
-            bytes <<- bytes + as.numeric(object.size(as.list(scope$histories)))
+            bytes <<- bytes + as.numeric(utils::object.size(as.list(scope$histories)))
             scopes[[key]] <- scope
             whole <- attr(node, "wholeSrcref")
             if (!is.null(whole)) ref <- whole
@@ -106,10 +124,10 @@ member_source_index <- function(expr, parts) {
     }
     walk(expr, 1L)
     if (!length(scopes) && !length(functions)) return(NULL)
-    # Account for hashed contents separately: object.size() treats environments
+    # Account for hashed contents separately: utils::object.size() treats environments
     # as shallow handles. The parse cache reserves these bytes on insertion.
     bytes <- bytes + sum(vapply(list(scopes, routes, functions, contexts), function(records) {
-        as.numeric(object.size(as.list(records)))
+        as.numeric(utils::object.size(as.list(records)))
     }, numeric(1L)))
     list(scopes = scopes, routes = routes, functions = functions, contexts = contexts, bytes = bytes)
 }

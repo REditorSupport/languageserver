@@ -9,6 +9,7 @@ Document <- R6::R6Class(
         content = NULL,
         call_scan_cache = NULL,
         parse_data = NULL,
+        parsed_content = NULL,
         inlay_hint_data = NULL,
         inlay_hint_formals = NULL,
         is_rmarkdown = NULL,
@@ -49,15 +50,15 @@ Document <- R6::R6Class(
             # still require the accepted current-version parse.
             self$member_ordinary_edit <- FALSE
             if (current && !self$is_rmarkdown && !isTRUE(self$parse_data$parse_error) &&
-                    !is.null(change$range) && length(content) == length(self$content)) {
-                changed <- which(content != self$content)
+                    !is.null(change$range) && length(content) == length(self$content) &&
+                    change$range$start$line == length(content) - 1L &&
+                    change$range$end$line == length(content) - 1L) {
+                changed <- length(content)
                 items <- self$parse_data$member_data$items
                 last <- if (length(items)) items[[length(items)]]
                 standalone <- is.null(last) || last$end[[1L]] < length(content) - 1L ||
                     (is.symbol(last$expr) && last$start[[1L]] == length(content) - 1L)
-                if (length(changed) == 1L && changed == length(content) && standalone &&
-                        change$range$start$line == length(content) - 1L &&
-                        change$range$end$line == length(content) - 1L) {
+                if (standalone && !identical(content[[changed]], self$content[[changed]])) {
                     pattern <- "^[ \\t]*[[:alnum:]_.]*[ \\t]*$"
                     self$member_ordinary_edit <- grepl(pattern, self$content[[changed]]) &&
                         grepl(pattern, content[[changed]])
@@ -132,10 +133,13 @@ Document <- R6::R6Class(
             self$member_receivers$clear()
             self$member_ordinary_edit <- FALSE
             self$parse_data <- parse_data
+            self$parsed_content <- self$content
             if (!isTRUE(parse_data$parse_error) && !isTRUE(parse_data$inlay_hint_incomplete)) {
                 self$inlay_hint_data <- parse_data$range_data[c(
                     "calls", "arguments", "argument_order", "argument_lines"
                 )]
+                self$inlay_hint_data$last_call_end <-
+                    inlay_hint_last_call_end(self$inlay_hint_data$calls)
                 self$inlay_hint_formals <- new.env(parent = emptyenv())
             }
         },
@@ -469,16 +473,13 @@ parse_expr <- function(content, expr, env, srcref = attr(expr, "srcref")) {
                         values <- updates[[name]]
                         values <- values[nzchar(values)]
                         if (length(values)) {
-                            if (name == "nonfuncts" &&
-                                    !is.null(env$nonfuncts_n)) {
-                                existing <- if (env$nonfuncts_n) {
-                                    env$nonfuncts[seq_len(env$nonfuncts_n)]
-                                } else {
-                                    character()
-                                }
-                                for (value in setdiff(values, existing)) {
-                                    env$nonfuncts_n <- env$nonfuncts_n + 1L
-                                    env$nonfuncts[[env$nonfuncts_n]] <- value
+                            if (name == "nonfuncts") {
+                                for (value in values) {
+                                    if (!exists(value, envir = env$nonfuncts_seen,
+                                            inherits = FALSE)) {
+                                        env$nonfuncts$push(value)
+                                        assign(value, TRUE, envir = env$nonfuncts_seen)
+                                    }
                                 }
                             } else {
                                 env[[name]] <- union(env[[name]], values)
@@ -489,15 +490,13 @@ parse_expr <- function(content, expr, env, srcref = attr(expr, "srcref")) {
                 assign = function(symbol, value, type = get_expr_type(value)) {
                     if (!nzchar(symbol)) return(NULL)
 
-                    env$objects_n <- env$objects_n + 1L
-                    env$objects[[env$objects_n]] <- symbol
+                    env$objects$push(symbol)
 
                     expr_range <- expr_range(srcref)
                     if (!exists(
                         symbol, envir = env$definitions_store,
                         inherits = FALSE)) {
-                        env$definitions_n <- env$definitions_n + 1L
-                        env$definition_names[[env$definitions_n]] <- symbol
+                        env$definition_names$push(symbol)
                     }
                     assign(symbol, list(
                         name = symbol,
@@ -511,8 +510,7 @@ parse_expr <- function(content, expr, env, srcref = attr(expr, "srcref")) {
                         if (!exists(
                             symbol, envir = env$documentation_store,
                             inherits = FALSE)) {
-                            env$documentation_n <- env$documentation_n + 1L
-                            env$documentation_names[[env$documentation_n]] <- symbol
+                            env$documentation_names$push(symbol)
                         }
                         assign(
                             symbol,
@@ -522,23 +520,21 @@ parse_expr <- function(content, expr, env, srcref = attr(expr, "srcref")) {
                     }
 
                     if (type == "function") {
-                        env$functs_n <- env$functs_n + 1L
-                        env$functs[[env$functs_n]] <- symbol
+                        env$functs$push(symbol)
                         fun <- null_function
                         formals(fun) <- value[[2L]]
                         if (!exists(
                             symbol, envir = env$functions_store,
                             inherits = FALSE)) {
-                            env$functions_n <- env$functions_n + 1L
-                            env$function_names[[env$functions_n]] <- symbol
+                            env$function_names$push(symbol)
                         }
                         assign(symbol, utils::removeSource(fun), envir = env$functions_store)
                         assign(
                             symbol, get_signature(symbol, value),
                             envir = env$signatures_store)
                     } else {
-                        env$nonfuncts_n <- env$nonfuncts_n + 1L
-                        env$nonfuncts[[env$nonfuncts_n]] <- symbol
+                        env$nonfuncts$push(symbol)
+                        assign(symbol, TRUE, envir = env$nonfuncts_seen)
                     }
                 },
                 parse = function(expr, srcref_override = NULL) {
@@ -614,6 +610,10 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
         env$documentation <- list()
         env$xml_data <- NULL
         env$xml_doc <- NULL
+        env$syntax_data <- syntax_parse_data(NULL)
+        env$outline_data <- outline_parse_data(env$syntax_data)
+        env$class_data <- NULL
+        env$navigation_data <- navigation_parse_data(env$syntax_data)
         env$completion_data <- completion_parse_data(NULL)
         env$member_data <- NULL
         env$semantic_data <- empty_semantic_data()
@@ -632,69 +632,72 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
     logger$info("parse_document: parsing", uri)
     expr <- tryCatch(parse(text = content, keep.source = TRUE), error = function(e) NULL)
     if (!is.null(expr)) {
-        capacity <- max(length(expr), 1L)
-        env$objects <- character(capacity)
-        env$functs <- character(capacity)
-        env$nonfuncts <- character(capacity)
-        env$objects_n <- 0L
-        env$functs_n <- 0L
-        env$nonfuncts_n <- 0L
+        # Native queues append in constant time. Updating vectors bound to an
+        # environment copies their whole capacity on every assignment.
+        env$objects <- collections::queue()
+        env$functs <- collections::queue()
+        env$nonfuncts <- collections::queue()
+        env$nonfuncts_seen <- new.env(hash = TRUE, parent = emptyenv())
         env$definitions_store <- new.env(hash = TRUE, parent = emptyenv())
         env$documentation_store <- new.env(hash = TRUE, parent = emptyenv())
         env$functions_store <- new.env(hash = TRUE, parent = emptyenv())
         env$signatures_store <- new.env(hash = TRUE, parent = emptyenv())
-        env$definition_names <- character(capacity)
-        env$documentation_names <- character(capacity)
-        env$function_names <- character(capacity)
-        env$definitions_n <- 0L
-        env$documentation_n <- 0L
-        env$functions_n <- 0L
+        env$definition_names <- collections::queue()
+        env$documentation_names <- collections::queue()
+        env$function_names <- collections::queue()
 
         parse_expr(content, expr, env)
-        trim <- function(values, count) {
-            if (count) values[seq_len(count)] else character()
+        names_vector <- function(queue) {
+            if (queue$size()) unlist(queue$as_list(), use.names = FALSE)
+            else character()
         }
-        materialize <- function(store, names, count) {
-            if (!count) return(list())
-            mget(names[seq_len(count)], envir = store, inherits = FALSE)
+        materialize <- function(store, names) {
+            if (!names$size()) return(list())
+            mget(names_vector(names), envir = store, inherits = FALSE)
         }
-        env$objects <- trim(env$objects, env$objects_n)
-        env$functs <- trim(env$functs, env$functs_n)
-        env$nonfuncts <- trim(env$nonfuncts, env$nonfuncts_n)
+        env$objects <- names_vector(env$objects)
+        env$functs <- names_vector(env$functs)
+        env$nonfuncts <- names_vector(env$nonfuncts)
         env$definitions <- materialize(
-            env$definitions_store, env$definition_names, env$definitions_n)
+            env$definitions_store, env$definition_names)
         env$documentation <- materialize(
             env$documentation_store,
-            env$documentation_names,
-            env$documentation_n
+            env$documentation_names
         )
         env$functions <- materialize(
-            env$functions_store, env$function_names, env$functions_n)
+            env$functions_store, env$function_names)
         env$signatures <- materialize(
-            env$signatures_store, env$function_names, env$functions_n)
+            env$signatures_store, env$function_names)
         rm(list = c(
-            "objects_n", "functs_n", "nonfuncts_n",
+            "nonfuncts_seen",
             "definitions_store", "documentation_store",
             "functions_store", "signatures_store",
-            "definition_names", "documentation_names", "function_names",
-            "definitions_n", "documentation_n", "functions_n"
+            "definition_names", "documentation_names", "function_names"
         ), envir = env)
 
         env$packages <- basename(find.package(env$packages, quiet = TRUE))
         data <- utils::getParseData(expr)
+        env$syntax_data <- syntax_parse_data(data)
+        env$outline_data <- outline_parse_data(env$syntax_data)
+        env$navigation_data <- navigation_parse_data(env$syntax_data)
         env$member_data <- member_document_index(content, expr, data)
-        env$completion_data <- completion_parse_data(data)
-        env$semantic_data <- semantic_parse_data(data, content)
-        env$range_data <- range_provider_parse_data(data, content)
+        env$completion_data <- completion_parse_data(data, env$syntax_data)
+        env$semantic_data <- semantic_parse_data(data, content, env$syntax_data)
+        env$range_data <- range_provider_parse_data(data, content, env$syntax_data)
         env$source_specs <- index_source_specs(expr)
         env$reference_index <- reference_parse_data(
             data, content, env$completion_data, uri, env$definitions)
         # Performance: XML generation is expensive, but necessary for analysis
         env$xml_data <- xmlparsedata::xml_parse_data(data)
+        env$class_data <- tryCatch(class_parse_data(uri, content, env$xml_data,
+                env$syntax_data, env$definitions), error = function(e) NULL)
+        # These original-id lookup tables are used only while constructing
+        # worker indexes. Providers use the compact physical syntax tree.
+        env$syntax_data[c("id_row", "id_first", "id_next", "id_function_scope", "scope_row",
+                "parent", "first_child", "next_sibling", "function_scope", "top", "order")] <- NULL
         # IMPORTANT: Do NOT create xml_doc here - this function runs in a child process
         # and xml2 external pointers cannot be serialized across process boundaries.
-        # xml_doc will be created in the main process by update_parse_data()
-        
+        # Legacy providers materialize it lazily in the main process.
     } else {
         # Keep the parse version current even while the user is typing an
         # incomplete expression. Providers can now return an empty result
@@ -722,12 +725,13 @@ member_package_request <- function(parse_data) {
 }
 
 
-parse_callback <- function(self, uri, version, parse_data) {
+parse_callback <- function(self, uri, version, parse_data, source_content = NULL) {
     workspace <- self$get_workspace(uri)
     if (is.null(parse_data) || !workspace$documents$has(uri)) return(NULL)
     logger$info("parse_callback called:", list(uri = uri, version = version))
     doc <- workspace$documents$get(uri)
-    if (!is.null(version) && !identical(doc$version, version)) {
+    if ((!is.null(version) && !identical(doc$version, version)) ||
+            (!is.null(source_content) && !identical(doc$content, source_content))) {
         logger$info("parse_callback: discarded stale result", list(
             uri = uri,
             result_version = version,
@@ -759,6 +763,11 @@ parse_callback <- function(self, uri, version, parse_data) {
     if (!is.null(parse_data$content_hash)) {
         cache_entry <- as.list(parse_data)
         cache_entry$xml_doc <- NULL
+        if (!is.null(cache_entry$navigation_data)) {
+            cache_entry$navigation_data$cache <- new.env(hash = TRUE, parent = emptyenv())
+        }
+        for (name in c("document_symbols_cache", "folding_ranges_cache", "link_strings_cache",
+                "linked_editing_cache", "colors_cache")) cache_entry[[name]] <- NULL
         # Local reference identities and cached flat symbols contain the URI.
         # Identical text in another file may share semantic tokens, but must
         # not reuse those document-specific provider results.
@@ -766,6 +775,15 @@ parse_callback <- function(self, uri, version, parse_data) {
         source_bytes <- sum(vapply(cache_entry$member_data$items, function(item) {
             if (is.null(item$source$bytes)) 0 else item$source$bytes
         }, numeric(1L)))
+        if (!is.null(cache_entry$navigation_data$bytes)) {
+            source_bytes <- source_bytes + cache_entry$navigation_data$bytes
+        }
+        if (!is.null(cache_entry$member_data$source_bytes)) {
+            source_bytes <- source_bytes + cache_entry$member_data$source_bytes
+        }
+        if (!is.null(cache_entry$class_data$bytes)) {
+            source_bytes <- source_bytes + cache_entry$class_data$bytes
+        }
         if (inherits(workspace$parse_cache, "ByteLruCache")) {
             workspace$parse_cache$set(parse_data$content_hash, cache_entry, additional_bytes = source_bytes)
         } else {
@@ -791,31 +809,50 @@ parse_callback <- function(self, uri, version, parse_data) {
         }
     }
 
-    pending_replies <- self$pending_replies$get(uri, NULL)
-    for (name in names(pending_replies)) {
-        queue <- pending_replies[[name]]
-        handler <- self$request_handlers[[name]]
-        while (queue$size()) {
-            item <- queue$peek()
-            if (is.null(version) || item$version == version) {
-                handler(self, item$id, item$params)
-                queue$pop()
-            } else if (item$version < version) {
-                self$deliver(ResponseErrorMessage$new(
-                    item$id,
-                    "RequestCancelled",
-                    "Request superseded by a newer parse result"
-                ))
-                queue$pop()
-            } else {
-                break
-            }
-        }
+    if (is.function(self$queue_pending_replies)) {
+        self$queue_pending_replies(uri)
+    } else {
+        drain_pending_replies(self, uri, version)
     }
+    invisible(NULL)
+}
+
+#' Serve a bounded round of pending providers, rotating between methods
+#' @noRd
+drain_pending_replies <- function(self, uri, version, max_replies = Inf, first = 1L) {
+    queues <- self$pending_replies$get(uri, NULL)
+    n <- length(queues)
+    processed <- 0L
+    if (!n) return(list(processed = processed, ready = FALSE, first = 1L))
+    eligible <- function(queue) {
+        if (!queue$size()) return(FALSE)
+        item <- queue$peek()
+        is.null(version) || is.null(item$version) || item$version <= version
+    }
+    repeat {
+        available <- which(vapply(queues, eligible, logical(1L)))
+        if (!length(available) || processed >= max_replies) break
+        after <- available[available >= first]
+        selected <- if (length(after)) after[[1L]] else available[[1L]]
+        item <- queues[[selected]]$pop()
+        first <- selected %% n + 1L
+        if (!is.null(version) && !is.null(item$version) && item$version < version) {
+            self$deliver(ResponseErrorMessage$new(item$id, "RequestCancelled",
+                    "Request superseded by a newer parse result"))
+        } else {
+            handler <- self$request_handlers[[names(queues)[[selected]]]]
+            tryCatchStack(handler(self, item$id, item$params), error = function(e) {
+                self$deliver(ResponseErrorMessage$new(item$id, "InternalError", to_string(e)))
+            })
+        }
+        processed <- processed + 1L
+    }
+    list(processed = processed, ready = any(vapply(queues, eligible, logical(1L))), first = first)
 }
 
 parse_task <- function(self, uri, document, delay = 0) {
     version <- document$version
+    source_content <- document$content
     if (document$is_rmarkdown) {
         content <- document$content
         cache_content <- normalize_parse_content(
@@ -833,7 +870,10 @@ parse_task <- function(self, uri, document, delay = 0) {
         if (identical(cached_entry$cache_uri, uri)) {
             logger$info("parse_task: cache hit for", uri)
             cached_env <- list2env(cached_entry, parent = .GlobalEnv)
-            parse_callback(self, uri, version, cached_env)
+            if (!is.null(cached_env$navigation_data)) {
+                cached_env$navigation_data$cache <- new.env(hash = TRUE, parent = emptyenv())
+            }
+            parse_callback(self, uri, version, cached_env, source_content)
             return(NULL)
         }
     }
@@ -846,7 +886,7 @@ parse_task <- function(self, uri, document, delay = 0) {
             is_rmarkdown = document$is_rmarkdown,
             content_hash = content_hash
         ),
-        callback = function(result) parse_callback(self, uri, version, result),
+        callback = function(result) parse_callback(self, uri, version, result, source_content),
         error = function(e) logger$info("parse_task:", e),
         delay = delay
     )

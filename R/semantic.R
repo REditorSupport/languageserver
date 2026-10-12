@@ -73,9 +73,9 @@ empty_semantic_data <- function() {
 #'
 #' Parentheses around function expressions are ignored.
 #' @noRd
-function_assignment_symbol_ids <- function(data) {
+function_assignment_symbol_ids <- function(data, syntax = NULL) {
     if (is.null(data) || !nrow(data)) return(integer())
-    .Call("function_assignment_ids_c", data, PACKAGE = "languageserver")
+    .Call("function_assignment_ids_c", data, syntax, PACKAGE = "languageserver")
 }
 
 #' Whether an XML SYMBOL is assigned `function()` or `\()`
@@ -108,7 +108,7 @@ xml_symbol_is_function_assignment <- function(node) {
 #' This runs in the parse worker. Keeping ordinary integer vectors here avoids
 #' repeatedly walking the XML document on the main language-server thread.
 #' @noRd
-semantic_parse_data <- function(data, content) {
+semantic_parse_data <- function(data, content, syntax = NULL) {
     if (is.null(data) || !nrow(data)) {
         return(empty_semantic_data())
     }
@@ -155,7 +155,7 @@ semantic_parse_data <- function(data, content) {
     )
     modifiers <- as.integer(modifiers)
 
-    fun_lhs_ids <- function_assignment_symbol_ids(data)
+    fun_lhs_ids <- function_assignment_symbol_ids(data, syntax)
     if (length(fun_lhs_ids)) {
         fun_lhs <- data$id[single_rows] %in% fun_lhs_ids
         types[fun_lhs] <- SemanticTokenTypes[["function"]]
@@ -167,17 +167,10 @@ semantic_parse_data <- function(data, content) {
 
     non_ascii_lines <- nchar(content, type = "bytes") !=
         nchar(content, type = "chars")
-    convert <- which(non_ascii_lines[data$line1[single_rows]])
-    for (i in convert) {
-        row_index <- single_rows[[i]]
-        line_text <- content[[data$line1[[row_index]]]]
-        utf16 <- code_point_to_unit(
-            line_text,
-            c(data$col1[[row_index]] - 1L, data$col2[[row_index]])
-        )
-        cols[[i]] <- utf16[[1L]]
-        lengths[[i]] <- utf16[[2L]] - utf16[[1L]]
-    }
+    units <- syntax_unit_columns(content, data$line1[single_rows],
+        cols, data$col2[single_rows], non_ascii_lines)
+    cols <- units$start
+    lengths <- as.integer(units$end - units$start)
 
     # Semantic tokens are single-line. Split the rare multiline string into
     # one token per non-empty source line.
@@ -313,7 +306,7 @@ extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
         }))
     }
 
-    xdoc <- workspace$get_parse_data(uri)$xml_doc
+    xdoc <- parse_data_xml(workspace$get_parse_data(uri))
     if (is.null(xdoc)) {
         return(list())
     }

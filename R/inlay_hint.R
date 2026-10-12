@@ -49,12 +49,24 @@ match_named_formal <- function(name, formal_names) {
 
 #' Move untouched calls with an incremental edit, discarding intersecting calls
 #' @noRd
+inlay_hint_last_call_end <- function(calls) {
+    if (!length(calls$name)) return(NULL)
+    line <- max(calls$end_line)
+    c(line, max(calls$end_col[calls$end_line == line]))
+}
+
+#' @noRd
 inlay_hint_apply_change <- function(indexed, change, content) {
     if (is.null(indexed) || is.null(change$range)) return(NULL)
     calls <- indexed$calls
     if (!length(calls$name)) return(indexed)
     start <- change$range$start
     end <- change$range$end
+    last <- indexed$last_call_end
+    if (!is.null(last) && (start$line > last[[1L]] ||
+                start$line == last[[1L]] && start$character > last[[2L]])) {
+        return(indexed)
+    }
     before <- calls$end_line < start$line |
         calls$end_line == start$line & calls$end_col <= start$character
     after <- calls$line > end$line |
@@ -124,6 +136,7 @@ inlay_hint_apply_change <- function(indexed, change, content) {
         arguments$line[indexed$argument_order], arguments$col[indexed$argument_order]
     )]
     indexed$argument_lines <- arguments$line[indexed$argument_order]
+    indexed$last_call_end <- inlay_hint_last_call_end(calls)
     indexed
 }
 
@@ -152,15 +165,15 @@ inlay_hint_reply <- function(id, uri, workspace, document, request_range) {
         }, character(1L))
         return(Response$new(id, result = utils::head(hints[!duplicated(positions)], 200L)))
     }
-    xdoc <- parse_data$xml_doc
-    if (is.null(xdoc)) return(Response$new(id, result = list()))
-
     if (!is.null(parse_data$range_data)) {
         return(indexed_inlay_hint_reply(
             id, uri, workspace, parse_data$range_data, request_range,
             document$inlay_hint_formals
         ))
     }
+
+    xdoc <- parse_data_xml(parse_data)
+    if (is.null(xdoc)) return(Response$new(id, result = list()))
 
     start_line <- request_range$start$line + 1L
     end_line <- request_range$end$line + 1L

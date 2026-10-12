@@ -1,3 +1,28 @@
+test_that("Unicode columns are converted once per line with scalar-equivalent positions", {
+    content <- c(paste0("\"", intToUtf8(0x1f600), "\"; ", intToUtf8(0x03b1), " <- 1; ",
+        intToUtf8(0x03b1), " + ", intToUtf8(0x03b1)), "plain <- plain", "é <- é")
+    lines <- c(1L, 1L, 2L, 1L, 3L, NA_integer_)
+    starts <- c(0L, 5L, 0L, 12L, 0L, NA_integer_)
+    ends <- c(3L, 6L, 5L, 13L, 1L, NA_integer_)
+    scalar <- function(points) {
+        vapply(seq_along(points), function(i) {
+            if (is.na(lines[[i]])) return(NA_integer_)
+            code_point_to_unit(content[[lines[[i]]]], points[[i]])
+        }, integer(1L))
+    }
+    expected <- list(start = scalar(starts), end = scalar(ends))
+    calls <- list()
+    convert <- syntax_unit_columns
+    stub(convert, "code_point_to_unit", function(line, pts) {
+        calls[[length(calls) + 1L]] <<- line
+        code_point_to_unit(line, pts)
+    })
+    expect_identical(convert(content, lines, starts, ends), expected)
+    expect_identical(unlist(calls, use.names = FALSE), content[c(1L, 3L)])
+    expect_identical(syntax_unit_columns(character(), integer(), integer(), integer()),
+        list(start = integer(), end = integer()))
+})
+
 test_that("Semantic tokens full works", {
     skip_on_cran()
     client <- language_client()

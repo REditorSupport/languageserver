@@ -23,7 +23,43 @@ definition_reply <- function(id, uri, workspace, document, point, rootPath,
     resolved <- FALSE
     result <- NULL
 
-    xdoc <- workspace$get_parse_data(uri)$xml_doc
+    parse_data <- workspace$get_parse_data(uri)
+    syntax <- parse_data$syntax_data
+    if (token_result$accessor == "" && !is.null(syntax)) {
+        row <- point$row + 1L
+        col <- point$col + 1L
+        token <- navigation_token(parse_data, row, col)
+        if (token) {
+            token_name <- syntax$token[[token]]
+            token_text <- syntax$text[[token]]
+            if (token_name %in% c("SYMBOL", "SYMBOL_FUNCTION_CALL", "SYMBOL_FORMALS")) {
+                if (!navigation_after_dollar(syntax, token)) {
+                    found <- navigation_definitions(parse_data, row, col, token_text,
+                        token = token, last = TRUE)
+                    if (length(found)) {
+                        result <- list(uri = uri, range = navigation_range(document, syntax, found[[1L]]))
+                        resolved <- TRUE
+                    }
+                }
+            } else if (token_name == "STR_CONST") {
+                first <- syntax$line1[[token]]
+                if (first == syntax$line2[[token]]) {
+                    text <- substr(document$content[[first]], syntax$col1[[token]], syntax$col2[[token]])
+                    text <- tryCatch(as.character(parse(text = text, keep.source = FALSE)), error = function(e) NULL)
+                    if (is.character(text) && with_wd(rootPath,
+                            file.exists(text) && !dir.exists(text) && is_text_file(text))) {
+                        result <- list(uri = path_to_uri(fs::path_abs(text, rootPath)),
+                            range = range(position(0, 0), position(0, 0)))
+                    }
+                }
+                resolved <- TRUE
+            } else {
+                resolved <- TRUE
+            }
+        }
+    }
+
+    xdoc <- if (is.null(syntax)) parse_data_xml(parse_data)
     if (token_result$accessor == "" && !is.null(xdoc)) {
         row <- point$row + 1
         col <- point$col + 1

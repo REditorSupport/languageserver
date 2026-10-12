@@ -4,6 +4,9 @@
 LanguageBase <- R6::R6Class("LanguageBase",
     private = list(
         ticket = 0,
+        message_buffer = NULL,
+        input_eof = FALSE,
+        last_input_read = FALSE,
 
         finalize = function() {
             self$request_callbacks$clear()
@@ -92,16 +95,66 @@ LanguageBase <- R6::R6Class("LanguageBase",
             data
         },
 
+        input_read_pending = function() private$last_input_read,
+
         fetch = function(blocking = FALSE, timeout = Inf) {
+            private$last_input_read <- FALSE
+            # Callers may pass a difftime remaining budget from a deadline.
+            timeout <- if (inherits(timeout, "difftime")) as.numeric(timeout, units = "secs") else as.numeric(timeout)
+            start_time <- proc.time()[["elapsed"]]
+            if (is.function(self$read_raw) && !identical(self$raw_input_available, FALSE)) {
+                if (is.null(private$message_buffer)) {
+                    private$message_buffer <- .Call("new_message_buffer_c",
+                        PACKAGE = "languageserver")
+                }
+                repeat {
+                    data <- .Call("message_buffer_fetch_c", private$message_buffer,
+                        PACKAGE = "languageserver")
+                    if (!is.null(data)) return(data)
+                    if (private$input_eof) {
+                        if (isTRUE(.Call("message_buffer_pending_c",
+                                    private$message_buffer, PACKAGE = "languageserver"))) {
+                            stop("stdin connection closed during a message")
+                        }
+                        if (is.function(self$on_input_eof)) self$on_input_eof()
+                        return(NULL)
+                    }
+                    chunk <- self$read_raw(65536L)
+                    if (isTRUE(attr(chunk, "eof"))) private$input_eof <- TRUE
+                    if (length(chunk)) {
+                        private$last_input_read <- TRUE
+                        .Call("message_buffer_append_c", private$message_buffer, chunk,
+                            PACKAGE = "languageserver")
+                        data <- .Call("message_buffer_fetch_c", private$message_buffer,
+                            PACKAGE = "languageserver")
+                        if (!is.null(data)) return(data)
+                    }
+                    if (private$input_eof) {
+                        if (isTRUE(.Call("message_buffer_pending_c",
+                                    private$message_buffer, PACKAGE = "languageserver"))) {
+                            stop("stdin connection closed during a message")
+                        }
+                        if (is.function(self$on_input_eof)) self$on_input_eof()
+                        return(NULL)
+                    }
+                    if (!blocking) return(NULL)
+                    remaining <- timeout - (proc.time()[["elapsed"]] - start_time)
+                    if (remaining <= 0) return(NULL)
+                    if (!length(chunk) && !private$input_eof) {
+                        wait <- min(remaining, 0.05)
+                        if (is.function(self$wait_input)) self$wait_input(wait)
+                        else Sys.sleep(wait)
+                    }
+                }
+            }
             self$check_connection()
-            start_time <- Sys.time()
             nbytes <- self$read_header()
             if (is.null(nbytes)) {
                 if (!blocking) {
                     return(NULL)
                 } else {
                     while (is.null(nbytes)) {
-                        if (Sys.time() - start_time > timeout) {
+                        if (proc.time()[["elapsed"]] - start_time > timeout) {
                             return(NULL)
                         }
                         Sys.sleep(0.1)

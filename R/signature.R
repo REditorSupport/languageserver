@@ -118,7 +118,25 @@ signature_reply <- function(id, uri, workspace, document, point) {
     sig <- NULL
 
     if (nzchar(result$token)) {
-        xdoc <- workspace$get_parse_data(uri)$xml_doc
+        parse_data <- workspace$get_parse_data(uri)
+        syntax <- parse_data$syntax_data
+        if (result$accessor == "" && !is.null(syntax)) {
+            found <- navigation_definitions(parse_data, point$row + 1L, point$col + 1L,
+                result$token, "signature", last = TRUE)
+            if (length(found)) {
+                declaration <- found[[1L]]
+                sig <- navigation_signature(document, parse_data, declaration, result$token)
+                doc <- navigation_documentation(document, parse_data, syntax$line1[[declaration]])
+                doc_string <- if (is.character(doc)) doc else if (is.list(doc)) {
+                    if (is.null(doc$markdown)) doc$description else doc$markdown
+                }
+                documentation <- if (is.null(doc)) "" else list(kind = "markdown", value = if (is.null(doc_string)) "" else doc_string)
+                SignatureInformation <- list(list(label = sig, documentation = documentation,
+                        parameters = parse_signature_parameters(sig)))
+                activeSignature <- 0
+            }
+        }
+        xdoc <- if (is.null(syntax)) parse_data_xml(parse_data)
         if (result$accessor == "" && !is.null(xdoc)) {
             row <- point$row + 1
             col <- point$col + 1

@@ -284,7 +284,7 @@ call_hierarchy_incoming_calls_reply <- function(id, workspace, item) {
         workspace, item$uri, context_uri)
     for (doc_uri in doc_uris) {
         doc <- workspace$documents$get(doc_uri)
-        xdoc <- workspace$get_parse_data(doc_uri)$xml_doc
+        xdoc <- parse_data_xml(workspace$get_parse_data(doc_uri))
         if (is.null(xdoc)) next
 
         defns <- workspace$get_definitions_for_uri(doc_uri)
@@ -444,7 +444,7 @@ call_hierarchy_outgoing_calls_reply <- function(id, workspace, item) {
     }
 
     doc <- workspace$documents$get(item$uri)
-    xdoc <- workspace$get_parse_data(item$uri)$xml_doc
+    xdoc <- parse_data_xml(workspace$get_parse_data(item$uri))
 
     if (is.null(xdoc)) {
         return(Response$new(id))

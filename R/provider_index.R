@@ -1,6 +1,6 @@
 #' Build serializable indexes for viewport providers in the parse worker
 #' @noRd
-range_provider_parse_data <- function(data, content) {
+range_provider_parse_data <- function(data, content, syntax = NULL) {
     empty <- list(
         variables = list(
             name = character(), line = integer(), col = integer(),
@@ -22,7 +22,7 @@ range_provider_parse_data <- function(data, content) {
     )
     if (is.null(data) || !nrow(data)) return(empty)
 
-    index <- .Call("range_provider_index_c", data, PACKAGE = "languageserver")
+    index <- .Call("range_provider_index_c", data, syntax, PACKAGE = "languageserver")
     variable_rows <- index$variable
     variable_rows <- variable_rows[order(
         data$line1[variable_rows], data$col1[variable_rows]

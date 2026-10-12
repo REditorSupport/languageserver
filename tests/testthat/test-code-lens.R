@@ -95,9 +95,14 @@ test_that("code lenses cover XML fallback and non-resolvable definitions", {
 
     expect_length(function_call_locations(fixture$workspace, "absent"), 0L)
     saved_xml <- fixture$document$parse_data$xml_doc
+    saved_xml_data <- fixture$document$parse_data$xml_data
     fixture$document$parse_data$xml_doc <- NULL
+    expect_equal(function_call_locations(fixture$workspace, "foo"), locations)
+    expect_s3_class(fixture$document$parse_data$xml_doc, "xml_document")
+    fixture$document$parse_data$xml_doc <- fixture$document$parse_data$xml_data <- NULL
     expect_length(function_call_locations(fixture$workspace, "foo"), 0L)
     fixture$document$parse_data$xml_doc <- saved_xml
+    fixture$document$parse_data$xml_data <- saved_xml_data
 
     incomplete <- list(data = list(uri = fixture$uri))
     expect_identical(

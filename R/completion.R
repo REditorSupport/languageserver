@@ -63,7 +63,7 @@ constants <- c("TRUE", "FALSE", "NULL",
 #' repeatedly walk the complete XML parse tree. All values stored here are
 #' ordinary R vectors and can therefore be returned by the parse subprocess.
 #' @noRd
-completion_parse_data <- function(data) {
+completion_parse_data <- function(data, syntax = NULL) {
     empty_scope <- function() {
         list(
             name = character(),
@@ -98,7 +98,8 @@ completion_parse_data <- function(data) {
         data$line1,
         data$col1,
         data$line2,
-        data$col2
+        data$col2,
+        syntax
     )
 
     make_records <- function(name_rows, range_rows) {
@@ -326,7 +327,21 @@ arg_completion <- function(uri, workspace, point, token, funct, package = NULL, 
     token_data <- NULL
 
     if (is.null(package)) {
-        xdoc <- workspace$get_parse_data(uri)$xml_doc
+        parse_data <- workspace$get_parse_data(uri)
+        syntax <- parse_data$syntax_data
+        if (!is.null(syntax)) {
+            found <- navigation_definitions(parse_data, point$row + 1L, point$col + 1L,
+                funct, "signature", last = TRUE)
+            if (length(found)) {
+                declaration <- found[[1L]]
+                children <- syntax_children(syntax, declaration)
+                args <- syntax$text[children[syntax$token[children] == "SYMBOL_FORMALS"]]
+                token_args <- args[match_with(args, token)]
+                token_data <- list(type = "parameter", funct = funct, uri = uri,
+                    line = syntax$line1[[declaration]])
+            }
+        }
+        xdoc <- if (is.null(syntax)) parse_data_xml(parse_data)
         if (!is.null(xdoc)) {
             row <- point$row + 1
             col <- point$col + 1
@@ -837,7 +852,7 @@ scope_completion <- function(uri, workspace, token, point,
         scope_funct_names <- completion_data$functions$name[function_selector]
         scope_funct_lines <- completion_data$functions$line[function_selector]
     } else {
-        xdoc <- parse_data$xml_doc
+        xdoc <- parse_data_xml(parse_data)
         if (is.null(xdoc)) {
             return(context_scope_completion(
                 uri, workspace, token, point, snippet_support, limit, character()))
@@ -1048,7 +1063,7 @@ token_completion <- function(uri, workspace, token, exclude = NULL, limit = Inf)
         }
         symbols <- symbols[startsWith(symbols, token)]
     } else {
-        xdoc <- parse_data$xml_doc
+        xdoc <- parse_data_xml(parse_data)
         if (is.null(xdoc)) {
             return(list())
         }

@@ -63,7 +63,8 @@ test_that("inline values handle empty XML, ranges, and duplicate variables", {
         end = list(line = 1L, character = 0L)
     )
     fixture <- provider_fixture("value <- 1")
-    fixture$document$parse_data$xml_doc <- NULL
+    fixture$document$parse_data$range_data <- NULL
+    fixture$document$parse_data$xml_doc <- fixture$document$parse_data$xml_data <- NULL
     expect_length(inline_value_reply(
         1L, fixture$uri, fixture$workspace, fixture$document, request
     )$result, 0L)

@@ -194,3 +194,30 @@ test_that("Selection range works in Rmarkdown", {
     ))
   )))))
 })
+
+test_that("indexed selection preserves XML ranges at every cursor boundary", {
+    fixture <- provider_fixture(c(
+        "# leading comment",
+        "outer <- function(argument) {",
+        "  inner <- function(argument) argument + 1",
+        "  inner(argument) # trailing comment",
+        "}",
+        'setClass("BaseEntity")',
+        paste0('"', intToUtf8(0x1f600), '"; `', intToUtf8(0x03b1), '` <- 1')
+    ))
+    parsed <- fixture$document$parse_data
+    legacy <- list2env(as.list(parsed), parent = emptyenv())
+    legacy$syntax_data <- NULL
+    for (line in seq_along(fixture$document$content)) {
+        points <- lapply(0:(nchar(fixture$document$content[[line]]) + 1L), function(col) {
+            list(row = line - 1L, col = col)
+        })
+        fixture$document$parse_data <- legacy
+        expected <- selection_range_reply(1L, fixture$uri, fixture$workspace, fixture$document, points)$result
+        fixture$document$parse_data <- parsed
+        parsed$xml_doc <- NULL
+        expect_equal(selection_range_reply(1L, fixture$uri, fixture$workspace, fixture$document, points)$result,
+            expected, info = paste("line", line))
+        expect_null(parsed$xml_doc)
+    }
+})

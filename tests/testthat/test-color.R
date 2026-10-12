@@ -3,6 +3,24 @@ get_color <- function(color) {
     as.list(rgba[, 1])
 }
 
+test_that("indexed colors preserve literals and cache against original content", {
+    fixture <- provider_fixture(c('label <- "😀"; colors <- c("red", "#2a3b6af2", "not-a-color")',
+        'raw <- r"(red)"; escaped <- "r\\145d"'))
+    parsed <- fixture$document$parse_data
+    indexed <- parsed$range_data
+    actual <- document_color_reply(1L, fixture$uri, fixture$workspace, fixture$document)$result
+    parsed$range_data <- NULL
+    parsed$colors_cache <- NULL
+    expected <- document_color_reply(2L, fixture$uri, fixture$workspace, fixture$document)$result
+    expect_identical(actual, expected)
+    parsed$range_data <- indexed
+    parsed$colors_cache <- NULL
+    parsed$xml_doc <- parsed$xml_data <- NULL
+    expect_identical(document_color_reply(3L, fixture$uri, fixture$workspace, fixture$document)$result, expected)
+    expect_identical(document_color_reply(4L, fixture$uri, fixture$workspace, fixture$document)$result, expected)
+    expect_null(parsed$xml_doc)
+})
+
 test_that("color presentations preserve opaque and translucent alpha", {
     fixture <- provider_fixture("value <- 1")
     opaque <- color_presentation_reply(

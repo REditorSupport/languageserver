@@ -641,7 +641,44 @@ glue <- function(.x, ...) {
     .x
 }
 
-xdoc_top_level_index <- function(x) {
+#' Materialize legacy XML only when a provider needs it
+#' @noRd
+parse_data_xml <- function(parse_data) {
+    if (is.null(parse_data)) return(NULL)
+    if (!is.null(parse_data$xml_doc)) return(parse_data$xml_doc)
+    if (is.null(parse_data$xml_data)) return(NULL)
+    xdoc <- tryCatch(xml2::read_xml(parse_data$xml_data), error = function(e) NULL)
+    if (!is.null(xdoc)) {
+        attr(xdoc, "top_level_index") <- xdoc_top_level_index(
+            xdoc, parse_data$syntax_data, parse_data$navigation_data)
+    }
+    if (is.environment(parse_data)) parse_data$xml_doc <- xdoc
+    xdoc
+}
+
+xdoc_top_level_index <- function(x, syntax = NULL, navigation = NULL) {
+    if (!is.null(syntax) && !is.null(navigation)) {
+        # XML is needed by legacy providers, but syntax facts are already
+        # built in the worker. Map preorder rows once instead of rediscovering
+        # token attributes and assignment predicates on the main thread.
+        all_nodes <- xml_find_all(x, "descendant::*")
+        if (length(all_nodes) == length(syntax$id)) {
+            rank <- syntax$order_rank
+            roots <- syntax$roots[syntax$token[syntax$roots] == "expr"]
+            definitions <- all_nodes[rank[navigation$node]]
+            names <- syntax$text[navigation$name]
+            return(list(
+                nodes = all_nodes[rank[roots]],
+                line1 = syntax$line1[roots], col1 = syntax$col1[roots],
+                line2 = syntax$line2[roots], col2 = syntax$col2[roots],
+                definitions = definitions,
+                definitions_by_name = list2env(split(seq_along(names), names),
+                    hash = TRUE, parent = emptyenv()),
+                tokens = c(list(nodes = all_nodes[rank[syntax$terminals]]), syntax$tokens),
+                syntax = syntax, navigation = navigation, all_nodes = all_nodes
+            ))
+        }
+    }
     nodes <- xml_children(x)
     nodes <- nodes[xml_name(nodes) == "expr"]
     # An explicit descendant axis avoids libxml2 repeatedly merging terminal
@@ -690,6 +727,15 @@ xdoc_top_level_index <- function(x) {
 
 xdoc_find_enclosing_scopes <- function(x, line, col, top = FALSE) {
     index <- attr(x, "top_level_index", exact = TRUE)
+    if (!is.null(index$syntax)) {
+        rows <- .Call("syntax_enclosing_c", index$syntax, as.integer(c(line, col)), PACKAGE = "languageserver")
+        scopes <- index$all_nodes[index$syntax$order_rank[rows]]
+        if (top) {
+            root <- xml_find_all(x, "/exprlist")
+            return(structure(c(unclass(root), unclass(scopes)), class = "xml_nodeset"))
+        }
+        return(scopes)
+    }
     condition <- paste(
         "(@line1 < {line} or (@line1 = {line} and @col1 <= {col})) and",
         "(@line2 > {line} or (@line2 = {line} and @col2 >= {col}-1))"
@@ -722,6 +768,21 @@ xdoc_find_enclosing_scopes <- function(x, line, col, top = FALSE) {
 
 xdoc_find_definitions <- function(x, line, col, name, xpath) {
     index <- attr(x, "top_level_index", exact = TRUE)
+    if (!is.null(index$syntax)) {
+        signature <- grepl("/expr[FUNCTION|OP-LAMBDA]", xpath, fixed = TRUE)
+        mode <- if (signature) "signature" else if (grepl("/parent::expr", xpath, fixed = TRUE)) "hover" else "definition"
+        token <- if (signature) 0L else navigation_token(list(syntax_data = index$syntax), line, col)
+        template <- get(paste0(mode, "_xpath"))
+        syntax <- index$syntax
+        token_start <- if (token) syntax$line1[[token]] * syntax$maxcol + syntax$col1[[token]] else NA_integer_
+        token_end <- if (token) syntax$line2[[token]] * syntax$maxcol + syntax$col2[[token]] else NA_integer_
+        expected <- glue(template, row = line, start = token_start, end = token_end, token_quote = xml_single_quote(name))
+        if (identical(xpath, expected)) {
+            rows <- navigation_definitions(list(syntax_data = syntax, navigation_data = index$navigation),
+                line, col, name, mode, token)
+            return(index$all_nodes[syntax$order_rank[rows]])
+        }
+    }
     if (is.null(index$definitions_by_name)) {
         scopes <- xdoc_find_enclosing_scopes(x, line, col, top = TRUE)
         return(xml_find_all(scopes, xpath))

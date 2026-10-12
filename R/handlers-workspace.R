@@ -13,10 +13,19 @@ refresh_index_summary <- function(workspace, index, uri) {
     if (length(document_uri)) {
         doc <- workspace$documents$get(document_uri[[1L]])
         if (isTRUE(doc$is_open)) {
+            if (!is.null(index$task_manager)) {
+                parsed <- if (identical(doc$content, doc$parsed_content)) doc$parse_data else NULL
+                if (!is.null(parsed$source_specs)) {
+                    return(index$update_content(document_uri[[1L]], doc$content,
+                            parse_data = parsed, cacheable = FALSE))
+                }
+                return(index$await_parse(document_uri[[1L]], cacheable = FALSE))
+            }
             return(index$update_content(document_uri[[1L]], doc$content))
         }
     }
-    index$update_path(path_from_uri(uri))
+    if (is.null(index$task_manager)) index$update_path(path_from_uri(uri))
+    else index$queue_path(path_from_uri(uri))
 }
 
 #' `workspace/didChangeWorkspaceFolders` notification handler
@@ -60,6 +69,7 @@ workspace_did_change_configuration <- function(self, params) {
         for (workspace in self$workspaces$values()) {
             open_documents <- Filter(function(doc) isTRUE(doc$is_open),
                 workspace$documents$values())
+            if (!is.null(workspace$index)) workspace$index$detach_worker()
             workspace$index <- WorkspaceIndex$new(workspace$root)
             self$load_workspace(workspace)
             if (isTRUE(workspace$index$enabled)) {
@@ -114,7 +124,8 @@ workspace_did_change_watched_files <- function(self, params) {
             if (type == FileChangeType$Created ||
                     type == FileChangeType$Changed) {
                 logger$info("index", path)
-                index$update_path(path)
+                if (is.null(index$task_manager)) index$update_path(path)
+                else index$queue_path(path)
                 # A newly created file can make a previously unresolved
                 # static source call resolvable.
                 for (dependent in dependents) {

@@ -284,7 +284,7 @@ refactor_selection_context <- function(uri, workspace, document, item_range) {
     }
     parse_data <- current_parse_data(uri, workspace, document)
     if (is.null(parse_data) || isTRUE(parse_data$parse_error) ||
-            is.null(parse_data$xml_doc)) {
+            is.null(parse_data_xml(parse_data))) {
         return(NULL)
     }
     selected_range <- refactor_trim_range(document, item_range)
@@ -295,17 +295,17 @@ refactor_selection_context <- function(uri, workspace, document, item_range) {
         return(NULL)
     }
     expression <- refactor_exact_expression(
-        parse_data$xml_doc, selected_range
+        parse_data_xml(parse_data), selected_range
     )
     statements <- refactor_statement_selection(
-        parse_data$xml_doc, selected_range
+        parse_data_xml(parse_data), selected_range
     )
     if (is.null(expression) && is.null(statements)) {
         return(NULL)
     }
     list(
         parse_data = parse_data,
-        xdoc = parse_data$xml_doc,
+        xdoc = parse_data_xml(parse_data),
         range = selected_range,
         expression = expression,
         statements = statements
@@ -456,7 +456,8 @@ refactor_unique_name <- function(base, workspace, uri) {
 refactor_index_ready <- function(workspace) {
     index <- workspace$index
     is.null(index) || !isTRUE(index$enabled) ||
-        !isTRUE(index$truncated) && !length(index$pending)
+        !isTRUE(index$truncated) && !length(index$pending) &&
+            !isTRUE(index$worker_running)
 }
 
 #' Reindent source text from its original column
@@ -864,7 +865,7 @@ refactor_inline_variable_action <- function(uri, workspace, document,
     }
     parse_data <- current_parse_data(uri, workspace, document)
     if (is.null(parse_data) || isTRUE(parse_data$parse_error) ||
-            is.null(parse_data$xml_doc)) {
+            is.null(parse_data_xml(parse_data))) {
         return(NULL)
     }
     index <- parse_data$reference_index
@@ -890,7 +891,7 @@ refactor_inline_variable_action <- function(uri, workspace, document,
     }
 
     token_node <- xdoc_find_token(
-        parse_data$xml_doc,
+        parse_data_xml(parse_data),
         definition_range$start$row + 1L,
         definition_range$start$col + 1L
     )
@@ -914,7 +915,7 @@ refactor_inline_variable_action <- function(uri, workspace, document,
         return(NULL)
     }
     read_node <- xdoc_find_token(
-        parse_data$xml_doc,
+        parse_data_xml(parse_data),
         read_range$start$row + 1L,
         read_range$start$col + 1L
     )

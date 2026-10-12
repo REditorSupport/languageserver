@@ -85,6 +85,32 @@ test_that("didOpen and didSave can read content from disk", {
     )))
 })
 
+test_that("document indexing reuses only the accepted content and version", {
+    fixture <- textsync_fixture()
+    fixture$self$refresh_index_documents <- function(...) NULL
+    fixture$workspace$index <- new.env(parent = emptyenv())
+    fixture$workspace$index$enabled <- TRUE
+    used <- list()
+    fixture$workspace$index$update_content <- function(..., parse_data) {
+        used[[length(used) + 1L]] <<- list(parsed = parse_data)
+    }
+    uri <- path_to_uri(file.path(fixture$workspace$root, "reuse.R"))
+    document <- Document$new(uri, version = 1L, content = "value <- 1")
+    fixture$workspace$documents$set(uri, document)
+    parsed <- parse_document(uri, document$content)
+    parsed$version <- 1L
+    document$update_parse_data(parsed)
+    update_document_index(fixture$self, fixture$workspace, uri, document$content)
+    expect_identical(used[[1L]]$parsed, parsed)
+
+    document$set_content(1L, "value <- 2")
+    update_document_index(fixture$self, fixture$workspace, uri, document$content)
+    expect_null(used[[2L]]$parsed)
+    document$set_content(2L, "value <- 1")
+    update_document_index(fixture$self, fixture$workspace, uri, document$content)
+    expect_null(used[[3L]]$parsed)
+})
+
 test_that("didChange cancels stale replies and applies incremental content", {
     fixture <- textsync_fixture()
     uri <- path_to_uri(file.path(fixture$workspace$root, "change.R"))
@@ -196,4 +222,29 @@ test_that("didClose retains documents belonging to an open package", {
     expect_true(fixture$workspace$documents$has(uri))
     expect_false(document$is_open)
     expect_equal(fixture$workspace$update_count, 0L)
+})
+
+
+test_that("didClose cancels retained replies exactly once after client cancellation", {
+    fixture <- textsync_fixture()
+    uri <- path_to_uri(file.path(fixture$workspace$root, "pending-close.R"))
+    doc <- Document$new(uri, version = 1L, content = "value <- 1")
+    doc$did_open()
+    fixture$workspace$documents$set(uri, doc)
+    completion <- collections::queue()
+    completion$push(list(id = 1L, version = 1L))
+    completion$push(list(id = 2L, version = 1L))
+    hover <- collections::queue()
+    hover$push(list(id = 3L, version = 1L))
+    fixture$self$pending_replies$set(uri, list(completion = completion, hover = hover))
+    cancel_request(fixture$self, list(id = 1L))
+    text_document_did_close(fixture$self, list(textDocument = list(uri = uri)))
+    responses <- Filter(function(message) !is.null(message$id), fixture$self$deliveries)
+    expect_identical(vapply(responses, function(message) message$id, integer(1L)), 1:3)
+    expect_true(all(vapply(responses, function(message) {
+        identical(message$error$code, ErrorCodes$RequestCancelled)
+    }, logical(1L))))
+    expect_false(fixture$self$pending_replies$has(uri))
+    expect_equal(completion$size(), 0L)
+    expect_equal(hover$size(), 0L)
 })

@@ -233,24 +233,26 @@ MemberMetadataCache <- R6::R6Class(
 Workspace <- R6::R6Class("Workspace",
     private = list(
         scope_index = NULL,
-        scope_revision = NULL,
         scope_uris = NULL,
         scope_contexts = NULL,
+        scope_context_generations = NULL,
+        scope_reference_generations = NULL,
         scope_references = NULL,
         scope_namespaces = NULL,
         scope_namespace_sets = NULL,
         import_globals_cache = NULL,
+        namespace_poll_time = -Inf,
+        namespace_poll_mtime = NULL,
         refresh_scope_cache = function(uris) {
-            revision <- self$index$revision
             if (is.null(private$scope_contexts) ||
                     !identical(private$scope_index, self$index) ||
-                    !identical(private$scope_revision, revision) ||
                     !identical(private$scope_uris, uris)) {
                 private$scope_index <- self$index
-                private$scope_revision <- revision
                 private$scope_uris <- uris
                 private$scope_contexts <- collections::dict()
                 private$scope_references <- collections::dict()
+                private$scope_context_generations <- collections::dict()
+                private$scope_reference_generations <- collections::dict()
                 private$scope_namespaces <- collections::dict()
                 private$scope_namespace_sets <- collections::dict()
             }
@@ -419,9 +421,12 @@ Workspace <- R6::R6Class("Workspace",
             if (!self$index$contains_path(path_from_uri(uri))) {
                 return(all_uris)
             }
-            if (private$scope_contexts$has(uri)) {
+            generation <- self$index$scope_generation(uri)
+            if (private$scope_contexts$has(uri) &&
+                    identical(private$scope_context_generations$get(uri), generation)) {
                 return(private$scope_contexts$get(uri))
             }
+            if (private$scope_namespaces$has(uri)) private$scope_namespaces$remove(uri)
             package_root <- self$index$package_root_for_uri(uri)
             result <- if (!is.null(package_root)) {
                 all_uris[vapply(all_uris, function(document_uri) {
@@ -437,6 +442,7 @@ Workspace <- R6::R6Class("Workspace",
                 }, logical(1L))]
             }
             private$scope_contexts$set(uri, result)
+            private$scope_context_generations$set(uri, generation)
             result
         },
 
@@ -453,7 +459,9 @@ Workspace <- R6::R6Class("Workspace",
             if (!self$index$contains_path(definition_path)) {
                 return(self$document_uris_for_context(context_uri))
             }
-            if (private$scope_references$has(definition_uri)) {
+            generation <- self$index$scope_generation(definition_uri, references = TRUE)
+            if (private$scope_references$has(definition_uri) &&
+                    identical(private$scope_reference_generations$get(definition_uri), generation)) {
                 return(private$scope_references$get(definition_uri))
             }
             package_root <- self$index$package_root_for_uri(definition_uri)
@@ -471,6 +479,7 @@ Workspace <- R6::R6Class("Workspace",
                 }, logical(1L))]
             }
             private$scope_references$set(definition_uri, result)
+            private$scope_reference_generations$set(definition_uri, generation)
             result
         },
 
@@ -806,17 +815,8 @@ Workspace <- R6::R6Class("Workspace",
         update_parse_data = function(uri, parse_data) {
             self$diagnostics_globals_cache <- NULL
             self$type_hierarchy_cache$clear()
-            # IMPORTANT: Always create xml_doc in the main process from xml_data
-            # parse_document runs in a child process and cannot create xml_doc there
-            # because xml2 external pointers cannot cross process boundaries
-            if (!is.null(parse_data$xml_data)) {
-                parse_data$xml_doc <- tryCatch(
-                    xml2::read_xml(parse_data$xml_data), error = function(e) NULL)
-                if (!is.null(parse_data$xml_doc)) {
-                    attr(parse_data$xml_doc, "top_level_index") <-
-                        xdoc_top_level_index(parse_data$xml_doc)
-                }
-            }
+            # Indexed providers can publish immediately. Legacy providers
+            # materialize main-process XML through parse_data_xml on demand.
             self$documents$get(uri)$update_parse_data(parse_data)
             if (!is.null(self$index) && isTRUE(self$index$enabled)) {
                 doc <- self$documents$get(uri)
@@ -829,8 +829,8 @@ Workspace <- R6::R6Class("Workspace",
                 }
                 summary <- self$index$update_content(
                     uri, doc$content, cacheable = cacheable,
-                    parse_data = if (is.null(parse_data$source_specs)) NULL else
-                        parse_data)
+                    parse_data = if (isTRUE(parse_data$parse_error) ||
+                            !is.null(parse_data$source_specs)) parse_data else NULL)
                 if (is.null(parse_data$source_specs) && !is.null(summary) &&
                         !isTRUE(parse_data$parse_error)) {
                     summary$definitions <- as.list(parse_data$definitions)
@@ -871,7 +871,14 @@ Workspace <- R6::R6Class("Workspace",
             self$update_loaded_packages()
         },
 
-        poll_namespace_file = function() {
+        poll_namespace_file = function(throttle = FALSE) {
+            now <- proc.time()[[3L]]
+            if (isTRUE(throttle) && now - private$namespace_poll_time < 1 &&
+                    identical(private$namespace_poll_mtime, self$namespace_file_mt)) {
+                return(NULL)
+            }
+            private$namespace_poll_time <- now
+            private$namespace_poll_mtime <- self$namespace_file_mt
             if (length(self$root) == 0) {
                 return(NULL)
             }

@@ -53,12 +53,12 @@ get_document_symbol_kind <- function(type) {
 
 #' Main util function to get document symbols
 #' @noRd
-get_document_symbols <- function(document, xdoc) {
+get_document_symbols <- function(document, xdoc, outline = NULL) {
     if (document$is_rmarkdown) {
         get_rmd_document_sections(document$content)
     } else {
         get_r_document_sections_and_blocks(
-            content = document$content, xdoc = xdoc, symbol = TRUE
+            content = document$content, xdoc = xdoc, symbol = TRUE, outline = outline
         )
     }
 }
@@ -68,7 +68,7 @@ get_document_symbols <- function(document, xdoc) {
 document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
     parse_data <- workspace$get_parse_data(uri)
     if (is.null(parse_data) ||
-        (!is.null(parse_data$version) && parse_data$version != document$version)) {
+            (!is.null(parse_data$version) && parse_data$version != document$version)) {
         return(NULL)
     }
 
@@ -77,8 +77,10 @@ document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
     } else {
         "flat"
     }
+    succession <- lsp_settings$get("nline_to_break_succession")
     cached <- parse_data$document_symbols_cache[[cache_key]]
-    if (!is.null(cached) && identical(cached$content, document$content)) {
+    if (!is.null(cached) && identical(cached$content, document$content) &&
+            identical(cached$succession, succession)) {
         return(Response$new(id, result = cached$result))
     }
 
@@ -87,14 +89,15 @@ document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
     
     if (isTRUE(capabilities$hierarchicalDocumentSymbolSupport)) {
         # Use hierarchical DocumentSymbol format
-        definition_symbols <- lapply(names(defns), function(name) {
-            def <- defns[[name]]
+        definition_symbols <- lapply(seq_along(defns), function(i) {
+            def <- defns[[i]]
+            name <- names(defns)[[i]]
             
             # Check if this is a class definition and extract members
             children <- NULL
             if (!is.null(def$type) && def$type %in% c("R6", "S4", "RefClass")) {
                 tryCatch({
-                    children <- extract_class_members(document, parse_data$xml_doc, def)
+                    children <- class_member_symbols(document, parse_data, def)
                 }, error = function(e) {
                     # Silently handle extraction errors
                 })
@@ -111,7 +114,8 @@ document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
         
         sections <- get_document_symbols(
             document,
-            xdoc = parse_data$xml_doc
+            xdoc = if (is.null(parse_data$outline_data)) parse_data_xml(parse_data) else NULL,
+            outline = parse_data$outline_data
         )
         section_symbols <- lapply(sections, function(section) {
             document_symbol(
@@ -147,8 +151,9 @@ document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
         result <- c(definition_symbols, section_symbols)
     } else {
         # Use flat SymbolInformation format for backward compatibility
-        definition_symbols <- lapply(names(defns), function(name) {
-            def <- defns[[name]]
+        definition_symbols <- lapply(seq_along(defns), function(i) {
+            def <- defns[[i]]
+            name <- names(defns)[[i]]
             symbol_information(
                 name = name,
                 kind = get_document_symbol_kind(def$type),
@@ -161,7 +166,8 @@ document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
         
         sections <- get_document_symbols(
             document,
-            xdoc = parse_data$xml_doc
+            xdoc = if (is.null(parse_data$outline_data)) parse_data_xml(parse_data) else NULL,
+            outline = parse_data$outline_data
         )
         section_symbols <- lapply(sections, function(section) {
             symbol_information(
@@ -194,6 +200,7 @@ document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
     # that parse so repeated outline requests only construct the response.
     parse_data$document_symbols_cache[[cache_key]] <- list(
         content = document$content,
+        succession = succession,
         result = result
     )
     Response$new(id, result = result)
