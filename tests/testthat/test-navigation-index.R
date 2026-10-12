@@ -301,6 +301,45 @@ test_that("indexed navigation resolves apostrophes in backtick identifiers", {
     expect_null(parsed$xml_doc)
 })
 
+test_that("member navigation does not resolve same-name local bindings", {
+    withr::local_options(languageserver.member_completion = FALSE)
+    previous <- lsp_settings$get("member_completion")
+    lsp_settings$set("member_completion", FALSE)
+    withr::defer(lsp_settings$set("member_completion", previous))
+    content <- c("probe <- function() {", "  value <- 42", "  obj$value",
+        "  obj $ value", "  obj$`value`", "  value", "}")
+    uri <- "file:///member-navigation.R"
+    document <- Document$new(uri, version = 1L, content = content)
+    workspace <- Workspace$new(NULL)
+    workspace$documents$set(uri, document)
+    parsed <- parse_document(uri, content)
+    parsed$version <- 1L
+    workspace$update_parse_data(uri, parsed)
+    legacy <- list2env(as.list(parsed), parent = emptyenv())
+    legacy$syntax_data <- legacy$navigation_data <- NULL
+    legacy$xml_doc <- xml2::read_xml(parsed$xml_data)
+    attr(legacy$xml_doc, "top_level_index") <- xdoc_top_level_index(legacy$xml_doc)
+    alternate <- list2env(as.list(parsed), parent = emptyenv())
+    alternate$syntax_data$token[alternate$syntax_data$token == "'$'"] <- "OP-DOLLAR"
+    for (data in list(parsed, alternate, legacy)) {
+        document$parse_data <- data
+        for (row in 2:4) {
+            point <- list(row = row, col = nchar(content[[row + 1L]]) - 2L)
+            expect_null(definition_reply(1L, uri, workspace, document, point, getwd())$result)
+            expect_null(hover_reply(2L, uri, workspace, document, point)$result)
+            if (!is.null(data$syntax_data)) {
+                token <- navigation_token(data, row + 1L, point$col + 1L)
+                expect_true(navigation_after_dollar(data$syntax_data, token))
+            }
+        }
+        point <- list(row = 5L, col = 4L)
+        definition <- definition_reply(1L, uri, workspace, document, point, getwd())$result
+        expect_equal(definition$range, range(position(1L, 2L), position(1L, 13L)))
+        expect_identical(hover_reply(2L, uri, workspace, document, point)$result$contents,
+            "```r\nvalue <- 42\n```")
+    }
+})
+
 test_that("indexed local providers preserve fallback responses without XML", {
     content <- c(
         "#' Local function documentation.",

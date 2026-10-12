@@ -164,7 +164,8 @@ navigation_argument_call <- function(syntax, row) {
 navigation_after_dollar <- function(syntax, row) {
     children <- syntax_children(syntax, syntax$parent_row[[row]])
     children <- children[seq_len(match(row, children) - 1L)]
-    any(syntax$token[children] == "'$'")
+    # getParseData uses a quoted operator; XML uses its named equivalent.
+    any(syntax$token[children] %in% c("'$'", "OP-DOLLAR"))
 }
 
 #' Indexed local hover, retaining package and member fallbacks
