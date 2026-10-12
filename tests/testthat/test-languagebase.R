@@ -142,18 +142,21 @@ test_that("buffered fetch drains complete frames before observing EOF", {
 test_that("clients drain output before reporting EOF without polling a closed stream", {
     client <- LanguageClient$new()
     skip_if_not(client$raw_input_available)
-    output <- withr::local_tempfile()
     bodies <- c(enc2utf8('{"text":"你好\U0001f600"}'), "{}")
-    writeBin(do.call(c, lapply(bodies, message_buffer_frame)), output)
-    connection <- processx::conn_create_file(output)
+    # Use the same kind of pollable stream as subprocess stdout. Regular
+    # processx file connections do not signal read completion on Windows.
+    pipes <- processx::conn_create_pipepair(nonblocking = c(TRUE, FALSE))
+    connection <- pipes[[1L]]
     withr::defer(processx::processx_conn_close(connection))
+    processx::conn_write(pipes[[2L]], do.call(c, lapply(bodies, message_buffer_frame)))
+    processx::processx_conn_close(pipes[[2L]])
     alive <- TRUE
     process <- new.env(parent = emptyenv())
     process$get_output_connection <- function() connection
     process$is_alive <- function() alive
     polls <- 0L
     process$poll_io <- function(timeout) {
-        # File reads are asynchronous on Windows. Wait for unfinished reads,
+        # Pipe reads are asynchronous on Windows. Wait for unfinished reads,
         # but never poll once processx has observed the end of the stream.
         expect_true(processx::conn_is_incomplete(connection))
         polls <<- polls + 1L
@@ -163,9 +166,9 @@ test_that("clients drain output before reporting EOF without polling a closed st
     # This fixture owns no subprocess, so detach it before the client finalizer.
     withr::defer(client$process <- NULL)
 
-    expect_identical(client$fetch(blocking = TRUE), bodies[[1L]])
-    expect_identical(client$fetch(blocking = TRUE), bodies[[2L]])
-    expect_error(client$fetch(blocking = TRUE), "Server output connection closed.", fixed = TRUE)
+    expect_identical(client$fetch(blocking = TRUE, timeout = 5), bodies[[1L]])
+    expect_identical(client$fetch(blocking = TRUE, timeout = 5), bodies[[2L]])
+    expect_error(client$fetch(blocking = TRUE, timeout = 5), "Server output connection closed.", fixed = TRUE)
     expect_false(processx::conn_is_incomplete(connection))
     completed_polls <- polls
     expect_true(client$wait_input(0))
