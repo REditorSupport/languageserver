@@ -26,6 +26,7 @@ Task <- R6::R6Class("Task",
     public = list(
         time = NULL,
         delay = NULL,
+        started_at = NULL,
         initialize = function(target, args, callback = NULL, error = NULL, delay = 0,
             profiles = TRUE) {
             private$target <- target
@@ -34,6 +35,7 @@ Task <- R6::R6Class("Task",
             private$callback <- callback
             private$error <- error
             self$time <- Sys.time()
+            self$started_at <- proc.time()[[3L]]
             if (!is.numeric(delay) || length(delay) != 1L ||
                     is.na(delay) || delay < 0) {
                 delay <- 0
@@ -252,11 +254,9 @@ TaskManager <- R6::R6Class("TaskManager",
                 } else if (state == "idle") {
                     idle_start <- attr(session, "idle_start")
                     if (is.null(idle_start)) {
-                        attr(session, "idle_start") <- Sys.time()
+                        attr(session, "idle_start") <- proc.time()[[3L]]
                     } else if (length(private$sessions) > private$min_idle_sessions &&
-                        as.numeric(difftime(
-                            Sys.time(), idle_start,
-                            units = "secs")) > private$session_idle_timeout) {
+                            proc.time()[[3L]] - idle_start > private$session_idle_timeout) {
                         close_error <- tryCatch(
                             {
                                 if (identical(Sys.getenv("R_COVR"), "true")) {
@@ -375,11 +375,11 @@ TaskManager <- R6::R6Class("TaskManager",
             pending_ids <- private$pending_tasks$keys()
             if (!length(pending_ids)) return(invisible(NULL))
 
+            now <- proc.time()[[3L]]
             eligible <- vapply(pending_ids, function(id) {
                 if (private$running_tasks$has(id)) return(FALSE)
                 task <- private$pending_tasks$get(id)
-                as.numeric(difftime(
-                    Sys.time(), task$time, units = "secs")) >= task$delay
+                now - task$started_at >= task$delay
             }, logical(1L))
             pending_ids <- pending_ids[eligible]
             if (!length(pending_ids)) return(invisible(NULL))
@@ -498,6 +498,25 @@ TaskManager <- R6::R6Class("TaskManager",
             if (isTRUE(private$use_session)) {
                 private$prune_sessions()
             }
+        },
+        wait_timeout = function(max_timeout = 0.01) {
+            if (private$stopping ||
+                    private$running_tasks$size() >= private$max_running_tasks) return(max_timeout)
+            now <- proc.time()[[3L]]
+            timeout <- max_timeout
+            for (id in private$pending_tasks$keys()) {
+                if (private$running_tasks$has(id)) next
+                task <- private$pending_tasks$get(id)
+                remaining <- max(task$started_at + task$delay - now, 0)
+                if (remaining == 0 && isTRUE(private$use_session) &&
+                    !any(vapply(private$sessions, function(session) {
+                        identical(tryCatch(session$get_state(), error = function(e) NULL), "idle")
+                        }, logical(1L)))) next
+                timeout <- min(timeout, remaining)
+            }
+            # Running/starting workers are polled at the existing ceiling;
+            # input readiness may wake the server earlier without busy waits.
+            timeout
         },
         has_work = function() {
             private$pending_tasks$size() > 0L ||

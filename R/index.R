@@ -32,14 +32,16 @@ index_glob_regex <- function(pattern) {
 
 #' Match a workspace-relative path against index globs
 #' @noRd
-index_glob_match <- function(path, patterns, directory = FALSE) {
-    if (!length(patterns)) return(FALSE)
+index_glob_match <- function(path, patterns, directory = FALSE, regex = NULL) {
+    if (is.null(regex)) {
+        patterns <- patterns[!is.na(patterns) & nzchar(patterns)]
+        regex <- vapply(patterns, index_glob_regex, character(1L))
+    }
+    if (!length(regex)) return(FALSE)
     path <- gsub("\\", "/", path, fixed = TRUE)
     if (directory) path <- paste0(sub("/+$", "", path), "/")
-    any(vapply(patterns, function(pattern) {
-        is.character(pattern) && length(pattern) == 1L && nzchar(pattern) &&
-            grepl(index_glob_regex(pattern), path, ignore.case = TRUE,
-                perl = TRUE)
+    any(vapply(regex, function(pattern) {
+        grepl(pattern, path, ignore.case = TRUE, perl = TRUE)
     }, logical(1L)))
 }
 
@@ -216,6 +218,12 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
         srcrefs <- attr(expressions, "srcref")
         expression_list <- as.list(expressions)
         source_specs <- index_source_specs(expressions)
+        # Record replacement values in hash tables and append each name once.
+        # Growing named lists both copies the list and scans its names.
+        definitions_store <- new.env(hash = TRUE, parent = emptyenv())
+        functions_store <- new.env(hash = TRUE, parent = emptyenv())
+        definition_names <- collections::queue()
+        function_names <- collections::queue()
         for (i in seq_along(expression_list)) {
             expr <- expression_list[[i]]
             if (!is.call(expr) || length(expr) != 3L) next
@@ -236,14 +244,27 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
             if (def_type == "function") {
                 fun <- null_function
                 tryCatch(formals(fun) <- value[[2L]], error = function(e) NULL)
-                functions[[symbol]] <- utils::removeSource(fun)
+                if (!exists(symbol, envir = functions_store, inherits = FALSE)) {
+                    function_names$push(symbol)
+                }
+                assign(symbol, utils::removeSource(fun), envir = functions_store)
             }
-            definitions[[symbol]] <- list(
+            if (!exists(symbol, envir = definitions_store, inherits = FALSE)) {
+                definition_names$push(symbol)
+            }
+            assign(symbol, list(
                 name = symbol,
                 type = def_type,
                 range = expr_range(srcref)
-            )
+            ), envir = definitions_store)
         }
+        materialize <- function(store, names) {
+            if (!names$size()) return(list())
+            mget(unlist(names$as_list(), use.names = FALSE),
+                envir = store, inherits = FALSE)
+        }
+        definitions <- materialize(definitions_store, definition_names)
+        functions <- materialize(functions_store, function_names)
     }
 
     sources <- unique(Filter(Negate(is.null), lapply(source_specs, function(spec) {
@@ -281,6 +302,100 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
 #' A bounded, project-wide index of R source metadata
 #' @noRd
 WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
+    private = list(
+        glob_patterns = list(),
+        glob_regex = list(),
+        catalog = NULL,
+        catalog_revision = NULL,
+        context_generations = NULL,
+        reference_generations = NULL,
+        generations = NULL,
+        awaiting_parses = NULL,
+        dirty_updates = NULL,
+        dirty_since = NULL,
+        worker_bootstrap = TRUE,
+        worker_key = NULL,
+        worker_lifecycle = 0L,
+        source_closures = NULL,
+        dependent_closures = NULL,
+        package_memberships = NULL,
+        invalidate_scopes = function(contexts, references) {
+            for (uri in contexts) {
+                private$context_generations$set(uri,
+                    private$context_generations$get(uri, 0L) + 1L)
+                if (private$source_closures$has(uri)) private$source_closures$remove(uri)
+            }
+            for (uri in references) {
+                private$reference_generations$set(uri,
+                    private$reference_generations$get(uri, 0L) + 1L)
+                if (private$dependent_closures$has(uri)) private$dependent_closures$remove(uri)
+            }
+        },
+        mark_dirty = function(uri, summary = NULL) {
+            if (!is.null(self$cache_file())) private$dirty_updates$set(uri, summary)
+            if (is.null(private$dirty_since)) private$dirty_since <- proc.time()[[3L]]
+            self$cache_dirty <- TRUE
+        },
+        request_is_current = function(request) {
+            identical(private$generations$get(request$uri, 0L), request$generation) &&
+                !private$awaiting_parses$has(request$uri)
+        },
+        finish_batch = function(result, requests) {
+            self$worker_running <- FALSE
+            private$worker_bootstrap <- isTRUE(result$sync_needed)
+            temp_file <- result$temp_file
+            if (!is.null(temp_file)) {
+                on.exit(unlink(temp_file), add = TRUE)
+                if (identical(result$revision, self$revision) &&
+                        private$dirty_updates$size() == 0L) {
+                    cache_file <- self$cache_file()
+                    saved <- if (is.null(cache_file)) FALSE else tryCatch({
+                        if (file.exists(cache_file)) file.copy(temp_file, cache_file,
+                            overwrite = TRUE) else file.rename(temp_file, cache_file)
+                    }, error = function(e) FALSE)
+                    if (isTRUE(saved)) {
+                        self$cache_dirty <- FALSE
+                        private$dirty_since <- NULL
+                    }
+                }
+            }
+            changed <- character()
+            for (i in seq_along(requests)) {
+                request <- requests[[i]]
+                if (!private$request_is_current(request)) next
+                if (i > result$processed) {
+                    self$pending <- union(self$pending, request$uri)
+                    next
+                }
+                summary <- result$summaries[[i]]
+                if (is.null(summary)) {
+                    if (isTRUE(result$retry[[i]]) && file.exists(request$path)) {
+                        self$pending <- union(self$pending, request$uri)
+                    }
+                    next
+                }
+                info <- file.info(request$path)
+                if (!nrow(info) || is.na(info$size[[1L]]) ||
+                        !identical(as.numeric(info$size[[1L]]), summary$size) ||
+                        !identical(as.numeric(info$mtime[[1L]]), summary$mtime)) {
+                    self$pending <- union(self$pending, request$uri)
+                    next
+                }
+                summary$cacheable <- TRUE
+                self$set_summary(summary)
+                previous_file <- self$files$get(request$uri, NULL)
+                self$files$set(request$uri,
+                    summary[c("uri", "path", "size", "mtime", "package_root")])
+                if (!identical(previous_file$package_root, summary$package_root)) {
+                    self$package_revision <- self$package_revision + 1L
+                    private$package_memberships$clear()
+                }
+                changed <- c(changed, request$uri)
+            }
+            if (length(changed) && is.function(self$on_update)) self$on_update(changed)
+            invisible(changed)
+        }
+    ),
     public = list(
         root = NULL,
         files = NULL,
@@ -293,6 +408,12 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
         cache_dirty = FALSE,
         processing_batch = FALSE,
         revision = 0,
+        topology_revision = 0L,
+        package_revision = 0L,
+        candidate_reverse_edges = NULL,
+        task_manager = NULL,
+        on_update = NULL,
+        worker_running = FALSE,
 
         initialize = function(root) {
             self$root <- if (length(root) && nzchar(root)) {
@@ -305,12 +426,90 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             self$source_edges <- collections::dict()
             self$reverse_edges <- collections::dict()
             self$pending <- character()
+            self$candidate_reverse_edges <- collections::dict()
+            private$context_generations <- collections::dict()
+            private$reference_generations <- collections::dict()
+            private$generations <- collections::dict()
+            private$awaiting_parses <- collections::dict()
+            private$dirty_updates <- collections::dict()
+            private$source_closures <- collections::dict()
+            private$dependent_closures <- collections::dict()
+            private$package_memberships <- collections::dict()
+            private$worker_key <- tempfile("workspace-index-")
             mode <- lsp_settings$get("index_mode")
             if (!is.character(mode) || length(mode) != 1L || is.na(mode)) {
                 mode <- "auto"
             }
             self$enabled <- !is.null(self$root) &&
                 !identical(tolower(mode), "off")
+        },
+
+        attach_worker = function(manager, on_update = NULL) {
+            self$task_manager <- manager
+            self$on_update <- on_update
+            invisible(NULL)
+        },
+
+        detach_worker = function() {
+            private$worker_lifecycle <- private$worker_lifecycle + 1L
+            if (!is.null(self$task_manager)) self$task_manager$cancel(private$worker_key)
+            self$task_manager <- NULL
+            self$on_update <- NULL
+            self$worker_running <- FALSE
+            invisible(NULL)
+        },
+
+        invalidate = function(uri) {
+            uri <- index_canonical_uri(uri)
+            private$generations$set(uri, private$generations$get(uri, 0L) + 1L)
+            if (!self$processing_batch) self$pending <- setdiff(self$pending, uri)
+            invisible(NULL)
+        },
+
+        await_parse = function(uri, cacheable = FALSE) {
+            if (!self$enabled || !self$should_index(path_from_uri(uri))) return(NULL)
+            uri <- index_canonical_uri(uri)
+            self$invalidate(uri)
+            private$awaiting_parses$set(uri, isTRUE(cacheable))
+            previous <- self$summaries$get(uri, NULL)
+            if (!is.null(previous) && identical(previous$cacheable, FALSE) !=
+                    !isTRUE(cacheable)) {
+                previous$cacheable <- isTRUE(cacheable)
+                self$set_summary(previous)
+                private$awaiting_parses$set(uri, isTRUE(cacheable))
+            }
+            if (!self$files$has(uri)) {
+                path <- path_from_uri(uri)
+                info <- file.info(path)
+                self$files$set(uri, list(uri = uri, path = path,
+                        size = as.numeric(info$size[[1L]]),
+                        mtime = as.numeric(info$mtime[[1L]]),
+                        package_root = index_package_root(path, self$root)))
+                if (!is.null(self$files$get(uri)$package_root)) {
+                    self$package_revision <- self$package_revision + 1L
+                    private$package_memberships$clear()
+                }
+            }
+            invisible(NULL)
+        },
+
+        queue_path = function(path, force = FALSE) {
+            if (!self$enabled || !self$should_index(path)) return(NULL)
+            uri <- index_canonical_uri(path_to_uri(path))
+            if (private$awaiting_parses$has(uri)) {
+                if (!isTRUE(force)) return(invisible(NULL))
+                private$awaiting_parses$remove(uri)
+            }
+            self$invalidate(uri)
+            self$pending <- union(self$pending, uri)
+            invisible(NULL)
+        },
+
+        scope_generation = function(uri, references = FALSE) {
+            uri <- index_canonical_uri(uri)
+            list(package = self$package_revision,
+                source = if (references) private$reference_generations$get(uri, 0L)
+                else private$context_generations$get(uri, 0L))
         },
 
         include_patterns = function() {
@@ -321,6 +520,17 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
         exclude_patterns = function() {
             value <- lsp_settings$get("index_exclude")
             if (!is.character(value)) character() else value
+        },
+
+        compiled_globs = function(exclude = FALSE) {
+            key <- if (exclude) "exclude" else "include"
+            patterns <- if (exclude) self$exclude_patterns() else self$include_patterns()
+            if (!identical(private$glob_patterns[[key]], patterns)) {
+                private$glob_patterns[[key]] <- patterns
+                valid <- patterns[!is.na(patterns) & nzchar(patterns)]
+                private$glob_regex[[key]] <- vapply(valid, index_glob_regex, character(1L))
+            }
+            private$glob_regex[[key]]
         },
 
         max_files = function() {
@@ -345,10 +555,10 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             if (!self$contains_path(path)) return(FALSE)
             rel <- gsub("\\", "/", fs::path_rel(path, start = self$root),
                 fixed = TRUE)
-            if (index_glob_match(rel, self$exclude_patterns(), directory)) {
+            if (index_glob_match(rel, NULL, directory, self$compiled_globs(TRUE))) {
                 return(FALSE)
             }
-            directory || index_glob_match(rel, self$include_patterns())
+            directory || index_glob_match(rel, NULL, regex = self$compiled_globs())
         },
 
         cache_file = function() {
@@ -408,19 +618,23 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                 }, self$summaries$values()))
             )
             saved <- tryCatch({
-                saveRDS(value, temp_file)
+                suppressWarnings(saveRDS(value, temp_file))
                 if (file.exists(cache_file)) {
                     file.copy(temp_file, cache_file, overwrite = TRUE)
                 } else {
                     file.rename(temp_file, cache_file)
                 }
             }, error = function(e) FALSE)
-            if (isTRUE(saved)) self$cache_dirty <- FALSE
+            if (isTRUE(saved)) {
+                self$cache_dirty <- FALSE
+                private$dirty_since <- NULL
+            }
             invisible(NULL)
         },
 
         discover = function() {
             if (!self$enabled || !dir.exists(self$root)) return(invisible(NULL))
+            old_files <- self$files$values()
             self$files$clear()
             self$pending <- character()
             self$truncated <- FALSE
@@ -474,7 +688,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                         package_root = index_package_root(path, self$root)
                     )
                     self$files$set(uri, metadata)
-                    if (!self$summaries$has(uri)) {
+                    if (!self$summaries$has(uri) && !private$awaiting_parses$has(uri)) {
                         pending_count <- pending_count + 1L
                         pending[[pending_count]] <- uri
                     }
@@ -492,28 +706,74 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                 !is.null(self$files$get(uri)$package_root)
             }, logical(1L))
             self$pending <- c(self$pending[package], self$pending[!package])
+            package_files <- function(files) {
+                lapply(Filter(function(file) !is.null(file$package_root), files),
+                    function(file) file[c("uri", "package_root")])
+            }
+            if (!identical(package_files(old_files), package_files(self$files$values()))) {
+                self$package_revision <- self$package_revision + 1L
+                private$package_memberships$clear()
+            }
             self$revision <- self$revision + 1
             invisible(NULL)
         },
 
         set_summary = function(summary) {
             uri <- summary$uri
-            old_sources <- self$source_edges$get(uri, character())
-            for (target in old_sources) {
-                reverse <- setdiff(self$reverse_edges$get(target, character()), uri)
-                if (length(reverse)) {
-                    self$reverse_edges$set(target, reverse)
-                } else if (self$reverse_edges$has(target)) {
-                    self$reverse_edges$remove(target)
+            previous <- self$summaries$get(uri, NULL)
+            if (private$awaiting_parses$has(uri)) summary$cacheable <- private$awaiting_parses$get(uri)
+            if (isTRUE(summary$parse_error) && !is.null(previous)) {
+                for (field in c("definitions", "functions", "sources",
+                        "source_candidates", "source_candidate_exists")) {
+                    summary[[field]] <- previous[[field]]
                 }
             }
-            self$summaries$set(uri, summary)
-            self$source_edges$set(uri, summary$sources)
-            for (target in summary$sources) {
-                self$reverse_edges$set(target,
-                    union(self$reverse_edges$get(target, character()), uri))
+            old_sources <- self$source_edges$get(uri, character())
+            sources <- unlist(summary$sources, use.names = FALSE)
+            old_sources <- unlist(old_sources, use.names = FALSE)
+            topology_changed <- !identical(old_sources, sources)
+            if (topology_changed) {
+                contexts <- self$dependent_closure(uri)
+                references <- self$source_closure(uri)
+                for (target in setdiff(old_sources, sources)) {
+                    reverse <- setdiff(self$reverse_edges$get(target, character()), uri)
+                    if (length(reverse)) self$reverse_edges$set(target, reverse)
+                    else if (self$reverse_edges$has(target)) self$reverse_edges$remove(target)
+                }
+                for (target in setdiff(sources, old_sources)) {
+                    self$reverse_edges$set(target,
+                        union(self$reverse_edges$get(target, character()), uri))
+                }
+                self$source_edges$set(uri, sources)
+                # Traverse the new graph after clearing only the closure at
+                # this root, then invalidate all affected old/new reachability.
+                if (private$source_closures$has(uri)) private$source_closures$remove(uri)
+                if (private$dependent_closures$has(uri)) private$dependent_closures$remove(uri)
+                contexts <- union(contexts, self$dependent_closure(uri))
+                references <- union(references, self$source_closure(uri))
+                private$invalidate_scopes(contexts, references)
+                self$topology_revision <- self$topology_revision + 1L
+            } else if (!self$source_edges$has(uri)) {
+                self$source_edges$set(uri, sources)
             }
-            self$cache_dirty <- TRUE
+            old_candidates <- previous$source_candidates
+            candidates <- summary$source_candidates
+            for (target in setdiff(old_candidates, candidates)) {
+                reverse <- setdiff(self$candidate_reverse_edges$get(target, character()), uri)
+                if (length(reverse)) self$candidate_reverse_edges$set(target, reverse)
+                else if (self$candidate_reverse_edges$has(target)) self$candidate_reverse_edges$remove(target)
+            }
+            for (target in setdiff(candidates, old_candidates)) {
+                self$candidate_reverse_edges$set(target,
+                    union(self$candidate_reverse_edges$get(target, character()), uri))
+            }
+            if (!identical(previous$package_root, summary$package_root)) {
+                self$package_revision <- self$package_revision + 1L
+                private$package_memberships$clear()
+            }
+            self$summaries$set(uri, summary)
+            if (private$awaiting_parses$has(uri)) private$awaiting_parses$remove(uri)
+            private$mark_dirty(uri, summary)
             self$revision <- self$revision + 1
             invisible(summary)
         },
@@ -523,6 +783,11 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             if (!self$enabled) return(NULL)
             path <- path_from_uri(uri)
             if (!self$should_index(path)) return(NULL)
+            uri <- index_canonical_uri(uri)
+            if (private$awaiting_parses$has(uri)) {
+                cacheable <- private$awaiting_parses$get(uri)
+            }
+            self$invalidate(uri)
             if (is.null(metadata)) metadata <- file.info(path)
             summary <- index_shallow_summary(
                 path, content, self$root, metadata = metadata,
@@ -543,9 +808,11 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             if (!self$processing_batch) {
                 self$pending <- setdiff(self$pending, uri)
             }
-            if (!self$files$has(uri)) {
-                self$files$set(uri, summary[c(
-                    "uri", "path", "size", "mtime", "package_root")])
+            previous_file <- self$files$get(uri, NULL)
+            self$files$set(uri, summary[c("uri", "path", "size", "mtime", "package_root")])
+            if (!identical(previous_file$package_root, summary$package_root)) {
+                self$package_revision <- self$package_revision + 1L
+                private$package_memberships$clear()
             }
             summary
         },
@@ -564,6 +831,54 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
         },
 
         process_batch = function() {
+            if (!is.null(self$task_manager)) {
+                if (self$worker_running) return(character())
+                batch_size <- suppressWarnings(as.integer(lsp_settings$get("index_batch_size")))
+                if (length(batch_size) != 1L || is.na(batch_size) || batch_size < 1L) batch_size <- 20L
+                budget <- suppressWarnings(as.numeric(lsp_settings$get("index_time_budget_ms")))
+                if (length(budget) != 1L || is.na(budget) || budget <= 0) budget <- 25
+                candidates <- head(self$pending, batch_size)
+                requests <- lapply(candidates, function(uri) {
+                    list(uri = uri, path = path_from_uri(uri),
+                        generation = private$generations$get(uri, 0L))
+                })
+                cache_file <- if (!length(requests) && self$cache_dirty &&
+                        !is.null(private$dirty_since) &&
+                        proc.time()[[3L]] - private$dirty_since >= 1) self$cache_file() else NULL
+                if (!length(requests) && private$dirty_updates$size() == 0L &&
+                        is.null(cache_file)) return(character())
+                bootstrap <- private$worker_bootstrap
+                updates <- if (bootstrap) stats::setNames(self$summaries$values(),
+                    self$summaries$keys()) else stats::setNames(
+                    private$dirty_updates$values(), private$dirty_updates$keys())
+                private$dirty_updates$clear()
+                self$pending <- setdiff(self$pending, candidates)
+                self$worker_running <- TRUE
+                lifecycle <- private$worker_lifecycle
+                self$task_manager$add_task(private$worker_key, create_task(
+                    package_call(index_worker_batch),
+                    list(key = private$worker_key, root = self$root,
+                        updates = updates, requests = requests, bootstrap = bootstrap,
+                        cache_file = cache_file, revision = self$revision,
+                        time_budget_ms = budget, max_file_bytes = self$max_file_bytes()),
+                    callback = function(result) {
+                        if (!identical(lifecycle, private$worker_lifecycle)) {
+                            if (!is.null(result$temp_file)) unlink(result$temp_file)
+                            return(invisible(NULL))
+                        }
+                        private$finish_batch(result, requests)
+                    },
+                    error = function(e) {
+                        if (!identical(lifecycle, private$worker_lifecycle)) return(NULL)
+                        self$worker_running <- FALSE
+                        private$worker_bootstrap <- TRUE
+                        current <- vapply(requests, private$request_is_current, logical(1L))
+                        self$pending <- union(self$pending, candidates[current])
+                        logger$info("workspace index task: ", e)
+                    }, profiles = FALSE
+                ))
+                return(character())
+            }
             if (!length(self$pending)) {
                 self$save_cache()
                 return(character())
@@ -599,22 +914,36 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
 
         remove = function(uri) {
             uri <- index_canonical_uri(uri)
-            old_sources <- self$source_edges$get(uri, character())
-            for (target in old_sources) {
-                reverse <- setdiff(self$reverse_edges$get(target, character()), uri)
-                if (length(reverse)) self$reverse_edges$set(target, reverse)
-                else if (self$reverse_edges$has(target)) self$reverse_edges$remove(target)
+            self$invalidate(uri)
+            if (private$awaiting_parses$has(uri)) private$awaiting_parses$remove(uri)
+            previous <- self$summaries$get(uri, NULL)
+            if (!is.null(previous)) {
+                empty <- previous
+                empty$sources <- empty$source_candidates <- character()
+                empty$parse_error <- FALSE
+                empty$package_root <- NULL
+                self$set_summary(empty)
+                self$summaries$remove(uri)
             }
             if (self$source_edges$has(uri)) self$source_edges$remove(uri)
-            if (self$summaries$has(uri)) self$summaries$remove(uri)
-            if (self$files$has(uri)) self$files$remove(uri)
-            self$pending <- setdiff(self$pending, uri)
-            self$cache_dirty <- TRUE
+            if (self$files$has(uri)) {
+                package_file <- !is.null(self$files$get(uri)$package_root)
+                self$files$remove(uri)
+                if (package_file) {
+                    self$package_revision <- self$package_revision + 1L
+                    private$package_memberships$clear()
+                }
+            }
+            private$mark_dirty(uri)
             self$revision <- self$revision + 1
             invisible(NULL)
         },
 
         source_closure = function(uri, update = FALSE) {
+            uri <- index_canonical_uri(uri)
+            if (!isTRUE(update) && private$source_closures$has(uri)) {
+                return(private$source_closures$get(uri))
+            }
             result <- character(self$max_files() + 1L)
             result_count <- 0L
             queue <- collections::queue()
@@ -636,10 +965,14 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                     queue$push(target)
                 }
             }
-            if (result_count) result[seq_len(result_count)] else character()
+            result <- if (result_count) result[seq_len(result_count)] else character()
+            if (!isTRUE(update)) private$source_closures$set(uri, result)
+            result
         },
 
         dependent_closure = function(uri) {
+            uri <- index_canonical_uri(uri)
+            if (private$dependent_closures$has(uri)) return(private$dependent_closures$get(uri))
             result <- character(self$max_files() + 1L)
             result_count <- 0L
             queue <- collections::queue()
@@ -658,19 +991,16 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                     queue$push(dependent)
                 }
             }
-            if (result_count) result[seq_len(result_count)] else character()
+            result <- if (result_count) result[seq_len(result_count)] else character()
+            private$dependent_closures$set(uri, result)
+            result
         },
 
         dependents = function(uri, include_candidates = FALSE) {
             uri <- index_canonical_uri(uri)
             result <- self$reverse_edges$get(uri, character())
             if (isTRUE(include_candidates)) {
-                for (summary in self$summaries$values()) {
-                    candidates <- summary$source_candidates
-                    if (!is.null(candidates) && uri %in% candidates) {
-                        result <- union(result, summary$uri)
-                    }
-                }
+                result <- union(result, self$candidate_reverse_edges$get(uri, character()))
             }
             result
         },
@@ -686,25 +1016,46 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
         },
 
         package_source_uris = function(package_root = NULL) {
+            key <- if (is.null(package_root)) "*" else package_root
+            if (private$package_memberships$has(key)) return(private$package_memberships$get(key))
             uris <- self$files$keys()
             keep <- vapply(uris, function(uri) {
                 root <- self$files$get(uri)$package_root
                 !is.null(root) && (is.null(package_root) || identical(root, package_root))
             }, logical(1L))
-            uris[keep]
+            result <- uris[keep]
+            private$package_memberships$set(key, result)
+            result
         },
 
         definitions_for_query = function(pattern) {
-            result <- list()
-            for (summary in self$summaries$values()) {
-                definitions <- summary$definitions
-                symbols <- names(definitions)
-                matches <- symbols[fuzzy_find(symbols, pattern)]
-                result <- c(result, lapply(unname(definitions[matches]), function(def) {
-                    c(uri = summary$uri, def)
-                }))
+            if (is.null(private$catalog) || !identical(private$catalog_revision, self$revision)) {
+                summaries <- self$summaries$values()
+                sizes <- vapply(summaries, function(summary) length(names(summary$definitions)), integer(1L))
+                private$catalog <- list(
+                    summaries = summaries,
+                    names = unlist(lapply(summaries, function(summary) names(summary$definitions)), use.names = FALSE),
+                    source = rep.int(seq_along(summaries), sizes),
+                    row = sequence(sizes),
+                    ascii = rep.int(vapply(summaries, function(summary) {
+                        is_ascii_vector(names(summary$definitions))
+                    }, logical(1L)), sizes)
+                )
+                private$catalog_revision <- self$revision
             }
-            result
+            catalog <- private$catalog
+            # A mixed Unicode document takes the regex fallback even for its
+            # ASCII names. Keep that established per-document fuzzy behavior.
+            matches <- logical(length(catalog$names))
+            if (any(catalog$ascii)) matches[catalog$ascii] <-
+                fuzzy_find(catalog$names[catalog$ascii], pattern)
+            if (any(!catalog$ascii)) matches[!catalog$ascii] <-
+                fuzzy_find(catalog$names[!catalog$ascii], pattern)
+            selected <- which(matches)
+            lapply(selected, function(i) {
+                summary <- catalog$summaries[[catalog$source[[i]]]]
+                c(uri = summary$uri, summary$definitions[[catalog$row[[i]]]])
+            })
         }
     )
 )

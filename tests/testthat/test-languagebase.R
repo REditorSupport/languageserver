@@ -58,6 +58,188 @@ test_that("LanguageBase reads fragmented headers and content", {
     expect_error(malformed$read_header(), "Unexpected non-empty line")
 })
 
+BufferedLanguageBase <- R6::R6Class("BufferedLanguageBase",
+    inherit = TestLanguageBase,
+    public = list(
+        chunks = NULL,
+        reads = 0L,
+        eof = FALSE,
+        initialize = function(chunks = list()) {
+            self$chunks <- chunks
+            super$initialize()
+        },
+        read_raw = function(n) {
+            self$reads <- self$reads + 1L
+            if (!length(self$chunks)) return(raw())
+            value <- self$chunks[[1L]]
+            self$chunks <- self$chunks[-1L]
+            value
+        },
+        wait_input = function(timeout) invisible(NULL),
+        on_input_eof = function() self$eof <- TRUE
+    )
+)
+
+test_that("Buffered fetch accepts difftime timeout budgets", {
+    base <- BufferedLanguageBase$new()
+    expect_null(base$fetch(blocking = TRUE, timeout = as.difftime(0, units = "secs")))
+    expect_null(base$fetch(blocking = TRUE, timeout = as.difftime(0, units = "mins")))
+})
+
+message_buffer_frame <- function(body, headers = "") {
+    charToRaw(paste0("Content-Length: ", nchar(body, "bytes"), "\r\n",
+        headers, "\r\n", body))
+}
+
+test_that("buffered fetch returns between fragmented UTF-8 frame reads", {
+    body <- enc2utf8('{"text":"你好\U0001f600"}')
+    bytes <- message_buffer_frame(body)
+    # Split within both the header and a multibyte body character.
+    base <- BufferedLanguageBase$new(list(
+        bytes[seq_len(7L)], bytes[seq.int(8L, length(bytes) - 2L)],
+        utils::tail(bytes, 2L)
+    ))
+    expect_null(base$fetch())
+    expect_equal(base$reads, 1L)
+    expect_true(base$input_read_pending())
+    expect_null(base$fetch())
+    expect_equal(base$reads, 2L)
+    expect_identical(base$fetch(), body)
+    expect_equal(base$reads, 3L)
+    expect_null(base$fetch())
+    expect_false(base$input_read_pending())
+})
+
+test_that("clients without raw-read support retain legacy fetch", {
+    LegacyClient <- R6::R6Class("LegacyClient", inherit = TestLanguageBase,
+        public = list(raw_input_available = FALSE,
+            read_raw = function(...) stop("must use the legacy transport")))
+    client <- LegacyClient$new(lines = list("Content-Length: 2", ""), chars = list("{}"))
+    client$raw_input_available <- FALSE
+    expect_identical(client$fetch(), "{}")
+    expect_false(client$input_read_pending())
+})
+
+test_that("buffered fetch drains complete frames before observing EOF", {
+    base <- BufferedLanguageBase$new(list(
+        c(message_buffer_frame("first"), message_buffer_frame("second")),
+        structure(raw(), eof = TRUE)
+    ))
+    expect_identical(base$fetch(), "first")
+    expect_identical(base$fetch(), "second")
+    expect_equal(base$reads, 1L)
+    expect_false(base$eof)
+    expect_null(base$fetch())
+    expect_true(base$eof)
+
+    truncated <- BufferedLanguageBase$new(list(
+        utils::head(message_buffer_frame("body"), -1L), structure(raw(), eof = TRUE)
+    ))
+    expect_null(truncated$fetch())
+    expect_error(truncated$fetch(), "connection closed during a message")
+})
+
+test_that("clients drain output before reporting EOF without polling a closed stream", {
+    client <- LanguageClient$new()
+    skip_if_not(client$raw_input_available)
+    output <- withr::local_tempfile()
+    bodies <- c(enc2utf8('{"text":"你好\U0001f600"}'), "{}")
+    writeBin(do.call(c, lapply(bodies, message_buffer_frame)), output)
+    connection <- processx::conn_create_file(output)
+    withr::defer(processx::processx_conn_close(connection))
+    alive <- TRUE
+    process <- new.env(parent = emptyenv())
+    process$get_output_connection <- function() connection
+    process$is_alive <- function() alive
+    process$poll_io <- function(...) stop("must not poll a closed output stream")
+    client$process <- process
+    # This fixture owns no subprocess, so detach it before the client finalizer.
+    withr::defer(client$process <- NULL)
+
+    expect_identical(client$fetch(blocking = TRUE), bodies[[1L]])
+    expect_identical(client$fetch(blocking = TRUE), bodies[[2L]])
+    expect_error(client$fetch(blocking = TRUE), "Server output connection closed.", fixed = TRUE)
+    expect_false(processx::conn_is_incomplete(connection))
+    alive <- FALSE
+    expect_error(client$fetch(blocking = TRUE), "Server is dead.", fixed = TRUE)
+})
+
+test_that("buffered blocking fetch applies its timeout to a partial body", {
+    bytes <- message_buffer_frame("body")
+    base <- BufferedLanguageBase$new(list(utils::head(bytes, -1L)))
+    # Drive elapsed time deterministically so the test never needs to sleep.
+    elapsed <- c(0, 0.5, 1.1)
+    mockery::stub(base$fetch, "proc.time", function() {
+        value <- elapsed[[1L]]
+        elapsed <<- utils::tail(elapsed, -1L)
+        c(elapsed = value)
+    })
+    expect_null(base$fetch(blocking = TRUE, timeout = 1))
+    expect_equal(base$reads, 2L)
+    base$chunks <- list(utils::tail(bytes, 1L))
+    elapsed <- 1.2
+    expect_identical(base$fetch(), "body")
+})
+
+test_that("native message buffers grow, compact, and scan headers incrementally", {
+    create <- function() .Call("new_message_buffer_c", PACKAGE = "languageserver")
+    append <- function(buffer, chunk) invisible(.Call("message_buffer_append_c",
+        buffer, chunk, PACKAGE = "languageserver"))
+    fetch <- function(buffer) .Call("message_buffer_fetch_c", buffer,
+        PACKAGE = "languageserver")
+    buffer <- create()
+    body <- enc2utf8('{"text":"你好\U0001f600"}')
+    bytes <- message_buffer_frame(body, paste0("Content-Type: ", strrep("x", 5000L), "\r\n"))
+    for (i in seq_len(length(bytes) - 1L)) {
+        append(buffer, bytes[[i]])
+        if (!is.null(fetch(buffer))) stop("returned an incomplete frame")
+    }
+    append(buffer, utils::tail(bytes, 1L))
+    expect_identical(fetch(buffer), body)
+    expect_false(.Call("message_buffer_pending_c", buffer, PACKAGE = "languageserver"))
+
+    # Consume a prefix, then grow while the next message is only half received.
+    second <- message_buffer_frame(strrep("y", 12000L))
+    append(buffer, c(message_buffer_frame(strrep("x", 3000L)), utils::head(second, 4000L)))
+    expect_identical(fetch(buffer), strrep("x", 3000L))
+    expect_null(fetch(buffer))
+    append(buffer, utils::tail(second, -4000L))
+    expect_identical(fetch(buffer), strrep("y", 12000L))
+
+    append(buffer, rep(message_buffer_frame("small"), 300L))
+    for (i in seq_len(250L)) fetch(buffer)
+    append(buffer, message_buffer_frame(body))
+    for (i in seq_len(50L)) fetch(buffer)
+    expect_identical(fetch(buffer), body)
+    expect_null(fetch(buffer))
+})
+
+test_that("native message buffers reject invalid framing and unusable pointers", {
+    create <- function() .Call("new_message_buffer_c", PACKAGE = "languageserver")
+    fetch <- function(buffer) .Call("message_buffer_fetch_c", buffer,
+        PACKAGE = "languageserver")
+    for (header in c("Wrong: header", "Content-Length: nope", "Content-Length: -1",
+            "Content-Length: 2147483648", "Content-Type: json",
+            "Content-Length: 1\r\nContent-Length: 2")) {
+        buffer <- create()
+        .Call("message_buffer_append_c", buffer,
+            charToRaw(paste0(header, "\r\n\r\n{}")), PACKAGE = "languageserver")
+        expect_error(fetch(buffer))
+    }
+    expect_error(.Call("message_buffer_append_c", create(), "text",
+        PACKAGE = "languageserver"), "raw bytes")
+    restored <- unserialize(serialize(create(), NULL))
+    expect_error(fetch(restored), "invalid message buffer")
+    expect_error(fetch(NULL), "invalid message buffer")
+
+    buffer <- create()
+    .Call("message_buffer_append_c", buffer, message_buffer_frame(""),
+        PACKAGE = "languageserver")
+    expect_identical(fetch(buffer), "")
+    expect_error(.Call("stdin_read_raw", 0L, PACKAGE = "languageserver"), "read size")
+    expect_error(.Call("stdin_wait", NA_real_, PACKAGE = "languageserver"), "timeout")
+})
+
 test_that("LanguageBase delivery stores callbacks and ignores NULL", {
     base <- TestLanguageBase$new()
     expect_null(base$deliver(NULL))

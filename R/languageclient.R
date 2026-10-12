@@ -23,12 +23,14 @@ LanguageClient <- R6::R6Class("LanguageClient",
         ClientCapabilities = NULL,
         ServerCapabilities = NULL,
         diagnostics = NULL,
+        raw_input_available = FALSE,
 
         initialize = function(cmd = NULL, args = NULL) {
             if (!is.null(cmd)) {
                 self$process <- processx::process$new(cmd, args,
                     stdin = "|", stdout = "|")
             }
+            self$raw_input_available <- "conn_read_bytes" %in% getNamespaceExports("processx")
             self$diagnostics <- collections::dict()
             super$initialize()
         },
@@ -71,6 +73,26 @@ LanguageClient <- R6::R6Class("LanguageClient",
 
         read_output = function(n) {
             self$process$read_output(n)
+        },
+
+        read_raw = function(n) {
+            # Read bytes before processx's text decoder so split UTF-8 code
+            # points do not alter Content-Length accounting.
+            connection <- self$process$get_output_connection()
+            data <- processx::conn_read_bytes(connection, n)
+            if (!length(data) && (!processx::conn_is_incomplete(connection) ||
+                        !self$process$is_alive())) attr(data, "eof") <- TRUE
+            data
+        },
+
+        wait_input = function(timeout) {
+            state <- self$process$poll_io(as.integer(ceiling(timeout * 1000)))
+            isTRUE(state[["output"]] == "ready") || !self$process$is_alive()
+        },
+
+        on_input_eof = function() {
+            self$check_connection()
+            stop("Server output connection closed.")
         },
 
         read_char = function(n) {

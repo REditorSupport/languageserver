@@ -1,5 +1,7 @@
 #include "search.h"
 #include "reader.h"
+#include "stdin.h"
+#include "message_buffer.h"
 #include "semantic.h"
 #include "encoding.h"
 #include "token.h"
@@ -41,6 +43,12 @@ static const R_CallMethodDef CallEntries[] = {
     {"detect_comments", (DL_FUNC) &detect_comments, 2},
     {"stdin_read_char", (DL_FUNC) &stdin_read_char, 1},
     {"stdin_read_line", (DL_FUNC) &stdin_read_line},
+    {"stdin_read_raw", (DL_FUNC) &stdin_read_raw, 1},
+    {"stdin_wait", (DL_FUNC) &stdin_wait, 1},
+    {"new_message_buffer_c", (DL_FUNC) &new_message_buffer_c, 0},
+    {"message_buffer_append_c", (DL_FUNC) &message_buffer_append_c, 2},
+    {"message_buffer_fetch_c", (DL_FUNC) &message_buffer_fetch_c, 1},
+    {"message_buffer_pending_c", (DL_FUNC) &message_buffer_pending_c, 1},
     {"encode_semantic_tokens_c", (DL_FUNC) &encode_semantic_tokens_c, 5},
     {"code_point_to_unit_c", (DL_FUNC) &code_point_to_unit_c, 2},
     {"code_point_from_unit_c", (DL_FUNC) &code_point_from_unit_c, 2},

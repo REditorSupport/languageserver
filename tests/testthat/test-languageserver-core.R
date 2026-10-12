@@ -180,6 +180,43 @@ test_that("LanguageServer drains queued input before background callbacks", {
     expect_identical(server$process_input(), 0L)
 })
 
+test_that("Pending providers rotate between documents and methods within a dispatch budget", {
+    server <- BareLanguageServer$new()
+    withr::defer(server$close_connections())
+    seen <- integer()
+    server$request_handlers <- list(first = function(self, id, params) seen <<- c(seen, id),
+        second = function(self, id, params) seen <<- c(seen, id))
+    workspace <- server$workspaces$get(DEFAULT_WORKSPACE)
+    uris <- c("file:///pending-first.R", "file:///pending-second.R")
+    for (uri in uris) {
+        document <- Document$new(uri, version = 1L, content = "value <- 1")
+        parsed <- parse_document(uri, document$content)
+        parsed$version <- 1L
+        document$update_parse_data(parsed)
+        workspace$documents$set(uri, document)
+        queues <- list(first = collections::queue(), second = collections::queue())
+        offset <- if (uri == uris[[1L]]) 0L else 10L
+        for (id in 1:3) queues$first$push(list(id = offset + id, version = 1L, params = NULL))
+        queues$second$push(list(id = offset + 4L, version = 1L, params = NULL))
+        server$pending_replies$set(uri, queues)
+        server$queue_pending_replies(uri)
+        server$queue_pending_replies(uri)
+    }
+    expect_identical(server$process_pending_replies(4L, Inf), 4L)
+    expect_identical(seen, c(1L, 11L, 4L, 14L))
+    expect_equal(server$input_wait_timeout(), 0)
+    expect_identical(server$process_pending_replies(20L, Inf), 4L)
+    expect_identical(seen, c(1L, 11L, 4L, 14L, 2L, 12L, 3L, 13L))
+    expect_equal(server$input_wait_timeout(), 0.01)
+
+    server$pending_replies$get(uris[[1L]])$first$push(list(id = 99L, version = 1L, params = NULL))
+    server$queue_pending_replies(uris[[1L]])
+    workspace$documents$get(uris[[1L]])$set_content(2L, "value <- 2")
+    expect_identical(server$process_pending_replies(), 0L)
+    expect_false(99L %in% seen)
+    expect_equal(server$pending_replies$get(uris[[1L]])$first$size(), 1L)
+})
+
 test_that("run configures boolean and file debug modes", {
     old_debug <- lsp_settings$get("debug")
     old_log_file <- lsp_settings$get("log_file")
@@ -265,4 +302,23 @@ test_that("process_events schedules diagnostics for open documents when NAMESPAC
     expect_no_error(server$process_events())
     expect_equal(workspace$imported_objects$get("sd"), "stats")
     expect_false(added_tasks$has(doc_uri))
+})
+
+test_that("busy parse workers do not starve diagnostics or background indexes", {
+    server <- BareLanguageServer$new()
+    withr::defer(server$close_connections())
+    counts <- new.env(parent = emptyenv())
+    counts$diagnostics <- counts$index <- 0L
+    noop <- list(check_tasks = function() NULL, run_tasks = function() NULL,
+        has_work = function() TRUE)
+    server$parse_task_manager <- noop
+    server$resolve_task_manager <- noop
+    server$formatting_task_manager <- noop
+    server$diagnostics_task_manager <- list(check_tasks = function() NULL,
+        run_tasks = function() counts$diagnostics <- counts$diagnostics + 1L)
+    server$index_task_manager <- list(check_tasks = function() NULL,
+        run_tasks = function() counts$index <- counts$index + 1L)
+    server$process_events()
+    expect_equal(counts$diagnostics, 1L)
+    expect_equal(counts$index, 1L)
 })

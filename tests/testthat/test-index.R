@@ -16,6 +16,29 @@ test_that("index globs include R files and prune excluded directories", {
     expect_true(index_glob_match("nested/.git/", "**/.git/**"))
 })
 
+test_that("index glob compilation is reused and follows settings changes", {
+    local_index_settings(index_include = "**/*.R", index_exclude = character())
+    root <- withr::local_tempdir()
+    index <- WorkspaceIndex$new(root)
+    expect_true(index$should_index(file.path(root, "first.R")))
+    testthat::local_mocked_bindings(
+        index_glob_regex = function(...) stop("unexpected glob compilation"),
+        .package = "languageserver"
+    )
+    expect_true(index$should_index(file.path(root, "second.R")))
+    expect_false(index$should_index(file.path(root, "second.qmd")))
+})
+
+test_that("cached index globs invalidate when patterns change", {
+    local_index_settings(index_include = "**/*.R", index_exclude = character())
+    root <- withr::local_tempdir()
+    index <- WorkspaceIndex$new(root)
+    expect_true(index$should_index(file.path(root, "first.R")))
+    lsp_settings$set("index_include", "**/*.qmd")
+    expect_false(index$should_index(file.path(root, "first.R")))
+    expect_true(index$should_index(file.path(root, "first.qmd")))
+})
+
 test_that("shallow summaries extract definitions and static source calls", {
     local_index_settings(index_persistent_cache = FALSE)
     root <- withr::local_tempdir()
@@ -43,6 +66,28 @@ test_that("shallow summaries extract definitions and static source calls", {
         c("first.R", "second.R", "third.R")
     )
     expect_false(any(grepl("dynamic", summary$sources, fixed = TRUE)))
+})
+
+test_that("shallow collectors preserve declaration order and last replacement", {
+    root <- withr::local_tempdir()
+    path <- file.path(root, "collectors.R")
+    symbols <- paste0("value", seq_len(300L))
+    content <- c(
+        "first <- function(x) x",
+        paste0(symbols, " <- 1"),
+        "first <- function(y = 2) y",
+        "second <- function(z) z",
+        "first <- 3",
+        "value1 <- 2",
+        "4 -> right"
+    )
+    summary <- index_shallow_summary(path, content, root)
+    expect_identical(names(summary$definitions), c("first", symbols, "second", "right"))
+    expect_identical(names(summary$functions), c("first", "second"))
+    expect_identical(formals(summary$functions$first), pairlist(y = 2))
+    expect_identical(summary$definitions$first$type, "double")
+    expect_equal(summary$definitions$value1$range$start$line, 304L)
+    expect_equal(summary$definitions$right$range$start$line, 305L)
 })
 
 test_that("source discovery tolerates missing call arguments", {

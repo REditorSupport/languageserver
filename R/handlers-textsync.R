@@ -7,7 +7,18 @@ update_document_index <- function(self, workspace, uri, content,
     if (is.null(workspace$index) || !isTRUE(workspace$index$enabled)) {
         return(invisible(NULL))
     }
-    workspace$index$update_content(uri, content, cacheable = cacheable)
+    doc <- workspace$documents$get(uri, NULL)
+    parsed <- if (!is.null(doc) &&
+            identical(doc$version, doc$parse_data$version) &&
+            identical(content, doc$parsed_content) &&
+            !isTRUE(doc$parse_data$parse_error) &&
+            !is.null(doc$parse_data$source_specs)) doc$parse_data else NULL
+    if (is.null(parsed) && !is.null(workspace$index$task_manager)) {
+        workspace$index$await_parse(uri, cacheable = cacheable)
+    } else {
+        workspace$index$update_content(uri, content, cacheable = cacheable,
+            parse_data = parsed)
+    }
     self$refresh_index_documents(workspace, uri)
     invisible(NULL)
 }
@@ -92,6 +103,7 @@ text_document_did_change <- function(self, params) {
         workspace$documents$set(uri, doc)
     }
     doc$did_open()
+    if (is.function(workspace$index$invalidate)) workspace$index$invalidate(uri)
     # The accepted background parse updates definitions and source edges.
     # Parsing a shallow index here would block every keystroke a second time.
     self$text_sync(
@@ -180,7 +192,8 @@ text_document_did_close <- function(self, params) {
 
     if (!is.null(workspace$index) && isTRUE(workspace$index$enabled)) {
         if (file.exists(path)) {
-            workspace$index$update_path(path)
+            if (is.null(workspace$index$task_manager)) workspace$index$update_path(path)
+            else workspace$index$queue_path(path, force = TRUE)
         } else {
             workspace$index$remove(uri)
         }
@@ -194,6 +207,15 @@ text_document_did_close <- function(self, params) {
         workspace$update_loaded_packages()
     }
 
+    pending <- self$pending_replies$get(uri, NULL)
+    for (queue in pending) {
+        while (queue$size()) {
+            item <- queue$pop()
+            self$deliver(ResponseErrorMessage$new(
+                item$id, "RequestCancelled", "Request cancelled because the document was closed"
+            ))
+        }
+    }
     self$pending_replies$remove(uri)
 }
 
