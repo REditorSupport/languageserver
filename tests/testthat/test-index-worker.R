@@ -196,6 +196,78 @@ test_that("awaited buffers retain their gate when persistent cacheability change
     expect_true(uri %in% index$pending)
 })
 
+test_that("closing a package buffer discards its parse without cancelling the disk refresh", {
+    withr::local_envvar(R_COVR = "false")
+    old_cache <- lsp_settings$get("index_persistent_cache")
+    withr::defer(lsp_settings$set("index_persistent_cache", old_cache))
+    lsp_settings$set("index_persistent_cache", FALSE)
+    root <- withr::local_tempdir()
+    dir.create(file.path(root, "R"))
+    writeLines(c("Package: closefixture", "Version: 0.0.1"), file.path(root, "DESCRIPTION"))
+    path <- file.path(root, "R", "main.R")
+    saved <- "saved <- function(x) x"
+    writeLines(saved, path)
+    uri <- path_to_uri(path)
+    workspace <- Workspace$new(root)
+    document <- Document$new(uri, version = 1L, content = saved)
+    document$did_open()
+    workspace$documents$set(uri, document)
+    accepted <- parse_document(uri, saved)
+    accepted$version <- 1L
+    workspace$update_parse_data(uri, accepted)
+    index_manager <- index_test_manager()
+    workspace$index$attach_worker(index_manager)
+    document$set_content(2L, "unsaved <- function(y) y")
+    workspace$index$await_parse(uri, cacheable = FALSE)
+
+    parse_manager <- TaskManager$new("close fixture", use_session = TRUE,
+        min_idle_sessions = 0L, max_running_tasks = 1L, cancellation_grace = 10)
+    withr::defer(parse_manager$stop())
+    server <- list(get_workspace = function(...) workspace,
+        refresh_index_documents = function(...) NULL,
+        prune_index_documents = function(...) NULL,
+        parse_task_manager = parse_manager,
+        resolve_task_manager = list(add_task = function(...) NULL),
+        pending_replies = collections::dict(), request_handlers = list(),
+        deliver = function(...) NULL)
+    server$pending_replies$set(uri, list())
+    state <- new.env(parent = emptyenv())
+    state$status <- "idle"
+    state$ready <- FALSE
+    pending <- parse_document(uri, document$content)
+    session <- list(call = function(...) state$status <- "busy",
+        get_state = function() state$status,
+        read = function() {
+            if (!state$ready || state$status != "busy") return(NULL)
+            state$status <- "idle"
+            list(code = 200L, error = NULL, result = pending)
+        },
+        close = function(...) NULL, kill = function(...) state$status <- "finished")
+    parse_manager$.__enclos_env__$private$sessions <- list(session)
+    parse_manager$add_task(uri, parse_task(server, uri, document))
+    parse_manager$run_tasks()
+    expect_true(parse_manager$has_work())
+
+    text_document_did_close(server, list(textDocument = list(uri = uri)))
+    expect_false(document$is_open)
+    expect_identical(workspace$documents$get(uri), document)
+    expect_true(uri %in% workspace$index$pending)
+    state$ready <- TRUE
+    parse_manager$check_tasks()
+    expect_false(parse_manager$has_work())
+    expect_identical(document$parse_data, accepted)
+    expect_true(uri %in% workspace$index$pending)
+
+    workspace$index$process_batch()
+    completed <- index_test_result(index_manager)
+    completed$private$callback(completed$result)
+    summary <- workspace$index$summaries$get(uri)
+    expect_identical(names(summary$definitions), "saved")
+    expect_identical(summary$content_hash, get_content_hash(saved))
+    expect_true(summary$cacheable)
+    expect_false(uri %in% workspace$index$pending)
+})
+
 test_that("unstable file reads are retried without retrying excluded or missing files", {
     root <- withr::local_tempdir()
     path <- file.path(root, "main.R")

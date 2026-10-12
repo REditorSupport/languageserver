@@ -172,6 +172,9 @@ text_document_did_close <- function(self, params) {
     uri <- uri_escape_unicode(textDocument$uri)
     cancel_formatting_requests(self, uri = uri,
         message = "Request cancelled because the document was closed")
+    # Retained package documents keep their version and content after close.
+    # Discard buffer parses before queuing a refresh from disk.
+    if (!is.null(self$parse_task_manager)) self$parse_task_manager$cancel(uri)
     path <- path_from_uri(uri)
     
     workspace <- self$get_workspace(uri)
