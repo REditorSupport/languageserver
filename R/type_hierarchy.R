@@ -412,20 +412,19 @@ find_type_supertypes <- function(workspace, type_def) {
     if (!is.null(parse_data$class_data) && class_type %in% c("R6", "S4", "RefClass", "S3")) {
         supertypes <- get0(class_index_key(class_type, type_def$name),
             envir = parse_data$class_data$supertypes, inherits = FALSE, ifnotfound = list())
-        if (!is.null(workspace$type_hierarchy_cache)) workspace$type_hierarchy_cache$set(cache_key, supertypes)
-        return(supertypes)
-    }
-    xdoc <- parse_data_xml(parse_data)
-    if (is.null(xdoc)) return(supertypes)
+    } else {
+        xdoc <- parse_data_xml(parse_data)
+        if (is.null(xdoc)) return(supertypes)
 
-    if (class_type == "R6") {
-        supertypes <- find_r6_supertypes(doc, xdoc, type_def$name, type_def$uri)
-    } else if (class_type == "S4") {
-        supertypes <- find_s4_supertypes(doc, xdoc, type_def$name, type_def$uri)
-    } else if (class_type == "RefClass") {
-        supertypes <- find_refclass_supertypes(doc, xdoc, type_def$name, type_def$uri)
-    } else if (class_type == "S3") {
-        supertypes <- find_s3_supertypes(doc, xdoc, type_def$name, type_def$uri)
+        if (class_type == "R6") {
+            supertypes <- find_r6_supertypes(doc, xdoc, type_def$name, type_def$uri)
+        } else if (class_type == "S4") {
+            supertypes <- find_s4_supertypes(doc, xdoc, type_def$name, type_def$uri)
+        } else if (class_type == "RefClass") {
+            supertypes <- find_refclass_supertypes(doc, xdoc, type_def$name, type_def$uri)
+        } else if (class_type == "S3") {
+            supertypes <- find_s3_supertypes(doc, xdoc, type_def$name, type_def$uri)
+        }
     }
 
     # Final deduplication by class name

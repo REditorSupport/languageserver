@@ -43,6 +43,31 @@ test_that("worker class facts preserve member and inheritance outputs without XM
     expect_null(parsed$xml_doc)
 })
 
+test_that("indexed supertypes deduplicate names in the same order as legacy providers", {
+    for (type in c("S4", "RefClass")) {
+        constructor <- if (type == "S4") "setClass" else "setRefClass"
+        fixture <- provider_fixture(sprintf(
+            '%s("Child", contains = c("Parent", "Other", "Parent"))', constructor))
+        fixture$workspace$type_hierarchy_cache <- collections::dict()
+        parsed <- fixture$document$parse_data
+        classes <- parsed$class_data
+        definition <- list(name = "Child", classType = type, uri = fixture$uri)
+        parsed$class_data <- NULL
+        expected <- find_type_supertypes(fixture$workspace, definition)
+        expect_identical(map_chr(expected, "name"), c("Parent", "Other"))
+
+        fixture$workspace$type_hierarchy_cache$clear()
+        parsed$class_data <- classes
+        parsed$xml_doc <- parsed$xml_data <- NULL
+        actual <- find_type_supertypes(fixture$workspace, definition)
+        expect_identical(actual, expected)
+        expect_null(parsed$xml_doc)
+        cache_key <- paste("super", fixture$uri, type, "Child", sep = "\r")
+        expect_identical(fixture$workspace$type_hierarchy_cache$get(cache_key), expected)
+        expect_identical(find_type_supertypes(fixture$workspace, definition), expected)
+    }
+})
+
 test_that("S4 hierarchy parsing handles named arguments", {
     code <- c(
         'setClass("BaseEntity")',
