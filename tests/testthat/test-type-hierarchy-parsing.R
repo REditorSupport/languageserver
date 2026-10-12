@@ -3,6 +3,46 @@ parse_type_hierarchy_xdoc <- function(code) {
     xml2::read_xml(xmlparsedata::xml_parse_data(parsed))
 }
 
+test_that("worker class facts preserve member and inheritance outputs without XML", {
+    code <- c('Base <- R6Class("Base", public = list(value = 1))',
+        'Alias <- R6::R6Class("Child", inherit = "Base", public = list(run = function(x) { list(nested = x) }), private = list(secret = 2))',
+        'setClass("Entity", contains = c("Parent", "Other"), slots = c("odd slot" = "numeric"))',
+        'setMethod("show", "Entity", function(object) object)',
+        'setRefClass("Reference", contains = "Parent", fields = list(value = "numeric"), methods = list(run = function() value))')
+    fixture <- provider_fixture(code)
+    parsed <- fixture$document$parse_data
+    xdoc <- parsed$xml_doc
+    index <- parsed$class_data
+    expect_gt(index$bytes, 0)
+    restored <- unserialize(serialize(index, NULL))
+    for (type in c("R6", "S4", "RefClass")) {
+        for (name in c("Base", "Alias", "Child", "Entity", "Reference", "Parent", "Other")) {
+            key <- class_index_key(type, name)
+            super <- switch(type, R6 = find_r6_supertypes, S4 = find_s4_supertypes,
+                RefClass = find_refclass_supertypes)(fixture$document, xdoc, name, fixture$uri)
+            sub <- switch(type, R6 = find_r6_subtypes, S4 = find_s4_subtypes,
+                RefClass = find_refclass_subtypes)(fixture$document, xdoc, name, fixture$uri)
+            expect_equal(get0(key, restored$supertypes, inherits = FALSE, ifnotfound = list()), super)
+            expect_equal(get0(key, restored$subtypes, inherits = FALSE, ifnotfound = list()), sub)
+        }
+    }
+    for (def in parsed$definitions) {
+        if (def$type %in% c("R6", "S4", "RefClass")) {
+            expected <- extract_class_members(fixture$document, xdoc, def)
+            expect_equal(class_member_symbols(fixture$document, parsed, def), expected)
+        }
+    }
+    fixture$workspace$type_hierarchy_cache <- collections::dict()
+    parsed$xml_doc <- parsed$xml_data <- NULL
+    super <- find_type_supertypes(fixture$workspace,
+        list(name = "Child", classType = "R6", uri = fixture$uri))
+    sub <- find_type_subtypes(fixture$workspace,
+        list(name = "Base", classType = "R6", uri = fixture$uri))
+    expect_equal(map_chr(super, "name"), "Base")
+    expect_equal(map_chr(sub, "name"), "Child")
+    expect_null(parsed$xml_doc)
+})
+
 test_that("S4 hierarchy parsing handles named arguments", {
     code <- c(
         'setClass("BaseEntity")',

@@ -124,16 +124,9 @@ reference_parse_data <- function(data, content, completion_data, uri,
     end_cols <- as.integer(data$col2[rows])
     non_ascii_lines <- nchar(content, type = "bytes") !=
         nchar(content, type = "chars")
-    convert <- which(non_ascii_lines[data$line1[rows]])
-    for (i in convert) {
-        row_index <- rows[[i]]
-        converted <- code_point_to_unit(
-            content[[data$line1[[row_index]]]],
-            c(data$col1[[row_index]] - 1L, data$col2[[row_index]])
-        )
-        cols[[i]] <- converted[[1L]]
-        end_cols[[i]] <- converted[[2L]]
-    }
+    units <- syntax_unit_columns(content, data$line1[rows], cols, end_cols, non_ascii_lines)
+    cols <- units$start
+    end_cols <- units$end
 
     qualified_call <- data$token[rows] == "SYMBOL_FUNCTION_CALL" &
         data$col1[rows] > 2L &
@@ -268,7 +261,7 @@ references_reply <- function(id, uri, workspace, document, point) {
             workspace, defn$result$uri, uri)
         doc_results <- lapply(doc_uris, function(doc_uri) {
             doc <- workspace$documents$get(doc_uri)
-            xdoc <- workspace$get_parse_data(doc_uri)$xml_doc
+            xdoc <- parse_data_xml(workspace$get_parse_data(doc_uri))
             if (is.null(xdoc)) {
                 return(list())
             }

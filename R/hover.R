@@ -76,7 +76,14 @@ hover_reply <- function(id, uri, workspace, document, point) {
     version <- workspace$get_parse_data(uri)$version
     logger$info("hover:", list(uri = uri, version = version, token = token_result))
 
-    xdoc <- workspace$get_parse_data(uri)$xml_doc
+    parse_data <- workspace$get_parse_data(uri)
+    syntax <- parse_data$syntax_data
+    if (token_result$accessor == "" && !is.null(syntax)) {
+        local <- navigation_hover(uri, workspace, document, parse_data, point$row + 1L, point$col + 1L)
+        contents <- local$contents
+        resolved <- local$resolved
+    }
+    xdoc <- if (is.null(syntax)) parse_data_xml(parse_data)
 
     if (token_result$accessor == "" && !is.null(xdoc)) {
         row <- point$row + 1

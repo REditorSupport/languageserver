@@ -14,4 +14,9 @@ SEXP reference_resolve_local_c(
     SEXP definition_group, SEXP line1, SEXP col1, SEXP line2, SEXP col2
 );
 
+SEXP syntax_index_c(SEXP data, SEXP order);
+SEXP navigation_index_c(SEXP syntax);
+SEXP syntax_enclosing_c(SEXP syntax, SEXP point);
+SEXP navigation_select_c(SEXP syntax, SEXP index, SEXP candidates, SEXP point, SEXP mode, SEXP last);
+
 #endif

@@ -356,7 +356,8 @@ SEXP completion_parse_index_c(
     SEXP line1,
     SEXP col1,
     SEXP line2,
-    SEXP col2
+    SEXP col2,
+    SEXP syntax
 ) {
     if (!Rf_isInteger(id) || !Rf_isInteger(parent) ||
             !Rf_isInteger(line1) || !Rf_isInteger(col1) ||
@@ -395,28 +396,58 @@ SEXP completion_parse_index_c(
         Rf_error("completion parse id is too large");
     }
 
-    int *row_by_id = (int *) R_alloc((size_t) max_id + 1, sizeof(int));
-    int *first_child = (int *) R_alloc((size_t) max_id + 1, sizeof(int));
-    int *last_child = (int *) R_alloc((size_t) max_id + 1, sizeof(int));
-    int *next_sibling = (int *) R_alloc((size_t) n, sizeof(int));
+    int *row_by_id = NULL;
+    int *first_child = NULL;
+    int *last_child = NULL;
+    int *next_sibling = NULL;
     int *parent_has_dollar = (int *) R_alloc((size_t) max_id + 1, sizeof(int));
-    int *function_scope = (int *) R_alloc((size_t) max_id + 1, sizeof(int));
+    int *function_scope = NULL;
+    const int *shared_scope = NULL;
+    if (syntax != R_NilValue) {
+        SEXP labels = Rf_getAttrib(syntax, R_NamesSymbol);
+        if (TYPEOF(syntax) != VECSXP || TYPEOF(labels) != STRSXP || XLENGTH(labels) != XLENGTH(syntax)) Rf_error("invalid shared completion syntax");
+        for (R_xlen_t i = 0; i < XLENGTH(labels); ++i) {
+            const char *name = CHAR(STRING_ELT(labels, i));
+            SEXP value = VECTOR_ELT(syntax, i);
+            int row_length = !strcmp(name, "id_next") || !strcmp(name, "scope_row");
+            int relevant = row_length || !strcmp(name, "id_row") || !strcmp(name, "id_first") || !strcmp(name, "id_function_scope");
+            if (relevant && (TYPEOF(value) != INTSXP || XLENGTH(value) != (row_length ? n : (R_xlen_t) max_id + 1))) Rf_error("invalid shared completion column: %s", name);
+            if (!strcmp(name, "id_row")) row_by_id = INTEGER(value);
+            if (!strcmp(name, "id_first")) first_child = INTEGER(value);
+            if (!strcmp(name, "id_next")) next_sibling = INTEGER(value);
+            if (!strcmp(name, "id_function_scope")) function_scope = INTEGER(value);
+            if (!strcmp(name, "scope_row")) shared_scope = INTEGER(value);
+        }
+        if (!row_by_id || !first_child || !next_sibling || !function_scope || !shared_scope) Rf_error("invalid shared completion syntax");
+        for (int i = 0; i <= max_id; ++i) {
+            if (row_by_id[i] < -1 || row_by_id[i] >= n || first_child[i] < -1 || first_child[i] >= n) Rf_error("invalid shared completion row");
+        }
+        for (int i = 0; i < n; ++i) {
+            if (next_sibling[i] < -1 || next_sibling[i] >= n || shared_scope[i] < -1 || shared_scope[i] >= n) Rf_error("invalid shared completion adjacency");
+        }
+    } else {
+        last_child = (int *) R_alloc((size_t) max_id + 1, sizeof(int));
+        row_by_id = (int *) R_alloc((size_t) max_id + 1, sizeof(int));
+        first_child = (int *) R_alloc((size_t) max_id + 1, sizeof(int));
+        next_sibling = (int *) R_alloc((size_t) n, sizeof(int));
+        function_scope = (int *) R_alloc((size_t) max_id + 1, sizeof(int));
+    }
     completion_token_kind *kind = (completion_token_kind *)
         R_alloc((size_t) n, sizeof(completion_token_kind));
 
     for (int i = 0; i <= max_id; i++) {
-        row_by_id[i] = -1;
-        first_child[i] = -1;
-        last_child[i] = -1;
+        if (syntax == R_NilValue) {
+            row_by_id[i] = first_child[i] = last_child[i] = -1;
+        }
         parent_has_dollar[i] = 0;
-        function_scope[i] = 0;
+        if (syntax == R_NilValue) function_scope[i] = 0;
     }
     for (int i = 0; i < n; i++) {
-        next_sibling[i] = -1;
+        if (syntax == R_NilValue) next_sibling[i] = -1;
         kind[i] = classify_token(STRING_ELT(token, i));
 
         int node_id = id_ptr[i];
-        if (node_id > 0) {
+        if (node_id > 0 && syntax == R_NilValue) {
             if (row_by_id[node_id] >= 0) {
                 Rf_error("completion parse ids must be unique");
             }
@@ -425,16 +456,15 @@ SEXP completion_parse_index_c(
 
         int parent_id = parent_ptr[i];
         if (parent_id >= 0) {
-            if (first_child[parent_id] < 0) {
-                first_child[parent_id] = i;
-            } else {
-                next_sibling[last_child[parent_id]] = i;
+            if (syntax == R_NilValue) {
+                if (first_child[parent_id] < 0) first_child[parent_id] = i;
+                else next_sibling[last_child[parent_id]] = i;
+                last_child[parent_id] = i;
             }
-            last_child[parent_id] = i;
             if (kind[i] == TOKEN_DOLLAR) {
                 parent_has_dollar[parent_id] = 1;
             }
-            if (kind[i] == TOKEN_FUNCTION || kind[i] == TOKEN_LAMBDA) {
+            if (syntax == R_NilValue && (kind[i] == TOKEN_FUNCTION || kind[i] == TOKEN_LAMBDA)) {
                 function_scope[parent_id] = 1;
             }
         }
@@ -509,7 +539,7 @@ SEXP completion_parse_index_c(
         int name_row = simple_symbol_row(
             name_expr, id_ptr, first_child, next_sibling, kind);
         if (name_row < 0) continue;
-        int range_row = scope_row(name_row, id_ptr, parent_ptr, row_by_id,
+        int range_row = shared_scope ? shared_scope[name_row] : scope_row(name_row, id_ptr, parent_ptr, row_by_id,
             max_id, function_scope);
         if (range_row < 0) continue;
 
@@ -528,7 +558,7 @@ SEXP completion_parse_index_c(
         int child = first_child[id_ptr[i]];
         while (child >= 0) {
             if (kind[child] == TOKEN_SYMBOL) {
-                int range_row = scope_row(child, id_ptr, parent_ptr, row_by_id,
+                int range_row = shared_scope ? shared_scope[child] : scope_row(child, id_ptr, parent_ptr, row_by_id,
                     max_id, function_scope);
                 if (range_row >= 0) {
                     symbol_name[symbol_count] = child;

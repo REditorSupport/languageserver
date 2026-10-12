@@ -15,15 +15,20 @@ section_level_regex <- paste0(
 )
 
 #---------------------------r document utils functions------------------------#
-get_r_document_sections_and_blocks <- function(content, xdoc, symbol = FALSE) {
-    block_lines_list <- extract_document_block_lines(xdoc)
-    sections_and_binary_ranges <- get_r_document_ranges_rec(
-        content = content,
-        start_line = 1L,
-        end_line = length(content),
-        block_lines_list = block_lines_list,
-        symbol = symbol
-    )
+get_r_document_sections_and_blocks <- function(content, xdoc, symbol = FALSE, outline = NULL) {
+    block_lines_list <- if (is.null(outline)) extract_document_block_lines(xdoc) else outline$blocks
+    index <- if (is.null(outline)) outline_block_index(block_lines_list) else outline$block_index
+    sections_and_binary_ranges <- if (!is.null(index)) {
+        outline_document_ranges(content, index, symbol)
+    } else {
+        get_r_document_ranges_rec(
+            content = content,
+            start_line = 1L,
+            end_line = length(content),
+            block_lines_list = block_lines_list,
+            symbol = symbol
+        )
+    }
     if (symbol) {
         sections_and_binary_ranges$sections
     } else {
@@ -70,9 +75,9 @@ get_r_document_ranges_rec <- function(content, start_line, end_line, block_lines
         highest_level_block_lines <- lapply(block_lines_list, `[`, unlist(
             .mapply(function(start_line, end_line) {
                 !any(start_line >= block_lines_list[[1L]] &
-                    end_line <= block_lines_list[[2L]] &
-                    !(start_line == block_lines_list[[1L]] &
-                        end_line == block_lines_list[[2L]]))
+                        end_line <= block_lines_list[[2L]] &
+                        !(start_line == block_lines_list[[1L]] &
+                                end_line == block_lines_list[[2L]]))
             }, block_lines_list, NULL),
             recursive = FALSE, use.names = FALSE
         ))
@@ -380,34 +385,20 @@ define_section_groups <- function(line_numbers, line_content, section, break_lin
 }
 
 get_section_group_ranges <- function(section_lines, section_names, section_levels, group_endline) {
-    section_index <- seq_along(section_lines)
     # the section end line should be the first occurence among
     # following document where the section level is equal or lower than
     # current section level, otherwise, the end line of this section group
-    section_end_lines <- vapply(section_index, function(i) {
-        # extract sections after current section
-        section_index_after_i <- setdiff(section_index, seq_len(i))
-        # when no higher-level section is after current section
-        # the end line should be the end of current document
-        if (!length(section_index_after_i)) {
-            return(group_endline)
+    section_end_lines <- rep.int(as.integer(group_endline), length(section_lines))
+    stack <- integer(length(section_lines))
+    depth <- 0L
+    for (i in rev(seq_along(section_lines))) {
+        while (depth > 0L && section_levels[[stack[[depth]]]] > section_levels[[i]]) {
+            depth <- depth - 1L
         }
-        # find the first section with higher-level than current section
-        section_range_end_index <- which(
-            section_levels[section_index_after_i] <= section_levels[[i]]
-        )
-
-        if (length(section_range_end_index)) {
-            section_range_end_index <- section_range_end_index[[1L]]
-            return(
-                section_lines[
-                    section_index_after_i[section_range_end_index]
-                ] - 1L
-            )
-        } else {
-            return(group_endline)
-        }
-    }, integer(1L))
+        if (depth > 0L) section_end_lines[[i]] <- section_lines[[stack[[depth]]]] - 1L
+        depth <- depth + 1L
+        stack[[depth]] <- i
+    }
 
     .mapply(function(name, start_line, end_line) {
         list(

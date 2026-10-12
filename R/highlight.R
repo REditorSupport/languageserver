@@ -39,7 +39,7 @@ document_highlight_reply <- function(id, uri, workspace, document, point) {
         }
     }
 
-    xdoc <- parse_data$xml_doc
+    xdoc <- parse_data_xml(parse_data)
     if (!is.null(xdoc)) {
         row <- point$row + 1
         col <- point$col + 1

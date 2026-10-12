@@ -22,6 +22,55 @@ test_that("Document changes handle whole files and multiline replacements", {
     expect_identical(normalize_parse_content(character()), "")
 })
 
+test_that("Parser collectors preserve replacement values and first-seen order", {
+    content <- c(
+        "{",
+        "  #' Original function",
+        "  first <- function(x = 1) x",
+        "  second <- TRUE",
+        "  #' Replacement function",
+        "  first <- function(y = 2) y",
+        "  first <- 3",
+        "  for (second in 1:2) { third <- second }",
+        "  for (loop in 1:2) { third <- loop }",
+        "  for (loop in 1:2) {}",
+        "  assign('fourth', function(z) z)",
+        "  delayedAssign('fifth', 5)",
+        "  makeActiveBinding('active', function() 1, .GlobalEnv)",
+        "  ignored <- function() { hidden <- 1 }",
+        "}"
+    )
+    parsed <- parse_document("file:///collector-order.R", content)
+    expect_identical(names(parsed$definitions),
+        c("first", "second", "third", "fourth", "fifth", "active", "ignored"))
+    expect_identical(parsed$objects,
+        c("first", "second", "first", "first", "third", "third", "fourth",
+            "fifth", "active", "ignored"))
+    expect_identical(parsed$functs, c("first", "first", "fourth", "ignored"))
+    expect_identical(parsed$nonfuncts,
+        c("second", "first", "third", "loop", "third", "fifth", "active"))
+    expect_identical(names(parsed$functions), c("first", "fourth", "ignored"))
+    expect_identical(names(parsed$signatures), names(parsed$functions))
+    expect_identical(formals(parsed$functions$first), pairlist(y = 2))
+    expect_identical(parsed$signatures$first, "first(y = 2)")
+    expect_identical(parsed$definitions$first$type, "double")
+    expect_equal(parsed$definitions$first$range$start$line, 6L)
+    expect_identical(names(parsed$documentation), "first")
+    expect_match(parsed$documentation$first$markdown, "Replacement function", fixed = TRUE)
+    expect_false(any(grepl("_store$|_names$|_seen$", ls(parsed))))
+})
+
+test_that("Parser collectors handle many declarations in one nested expression", {
+    symbols <- paste0("value", seq_len(300L))
+    content <- c("if (TRUE) {", paste0(symbols, " <- 1"), "}", "value1 <- 2")
+    parsed <- parse_document("file:///collector-nested.R", content)
+    expect_identical(names(parsed$definitions), symbols)
+    expect_identical(parsed$objects, c(symbols, "value1"))
+    expect_identical(parsed$nonfuncts, c(symbols, "value1"))
+    expect_length(parsed$functions, 0L)
+    expect_equal(parsed$definitions$value1$range$start$line, 302L)
+})
+
 test_that("Parse callbacks discard stale work and superseded replies", {
     uri <- "file:///parse-callback.R"
     document <- Document$new(uri, version = 2L, content = "value <- 1")
@@ -42,6 +91,9 @@ test_that("Parse callbacks discard stale work and superseded replies", {
 
     expect_null(parse_callback(self, uri, 2L, NULL))
     expect_null(parse_callback(self, uri, 1L, parse_document(uri, "value <- 0")))
+    expect_null(parse_callback(self, uri, 2L,
+        parse_document(uri, "value <- 0"), source_content = "value <- 0"))
+    expect_identical(document$parse_data, previous)
 
     queue <- collections::queue()
     queue$push(list(id = 1L, version = 1L, params = list()))

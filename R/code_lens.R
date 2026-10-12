@@ -34,7 +34,7 @@ function_call_locations <- function(workspace, symbol, context_uri = NULL) {
             }
             next
         }
-        xdoc <- parse_data$xml_doc
+        xdoc <- parse_data_xml(parse_data)
         if (is.null(xdoc)) next
 
         nodes <- xml_find_all(

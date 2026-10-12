@@ -395,6 +395,43 @@ test_that("R6 default expressions preserve aliases and nested formal shadowing",
     expect_null(items[[match("self", labels)]]$documentation)
 })
 
+test_that("compact source references retain descriptor-miss recovery after serialization", {
+    fixture <- r6_symbol_fixture(c(
+        'C <- R6::R6Class("Widget", public = list(',
+        '  run = function(value = 1) NULL, probe = function(arg = {',
+        '    alias <- self', '    alias$run(value = 2)', '  }) NULL))'))
+    parsed <- fixture$document$parse_data
+    member <- unserialize(serialize(parsed$member_data, NULL))
+    # Locate source environments through their source index rather than
+    # depending on the constructor argument's precise AST route.
+    find_srcfile <- function(node) {
+        if (is.call(node) && member_head(node, "function") && length(node) >= 4L) {
+            return(attr(node[[4L]], "srcfile"))
+        }
+        if (is.call(node) || is.pairlist(node) || is.expression(node)) {
+            for (i in seq_along(node)) {
+                if (identical(node[[i]], quote(expr = ))) next
+                found <- find_srcfile(node[[i]])
+                if (!is.null(found)) return(found)
+            }
+        }
+        NULL
+    }
+    srcfile <- find_srcfile(member$items[[1L]]$expr)
+    expect_true(is.environment(srcfile))
+    expect_false(exists("parseData", envir = srcfile, inherits = FALSE))
+    expect_true(is.environment(srcfile$.languageserver_function_parts))
+    expect_gt(member$source_bytes, 0)
+    for (item in member$items) {
+        if (!is.null(item$source)) rm(list = ls(item$source$functions, all.names = TRUE), envir = item$source$functions)
+    }
+    parsed$member_data <- member
+    expect_identical(r6_symbol_hover(fixture, 3L, "run")$contents,
+        c("```r\nrun(value = 1)\n```", "Public method of R6 class `Widget`"))
+    expect_identical(signature_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+        list(row = 3L, col = 22L))$result$signatures[[1L]]$label, "run(value = 1)")
+})
+
 test_that("R6 member providers recover large methods and formal defaults", {
     fixture <- r6_symbol_fixture(c(
         'C <- R6::R6Class("Widget", public = list(',

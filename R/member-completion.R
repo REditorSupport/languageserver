@@ -109,7 +109,9 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL) {
             effects[[length(effects) + 1L]] <- item
         }
     }
+    source_bytes <- if (complete) member_compact_source(parsed, parts) else 0
     list(items = items, bindings = as.list(bindings), imports = imports, effects = effects, s4 = s4,
+        source_bytes = source_bytes,
         packages = packages, class_scope = class_scope, symbol_scope = symbol_scope)
 }
 
@@ -648,17 +650,23 @@ member_recover_scope <- function(document, point, cursor, data) {
                 # default closure keeps its own formals and earlier locals.
                 descriptor <- source_index$functions[[member_source_key(ast_path)]]
                 if (is.null(descriptor)) {
+                    srcfile <- attr(ref, "srcfile")
+                    descriptor <- member_function_descriptor(node, ref, srcfile$.languageserver_function_parts)
+                }
+                if (is.null(descriptor)) {
                     if (is.null(syntax)) syntax <<- utils::getParseData(attr(ref, "srcfile"))
-                    rows <- which(syntax$token == "expr" & syntax$line1 == ref[[1L]] &
-                            syntax$col1 == ref[[5L]] & syntax$line2 == ref[[3L]] & syntax$col2 == ref[[6L]])
-                    parts <- syntax[syntax$parent %in% syntax$id[rows] & syntax$token == "expr", ]
-                    parts <- parts[order(parts$line1, parts$col1), ]
-                    defaults <- which(vapply(as.list(node[[2L]]), function(x) !identical(x, quote(expr = )), logical(1L)))
-                    if (nrow(parts) == length(defaults) + 1L) descriptor <- list(defaults = defaults,
-                        refs = lapply(seq_len(nrow(parts)), function(i) {
-                            part <- parts[i, ]
-                            c(part$line1, 0L, part$line2, 0L, part$col1, part$col2)
-                        }))
+                    if (!is.null(syntax)) {
+                        rows <- which(syntax$token == "expr" & syntax$line1 == ref[[1L]] &
+                                syntax$col1 == ref[[5L]] & syntax$line2 == ref[[3L]] & syntax$col2 == ref[[6L]])
+                        parts <- syntax[syntax$parent %in% syntax$id[rows] & syntax$token == "expr", ]
+                        parts <- parts[order(parts$line1, parts$col1), ]
+                        defaults <- which(vapply(as.list(node[[2L]]), function(x) !identical(x, quote(expr = )), logical(1L)))
+                        if (nrow(parts) == length(defaults) + 1L) descriptor <- list(defaults = defaults,
+                            refs = lapply(seq_len(nrow(parts)), function(i) {
+                                part <- parts[i, ]
+                                c(part$line1, 0L, part$line2, 0L, part$col1, part$col2)
+                            }))
+                    }
                 }
                 if (!is.null(descriptor)) {
                     defaults <- descriptor$defaults

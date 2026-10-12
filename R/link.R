@@ -10,8 +10,9 @@ document_link_reply <- function(id, uri, workspace, document, rootPath) {
         return(NULL)
     }
 
-    xdoc <- parse_data$xml_doc
-    if (!is.null(xdoc)) {
+    indexed <- parse_data$range_data$strings
+    xdoc <- if (is.null(indexed)) parse_data_xml(parse_data)
+    if (!is.null(indexed) || !is.null(xdoc)) {
         cached <- parse_data$link_strings_cache
         if (!is.null(cached) && identical(cached$content, document$content)) {
             strings <- cached$strings
@@ -19,7 +20,6 @@ document_link_reply <- function(id, uri, workspace, document, rootPath) {
             # String length: `@col2-@col1-1`
             # Limit string length to 255 to avoid potential PATH_MAX error on Windows
             # On macOS and Linux, PATH_MAX is much larger but we ignore the long strings at the moment.
-            indexed <- parse_data$range_data$strings
             if (is.null(indexed)) {
                 str_tokens <- xml_find_all(xdoc, "//STR_CONST[@line1=@line2 and @col2>@col1+1 and @col2<=@col1+256]")
                 indexed <- list(

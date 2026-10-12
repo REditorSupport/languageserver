@@ -806,17 +806,8 @@ Workspace <- R6::R6Class("Workspace",
         update_parse_data = function(uri, parse_data) {
             self$diagnostics_globals_cache <- NULL
             self$type_hierarchy_cache$clear()
-            # IMPORTANT: Always create xml_doc in the main process from xml_data
-            # parse_document runs in a child process and cannot create xml_doc there
-            # because xml2 external pointers cannot cross process boundaries
-            if (!is.null(parse_data$xml_data)) {
-                parse_data$xml_doc <- tryCatch(
-                    xml2::read_xml(parse_data$xml_data), error = function(e) NULL)
-                if (!is.null(parse_data$xml_doc)) {
-                    attr(parse_data$xml_doc, "top_level_index") <-
-                        xdoc_top_level_index(parse_data$xml_doc)
-                }
-            }
+            # Indexed providers can publish immediately. Legacy providers
+            # materialize main-process XML through parse_data_xml on demand.
             self$documents$get(uri)$update_parse_data(parse_data)
             if (!is.null(self$index) && isTRUE(self$index$enabled)) {
                 doc <- self$documents$get(uri)
@@ -829,8 +820,8 @@ Workspace <- R6::R6Class("Workspace",
                 }
                 summary <- self$index$update_content(
                     uri, doc$content, cacheable = cacheable,
-                    parse_data = if (is.null(parse_data$source_specs)) NULL else
-                        parse_data)
+                    parse_data = if (isTRUE(parse_data$parse_error) ||
+                            !is.null(parse_data$source_specs)) parse_data else NULL)
                 if (is.null(parse_data$source_specs) && !is.null(summary) &&
                         !isTRUE(parse_data$parse_error)) {
                     summary$definitions <- as.list(parse_data$definitions)
