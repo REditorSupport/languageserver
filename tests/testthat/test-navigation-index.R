@@ -326,10 +326,14 @@ test_that("member navigation does not resolve same-name local bindings", {
         for (row in 2:4) {
             point <- list(row = row, col = nchar(content[[row + 1L]]) - 2L)
             expect_null(definition_reply(1L, uri, workspace, document, point, getwd())$result)
-            expect_null(hover_reply(2L, uri, workspace, document, point)$result)
+            # Package documentation may be available for the member name.
+            hover <- hover_reply(2L, uri, workspace, document, point)$result
+            expect_false("```r\nvalue <- 42\n```" %in% hover$contents)
             if (!is.null(data$syntax_data)) {
                 token <- navigation_token(data, row + 1L, point$col + 1L)
                 expect_true(navigation_after_dollar(data$syntax_data, token))
+                expect_null(navigation_hover(uri, workspace, document, data,
+                    row + 1L, point$col + 1L)$contents)
             }
         }
         point <- list(row = 5L, col = 4L)
