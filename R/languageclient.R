@@ -86,6 +86,10 @@ LanguageClient <- R6::R6Class("LanguageClient",
         },
 
         wait_input = function(timeout) {
+            connection <- self$process$get_output_connection()
+            if (!processx::conn_is_incomplete(connection) || !self$process$is_alive()) {
+                return(TRUE)
+            }
             state <- self$process$poll_io(as.integer(ceiling(timeout * 1000)))
             isTRUE(state[["output"]] == "ready") || !self$process$is_alive()
         },

@@ -151,7 +151,14 @@ test_that("clients drain output before reporting EOF without polling a closed st
     process <- new.env(parent = emptyenv())
     process$get_output_connection <- function() connection
     process$is_alive <- function() alive
-    process$poll_io <- function(...) stop("must not poll a closed output stream")
+    polls <- 0L
+    process$poll_io <- function(timeout) {
+        # File reads are asynchronous on Windows. Wait for unfinished reads,
+        # but never poll once processx has observed the end of the stream.
+        expect_true(processx::conn_is_incomplete(connection))
+        polls <<- polls + 1L
+        c(output = processx::poll(list(connection), timeout)[[1L]])
+    }
     client$process <- process
     # This fixture owns no subprocess, so detach it before the client finalizer.
     withr::defer(client$process <- NULL)
@@ -160,6 +167,9 @@ test_that("clients drain output before reporting EOF without polling a closed st
     expect_identical(client$fetch(blocking = TRUE), bodies[[2L]])
     expect_error(client$fetch(blocking = TRUE), "Server output connection closed.", fixed = TRUE)
     expect_false(processx::conn_is_incomplete(connection))
+    completed_polls <- polls
+    expect_true(client$wait_input(0))
+    expect_identical(polls, completed_polls)
     alive <- FALSE
     expect_error(client$fetch(blocking = TRUE), "Server is dead.", fixed = TRUE)
 })

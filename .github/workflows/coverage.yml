@@ -42,7 +42,9 @@ jobs:
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
       NOT_CRAN: true
       _R_CHECK_CRAN_INCOMING_: false
-      TESTTHAT_CPUS: 4
+      # Each test worker starts a server with its own R worker pools. Coverage
+      # instrumentation makes those subprocesses costly on the shared runner.
+      TESTTHAT_CPUS: 2
       TESTTHAT_FILTER: ${{ matrix.filter }}
 
     steps:
