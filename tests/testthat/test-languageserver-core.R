@@ -116,6 +116,87 @@ test_that("LanguageServer removes workspaces and preserves open documents", {
     expect_equal(server$workspace_cache$size(), 0L)
 })
 
+test_that("adding a workspace preserves matching fallback editor buffers", {
+    server <- BareLanguageServer$new()
+    withr::defer(server$close_connections())
+    root <- withr::local_tempdir()
+    uri <- path_to_uri(file.path(root, "unsaved.R"))
+    fallback <- server$workspaces$get(DEFAULT_WORKSPACE)
+    document <- Document$new(uri, version = 3L, content = "unsaved <- 1")
+    document$loaded_packages <- "utils"
+    document$did_open()
+    fallback$documents$set(uri, document)
+    expect_identical(server$get_workspace(uri), fallback)
+
+    server$add_workspace(path_to_uri(root))
+    workspace <- server$get_workspace(uri)
+    expect_false(fallback$documents$has(uri))
+    expect_identical(workspace$documents$get(uri, NULL), document)
+    expect_equal(document$content, "unsaved <- 1")
+    expect_equal(document$version, 3L)
+    expect_true(document$is_open)
+    expect_true("utils" %in% workspace$loaded_packages)
+})
+
+test_that("adding a nested workspace transfers buffers from their current workspace", {
+    server <- BareLanguageServer$new()
+    withr::defer(server$close_connections())
+    root <- withr::local_tempdir()
+    nested <- file.path(root, "nested")
+    dir.create(nested)
+    root_uri <- path_to_uri(root)
+    server$add_workspace(root_uri)
+    server$rootUri <- root_uri
+    parent <- server$get_workspace(root_uri)
+    uri <- path_to_uri(file.path(nested, "unsaved.R"))
+    writeLines("saved <- 1", path_from_uri(uri))
+    document <- Document$new(uri, version = 3L, content = "unsaved <- 1")
+    document$did_open()
+    parsed <- parse_document(uri, document$content)
+    parsed$version <- document$version
+    parent$documents$set(uri, document)
+    parent$update_parse_data(uri, parsed)
+    expect_identical(server$get_workspace(uri), parent)
+
+    server$add_workspace(path_to_uri(nested))
+    workspace <- server$get_workspace(uri)
+    expect_identical(workspace$documents$get(uri, NULL), document)
+    expect_false(parent$documents$has(uri))
+    expect_false(parent$index$summaries$has(index_canonical_uri(uri)))
+    summary <- workspace$index$summaries$get(index_canonical_uri(uri))
+    expect_true("unsaved" %in% names(summary$definitions))
+    expect_false("saved" %in% names(summary$definitions))
+})
+
+test_that("removing a nested workspace transfers open buffers to their parent", {
+    old_diagnostics <- lsp_settings$get("diagnostics")
+    withr::defer(lsp_settings$set("diagnostics", old_diagnostics))
+    lsp_settings$set("diagnostics", FALSE)
+    server <- BareLanguageServer$new()
+    withr::defer(server$close_connections())
+    root <- withr::local_tempdir()
+    nested <- file.path(root, "nested")
+    dir.create(nested)
+    root_uri <- path_to_uri(root)
+    nested_uri <- path_to_uri(nested)
+    server$add_workspace(root_uri)
+    server$rootUri <- root_uri
+    server$add_workspace(nested_uri)
+    workspace <- server$get_workspace(nested_uri)
+    uri <- path_to_uri(file.path(nested, "unsaved.R"))
+    document <- Document$new(uri, version = 3L, content = "unsaved <- 1")
+    document$loaded_packages <- "tools"
+    document$did_open()
+    workspace$documents$set(uri, document)
+    expect_identical(server$get_workspace(uri), workspace)
+
+    server$remove_workspace(nested_uri)
+    parent <- server$get_workspace(uri)
+    expect_identical(parent$root, root)
+    expect_identical(parent$documents$get(uri, NULL), document)
+    expect_true("tools" %in% parent$loaded_packages)
+})
+
 test_that("LanguageServer detects closed input and reads UTF-8 TCP bytes", {
     server <- BareLanguageServer$new()
     withr::defer(server$close_connections())
