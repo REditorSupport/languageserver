@@ -115,13 +115,10 @@ uri_escape_unicode <- function(uri) {
     if (length(uri) == 0) {
         return(character())
     }
-    if (.Platform$OS.type == "windows") {
-        uri <- utils::URLdecode(uri)
-        Encoding(uri) <- "UTF-8"
-        utils::URLencode(uri)
-    } else {
-        utils::URLencode(uri)
-    }
+    # URLencode otherwise skips the entire URI after finding one escape.
+    # Encode remaining Unicode and spaces while preserving existing octets.
+    encoded <- utils::URLencode(enc2utf8(uri), repeated = TRUE)
+    gsub("%25([[:xdigit:]]{2})", "%\\1", encoded)
 }
 
 #' Paths and uris
@@ -168,7 +165,14 @@ path_to_uri <- function(path) {
     } else {
         prefix <- "file://"
     }
-    paste0(prefix, utils::URLencode(path))
+    # Escape the path before adding the URI scheme. Slashes and a Windows
+    # drive colon delimit the path; all other reserved characters are literal.
+    encoded <- utils::URLencode(enc2utf8(path), reserved = TRUE, repeated = TRUE)
+    encoded <- gsub("%2F", "/", encoded, fixed = TRUE)
+    if (.Platform$OS.type == "windows") {
+        encoded <- sub("^([[:alpha:]])%3A", "\\1:", encoded)
+    }
+    paste0(prefix, encoded)
 }
 
 
@@ -266,7 +270,9 @@ is_ascii_vector <- function(x) {
 
 match_with <- function(x, token) {
     if (is_ascii_string(token) && is_ascii_vector(x)) {
-        return(.Call("match_with_c", PACKAGE = "languageserver", x, token))
+        matches <- .Call("match_with_c", PACKAGE = "languageserver", x, token)
+        matches[is.na(matches)] <- FALSE
+        return(matches)
     }
     if (is.na(token)) return(rep(NA, length(x)))
     if (!nzchar(token)) return(!is.na(x))
@@ -276,11 +282,18 @@ match_with <- function(x, token) {
 }
 
 fuzzy_find <- function(x, pattern) {
+    if (is.na(pattern)) return(rep(NA, length(x)))
+    if (!nzchar(pattern)) return(!is.na(x))
     if (is_ascii_string(pattern) && is_ascii_vector(x)) {
-        return(.Call("fuzzy_find_c", PACKAGE = "languageserver", x, pattern))
+        matches <- .Call("fuzzy_find_c", PACKAGE = "languageserver", x, pattern)
+    } else {
+        characters <- strsplit(pattern, "", fixed = TRUE)[[1L]]
+        subsequence_regex <- paste0("\\Q", characters, "\\E", collapse = ".*")
+        matches <- stringi::stri_detect_regex(x, subsequence_regex,
+            case_insensitive = TRUE, dotall = TRUE)
     }
-    subsequence_regex <- gsub("(.)", "\\1.*", pattern)
-    grepl(subsequence_regex, x, ignore.case = TRUE)
+    matches[is.na(matches)] <- FALSE
+    matches
 }
 
 

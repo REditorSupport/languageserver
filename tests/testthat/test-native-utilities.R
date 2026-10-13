@@ -44,6 +44,25 @@ test_that("native string matching validates its low-level inputs", {
     )
 })
 
+test_that("matching wrappers handle missing candidates consistently across encodings", {
+    for (values in list(c("abc", NA_character_), c("abc", "\u00e9clair", NA_character_))) {
+        expect_identical(match_with(values, "a"), !is.na(values))
+        expect_identical(fuzzy_find(values, "a"), !is.na(values))
+        expect_identical(fuzzy_find(values, ""), !is.na(values))
+        expect_identical(fuzzy_find(values, NA_character_), rep(NA, length(values)))
+    }
+})
+
+test_that("Unicode fuzzy matching treats regex punctuation as literal characters", {
+    punctuation <- c("[", "]", ".", "*", "+", "(", ")", "?", "{", "}", "$", "^", "|", "\\")
+    for (mark in punctuation) {
+        pattern <- paste0("\u00e9", mark)
+        expect_identical(fuzzy_find(c(pattern, paste0("\u00e9gap", mark), "\u00e9plain", NA_character_), pattern),
+            c(TRUE, TRUE, FALSE, FALSE))
+    }
+    expect_identical(fuzzy_find(c("\u00e9\nvalue", "\u00e9value"), "\u00e9v"), c(TRUE, TRUE))
+})
+
 test_that("Unicode completion matching treats quoted punctuation literally", {
     values <- c("[<-", "a\\b", "a.b", "a*b", "a+b", "a(b", "a?b", "a{b", "a$b",
         paste0(intToUtf8(0xe9), "clair"), NA_character_)
