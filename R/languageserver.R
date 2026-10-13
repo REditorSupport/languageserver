@@ -362,6 +362,13 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     on_update = function(uris) self$refresh_index_documents(workspace))
             }
             workspace$index$discover()
+            # Discovery can load disk caches or drop files that only exist in
+            # the editor. Restore open buffers before loading package files.
+            for (doc in workspace$documents$values()) {
+                if (isTRUE(doc$is_open)) {
+                    refresh_index_summary(workspace, workspace$index, doc$uri)
+                }
+            }
             for (uri in workspace$index$package_source_uris()) {
                 logger$info("load package file:", path_from_uri(uri))
                 if (!workspace$index$summaries$has(uri)) {
