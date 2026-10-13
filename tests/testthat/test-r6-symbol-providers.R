@@ -72,6 +72,96 @@ test_that("R6 reference hover follows aliases and respects lexical shadowing", {
     expect_false(any(grepl("R6", r6_symbol_hover(fixture, 1L, "self")$contents, fixed = TRUE)))
 })
 
+test_that("R6 member writes preserve references across symbol and member providers", {
+    for (reference in c("self", "super", "private", "alias")) {
+        for (write in c("%s$source <- NULL", "%s$source = NULL", '%s[["source"]] <- NULL',
+                if (reference != "super") "%s[[n]] <- NULL",
+                "if (n > 0) %s$source <- NULL", "for (i in n) %s$source <- NULL")) {
+            fixture <- r6_symbol_fixture(c(
+                'Parent <- R6::R6Class("Parent", public = list(source = NULL, filter = function(predicate) self))',
+                'Pipeline <- R6::R6Class("Pipeline", inherit = Parent, public = list(',
+                "  limit = function(n = 10L) {", "    alias <- self",
+                sprintf(paste0("    ", write), reference),
+                "    self$source <- head(self$source, n)",
+                "    self$filter(predicate = n)", "    super$filter(predicate = n)",
+                "    private$remember(n = n)", "    alias$limit(n = n)",
+                "  }), private = list(source = NULL, remember = function(n) self))"
+            ))
+            for (case in list(
+                list(row = 6L, reference = "self", label = "filter", signature = "filter(predicate)",
+                    description = "R6 instance of `Pipeline`", owner = "Public method of R6 class `Parent`"),
+                list(row = 7L, reference = "super", label = "filter", signature = "filter(predicate)",
+                    description = "Superclass methods of `Parent`", owner = "Public method of R6 class `Parent`"),
+                list(row = 8L, reference = "private", label = "remember", signature = "remember(n)",
+                    description = "Private environment of `Pipeline`", owner = "Private method of R6 class `Pipeline`"),
+                list(row = 9L, reference = "alias", label = "limit", signature = "limit(n = 10L)",
+                    description = "R6 instance of `Pipeline`", owner = "Public method of R6 class `Pipeline`"))) {
+                line <- fixture$document$line0(case$row)
+                col <- regexpr(case$label, line, fixed = TRUE)[[1L]]
+                items <- context_scope_completion(fixture$uri, fixture$workspace, case$reference,
+                    list(row = case$row, col = 4L + nchar(case$reference)), FALSE, Inf, character())
+                item <- items[[match(case$reference, vapply(items, `[[`, character(1L), "label"))]]
+                expect_identical(item$documentation$value, case$description)
+                expect_identical(r6_symbol_hover(fixture, case$row, case$reference)$contents[[2L]], case$description)
+                items <- member_completion(fixture$uri, fixture$workspace, fixture$document,
+                    list(row = case$row, col = col - 1L), FALSE, 200L)
+                item <- items[[match(case$label, vapply(items, `[[`, character(1L), "label"))]]
+                expect_identical(item$detail, case$signature)
+                expect_identical(item$documentation$value, case$owner)
+                expect_identical(r6_symbol_hover(fixture, case$row, case$label)$contents,
+                    c(sprintf("```r\n%s\n```", case$signature), case$owner))
+                signature <- signature_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+                    list(row = case$row, col = nchar(line) - 1L))$result$signatures[[1L]]
+                expect_identical(signature$label, case$signature)
+                expect_identical(signature$documentation$value, case$owner)
+            }
+        }
+    }
+})
+
+test_that("R6 member writes preserve context in large and incomplete methods", {
+    for (complete in c(TRUE, FALSE)) {
+        fixture <- r6_symbol_fixture(c(
+            'C <- R6::R6Class("Widget", public = list(run = function(value = 1) self, probe = function() {',
+            "  self$data <- NULL", if (complete) rep("  1", 150L),
+            "  self$run(value = 2)", "  self", if (complete) "}))"
+        ))
+        row <- fixture$document$nline - if (complete) 3L else 2L
+        expect_identical(r6_symbol_hover(fixture, row + 1L, "self")$contents[[2L]], "R6 instance of `Widget`")
+        expect_identical(r6_symbol_hover(fixture, row, "run")$contents[[1L]], "```r\nrun(value = 1)\n```")
+        items <- member_completion(fixture$uri, fixture$workspace, fixture$document,
+            list(row = row, col = 8L), FALSE, 200L)
+        item <- items[[match("run", vapply(items, `[[`, character(1L), "label"))]]
+        expect_identical(item$detail, "run(value = 1)")
+        signature <- signature_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+            list(row = row, col = 20L))$result$signatures[[1L]]
+        expect_identical(signature$label, "run(value = 1)")
+    }
+})
+
+test_that("R6 member write recovery discards changed field values and respects rebinding", {
+    fixture <- r6_symbol_fixture(c(
+        'C <- R6::R6Class("Widget", public = list(data = list(old = 1), other = list(kept = 1), probe = function() {',
+        "  self$data$new <- 2", "  self$data", "  self$other$kept", "}))"
+    ))
+    expect_identical(r6_symbol_hover(fixture, 2L, "data")$contents, "Public field of R6 class `Widget`")
+    items <- member_completion(fixture$uri, fixture$workspace, fixture$document,
+        list(row = 3L, col = 13L), FALSE, 200L)
+    expect_identical(vapply(items, `[[`, character(1L), "label"), "kept")
+    for (write in c("{ self$data <- NULL; self <- 1 }",
+            "if (flag) self <- 1 else self$data <- NULL", "for (self in values) self$data <- NULL",
+            "self$data <- (self <- 1)", "class(self) <- 'changed'")) {
+        fixture <- r6_symbol_fixture(c(
+            'C <- R6::R6Class("Widget", public = list(data = NULL, probe = function() {',
+            paste0("  ", write), "  self", "}))"
+        ))
+        items <- context_scope_completion(fixture$uri, fixture$workspace, "self",
+            list(row = 2L, col = 6L), FALSE, Inf, character())
+        item <- items[[match("self", vapply(items, `[[`, character(1L), "label"))]]
+        expect_null(item$documentation)
+    }
+})
+
 test_that("R6 hover recovers large methods while preserving earlier assignments", {
     fixture <- r6_symbol_fixture(c(
         'C <- R6::R6Class("Widget", public = list(',
