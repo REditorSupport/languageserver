@@ -22,6 +22,26 @@ test_that("enclosed_by_quotes works as expected", {
     expect_false(enclosed("fun('free', )", 9))
 })
 
+test_that("raw strings retain quoting when closing delimiter candidates overlap", {
+    texts <- c('r"(a))"', 'r"(a)z)"', 'r"--(a)-)--"', 'r"[a]]"', 'r"{a}}"')
+    for (text in texts) {
+        content <- paste0("foo(", text, ", value")
+        document <- Document$new("file:///raw-string.R", content = content)
+        point <- list(row = 0L, col = nchar(content))
+        expect_false(enclosed_by_quotes(document, point), info = text)
+        expect_equal(document$detect_call(point)$token, "foo", info = text)
+    }
+})
+
+test_that("incomplete raw prefixes remain ordinary quoted strings", {
+    for (text in c('foo(r"text(, value', 'foo(bar"text(, value')) {
+        document <- Document$new("file:///raw-prefix.R", content = text)
+        point <- list(row = 0L, col = nchar(text))
+        expect_true(enclosed_by_quotes(document, point))
+        expect_equal(document$detect_call(point)$token, "foo")
+    }
+})
+
 
 test_that("find_unbalanced_bracket works as expected", {
     bsearch <- function(content, row, column) {
