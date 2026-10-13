@@ -174,7 +174,7 @@ test_that("removing a nested workspace transfers open buffers to their parent", 
     lsp_settings$set("diagnostics", FALSE)
     server <- BareLanguageServer$new()
     withr::defer(server$close_connections())
-    root <- withr::local_tempdir()
+    root <- format(fs::path(withr::local_tempdir()))
     nested <- file.path(root, "nested")
     dir.create(nested)
     root_uri <- path_to_uri(root)

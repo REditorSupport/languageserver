@@ -144,8 +144,8 @@ test_that("path helpers find package roots and restore working directories", {
 })
 
 test_that("file URIs escape reserved path characters and literal percent escapes", {
-    paths <- file.path(tempdir(), c("hash#name.R", "query?name.R", "literal%20name.R",
-            "bracket[name].R"))
+    paths <- format(fs::path(tempdir(), c("hash#name.R", "query?name.R", "literal%20name.R",
+                "bracket[name].R")))
     uris <- path_to_uri(paths)
     expect_equal(path_from_uri(uris[[1L]]), paths[[1L]])
     expect_equal(path_from_uri(uris[[2L]]), paths[[2L]])
