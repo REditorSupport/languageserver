@@ -363,3 +363,14 @@ test_that("Go to Definition works for file paths", {
     result <- client %>% respond_definition(query_file, c(1, 9))
     expect_equal(result$uri, path_to_uri(defn_file))
 })
+
+test_that("file path definitions use the workspace root when no root is supplied", {
+    root <- format(fs::path(withr::local_tempdir()))
+    target <- file.path(root, "target.R")
+    writeLines("value <- 1", target)
+    fixture <- provider_fixture('"target.R"')
+    fixture$workspace$root <- root
+    reply <- definition_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+        list(row = 0L, col = 3L))
+    expect_equal(reply$result$uri, path_to_uri(target))
+})

@@ -157,7 +157,8 @@ text_document_references  <- function(self, id, params) {
     document <- workspace$documents$get(uri)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     point <- document$from_lsp_position(params$position)
-    self$deliver(references_reply(id, uri, workspace, document, point))
+    self$deliver(references_reply(id, uri, workspace, document, point,
+        include_declaration = !identical(params$context$includeDeclaration, FALSE)))
 }
 
 #' `textDocument/documentHighlight` request handler

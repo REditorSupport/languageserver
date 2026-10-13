@@ -12,7 +12,8 @@ definition_xpath <- paste(
 #' writes the function definition to a temporary file and returns that
 #' as the location.
 #' @noRd
-definition_reply <- function(id, uri, workspace, document, point, rootPath,
+definition_reply <- function(id, uri, workspace, document, point,
+    rootPath = get_root_path_for_uri(uri, workspace$root),
     context_uri = uri) {
 
     if (!check_r_region(document, point)) {
