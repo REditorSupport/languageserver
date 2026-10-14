@@ -149,6 +149,58 @@ member_r6_writable <- function(object, name) {
         (!isTRUE(object$r6_locked) || name %in% names(object$fields))
 }
 
+# Member replacement mutates an R6 environment without rebinding its lexical
+# reference. Keep its declared surface, but discard values of writable fields
+# touched by the statement; replacement expressions and setters stay inert.
+# TODO: Propagate changed fields across aliases and private/super r6_self links
+# during cursor recovery. The initializer's r6_identity tracking does not apply
+# here, so those independent snapshots can still expose earlier field values.
+member_r6_local_write <- function(node, name, value, index, budget) {
+    is_reference <- function(value) {
+        identical(value$type, "environment") && !is.null(value$r6_class) &&
+            any(value$r6_role %in% c("instance", "private", "super"))
+    }
+    if (is.null(value$binding_expr) && !is_reference(value)) return(NULL)
+    rebound <- FALSE
+    fields <- character()
+    dynamic <- FALSE
+    member_walk(node, function(x) {
+        if (member_head(x, "for") && identical(member_name(x[[2L]]), name)) rebound <<- TRUE
+        if (!member_head(x, "<-") && !member_head(x, "=") && !member_head(x, ":=")) return(NULL)
+        target <- x[[2L]]
+        field <- NULL
+        replacement <- FALSE
+        while (is.call(target) && length(target) > 1L) {
+            replacement <- member_head(target, "$") || member_head(target, "[[")
+            field <- if (replacement && length(target) >= 3L &&
+                    (member_head(target, "$") || is.character(target[[3L]]))) member_name(target[[3L]]) else NULL
+            target <- target[[2L]]
+        }
+        if (!identical(member_name(target), name)) return(NULL)
+        if (!replacement) {
+            rebound <<- TRUE
+        } else if (is.null(field)) {
+            dynamic <<- TRUE
+        } else {
+            fields <<- union(fields, field)
+        }
+        NULL
+    }, descend_functions = FALSE)
+    if (rebound || (!dynamic && !length(fields))) return(NULL)
+    value <- member_completion_value(value, index, budget)
+    if (!is_reference(value)) return(NULL)
+    if (dynamic) fields <- names(value$fields)
+    for (field in fields) {
+        if (!member_r6_writable(value, field)) next
+        previous <- member_lookup(value$fields, field)
+        unknown <- member_value(reason = "unknown_local_write")
+        unknown$r6_owner <- previous$r6_owner
+        unknown$r6_member_kind <- previous$r6_member_kind
+        value$fields[field] <- list(unknown)
+    }
+    value
+}
+
 # Initialization is inspected as syntax with inert self/private shapes. The
 # declared surface survives opaque initialization; proven field assignments and
 # finite named-list copies can add methods without constructing a live object.

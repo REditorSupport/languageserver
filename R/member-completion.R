@@ -563,6 +563,7 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
                     visit(child, env, path[-1L], c(ast_path, path[[1L]]))
                     break
                 }
+                preserved <- character()
                 if ((member_head(child, "<-") || member_head(child, "=")) && is.symbol(child[[2L]])) {
                     assigned <- as.character(child[[2L]])
                     env[assigned] <- list(if (member_head(child[[3L]], "function")) {
@@ -573,9 +574,14 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
                     })
                 } else {
                     assigned <- if (!is.null(summary)) summary$writes[[i]] else member_assigned_names(child)
-                    for (name in assigned) env[name] <- list(member_value(reason = "unknown_local_write"))
+                    for (name in assigned) {
+                        value <- member_r6_local_write(child, name, member_lookup(env, name), index, budget)
+                        env[name] <- list(if (is.null(value)) member_value(reason = "unknown_local_write") else value)
+                        if (!is.null(value)) preserved <- c(preserved, name)
+                    }
                 }
                 for (name in assigned) lookup[[name]] <- env[[name]]
+                assigned <- setdiff(assigned, preserved)
                 env$.__member_context_bindings__ <- setdiff(env$.__member_context_bindings__, assigned)
                 if (!is.null(env$.__member_context_locals__)) {
                     env$.__member_context_locals__ <- c(env$.__member_context_locals__, assigned)
