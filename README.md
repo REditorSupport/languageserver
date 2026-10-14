@@ -171,6 +171,13 @@ selected stack frame, and render the resulting values beside the source. They
 have no visible effect when the client or R debug adapter does not request
 `textDocument/inlineValue`.
 
+R6 member inference has a known limitation after field assignments inside a
+method. The written reference keeps its class context, but field information
+is not synchronized across aliases or the saved receivers for `private` and
+`super` methods. For example, after `alias <- self; self$data <- list(new = 1)`,
+completion on `alias$data$` may still use the earlier `data` value. The same
+can occur when a private or superclass method returns `self$data`.
+
 ## Settings
 
 `languageserver` exposes the following settings via LSP configuration.

@@ -152,6 +152,9 @@ member_r6_writable <- function(object, name) {
 # Member replacement mutates an R6 environment without rebinding its lexical
 # reference. Keep its declared surface, but discard values of writable fields
 # touched by the statement; replacement expressions and setters stay inert.
+# TODO: Propagate changed fields across aliases and private/super r6_self links
+# during cursor recovery. The initializer's r6_identity tracking does not apply
+# here, so those independent snapshots can still expose earlier field values.
 member_r6_local_write <- function(node, name, value, index, budget) {
     is_reference <- function(value) {
         identical(value$type, "environment") && !is.null(value$r6_class) &&
