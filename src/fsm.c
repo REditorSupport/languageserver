@@ -46,8 +46,10 @@ void fsm_feed(fsm_state* state, const char c) {
                 state->raw_dashes_running++;
             } else {
                 state->raw_parse_state = 0;
-                state->double_quoted = 0;
-                state->single_quoted = 0;
+                /* An unfinished raw prefix is still a quoted string while
+                 * typing. Process this character with ordinary quote rules. */
+                state->raw_dashes_running = 0;
+                goto ordinary_string;
             }
             return;
         }
@@ -75,16 +77,20 @@ void fsm_feed(fsm_state* state, const char c) {
                 } else {
                     state->raw_dashes_running = state->raw_dashes;
                     state->raw_parse_state = 3;
+                    /* A failed terminator can itself start the next one. */
+                    fsm_feed(state, c);
                 }
             } else if (state->raw_dashes_running > 0 && c == '-') {
                 state->raw_dashes_running--;
             } else {
                 state->raw_dashes_running = state->raw_dashes;
                 state->raw_parse_state = 3;
+                fsm_feed(state, c);
             }
         }
         return;
     }
+ordinary_string:
     if (state->escaped == 1) {
         state->escaped = 0;
         return;

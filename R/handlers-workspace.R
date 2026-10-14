@@ -21,7 +21,7 @@ refresh_index_summary <- function(workspace, index, uri) {
                 }
                 return(index$await_parse(document_uri[[1L]], cacheable = FALSE))
             }
-            return(index$update_content(document_uri[[1L]], doc$content))
+            return(index$update_content(document_uri[[1L]], doc$content, cacheable = FALSE))
         }
     }
     if (is.null(index$task_manager)) index$update_path(path_from_uri(uri))

@@ -12,6 +12,59 @@ test_that("reference index distinguishes lexical and package scopes", {
     expect_true("package:pkg:value" %in% value_keys)
 })
 
+test_that("reference indexing uses syntax for spaced member and namespace operators", {
+    fixture <- provider_fixture(c(
+        "value <- function() NULL",
+        "obj <- list(value = value)",
+        "obj $ value",
+        "obj $",
+        "  value()",
+        "pkg :: value()",
+        "(pkg :::",
+        "  value())",
+        "value()"
+    ))
+    index <- fixture$document$parse_data$reference_index
+    values <- reference_indices(index, "value")
+    expect_false(any(index$line[values] %in% c(2L, 4L)))
+    qualified <- values[index$line[values] %in% c(5L, 7L)]
+    expect_length(qualified, 2L)
+    expect_true(all(index$qualified_call[qualified]))
+    expect_equal(index$call_package[qualified], rep("pkg", 2L))
+    expect_equal(index$definition_key[qualified], rep("package:pkg:value", 2L))
+    expect_equal(index$line[reference_indices(index, "value", "global:value")], c(0L, 1L, 8L))
+
+    highlights <- document_highlight_reply(1L, fixture$uri, fixture$workspace,
+        fixture$document, list(row = 8L, col = 2L))$result
+    expect_equal(vapply(highlights, function(item) item$range$start$line, integer(1L)), c(0L, 1L, 8L))
+})
+
+test_that("references honor includeDeclaration while rename includes definitions", {
+    fixture <- provider_fixture(c("value <- 1", "value"))
+    point <- list(row = 1L, col = 2L)
+    for (indexed in c(TRUE, FALSE)) {
+        if (!indexed) fixture$document$parse_data$reference_index <- NULL
+        reply <- references_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+            point, include_declaration = FALSE)
+        expect_length(reply$result, 1L)
+        expect_equal(reply$result[[1L]]$range$start$line, 1L)
+        renamed <- rename_reply(1L, fixture$uri, fixture$workspace, fixture$document, point, "renamed")
+        expect_length(renamed$result$changes[[fixture$uri]], 2L)
+    }
+})
+
+test_that("references and rename preparation reject file path strings", {
+    root <- withr::local_tempdir()
+    writeLines("value <- 1", file.path(root, "target.R"))
+    fixture <- provider_fixture('"target.R"')
+    fixture$workspace$root <- root
+    point <- list(row = 0L, col = 3L)
+    expect_length(references_reply(1L, fixture$uri, fixture$workspace,
+            fixture$document, point)$result, 0L)
+    reply <- prepare_rename_reply(1L, fixture$uri, fixture$workspace, fixture$document, point)
+    expect_equal(reply$error$code, -32800L)
+})
+
 test_that("Find References works for functions in files", {
     skip_on_cran()
     client <- language_client()

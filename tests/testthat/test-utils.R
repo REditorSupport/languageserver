@@ -143,6 +143,26 @@ test_that("path helpers find package roots and restore working directories", {
     expect_equal(get_root_path_for_uri("untitled:1", character()), original)
 })
 
+test_that("file URIs escape reserved path characters and literal percent escapes", {
+    paths <- format(fs::path(tempdir(), c("hash#name.R", "query?name.R", "literal%20name.R",
+                "bracket[name].R")))
+    uris <- path_to_uri(paths)
+    expect_equal(path_from_uri(uris[[1L]]), paths[[1L]])
+    expect_equal(path_from_uri(uris[[2L]]), paths[[2L]])
+    expect_equal(path_from_uri(uris[[3L]]), paths[[3L]])
+    expect_equal(path_from_uri(uris[[4L]]), paths[[4L]])
+    expect_match(uris[[1L]], "hash%23name.R", fixed = TRUE)
+    expect_match(uris[[2L]], "query%3Fname.R", fixed = TRUE)
+    expect_match(uris[[3L]], "literal%2520name.R", fixed = TRUE)
+    expect_match(uris[[4L]], "bracket%5Bname%5D.R", fixed = TRUE)
+    expect_identical(uri_escape_unicode(uris[[3L]]), uris[[3L]])
+    partially_encoded <- paste0("file:///tmp/space%20", intToUtf8(0x4f62), "%23name.R")
+    expect_identical(uri_escape_unicode(partially_encoded),
+        "file:///tmp/space%20%E4%BD%A2%23name.R")
+    expect_identical(uri_escape_unicode("file:///tmp/hash%23name.R"),
+        "file:///tmp/hash%23name.R")
+})
+
 test_that("R Markdown block extraction handles empty and incomplete fences", {
     content <- c(
         "text",

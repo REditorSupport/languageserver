@@ -30,14 +30,10 @@ reference_parse_data <- function(data, content, completion_data, uri,
         "SYMBOL", "SYMBOL_FUNCTION_CALL", "SYMBOL_FORMALS"))
     if (!length(rows)) return(empty)
 
-    # Member names following `$` are properties, not lexical symbols.
-    row_lines <- content[data$line1[rows]]
-    member <- data$col1[rows] > 1L &
-        stringi::stri_sub(
-            row_lines,
-            from = pmax(data$col1[rows] - 1L, 1L),
-            to = pmax(data$col1[rows] - 1L, 1L)
-        ) == "$"
+    # The property is a direct sibling of `$`; the receiver is inside its
+    # own expression. Syntax preserves this relationship across whitespace
+    # and line breaks.
+    member <- data$parent[rows] %in% data$parent[data$token == "'$'"]
     rows <- rows[!member]
     if (!length(rows)) return(empty)
 
@@ -128,28 +124,14 @@ reference_parse_data <- function(data, content, completion_data, uri,
     cols <- units$start
     end_cols <- units$end
 
-    qualified_call <- data$token[rows] == "SYMBOL_FUNCTION_CALL" &
-        data$col1[rows] > 2L &
-        stringi::stri_sub(
-            content[data$line1[rows]],
-            from = pmax(data$col1[rows] - 2L, 1L),
-            to = pmax(data$col1[rows] - 1L, 1L)
-        ) == "::"
+    package_rows <- which(data$token == "SYMBOL_PACKAGE")
+    package_match <- match(data$parent[rows], data$parent[package_rows])
+    qualified <- which(!is.na(package_match))
+    qualified_call <- !is.na(package_match) & data$token[rows] == "SYMBOL_FUNCTION_CALL"
     call_package <- rep("", length(rows))
-    for (i in which(qualified_call)) {
-        row_index <- rows[[i]]
-        token <- scan_token(
-            content[[data$line1[[row_index]]]],
-            data$col1[[row_index]] - 1L,
-            forward = TRUE
-        )
-        package <- token$package
-        if (!is.null(package) && nzchar(package)) {
-            call_package[[i]] <- package
-            definition_keys[[i]] <- paste(
-                "package", package, names[[i]], sep = ":")
-        }
-    }
+    call_package[qualified] <- data$text[package_rows[package_match[qualified]]]
+    definition_keys[qualified] <- paste(
+        "package", call_package[qualified], names[qualified], sep = ":")
 
     list(
         name = names,
@@ -214,13 +196,17 @@ indexed_reference_locations <- function(index, uri, selected) {
 }
 
 #' @noRd
-references_reply <- function(id, uri, workspace, document, point) {
+references_reply <- function(id, uri, workspace, document, point,
+    include_declaration = TRUE) {
 
     if (!check_r_region(document, point)) {
         return(Response$new(id, result = list()))
     }
 
     token <- document$detect_token(point)
+    if (!nzchar(token$token) || !check_scope(uri, document, point)) {
+        return(Response$new(id, result = list()))
+    }
     defn <- definition_reply(NULL, uri, workspace, document, point)
     token_quote <- xml_single_quote(token$token)
 
@@ -247,6 +233,9 @@ references_reply <- function(id, uri, workspace, document, point) {
                 indexed <- workspace$get_parse_data(doc_uri)$reference_index
                 if (is.null(indexed)) next
                 selected <- reference_indices(indexed, token$token, definition_key)
+                if (!isTRUE(include_declaration)) {
+                    selected <- selected[!indexed$is_definition[selected]]
+                }
                 if (length(selected)) {
                     result <- c(
                         result,
@@ -279,6 +268,14 @@ references_reply <- function(id, uri, workspace, document, point) {
             matches <- vector("list", length(symbols))
             idx <- 0L
             for (i in seq_along(symbols)) {
+                if (!isTRUE(include_declaration)) {
+                    declaration <- xml_find_all(symbols[[i]], paste(
+                        "self::SYMBOL_FORMALS",
+                        "self::SYMBOL[parent::forcond]",
+                        "self::SYMBOL[parent::expr[count(*)=1][following-sibling::LEFT_ASSIGN or following-sibling::EQ_ASSIGN or preceding-sibling::RIGHT_ASSIGN]]",
+                        sep = " | "))
+                    if (length(declaration)) next
+                }
                 symbol_point <- list(row = line1[[i]] - 1, col = col1[[i]])
                 symbol_defn <- definition_reply(
                     NULL, doc_uri, workspace, doc, symbol_point,

@@ -17,6 +17,31 @@ LanguageServer <- R6::R6Class("LanguageServer",
     private = list(
         ready_reply_uris = NULL,
         ready_reply_methods = NULL,
+        transfer_document = function(source, target, uri) {
+            doc <- source$documents$get(uri)
+            source$documents$remove(uri)
+            target$documents$set(uri, doc)
+            if (!is.null(source$index) && isTRUE(source$index$enabled)) {
+                source$index$remove(uri)
+                if (file.exists(path_from_uri(uri))) source$index$queue_path(path_from_uri(uri))
+            }
+            for (workspace in list(source, target)) {
+                workspace$diagnostics_globals_cache <- NULL
+                workspace$type_hierarchy_cache$clear()
+                workspace$update_loaded_packages()
+            }
+            parsed <- doc$parse_data
+            if (!is.null(parsed) && identical(parsed$version, doc$version) &&
+                    identical(doc$parsed_content, doc$content)) {
+                target$update_parse_data(uri, parsed)
+                if (!isTRUE(parsed$parse_error) && !is.null(self$resolve_task_manager)) {
+                    doc$requested_packages <- member_package_request(parsed)
+                    self$resolve_task_manager$add_task(uri,
+                        resolve_task(self, uri, doc, normalize_package_request(parsed$packages),
+                            namespace_packages = parsed$member_data$packages))
+                }
+            }
+        },
         finalize = function() {
             close(self$inputcon)
             super$finalize()
@@ -135,18 +160,19 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 path <- if (length(uri) == 0) NULL else path_from_uri(uri)
                 new_workspace <- Workspace$new(path)
                 self$workspaces$set(key, new_workspace)
+                self$workspace_cache$clear()
 
-                # Remove documents from the fallback workspace if they belong here
+                # Transfer buffers whose workspace changed, including nested roots.
                 if (!is.null(path)) {
-                    fallback <- self$workspaces$get(DEFAULT_WORKSPACE)
-                    for (doc_uri in fallback$documents$keys()) {
-                        doc_path <- path_from_uri(doc_uri)
-                        if (path_has_parent(doc_path, path)) {
-                            fallback$documents$remove(doc_uri)
+                    for (workspace in self$workspaces$values()) {
+                        if (identical(workspace, new_workspace)) next
+                        for (doc_uri in workspace$documents$keys()) {
+                            if (identical(self$get_workspace(doc_uri), new_workspace)) {
+                                private$transfer_document(workspace, new_workspace, doc_uri)
+                            }
                         }
                     }
                 }
-                self$workspace_cache$clear()
             }
         },
         remove_workspace = function(uri) {
@@ -159,12 +185,14 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 if (!is.null(workspace$index)) workspace$index$detach_worker()
                 for (doc_uri in workspace$documents$keys()) {
                     diagnostics_callback(self, doc_uri, NULL, list())
-                    doc <- workspace$documents$get(doc_uri)
-                    if (isTRUE(doc$is_open)) {
-                        self$workspaces$get(DEFAULT_WORKSPACE)$documents$set(doc_uri, doc)
-                    }
                 }
                 self$workspaces$remove(key)
+                self$workspace_cache$clear()
+                for (doc_uri in workspace$documents$keys()) {
+                    if (isTRUE(workspace$documents$get(doc_uri)$is_open)) {
+                        private$transfer_document(workspace, self$get_workspace(doc_uri), doc_uri)
+                    }
+                }
                 self$workspace_cache$clear()
             }
         },
@@ -334,6 +362,13 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     on_update = function(uris) self$refresh_index_documents(workspace))
             }
             workspace$index$discover()
+            # Discovery can load disk caches or drop files that only exist in
+            # the editor. Restore open buffers before loading package files.
+            for (doc in workspace$documents$values()) {
+                if (isTRUE(doc$is_open)) {
+                    refresh_index_summary(workspace, workspace$index, doc$uri)
+                }
+            }
             for (uri in workspace$index$package_source_uris()) {
                 logger$info("load package file:", path_from_uri(uri))
                 if (!workspace$index$summaries$has(uri)) {

@@ -147,6 +147,20 @@ test_that("language feature handlers return null for unknown documents", {
     }
 })
 
+test_that("references handler forwards includeDeclaration", {
+    fixture <- provider_fixture(c("value <- 1", "value"))
+    self <- new.env(parent = baseenv())
+    self$get_workspace <- function(...) fixture$workspace
+    reply <- NULL
+    self$deliver <- function(value) reply <<- value
+    text_document_references(self, 1L, list(
+        textDocument = list(uri = fixture$uri), position = position(1L, 2L),
+        context = list(includeDeclaration = FALSE)
+    ))
+    expect_length(reply$result, 1L)
+    expect_equal(reply$result[[1L]]$range$start$line, 1L)
+})
+
 test_that("latest queued replies supersede only the same document version", {
     fixture <- langfeature_handler_fixture()
     queue <- fixture$self$pending_replies$get(fixture$uri)[["textDocument/inlayHint"]]

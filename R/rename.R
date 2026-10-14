@@ -8,6 +8,9 @@ prepare_rename_reply <- function(id, uri, workspace, document, point) {
     }
 
     token <- document$detect_token(point)
+    if (!nzchar(token$token) || !check_scope(uri, document, point)) {
+        return(ResponseErrorMessage$new(id, "RequestCancelled", "Cannot rename the symbol"))
+    }
     defn <- definition_reply(NULL, uri, workspace, document, point)
 
     logger$info("prepare_rename_reply: ", list(
