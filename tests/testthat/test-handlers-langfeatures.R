@@ -92,7 +92,7 @@ test_that("language feature handlers deliver successful provider replies", {
 
 test_that("language feature handlers return null for unknown documents", {
     fixture <- langfeature_handler_fixture()
-    fixture$workspace$documents <- list(get = function(...) NULL)
+    fixture$workspace$documents <- collections::dict()
     point <- list(line = 0L, character = 0L)
     request_range <- list(start = point, end = point)
     params <- list(
@@ -143,6 +143,7 @@ test_that("language feature handlers return null for unknown documents", {
         before <- length(fixture$self$deliveries)
         handler(fixture$self, before + 1L, params)
         expect_length(fixture$self$deliveries, before + 1L)
+        expect_null(fixture$self$deliveries[[before + 1L]]$error)
         expect_null(fixture$self$deliveries[[before + 1L]]$result)
     }
 })
