@@ -1,3 +1,34 @@
+#' Discover files and restore cached summaries outside the server event loop
+#' @noRd
+index_worker_discover <- function(key, root, settings = NULL, cache_file = NULL,
+    batch_size = 20L) {
+    state_name <- ".languageserver_workspace_discoveries"
+    states <- get0(state_name, envir = globalenv(), inherits = FALSE)
+    if (!is.environment(states) || !identical(states$.__class__, "ordered_dict")) {
+        states <- collections::ordered_dict()
+        assign(state_name, states, envir = globalenv())
+    }
+    state <- states$pop(key, NULL)
+    if (!is.null(settings)) {
+        for (name in names(settings)) lsp_settings$set(name, settings[[name]])
+        lsp_settings$set("index_persistent_cache", !is.null(cache_file))
+        index <- WorkspaceIndex$new(root, cache_path = cache_file)
+        index$discover()
+        state <- list(files = index$files$values(), summaries = index$summaries,
+            position = 1L, truncated = index$truncated)
+    }
+    if (is.null(state)) return(list(restart = TRUE))
+    last <- min(state$position + batch_size - 1L, length(state$files))
+    files <- if (last >= state$position) state$files[seq.int(state$position, last)] else list()
+    summaries <- lapply(files, function(file) state$summaries$get(file$uri, NULL))
+    state$position <- last + 1L
+    done <- state$position > length(state$files)
+    if (!done) states$set(key, state)
+    while (states$size() > 16L) states$pop(states$keys()[[1L]])
+    list(files = files, summaries = summaries, done = done,
+        truncated = state$truncated, restart = FALSE)
+}
+
 #' Read shallow disk summaries and maintain an inert persistent cache in a worker
 #' @noRd
 index_worker_batch <- function(key, root, updates, requests, bootstrap = FALSE,

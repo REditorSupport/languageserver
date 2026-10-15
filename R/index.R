@@ -299,6 +299,19 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
     )
 }
 
+#' Check that cached source calls still resolve to the same files
+#' @noRd
+index_source_candidates_current <- function(summary) {
+    candidates <- summary$source_candidates
+    if (!length(candidates)) return(TRUE)
+    current_exists <- vapply(candidates, function(uri) {
+        path <- path_from_uri(uri)
+        file.exists(path) && !dir.exists(path)
+    }, logical(1L))
+    !is.null(summary$source_candidate_exists) && identical(
+        unname(current_exists), unname(summary$source_candidate_exists))
+}
+
 #' A bounded, project-wide index of R source metadata
 #' @noRd
 WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
@@ -313,9 +326,16 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
         awaiting_parses = NULL,
         dirty_updates = NULL,
         dirty_since = NULL,
+        cache_path = NULL,
         worker_bootstrap = TRUE,
+        worker_sync_uris = character(),
         worker_key = NULL,
         worker_lifecycle = 0L,
+        discovery_start = FALSE,
+        discovery_generations = NULL,
+        discovery_stale = NULL,
+        discovery_result = NULL,
+        discovery_position = 1L,
         source_closures = NULL,
         dependent_closures = NULL,
         package_memberships = NULL,
@@ -340,6 +360,58 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             identical(private$generations$get(request$uri, 0L), request$generation) &&
                 !private$awaiting_parses$has(request$uri)
         },
+        discovery_is_current = function(uri) {
+            generation <- private$discovery_generations[[uri]]
+            if (is.null(generation)) generation <- 0L
+            identical(private$generations$get(uri, 0L), generation)
+        },
+        finish_discovery = function(batch_size, budget) {
+            result <- private$discovery_result
+            if (isTRUE(result$restart)) {
+                private$discovery_start <- TRUE
+                private$discovery_result <- NULL
+                return(invisible(NULL))
+            }
+            started <- proc.time()[[3L]]
+            changed <- character()
+            processed <- 0L
+            while (private$discovery_position <= length(result$files) && processed < batch_size) {
+                i <- private$discovery_position
+                private$discovery_position <- i + 1L
+                processed <- processed + 1L
+                file <- result$files[[i]]
+                uri <- file$uri
+                if (!private$discovery_is_current(uri)) next
+                info <- file.info(file$path)
+                if (!nrow(info) || is.na(info$size[[1L]]) || isTRUE(info$isdir[[1L]])) next
+                self$files$set(uri, file)
+                summary <- result$summaries[[i]]
+                if (!private$awaiting_parses$has(uri) && !is.null(summary) &&
+                        identical(as.numeric(info$size[[1L]]), summary$size) &&
+                        identical(as.numeric(info$mtime[[1L]]), summary$mtime) &&
+                        index_source_candidates_current(summary)) {
+                    self$set_summary(summary)
+                } else if (!private$awaiting_parses$has(uri)) {
+                    self$pending <- union(self$pending, uri)
+                }
+                changed <- c(changed, uri)
+                if ((proc.time()[[3L]] - started) * 1000 >= budget) break
+            }
+            if (length(changed)) {
+                self$package_revision <- self$package_revision + 1L
+                private$package_memberships$clear()
+                self$revision <- self$revision + 1
+                if (is.function(self$on_update)) self$on_update(changed)
+            }
+            if (private$discovery_position > length(result$files)) {
+                private$discovery_result <- NULL
+                if (isTRUE(result$done)) {
+                    self$truncated <- result$truncated
+                    private$discovery_stale <- setdiff(self$summaries$keys(), self$files$keys())
+                }
+            }
+            invisible(NULL)
+        },
         finish_batch = function(result, requests) {
             self$worker_running <- FALSE
             private$worker_bootstrap <- isTRUE(result$sync_needed)
@@ -347,7 +419,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             if (!is.null(temp_file)) {
                 on.exit(unlink(temp_file), add = TRUE)
                 if (identical(result$revision, self$revision) &&
-                        private$dirty_updates$size() == 0L) {
+                        private$dirty_updates$size() == 0L && !length(private$worker_sync_uris)) {
                     cache_file <- self$cache_file()
                     saved <- if (is.null(cache_file)) FALSE else tryCatch({
                         if (file.exists(cache_file)) file.copy(temp_file, cache_file,
@@ -414,8 +486,10 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
         task_manager = NULL,
         on_update = NULL,
         worker_running = FALSE,
+        discovering = FALSE,
 
-        initialize = function(root) {
+        initialize = function(root, cache_path = NULL) {
+            private$cache_path <- cache_path
             self$root <- if (length(root) && nzchar(root)) {
                 index_normalize_path(root)
             } else {
@@ -456,6 +530,12 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             self$task_manager <- NULL
             self$on_update <- NULL
             self$worker_running <- FALSE
+            self$discovering <- FALSE
+            private$discovery_stale <- NULL
+            private$discovery_result <- NULL
+            private$discovery_generations <- NULL
+            private$worker_bootstrap <- TRUE
+            private$worker_sync_uris <- character()
             invisible(NULL)
         },
 
@@ -563,6 +643,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
 
         cache_file = function() {
             if (!isTRUE(lsp_settings$get("index_persistent_cache"))) return(NULL)
+            if (!is.null(private$cache_path)) return(private$cache_path)
             base <- if (exists("R_user_dir", envir = asNamespace("tools"),
                     inherits = FALSE)) {
                 get("R_user_dir", envir = asNamespace("tools"))(
@@ -588,16 +669,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                 if (!nrow(info) || is.na(info$size[[1L]]) ||
                         !identical(as.numeric(info$size[[1L]]), summary$size) ||
                         !identical(as.numeric(info$mtime[[1L]]), summary$mtime)) next
-                candidates <- summary$source_candidates
-                if (length(candidates)) {
-                    current_exists <- vapply(candidates, function(uri) {
-                        path <- path_from_uri(uri)
-                        file.exists(path) && !dir.exists(path)
-                    }, logical(1L))
-                    if (is.null(summary$source_candidate_exists) || !identical(
-                            unname(current_exists),
-                            unname(summary$source_candidate_exists))) next
-                }
+                if (!index_source_candidates_current(summary)) next
                 self$set_summary(summary)
             }
             invisible(NULL)
@@ -634,6 +706,25 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
 
         discover = function() {
             if (!self$enabled || !dir.exists(self$root)) return(invisible(NULL))
+            if (!is.null(self$task_manager)) {
+                private$worker_lifecycle <- private$worker_lifecycle + 1L
+                if (self$worker_running) self$task_manager$cancel(private$worker_key)
+                self$worker_running <- FALSE
+                self$discovering <- TRUE
+                private$worker_bootstrap <- TRUE
+                private$discovery_start <- TRUE
+                private$discovery_stale <- NULL
+                private$discovery_result <- NULL
+                private$discovery_generations <- stats::setNames(
+                    private$generations$values(), private$generations$keys())
+                self$files$clear()
+                self$pending <- character()
+                self$truncated <- FALSE
+                self$package_revision <- self$package_revision + 1L
+                private$package_memberships$clear()
+                self$revision <- self$revision + 1
+                return(invisible(NULL))
+            }
             old_files <- self$files$values()
             self$files$clear()
             self$pending <- character()
@@ -837,6 +928,60 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                 if (length(batch_size) != 1L || is.na(batch_size) || batch_size < 1L) batch_size <- 20L
                 budget <- suppressWarnings(as.numeric(lsp_settings$get("index_time_budget_ms")))
                 if (length(budget) != 1L || is.na(budget) || budget <= 0) budget <- 25
+                if (self$discovering) {
+                    if (!is.null(private$discovery_result)) {
+                        private$finish_discovery(batch_size, budget)
+                        return(character())
+                    }
+                    if (!is.null(private$discovery_stale)) {
+                        started <- proc.time()[[3L]]
+                        consumed <- 0L
+                        for (uri in head(private$discovery_stale, batch_size)) {
+                            consumed <- consumed + 1L
+                            summary <- self$summaries$get(uri, NULL)
+                            if (private$discovery_is_current(uri) &&
+                                    !identical(summary$cacheable, FALSE) &&
+                                    !private$awaiting_parses$has(uri)) self$remove(uri)
+                            if ((proc.time()[[3L]] - started) * 1000 >= budget) break
+                        }
+                        if (consumed) private$discovery_stale <- private$discovery_stale[-seq_len(consumed)]
+                        if (!length(private$discovery_stale)) {
+                            self$discovering <- FALSE
+                            private$discovery_stale <- NULL
+                            private$discovery_generations <- NULL
+                            if (is.function(self$on_update)) self$on_update(character())
+                        }
+                        return(character())
+                    }
+                    settings <- if (private$discovery_start) {
+                        setting_names <- c("index_mode", "index_include", "index_exclude",
+                            "index_max_files", "index_max_file_size_mb")
+                        stats::setNames(lapply(setting_names, lsp_settings$get), setting_names)
+                    } else {
+                        NULL
+                    }
+                    private$discovery_start <- FALSE
+                    self$worker_running <- TRUE
+                    lifecycle <- private$worker_lifecycle
+                    self$task_manager$add_task(private$worker_key, create_task(
+                        package_call(index_worker_discover),
+                        list(key = private$worker_key, root = self$root, settings = settings,
+                            cache_file = self$cache_file(), batch_size = min(batch_size, 20L)),
+                        callback = function(result) {
+                            if (!identical(lifecycle, private$worker_lifecycle)) return(NULL)
+                            self$worker_running <- FALSE
+                            private$discovery_result <- result
+                            private$discovery_position <- 1L
+                        },
+                        error = function(e) {
+                            if (!identical(lifecycle, private$worker_lifecycle)) return(NULL)
+                            self$worker_running <- FALSE
+                            private$discovery_start <- TRUE
+                            logger$info("workspace discovery task: ", e)
+                        }, profiles = FALSE
+                    ))
+                    return(character())
+                }
                 candidates <- head(self$pending, batch_size)
                 requests <- lapply(candidates, function(uri) {
                     list(uri = uri, path = path_from_uri(uri),
@@ -846,12 +991,21 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                         !is.null(private$dirty_since) &&
                         proc.time()[[3L]] - private$dirty_since >= 1) self$cache_file() else NULL
                 if (!length(requests) && private$dirty_updates$size() == 0L &&
+                        !length(private$worker_sync_uris) &&
                         is.null(cache_file)) return(character())
                 bootstrap <- private$worker_bootstrap
-                updates <- if (bootstrap) stats::setNames(self$summaries$values(),
-                    self$summaries$keys()) else stats::setNames(
-                    private$dirty_updates$values(), private$dirty_updates$keys())
-                private$dirty_updates$clear()
+                if (bootstrap) {
+                    private$worker_sync_uris <- self$summaries$keys()
+                }
+                sync_uris <- head(private$worker_sync_uris, batch_size)
+                if (length(sync_uris)) private$worker_sync_uris <- private$worker_sync_uris[-seq_along(sync_uris)]
+                remaining <- max(batch_size - length(sync_uris), 0L)
+                update_uris <- unique(c(sync_uris, head(private$dirty_updates$keys(), remaining)))
+                updates <- stats::setNames(lapply(update_uris, function(uri) {
+                    if (private$dirty_updates$has(uri)) private$dirty_updates$pop(uri)
+                    else self$summaries$get(uri, NULL)
+                }), update_uris)
+                if (private$dirty_updates$size() || length(private$worker_sync_uris)) cache_file <- NULL
                 self$pending <- setdiff(self$pending, candidates)
                 self$worker_running <- TRUE
                 lifecycle <- private$worker_lifecycle
@@ -954,7 +1108,8 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                 if (exists(current, envir = visited, inherits = FALSE)) next
                 assign(current, TRUE, envir = visited)
                 if (isTRUE(update) && !self$summaries$has(current)) {
-                    self$update_path(path_from_uri(current))
+                    if (is.null(self$task_manager)) self$update_path(path_from_uri(current))
+                    else self$queue_path(path_from_uri(current))
                 }
                 result_count <- result_count + 1L
                 if (result_count > length(result)) {

@@ -712,7 +712,7 @@ Workspace <- R6::R6Class("Workspace",
         get_diagnostics_globals = function(uri = NULL) {
             if (!is.null(uri) && !is.null(self$index) &&
                     isTRUE(self$index$enabled)) {
-                if (!self$index$files$size()) {
+                if (!self$index$files$size() && !self$index$discovering) {
                     self$index$discover()
                 }
                 package_root <- self$index$package_root_for_uri(uri)
@@ -736,7 +736,11 @@ Workspace <- R6::R6Class("Workspace",
                 for (summary_uri in uris) {
                     summary <- self$index$summaries$get(summary_uri, NULL)
                     if (is.null(summary)) {
-                        summary <- self$index$update_path(path_from_uri(summary_uri))
+                        if (is.null(self$index$task_manager)) {
+                            summary <- self$index$update_path(path_from_uri(summary_uri))
+                        } else {
+                            self$index$queue_path(path_from_uri(summary_uri))
+                        }
                     }
                     if (is.null(summary)) next
                     doc <- self$documents$get(summary_uri, NULL)

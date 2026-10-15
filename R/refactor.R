@@ -457,7 +457,7 @@ refactor_index_ready <- function(workspace) {
     index <- workspace$index
     is.null(index) || !isTRUE(index$enabled) ||
         !isTRUE(index$truncated) && !length(index$pending) &&
-            !isTRUE(index$worker_running)
+            !isTRUE(index$worker_running) && !isTRUE(index$discovering)
 }
 
 #' Reindent source text from its original column

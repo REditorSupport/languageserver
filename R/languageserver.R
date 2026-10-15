@@ -17,6 +17,21 @@ LanguageServer <- R6::R6Class("LanguageServer",
     private = list(
         ready_reply_uris = NULL,
         ready_reply_methods = NULL,
+        workspace_document_queue = NULL,
+        workspace_document_keys = NULL,
+        queue_workspace_document = function(workspace, uri) {
+            if (workspace$documents$has(uri)) return(invisible(NULL))
+            if (is.null(private$workspace_document_queue)) {
+                private$workspace_document_queue <- collections::queue()
+                private$workspace_document_keys <- collections::dict()
+            }
+            key <- paste(workspace$root, uri)
+            if (!identical(private$workspace_document_keys$get(key, NULL), workspace)) {
+                private$workspace_document_keys$set(key, workspace)
+                private$workspace_document_queue$push(list(workspace = workspace, uri = uri, key = key))
+            }
+            invisible(NULL)
+        },
         transfer_document = function(source, target, uri) {
             doc <- source$documents$get(uri)
             source$documents$remove(uri)
@@ -138,6 +153,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     }
                 }
             }
+            self$process_workspace_documents()
             if (!is.null(self$index_task_manager)) self$index_task_manager$run_tasks()
             self$diagnostics_task_manager$run_tasks()
             self$resolve_task_manager$run_tasks()
@@ -277,7 +293,8 @@ LanguageServer <- R6::R6Class("LanguageServer",
                         else index$queue_path(path_from_uri(uri))
                     }
                     if (!identical(uri, entry_key)) {
-                        self$load_index_document(workspace, uri)
+                        if (is.null(index$task_manager)) self$load_index_document(workspace, uri)
+                        else private$queue_workspace_document(workspace, uri)
                     }
                     for (target in index$source_edges$get(uri, character())) {
                         queue$push(target)
@@ -347,10 +364,9 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     files <- list.files(
                         source_dir, pattern = "\\.r$", ignore.case = TRUE)
                     for (file in files) {
-                        self$load_index_document(
-                            workspace,
-                            path_to_uri(file.path(source_dir, file))
-                        )
+                        uri <- path_to_uri(file.path(source_dir, file))
+                        if (is.null(self$index_task_manager)) self$load_index_document(workspace, uri)
+                        else private$queue_workspace_document(workspace, uri)
                     }
                     workspace$import_from_namespace_file()
                 }
@@ -359,7 +375,14 @@ LanguageServer <- R6::R6Class("LanguageServer",
             logger$info("load workspace:", workspace$root)
             if (!is.null(self$index_task_manager)) {
                 workspace$index$attach_worker(self$index_task_manager,
-                    on_update = function(uris) self$refresh_index_documents(workspace))
+                    on_update = function(uris) {
+                        for (uri in uris) {
+                            if (!is.null(workspace$index$package_root_for_uri(uri))) {
+                                private$queue_workspace_document(workspace, uri)
+                            }
+                        }
+                        self$refresh_index_documents(workspace)
+                    })
             }
             workspace$index$discover()
             # Discovery can load disk caches or drop files that only exist in
@@ -386,6 +409,26 @@ LanguageServer <- R6::R6Class("LanguageServer",
             for (workspace in self$workspaces$values()) {
                 self$load_workspace(workspace)
             }
+        },
+        process_workspace_documents = function(max_documents = 20L, time_budget_ms = 5) {
+            if (is.null(private$workspace_document_queue)) return(invisible(NULL))
+            started <- proc.time()[[3L]]
+            processed <- 0L
+            while (private$workspace_document_queue$size() && processed < max_documents) {
+                entry <- private$workspace_document_queue$pop()
+                workspace <- entry$workspace
+                if (identical(private$workspace_document_keys$get(entry$key, NULL), workspace)) {
+                    private$workspace_document_keys$remove(entry$key)
+                }
+                current <- any(vapply(self$workspaces$values(), identical, logical(1L), y = workspace))
+                if (current && (is.null(workspace$index) || !isTRUE(workspace$index$enabled) ||
+                            workspace$index$should_index(path_from_uri(entry$uri)))) {
+                    self$load_index_document(workspace, entry$uri)
+                }
+                processed <- processed + 1L
+                if ((proc.time()[[3L]] - started) * 1000 >= time_budget_ms) break
+            }
+            invisible(NULL)
         },
         text_sync = function(uri, document, run_lintr = FALSE, parse = FALSE,
             delay = 0, parse_delay = delay,
