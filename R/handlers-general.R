@@ -70,6 +70,9 @@ on_initialized <- function(self, params) {
 #' Handler to the `shutdown` [Request].
 #' @noRd
 on_shutdown <- function(self, id, params) {
+    if (is.function(self$end_workspace_progress)) {
+        for (workspace in self$workspaces$values()) self$end_workspace_progress(workspace, "Server stopped")
+    }
     self$exit_flag <- TRUE
     self$deliver(Response$new(id = id, result = NULL))
 }
@@ -80,6 +83,9 @@ on_shutdown <- function(self, id, params) {
 #' Handler to the `exit` [Notification].
 #' @noRd
 on_exit <- function(self, params) {
+    if (is.function(self$end_workspace_progress)) {
+        for (workspace in self$workspaces$values()) self$end_workspace_progress(workspace, "Server stopped")
+    }
     self$exit_flag <- TRUE
 }
 

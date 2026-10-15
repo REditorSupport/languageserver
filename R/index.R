@@ -329,6 +329,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
         cache_path = NULL,
         worker_bootstrap = TRUE,
         worker_sync_uris = character(),
+        worker_requests = list(),
         worker_key = NULL,
         worker_lifecycle = 0L,
         discovery_start = FALSE,
@@ -414,6 +415,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
         },
         finish_batch = function(result, requests) {
             self$worker_running <- FALSE
+            private$worker_requests <- list()
             private$worker_bootstrap <- isTRUE(result$sync_needed)
             temp_file <- result$temp_file
             if (!is.null(temp_file)) {
@@ -536,6 +538,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             private$discovery_generations <- NULL
             private$worker_bootstrap <- TRUE
             private$worker_sync_uris <- character()
+            private$worker_requests <- list()
             invisible(NULL)
         },
 
@@ -590,6 +593,16 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             list(package = self$package_revision,
                 source = if (references) private$reference_generations$get(uri, 0L)
                 else private$context_generations$get(uri, 0L))
+        },
+
+        indexing_status = function(queued_documents = character()) {
+            current <- Filter(private$request_is_current, private$worker_requests)
+            pending <- unique(c(self$pending, private$awaiting_parses$keys(),
+                    vapply(current, `[[`, character(1L), "uri"), queued_documents))
+            total <- self$files$size()
+            list(discovering = self$discovering, total = total,
+                completed = max(total - length(pending), 0L),
+                done = !self$discovering && !length(pending), truncated = self$truncated)
         },
 
         include_patterns = function() {
@@ -710,6 +723,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                 private$worker_lifecycle <- private$worker_lifecycle + 1L
                 if (self$worker_running) self$task_manager$cancel(private$worker_key)
                 self$worker_running <- FALSE
+                private$worker_requests <- list()
                 self$discovering <- TRUE
                 private$worker_bootstrap <- TRUE
                 private$discovery_start <- TRUE
@@ -1008,6 +1022,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                 if (private$dirty_updates$size() || length(private$worker_sync_uris)) cache_file <- NULL
                 self$pending <- setdiff(self$pending, candidates)
                 self$worker_running <- TRUE
+                private$worker_requests <- requests
                 lifecycle <- private$worker_lifecycle
                 self$task_manager$add_task(private$worker_key, create_task(
                     package_call(index_worker_batch),
@@ -1025,6 +1040,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                     error = function(e) {
                         if (!identical(lifecycle, private$worker_lifecycle)) return(NULL)
                         self$worker_running <- FALSE
+                        private$worker_requests <- list()
                         private$worker_bootstrap <- TRUE
                         current <- vapply(requests, private$request_is_current, logical(1L))
                         self$pending <- union(self$pending, candidates[current])

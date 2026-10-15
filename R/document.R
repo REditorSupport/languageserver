@@ -887,7 +887,13 @@ parse_task <- function(self, uri, document, delay = 0) {
             content_hash = content_hash
         ),
         callback = function(result) parse_callback(self, uri, version, result, source_content),
-        error = function(e) logger$info("parse_task:", e),
+        error = function(e) {
+            logger$info("parse_task:", e)
+            if (is.function(self$end_workspace_progress)) {
+                self$end_workspace_progress(workspace,
+                    paste0("Could not index ", basename(path_from_uri(uri))))
+            }
+        },
         delay = delay
     )
 }
