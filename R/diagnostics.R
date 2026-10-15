@@ -61,46 +61,6 @@ diagnostic_from_lint <- function(result, content) {
     )
 }
 
-#' Find the lintr config file
-#' @noRd
-find_config <- function(filename) {
-    # instead of calling `lintr:::find_config` directly
-    # since CRAN doesn't like :::.
-    asNamespace("lintr")$find_config(filename)
-}
-
-#' Lint R text using settings from its source file or working directory
-#' @noRd
-lint_document_text <- function(path, content, linters = NULL, cache = FALSE) {
-    # lintr 3.0 interprets text according to the filename's extension, even
-    # when it has already been extracted. It also resolves settings relative
-    # to a temporary file when no filename is supplied. Load settings first
-    # so literate and pathless documents use the correct configuration.
-    lintr_namespace <- asNamespace("lintr")
-    settings <- lintr_namespace$settings
-    previous_settings <- as.list(settings, all.names = TRUE)
-    on.exit({
-        rm(list = ls(settings, all.names = TRUE), envir = settings)
-        list2env(previous_settings, envir = settings)
-    })
-    lintr_namespace$read_settings(if (is.null(path)) getwd() else path)
-    lints <- lintr::lint(
-        text = content, linters = linters, cache = cache,
-        parse_settings = FALSE
-    )
-    if (is.null(path)) return(lints)
-
-    # Inline linting uses a temporary filename. Restore the real filename
-    # before applying the config's file and line exclusions. Inline nolint
-    # comments have already been applied by lint().
-    lints[] <- lapply(lints, function(lint) {
-        # lintr normalizes exclusion paths to forward slashes on Windows too.
-        lint$filename <- normalizePath(path, winslash = "/", mustWork = FALSE)
-        lint
-    })
-    lintr_namespace$exclude(lints, lines = character())
-}
-
 lintr_supports_text_terminal_newline <- function() {
     lines <- asNamespace("lintr")$get_lines(
         filename = "x.R",
@@ -109,15 +69,14 @@ lintr_supports_text_terminal_newline <- function() {
     isFALSE(attr(lines, "terminal_newline", exact = TRUE))
 }
 
-lint_without_terminal_newline <- function(path, content, linters) {
+lint_without_terminal_newline <- function(path, content, linters = NULL) {
     lintr_namespace <- asNamespace("lintr")
-    settings <- lintr_namespace$settings
-    previous_settings <- as.list(settings, all.names = TRUE)
-    on.exit({
-        rm(list = ls(settings, all.names = TRUE), envir = settings)
-        list2env(previous_settings, envir = settings)
-    }, add = TRUE)
-    lintr_namespace$read_settings(if (nzchar(path)) path else getwd())
+    on.exit(lintr_namespace$reset_settings(), add = TRUE)
+    if (nzchar(path)) {
+        lintr_namespace$read_settings(path)
+    } else {
+        lintr_namespace$read_settings()
+    }
     effective_linters <- lintr_namespace$define_linters(linters)
     linter <- effective_linters[["trailing_blank_lines_linter"]]
     if (is.null(linter)) {
@@ -137,7 +96,7 @@ lint_without_terminal_newline <- function(path, content, linters) {
         return(list())
     }
     lints <- Filter(function(lint) {
-        grepl("terminal newline", lint$message, fixed = TRUE)
+        identical(lint$message, "Add a terminal newline.")
     }, linter(list(
         filename = filename,
         file_lines = enc2utf8(content),
@@ -179,31 +138,21 @@ diagnose_file <- function(uri, content, is_rmarkdown = FALSE, globals = NULL, ca
         on.exit(do.call("detach", list(env_name, character.only = TRUE)), add = TRUE)
     }
 
-    linters <- NULL
     if (nzchar(path)) {
-        config_path <- tryCatch(find_config(path), error = function(e) NULL)
-        if (is.null(config_path) || !nzchar(config_path) || !file.exists(config_path)) {
-            linters <- lintr::linters_with_defaults()
-        }
-    }
-
-    if (nzchar(path) && is_rmarkdown) {
-        lints <- lint_document_text(path, content, linters, cache)
+        lints <- lintr::lint(path,
+            cache = cache,
+            text = content,
+            parse_settings = TRUE
+        )
     } else {
-        if (nzchar(path)) {
-            lints <- lintr::lint(path,
-                cache = cache,
-                text = content,
-                parse_settings = TRUE,
-                linters = linters
-            )
-        } else {
-            # There is no stable filename to cache for a pathless document.
-            lints <- lint_document_text(NULL, content)
-        }
-        if (!terminal_newline && (!nzchar(path) || !lintr_supports_text_terminal_newline())) {
-            lints <- c(lints, lint_without_terminal_newline(path, content, linters))
-        }
+        # There is no stable filename to cache for a pathless document.
+        lints <- lintr::lint(
+            text = content,
+            parse_settings = TRUE
+        )
+    }
+    if (!terminal_newline && (!nzchar(path) || !lintr_supports_text_terminal_newline())) {
+        lints <- c(lints, lint_without_terminal_newline(path, content))
     }
 
     diagnostics <- lapply(lints, diagnostic_from_lint, content = content)
