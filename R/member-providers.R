@@ -105,6 +105,24 @@ member_hover_location <- function(document, point) {
     )
 }
 
+member_uncomment_line <- function(line) {
+    if (!grepl("#", line, fixed = TRUE)) return(line)
+    uncommented <- regexpr(
+        paste0(
+            "^((?:[^\"'`#\\\\rR]|\\\\.|",
+            "[rR]\"(-*)(?:\\([^)]*\\)|\\[[^]]*\\]|\\{[^}]*\\})\\2\"|",
+            "[rR]'(-*)(?:\\([^)]*\\)|\\[[^]]*\\]|\\{[^}]*\\})\\3'|",
+            "[rR]|",
+            "\"(?:[^\"\\\\]|\\\\.)*\"|",
+            "'(?:[^'\\\\]|\\\\.)*'|",
+            "`(?:[^`\\\\]|\\\\.)*`)*)"
+        ),
+        line, perl = TRUE
+    )
+    len <- attr(uncommented, "match.length")
+    if (substr(line, len + 1L, len + 1L) == "#") substr(line, 1L, len) else line
+}
+
 member_call_location <- function(document, point, call = document$detect_call(point), symbols = FALSE) {
     opening <- call$opening
     if (is.null(opening) || !check_r_region(document, point)) {
@@ -115,14 +133,8 @@ member_call_location <- function(document, point, call = document$detect_call(po
     # R permits whitespace/newlines/comments between a member and its call parenthesis.
     for (i in seq_len(129L)) {
         prefix <- substr(document$line0(row), 1L, col)
-        if (i > 1L) {
-            uncommented <- regexpr(
-                "^((?:[^\"'`#\\\\]|\\\\.|\"(?:[^\"\\\\]|\\\\.)*\"|'(?:[^'\\\\]|\\\\.)*'|`(?:[^`\\\\]|\\\\.)*`)*)",
-                prefix, perl = TRUE
-            )
-            prefix <- substr(prefix, 1L, attr(uncommented, "match.length"))
-        }
-        col <- nchar(sub("[ \\t]+$", "", prefix))
+        if (i > 1L) prefix <- member_uncomment_line(prefix)
+        col <- nchar(sub("[ \t]+$", "", prefix))
         if (col > 0L) {
             location <- member_hover_location(document, list(row = row, col = col))
             if (is.null(location) && symbols) location <- member_symbol_location(document, list(row = row, col = col))
@@ -141,9 +153,11 @@ member_symbol_location <- function(document, point) {
     if (!check_scope(document$uri, document, point)) return(NULL)
     semantic <- document$parse_data$semantic_data
     col <- document$to_lsp_position(point$row, point$col)$character
-    excluded <- semantic$lines == point$row & semantic$cols <= col &
-        ((semantic$types == SemanticTokenTypes$comment & semantic$cols + semantic$lengths >= col) |
-                (semantic$types == SemanticTokenTypes$string & semantic$cols + semantic$lengths > col))
+    in_comment <- semantic$types == SemanticTokenTypes$comment &
+        semantic$cols < col & semantic$cols + semantic$lengths >= col
+    in_string <- semantic$types == SemanticTokenTypes$string &
+        semantic$cols <= col & semantic$cols + semantic$lengths > col
+    excluded <- semantic$lines == point$row & (in_comment | in_string)
     if (identical(document$version, document$parse_data$version) && any(excluded)) return(NULL)
     token <- document$detect_token(point)
     if (!token$accessor %in% c("", "::") || !nzchar(token$token)) return(NULL)
@@ -191,15 +205,16 @@ member_argument_location <- function(document, point, symbols = FALSE) {
     }
     token <- document$detect_token(point)
     end <- token$range$end
-    if (!nzchar(token$token) || !identical(token$accessor, "")) {
+    line <- member_uncomment_line(document$line0(end$row))
+    if (!nzchar(token$token) || !identical(token$accessor, "") || end$col > nchar(line)) {
         return(NULL)
     }
     named <- FALSE
     for (row in seq.int(end$row, min(document$nline - 1L, end$row + 128L))) {
         if (row > end$row && !check_r_region(document, list(row = row, col = 0L))) break
-        rest <- if (row == end$row) substring(document$line0(row), end$col + 1L) else document$line0(row)
-        if (grepl("^[ \\t]*(#.*)?$", rest)) next
-        named <- grepl("^[ \\t]*=(?!=)", rest, perl = TRUE)
+        rest <- if (row == end$row) substring(line, end$col + 1L) else document$line0(row)
+        if (grepl("^[ \t]*(#.*)?$", rest)) next
+        named <- grepl("^[ \t]*=(?!=)", rest, perl = TRUE)
         break
     }
     if (!named) {
