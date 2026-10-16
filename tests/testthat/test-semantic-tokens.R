@@ -530,12 +530,23 @@ test_that("Function assignments with comments around operators emit declaration 
         "first <-",
         "  # comment after left assign",
         "  function(x) x",
-        "second # comment before equal assign",
-        "  = function(y) y",
-        "function(z) z # comment before right assign",
-        "  -> third"
+        "second =",
+        "  # comment after equal assign",
+        "  function(y) y",
+        "(function(z) z) ->",
+        "  # comment after right assign",
+        "  third",
+        "(",
+        "  fourth # comment before left assign",
+        "    <- function(w) w",
+        ")",
+        "(",
+        "  (function(v) v) # comment before right assign",
+        "    -> fifth",
+        ")"
     )
     parse_data <- parse_document(uri, content)
+    expect_false(parse_data$parse_error)
     document <- Document$new(uri, version = 1L, content = content)
     workspace <- list(get_parse_data = function(...) parse_data)
 
@@ -546,6 +557,6 @@ test_that("Function assignments with comments around operators emit declaration 
     }, tokens)
     expect_identical(
         vapply(fn_declarations, `[[`, integer(1L), "line"),
-        c(0L, 3L, 6L)
+        c(0L, 3L, 8L, 10L, 15L)
     )
 })
