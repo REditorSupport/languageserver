@@ -722,9 +722,9 @@ test_that("inlay hints place labels at arguments rather than preceding comments"
     )
     fixture <- provider_fixture(content, function(name, ...) {
         if (identical(name, "sprintf")) {
-            alist(fmt =, ... =)
+            formals(function(fmt, ...) NULL)
         } else {
-            alist(first =, second =, third =)
+            formals(function(first, second, third) NULL)
         }
     })
     request <- range(position(0L, 0L), position(length(content), 0L))
