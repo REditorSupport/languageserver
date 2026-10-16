@@ -86,6 +86,7 @@ SEXP signature_info_c(SEXP signature) {
     int count = 0;
     int start = open + 1;
     int name_end = -1;
+    int comment_end = -1;
     int depth = 0;
     int closed = 0;
     for (int i = start; i < size; i++) {
@@ -97,18 +98,27 @@ SEXP signature_info_c(SEXP signature) {
         }
         char ch = text[i];
         if (ch == '#') {
+            int comment = i;
             while (i < size && text[i] != '\n') i++;
+            int before = start;
+            while (before < comment && space(text[before])) before++;
+            if (before == comment) {
+                start = i < size ? i + 1 : i;
+            } else if (depth == 0 && name_end < 0 && comment_end < 0) {
+                comment_end = comment;
+            }
             continue;
         }
         if ((ch == ',' || ch == ')') && depth == 0) {
             int left = start;
-            int right = i;
+            int right = (name_end < 0 && comment_end >= 0) ? comment_end : i;
             while (left < right && space(text[left])) left++;
             while (right > left && space(text[right - 1])) right--;
             if (left < right) {
                 starts[count] = left;
                 ends[count] = right;
-                int named = name_end < 0 ? right : name_end;
+                int named = name_end >= 0 ? name_end :
+                    (comment_end >= 0 ? comment_end : right);
                 while (named > left && space(text[named - 1])) named--;
                 name_ends[count++] = named;
             }
@@ -118,8 +128,9 @@ SEXP signature_info_c(SEXP signature) {
             }
             start = i + 1;
             name_end = -1;
+            comment_end = -1;
         } else if (ch == '=' && depth == 0 && name_end < 0) {
-            name_end = i;
+            name_end = comment_end >= 0 ? comment_end : i;
         } else if (ch == '(' || ch == '[' || ch == '{') {
             depth++;
         } else if (ch == ')' || ch == ']' || ch == '}') {
@@ -189,6 +200,7 @@ SEXP active_parameter_c(SEXP call_text, SEXP parameters) {
     int count = 0;
     int start = 0;
     int name_end = -1;
+    int comment_end = -1;
     for (int i = 0; i < size; i++) {
         if ((i & 65535) == 0) R_CheckUserInterrupt();
         int end = literal_end(text, i, size);
@@ -202,16 +214,21 @@ SEXP active_parameter_c(SEXP call_text, SEXP parameters) {
             while (i < size && text[i] != '\n') i++;
             int before = start;
             while (before < comment && space(text[before])) before++;
-            if (before == comment) start = i;
+            if (before == comment) {
+                start = i;
+            } else if (depth == 0 && name_end < 0 && comment_end < 0) {
+                comment_end = comment;
+            }
         } else if (ch == ',' && depth == 0) {
             count++;
             start = i + 1;
             name_end = -1;
+            comment_end = -1;
         } else if (ch == '=' && depth == 0 && name_end < 0 &&
                 (i + 1 == size || text[i + 1] != '=') &&
                 (i == 0 || (text[i - 1] != '=' && text[i - 1] != '!' &&
                     text[i - 1] != '<' && text[i - 1] != '>'))) {
-            name_end = i;
+            name_end = comment_end >= 0 ? comment_end : i;
         } else if (ch == '(' || ch == '[' || ch == '{') {
             depth++;
         } else if (ch == ')' || ch == ']' || ch == '}') {

@@ -157,6 +157,7 @@ SEXP function_assignment_ids_c(SEXP data, SEXP syntax) {
         if (tree.parent[i] <= 0) continue;
         int before = -1, after = -1, before_n = 0, after_n = 0, passed = 0;
         for (int child = tree.first[tree.parent[i]]; child >= 0; child = tree.next[child]) {
+            if (tree.kind[child] == P_COMMENT) continue;
             if (child == i) { passed = 1; continue; }
             if (passed) { after = child; after_n++; }
             else { before = child; before_n++; }

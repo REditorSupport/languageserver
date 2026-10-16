@@ -67,6 +67,21 @@ test_that("Multiline dollar chains share completion, signatures and hover", {
     fixture <- member_provider_fixture(c(code[1:11], "pipeline$ # continue", " # comment", "", "  collect(format = "))
     expect_identical(member_provider_signature(fixture)$signatures[[1L]]$label, "collect(format = \"list\")")
     expect_identical(member_provider_hover(fixture, 14L, 4L)$range$start$character, 2L)
+    fixture <- member_provider_fixture(c(
+        code[1:11],
+        "pipeline$collect # trailing comment before (",
+        "  # full-line comment before (",
+        "  (",
+        "    format # comment before =",
+        "      = \"list\"",
+        "  )"
+    ))
+    expect_identical(
+        member_provider_signature(fixture, 14L, 4L)$signatures[[1L]]$label,
+        "collect(format = \"list\")"
+    )
+    arg_loc <- member_argument_location(fixture$document, list(row = 14L, col = 6L))
+    expect_identical(arg_loc$parameter, "format")
     fixture <- member_provider_fixture(c("x <- list(`a b`=function(value=1) NULL)", "x$", "  `a b`("))
     expect_identical(member_provider_signature(fixture)$signatures[[1L]]$label, "`a b`(value = 1)")
     expect_identical(member_provider_hover(fixture, 2L, 4L)$contents, "```r\n`a b`(value = 1)\n```")

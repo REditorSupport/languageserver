@@ -523,3 +523,29 @@ test_that("Semantic deltas handle equality, insertion, and deletion", {
     expect_equal(deleted$deleteCount, 5L)
     expect_null(deleted$data)
 })
+
+test_that("Function assignments with comments around operators emit declaration tokens", {
+    uri <- "file:///commented-fn.R"
+    content <- c(
+        "first <-",
+        "  # comment after left assign",
+        "  function(x) x",
+        "second # comment before equal assign",
+        "  = function(y) y",
+        "function(z) z # comment before right assign",
+        "  -> third"
+    )
+    parse_data <- parse_document(uri, content)
+    document <- Document$new(uri, version = 1L, content = content)
+    workspace <- list(get_parse_data = function(...) parse_data)
+
+    tokens <- extract_semantic_tokens(uri, workspace, document)
+    fn_declarations <- Filter(function(token) {
+        token$tokenType == SemanticTokenTypes[["function"]] &&
+            token$tokenModifiers != 0L
+    }, tokens)
+    expect_identical(
+        vapply(fn_declarations, `[[`, integer(1L), "line"),
+        c(0L, 3L, 6L)
+    )
+})
