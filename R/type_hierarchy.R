@@ -408,7 +408,7 @@ find_r6_supertypes <- function(doc, xdoc, class_name, uri) {
     for (class_def in all_class_defs) {
         class_str <- class_xml_name(class_def)
         class_symbol <- class_xml_first(class_def,
-            "ancestor::expr[LEFT_ASSIGN or EQ_ASSIGN][1]/expr[1]/SYMBOL")
+            "ancestor::expr[LEFT_ASSIGN or EQ_ASSIGN][1]/expr[1]/SYMBOL[1]")
         class_name_value <- NULL
         if (length(class_str)) {
             class_name_value <- gsub('["\'`]', "", xml_text(class_str))
