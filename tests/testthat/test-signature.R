@@ -341,6 +341,26 @@ test_that("Active parameter detection ignores nested and quoted commas", {
         detect_active_parameter("fun(", 5L, 0L, 6L, 0L),
         0L
     )
+    expect_equal(
+        detect_active_parameter(
+            c("fun(second # comment before =", "  = 1)"),
+            0L, 3L, 1L, 5L, signature
+        ),
+        1L
+    )
+    commented_sig <- paste(
+        "fun(",
+        "  # comment before first",
+        "  first = 1,",
+        "  second # comment before =",
+        "    = 2,",
+        "  third # comment after parameter",
+        ")",
+        sep = "\n"
+    )
+    info <- signature_info(commented_sig)
+    expect_identical(info$names, c("first", "second", "third"))
+    expect_identical(signature_info("fun(# comment\n)")$names, character())
 })
 
 test_that("Signature reply resolves local documented functions", {

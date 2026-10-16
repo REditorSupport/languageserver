@@ -209,3 +209,63 @@ test_that("Type hierarchy returns empty for non-class definitions", {
 
     expect_null(result)
 })
+
+test_that("Type hierarchy and class member extraction ignore comments before =", {
+    uri <- "file:///commented-classes.R"
+    content <- c(
+        'setClass("BaseS4")',
+        'setClass("ChildS4",',
+        '  contains # comment before contains =',
+        '    = "BaseS4",',
+        '  slots # comment before slots =',
+        '    = c(',
+        '      value # comment before slot =',
+        '        = "numeric"',
+        '    )',
+        ')',
+        'setRefClass("BaseRef")',
+        'setRefClass("ChildRef",',
+        '  contains # comment before contains =',
+        '    = "BaseRef",',
+        '  fields # comment before fields =',
+        '    = list(',
+        '      count # comment before field =',
+        '        = "numeric"',
+        '    ),',
+        '  methods # comment before methods =',
+        '    = list(',
+        '      bump # comment before method =',
+        '        = function() NULL',
+        '    )',
+        ')',
+        'BaseR6 <- R6::R6Class("BaseR6")',
+        'ChildR6 <- R6::R6Class("ChildR6",',
+        '  inherit # comment before inherit =',
+        '    = BaseR6,',
+        '  public # comment before public =',
+        '    = list(',
+        '      item # comment before member =',
+        '        = 1',
+        '    )',
+        ')'
+    )
+    document <- Document$new(uri, version = 1L, content = content)
+    parse_data <- parse_document(uri, content)
+    xdoc <- xml2::read_xml(parse_data$xml_data)
+    attr(xdoc, "class_index") <- class_xml_index(xdoc)
+
+    expect_equal(find_s4_supertypes(document, xdoc, "ChildS4", uri)[[1L]]$name, "BaseS4")
+    expect_equal(find_s4_subtypes(document, xdoc, "BaseS4", uri)[[1L]]$name, "ChildS4")
+    s4_members <- extract_s4_members(document, xdoc, list(name = "ChildS4"))
+    expect_equal(vapply(s4_members, `[[`, character(1L), "name"), "value")
+
+    expect_equal(find_refclass_supertypes(document, xdoc, "ChildRef", uri)[[1L]]$name, "BaseRef")
+    expect_equal(find_refclass_subtypes(document, xdoc, "BaseRef", uri)[[1L]]$name, "ChildRef")
+    ref_members <- extract_refclass_members(document, xdoc, list(name = "ChildRef"))
+    expect_equal(vapply(ref_members, `[[`, character(1L), "name"), c("count", "bump"))
+
+    expect_equal(find_r6_supertypes(document, xdoc, "ChildR6", uri)[[1L]]$name, "BaseR6")
+    expect_equal(find_r6_subtypes(document, xdoc, "BaseR6", uri)[[1L]]$name, "ChildR6")
+    r6_members <- extract_r6_members(document, xdoc, list(name = "ChildR6"))
+    expect_equal(vapply(r6_members, `[[`, character(1L), "name"), "item")
+})

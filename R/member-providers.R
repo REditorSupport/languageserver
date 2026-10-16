@@ -112,9 +112,16 @@ member_call_location <- function(document, point, call = document$detect_call(po
     }
     row <- opening$row
     col <- opening$col
-    # R permits whitespace/newlines between a member and its call parenthesis.
+    # R permits whitespace/newlines/comments between a member and its call parenthesis.
     for (i in seq_len(129L)) {
         prefix <- substr(document$line0(row), 1L, col)
+        if (i > 1L) {
+            uncommented <- regexpr(
+                "^((?:[^\"'`#\\\\]|\\\\.|\"(?:[^\"\\\\]|\\\\.)*\"|'(?:[^'\\\\]|\\\\.)*'|`(?:[^`\\\\]|\\\\.)*`)*)",
+                prefix, perl = TRUE
+            )
+            prefix <- substr(prefix, 1L, attr(uncommented, "match.length"))
+        }
         col <- nchar(sub("[ \\t]+$", "", prefix))
         if (col > 0L) {
             location <- member_hover_location(document, list(row = row, col = col))
@@ -184,8 +191,18 @@ member_argument_location <- function(document, point, symbols = FALSE) {
     }
     token <- document$detect_token(point)
     end <- token$range$end
-    if (!nzchar(token$token) || !identical(token$accessor, "") ||
-        !grepl("^[ \\t]*=(?!=)", substring(document$line0(end$row), end$col + 1L), perl = TRUE)) {
+    if (!nzchar(token$token) || !identical(token$accessor, "")) {
+        return(NULL)
+    }
+    named <- FALSE
+    for (row in seq.int(end$row, min(document$nline - 1L, end$row + 128L))) {
+        if (row > end$row && !check_r_region(document, list(row = row, col = 0L))) break
+        rest <- if (row == end$row) substring(document$line0(row), end$col + 1L) else document$line0(row)
+        if (grepl("^[ \\t]*(#.*)?$", rest)) next
+        named <- grepl("^[ \\t]*=(?!=)", rest, perl = TRUE)
+        break
+    }
+    if (!named) {
         return(NULL)
     }
     location <- member_call_location(document, point, symbols = symbols)

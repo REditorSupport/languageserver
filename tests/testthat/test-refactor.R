@@ -477,3 +477,54 @@ test_that("refactor selections cannot cross literate R cells", {
     expect_null(refactor_selection_context(
         uri, workspace, document, selected))
 })
+
+test_that("inline variable ignores comments around assignment operators", {
+    content <- c(
+        "outer <- function(a) {",
+        "  step <-",
+        "    # comment after operator",
+        "    a + 1",
+        "  step * 2",
+        "}"
+    )
+    fixture <- provider_fixture(content)
+    selected <- refactor_test_range(content, 1L, "step")
+
+    actions <- refactor_code_actions(
+        fixture$uri, fixture$workspace, fixture$document,
+        selected, list("refactor.inline")
+    )
+    action <- refactor_action_with_title(
+        actions, "Inline local variable `step`")
+    actual <- refactor_apply_edits(
+        content, action$edit$changes[[fixture$uri]])
+    expect_equal(actual, paste(c(
+        "outer <- function(a) {",
+        "  (a + 1) * 2",
+        "}"
+    ), collapse = "\n"))
+
+    right_assign_comment <- c(
+        "outer <- function(a) {",
+        "  a + 1 ->",
+        "    # comment before target",
+        "    step",
+        "  step * 2",
+        "}"
+    )
+    fixture <- provider_fixture(right_assign_comment)
+    selected <- refactor_test_range(right_assign_comment, 3L, "step")
+    actions <- refactor_code_actions(
+        fixture$uri, fixture$workspace, fixture$document,
+        selected, list("refactor.inline")
+    )
+    action <- refactor_action_with_title(
+        actions, "Inline local variable `step`")
+    actual <- refactor_apply_edits(
+        right_assign_comment, action$edit$changes[[fixture$uri]])
+    expect_equal(actual, paste(c(
+        "outer <- function(a) {",
+        "  (a + 1) * 2",
+        "}"
+    ), collapse = "\n"))
+})
