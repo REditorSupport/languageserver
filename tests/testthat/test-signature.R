@@ -393,6 +393,24 @@ test_that("Signature reply resolves local documented functions", {
     )
     expect_equal(reply$result$activeSignature, 0L)
     expect_equal(reply$result$activeParameter, 1L)
+
+    commented_call <- c(
+        content[1:4],
+        "(",
+        "  add_values # trailing comment before (",
+        "    # full-line comment before (",
+        "    (first = 1, second = 2)",
+        ")"
+    )
+    commented_fixture <- provider_fixture(commented_call)
+    commented_reply <- signature_reply(
+        1L, commented_fixture$uri, commented_fixture$workspace,
+        commented_fixture$document,
+        list(row = 7L, col = nchar(commented_call[[8L]]) - 2L)
+    )
+    expect_length(commented_reply$result$signatures, 1L)
+    expect_match(commented_reply$result$signatures[[1L]]$label, "add_values\\(first")
+    expect_equal(commented_reply$result$activeParameter, 1L)
 })
 
 test_that("Signature reply falls back to workspace metadata", {
