@@ -21,6 +21,8 @@ Document <- R6::R6Class(
         member_revision = NULL,
         member_ordinary_edit = FALSE,
         pending_diagnostics = FALSE,
+        diagnostics_generation = NULL,
+        index_content_hash = NULL,
         diagnostics_delay = 0,
 
         initialize = function(uri, language = NULL, version = NULL, content = "") {

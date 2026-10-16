@@ -324,6 +324,10 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
         reference_generations = NULL,
         generations = NULL,
         awaiting_parses = NULL,
+        pending_documents = NULL,
+        diagnostics_generations = NULL,
+        package_diagnostics_generations = NULL,
+        diagnostics_discovery = 0L,
         dirty_updates = NULL,
         dirty_since = NULL,
         cache_path = NULL,
@@ -351,6 +355,18 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                     private$reference_generations$get(uri, 0L) + 1L)
                 if (private$dependent_closures$has(uri)) private$dependent_closures$remove(uri)
             }
+        },
+        invalidate_diagnostics = function(uri, roots) {
+            dependents <- if (self$reverse_edges$has(uri)) self$dependent_closure(uri) else uri
+            for (dependent in dependents) {
+                private$diagnostics_generations$set(dependent,
+                    private$diagnostics_generations$get(dependent, 0L) + 1L)
+            }
+            for (root in unique(Filter(Negate(is.null), roots))) {
+                private$package_diagnostics_generations$set(root,
+                    private$package_diagnostics_generations$get(root, 0L) + 1L)
+            }
+            invisible(NULL)
         },
         mark_dirty = function(uri, summary = NULL) {
             if (!is.null(self$cache_file())) private$dirty_updates$set(uri, summary)
@@ -507,6 +523,9 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             private$reference_generations <- collections::dict()
             private$generations <- collections::dict()
             private$awaiting_parses <- collections::dict()
+            private$pending_documents <- collections::dict()
+            private$diagnostics_generations <- collections::dict()
+            private$package_diagnostics_generations <- collections::dict()
             private$dirty_updates <- collections::dict()
             private$source_closures <- collections::dict()
             private$dependent_closures <- collections::dict()
@@ -539,6 +558,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             private$worker_bootstrap <- TRUE
             private$worker_sync_uris <- character()
             private$worker_requests <- list()
+            private$pending_documents$clear()
             invisible(NULL)
         },
 
@@ -576,15 +596,37 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             invisible(NULL)
         },
 
-        queue_path = function(path, force = FALSE) {
+        queue_path = function(path, force = FALSE, invalidate = TRUE) {
             if (!self$enabled || !self$should_index(path)) return(NULL)
             uri <- index_canonical_uri(path_to_uri(path))
             if (private$awaiting_parses$has(uri)) {
                 if (!isTRUE(force)) return(invisible(NULL))
                 private$awaiting_parses$remove(uri)
             }
-            self$invalidate(uri)
+            if (!isTRUE(invalidate)) {
+                # Lookup-driven requests share pending reads. File events use
+                # the default invalidation path to supersede older snapshots.
+                if (uri %in% self$pending) return(invisible(NULL))
+                for (request in private$worker_requests) {
+                    if (identical(request$uri, uri) && private$request_is_current(request)) {
+                        return(invisible(NULL))
+                    }
+                }
+            }
+            if (isTRUE(invalidate)) self$invalidate(uri)
             self$pending <- union(self$pending, uri)
+            invisible(NULL)
+        },
+
+        queue_document = function(uri) {
+            # Shallow summaries can arrive before the full parse needed by
+            # refactoring. Keep that work visible until its parse is accepted.
+            private$pending_documents$set(index_canonical_uri(uri), TRUE)
+            invisible(NULL)
+        },
+
+        finish_document = function(uri) {
+            private$pending_documents$pop(index_canonical_uri(uri), NULL)
             invisible(NULL)
         },
 
@@ -598,11 +640,27 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
         indexing_status = function(queued_documents = character()) {
             current <- Filter(private$request_is_current, private$worker_requests)
             pending <- unique(c(self$pending, private$awaiting_parses$keys(),
-                    vapply(current, `[[`, character(1L), "uri"), queued_documents))
+                    vapply(current, `[[`, character(1L), "uri"),
+                    private$pending_documents$keys(), queued_documents))
             total <- self$files$size()
             list(discovering = self$discovering, total = total,
                 completed = max(total - length(pending), 0L),
                 done = !self$discovering && !length(pending), truncated = self$truncated)
+        },
+
+        diagnostics_generation = function(uri) {
+            uri <- index_canonical_uri(uri)
+            root <- self$package_root_for_uri(uri)
+            list(index = private$worker_key, discovery = private$diagnostics_discovery,
+                source = private$diagnostics_generations$get(uri, 0L),
+                package = if (is.null(root)) NULL else
+                    private$package_diagnostics_generations$get(root, 0L))
+        },
+
+        invalidate_document_diagnostics = function(uri) {
+            uri <- index_canonical_uri(uri)
+            private$invalidate_diagnostics(uri, list(self$package_root_for_uri(uri)))
+            invisible(NULL)
         },
 
         include_patterns = function() {
@@ -719,6 +777,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
 
         discover = function() {
             if (!self$enabled || !dir.exists(self$root)) return(invisible(NULL))
+            private$diagnostics_discovery <- private$diagnostics_discovery + 1L
             if (!is.null(self$task_manager)) {
                 private$worker_lifecycle <- private$worker_lifecycle + 1L
                 if (self$worker_running) self$task_manager$cancel(private$worker_key)
@@ -837,6 +896,11 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             sources <- unlist(summary$sources, use.names = FALSE)
             old_sources <- unlist(old_sources, use.names = FALSE)
             topology_changed <- !identical(old_sources, sources)
+            if (!identical(names(previous$definitions), names(summary$definitions)) ||
+                    !identical(previous$functions, summary$functions) ||
+                    !identical(previous$package_root, summary$package_root) || topology_changed) {
+                private$invalidate_diagnostics(uri, list(previous$package_root, summary$package_root))
+            }
             if (topology_changed) {
                 contexts <- self$dependent_closure(uri)
                 references <- self$source_closure(uri)
@@ -961,6 +1025,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                         if (consumed) private$discovery_stale <- private$discovery_stale[-seq_len(consumed)]
                         if (!length(private$discovery_stale)) {
                             self$discovering <- FALSE
+                            private$diagnostics_discovery <- private$diagnostics_discovery + 1L
                             private$discovery_stale <- NULL
                             private$discovery_generations <- NULL
                             if (is.function(self$on_update)) self$on_update(character())
@@ -1084,12 +1149,14 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
 
         remove = function(uri) {
             uri <- index_canonical_uri(uri)
+            self$finish_document(uri)
             self$invalidate(uri)
             if (private$awaiting_parses$has(uri)) private$awaiting_parses$remove(uri)
             previous <- self$summaries$get(uri, NULL)
             if (!is.null(previous)) {
                 empty <- previous
                 empty$sources <- empty$source_candidates <- character()
+                empty$definitions <- empty$functions <- list()
                 empty$parse_error <- FALSE
                 empty$package_root <- NULL
                 self$set_summary(empty)
@@ -1125,7 +1192,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                 assign(current, TRUE, envir = visited)
                 if (isTRUE(update) && !self$summaries$has(current)) {
                     if (is.null(self$task_manager)) self$update_path(path_from_uri(current))
-                    else self$queue_path(path_from_uri(current))
+                    else self$queue_path(path_from_uri(current), invalidate = FALSE)
                 }
                 result_count <- result_count + 1L
                 if (result_count > length(result)) {

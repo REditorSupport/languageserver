@@ -180,6 +180,7 @@ text_document_did_close <- function(self, params) {
     workspace <- self$get_workspace(uri)
     
     is_from_workspace <- path_has_parent(path, workspace$root)
+    if (is.function(workspace$index$finish_document)) workspace$index$finish_document(uri)
 
     # remove diagnostics if file is not from workspace
     if (!is_from_workspace) {

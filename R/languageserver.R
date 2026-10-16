@@ -20,6 +20,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
         workspace_document_queue = NULL,
         workspace_document_keys = NULL,
         workspace_progress = NULL,
+        diagnostics_workspaces = NULL,
         queue_workspace_document = function(workspace, uri) {
             if (workspace$documents$has(uri)) return(invisible(NULL))
             if (is.null(private$workspace_document_queue)) {
@@ -28,10 +29,11 @@ LanguageServer <- R6::R6Class("LanguageServer",
             }
             key <- paste(workspace$root, uri)
             previous <- private$workspace_document_keys$get(key, NULL)
-            if (!identical(previous$workspace, workspace)) {
-                entry <- list(workspace = workspace, uri = uri, key = key)
+            if (!identical(previous$workspace, workspace) || !identical(previous$index, workspace$index)) {
+                entry <- list(workspace = workspace, index = workspace$index, uri = uri, key = key)
                 private$workspace_document_keys$set(key, entry)
                 private$workspace_document_queue$push(entry)
+                if (!is.null(workspace$index)) workspace$index$queue_document(uri)
             }
             invisible(NULL)
         },
@@ -199,6 +201,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$diagnostics_task_manager$run_tasks()
             self$resolve_task_manager$run_tasks()
             self$formatting_task_manager$run_tasks()
+            self$refresh_workspace_diagnostics()
             self$report_workspace_progress()
             for (workspace in self$workspaces$values()) {
                 if (!isTRUE(workspace$poll_namespace_file(throttle = TRUE))) {
@@ -304,6 +307,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             doc <- Document$new(
                 uri, language = "r", version = NULL, content = content)
             workspace$documents$set(uri, doc)
+            if (!is.null(workspace$index)) workspace$index$queue_document(uri)
             if (!is.null(workspace$index$task_manager)) {
                 workspace$index$await_parse(uri, cacheable = TRUE)
             }
@@ -314,6 +318,9 @@ LanguageServer <- R6::R6Class("LanguageServer",
         refresh_index_documents = function(workspace, entry_uri = NULL) {
             index <- workspace$index
             if (is.null(index) || !isTRUE(index$enabled)) return(invisible(NULL))
+            if (is.null(private$diagnostics_workspaces)) private$diagnostics_workspaces <- collections::dict()
+            private$diagnostics_workspaces$set(workspace$root,
+                list(workspace = workspace, ready_at = proc.time()[[3L]] + 0.25))
             entries <- if (is.null(entry_uri)) {
                 Filter(function(uri) {
                     doc <- workspace$documents$get(uri, NULL)
@@ -333,7 +340,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     assign(uri, TRUE, envir = visited)
                     if (!index$summaries$has(uri)) {
                         if (is.null(index$task_manager)) index$update_path(path_from_uri(uri))
-                        else index$queue_path(path_from_uri(uri))
+                        else index$queue_path(path_from_uri(uri), invalidate = FALSE)
                     }
                     if (!identical(uri, entry_key)) {
                         if (is.null(index$task_manager)) self$load_index_document(workspace, uri)
@@ -463,13 +470,19 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 entry <- private$workspace_document_queue$pop()
                 workspace <- entry$workspace
                 queued <- private$workspace_document_keys$get(entry$key, NULL)
-                if (identical(queued$workspace, workspace)) {
+                if (identical(queued, entry)) {
                     private$workspace_document_keys$remove(entry$key)
                 }
-                current <- any(vapply(self$workspaces$values(), identical, logical(1L), y = workspace))
+                current <- identical(entry$index, workspace$index) &&
+                    any(vapply(self$workspaces$values(), identical, logical(1L), y = workspace))
                 if (current && (is.null(workspace$index) || !isTRUE(workspace$index$enabled) ||
                             workspace$index$should_index(path_from_uri(entry$uri)))) {
                     self$load_index_document(workspace, entry$uri)
+                    if (!workspace$documents$has(entry$uri) && !is.null(workspace$index)) {
+                        workspace$index$remove(entry$uri)
+                    }
+                } else if (!is.null(entry$index)) {
+                    entry$index$finish_document(entry$uri)
                 }
                 processed <- processed + 1L
                 if ((proc.time()[[3L]] - started) * 1000 >= time_budget_ms) break
@@ -484,6 +497,32 @@ LanguageServer <- R6::R6Class("LanguageServer",
             state$ended <- TRUE
             state$end_message <- message
             if (state$active) private$send_workspace_progress(state, list(kind = "end", message = message))
+            invisible(NULL)
+        },
+        refresh_workspace_diagnostics = function(now = proc.time()[[3L]]) {
+            if (is.null(private$diagnostics_workspaces)) return(invisible(NULL))
+            for (root in private$diagnostics_workspaces$keys()) {
+                entry <- private$diagnostics_workspaces$get(root)
+                workspace <- entry$workspace
+                current <- any(vapply(self$workspaces$values(), identical, logical(1L), y = workspace))
+                if (!current || !lsp_settings$get("diagnostics")) {
+                    private$diagnostics_workspaces$remove(root)
+                    next
+                }
+                if (now < entry$ready_at || !isTRUE(workspace$index$indexing_status()$done)) next
+                # Coalesce the whole indexing burst, then refresh only documents
+                # whose package or source globals changed since their last lint.
+                private$diagnostics_workspaces$remove(root)
+                for (document in workspace$documents$values()) {
+                    if (!isTRUE(document$is_open) ||
+                            !identical(document$content, document$parsed_content) ||
+                            !identical(document$version, document$parse_data$version)) next
+                    generation <- diagnostics_workspace_generation(workspace, document$uri)
+                    if (identical(document$diagnostics_generation, generation)) next
+                    schedule_diagnostics(self, document$uri, document,
+                        delay = lsp_settings$get("diagnostics_delay"))
+                }
+            }
             invisible(NULL)
         },
         report_workspace_progress = function(now = proc.time()[[3L]], interval = 0.25) {

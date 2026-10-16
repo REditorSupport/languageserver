@@ -739,12 +739,15 @@ Workspace <- R6::R6Class("Workspace",
                         if (is.null(self$index$task_manager)) {
                             summary <- self$index$update_path(path_from_uri(summary_uri))
                         } else {
-                            self$index$queue_path(path_from_uri(summary_uri))
+                            self$index$queue_path(path_from_uri(summary_uri), invalidate = FALSE)
                         }
                     }
                     if (is.null(summary)) next
                     doc <- self$documents$get(summary_uri, NULL)
                     parse_data <- if (!is.null(doc)) doc$parse_data else NULL
+                    if (!is.null(parse_data) && (!identical(doc$content, doc$parsed_content) ||
+                                !identical(doc$version, parse_data$version) ||
+                                !identical(doc$index_content_hash, summary$content_hash))) parse_data <- NULL
                     if (!is.null(parse_data)) {
                         for (symbol in parse_data$nonfuncts) {
                             if (nzchar(symbol) &&
@@ -817,11 +820,15 @@ Workspace <- R6::R6Class("Workspace",
         },
 
         update_parse_data = function(uri, parse_data) {
+            previous_parse <- self$documents$get(uri)$parse_data
+            diagnostics_changed <- !identical(previous_parse$nonfuncts, parse_data$nonfuncts) ||
+                !identical(previous_parse$functions, parse_data$functions)
             self$diagnostics_globals_cache <- NULL
             self$type_hierarchy_cache$clear()
             # Indexed providers can publish immediately. Legacy providers
             # materialize main-process XML through parse_data_xml on demand.
             self$documents$get(uri)$update_parse_data(parse_data)
+            if (!is.null(self$index)) self$index$finish_document(uri)
             if (!is.null(self$index) && isTRUE(self$index$enabled)) {
                 doc <- self$documents$get(uri)
                 index_uri <- index_canonical_uri(uri)
@@ -835,12 +842,14 @@ Workspace <- R6::R6Class("Workspace",
                     uri, doc$content, cacheable = cacheable,
                     parse_data = if (isTRUE(parse_data$parse_error) ||
                             !is.null(parse_data$source_specs)) parse_data else NULL)
+                doc$index_content_hash <- summary$content_hash
                 if (is.null(parse_data$source_specs) && !is.null(summary) &&
                         !isTRUE(parse_data$parse_error)) {
                     summary$definitions <- as.list(parse_data$definitions)
                     summary$functions <- as.list(parse_data$functions)
                     self$index$set_summary(summary)
                 }
+                if (diagnostics_changed) self$index$invalidate_document_diagnostics(uri)
             }
         },
 
