@@ -300,16 +300,18 @@ test_that("refactors wait for outstanding background index results", {
 })
 
 
-test_that("persistent worker catalogs evict old workspace states within a bound", {
+test_that("persistent worker catalogs retain active roots and release detached state", {
     root <- withr::local_tempdir()
     keys <- paste0(tempfile("bounded-index-test-"), seq_len(17L))
     for (key in keys) index_worker_batch(key, root, list(), list(), bootstrap = TRUE)
     states <- get(".languageserver_workspace_indexes", globalenv())
-    expect_lte(states$size(), 16L)
+    expect_true(all(vapply(keys, states$has, logical(1L))))
+    index_worker_release(keys[[1L]])
     expect_false(states$has(keys[[1L]]))
     result <- index_worker_batch(keys[[1L]], root, list(), list(),
         cache_file = file.path(root, "cache.rds"))
     expect_true(result$sync_needed)
     expect_null(result$temp_file)
-    for (key in keys) if (states$has(key)) states$remove(key)
+    for (key in keys) index_worker_release(key)
+    expect_false(any(vapply(keys, states$has, logical(1L))))
 })

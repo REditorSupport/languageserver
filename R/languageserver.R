@@ -22,7 +22,21 @@ LanguageServer <- R6::R6Class("LanguageServer",
         workspace_progress = NULL,
         diagnostics_workspaces = NULL,
         queue_workspace_document = function(workspace, uri) {
-            if (workspace$documents$has(uri)) return(invisible(NULL))
+            document <- workspace$documents$get(uri, NULL)
+            if (!is.null(document)) {
+                if (isTRUE(document$is_open) ||
+                        (!is.null(workspace$index) && workspace$index$document_pending(uri))) {
+                    return(invisible(NULL))
+                }
+                summary <- if (is.null(workspace$index)) NULL else
+                    workspace$index$summaries$get(index_canonical_uri(uri), NULL)
+                if (!is.null(document$parse_data) &&
+                        identical(document$content, document$parsed_content) &&
+                        identical(document$version, document$parse_data$version) &&
+                        (is.null(summary) || identical(document$index_content_hash, summary$content_hash))) {
+                    return(invisible(NULL))
+                }
+            }
             if (is.null(private$workspace_document_queue)) {
                 private$workspace_document_queue <- collections::queue()
                 private$workspace_document_keys <- collections::dict()
@@ -30,7 +44,8 @@ LanguageServer <- R6::R6Class("LanguageServer",
             key <- paste(workspace$root, uri)
             previous <- private$workspace_document_keys$get(key, NULL)
             if (!identical(previous$workspace, workspace) || !identical(previous$index, workspace$index)) {
-                entry <- list(workspace = workspace, index = workspace$index, uri = uri, key = key)
+                entry <- list(workspace = workspace, index = workspace$index, uri = uri, key = key,
+                    reload = !is.null(document))
                 private$workspace_document_keys$set(key, entry)
                 private$workspace_document_queue$push(entry)
                 if (!is.null(workspace$index)) workspace$index$queue_document(uri)
@@ -297,8 +312,9 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$workspace_cache$set(uri, best_match)
             best_match
         },
-        load_index_document = function(workspace, uri) {
-            if (workspace$documents$has(uri)) return(invisible(NULL))
+        load_index_document = function(workspace, uri, reload = FALSE) {
+            existing <- workspace$documents$get(uri, NULL)
+            if (!is.null(existing) && (!reload || isTRUE(existing$is_open))) return(invisible(existing))
             path <- path_from_uri(uri)
             if (!file.exists(path) || dir.exists(path)) return(invisible(NULL))
             content <- tryCatch(stringi::stri_read_lines(path),
@@ -374,6 +390,12 @@ LanguageServer <- R6::R6Class("LanguageServer",
             for (uri in remove) {
                 diagnostics_callback(self, uri, NULL, list())
                 workspace$documents$remove(uri)
+                if (index$document_pending(uri)) {
+                    if (!is.null(self$parse_task_manager)) self$parse_task_manager$cancel(uri)
+                    index$finish_document(uri)
+                    if (file.exists(path_from_uri(uri))) index$queue_path(path_from_uri(uri), force = TRUE)
+                    else index$remove(uri)
+                }
             }
             if (length(remove)) {
                 workspace$diagnostics_globals_cache <- NULL
@@ -477,9 +499,12 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     any(vapply(self$workspaces$values(), identical, logical(1L), y = workspace))
                 if (current && (is.null(workspace$index) || !isTRUE(workspace$index$enabled) ||
                             workspace$index$should_index(path_from_uri(entry$uri)))) {
-                    self$load_index_document(workspace, entry$uri)
+                    loaded <- self$load_index_document(workspace, entry$uri, reload = entry$reload)
                     if (!workspace$documents$has(entry$uri) && !is.null(workspace$index)) {
                         workspace$index$remove(entry$uri)
+                    } else if (is.null(loaded) && !is.null(workspace$index) &&
+                            !isTRUE(workspace$documents$get(entry$uri)$is_open)) {
+                        workspace$index$finish_document(entry$uri)
                     }
                 } else if (!is.null(entry$index)) {
                     entry$index$finish_document(entry$uri)

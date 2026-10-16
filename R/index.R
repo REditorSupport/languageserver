@@ -547,7 +547,13 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
 
         detach_worker = function() {
             private$worker_lifecycle <- private$worker_lifecycle + 1L
-            if (!is.null(self$task_manager)) self$task_manager$cancel(private$worker_key)
+            if (!is.null(self$task_manager)) {
+                self$task_manager$cancel(private$worker_key)
+                self$task_manager$add_task(paste0(private$worker_key, "-release"), create_task(
+                    package_call(index_worker_release), list(key = private$worker_key), profiles = FALSE))
+                # A delayed release must not remove a newly attached cursor.
+                private$worker_key <- tempfile("workspace-index-")
+            }
             self$task_manager <- NULL
             self$on_update <- NULL
             self$worker_running <- FALSE
@@ -628,6 +634,10 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
         finish_document = function(uri) {
             private$pending_documents$pop(index_canonical_uri(uri), NULL)
             invisible(NULL)
+        },
+
+        document_pending = function(uri) {
+            private$pending_documents$has(index_canonical_uri(uri))
         },
 
         scope_generation = function(uri, references = FALSE) {
