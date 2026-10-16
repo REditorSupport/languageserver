@@ -349,9 +349,11 @@ test_that("Active parameter detection ignores nested and quoted commas", {
         1L
     )
     commented_sig <- paste(
-        "fun(",
+        "fun # comment (not_a_param)",
+        "(",
         "  # comment before first",
-        "  first = 1,",
+        "  first = 1 # comment after default",
+        "  ,",
         "  second # comment before =",
         "    = 2,",
         "  third # comment after parameter",
@@ -360,6 +362,12 @@ test_that("Active parameter detection ignores nested and quoted commas", {
     )
     info <- signature_info(commented_sig)
     expect_identical(info$names, c("first", "second", "third"))
+    expect_identical(
+        vapply(info$parameters, function(parameter) {
+            substr(commented_sig, parameter$label[[1L]] + 1L, parameter$label[[2L]])
+        }, character(1L)),
+        c("first = 1", "second # comment before =\n    = 2", "third")
+    )
     expect_identical(signature_info("fun(# comment\n)")$names, character())
 })
 

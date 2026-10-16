@@ -73,8 +73,12 @@ SEXP signature_info_c(SEXP signature) {
     int size = (int) size_long;
     int open = 0;
     while (open < size && text[open] != '(') {
-        int end = literal_end(text, open, size);
-        open = end > open ? end : open + 1;
+        if (text[open] == '#') {
+            while (open < size && text[open] != '\n') open++;
+        } else {
+            int end = literal_end(text, open, size);
+            open = end > open ? end : open + 1;
+        }
     }
 
     /* A comma provides a cheap upper bound; actual ranges are only recorded
@@ -85,57 +89,50 @@ SEXP signature_info_c(SEXP signature) {
     int *ends = (int *) R_alloc((size_t) capacity, sizeof(int));
     int *name_ends = (int *) R_alloc((size_t) capacity, sizeof(int));
     int count = 0;
-    int start = open + 1;
+    int left = -1;
+    int right = -1;
     int name_end = -1;
-    int comment_end = -1;
     int depth = 0;
     int closed = 0;
-    for (int i = start; i < size; i++) {
+    for (int i = open + 1; i < size; i++) {
         if ((i & 65535) == 0) R_CheckUserInterrupt();
         int end = literal_end(text, i, size);
         if (end > i) {
+            if (left < 0) left = i;
+            right = end;
             i = end - 1;
             continue;
         }
         char ch = text[i];
         if (ch == '#') {
-            int comment = i;
             while (i < size && text[i] != '\n') i++;
-            int before = start;
-            while (before < comment && space(text[before])) before++;
-            if (before == comment) {
-                start = i < size ? i + 1 : i;
-            } else if (depth == 0 && name_end < 0 && comment_end < 0) {
-                comment_end = comment;
-            }
             continue;
         }
         if ((ch == ',' || ch == ')') && depth == 0) {
-            int left = start;
-            int right = (name_end < 0 && comment_end >= 0) ? comment_end : i;
-            while (left < right && space(text[left])) left++;
-            while (right > left && space(text[right - 1])) right--;
-            if (left < right) {
+            if (left >= 0) {
                 starts[count] = left;
                 ends[count] = right;
-                int named = name_end >= 0 ? name_end :
-                    (comment_end >= 0 ? comment_end : right);
-                while (named > left && space(text[named - 1])) named--;
-                name_ends[count++] = named;
+                name_ends[count++] = name_end >= 0 ? name_end : right;
             }
             if (ch == ')') {
                 closed = 1;
                 break;
             }
-            start = i + 1;
+            left = -1;
+            right = -1;
             name_end = -1;
-            comment_end = -1;
-        } else if (ch == '=' && depth == 0 && name_end < 0) {
-            name_end = comment_end >= 0 ? comment_end : i;
+            continue;
+        }
+        if (ch == '=' && depth == 0 && name_end < 0) {
+            name_end = right >= 0 ? right : i;
         } else if (ch == '(' || ch == '[' || ch == '{') {
             depth++;
         } else if (ch == ')' || ch == ']' || ch == '}') {
             depth--;
+        }
+        if (!space((unsigned char) ch)) {
+            if (left < 0) left = i;
+            right = i + 1;
         }
     }
     if (!closed) count = 0;
@@ -404,49 +401,49 @@ SEXP active_parameter_c(SEXP call_text, SEXP parameters, SEXP content,
     }
     int depth = 0;
     int count = 0;
-    int start = 0;
+    int left = -1;
+    int right = -1;
     int name_end = -1;
-    int comment_end = -1;
     for (int i = 0; i < size; i++) {
         if ((i & 65535) == 0) R_CheckUserInterrupt();
         int end = literal_end(text, i, size);
         if (end > i) {
+            if (left < 0) left = i;
+            right = end;
             i = end - 1;
             continue;
         }
         char ch = text[i];
         if (ch == '#') {
-            int comment = i;
             while (i < size && text[i] != '\n') i++;
-            int before = start;
-            while (before < comment && space(text[before])) before++;
-            if (before == comment) {
-                start = i;
-            } else if (depth == 0 && name_end < 0 && comment_end < 0) {
-                comment_end = comment;
-            }
-        } else if (ch == ',' && depth == 0) {
+            continue;
+        }
+        if (ch == ',' && depth == 0) {
             count++;
-            start = i + 1;
+            left = -1;
+            right = -1;
             name_end = -1;
-            comment_end = -1;
-        } else if (ch == '=' && depth == 0 && name_end < 0 &&
+            continue;
+        }
+        if (ch == '=' && depth == 0 && name_end < 0 &&
                 (i + 1 == size || text[i + 1] != '=') &&
                 (i == 0 || (text[i - 1] != '=' && text[i - 1] != '!' &&
                     text[i - 1] != '<' && text[i - 1] != '>'))) {
-            name_end = comment_end >= 0 ? comment_end : i;
+            name_end = right >= 0 ? right : i;
         } else if (ch == '(' || ch == '[' || ch == '{') {
             depth++;
         } else if (ch == ')' || ch == ']' || ch == '}') {
             depth--;
         }
+        if (!space((unsigned char) ch)) {
+            if (left < 0) left = i;
+            right = i + 1;
+        }
     }
-    if (name_end >= 0) {
-        while (start < name_end && space(text[start])) start++;
-        while (name_end > start && space(text[name_end - 1])) name_end--;
+    if (left >= 0 && name_end > left) {
         for (R_xlen_t i = 0; i < XLENGTH(parameters); i++) {
             if (STRING_ELT(parameters, i) != NA_STRING && name_matches(
-                    text, start, name_end,
+                    text, left, name_end,
                     Rf_translateCharUTF8(STRING_ELT(parameters, i)))) {
                 return Rf_ScalarInteger((int) i);
             }
