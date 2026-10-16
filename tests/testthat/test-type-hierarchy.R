@@ -215,39 +215,43 @@ test_that("Type hierarchy and class member extraction ignore comments before =",
     content <- c(
         'setClass("BaseS4")',
         'setClass("ChildS4",',
-        '  contains # comment before contains =',
+        "  contains # comment before contains =",
         '    = "BaseS4",',
-        '  slots # comment before slots =',
-        '    = c(',
-        '      value # comment before slot =',
+        "  slots # comment before slots =",
+        "    = c(",
+        "      value # comment before slot =",
         '        = "numeric"',
-        '    )',
-        ')',
+        "    )",
+        ")",
         'setRefClass("BaseRef")',
         'setRefClass("ChildRef",',
-        '  contains # comment before contains =',
+        "  contains # comment before contains =",
         '    = "BaseRef",',
-        '  fields # comment before fields =',
-        '    = list(',
-        '      count # comment before field =',
+        "  fields # comment before fields =",
+        "    = list(",
+        "      count # comment before field =",
         '        = "numeric"',
-        '    ),',
-        '  methods # comment before methods =',
-        '    = list(',
-        '      bump # comment before method =',
-        '        = function() NULL',
-        '    )',
-        ')',
+        "    ),",
+        "  methods # comment before methods =",
+        "    = list(",
+        "      bump # comment before method =",
+        "        = function() NULL",
+        "    )",
+        ")",
         'BaseR6 <- R6::R6Class("BaseR6")',
         'ChildR6 <- R6::R6Class("ChildR6",',
-        '  inherit # comment before inherit =',
-        '    = BaseR6,',
-        '  public # comment before public =',
-        '    = list(',
-        '      item # comment before member =',
-        '        = 1',
-        '    )',
-        ')'
+        "  inherit # comment before inherit =",
+        "    = BaseR6,",
+        "  public # comment before public =",
+        "    = list(",
+        "      item # comment before member =",
+        "        = 1",
+        "    )",
+        ")",
+        "UnnamedChildR6 <- R6::R6Class(",
+        "  inherit # comment before inherit =",
+        "    = BaseR6",
+        ")"
     )
     document <- Document$new(uri, version = 1L, content = content)
     parse_data <- parse_document(uri, content)
@@ -265,7 +269,11 @@ test_that("Type hierarchy and class member extraction ignore comments before =",
     expect_equal(vapply(ref_members, `[[`, character(1L), "name"), c("count", "bump"))
 
     expect_equal(find_r6_supertypes(document, xdoc, "ChildR6", uri)[[1L]]$name, "BaseR6")
-    expect_equal(find_r6_subtypes(document, xdoc, "BaseR6", uri)[[1L]]$name, "ChildR6")
+    expect_equal(find_r6_supertypes(document, xdoc, "UnnamedChildR6", uri)[[1L]]$name, "BaseR6")
+    expect_equal(
+        vapply(find_r6_subtypes(document, xdoc, "BaseR6", uri), `[[`, character(1L), "name"),
+        c("ChildR6", "UnnamedChildR6")
+    )
     r6_members <- extract_r6_members(document, xdoc, list(name = "ChildR6"))
     expect_equal(vapply(r6_members, `[[`, character(1L), "name"), "item")
 })

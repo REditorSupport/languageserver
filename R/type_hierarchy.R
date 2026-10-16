@@ -458,7 +458,7 @@ find_r6_supertypes <- function(doc, xdoc, class_name, uri) {
     for (class_def in all_class_defs) {
         class_str <- class_xml_first(class_def, ".//STR_CONST[1]")
         class_symbol <- class_xml_first(class_def,
-            "preceding-sibling::expr[1][LEFT_ASSIGN or EQ_ASSIGN]/preceding-sibling::expr[1]/SYMBOL")
+            "ancestor::expr[LEFT_ASSIGN or EQ_ASSIGN][1]/expr[1]/SYMBOL[1]")
         class_name_value <- NULL
         if (length(class_str)) {
             class_name_value <- gsub('["\'`]', "", xml_text(class_str))
@@ -475,7 +475,7 @@ find_r6_supertypes <- function(doc, xdoc, class_name, uri) {
 
         inherit_param <- class_xml_first(
             inherit_node,
-            "following-sibling::expr[1] | following-sibling::*[not(self::COMMENT)][1][self::EQ_ASSIGN]/following-sibling::expr[1]"
+            "following-sibling::expr[1]"
         )
 
         if (length(inherit_param) > 0) {
@@ -712,7 +712,7 @@ find_r6_subtypes <- function(doc, xdoc, parent_name, uri) {
 
         inherit_param <- class_xml_first(
             inherit_node,
-            "following-sibling::expr[1] | following-sibling::*[not(self::COMMENT)][1][self::EQ_ASSIGN]/following-sibling::expr[1]"
+            "following-sibling::expr[1]"
         )
         if (!length(inherit_param)) next
 
@@ -988,7 +988,7 @@ extract_r6_members <- function(document, xdoc, def) {
         if (length(public_node)) {
             public_list <- class_xml_first(
                 public_node,
-                "following-sibling::expr[1] | following-sibling::*[not(self::COMMENT)][1][self::EQ_ASSIGN]/following-sibling::expr[1]"
+                "following-sibling::expr[1]"
             )
             if (length(public_list)) {
                 public_members <- extract_r6_list_members(document, public_list, "public")
@@ -1001,7 +1001,7 @@ extract_r6_members <- function(document, xdoc, def) {
         if (length(private_node)) {
             private_list <- class_xml_first(
                 private_node,
-                "following-sibling::expr[1] | following-sibling::*[not(self::COMMENT)][1][self::EQ_ASSIGN]/following-sibling::expr[1]"
+                "following-sibling::expr[1]"
             )
             if (length(private_list)) {
                 private_members <- extract_r6_list_members(document, private_list, "private")
