@@ -680,3 +680,72 @@ test_that("inlay fallback preserves hints in an incomplete literate R cell", {
     )))
     expect_equal(hints(), original[3:4])
 })
+
+test_that("inlay hints place labels at arguments rather than preceding comments", {
+    content <- c(
+        "sprintf(",
+        "  # comment about fmt",
+        '  "%s",',
+        "  arg",
+        ")",
+        "sprintf(",
+        "  # comment before matching symbol",
+        "  fmt",
+        "  # comment after matching symbol",
+        "  ,",
+        "  arg",
+        ")",
+        "target(",
+        "  one, # trailing comment after comma",
+        "  two",
+        ")",
+        "target(",
+        "  first # comment before =",
+        "  = one,",
+        "  two",
+        ")",
+        "target(",
+        "  # comment in empty argument slot",
+        "  ,",
+        "  two",
+        ")",
+        "target(",
+        "  # comment in empty argument slot",
+        "  ,",
+        "  two,",
+        "  three",
+        ")",
+        "(",
+        "  target # comment before open paren",
+        "  (one, two)",
+        ")"
+    )
+    fixture <- provider_fixture(content, function(name, ...) {
+        if (identical(name, "sprintf")) {
+            formals(function(fmt, ...) NULL)
+        } else {
+            formals(function(first, second, third) NULL)
+        }
+    })
+    request <- range(position(0L, 0L), position(length(content), 0L))
+    indexed <- fixture$document$parse_data$range_data
+
+    for (use_index in c(TRUE, FALSE)) {
+        fixture$document$parse_data$range_data <- if (use_index) indexed else NULL
+        result <- inlay_hint_reply(
+            1L, fixture$uri, fixture$workspace, fixture$document, request
+        )$result
+        expect_equal(
+            vapply(result, `[[`, character(1L), "label"),
+            c("fmt =", "first =", "second =", "second =", "second =", "third =", "first =", "second =")
+        )
+        expect_equal(
+            vapply(result, function(hint) hint$position$line, integer(1L)),
+            c(2L, 13L, 14L, 19L, 29L, 30L, 34L, 34L)
+        )
+        expect_equal(
+            vapply(result, function(hint) hint$position$character, integer(1L)),
+            c(2L, 2L, 2L, 2L, 2L, 2L, 3L, 8L)
+        )
+    }
+})
