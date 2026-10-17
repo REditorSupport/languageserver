@@ -458,7 +458,7 @@ find_r6_supertypes <- function(doc, xdoc, class_name, uri) {
     for (class_def in all_class_defs) {
         class_str <- class_xml_first(class_def, ".//STR_CONST[1]")
         class_symbol <- class_xml_first(class_def,
-            "preceding-sibling::expr[1][LEFT_ASSIGN or EQ_ASSIGN]/preceding-sibling::expr[1]/SYMBOL")
+            "ancestor::expr[LEFT_ASSIGN or EQ_ASSIGN][1]/expr[1]/SYMBOL[1]")
         class_name_value <- NULL
         if (length(class_str)) {
             class_name_value <- gsub('["\'`]', "", xml_text(class_str))
@@ -475,7 +475,7 @@ find_r6_supertypes <- function(doc, xdoc, class_name, uri) {
 
         inherit_param <- class_xml_first(
             inherit_node,
-            "following-sibling::expr[1] | following-sibling::*[1][self::EQ_ASSIGN]/following-sibling::expr[1]"
+            "following-sibling::expr[1]"
         )
 
         if (length(inherit_param) > 0) {
@@ -541,7 +541,7 @@ find_s4_supertypes <- function(doc, xdoc, class_name, uri) {
 
         # Now find the contains parameter
         contains_param <- class_xml_first(setclass_call,
-            "./SYMBOL_SUB[text() = 'contains']/following-sibling::*[1][self::EQ_SUB]/following-sibling::expr[1]")
+            "./SYMBOL_SUB[text() = 'contains']/following-sibling::*[not(self::COMMENT)][1][self::EQ_SUB]/following-sibling::expr[1]")
 
         if (length(contains_param) > 0) {
             # Could contain one or more class names as strings
@@ -585,7 +585,7 @@ find_refclass_supertypes <- function(doc, xdoc, class_name, uri) {
 
         # Now find the contains parameter
         contains_param <- class_xml_first(setrefclass_call,
-            "./SYMBOL_SUB[text() = 'contains']/following-sibling::*[1][self::EQ_SUB]/following-sibling::expr[1]")
+            "./SYMBOL_SUB[text() = 'contains']/following-sibling::*[not(self::COMMENT)][1][self::EQ_SUB]/following-sibling::expr[1]")
 
         if (length(contains_param) > 0) {
             parent_strs <- class_xml_all(contains_param, ".//STR_CONST")
@@ -712,7 +712,7 @@ find_r6_subtypes <- function(doc, xdoc, parent_name, uri) {
 
         inherit_param <- class_xml_first(
             inherit_node,
-            "following-sibling::expr[1] | following-sibling::*[1][self::EQ_ASSIGN]/following-sibling::expr[1]"
+            "following-sibling::expr[1]"
         )
         if (!length(inherit_param)) next
 
@@ -786,7 +786,7 @@ find_s4_subtypes <- function(doc, xdoc, parent_name, uri) {
     for (setclass_call in all_setclass_calls) {
         # Check if this class contains parent_name
         contains_param <- class_xml_first(setclass_call,
-            "./SYMBOL_SUB[text() = 'contains']/following-sibling::*[1][self::EQ_SUB]/following-sibling::expr[1]")
+            "./SYMBOL_SUB[text() = 'contains']/following-sibling::*[not(self::COMMENT)][1][self::EQ_SUB]/following-sibling::expr[1]")
 
         if (!length(contains_param)) next
 
@@ -835,7 +835,7 @@ find_refclass_subtypes <- function(doc, xdoc, parent_name, uri) {
     for (setrefclass_call in all_setrefclass_calls) {
         # Check if this class contains parent_name
         contains_param <- class_xml_first(setrefclass_call,
-            "./SYMBOL_SUB[text() = 'contains']/following-sibling::*[1][self::EQ_SUB]/following-sibling::expr[1]")
+            "./SYMBOL_SUB[text() = 'contains']/following-sibling::*[not(self::COMMENT)][1][self::EQ_SUB]/following-sibling::expr[1]")
 
         if (!length(contains_param)) next
 
@@ -988,7 +988,7 @@ extract_r6_members <- function(document, xdoc, def) {
         if (length(public_node)) {
             public_list <- class_xml_first(
                 public_node,
-                "following-sibling::expr[1] | following-sibling::*[1][self::EQ_ASSIGN]/following-sibling::expr[1]"
+                "following-sibling::expr[1]"
             )
             if (length(public_list)) {
                 public_members <- extract_r6_list_members(document, public_list, "public")
@@ -1001,7 +1001,7 @@ extract_r6_members <- function(document, xdoc, def) {
         if (length(private_node)) {
             private_list <- class_xml_first(
                 private_node,
-                "following-sibling::expr[1] | following-sibling::*[1][self::EQ_ASSIGN]/following-sibling::expr[1]"
+                "following-sibling::expr[1]"
             )
             if (length(private_list)) {
                 private_members <- extract_r6_list_members(document, private_list, "private")
@@ -1023,7 +1023,7 @@ extract_r6_list_members <- function(document, list_node, access_modifier) {
 
     # Find SYMBOL_SUB elements that have EQ_SUB as immediate next sibling
     # This indicates name = value patterns
-    all_symbol_subs <- class_xml_all(list_node, ".//SYMBOL_SUB[following-sibling::*[1][self::EQ_SUB]]")
+    all_symbol_subs <- class_xml_all(list_node, ".//SYMBOL_SUB[following-sibling::*[not(self::COMMENT)][1][self::EQ_SUB]]")
 
     # Process all SYMBOL_SUB elements and try to find their values
     for (symbol_sub in all_symbol_subs) {
@@ -1123,13 +1123,13 @@ extract_s4_members <- function(document, xdoc, def) {
         # Extract slots/representation
         slots_node <- class_xml_first(
             setclass_call,
-            "./SYMBOL_SUB[text() = 'slots' or text() = 'representation']/following-sibling::*[1][self::EQ_SUB]/following-sibling::expr[1]"
+            "./SYMBOL_SUB[text() = 'slots' or text() = 'representation']/following-sibling::*[not(self::COMMENT)][1][self::EQ_SUB]/following-sibling::expr[1]"
         )
 
         if (length(slots_node)) {
             # Find all named slots
             slot_names <- class_xml_all(slots_node,
-                ".//SYMBOL_SUB[following-sibling::*[1][self::EQ_SUB]] | .//STR_CONST[following-sibling::*[1][self::EQ_SUB]]")
+                ".//SYMBOL_SUB[following-sibling::*[not(self::COMMENT)][1][self::EQ_SUB]] | .//STR_CONST[following-sibling::*[not(self::COMMENT)][1][self::EQ_SUB]]")
             for (slot_name_node in slot_names) {
                 slot_name_text <- xml_text(slot_name_node)
                 slot_name <- gsub('["\047`]', "", slot_name_text)
@@ -1214,12 +1214,12 @@ extract_refclass_members <- function(document, xdoc, def) {
         # Extract fields
         fields_node <- class_xml_first(
             setrefclass_call,
-            "./SYMBOL_SUB[text() = 'fields']/following-sibling::*[1][self::EQ_SUB]/following-sibling::expr[1]"
+            "./SYMBOL_SUB[text() = 'fields']/following-sibling::*[not(self::COMMENT)][1][self::EQ_SUB]/following-sibling::expr[1]"
         )
 
         if (length(fields_node)) {
             field_names <- class_xml_all(fields_node,
-                "./SYMBOL_SUB[following-sibling::*[1][self::EQ_SUB]] | ./STR_CONST[following-sibling::*[1][self::EQ_SUB]]")
+                "./SYMBOL_SUB[following-sibling::*[not(self::COMMENT)][1][self::EQ_SUB]] | ./STR_CONST[following-sibling::*[not(self::COMMENT)][1][self::EQ_SUB]]")
             for (field_name_node in field_names) {
                 field_name <- gsub('["\047`]', "", xml_text(field_name_node))
                 field_range <- get_element_range(document, field_name_node)
@@ -1239,12 +1239,12 @@ extract_refclass_members <- function(document, xdoc, def) {
         # Extract methods
         methods_node <- class_xml_first(
             setrefclass_call,
-            "./SYMBOL_SUB[text() = 'methods']/following-sibling::*[1][self::EQ_SUB]/following-sibling::expr[1]"
+            "./SYMBOL_SUB[text() = 'methods']/following-sibling::*[not(self::COMMENT)][1][self::EQ_SUB]/following-sibling::expr[1]"
         )
 
         if (length(methods_node)) {
             method_names <- class_xml_all(methods_node,
-                "./SYMBOL_SUB[following-sibling::*[1][self::EQ_SUB]] | ./STR_CONST[following-sibling::*[1][self::EQ_SUB]]")
+                "./SYMBOL_SUB[following-sibling::*[not(self::COMMENT)][1][self::EQ_SUB]] | ./STR_CONST[following-sibling::*[not(self::COMMENT)][1][self::EQ_SUB]]")
             for (method_name_node in method_names) {
                 method_name <- gsub('["\047`]', "", xml_text(method_name_node))
                 method_range <- get_element_range(document, method_name_node)

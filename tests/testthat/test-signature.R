@@ -341,6 +341,34 @@ test_that("Active parameter detection ignores nested and quoted commas", {
         detect_active_parameter("fun(", 5L, 0L, 6L, 0L),
         0L
     )
+    expect_equal(
+        detect_active_parameter(
+            c("fun(second # comment before =", "  = 1)"),
+            0L, 3L, 1L, 5L, signature
+        ),
+        1L
+    )
+    commented_sig <- paste(
+        "fun # comment (not_a_param)",
+        "(",
+        "  # comment before first",
+        "  first = 1 # comment after default",
+        "  ,",
+        "  second # comment before =",
+        "    = 2,",
+        "  third # comment after parameter",
+        ")",
+        sep = "\n"
+    )
+    info <- signature_info(commented_sig)
+    expect_identical(info$names, c("first", "second", "third"))
+    expect_identical(
+        vapply(info$parameters, function(parameter) {
+            substr(commented_sig, parameter$label[[1L]] + 1L, parameter$label[[2L]])
+        }, character(1L)),
+        c("first = 1", "second # comment before =\n    = 2", "third")
+    )
+    expect_identical(signature_info("fun(# comment\n)")$names, character())
 })
 
 test_that("Signature reply resolves local documented functions", {
@@ -365,6 +393,24 @@ test_that("Signature reply resolves local documented functions", {
     )
     expect_equal(reply$result$activeSignature, 0L)
     expect_equal(reply$result$activeParameter, 1L)
+
+    commented_call <- c(
+        content[1:4],
+        "(",
+        "  add_values # trailing comment before (",
+        "    # full-line comment before (",
+        "    (first = 1, second = 2)",
+        ")"
+    )
+    commented_fixture <- provider_fixture(commented_call)
+    commented_reply <- signature_reply(
+        1L, commented_fixture$uri, commented_fixture$workspace,
+        commented_fixture$document,
+        list(row = 7L, col = nchar(commented_call[[8L]]) - 2L)
+    )
+    expect_length(commented_reply$result$signatures, 1L)
+    expect_match(commented_reply$result$signatures[[1L]]$label, "add_values\\(first")
+    expect_equal(commented_reply$result$activeParameter, 1L)
 })
 
 test_that("Signature reply falls back to workspace metadata", {

@@ -189,7 +189,25 @@ Document <- R6::R6Class(
             if (loc[1] < 0 || loc[2] < 0 || bracket != "(")
                 return(list(token = ""))
 
-            result <- self$find_token(loc[1], loc[2], forward = FALSE)
+            call_row <- loc[[1L]]
+            call_col <- loc[[2L]]
+            for (i in seq_len(129L)) {
+                prefix <- substr(self$line0(call_row), 1L, call_col)
+                if (i > 1L) prefix <- member_uncomment_line(prefix)
+                call_col <- nchar(sub("[ \t]+$", "", prefix))
+                if (call_col > 0L) break
+                call_row <- call_row - 1L
+                if (call_row < 0L || !check_r_region(self, list(row = call_row, col = 0L))) {
+                    call_row <- loc[[1L]]
+                    call_col <- loc[[2L]]
+                    break
+                }
+                call_col <- nchar(self$line0(call_row))
+            }
+            result <- self$find_token(call_row, call_col, forward = FALSE)
+            if (result$token %in% c("if", "for", "while", "function")) {
+                result <- list(full_token = "", package = NULL, accessor = "", token = "")
+            }
             logger$info("call:", result)
 
             list(

@@ -218,26 +218,17 @@ signature_reply <- function(id, uri, workspace, document, point) {
     }
 
     # Calculate activeParameter if we have a valid signature
-    if (!is.null(activeSignature) && nzchar(result$token)) {
+    if (!is.null(activeSignature) && nzchar(result$token) && !is.null(result$opening)) {
         logger$info("Calculating activeParameter for token: ", result$token)
-        fub_result <- find_unbalanced_bracket(document$content, point$row, point$col - 1)
-        loc <- fub_result[[1]]
-        bracket <- fub_result[[2]]
-        logger$info("Bracket location: row=", loc[1], ", col=", loc[2], ", bracket='", bracket, "'")
-        
-        if (loc[1] >= 0 && loc[2] >= 0 && bracket == "(") {
-            activeParameter <- detect_active_parameter(
-                document$content,
-                loc[1],  # start_row (0-based)
-                loc[2],  # start_col (0-based)
-                point$row,  # end_row (0-based)
-                point$col,   # end_col (0-based)
-                sig          # signature for named argument detection
-            )
-            logger$info("activeParameter set to: ", activeParameter)
-        } else {
-            logger$info("Invalid bracket location or not a parenthesis")
-        }
+        activeParameter <- detect_active_parameter(
+            document$content,
+            result$opening$row,
+            result$opening$col,
+            point$row,
+            point$col,
+            sig
+        )
+        logger$info("activeParameter set to: ", activeParameter)
     }
 
     response_result <- list(signatures = SignatureInformation)

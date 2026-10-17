@@ -3,6 +3,9 @@
 call_argument_groups <- function(call_node) {
     children <- xml_children(call_node)
     child_names <- xml_name(children)
+    keep <- child_names != "COMMENT"
+    children <- children[keep]
+    child_names <- child_names[keep]
     open_indices <- which(child_names == "OP-LEFT-PAREN")
     close_indices <- which(child_names == "OP-RIGHT-PAREN")
     if (!length(open_indices) || !length(close_indices)) return(list())
@@ -185,7 +188,7 @@ inlay_hint_reply <- function(id, uri, workspace, document, request_range) {
         paste0(
             "//expr[@line2 >= ", start_line,
             " and @line1 <= ", end_line,
-            " and expr[1][following-sibling::*[1]",
+            " and expr[1][following-sibling::*[not(self::COMMENT)][1]",
             "[self::OP-LEFT-PAREN]] and ",
             "expr[1]//SYMBOL_FUNCTION_CALL]"
         )

@@ -123,6 +123,12 @@ static int tree_parent(const provider_tree *tree, int row) {
     return parent > 0 ? tree->row[parent] : -1;
 }
 
+static int next_non_comment(const provider_tree *tree, int row) {
+    int next = tree->next[row];
+    while (next >= 0 && tree->kind[next] == P_COMMENT) next = tree->next[next];
+    return next;
+}
+
 static int simple_symbol(const provider_tree *tree, int row) {
     int child = tree->first[tree->id[row]];
     if (child >= 0 && tree->next[child] < 0 && tree->kind[child] == P_SYMBOL) return child;
@@ -151,13 +157,18 @@ SEXP function_assignment_ids_c(SEXP data, SEXP syntax) {
         if (tree.parent[i] <= 0) continue;
         int before = -1, after = -1, before_n = 0, after_n = 0, passed = 0;
         for (int child = tree.first[tree.parent[i]]; child >= 0; child = tree.next[child]) {
+            if (tree.kind[child] == P_COMMENT) continue;
             if (child == i) { passed = 1; continue; }
             if (passed) { after = child; after_n++; }
             else { before = child; before_n++; }
         }
+        int lhs = kind == P_RIGHT_ASSIGN ? after : before;
+        int lhs_n = kind == P_RIGHT_ASSIGN ? after_n : before_n;
         int rhs = kind == P_RIGHT_ASSIGN ? before : after;
         int rhs_n = kind == P_RIGHT_ASSIGN ? before_n : after_n;
-        if (rhs_n != 1) continue;
+        if (lhs_n != 1 || rhs_n != 1 || tree.kind[lhs] != P_EXPR) continue;
+        int symbol = simple_symbol(&tree, lhs);
+        if (symbol < 0) continue;
         /* Unwrap only syntactic parentheses, ignoring comments inside them. */
         int depth = 0;
         while (!function_expr[tree.id[rhs]]) {
@@ -173,17 +184,7 @@ SEXP function_assignment_ids_c(SEXP data, SEXP syntax) {
             rhs = children[1];
             if (++depth > tree.n) Rf_error("Cyclic parse data");
         }
-        if (!function_expr[tree.id[rhs]]) continue;
-        passed = 0;
-        for (int child = tree.first[tree.parent[i]]; child >= 0; child = tree.next[child]) {
-            if (child == i) { passed = 1; continue; }
-            if ((kind == P_RIGHT_ASSIGN ? !passed : passed) || tree.kind[child] != P_EXPR) continue;
-            int symbol = -1, terminals = 0;
-            for (int leaf = tree.first[tree.id[child]]; leaf >= 0; leaf = tree.next[leaf]) {
-                if (tree.terminal[leaf]) { terminals++; symbol = leaf; }
-            }
-            if (terminals == 1 && tree.kind[symbol] == P_SYMBOL) result[count++] = tree.id[symbol];
-        }
+        if (function_expr[tree.id[rhs]]) result[count++] = tree.id[symbol];
     }
     return provider_rows(result, count, 0);
 }
@@ -230,10 +231,10 @@ SEXP range_provider_index_c(SEXP data, SEXP syntax) {
         int callee_expr = tree.first[tree.id[i]];
         if (callee_expr < 0 || tree.kind[callee_expr] != P_EXPR ||
                 callee[callee_expr] < 0 || member[callee_expr]) continue;
-        int open = tree.next[callee_expr];
+        int open = next_non_comment(&tree, callee_expr);
         if (open < 0 || tree.kind[open] != P_OPEN) continue;
         int close = -1;
-        for (int child = tree.next[open]; child >= 0; child = tree.next[child]) {
+        for (int child = next_non_comment(&tree, open); child >= 0; child = next_non_comment(&tree, child)) {
             if (tree.kind[child] == P_CLOSE) close = child;
         }
         if (close < 0) continue;
@@ -242,7 +243,7 @@ SEXP range_provider_index_c(SEXP data, SEXP syntax) {
         rows[PACKAGES][calls_n] = package[callee_expr];
         rows[FIRST_ARG][calls_n] = args_n;
         int first = -1, last = -1, name = -1;
-        for (int child = tree.next[open]; child >= 0; child = tree.next[child]) {
+        for (int child = next_non_comment(&tree, open); child >= 0; child = next_non_comment(&tree, child)) {
             if (child == close || tree.kind[child] == P_COMMA) {
                 rows[ARG_CALL][args_n] = calls_n;
                 rows[ARG_FIRST][args_n] = first;
@@ -255,7 +256,7 @@ SEXP range_provider_index_c(SEXP data, SEXP syntax) {
             } else {
                 if (first < 0) first = child;
                 last = child;
-                int next = tree.next[child];
+                int next = next_non_comment(&tree, child);
                 if (name < 0 && tree.kind[child] == P_SUB && next >= 0 &&
                         tree.kind[next] == P_EQ_SUB) name = child;
             }

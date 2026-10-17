@@ -43,7 +43,7 @@ class_xml_index <- function(xdoc) {
                     character()
                 }
                 param <- class_xml_first(call,
-                    "./SYMBOL_SUB[text() = 'contains']/following-sibling::*[1][self::EQ_SUB]/following-sibling::expr[1]")
+                    "./SYMBOL_SUB[text() = 'contains']/following-sibling::*[not(self::COMMENT)][1][self::EQ_SUB]/following-sibling::expr[1]")
                 parents[[i]] <- gsub('["\047`]', "", xml_text(class_xml_all(param, ".//STR_CONST")))
             }
         }

@@ -354,6 +354,7 @@ refactor_assignment_parts <- function(node) {
         return(NULL)
     }
     children <- xml_children(node)
+    children <- children[xml_name(children) != "COMMENT"]
     names <- xml_name(children)
     operators <- which(names %in% c(
         "LEFT_ASSIGN", "RIGHT_ASSIGN", "EQ_ASSIGN"

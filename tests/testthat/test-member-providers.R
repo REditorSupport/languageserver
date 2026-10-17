@@ -67,6 +67,50 @@ test_that("Multiline dollar chains share completion, signatures and hover", {
     fixture <- member_provider_fixture(c(code[1:11], "pipeline$ # continue", " # comment", "", "  collect(format = "))
     expect_identical(member_provider_signature(fixture)$signatures[[1L]]$label, "collect(format = \"list\")")
     expect_identical(member_provider_hover(fixture, 14L, 4L)$range$start$character, 2L)
+    fixture <- member_provider_fixture(c(
+        code[1:11],
+        "pipeline$collect # trailing comment before (",
+        "  # full-line comment before (",
+        "  (",
+        "    format # comment before =",
+        "      = \"list\"",
+        "  )"
+    ))
+    expect_identical(
+        member_provider_signature(fixture, 14L, 4L)$signatures[[1L]]$label,
+        "collect(format = \"list\")"
+    )
+    arg_loc <- member_argument_location(fixture$document, list(row = 14L, col = 6L))
+    expect_identical(arg_loc$parameter, "format")
+    expect_null(member_argument_location(fixture$document, list(row = 14L, col = 22L)))
+    fixture_multiline <- member_provider_fixture(c(
+        code[1:11],
+        "pipeline$filter(\"multiline",
+        "string\")$collect",
+        "  (format = \"list\")"
+    ))
+    expect_identical(
+        member_call_location(fixture_multiline$document, list(row = 13L, col = 4L))$cursor$token,
+        "collect"
+    )
+    fixture_raw <- member_provider_fixture(c(
+        code[1:11],
+        "pipeline$filter(r\"(a\"b)\")$collect # comment",
+        "  (format = \"list\")"
+    ))
+    expect_identical(
+        member_call_location(fixture_raw$document, list(row = 12L, col = 4L))$cursor$token,
+        "collect"
+    )
+    fixture_symbol <- member_provider_fixture(c(
+        "MyClass <- function(value = 1) value",
+        "MyClass# comment without space",
+        "  (value = 2)"
+    ))
+    expect_identical(
+        member_call_location(fixture_symbol$document, list(row = 2L, col = 4L), symbols = TRUE)$cursor$token,
+        "MyClass"
+    )
     fixture <- member_provider_fixture(c("x <- list(`a b`=function(value=1) NULL)", "x$", "  `a b`("))
     expect_identical(member_provider_signature(fixture)$signatures[[1L]]$label, "`a b`(value = 1)")
     expect_identical(member_provider_hover(fixture, 2L, 4L)$contents, "```r\n`a b`(value = 1)\n```")
