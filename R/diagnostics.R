@@ -5,6 +5,14 @@
 #' @name diagnostics
 NULL
 
+#' Identify the workspace symbols used by a diagnostic result
+#' @noRd
+diagnostics_workspace_generation <- function(workspace, uri) {
+    index <- workspace$index
+    if (is.null(index) || !isTRUE(index$enabled)) return(NULL)
+    index$diagnostics_generation(uri)
+}
+
 DiagnosticSeverity <- list(
     Error = 1,
     Warning = 2,
@@ -270,11 +278,13 @@ diagnostics_task <- function(self, uri, document, delay = 0) {
     cache_key <- paste(uri, content_hash, sep = "::")
 
     workspace <- self$get_workspace(uri)
+    generation <- diagnostics_workspace_generation(workspace, uri)
+    document$diagnostics_generation <- generation
 
     if (cache_ttl > 0 && workspace$diagnostics_cache$has(cache_key)) {
         cached_entry <- workspace$diagnostics_cache$get(cache_key)
         age <- as.numeric(difftime(Sys.time(), cached_entry$time, units = "secs"))
-        if (!is.na(age) && age <= cache_ttl) {
+        if (!is.na(age) && age <= cache_ttl && identical(cached_entry$generation, generation)) {
             logger$info("diagnostics_task: cache hit for", uri)
             diagnostics_callback(self, uri, version, cached_entry$diagnostics)
             return(NULL)
@@ -289,6 +299,8 @@ diagnostics_task <- function(self, uri, document, delay = 0) {
     } else {
         NULL
     }
+    generation <- diagnostics_workspace_generation(workspace, uri)
+    document$diagnostics_generation <- generation
 
     create_task(
         target = package_call(diagnose_file),
@@ -300,15 +312,20 @@ diagnostics_task <- function(self, uri, document, delay = 0) {
             cache = lsp_settings$get("lint_cache")
         ),
         callback = function(result) {
+            if (!identical(self$get_workspace(uri), workspace) ||
+                    !identical(generation, diagnostics_workspace_generation(workspace, uri))) return(NULL)
             if (cache_ttl > 0) {
                 workspace$diagnostics_cache$set(cache_key, list(
                     time = Sys.time(),
+                    generation = generation,
                     diagnostics = result
                 ))
             }
             diagnostics_callback(self, uri, version, result)
         },
         error = function(e) {
+            if (!identical(self$get_workspace(uri), workspace) ||
+                    !identical(generation, diagnostics_workspace_generation(workspace, uri))) return(NULL)
             logger$info("diagnostics_task:", e)
             diagnostics_callback(self, uri, version, list(list(
                 range = range(

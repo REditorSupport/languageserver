@@ -29,7 +29,7 @@ text_document_completion  <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- uri_escape_unicode(textDocument$uri)
     workspace <- self$get_workspace(uri)
-    document <- workspace$documents$get(uri)
+    document <- workspace$documents$get(uri, NULL)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     point <- document$from_lsp_position(params$position)
     # didChange schedules a debounced background parse. Scope and member
@@ -75,7 +75,7 @@ text_document_hover  <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- uri_escape_unicode(textDocument$uri)
     workspace <- self$get_workspace(uri)
-    document <- workspace$documents$get(uri)
+    document <- workspace$documents$get(uri, NULL)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     point <- document$from_lsp_position(params$position)
     if (isTRUE(lsp_settings$get("member_completion")) &&
@@ -100,7 +100,7 @@ text_document_signature_help  <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- uri_escape_unicode(textDocument$uri)
     workspace <- self$get_workspace(uri)
-    document <- workspace$documents$get(uri)
+    document <- workspace$documents$get(uri, NULL)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     point <- document$from_lsp_position(params$position)
     if (isTRUE(lsp_settings$get("member_completion")) &&
@@ -122,7 +122,7 @@ text_document_definition  <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- uri_escape_unicode(textDocument$uri)
     workspace <- self$get_workspace(uri)
-    document <- workspace$documents$get(uri)
+    document <- workspace$documents$get(uri, NULL)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     point <- document$from_lsp_position(params$position)
     rootPath <- get_root_path_for_uri(uri, self$rootPath)
@@ -154,7 +154,7 @@ text_document_references  <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- uri_escape_unicode(textDocument$uri)
     workspace <- self$get_workspace(uri)
-    document <- workspace$documents$get(uri)
+    document <- workspace$documents$get(uri, NULL)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     point <- document$from_lsp_position(params$position)
     self$deliver(references_reply(id, uri, workspace, document, point,
@@ -169,7 +169,7 @@ text_document_document_highlight  <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- uri_escape_unicode(textDocument$uri)
     workspace <- self$get_workspace(uri)
-    document <- workspace$documents$get(uri)
+    document <- workspace$documents$get(uri, NULL)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     point <- document$from_lsp_position(params$position)
     self$deliver(document_highlight_reply(id, uri, workspace, document, point))
@@ -183,7 +183,7 @@ text_document_document_symbol  <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- uri_escape_unicode(textDocument$uri)
     workspace <- self$get_workspace(uri)
-    document <- workspace$documents$get(uri)
+    document <- workspace$documents$get(uri, NULL)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     reply <- document_symbol_reply(id, uri, workspace, document,
         self$ClientCapabilities$textDocument$documentSymbol)
@@ -208,7 +208,7 @@ text_document_code_action  <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- uri_escape_unicode(textDocument$uri)
     workspace <- self$get_workspace(uri)
-    document <- workspace$documents$get(uri)
+    document <- workspace$documents$get(uri, NULL)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     range <- list(
         start = document$from_lsp_position(params$range$start),
@@ -227,7 +227,7 @@ text_document_code_action  <- function(self, id, params) {
 text_document_code_lens  <- function(self, id, params) {
     uri <- uri_escape_unicode(params$textDocument$uri)
     workspace <- self$get_workspace(uri)
-    document <- workspace$documents$get(uri)
+    document <- workspace$documents$get(uri, NULL)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
 
     reply <- code_lens_reply(
@@ -259,7 +259,7 @@ text_document_document_link  <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- uri_escape_unicode(textDocument$uri)
     workspace <- self$get_workspace(uri)
-    document <- workspace$documents$get(uri)
+    document <- workspace$documents$get(uri, NULL)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     rootPath <- get_root_path_for_uri(uri, self$rootPath)
     reply <- document_link_reply(id, uri, workspace, document, rootPath)
@@ -308,7 +308,7 @@ text_document_document_color  <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- uri_escape_unicode(textDocument$uri)
     workspace <- self$get_workspace(uri)
-    document <- workspace$documents$get(uri)
+    document <- workspace$documents$get(uri, NULL)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     reply <- document_color_reply(id, uri, workspace, document)
     if (is.null(reply)) {
@@ -331,7 +331,7 @@ text_document_color_presentation  <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- uri_escape_unicode(textDocument$uri)
     workspace <- self$get_workspace(uri)
-    document <- workspace$documents$get(uri)
+    document <- workspace$documents$get(uri, NULL)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     color <- params$color
     self$deliver(color_presentation_reply(id, uri, workspace, document, color))
@@ -345,7 +345,7 @@ text_document_formatting  <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- uri_escape_unicode(textDocument$uri)
     workspace <- self$get_workspace(uri)
-    document <- workspace$documents$get(uri)
+    document <- workspace$documents$get(uri, NULL)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     options <- params$options
     enqueue_formatting(self, id, uri, document, options)
@@ -359,7 +359,7 @@ text_document_range_formatting  <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- uri_escape_unicode(textDocument$uri)
     workspace <- self$get_workspace(uri)
-    document <- workspace$documents$get(uri)
+    document <- workspace$documents$get(uri, NULL)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     range <- list(
         start = document$from_lsp_position(params$range$start),
@@ -374,7 +374,7 @@ text_document_range_formatting  <- function(self, id, params) {
 text_document_ranges_formatting <- function(self, id, params) {
     uri <- uri_escape_unicode(params$textDocument$uri)
     workspace <- self$get_workspace(uri)
-    document <- workspace$documents$get(uri)
+    document <- workspace$documents$get(uri, NULL)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
 
     ranges <- lapply(params$ranges, function(item) {
@@ -395,7 +395,7 @@ text_document_on_type_formatting  <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- uri_escape_unicode(textDocument$uri)
     workspace <- self$get_workspace(uri)
-    document <- workspace$documents$get(uri)
+    document <- workspace$documents$get(uri, NULL)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     point <- document$from_lsp_position(params$position)
     ch <- params$ch
@@ -412,7 +412,7 @@ text_document_rename <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- uri_escape_unicode(textDocument$uri)
     workspace <- self$get_workspace(uri)
-    document <- workspace$documents$get(uri)
+    document <- workspace$documents$get(uri, NULL)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     point <- document$from_lsp_position(params$position)
     newName <- params$newName
@@ -427,7 +427,7 @@ text_document_prepare_rename  <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- uri_escape_unicode(textDocument$uri)
     workspace <- self$get_workspace(uri)
-    document <- workspace$documents$get(uri)
+    document <- workspace$documents$get(uri, NULL)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     point <- document$from_lsp_position(params$position)
     self$deliver(prepare_rename_reply(id, uri, workspace, document, point))
@@ -441,7 +441,7 @@ text_document_folding_range  <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- uri_escape_unicode(textDocument$uri)
     workspace <- self$get_workspace(uri)
-    document <- workspace$documents$get(uri)
+    document <- workspace$documents$get(uri, NULL)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     reply <- document_folding_range_reply(id, uri, workspace, document)
     if (is.null(reply)) {
@@ -464,7 +464,7 @@ text_document_selection_range <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- uri_escape_unicode(textDocument$uri)
     workspace <- self$get_workspace(uri)
-    document <- workspace$documents$get(uri)
+    document <- workspace$documents$get(uri, NULL)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     points <- lapply(params$positions, document$from_lsp_position)
     self$deliver(selection_range_reply(id, uri, workspace, document, points))
@@ -478,7 +478,7 @@ text_document_prepare_call_hierarchy <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- uri_escape_unicode(textDocument$uri)
     workspace <- self$get_workspace(uri)
-    document <- workspace$documents$get(uri)
+    document <- workspace$documents$get(uri, NULL)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     point <- document$from_lsp_position(params$position)
     self$deliver(prepare_call_hierarchy_reply(id, uri, workspace, document, point))
@@ -516,7 +516,7 @@ text_document_prepare_type_hierarchy <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- uri_escape_unicode(textDocument$uri)
     workspace <- self$get_workspace(uri)
-    document <- workspace$documents$get(uri)
+    document <- workspace$documents$get(uri, NULL)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     point <- document$from_lsp_position(params$position)
     self$deliver(prepare_type_hierarchy_reply(id, uri, workspace, document, point))
@@ -553,7 +553,7 @@ type_hierarchy_subtypes <- function(self, id, params) {
 text_document_linked_editing_range <- function(self, id, params) {
     uri <- uri_escape_unicode(params$textDocument$uri)
     workspace <- self$get_workspace(uri)
-    document <- workspace$documents$get(uri)
+    document <- workspace$documents$get(uri, NULL)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
 
     reply <- linked_editing_range_reply(
@@ -571,7 +571,7 @@ text_document_linked_editing_range <- function(self, id, params) {
 text_document_inline_value <- function(self, id, params) {
     uri <- uri_escape_unicode(params$textDocument$uri)
     workspace <- self$get_workspace(uri)
-    document <- workspace$documents$get(uri)
+    document <- workspace$documents$get(uri, NULL)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
 
     reply <- inline_value_reply(id, uri, workspace, document, params$range)
@@ -588,7 +588,7 @@ text_document_inline_value <- function(self, id, params) {
 text_document_inlay_hint <- function(self, id, params) {
     uri <- uri_escape_unicode(params$textDocument$uri)
     workspace <- self$get_workspace(uri)
-    document <- workspace$documents$get(uri)
+    document <- workspace$documents$get(uri, NULL)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
 
     reply <- inlay_hint_reply(id, uri, workspace, document, params$range)
@@ -615,7 +615,7 @@ text_document_semantic_tokens_full <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- uri_escape_unicode(textDocument$uri)
     workspace <- self$get_workspace(uri)
-    document <- workspace$documents$get(uri)
+    document <- workspace$documents$get(uri, NULL)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     reply <- semantic_tokens_full_reply(id, uri, workspace, document)
     if (is.null(reply)) {
@@ -634,7 +634,7 @@ text_document_semantic_tokens_full <- function(self, id, params) {
 text_document_semantic_tokens_delta <- function(self, id, params) {
     uri <- uri_escape_unicode(params$textDocument$uri)
     workspace <- self$get_workspace(uri)
-    document <- workspace$documents$get(uri)
+    document <- workspace$documents$get(uri, NULL)
     if (is.null(document)) {
         return(self$deliver(Response$new(id = id, result = NULL)))
     }
@@ -660,7 +660,7 @@ text_document_semantic_tokens_range <- function(self, id, params) {
     textDocument <- params$textDocument
     uri <- uri_escape_unicode(textDocument$uri)
     workspace <- self$get_workspace(uri)
-    document <- workspace$documents$get(uri)
+    document <- workspace$documents$get(uri, NULL)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     reply <- semantic_tokens_range_reply(id, uri, workspace, document, params$range)
     if (is.null(reply)) {

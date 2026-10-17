@@ -56,6 +56,12 @@ remotes::install_github("REditorSupport/languageserver")
 
 ## Language Clients
 
+Workspace discovery and indexing run in the background. Clients that advertise
+LSP work-done progress support can show an **Indexing R workspace** indicator
+while R files are discovered, indexed, and parsed. Reports include file counts
+and a percentage once discovery completes. The client chooses whether to show
+this in its status bar, progress panel, or another location.
+
 The following editors are supported by installing the corresponding extensions:
 
 - VS Code: [vscode-R](https://github.com/REditorSupport/vscode-R)

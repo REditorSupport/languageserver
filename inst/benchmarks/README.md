@@ -172,6 +172,47 @@ Omit `--wait-parse` to type immediately after opening; `--open-delay`, `--pause`
 and `--rounds` control other typing scenarios. `--profile /tmp/typing.Rprof`
 records an R sampling profile without enabling server debug logging.
 
+## Workspace startup
+
+`workspace-loading.py` generates 3,000 R files with 1,000 lines each and sends
+lightweight `completionItem/resolve` requests immediately after `initialized`,
+then every 100 ms. It measures whether the event loop can handle requests while
+loading the workspace. Use `--cached` to populate a valid persistent index
+before startup, and `--package` to put the files in a package's `R/` directory.
+Diagnostics are disabled; full package document parsing remains enabled.
+
+```sh
+python3 inst/benchmarks/workspace-loading.py /tmp/languageserver-after
+python3 inst/benchmarks/workspace-loading.py /tmp/languageserver-after --cached
+python3 inst/benchmarks/workspace-loading.py /tmp/languageserver-after --cached --package --requests 150
+```
+
+The benchmark prints each request's latency and a final summary. `--root`
+reuses a specified fixture directory, `--keep-fixture` preserves a generated
+directory, and `--files`, `--lines`, and `--symbols` control its contents.
+Each file repeats 50 assignment names by default. The generated fixture also
+contains a sampling profile and server stderr log.
+
+Measured locally against `dc9c2307` with R 4.6.1 on macOS arm64, using 3 million
+lines of code:
+
+| Workspace | First request before / after (ms) | Maximum subsequent request after (ms) |
+| --- | ---: | ---: |
+| Scripts, persistent cache | 7,279 / 26 | 79 |
+| Package, persistent cache | 18,445 / 22 | 99 |
+
+An uncached script workspace also fell from 5,092 to 22 ms for the first
+request. The cached runs used 100 probes for scripts and 150 for the package.
+Timings vary with hardware, system load, file sizes, and index contents.
+
+Discovery and cache decompression now run in the index worker. Results return
+in small batches, which the server installs within the index time budget.
+Package and sourced documents are read incrementally, and persistent catalog
+updates are transferred in bounded batches. File generations, cache metadata,
+source targets, and worker lifecycles prevent delayed discovery results from
+overwriting edits or resurrecting deleted files. Installing an individual full
+document parse can still cause shorter pauses.
+
 Regression coverage checks old/new result equivalence, Unicode and UTF-16,
 missing arguments, nested/overlapping scopes, cursor boundaries, literate and
 incomplete documents, serialization, edits, live settings/files, namespace

@@ -17,6 +17,81 @@ LanguageServer <- R6::R6Class("LanguageServer",
     private = list(
         ready_reply_uris = NULL,
         ready_reply_methods = NULL,
+        workspace_document_queue = NULL,
+        workspace_document_keys = NULL,
+        workspace_progress = NULL,
+        diagnostics_workspaces = NULL,
+        parse_retries = NULL,
+        queue_workspace_document = function(workspace, uri) {
+            document <- workspace$documents$get(uri, NULL)
+            if (!is.null(document)) {
+                if (isTRUE(document$is_open) ||
+                        (!is.null(workspace$index) && workspace$index$parse_failed(uri)) ||
+                        (!is.null(workspace$index) && workspace$index$document_pending(uri))) {
+                    return(invisible(NULL))
+                }
+                summary <- if (is.null(workspace$index)) NULL else
+                    workspace$index$summaries$get(index_canonical_uri(uri), NULL)
+                if (!is.null(document$parse_data) &&
+                        identical(document$content, document$parsed_content) &&
+                        identical(document$version, document$parse_data$version) &&
+                        (is.null(summary) || identical(document$index_content_hash, summary$content_hash))) {
+                    return(invisible(NULL))
+                }
+            }
+            if (is.null(private$workspace_document_queue)) {
+                private$workspace_document_queue <- collections::queue()
+                private$workspace_document_keys <- collections::dict()
+            }
+            key <- paste(workspace$root, uri)
+            previous <- private$workspace_document_keys$get(key, NULL)
+            if (!identical(previous$workspace, workspace) || !identical(previous$index, workspace$index)) {
+                entry <- list(workspace = workspace, index = workspace$index, uri = uri, key = key,
+                    reload = !is.null(document))
+                private$workspace_document_keys$set(key, entry)
+                private$workspace_document_queue$push(entry)
+                if (!is.null(workspace$index)) workspace$index$queue_document(uri)
+            }
+            invisible(NULL)
+        },
+        send_workspace_progress = function(state, value) {
+            self$deliver(Notification$new("$/progress", list(token = state$token, value = value)))
+            invisible(NULL)
+        },
+        start_workspace_progress = function(workspace) {
+            if (!isTRUE(self$ClientCapabilities$window$workDoneProgress)) return(invisible(NULL))
+            if (is.null(private$workspace_progress)) private$workspace_progress <- collections::dict()
+            self$end_workspace_progress(workspace, "Indexing restarted")
+            state <- new.env(parent = emptyenv())
+            state$workspace <- workspace
+            state$index <- workspace$index
+            state$token <- paste0("r-workspace-index-", self$get_ticket())
+            state$active <- FALSE
+            state$ended <- FALSE
+            state$last_report <- -Inf
+            state$last_value <- NULL
+            state$percentage <- 0L
+            state$end_message <- NULL
+            private$workspace_progress$set(workspace$root, state)
+            self$deliver(self$request("window/workDoneProgress/create", list(token = state$token)),
+                callback = function(self, result, error = NULL) {
+                    if (!is.null(error)) {
+                        state$ended <- TRUE
+                        if (identical(private$workspace_progress$get(workspace$root, NULL), state)) {
+                            private$workspace_progress$remove(workspace$root)
+                        }
+                        return(invisible(NULL))
+                    }
+                    state$active <- TRUE
+                    private$send_workspace_progress(state, list(kind = "begin",
+                            title = paste0("Indexing R workspace: ", basename(workspace$root)),
+                            cancellable = FALSE, message = "Discovering R files"))
+                    if (state$ended) {
+                        private$send_workspace_progress(state, list(kind = "end", message = state$end_message))
+                    }
+                })
+            invisible(NULL)
+        },
         transfer_document = function(source, target, uri) {
             doc <- source$documents$get(uri)
             source$documents$remove(uri)
@@ -125,6 +200,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$resolve_task_manager$check_tasks()
             self$formatting_task_manager$check_tasks()
             if (!is.null(self$index_task_manager)) self$index_task_manager$check_tasks()
+            self$process_parse_retries()
             self$process_pending_replies()
             # Start latency-sensitive parse work before diagnostics.
             self$parse_task_manager$run_tasks()
@@ -138,10 +214,13 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     }
                 }
             }
+            self$process_workspace_documents()
             if (!is.null(self$index_task_manager)) self$index_task_manager$run_tasks()
             self$diagnostics_task_manager$run_tasks()
             self$resolve_task_manager$run_tasks()
             self$formatting_task_manager$run_tasks()
+            self$refresh_workspace_diagnostics()
+            self$report_workspace_progress()
             for (workspace in self$workspaces$values()) {
                 if (!isTRUE(workspace$poll_namespace_file(throttle = TRUE))) {
                     next
@@ -182,6 +261,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             }
             if (self$workspaces$has(key)) {
                 workspace <- self$workspaces$get(key)
+                self$end_workspace_progress(workspace, "Workspace removed")
                 if (!is.null(workspace$index)) workspace$index$detach_worker()
                 for (doc_uri in workspace$documents$keys()) {
                     diagnostics_callback(self, doc_uri, NULL, list())
@@ -235,8 +315,9 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$workspace_cache$set(uri, best_match)
             best_match
         },
-        load_index_document = function(workspace, uri) {
-            if (workspace$documents$has(uri)) return(invisible(NULL))
+        load_index_document = function(workspace, uri, reload = FALSE) {
+            existing <- workspace$documents$get(uri, NULL)
+            if (!is.null(existing) && (!reload || isTRUE(existing$is_open))) return(invisible(existing))
             path <- path_from_uri(uri)
             if (!file.exists(path) || dir.exists(path)) return(invisible(NULL))
             content <- tryCatch(stringi::stri_read_lines(path),
@@ -245,6 +326,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             doc <- Document$new(
                 uri, language = "r", version = NULL, content = content)
             workspace$documents$set(uri, doc)
+            if (!is.null(workspace$index)) workspace$index$queue_document(uri)
             if (!is.null(workspace$index$task_manager)) {
                 workspace$index$await_parse(uri, cacheable = TRUE)
             }
@@ -255,6 +337,9 @@ LanguageServer <- R6::R6Class("LanguageServer",
         refresh_index_documents = function(workspace, entry_uri = NULL) {
             index <- workspace$index
             if (is.null(index) || !isTRUE(index$enabled)) return(invisible(NULL))
+            if (is.null(private$diagnostics_workspaces)) private$diagnostics_workspaces <- collections::dict()
+            private$diagnostics_workspaces$set(workspace$root,
+                list(workspace = workspace, ready_at = proc.time()[[3L]] + 0.25))
             entries <- if (is.null(entry_uri)) {
                 Filter(function(uri) {
                     doc <- workspace$documents$get(uri, NULL)
@@ -274,10 +359,11 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     assign(uri, TRUE, envir = visited)
                     if (!index$summaries$has(uri)) {
                         if (is.null(index$task_manager)) index$update_path(path_from_uri(uri))
-                        else index$queue_path(path_from_uri(uri))
+                        else index$queue_path(path_from_uri(uri), invalidate = FALSE)
                     }
                     if (!identical(uri, entry_key)) {
-                        self$load_index_document(workspace, uri)
+                        if (is.null(index$task_manager)) self$load_index_document(workspace, uri)
+                        else private$queue_workspace_document(workspace, uri)
                     }
                     for (target in index$source_edges$get(uri, character())) {
                         queue$push(target)
@@ -307,6 +393,14 @@ LanguageServer <- R6::R6Class("LanguageServer",
             for (uri in remove) {
                 diagnostics_callback(self, uri, NULL, list())
                 workspace$documents$remove(uri)
+                if (index$document_pending(uri) || index$parse_failed(uri)) {
+                    if (index$document_pending(uri) && !is.null(self$parse_task_manager)) {
+                        self$parse_task_manager$cancel(uri)
+                    }
+                    index$finish_document(uri)
+                    if (file.exists(path_from_uri(uri))) index$queue_path(path_from_uri(uri), force = TRUE)
+                    else index$remove(uri)
+                }
             }
             if (length(remove)) {
                 workspace$diagnostics_globals_cache <- NULL
@@ -341,16 +435,16 @@ LanguageServer <- R6::R6Class("LanguageServer",
         },
 
         load_workspace = function(workspace) {
+            self$end_workspace_progress(workspace, "Indexing restarted")
             if (is.null(workspace$index) || !isTRUE(workspace$index$enabled)) {
                 if (is_package(workspace$root)) {
                     source_dir <- file.path(workspace$root, "R")
                     files <- list.files(
                         source_dir, pattern = "\\.r$", ignore.case = TRUE)
                     for (file in files) {
-                        self$load_index_document(
-                            workspace,
-                            path_to_uri(file.path(source_dir, file))
-                        )
+                        uri <- path_to_uri(file.path(source_dir, file))
+                        if (is.null(self$index_task_manager)) self$load_index_document(workspace, uri)
+                        else private$queue_workspace_document(workspace, uri)
                     }
                     workspace$import_from_namespace_file()
                 }
@@ -359,7 +453,15 @@ LanguageServer <- R6::R6Class("LanguageServer",
             logger$info("load workspace:", workspace$root)
             if (!is.null(self$index_task_manager)) {
                 workspace$index$attach_worker(self$index_task_manager,
-                    on_update = function(uris) self$refresh_index_documents(workspace))
+                    on_update = function(uris) {
+                        for (uri in uris) {
+                            if (!is.null(workspace$index$package_root_for_uri(uri))) {
+                                private$queue_workspace_document(workspace, uri)
+                            }
+                        }
+                        self$refresh_index_documents(workspace)
+                    })
+                private$start_workspace_progress(workspace)
             }
             workspace$index$discover()
             # Discovery can load disk caches or drop files that only exist in
@@ -386,6 +488,127 @@ LanguageServer <- R6::R6Class("LanguageServer",
             for (workspace in self$workspaces$values()) {
                 self$load_workspace(workspace)
             }
+        },
+        queue_parse_retry = function(uri, callback) {
+            if (is.null(private$parse_retries)) private$parse_retries <- collections::ordered_dict()
+            private$parse_retries$set(uri, callback)
+            invisible(NULL)
+        },
+        process_parse_retries = function(max_documents = 20L) {
+            if (is.null(private$parse_retries)) return(invisible(NULL))
+            for (uri in head(private$parse_retries$keys(), max_documents)) {
+                retry <- private$parse_retries$pop(uri)
+                retry()
+            }
+            invisible(NULL)
+        },
+        process_workspace_documents = function(max_documents = 20L, time_budget_ms = 5) {
+            if (is.null(private$workspace_document_queue)) return(invisible(NULL))
+            started <- proc.time()[[3L]]
+            processed <- 0L
+            while (private$workspace_document_queue$size() && processed < max_documents) {
+                entry <- private$workspace_document_queue$pop()
+                workspace <- entry$workspace
+                queued <- private$workspace_document_keys$get(entry$key, NULL)
+                if (identical(queued, entry)) {
+                    private$workspace_document_keys$remove(entry$key)
+                }
+                current <- identical(entry$index, workspace$index) &&
+                    any(vapply(self$workspaces$values(), identical, logical(1L), y = workspace))
+                if (current && (is.null(workspace$index) || !isTRUE(workspace$index$enabled) ||
+                            workspace$index$should_index(path_from_uri(entry$uri)))) {
+                    loaded <- self$load_index_document(workspace, entry$uri, reload = entry$reload)
+                    if (!workspace$documents$has(entry$uri) && !is.null(workspace$index)) {
+                        workspace$index$remove(entry$uri)
+                    } else if (is.null(loaded) && !is.null(workspace$index) &&
+                            !isTRUE(workspace$documents$get(entry$uri)$is_open)) {
+                        workspace$index$finish_document(entry$uri)
+                    }
+                } else if (!is.null(entry$index)) {
+                    entry$index$finish_document(entry$uri)
+                }
+                processed <- processed + 1L
+                if ((proc.time()[[3L]] - started) * 1000 >= time_budget_ms) break
+            }
+            invisible(NULL)
+        },
+        end_workspace_progress = function(workspace, message = "Indexing complete") {
+            if (is.null(private$workspace_progress)) return(invisible(NULL))
+            state <- private$workspace_progress$get(workspace$root, NULL)
+            if (is.null(state) || state$ended || !identical(state$workspace, workspace)) return(invisible(NULL))
+            private$workspace_progress$remove(workspace$root)
+            state$ended <- TRUE
+            state$end_message <- message
+            if (state$active) private$send_workspace_progress(state, list(kind = "end", message = message))
+            invisible(NULL)
+        },
+        refresh_workspace_diagnostics = function(now = proc.time()[[3L]]) {
+            if (is.null(private$diagnostics_workspaces)) return(invisible(NULL))
+            for (root in private$diagnostics_workspaces$keys()) {
+                entry <- private$diagnostics_workspaces$get(root)
+                workspace <- entry$workspace
+                current <- any(vapply(self$workspaces$values(), identical, logical(1L), y = workspace))
+                if (!current || !lsp_settings$get("diagnostics")) {
+                    private$diagnostics_workspaces$remove(root)
+                    next
+                }
+                if (now < entry$ready_at || !isTRUE(workspace$index$indexing_status()$done)) next
+                # Coalesce the whole indexing burst, then refresh only documents
+                # whose package or source globals changed since their last lint.
+                private$diagnostics_workspaces$remove(root)
+                for (document in workspace$documents$values()) {
+                    if (!isTRUE(document$is_open) ||
+                            !identical(document$content, document$parsed_content) ||
+                            !identical(document$version, document$parse_data$version)) next
+                    generation <- diagnostics_workspace_generation(workspace, document$uri)
+                    if (identical(document$diagnostics_generation, generation)) next
+                    schedule_diagnostics(self, document$uri, document,
+                        delay = lsp_settings$get("diagnostics_delay"))
+                }
+            }
+            invisible(NULL)
+        },
+        report_workspace_progress = function(now = proc.time()[[3L]], interval = 0.25) {
+            if (is.null(private$workspace_progress)) return(invisible(NULL))
+            for (state in private$workspace_progress$values()) {
+                if (!state$active || state$ended || now - state$last_report < interval) next
+                workspace <- state$workspace
+                if (!identical(workspace$index, state$index)) {
+                    self$end_workspace_progress(workspace, "Indexing restarted")
+                    next
+                }
+                queued <- if (is.null(private$workspace_document_keys)) list() else
+                    Filter(function(entry) identical(entry$workspace, workspace),
+                        private$workspace_document_keys$values())
+                status <- state$index$indexing_status(vapply(queued, `[[`, character(1L), "uri"))
+                state$last_report <- now
+                if (status$done) {
+                    message <- if (status$failed) {
+                        sprintf("Indexing finished (%d R files failed)", status$failed)
+                    } else if (status$truncated) {
+                        sprintf("Indexed %d R files (file limit reached)", status$total)
+                    } else {
+                        sprintf("Indexed %d R files", status$total)
+                    }
+                    self$end_workspace_progress(workspace, message)
+                    next
+                }
+                value <- list(kind = "report", cancellable = FALSE)
+                if (status$discovering) {
+                    value$message <- if (status$total) sprintf("Discovered %d R files", status$total) else
+                        "Discovering R files"
+                } else {
+                    state$percentage <- max(state$percentage, min(99L,
+                            as.integer(floor(100 * status$completed / max(status$total, 1L)))))
+                    value$percentage <- state$percentage
+                    value$message <- sprintf("Indexed %d of %d R files", status$completed, status$total)
+                }
+                if (!identical(value, state$last_value)) {
+                    private$send_workspace_progress(state, value)
+                    state$last_value <- value
+                }
+            }
+            invisible(NULL)
         },
         text_sync = function(uri, document, run_lintr = FALSE, parse = FALSE,
             delay = 0, parse_delay = delay,

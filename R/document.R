@@ -9,6 +9,7 @@ Document <- R6::R6Class(
         content = NULL,
         call_scan_cache = NULL,
         parse_data = NULL,
+        parse_generation = 0L,
         parsed_content = NULL,
         inlay_hint_data = NULL,
         inlay_hint_formals = NULL,
@@ -21,6 +22,8 @@ Document <- R6::R6Class(
         member_revision = NULL,
         member_ordinary_edit = FALSE,
         pending_diagnostics = FALSE,
+        diagnostics_generation = NULL,
+        index_content_hash = NULL,
         diagnostics_delay = 0,
 
         initialize = function(uri, language = NULL, version = NULL, content = "") {
@@ -850,9 +853,12 @@ drain_pending_replies <- function(self, uri, version, max_replies = Inf, first =
     list(processed = processed, ready = any(vapply(queues, eligible, logical(1L))), first = first)
 }
 
-parse_task <- function(self, uri, document, delay = 0) {
+parse_task <- function(self, uri, document, delay = 0, retry = TRUE) {
     version <- document$version
     source_content <- document$content
+    document$parse_generation <- document$parse_generation + 1L
+    generation <- document$parse_generation
+    was_open <- document$is_open
     if (document$is_rmarkdown) {
         content <- document$content
         cache_content <- normalize_parse_content(
@@ -865,6 +871,20 @@ parse_task <- function(self, uri, document, delay = 0) {
 
     # Check cache in the main process before spawning a child task
     workspace <- self$get_workspace(uri)
+    index <- workspace$index
+    index_key <- if (!is.null(index)) index$diagnostics_generation(uri)$index
+    current <- function() {
+        identical(self$get_workspace(uri), workspace) &&
+            identical(workspace$index, index) &&
+            (is.null(index) || identical(index$diagnostics_generation(uri)$index, index_key)) &&
+            identical(workspace$documents$get(uri, NULL), document) &&
+            identical(document$parse_generation, generation) &&
+            identical(document$is_open, was_open) &&
+            identical(document$version, version) && identical(document$content, source_content)
+    }
+    if (!is.null(index) && index$parse_failed(uri)) {
+        index$await_parse(uri, cacheable = !isTRUE(document$is_open))
+    }
     if (workspace$parse_cache$has(content_hash)) {
         cached_entry <- workspace$parse_cache$get(content_hash)
         if (identical(cached_entry$cache_uri, uri)) {
@@ -887,7 +907,21 @@ parse_task <- function(self, uri, document, delay = 0) {
             content_hash = content_hash
         ),
         callback = function(result) parse_callback(self, uri, version, result, source_content),
-        error = function(e) logger$info("parse_task:", e),
+        error = function(e) {
+            logger$info("parse_task:", e)
+            if (!current()) return(invisible(NULL))
+            if (retry) {
+                # TaskManager removes the running entry after this callback.
+                # Replacing it here would cancel the task completing now.
+                self$queue_parse_retry(uri, function() {
+                    if (current()) self$parse_task_manager$add_task(uri,
+                        parse_task(self, uri, document, retry = FALSE))
+                })
+            } else if (!is.null(index)) {
+                index$fail_parse(uri)
+                self$refresh_index_documents(workspace)
+            }
+        },
         delay = delay
     )
 }

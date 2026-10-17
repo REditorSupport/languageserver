@@ -455,9 +455,17 @@ refactor_unique_name <- function(base, workspace, uri) {
 #' @noRd
 refactor_index_ready <- function(workspace) {
     index <- workspace$index
-    is.null(index) || !isTRUE(index$enabled) ||
-        !isTRUE(index$truncated) && !length(index$pending) &&
-            !isTRUE(index$worker_running)
+    if (is.null(index)) return(TRUE)
+    status <- index$indexing_status()
+    if (isTRUE(index$truncated) || isTRUE(index$worker_running) ||
+            !isTRUE(status$done) || status$failed > 0L) return(FALSE)
+    all(vapply(workspace$documents$values(), function(document) {
+        summary <- index$summaries$get(index_canonical_uri(document$uri), NULL)
+        !is.null(document$parse_data) &&
+            identical(document$content, document$parsed_content) &&
+            identical(document$version, document$parse_data$version) &&
+            (is.null(summary) || identical(summary$content_hash, document$index_content_hash))
+    }, logical(1L)))
 }
 
 #' Reindent source text from its original column

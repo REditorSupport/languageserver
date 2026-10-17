@@ -13,6 +13,7 @@ refresh_index_summary <- function(workspace, index, uri) {
     if (length(document_uri)) {
         doc <- workspace$documents$get(document_uri[[1L]])
         if (isTRUE(doc$is_open)) {
+            if (index$parse_failed(uri)) return(invisible(NULL))
             if (!is.null(index$task_manager)) {
                 parsed <- if (identical(doc$content, doc$parsed_content)) doc$parse_data else NULL
                 if (!is.null(parsed$source_specs)) {
