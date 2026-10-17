@@ -88,6 +88,199 @@ lifecycle_drain_index <- function(server, workspace) {
     stop("index did not drain")
 }
 
+test_that("a failed package parse retries after task cleanup and restores readiness", {
+    lifecycle_settings(index_persistent_cache = FALSE, diagnostics = TRUE)
+    root <- withr::local_tempdir()
+    dir.create(file.path(root, "R"))
+    writeLines("Package: retryfixture", file.path(root, "DESCRIPTION"))
+    uri <- path_to_uri(file.path(root, "R", "helper.R"))
+    main <- path_to_uri(file.path(root, "R", "main.R"))
+    writeLines("helper <- function() 1", path_from_uri(uri))
+    writeLines("main <- function() helper()", path_from_uri(main))
+    server <- LifecycleServer$new(root)
+    workspace <- server$get_workspace(uri)
+    lifecycle_parse(workspace, main, "main <- function() helper()")
+    server$load_workspace(workspace)
+    lifecycle_drain_index(server, workspace)
+
+    manager <- TaskManager$new("parse retry", use_session = TRUE,
+        min_idle_sessions = 0, max_running_tasks = 1, cpu_load = 1)
+    withr::defer(manager$stop())
+    server$parse_task_manager <- manager
+    state <- new.env(parent = emptyenv())
+    state$status <- "idle"
+    state$attempts <- 0L
+    state$killed <- FALSE
+    session <- list(
+        call = function(target, args) {
+            state$status <- "busy"
+            state$attempts <- state$attempts + 1L
+            state$result <- function() do.call(target, args)
+        },
+        get_state = function() state$status,
+        read = function() {
+            if (state$status != "busy") return(NULL)
+            state$status <- "idle"
+            if (state$attempts == 1L) list(code = 500L, error = simpleError("parse worker failed"))
+            else list(code = 200L, result = state$result())
+        },
+        kill = function(...) state$killed <- TRUE,
+        close = function(...) NULL
+    )
+    manager$.__enclos_env__$private$sessions <- list(session)
+    server$process_workspace_documents()
+    expect_true(workspace$index$document_pending(uri))
+    expect_false(refactor_index_ready(workspace))
+    manager$run_tasks()
+    manager$check_tasks()
+    expect_false(manager$has_work())
+    expect_false(state$killed)
+    expect_false(workspace$index$indexing_status()$done)
+    server$refresh_workspace_diagnostics(now = Inf)
+    expect_false(server$diagnostics_task_manager$has_work())
+
+    # The normal event loop dispatches the retry only after check_tasks removed
+    # the failed entry. This also exercises real TaskManager callback cleanup.
+    server$process_events()
+    manager$check_tasks()
+    lifecycle_drain_index(server, workspace)
+    expect_identical(state$attempts, 2L)
+    expect_false(state$killed)
+    expect_false(manager$has_work())
+    expect_true(workspace$index$indexing_status()$done)
+    expect_true(refactor_index_ready(workspace))
+    expect_identical(names(workspace$documents$get(uri)$parse_data$definitions), "helper")
+    server$refresh_workspace_diagnostics(now = Inf)
+    expect_true(server$diagnostics_task_manager$tasks$has(main))
+})
+
+test_that("repeated parse failures settle without replacing an unsaved buffer", {
+    lifecycle_settings(index_persistent_cache = FALSE, diagnostics = FALSE)
+    root <- withr::local_tempdir()
+    uri <- path_to_uri(file.path(root, "main.R"))
+    writeLines("saved <- 1", path_from_uri(uri))
+    server <- LifecycleServer$new(root)
+    workspace <- server$get_workspace(uri)
+    server$load_workspace(workspace)
+    lifecycle_drain_index(server, workspace)
+    text_document_did_open(server, list(textDocument = list(
+        uri = uri, languageId = "r", version = 1L, text = "unsaved <- 2")))
+    document <- workspace$documents$get(uri)
+    manager <- server$parse_task_manager
+    manager$tasks$pop(uri)$fail(simpleError("worker failed"))
+    server$process_parse_retries()
+    expect_identical(manager$tasks$get(uri)$.__enclos_env__$private$args$content, "unsaved <- 2")
+    manager$tasks$pop(uri)$fail(simpleError("retry failed"))
+    server$process_parse_retries()
+    expect_false(manager$has_work())
+    expect_true(workspace$index$indexing_status()$done)
+    expect_false(workspace$index$document_pending(uri))
+    expect_false(workspace$index$.__enclos_env__$private$awaiting_parses$has(uri))
+    expect_true(workspace$index$parse_failed(uri))
+    expect_false(refactor_index_ready(workspace))
+    expect_identical(document$content, "unsaved <- 2")
+    expect_null(document$parse_data)
+
+    # Lookups and a new discovery pass must not quietly index disk content.
+    workspace$index$queue_path(path_from_uri(uri), invalidate = FALSE)
+    previous <- workspace$index$summaries$get(uri)
+    server$load_workspace(workspace)
+    lifecycle_drain_index(server, workspace)
+    server$process_workspace_documents()
+    expect_true(workspace$index$indexing_status()$done)
+    expect_true(workspace$index$parse_failed(uri))
+    expect_identical(workspace$index$summaries$get(uri), previous)
+    expect_identical(workspace$documents$get(uri), document)
+    expect_false(manager$has_work())
+
+    text_document_did_change(server, list(textDocument = list(uri = uri, version = 2L),
+            contentChanges = list(list(text = "new_unsaved <- 3"))))
+    expect_false(workspace$index$indexing_status()$done)
+    manager$finish_one()
+    lifecycle_drain_index(server, workspace)
+    expect_true(workspace$index$indexing_status()$done)
+    expect_false(workspace$index$parse_failed(uri))
+    expect_true(refactor_index_ready(workspace))
+    expect_identical(document$content, "new_unsaved <- 3")
+    expect_identical(names(workspace$index$summaries$get(uri)$definitions), "new_unsaved")
+    expect_false(workspace$index$summaries$get(uri)$cacheable)
+})
+
+test_that("failed closed package parses recover after a file change", {
+    lifecycle_settings(index_persistent_cache = FALSE, diagnostics = TRUE)
+    root <- withr::local_tempdir()
+    dir.create(file.path(root, "R"))
+    writeLines("Package: failedfixture", file.path(root, "DESCRIPTION"))
+    uri <- path_to_uri(file.path(root, "R", "helper.R"))
+    main <- path_to_uri(file.path(root, "R", "main.R"))
+    writeLines("helper <- 1", path_from_uri(uri))
+    server <- LifecycleServer$new(root)
+    workspace <- server$get_workspace(uri)
+    lifecycle_parse(workspace, main, "main <- function() helper")
+    server$load_workspace(workspace)
+    lifecycle_drain_index(server, workspace)
+    server$process_workspace_documents()
+    manager <- server$parse_task_manager
+    manager$tasks$pop(uri)$fail(simpleError("worker failed"))
+    server$process_parse_retries()
+    manager$tasks$pop(uri)$fail(simpleError("retry failed"))
+    expect_true(workspace$index$indexing_status()$done)
+    expect_false(refactor_index_ready(workspace))
+    server$refresh_workspace_diagnostics(now = Inf)
+    expect_true(server$diagnostics_task_manager$tasks$has(main))
+    server$refresh_index_documents(workspace)
+    workspace$index$on_update(uri)
+    server$process_workspace_documents()
+    server$process_parse_retries()
+    expect_false(manager$has_work())
+
+    writeLines("helper_changed <- 2", path_from_uri(uri))
+    workspace_did_change_watched_files(server, list(changes = list(list(uri = uri, type = 2L))))
+    lifecycle_drain_index(server, workspace)
+    server$process_workspace_documents()
+    manager$finish_one()
+    lifecycle_drain_index(server, workspace)
+    expect_true(workspace$index$indexing_status()$done)
+    expect_false(workspace$index$parse_failed(uri))
+    expect_true(refactor_index_ready(workspace))
+    expect_identical(workspace$documents$get(uri)$content, "helper_changed <- 2")
+})
+
+test_that("stale parse failures and deferred retries leave newer work intact", {
+    lifecycle_settings(index_persistent_cache = FALSE, diagnostics = FALSE)
+    changes <- c("version", "content", "document", "task", "index", "workspace", "close", "detach")
+    for (retry in c(TRUE, FALSE)) for (change in changes) {
+        root <- withr::local_tempdir()
+        uri <- path_to_uri(file.path(root, "main.R"))
+        server <- LifecycleServer$new(root)
+        workspace <- server$get_workspace(uri)
+        document <- Document$new(uri, version = 1L, content = "old <- 1")
+        document$did_open()
+        workspace$documents$set(uri, document)
+        workspace$index$await_parse(uri)
+        task <- parse_task(server, uri, document, retry = retry)
+        if (retry) task$fail(simpleError("first failure"))
+        if (change == "version") document$set_content(2L, "old <- 1")
+        if (change == "content") document$set_content(1L, "new <- 2")
+        if (change == "document") workspace$documents$set(uri, Document$new(uri, version = 1L, content = "old <- 1"))
+        if (change == "task") server$text_sync(uri, document, parse = TRUE)
+        if (change == "index") workspace$index <- WorkspaceIndex$new(root)
+        if (change == "workspace") server$remove_workspace(path_to_uri(root))
+        if (change == "close") document$did_close()
+        if (change == "detach") {
+            workspace$index$attach_worker(server$index_task_manager)
+            workspace$index$detach_worker()
+        }
+        before <- server$parse_task_manager$tasks$values()
+        status <- workspace$index$indexing_status()
+        task$fail(simpleError("late failure"))
+        server$process_parse_retries()
+        expect_identical(server$parse_task_manager$tasks$values(), before, info = change)
+        expect_identical(workspace$index$indexing_status(), status, info = change)
+        expect_false(workspace$index$parse_failed(uri), info = change)
+    }
+})
+
 test_that("pruning an unneeded source releases its pending full parse", {
     lifecycle_settings(index_persistent_cache = FALSE, diagnostics = FALSE)
     root <- withr::local_tempdir()

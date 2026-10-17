@@ -219,7 +219,7 @@ test_that("work-done progress reaches the client while requests stay responsive"
     expect_identical(tail(values, 1L)[[1L]]$message, "Indexed 1 R files")
 })
 
-test_that("shutdown and parse failures end active workspace progress", {
+test_that("shutdown ends progress and parse retries keep it active until settled", {
     fixture <- progress_fixture()
     server <- fixture$server
     progress_accept(server)
@@ -232,8 +232,23 @@ test_that("shutdown and parse failures end active workspace progress", {
     progress_accept(server)
     uri <- path_to_uri(file.path(fixture$root, "failed.R"))
     document <- Document$new(uri, content = "value <- 1")
+    document$did_open()
     fixture$workspace$documents$set(uri, document)
+    fixture$index$queue_document(uri)
+    fixture$index$await_parse(uri)
     task <- parse_task(server, uri, document)
-    task$.__enclos_env__$private$error(simpleError("worker exited"))
-    expect_identical(tail(progress_values(server), 1L)[[1L]]$message, "Could not index failed.R")
+    task$fail(simpleError("worker exited"))
+    server$report_workspace_progress(now = 0)
+    expect_false(any(vapply(progress_values(server), function(value) value$kind == "end", logical(1L))))
+    expect_false(fixture$index$indexing_status()$done)
+    server$process_parse_retries()
+    tasks <- environment(server$parse_task_manager$add_task)$tasks
+    tasks$get(uri)$fail(simpleError("worker exited again"))
+    expect_false(fixture$index$document_pending(uri))
+    expect_true(fixture$index$parse_failed(uri))
+    fixture$index$discovering <- FALSE
+    server$report_workspace_progress(now = 1)
+    expect_true(fixture$index$indexing_status()$done)
+    expect_identical(tail(progress_values(server), 1L)[[1L]]$message,
+        "Indexing finished (1 R files failed)")
 })

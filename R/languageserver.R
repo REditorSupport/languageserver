@@ -21,10 +21,12 @@ LanguageServer <- R6::R6Class("LanguageServer",
         workspace_document_keys = NULL,
         workspace_progress = NULL,
         diagnostics_workspaces = NULL,
+        parse_retries = NULL,
         queue_workspace_document = function(workspace, uri) {
             document <- workspace$documents$get(uri, NULL)
             if (!is.null(document)) {
                 if (isTRUE(document$is_open) ||
+                        (!is.null(workspace$index) && workspace$index$parse_failed(uri)) ||
                         (!is.null(workspace$index) && workspace$index$document_pending(uri))) {
                     return(invisible(NULL))
                 }
@@ -198,6 +200,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$resolve_task_manager$check_tasks()
             self$formatting_task_manager$check_tasks()
             if (!is.null(self$index_task_manager)) self$index_task_manager$check_tasks()
+            self$process_parse_retries()
             self$process_pending_replies()
             # Start latency-sensitive parse work before diagnostics.
             self$parse_task_manager$run_tasks()
@@ -390,8 +393,10 @@ LanguageServer <- R6::R6Class("LanguageServer",
             for (uri in remove) {
                 diagnostics_callback(self, uri, NULL, list())
                 workspace$documents$remove(uri)
-                if (index$document_pending(uri)) {
-                    if (!is.null(self$parse_task_manager)) self$parse_task_manager$cancel(uri)
+                if (index$document_pending(uri) || index$parse_failed(uri)) {
+                    if (index$document_pending(uri) && !is.null(self$parse_task_manager)) {
+                        self$parse_task_manager$cancel(uri)
+                    }
                     index$finish_document(uri)
                     if (file.exists(path_from_uri(uri))) index$queue_path(path_from_uri(uri), force = TRUE)
                     else index$remove(uri)
@@ -484,6 +489,19 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 self$load_workspace(workspace)
             }
         },
+        queue_parse_retry = function(uri, callback) {
+            if (is.null(private$parse_retries)) private$parse_retries <- collections::ordered_dict()
+            private$parse_retries$set(uri, callback)
+            invisible(NULL)
+        },
+        process_parse_retries = function(max_documents = 20L) {
+            if (is.null(private$parse_retries)) return(invisible(NULL))
+            for (uri in head(private$parse_retries$keys(), max_documents)) {
+                retry <- private$parse_retries$pop(uri)
+                retry()
+            }
+            invisible(NULL)
+        },
         process_workspace_documents = function(max_documents = 20L, time_budget_ms = 5) {
             if (is.null(private$workspace_document_queue)) return(invisible(NULL))
             started <- proc.time()[[3L]]
@@ -565,7 +583,9 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 status <- state$index$indexing_status(vapply(queued, `[[`, character(1L), "uri"))
                 state$last_report <- now
                 if (status$done) {
-                    message <- if (status$truncated) {
+                    message <- if (status$failed) {
+                        sprintf("Indexing finished (%d R files failed)", status$failed)
+                    } else if (status$truncated) {
                         sprintf("Indexed %d R files (file limit reached)", status$total)
                     } else {
                         sprintf("Indexed %d R files", status$total)

@@ -456,8 +456,9 @@ refactor_unique_name <- function(base, workspace, uri) {
 refactor_index_ready <- function(workspace) {
     index <- workspace$index
     if (is.null(index)) return(TRUE)
+    status <- index$indexing_status()
     if (isTRUE(index$truncated) || isTRUE(index$worker_running) ||
-            !isTRUE(index$indexing_status()$done)) return(FALSE)
+            !isTRUE(status$done) || status$failed > 0L) return(FALSE)
     all(vapply(workspace$documents$values(), function(document) {
         summary <- index$summaries$get(index_canonical_uri(document$uri), NULL)
         !is.null(document$parse_data) &&

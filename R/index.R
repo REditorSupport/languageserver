@@ -324,6 +324,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
         reference_generations = NULL,
         generations = NULL,
         awaiting_parses = NULL,
+        failed_parses = NULL,
         pending_documents = NULL,
         diagnostics_generations = NULL,
         package_diagnostics_generations = NULL,
@@ -373,9 +374,12 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             if (is.null(private$dirty_since)) private$dirty_since <- proc.time()[[3L]]
             self$cache_dirty <- TRUE
         },
+        parse_blocked = function(uri) {
+            private$awaiting_parses$has(uri) || private$failed_parses$has(uri)
+        },
         request_is_current = function(request) {
             identical(private$generations$get(request$uri, 0L), request$generation) &&
-                !private$awaiting_parses$has(request$uri)
+                !private$parse_blocked(request$uri)
         },
         discovery_is_current = function(uri) {
             generation <- private$discovery_generations[[uri]]
@@ -403,12 +407,12 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                 if (!nrow(info) || is.na(info$size[[1L]]) || isTRUE(info$isdir[[1L]])) next
                 self$files$set(uri, file)
                 summary <- result$summaries[[i]]
-                if (!private$awaiting_parses$has(uri) && !is.null(summary) &&
+                if (!private$parse_blocked(uri) && !is.null(summary) &&
                         identical(as.numeric(info$size[[1L]]), summary$size) &&
                         identical(as.numeric(info$mtime[[1L]]), summary$mtime) &&
                         index_source_candidates_current(summary)) {
                     self$set_summary(summary)
-                } else if (!private$awaiting_parses$has(uri)) {
+                } else if (!private$parse_blocked(uri)) {
                     self$pending <- union(self$pending, uri)
                 }
                 changed <- c(changed, uri)
@@ -523,6 +527,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             private$reference_generations <- collections::dict()
             private$generations <- collections::dict()
             private$awaiting_parses <- collections::dict()
+            private$failed_parses <- collections::dict()
             private$pending_documents <- collections::dict()
             private$diagnostics_generations <- collections::dict()
             private$package_diagnostics_generations <- collections::dict()
@@ -579,6 +584,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             if (!self$enabled || !self$should_index(path_from_uri(uri))) return(NULL)
             uri <- index_canonical_uri(uri)
             self$invalidate(uri)
+            private$failed_parses$pop(uri, NULL)
             private$awaiting_parses$set(uri, isTRUE(cacheable))
             previous <- self$summaries$get(uri, NULL)
             if (!is.null(previous) && identical(previous$cacheable, FALSE) !=
@@ -605,9 +611,13 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
         queue_path = function(path, force = FALSE, invalidate = TRUE) {
             if (!self$enabled || !self$should_index(path)) return(NULL)
             uri <- index_canonical_uri(path_to_uri(path))
+            if (private$failed_parses$has(uri)) {
+                if (!isTRUE(force) && !isTRUE(invalidate)) return(invisible(NULL))
+                private$failed_parses$remove(uri)
+            }
             if (private$awaiting_parses$has(uri)) {
                 if (!isTRUE(force)) return(invisible(NULL))
-                private$awaiting_parses$remove(uri)
+                private$awaiting_parses$pop(uri, NULL)
             }
             if (!isTRUE(invalidate)) {
                 # Lookup-driven requests share pending reads. File events use
@@ -632,12 +642,29 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
         },
 
         finish_document = function(uri) {
-            private$pending_documents$pop(index_canonical_uri(uri), NULL)
+            uri <- index_canonical_uri(uri)
+            private$pending_documents$pop(uri, NULL)
+            private$failed_parses$pop(uri, NULL)
             invisible(NULL)
         },
 
         document_pending = function(uri) {
             private$pending_documents$has(index_canonical_uri(uri))
+        },
+
+        fail_parse = function(uri) {
+            uri <- index_canonical_uri(uri)
+            self$finish_document(uri)
+            self$invalidate(uri)
+            private$awaiting_parses$pop(uri, NULL)
+            # Failed work is settled, but disk results must still not replace
+            # an editor buffer. A new parse or explicit file event releases it.
+            private$failed_parses$set(uri, TRUE)
+            invisible(NULL)
+        },
+
+        parse_failed = function(uri) {
+            private$failed_parses$has(index_canonical_uri(uri))
         },
 
         scope_generation = function(uri, references = FALSE) {
@@ -655,6 +682,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             total <- self$files$size()
             list(discovering = self$discovering, total = total,
                 completed = max(total - length(pending), 0L),
+                failed = private$failed_parses$size(),
                 done = !self$discovering && !length(pending), truncated = self$truncated)
         },
 
@@ -862,7 +890,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                         package_root = index_package_root(path, self$root)
                     )
                     self$files$set(uri, metadata)
-                    if (!self$summaries$has(uri) && !private$awaiting_parses$has(uri)) {
+                    if (!self$summaries$has(uri) && !private$parse_blocked(uri)) {
                         pending_count <- pending_count + 1L
                         pending[[pending_count]] <- uri
                     }
@@ -951,6 +979,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                 private$package_memberships$clear()
             }
             self$summaries$set(uri, summary)
+            private$failed_parses$pop(uri, NULL)
             if (private$awaiting_parses$has(uri)) private$awaiting_parses$remove(uri)
             private$mark_dirty(uri, summary)
             self$revision <- self$revision + 1
@@ -1029,7 +1058,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                             summary <- self$summaries$get(uri, NULL)
                             if (private$discovery_is_current(uri) &&
                                     !identical(summary$cacheable, FALSE) &&
-                                    !private$awaiting_parses$has(uri)) self$remove(uri)
+                                    !private$parse_blocked(uri)) self$remove(uri)
                             if ((proc.time()[[3L]] - started) * 1000 >= budget) break
                         }
                         if (consumed) private$discovery_stale <- private$discovery_stale[-seq_len(consumed)]
