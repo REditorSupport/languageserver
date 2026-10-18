@@ -184,11 +184,21 @@ refactor_expression_movable <- function(node, statement) {
         }
         child_names <- xml_name(children)
 
-        # A pipe supplies arguments and placeholder bindings to its RHS. That
-        # expression cannot move by itself; extracting the whole pipe is safe.
+        # The whole RHS needs its pipe argument, but independent expressions
+        # inside its arguments may move. Keep placeholders and data-mask
+        # expressions in the context that supplies their bindings.
         pipes <- which(child_names %in% c("PIPE", "OP-PIPE") |
                 child_names == "SPECIAL" & xml_text(children) %in% c("%>%", "%<>%", "%T>%", "%$%"))
-        if (length(pipes) && current_index > pipes[[1L]]) return(FALSE)
+        if (length(pipes) && current_index > pipes[[1L]]) {
+            pipe <- pipes[[1L]]
+            if (refactor_same_node(node, current) || xml_text(children[[pipe]]) == "%$%") return(FALSE)
+            placeholder <- if (child_names[[pipe]] == "SPECIAL") {
+                ".//*[self::PLACEHOLDER or (self::SYMBOL or self::SYMBOL_FUNCTION_CALL) and (text() = '.' or text() = '`.`')]"
+            } else {
+                ".//PLACEHOLDER"
+            }
+            if (length(xml_find_all(node, placeholder))) return(FALSE)
+        }
 
         assignments <- which(child_names %in% c(
             "LEFT_ASSIGN", "RIGHT_ASSIGN", "EQ_ASSIGN"

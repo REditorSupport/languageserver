@@ -76,6 +76,60 @@ test_that("extract actions keep pipe RHS expressions in their call context", {
             fixture$document, selected, list("refactor.extract")), 0L)
 })
 
+test_that("extract actions allow independent expressions inside pipe arguments", {
+    skip_if(getRversion() < "4.1.0", "Native pipes require R 4.1")
+    cases <- list(
+        list("x |> sum(1 + 2)", "1 + 2", 8),
+        list("x %>% sum(1 + 2)", "1 + 2", 8),
+        list("x %<>% sum(1 + 2)", "1 + 2", 8),
+        list("x %T>% sum(1 + 2)", "1 + 2", 5),
+        list("x %>% sum(., 1 + 2)", "1 + 2", 8),
+        list('x %>% sum(nchar(".") + 1)', 'nchar(".") + 1', 7),
+        list("x |> sum(. + 1)", ". + 1", 8)
+    )
+    if (getRversion() >= "4.2.0") {
+        cases <- c(cases, list(list("x |> sum(1 + 2, data = _)", "1 + 2", 8)))
+    }
+    for (case in cases) {
+        content <- c("outer <- function(x) {", "  . <- 2", paste0("  ", case[[1L]]), "}")
+        fixture <- provider_fixture(content)
+        selected <- refactor_test_range(content, 2L, case[[2L]])
+        actions <- refactor_code_actions(fixture$uri, fixture$workspace,
+            fixture$document, selected, list("refactor.extract"))
+        expect_equal(length(actions), 2L, info = case[[1L]])
+        for (action in actions) {
+            actual <- refactor_apply_edits(content, action$edit$changes[[fixture$uri]])
+            env <- new.env(parent = asNamespace("magrittr"))
+            eval(parse(text = actual), env)
+            expect_equal(env$outer(5), case[[3L]], info = case[[1L]])
+        }
+    }
+})
+
+test_that("extract actions retain pipe placeholders and data-mask bindings", {
+    cases <- list(list("x %$% sum(value + 1)", "value + 1"))
+    for (pipe in c("%>%", "%<>%", "%T>%")) {
+        cases <- c(cases, list(
+            list(paste("x", pipe, "sum(identity(.))"), "identity(.)"),
+            list(paste("x", pipe, "sum(. + 1)"), ". + 1"),
+            list(paste("x", pipe, "sum(`.` + 1)"), "`.` + 1"),
+            list(paste("x", pipe, "list(., .(1))"), ".(1)"),
+            list(paste("x", pipe, "sum(1 + 2)"), "sum(1 + 2)")
+        ))
+    }
+    if (getRversion() >= "4.2.0") {
+        cases <- c(cases, list(list("x |> sum(data = _)", "_")))
+    }
+    for (case in cases) {
+        content <- c("outer <- function(x) {", paste0("  ", case[[1L]]), "}")
+        fixture <- provider_fixture(content)
+        selected <- refactor_test_range(content, 1L, case[[2L]])
+        actions <- refactor_code_actions(fixture$uri, fixture$workspace,
+            fixture$document, selected, list("refactor.extract"))
+        expect_equal(length(actions), 0L, info = case[[1L]])
+    }
+})
+
 test_that("extract variable creates a previewable collision-free edit", {
     content <- c(
         "outer <- function(a) {",
