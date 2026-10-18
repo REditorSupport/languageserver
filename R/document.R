@@ -689,7 +689,7 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
         env$range_data <- range_provider_parse_data(data, content, env$syntax_data)
         env$source_specs <- index_source_specs(expr)
         env$reference_index <- reference_parse_data(
-            data, content, env$completion_data, uri, env$definitions)
+            data, content, env$completion_data, uri, env$definitions, env$syntax_data)
         # Performance: XML generation is expensive, but necessary for analysis
         env$xml_data <- xmlparsedata::xml_parse_data(data)
         env$class_data <- tryCatch(class_parse_data(uri, content, env$xml_data,

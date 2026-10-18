@@ -225,6 +225,13 @@ member_recover <- function(document, point, cursor, data) {
         local[[length(local)]] <- paste0(local[[length(local)]], sentinel)
         closers <- missing_closing_delimiters(local)
         parsed <- tryCatch(parse(text = paste0(paste(local, collapse = "\n"), closers)), error = function(e) NULL)
+        if (is.null(parsed) && !is.null(cursor$accessor) && any(grepl("|>", local, fixed = TRUE))) {
+            # Native pipes require a call on the RHS. The cursor sentinel is
+            # a callee here; its synthetic arguments are never evaluated.
+            local[[length(local)]] <- paste0(local[[length(local)]], "()")
+            closers <- missing_closing_delimiters(local)
+            parsed <- tryCatch(parse(text = paste0(paste(local, collapse = "\n"), closers)), error = function(e) NULL)
+        }
         if (is.null(parsed)) next
         found <- FALSE
         member_walk(parsed, function(node) {

@@ -48,6 +48,34 @@ refactor_action_with_title <- function(actions, title) {
     actions[[match(title, titles)]]
 }
 
+test_that("extract actions keep pipe RHS expressions in their call context", {
+    skip_if(getRversion() < "4.1.0", "Native pipes require R 4.1")
+    for (pipe in c("|>", "%>%")) {
+        expression <- paste("x", pipe, "sum(1)")
+        content <- c("outer <- function(x) {", paste0("  ", expression), "}")
+        fixture <- provider_fixture(content)
+        rhs <- refactor_test_range(content, 1L, "sum(1)")
+        expect_length(refactor_code_actions(fixture$uri, fixture$workspace,
+                fixture$document, rhs, list("refactor.extract")), 0L)
+
+        whole <- refactor_test_range(content, 1L, expression)
+        actions <- refactor_code_actions(fixture$uri, fixture$workspace,
+            fixture$document, whole, list("refactor.extract"))
+        expect_length(actions, 2L)
+        for (action in actions) {
+            actual <- refactor_apply_edits(content, action$edit$changes[[fixture$uri]])
+            env <- new.env(parent = asNamespace("magrittr"))
+            eval(parse(text = actual), env)
+            expect_equal(env$outer(5), 6)
+        }
+    }
+    content <- c("outer <- function(x) {", "  x %>% sum(. + 1)", "}")
+    fixture <- provider_fixture(content)
+    selected <- refactor_test_range(content, 1L, ". + 1")
+    expect_length(refactor_code_actions(fixture$uri, fixture$workspace,
+            fixture$document, selected, list("refactor.extract")), 0L)
+})
+
 test_that("extract variable creates a previewable collision-free edit", {
     content <- c(
         "outer <- function(a) {",

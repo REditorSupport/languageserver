@@ -184,6 +184,12 @@ refactor_expression_movable <- function(node, statement) {
         }
         child_names <- xml_name(children)
 
+        # A pipe supplies arguments and placeholder bindings to its RHS. That
+        # expression cannot move by itself; extracting the whole pipe is safe.
+        pipes <- which(child_names %in% c("PIPE", "OP-PIPE") |
+                child_names == "SPECIAL" & xml_text(children) %in% c("%>%", "%<>%", "%T>%", "%$%"))
+        if (length(pipes) && current_index > pipes[[1L]]) return(FALSE)
+
         assignments <- which(child_names %in% c(
             "LEFT_ASSIGN", "RIGHT_ASSIGN", "EQ_ASSIGN"
         ))
