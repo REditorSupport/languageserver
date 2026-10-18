@@ -62,6 +62,11 @@ test_that("Magrittr signature parameters respect top-level dot placeholders", {
     cases <- list(
         list("x %>% f(<cursor>)", 1L),
         list("x %<>% f(<cursor>)", 1L),
+        list("x %T>% f(<cursor>)", 1L),
+        list("x %T>% f(1, <cursor>)", 2L),
+        list("x %T>% f(<cursor>, vec = .)", 0L),
+        list("x %T>% f(vec = ., <cursor>)", 0L),
+        list("x %T>% f(f(.), <cursor>)", 2L),
         list("x %>% f(1, <cursor>)", 2L),
         list("x %>% f(<cursor>, vec = .)", 0L),
         list("x %>% f(vec = ., <cursor>)", 0L),

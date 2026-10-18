@@ -261,7 +261,8 @@ SEXP range_provider_index_c(SEXP data, SEXP syntax) {
         if (pipe >= 0 && tree.kind[pipe] != P_PIPE &&
                 !(tree.kind[pipe] == P_SPECIAL &&
                     (!strcmp(CHAR(STRING_ELT(text, pipe)), "%>%") ||
-                     !strcmp(CHAR(STRING_ELT(text, pipe)), "%<>%")))) pipe = -1;
+                     !strcmp(CHAR(STRING_ELT(text, pipe)), "%<>%") ||
+                     !strcmp(CHAR(STRING_ELT(text, pipe)), "%T>%")))) pipe = -1;
         rows[PIPE][calls_n] = pipe;
         rows[IMPLICIT_ARG][calls_n] = pipe >= 0;
         int first = -1, last = -1, name = -1;

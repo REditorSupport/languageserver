@@ -220,7 +220,8 @@ static int call_pipe(SEXP content, int row, int col) {
                 while (end < size && text[end] != '%') end++;
                 if (end < size) end++;
                 if ((end - i == 3 && memcmp(text + i, "%>%", 3) == 0) ||
-                        (end - i == 4 && memcmp(text + i, "%<>%", 4) == 0)) {
+                        (end - i == 4 && (memcmp(text + i, "%<>%", 4) == 0 ||
+                            memcmp(text + i, "%T>%", 4) == 0))) {
                     token = MAGRITTR_PIPE;
                 }
             } else {

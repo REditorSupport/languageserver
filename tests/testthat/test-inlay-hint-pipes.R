@@ -43,6 +43,11 @@ test_that("Magrittr inlay hints respect direct dot placeholders", {
     cases <- list(
         list("x %>% fun1(1, 2)", c("arg2 =", "arg3 =")),
         list("x %<>% fun1(1, 2)", c("arg2 =", "arg3 =")),
+        list("x %T>% fun1(1, 2)", c("arg2 =", "arg3 =")),
+        list("x %T>% fun1(1)", "arg2 ="),
+        list("x %T>% fun1(., 2)", c("arg1 =", "arg2 =")),
+        list("x %T>% fun1(1, arg2 = ., 2)", c("arg1 =", "arg3 =")),
+        list("x %T>% fun1(fun1(.), 2)", c("arg2 =", "arg3 =")),
         list("x %>% fun1(., 2)", c("arg1 =", "arg2 =")),
         list("x %>% fun1(1, arg2 = ., 2)", c("arg1 =", "arg3 =")),
         list("x %>% fun1(fun1(.), 2)", c("arg2 =", "arg3 =")),
@@ -91,21 +96,37 @@ test_that("Cached piped hints survive unrelated edits and invalidate changed pip
 })
 
 test_that("Cached hints invalidate when a multiline call becomes piped", {
-    fixture <- provider_fixture(c("x +", "  fun1(1, 2)", "", "fun1(3, 4)"),
-        function(...) formals(function(arg1, arg2, arg3) NULL))
-    original <- inlay_pipe_hints(fixture)
-    expect_equal(inlay_pipe_labels(original), rep(c("arg1 =", "arg2 ="), 2L))
-    parsed <- inlay_hint_edit(fixture, 2L, list(
-        list(range = range(position(0L, 2L), position(0L, 3L)), text = "%>%"),
-        list(range = range(position(2L, 0L), position(2L, 0L)), text = "other(")
+    for (pipe in c("%>%", "%T>%")) {
+        fixture <- provider_fixture(c("x +", "  fun1(1, 2)", "", "fun1(3, 4)"),
+            function(...) formals(function(arg1, arg2, arg3) NULL))
+        original <- inlay_pipe_hints(fixture)
+        expect_equal(inlay_pipe_labels(original), rep(c("arg1 =", "arg2 ="), 2L))
+        parsed <- inlay_hint_edit(fixture, 2L, list(
+            list(range = range(position(0L, 2L), position(0L, 3L)), text = pipe),
+            list(range = range(position(2L, 0L), position(2L, 0L)), text = "other(")
+        ))
+        expect_true(parsed$parse_error)
+        expect_equal(inlay_pipe_hints(fixture), original[3:4])
+        inlay_hint_edit(fixture, 3L, list(list(
+            range = range(position(2L, 0L), position(2L, 6L)), text = ""
+        )))
+        expect_equal(inlay_pipe_labels(inlay_pipe_hints(fixture)),
+            c("arg2 =", "arg3 =", "arg1 =", "arg2 ="))
+    }
+})
+
+test_that("Installed signature help and inlay hints account for tee pipes", {
+    skip_on_cran()
+    client <- language_client(working_dir = withr::local_tempdir())
+    path <- withr::local_tempfile(fileext = ".R")
+    did_open(client, path, text = c("fun1 <- function(arg1, arg2, arg3) NULL", "x %T>% fun1(1, 2)"))
+    signature <- respond_signature(client, path, c(1L, nchar("x %T>% fun1(")))
+    expect_equal(signature$activeParameter, 1L)
+    hints <- respond(client, "textDocument/inlayHint", list(
+        textDocument = list(uri = path_to_uri(path)),
+        range = range(position(1L, 0L), position(2L, 0L))
     ))
-    expect_true(parsed$parse_error)
-    expect_equal(inlay_pipe_hints(fixture), original[3:4])
-    inlay_hint_edit(fixture, 3L, list(list(
-        range = range(position(2L, 0L), position(2L, 6L)), text = ""
-    )))
-    expect_equal(inlay_pipe_labels(inlay_pipe_hints(fixture)),
-        c("arg2 =", "arg3 =", "arg1 =", "arg2 ="))
+    expect_equal(inlay_pipe_labels(hints), c("arg2 =", "arg3 ="))
 })
 
 test_that("Installed inlay hints account for the native pipe", {

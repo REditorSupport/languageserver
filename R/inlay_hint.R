@@ -45,7 +45,7 @@ call_has_implicit_argument <- function(call_node) {
     if (inherits(operator, "xml_missing")) return(FALSE)
     if (xml_name(operator) %in% c("PIPE", "OP-PIPE")) {
         placeholder <- xml_find_first(call_node, "expr[count(*) = 1]/PLACEHOLDER")
-    } else if (xml_name(operator) == "SPECIAL" && xml_text(operator) %in% c("%>%", "%<>%")) {
+    } else if (xml_name(operator) == "SPECIAL" && xml_text(operator) %in% c("%>%", "%<>%", "%T>%")) {
         placeholder <- xml_find_first(call_node, "expr[count(*) = 1]/SYMBOL[text() = '.']")
     } else {
         return(FALSE)
@@ -108,7 +108,7 @@ inlay_hint_apply_change <- function(indexed, change, content) {
         # changes its matching, even if another incomplete edit prevents parsing.
         prefix <- substr(line_text(start$line), 1L,
             code_point_from_unit(line_text(start$line), start$character))
-        if (grepl("(\\|>|%>%|%<>%)[[:space:]]*(#[^\n]*)?$", paste0(prefix, change$text))) {
+        if (grepl("(\\|>|%>%|%<>%|%T>%)[[:space:]]*(#[^\n]*)?$", paste0(prefix, change$text))) {
             boundary_line <- end$line
             repeat {
                 code <- sub("#.*$", "", following)
