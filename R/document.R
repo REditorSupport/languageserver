@@ -590,7 +590,7 @@ get_content_hash <- function(content) {
 }
 
 parse_document <- function(uri, content, is_rmarkdown = FALSE,
-    content_hash = NULL) {
+    content_hash = NULL, include_xml = TRUE) {
     parse_content <- normalize_parse_content(content, is_rmarkdown)
     inlay_hint_incomplete_lines <- if (is_rmarkdown) {
         which(parse_content != normalize_parse_content(
@@ -613,6 +613,7 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
         env$documentation <- list()
         env$xml_data <- NULL
         env$xml_doc <- NULL
+        env$xml_deferred <- FALSE
         env$syntax_data <- syntax_parse_data(NULL)
         env$outline_data <- outline_parse_data(env$syntax_data)
         env$class_data <- NULL
@@ -690,9 +691,12 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
         env$source_specs <- index_source_specs(expr)
         env$reference_index <- reference_parse_data(
             data, content, env$completion_data, uri, env$definitions)
-        # Performance: XML generation is expensive, but necessary for analysis
-        env$xml_data <- xmlparsedata::xml_parse_data(data)
-        env$class_data <- tryCatch(class_parse_data(uri, content, env$xml_data,
+        # Indexed providers need no XML. Keep it out of worker snapshots and
+        # materialize it from syntax only for class extraction or a legacy provider.
+        env$xml_deferred <- !include_xml
+        if (include_xml) env$xml_data <- syntax_xml(env$syntax_data)
+        xml <- function() if (is.null(env$xml_data)) syntax_xml(env$syntax_data) else env$xml_data
+        env$class_data <- tryCatch(class_parse_data(uri, content, xml(),
                 env$syntax_data, env$definitions), error = function(e) NULL)
         # These original-id lookup tables are used only while constructing
         # worker indexes. Providers use the compact physical syntax tree.
@@ -914,7 +918,8 @@ parse_task <- function(self, uri, document, delay = 0, retry = TRUE) {
             uri = uri,
             content = content,
             is_rmarkdown = document$is_rmarkdown,
-            content_hash = content_hash
+            content_hash = content_hash,
+            include_xml = FALSE
         ),
         callback = function(result) parse_callback(self, uri, version, result, source_content),
         error = function(e) {

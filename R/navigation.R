@@ -23,6 +23,17 @@ syntax_parse_data <- function(data) {
     index
 }
 
+#' Serialize parser XML without allocating intermediate R tags and data frames
+#' @noRd
+syntax_xml <- function(syntax) {
+    result <- .Call("syntax_xml_c", syntax, PACKAGE = "languageserver")
+    if (!is.null(result)) return(result)
+    columns <- c("token", "text", "terminal", "line1", "col1", "line2", "col2")
+    data <- as.data.frame(syntax[columns], stringsAsFactors = FALSE)
+    data$parent <- integer(nrow(data))
+    xmlparsedata::xml_parse_data(data)
+}
+
 #' Direct children of a syntax row, in source order
 #' @noRd
 syntax_children <- function(index, row) {
