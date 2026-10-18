@@ -119,3 +119,43 @@ test_that("equivalent workspace scopes share their aggregate symbol maps", {
         workspace$get_namespace(WORKSPACE, uri = uris[[2L]])
     )
 })
+
+test_that("parse cache hits do not rebuild or resize the cached snapshot", {
+    uri <- "file:///cached-snapshot.R"
+    workspace <- Workspace$new(NULL)
+    content <- "value <- function(x) x"
+    document <- Document$new(uri, version = 1L, content = content)
+    document$requested_packages <- list(packages = character(), namespace_packages = character())
+    workspace$documents$set(uri, document)
+    self <- list(get_workspace = function(...) workspace, pending_replies = collections::dict())
+    parse_callback(self, uri, 1L, parse_document(uri, content))
+    bytes <- workspace$parse_cache$bytes()
+    mockery::stub(parse_callback, "workspace$parse_cache$set", function(...) stop("snapshot already cached"))
+    cached_task <- parse_task
+    mockery::stub(cached_task, "parse_callback", parse_callback)
+    document$set_content(2L, content)
+    expect_null(cached_task(self, uri, document))
+    expect_identical(document$parse_data$version, 2L)
+    expect_equal(workspace$parse_cache$bytes(), bytes)
+    expect_length(document$parse_data$definitions, 1L)
+})
+
+test_that("unchanged buffers reuse their current parse after cache eviction", {
+    uri <- "file:///evicted-buffer.R"
+    workspace <- Workspace$new(NULL)
+    content <- "value <- function(x) x"
+    document <- Document$new(uri, version = 1L, content = content)
+    document$requested_packages <- list(packages = character(), namespace_packages = character())
+    workspace$documents$set(uri, document)
+    self <- list(get_workspace = function(...) workspace, pending_replies = collections::dict())
+    parse_callback(self, uri, 1L, parse_document(uri, content))
+    parsed <- document$parse_data
+    workspace$parse_cache$clear()
+    expect_null(parse_task(self, uri, document))
+    expect_identical(document$parse_data, parsed)
+    expect_equal(workspace$parse_cache$size(), 0L)
+
+    # didSave can change content without changing the document version.
+    document$set_content(1L, "changed <- 2")
+    expect_s3_class(parse_task(self, uri, document), "Task")
+})

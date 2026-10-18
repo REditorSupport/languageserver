@@ -728,7 +728,7 @@ member_package_request <- function(parse_data) {
 }
 
 
-parse_callback <- function(self, uri, version, parse_data, source_content = NULL) {
+parse_callback <- function(self, uri, version, parse_data, source_content = NULL, cache = TRUE) {
     workspace <- self$get_workspace(uri)
     if (is.null(parse_data) || !workspace$documents$has(uri)) return(NULL)
     logger$info("parse_callback called:", list(uri = uri, version = version))
@@ -763,7 +763,7 @@ parse_callback <- function(self, uri, version, parse_data, source_content = NULL
     }
 
     # Cache parse results in the main process (child-process caches are not shared)
-    if (!is.null(parse_data$content_hash)) {
+    if (cache && !is.null(parse_data$content_hash)) {
         cache_entry <- as.list(parse_data)
         cache_entry$xml_doc <- NULL
         if (!is.null(cache_entry$navigation_data)) {
@@ -859,6 +859,14 @@ parse_task <- function(self, uri, document, delay = 0, retry = TRUE) {
     document$parse_generation <- document$parse_generation + 1L
     generation <- document$parse_generation
     was_open <- document$is_open
+    if (!is.null(document$parse_data) &&
+            identical(version, document$parse_data$version) &&
+            identical(source_content, document$parsed_content)) {
+        # Saving unchanged content still refreshes diagnostics and package
+        # metadata, but must not reparse a buffer evicted from the LRU cache.
+        parse_callback(self, uri, version, document$parse_data, source_content, cache = FALSE)
+        return(NULL)
+    }
     if (document$is_rmarkdown) {
         content <- document$content
         cache_content <- normalize_parse_content(
@@ -893,7 +901,9 @@ parse_task <- function(self, uri, document, delay = 0, retry = TRUE) {
             if (!is.null(cached_env$navigation_data)) {
                 cached_env$navigation_data$cache <- new.env(hash = TRUE, parent = emptyenv())
             }
-            parse_callback(self, uri, version, cached_env, source_content)
+            # get() already refreshed recency. Rebuilding and sizing the same
+            # snapshot would repeat worker-result work on the request loop.
+            parse_callback(self, uri, version, cached_env, source_content, cache = FALSE)
             return(NULL)
         }
     }
@@ -967,6 +977,9 @@ resolve_callback <- function(self, uri, version, packages) {
 }
 
 resolve_task <- function(self, uri, document, packages, delay = 0, namespace_packages = character()) {
+    # Startup packages already belong to the workspace. A document with no
+    # package requests needs no subprocess to rediscover that same search path.
+    if (!length(packages) && !length(namespace_packages)) return(NULL)
     version <- document$version
     create_task(
         target = package_call(member_resolve_packages),
