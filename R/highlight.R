@@ -39,6 +39,38 @@ document_highlight_reply <- function(id, uri, workspace, document, point) {
         }
     }
 
+    syntax <- parse_data$syntax_data
+    if (!is.null(syntax)) {
+        row <- navigation_token(parse_data, point$row + 1L, point$col + 1L)
+        if (!row) return(Response$new(id))
+        type <- syntax$token[[row]]
+        if (type %in% c("SYMBOL_PACKAGE", "FUNCTION", "NUM_CONST", "STR_CONST")) {
+            rows <- syntax$terminals[syntax$token[syntax$terminals] == type]
+            # Match XML text semantics, including raw strings with control
+            # characters, without building an XML tree for a cursor movement.
+            text <- gsub("[\001-\b\v-\037]", "", enc2utf8(syntax$text[c(row, rows)]), useBytes = TRUE)
+            selected <- rows[text[-1L] == text[[1L]]]
+            result <- lapply(selected, function(i) {
+                list(range = navigation_range(document, syntax, i), kind = DocumentHighlightKind$Text)
+            })
+            return(Response$new(id, result = result))
+        }
+        if (!type %in% c("SYMBOL", "SYMBOL_FUNCTION_CALL", "SYMBOL_FORMALS")) return(Response$new(id))
+        siblings <- syntax_children(syntax, syntax$parent_row[[row]])
+        preceding <- siblings[syntax$order_rank[siblings] < syntax$order_rank[[row]]]
+        if (any(syntax$token[preceding] %in% c("'$'", "OP-DOLLAR"))) return(Response$new(id))
+        rows <- syntax$terminals[syntax$token[syntax$terminals] %in%
+                c("SYMBOL", "SYMBOL_FUNCTION_CALL", "SYMBOL_FORMALS")]
+        rows <- rows[syntax$text[rows] == syntax$text[[row]]]
+        dollars <- which(syntax$token %in% c("'$'", "OP-DOLLAR"))
+        dollar <- match(syntax$parent_row[rows], syntax$parent_row[dollars])
+        rows <- rows[is.na(dollar) | syntax$order_rank[rows] < syntax$order_rank[dollars[dollar]]]
+        if (!length(rows)) return(Response$new(id))
+        return(Response$new(id, result = lapply(rows, function(i) {
+            list(range = navigation_range(document, syntax, i), kind = DocumentHighlightKind$Text)
+        })))
+    }
+
     xdoc <- parse_data_xml(parse_data)
     if (!is.null(xdoc)) {
         row <- point$row + 1
@@ -62,10 +94,10 @@ document_highlight_reply <- function(id, uri, workspace, document, point) {
                     }
                 } else if (token_name %in% c(
                         "SYMBOL_PACKAGE", "FUNCTION", "NUM_CONST", "STR_CONST")) {
-                    # highlight tokens with same name and text
-                    xpath <- glue("//{token_name}[text()='{token_quote}']",
-                        token_name = token_name, token_quote = token_quote)
-                    tokens <- xml_find_all(xdoc, xpath)
+                    # Compare text directly: XML entities do not escape quotes
+                    # inside XPath string literals (for example, 'a string').
+                    tokens <- xml_find_all(xdoc, paste0("//", token_name))
+                    tokens <- tokens[xml_text(tokens) == token_text]
                 }
 
                 if (length(tokens)) {

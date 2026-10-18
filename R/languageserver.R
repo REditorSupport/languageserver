@@ -165,7 +165,8 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 "parse",
                 use_session = TRUE, process_recent_first = TRUE,
                 cpu_load = 0.5, max_running_tasks = 4,
-                cancellation_grace = 0.1
+                cancellation_grace = 0.1,
+                session_init = quote(loadNamespace("languageserver"))
             )
             self$diagnostics_task_manager <- TaskManager$new(
                 "diagnostics",
