@@ -6,7 +6,7 @@
 typedef enum {
     P_OTHER, P_EXPR, P_SYMBOL, P_FORMAL, P_CALL, P_PACKAGE, P_FUNCTION,
     P_LEFT_ASSIGN, P_RIGHT_ASSIGN, P_EQ_ASSIGN, P_OPEN, P_CLOSE,
-    P_COMMA, P_SUB, P_EQ_SUB, P_MEMBER, P_COMMENT
+    P_COMMA, P_SUB, P_EQ_SUB, P_MEMBER, P_COMMENT, P_PIPE, P_SPECIAL, P_PLACEHOLDER
 } provider_token;
 
 typedef struct {
@@ -49,6 +49,9 @@ static provider_token provider_kind(SEXP value) {
     if (!strcmp(name, "EQ_SUB")) return P_EQ_SUB;
     if (!strcmp(name, "'$'") || !strcmp(name, "'@'")) return P_MEMBER;
     if (!strcmp(name, "COMMENT")) return P_COMMENT;
+    if (!strcmp(name, "PIPE")) return P_PIPE;
+    if (!strcmp(name, "SPECIAL")) return P_SPECIAL;
+    if (!strcmp(name, "PLACEHOLDER")) return P_PLACEHOLDER;
     return P_OTHER;
 }
 
@@ -190,12 +193,15 @@ SEXP function_assignment_ids_c(SEXP data, SEXP syntax) {
 
 SEXP range_provider_index_c(SEXP data, SEXP syntax) {
     provider_tree tree = provider_tree_init(data, syntax);
+    SEXP text = parse_column(data, "text", STRSXP);
     int n = tree.n;
+    if (XLENGTH(text) != n) Rf_error("Invalid parse data text length");
     int *pending = (int *) R_alloc((size_t) n, sizeof(int));
     int *queue = (int *) R_alloc((size_t) n, sizeof(int));
     int *callee = (int *) R_alloc((size_t) n, sizeof(int));
     int *package = (int *) R_alloc((size_t) n, sizeof(int));
     int *member = (int *) R_alloc((size_t) n, sizeof(int));
+    int *previous = (int *) R_alloc((size_t) n, sizeof(int));
     memset(pending, 0, (size_t) n * sizeof(int));
     for (int i = 0; i < n; i++) {
         int parent = tree_parent(&tree, i);
@@ -203,6 +209,16 @@ SEXP range_provider_index_c(SEXP data, SEXP syntax) {
         callee[i] = tree.kind[i] == P_CALL ? i : -1;
         package[i] = tree.kind[i] == P_PACKAGE ? i : -1;
         member[i] = tree.kind[i] == P_MEMBER;
+        previous[i] = -1;
+    }
+    /* Build preceding-sibling links once; rescanning the containing block for
+     * every call would be quadratic in files containing many sibling calls. */
+    for (int i = 0; i < n; i++) {
+        int before = -1;
+        for (int child = tree.first[tree.id[i]]; child >= 0; child = tree.next[child]) {
+            previous[child] = before;
+            if (tree.kind[child] != P_COMMENT) before = child;
+        }
     }
     int queued = 0;
     for (int i = 0; i < n; i++) if (!pending[i]) queue[queued++] = i;
@@ -218,7 +234,7 @@ SEXP range_provider_index_c(SEXP data, SEXP syntax) {
     }
     if (queued != n) Rf_error("Cyclic parse data");
 
-    enum { VARIABLES, CALLS, FUNCTIONS, PACKAGES, FIRST_ARG, LAST_ARG,
+    enum { VARIABLES, CALLS, FUNCTIONS, PACKAGES, FIRST_ARG, LAST_ARG, PIPE, IMPLICIT_ARG,
         ARG_CALL, ARG_FIRST, ARG_NAME, ARG_SYMBOL, FIELDS };
     int *rows[FIELDS];
     for (int i = 0; i < FIELDS; i++) rows[i] = (int *) R_alloc((size_t) n, sizeof(int));
@@ -241,6 +257,13 @@ SEXP range_provider_index_c(SEXP data, SEXP syntax) {
         rows[FUNCTIONS][calls_n] = callee[callee_expr];
         rows[PACKAGES][calls_n] = package[callee_expr];
         rows[FIRST_ARG][calls_n] = args_n;
+        int pipe = previous[i];
+        if (pipe >= 0 && tree.kind[pipe] != P_PIPE &&
+                !(tree.kind[pipe] == P_SPECIAL &&
+                    (!strcmp(CHAR(STRING_ELT(text, pipe)), "%>%") ||
+                     !strcmp(CHAR(STRING_ELT(text, pipe)), "%<>%")))) pipe = -1;
+        rows[PIPE][calls_n] = pipe;
+        rows[IMPLICIT_ARG][calls_n] = pipe >= 0;
         int first = -1, last = -1, name = -1;
         for (int child = tree.next[open]; child >= 0; child = tree.next[child]) {
             if (child == close || tree.kind[child] == P_COMMA) {
@@ -249,6 +272,18 @@ SEXP range_provider_index_c(SEXP data, SEXP syntax) {
                 rows[ARG_NAME][args_n] = name;
                 rows[ARG_SYMBOL][args_n] = first >= 0 && first == last &&
                     tree.kind[first] == P_EXPR ? simple_symbol(&tree, first) : -1;
+                /* Only a direct argument placeholder suppresses insertion.
+                 * A dot inside a nested magrittr call still inserts the LHS. */
+                int value_expr = previous[child];
+                if (pipe >= 0 && first >= 0 && value_expr >= 0 && tree.kind[value_expr] == P_EXPR) {
+                    int value = tree.first[tree.id[value_expr]];
+                    if (value >= 0 && tree.next[value] < 0 &&
+                            ((tree.kind[pipe] == P_PIPE && name >= 0 && tree.kind[value] == P_PLACEHOLDER) ||
+                             (tree.kind[pipe] == P_SPECIAL && tree.kind[value] == P_SYMBOL &&
+                                !strcmp(CHAR(STRING_ELT(text, value)), ".")))) {
+                        rows[IMPLICIT_ARG][calls_n] = 0;
+                    }
+                }
                 args_n++;
                 first = last = name = -1;
                 if (child == close) break;
@@ -264,14 +299,14 @@ SEXP range_provider_index_c(SEXP data, SEXP syntax) {
         calls_n++;
     }
     const char *field_names[FIELDS] = {
-        "variable", "call", "function", "package", "first_argument", "last_argument",
+        "variable", "call", "function", "package", "first_argument", "last_argument", "pipe", "implicit_argument",
         "argument_call", "argument_first", "argument_name", "argument_symbol"
     };
     SEXP result = PROTECT(Rf_allocVector(VECSXP, FIELDS));
     SEXP names = PROTECT(Rf_allocVector(STRSXP, FIELDS));
     for (int i = 0; i < FIELDS; i++) {
-        int size = i == VARIABLES ? variables_n : i <= LAST_ARG ? calls_n : args_n;
-        SET_VECTOR_ELT(result, i, provider_rows(rows[i], size, 1));
+        int size = i == VARIABLES ? variables_n : i <= IMPLICIT_ARG ? calls_n : args_n;
+        SET_VECTOR_ELT(result, i, provider_rows(rows[i], size, i == IMPLICIT_ARG ? 0 : 1));
         SET_STRING_ELT(names, i, Rf_mkChar(field_names[i]));
     }
     Rf_setAttrib(result, R_NamesSymbol, names);

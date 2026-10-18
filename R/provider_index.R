@@ -10,7 +10,8 @@ range_provider_parse_data <- function(data, content, syntax = NULL) {
             name = character(), package = character(),
             first_argument = integer(), last_argument = integer(),
             line = integer(), col = integer(),
-            end_line = integer(), end_col = integer()
+            end_line = integer(), end_col = integer(),
+            context_line = integer(), context_col = integer(), implicit_argument = logical()
         ),
         arguments = list(
             call = integer(), line = integer(), col = integer(),
@@ -55,6 +56,7 @@ range_provider_parse_data <- function(data, content, syntax = NULL) {
         result[present] <- data$text[rows[present]]
         result
     }
+    context <- ifelse(index$pipe > 0L, index$pipe, index$call)
     empty$calls <- list(
         name = data$text[index[["function"]]],
         package = text_at(index$package),
@@ -63,7 +65,10 @@ range_provider_parse_data <- function(data, content, syntax = NULL) {
         line = as.integer(data$line1[index$call] - 1L),
         col = convert_columns(data$line1[index$call] - 1L, data$col1[index$call] - 1L),
         end_line = as.integer(data$line2[index$call] - 1L),
-        end_col = convert_columns(data$line2[index$call] - 1L, data$col2[index$call])
+        end_col = convert_columns(data$line2[index$call] - 1L, data$col2[index$call]),
+        context_line = as.integer(data$line1[context] - 1L),
+        context_col = convert_columns(data$line1[context] - 1L, data$col1[context] - 1L),
+        implicit_argument = as.logical(index$implicit_argument)
     )
     first <- index$argument_first
     present <- first > 0L

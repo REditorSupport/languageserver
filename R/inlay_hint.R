@@ -38,6 +38,21 @@ call_argument_groups <- function(call_node) {
     groups
 }
 
+#' Whether a pipe supplies an implicit positional argument to this call
+#' @noRd
+call_has_implicit_argument <- function(call_node) {
+    operator <- xml_find_first(call_node, "preceding-sibling::*[not(self::COMMENT)][1]")
+    if (inherits(operator, "xml_missing")) return(FALSE)
+    if (xml_name(operator) %in% c("PIPE", "OP-PIPE")) {
+        placeholder <- xml_find_first(call_node, "expr[count(*) = 1]/PLACEHOLDER")
+    } else if (xml_name(operator) == "SPECIAL" && xml_text(operator) %in% c("%>%", "%<>%")) {
+        placeholder <- xml_find_first(call_node, "expr[count(*) = 1]/SYMBOL[text() = '.']")
+    } else {
+        return(FALSE)
+    }
+    inherits(placeholder, "xml_missing")
+}
+
 #' Match an R named argument using exact and unique partial matching
 #' @noRd
 match_named_formal <- function(name, formal_names) {
@@ -69,8 +84,9 @@ inlay_hint_apply_change <- function(indexed, change, content) {
     }
     before <- calls$end_line < start$line |
         calls$end_line == start$line & calls$end_col <= start$character
-    after <- calls$line > end$line |
-        calls$line == end$line & calls$col >= end$character
+    # A pipe on a preceding line is part of the argument-matching context.
+    after <- calls$context_line > end$line |
+        calls$context_line == end$line & calls$context_col >= end$character
     line_text <- function(row) if (row < length(content)) content[[row + 1L]] else ""
     # Inserts, replacements and deletions ending at a callee can change its
     # name or turn it into a member call, even with spaces or tabs in between.
@@ -86,8 +102,27 @@ inlay_hint_apply_change <- function(indexed, change, content) {
         } else {
             end$character
         }
-        at_start <- calls$line == end$line & calls$col == boundary
+        at_start <- calls$context_line == end$line & calls$context_col == boundary
         after[at_start] <- FALSE
+        # Completing a pipe before a previously ordinary multiline call also
+        # changes its matching, even if another incomplete edit prevents parsing.
+        prefix <- substr(line_text(start$line), 1L,
+            code_point_from_unit(line_text(start$line), start$character))
+        if (grepl("(\\|>|%>%|%<>%)[[:space:]]*(#[^\n]*)?$", paste0(prefix, change$text))) {
+            boundary_line <- end$line
+            repeat {
+                code <- sub("#.*$", "", following)
+                first_token <- regexpr("[^[:space:]]", code)[[1L]]
+                if (first_token > 0L || boundary_line + 1L >= length(content)) break
+                boundary_line <- boundary_line + 1L
+                following <- line_text(boundary_line)
+            }
+            if (first_token > 0L) {
+                boundary_col <- if (boundary_line == end$line) boundary else
+                    code_point_to_unit(following, first_token - 1L)
+                after[calls$line == boundary_line & calls$col == boundary_col] <- FALSE
+            }
+        }
     }
     # An edit outside a call can still put it in a comment, string or
     # backtick name. Drop following calls when lexical context may change.
@@ -113,7 +148,7 @@ inlay_hint_apply_change <- function(indexed, change, content) {
         lines[move] <- lines[move] + new_end_line - end$line
         list(line = lines, col = cols)
     }
-    for (fields in list(c("line", "col"), c("end_line", "end_col"))) {
+    for (fields in list(c("line", "col"), c("end_line", "end_col"), c("context_line", "context_col"))) {
         moved <- shift(calls[[fields[[1L]]]], calls[[fields[[2L]]]], after)
         calls[[fields[[1L]]]] <- moved$line
         calls[[fields[[2L]]]] <- moved$col
@@ -194,15 +229,15 @@ inlay_hint_reply <- function(id, uri, workspace, document, request_range) {
 
     minimum_arguments <- lsp_settings$get("inlay_hints_minimum_arguments")
     if (!is.numeric(minimum_arguments) || length(minimum_arguments) != 1L ||
-        is.na(minimum_arguments) || minimum_arguments < 0L) {
+            is.na(minimum_arguments) || minimum_arguments < 0L) {
         minimum_arguments <- 2L
     }
     minimum_argument_length <- lsp_settings$get(
         "inlay_hints_minimum_argument_length"
     )
     if (!is.numeric(minimum_argument_length) ||
-        length(minimum_argument_length) != 1L ||
-        is.na(minimum_argument_length) || minimum_argument_length < 0L) {
+            length(minimum_argument_length) != 1L ||
+            is.na(minimum_argument_length) || minimum_argument_length < 0L) {
         minimum_argument_length <- 2L
     }
 
@@ -228,7 +263,7 @@ inlay_hint_reply <- function(id, uri, workspace, document, request_range) {
         } else {
             function_formals <- tryCatch(call_with_optional_uri(
                 workspace$get_formals, function_name, package, uri = uri),
-                error = function(e) NULL)
+            error = function(e) NULL)
             assign(cache_key, function_formals, envir = formals_cache)
         }
 
@@ -237,8 +272,9 @@ inlay_hint_reply <- function(id, uri, workspace, document, request_range) {
         groups <- call_argument_groups(call_node)
         if (!length(groups)) next
 
+        implicit_argument <- call_has_implicit_argument(call_node)
         supplied_arguments <- sum(vapply(
-            groups, function(group) length(group$nodes) > 0L, logical(1L)))
+            groups, function(group) length(group$nodes) > 0L, logical(1L))) + implicit_argument
         if (supplied_arguments < minimum_arguments) next
 
         named_formals <- vapply(groups, function(group) {
@@ -247,6 +283,10 @@ inlay_hint_reply <- function(id, uri, workspace, document, request_range) {
         }, integer(1L))
         unavailable <- unique(named_formals[!is.na(named_formals)])
         available <- setdiff(seq_along(formal_names), unavailable)
+        if (implicit_argument) {
+            if (!length(available) || formal_names[[available[[1L]]]] == "...") next
+            available <- available[-1L]
+        }
         next_available <- 1L
 
         for (group in groups) {
@@ -329,7 +369,8 @@ indexed_inlay_hint_reply <- function(id, uri, workspace, indexed, request_range,
     hint_count <- 0L
     for (call_index in call_indices) {
         groups <- seq.int(calls$first_argument[[call_index]], calls$last_argument[[call_index]])
-        if (sum(arguments$present[groups]) < minimum_arguments) next
+        implicit_argument <- isTRUE(calls$implicit_argument[[call_index]])
+        if (sum(arguments$present[groups]) + implicit_argument < minimum_arguments) next
         function_name <- calls$name[[call_index]]
         package <- calls$package[[call_index]]
         if (is.na(package)) package <- NULL
@@ -359,6 +400,10 @@ indexed_inlay_hint_reply <- function(id, uri, workspace, indexed, request_range,
         named_formals <- vapply(group_names[named], match_named_formal,
             integer(1L), formal_names = formal_names)
         available <- setdiff(seq_along(formal_names), named_formals[!is.na(named_formals)])
+        if (implicit_argument) {
+            if (!length(available) || formal_names[[available[[1L]]]] == "...") next
+            available <- available[-1L]
+        }
         unnamed <- groups[!named]
         n <- min(length(unnamed), length(available))
         if (!n) next

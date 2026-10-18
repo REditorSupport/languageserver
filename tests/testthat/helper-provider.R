@@ -17,3 +17,13 @@ provider_fixture <- function(content, formals_resolver = function(...) NULL) {
 
     list(uri = uri, document = document, workspace = workspace)
 }
+
+inlay_hint_edit <- function(fixture, version, changes) {
+    document <- fixture$document
+    document$apply_content_changes(version, changes)
+    parsed <- parse_document(fixture$uri, document$content, document$is_rmarkdown)
+    parsed$version <- version
+    parsed$xml_doc <- xml2::read_xml(parsed$xml_data)
+    document$update_parse_data(parsed)
+    parsed
+}
