@@ -66,7 +66,8 @@ detect_active_parameter <- function(content, start_row, start_col,
     lines[[1L]] <- substring(lines[[1L]], start_col + 2L)
     parameters <- if (is.null(signature)) character() else signature_info(signature)$names
     .Call("active_parameter_c", PACKAGE = "languageserver",
-        paste0(lines, collapse = "\n"), parameters)
+        paste0(lines, collapse = "\n"), parameters, content,
+        as.integer(start_row), as.integer(start_col))
 }
 
 #' the response to a textDocument/signatureHelp Request
@@ -245,7 +246,7 @@ signature_reply <- function(id, uri, workspace, document, point) {
     response_result$activeParameter <- activeParameter
     
     logger$info("signature_reply result: activeSignature=", activeSignature,
-                ", activeParameter=", activeParameter)
+        ", activeParameter=", activeParameter)
 
     Response$new(id, result = response_result)
 }
