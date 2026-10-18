@@ -1,5 +1,14 @@
 # languageserver 0.3.20
 
+- Select the correct active signature parameter and parameter-name inlay hints
+  in native and magrittr piped calls (including `%T>%`), accounting for the
+  implicit first argument and explicit native `_` or magrittr `.` placeholders.
+- Preserve member completion, hover and signatures for native pipe callees;
+  resolve piped class names and inheritance in type hierarchy; count bare
+  magrittr stages in call hierarchy and CodeLens. Allow extraction of independent
+  expressions inside pipe arguments, while keeping whole-RHS and placeholder-dependent
+  expressions in their pipe context; whole-pipe extraction remains available.
+
 - Restore diagnostics and queued document color/CodeLens replies when opening
   files or untitled buffers without a workspace folder (#794).
 

@@ -5,6 +5,7 @@
 #include <Rinternals.h>
 
 SEXP signature_info_c(SEXP signature);
-SEXP active_parameter_c(SEXP text, SEXP parameters);
+SEXP active_parameter_c(SEXP text, SEXP parameters, SEXP content,
+    SEXP row, SEXP col);
 
 #endif

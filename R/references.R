@@ -1,5 +1,32 @@
 references_xpath <- "//*[(self::SYMBOL or self::SYMBOL_FUNCTION_CALL or self::SYMBOL_FORMALS) and text() = '{token_quote}']"
 
+#' Classify bare magrittr stages as calls without changing source positions
+#' @noRd
+reference_call_tokens <- function(data, syntax = NULL) {
+    tokens <- data$token
+    pipes <- which(tokens == "SPECIAL" & data$text %in% c("%>%", "%<>%", "%T>%"))
+    if (!length(pipes)) return(tokens)
+    if (is.null(syntax)) syntax <- syntax_parse_data(data)
+    for (pipe in pipes) {
+        siblings <- syntax_children(syntax, syntax$parent_row[[pipe]])
+        siblings <- siblings[tokens[siblings] != "COMMENT"]
+        at <- match(pipe, siblings)
+        if (is.na(at) || at == length(siblings)) next
+        rhs <- siblings[[at + 1L]]
+        if (tokens[[rhs]] != "expr") next
+        children <- syntax_children(syntax, rhs)
+        children <- children[tokens[children] != "COMMENT"]
+        bare <- length(children) == 1L && tokens[children] == "SYMBOL"
+        qualified <- length(children) == 3L && tokens[[children[[1L]]]] == "SYMBOL_PACKAGE" &&
+            tokens[[children[[2L]]]] %in% c("NS_GET", "NS_GET_INT") && tokens[[children[[3L]]]] == "SYMBOL"
+        if (bare || qualified) {
+            name <- utils::tail(children, 1L)
+            if (data$text[[name]] != ".") tokens[[name]] <- "SYMBOL_FUNCTION_CALL"
+        }
+    }
+    tokens
+}
+
 #' Build the symbol occurrence index used by references and call providers
 #'
 #' The completion parser already records the lexical range of local
@@ -8,7 +35,7 @@ references_xpath <- "//*[(self::SYMBOL or self::SYMBOL_FUNCTION_CALL or self::SY
 #' resolution for every occurrence in an interactive request.
 #' @noRd
 reference_parse_data <- function(data, content, completion_data, uri,
-    global_definitions) {
+    global_definitions, syntax = NULL) {
     empty <- list(
         name = character(),
         token = character(),
@@ -25,6 +52,8 @@ reference_parse_data <- function(data, content, completion_data, uri,
         call_package = character()
     )
     if (is.null(data) || !nrow(data)) return(empty)
+
+    call_tokens <- reference_call_tokens(data, syntax)
 
     rows <- which(data$terminal & data$token %in% c(
         "SYMBOL", "SYMBOL_FUNCTION_CALL", "SYMBOL_FORMALS"))
@@ -127,7 +156,7 @@ reference_parse_data <- function(data, content, completion_data, uri,
     package_rows <- which(data$token == "SYMBOL_PACKAGE")
     package_match <- match(data$parent[rows], data$parent[package_rows])
     qualified <- which(!is.na(package_match))
-    qualified_call <- !is.na(package_match) & data$token[rows] == "SYMBOL_FUNCTION_CALL"
+    qualified_call <- !is.na(package_match) & call_tokens[rows] == "SYMBOL_FUNCTION_CALL"
     call_package <- rep("", length(rows))
     call_package[qualified] <- data$text[package_rows[package_match[qualified]]]
     definition_keys[qualified] <- paste(
@@ -135,7 +164,7 @@ reference_parse_data <- function(data, content, completion_data, uri,
 
     list(
         name = names,
-        token = data$token[rows],
+        token = call_tokens[rows],
         line = as.integer(data$line1[rows] - 1L),
         col = cols,
         end_line = as.integer(data$line2[rows] - 1L),

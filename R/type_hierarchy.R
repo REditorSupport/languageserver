@@ -160,8 +160,7 @@ detect_type_definition <- function(uri, workspace, document, point, token_text) 
         r6_expr <- class_xml_first(token,
             "ancestor::expr[.//SYMBOL_FUNCTION_CALL[text() = 'R6Class']]")
         if (length(r6_expr)) {
-            class_str <- class_xml_first(r6_expr,
-                ".//SYMBOL_FUNCTION_CALL[text() = 'R6Class']/parent::expr/following-sibling::expr[1]//STR_CONST[1]")
+            class_str <- class_xml_name(r6_expr)
             class_sym <- class_xml_first(r6_expr,
                 ".//LEFT_ASSIGN/preceding-sibling::expr[1]/SYMBOL | .//EQ_ASSIGN/preceding-sibling::expr[1]/SYMBOL")
             class_name_value <- NULL
@@ -247,26 +246,19 @@ detect_r6class <- function(scopes, token_text, document, uri) {
         }
     }
 
-    # Pattern: R6Class("ClassName", ...) with cursor on string
-    xpath <- glue(
-        "//SYMBOL_FUNCTION_CALL[text() = 'R6Class']/parent::expr/following-sibling::expr[1]//STR_CONST[contains(text(), {dquote}{token_text}{dquote})]",
-        token_text = token_text,
-        dquote = '"'
-    )
-    defs <- class_xml_all(scopes, xpath)
-    if (length(defs) > 0) {
-        defn <- defs[[1]]
-        range_info <- get_element_range(document, defn)
-        if (!is.null(range_info)) {
-            return(list(
-                name = token_text,
-                uri = uri,
-                range = range_info,
-                classType = "R6"
-            ))
-        }
-    }
+    detect_class_literal(scopes, token_text, document, uri, "R6Class", "R6")
+}
 
+# Resolve the matched classname/Class argument, including its original pipe-LHS
+# location. String literals in other arguments must not become class names.
+detect_class_literal <- function(scopes, token_text, document, uri, fun, type) {
+    for (call in class_xml_calls(scopes, fun, token_text)) {
+        node <- class_xml_name(call)
+        if (!length(node) || gsub('["\047`]', "", xml_text(node)) != token_text) next
+        range_info <- get_element_range(document, node)
+        if (!is.null(range_info)) return(list(
+            name = token_text, uri = uri, range = range_info, classType = type))
+    }
     NULL
 }
 
@@ -276,28 +268,7 @@ detect_r6class <- function(scopes, token_text, document, uri) {
 #'
 #' @noRd
 detect_s4class <- function(scopes, token_text, document, uri) {
-    # Look for setClass pattern - string containing the class name
-    xpath <- glue(
-        "//SYMBOL_FUNCTION_CALL[text() = 'setClass']/parent::expr/following-sibling::expr[1]//STR_CONST[contains(text(), {dquote}{token_text}{dquote})]",
-        token_text = token_text,
-        dquote = '"'
-    )
-
-    defs <- class_xml_all(scopes, xpath)
-    if (length(defs) > 0) {
-        defn <- defs[[1]]
-        range_info <- get_element_range(document, defn)
-        if (!is.null(range_info)) {
-            return(list(
-                name = token_text,
-                uri = uri,
-                range = range_info,
-                classType = "S4"
-            ))
-        }
-    }
-
-    NULL
+    detect_class_literal(scopes, token_text, document, uri, "setClass", "S4")
 }
 
 #' Detect RefClass definitions (setRefClass)
@@ -306,28 +277,7 @@ detect_s4class <- function(scopes, token_text, document, uri) {
 #'
 #' @noRd
 detect_refclass <- function(scopes, token_text, document, uri) {
-    # Look for setRefClass pattern - string containing the class name
-    xpath <- glue(
-        "//SYMBOL_FUNCTION_CALL[text() = 'setRefClass']/parent::expr/following-sibling::expr[1]//STR_CONST[contains(text(), {dquote}{token_text}{dquote})]",
-        token_text = token_text,
-        dquote = '"'
-    )
-
-    defs <- class_xml_all(scopes, xpath)
-    if (length(defs) > 0) {
-        defn <- defs[[1]]
-        range_info <- get_element_range(document, defn)
-        if (!is.null(range_info)) {
-            return(list(
-                name = token_text,
-                uri = uri,
-                range = range_info,
-                classType = "RefClass"
-            ))
-        }
-    }
-
-    NULL
+    detect_class_literal(scopes, token_text, document, uri, "setRefClass", "RefClass")
 }
 
 #' Detect S3 class method definitions
@@ -456,9 +406,9 @@ find_r6_supertypes <- function(doc, xdoc, class_name, uri) {
     all_class_defs <- class_xml_calls(xdoc, "R6Class", class_name)
 
     for (class_def in all_class_defs) {
-        class_str <- class_xml_first(class_def, ".//STR_CONST[1]")
+        class_str <- class_xml_name(class_def)
         class_symbol <- class_xml_first(class_def,
-            "preceding-sibling::expr[1][LEFT_ASSIGN or EQ_ASSIGN]/preceding-sibling::expr[1]/SYMBOL")
+            "ancestor::expr[LEFT_ASSIGN or EQ_ASSIGN][1]/expr[1]/SYMBOL")
         class_name_value <- NULL
         if (length(class_str)) {
             class_name_value <- gsub('["\'`]', "", xml_text(class_str))
@@ -467,16 +417,7 @@ find_r6_supertypes <- function(doc, xdoc, class_name, uri) {
         }
         if (is.null(class_name_value) || class_name_value != class_name) next
 
-        inherit_node <- class_xml_first(
-            class_def,
-            ".//SYMBOL_SUB[text() = 'inherit']"
-        )
-        if (!length(inherit_node)) next
-
-        inherit_param <- class_xml_first(
-            inherit_node,
-            "following-sibling::expr[1] | following-sibling::*[1][self::EQ_ASSIGN]/following-sibling::expr[1]"
-        )
+        inherit_param <- class_xml_argument(class_def, "inherit")
 
         if (length(inherit_param) > 0) {
             # Extract class name from SYMBOL or STR_CONST within the expr
@@ -531,8 +472,7 @@ find_s4_supertypes <- function(doc, xdoc, class_name, uri) {
 
     for (setclass_call in all_setclass_calls) {
         # Get the first string constant (the class name)
-        first_str <- class_xml_first(setclass_call,
-            ".//SYMBOL_FUNCTION_CALL[text() = 'setClass']/parent::expr/following-sibling::expr[1]//STR_CONST[1]")
+        first_str <- class_xml_name(setclass_call)
 
         if (!length(first_str)) next
         call_class_name <- gsub('["\'`]', "", xml_text(first_str))
@@ -540,8 +480,7 @@ find_s4_supertypes <- function(doc, xdoc, class_name, uri) {
         if (call_class_name != class_name) next
 
         # Now find the contains parameter
-        contains_param <- class_xml_first(setclass_call,
-            "./SYMBOL_SUB[text() = 'contains']/following-sibling::*[1][self::EQ_SUB]/following-sibling::expr[1]")
+        contains_param <- class_xml_argument(setclass_call, "contains")
 
         if (length(contains_param) > 0) {
             # Could contain one or more class names as strings
@@ -575,8 +514,7 @@ find_refclass_supertypes <- function(doc, xdoc, class_name, uri) {
 
     for (setrefclass_call in all_setrefclass_calls) {
         # Get the first string constant (the class name)
-        first_str <- class_xml_first(setrefclass_call,
-            ".//SYMBOL_FUNCTION_CALL[text() = 'setRefClass']/parent::expr/following-sibling::expr[1]//STR_CONST[1]")
+        first_str <- class_xml_name(setrefclass_call)
 
         if (!length(first_str)) next
         call_class_name <- gsub('["\'`]', "", xml_text(first_str))
@@ -584,8 +522,7 @@ find_refclass_supertypes <- function(doc, xdoc, class_name, uri) {
         if (call_class_name != class_name) next
 
         # Now find the contains parameter
-        contains_param <- class_xml_first(setrefclass_call,
-            "./SYMBOL_SUB[text() = 'contains']/following-sibling::*[1][self::EQ_SUB]/following-sibling::expr[1]")
+        contains_param <- class_xml_argument(setrefclass_call, "contains")
 
         if (length(contains_param) > 0) {
             parent_strs <- class_xml_all(contains_param, ".//STR_CONST")
@@ -704,16 +641,7 @@ find_r6_subtypes <- function(doc, xdoc, parent_name, uri) {
     all_class_defs <- class_xml_calls(xdoc, "R6Class", parent_name, parent = TRUE)
 
     for (class_def in all_class_defs) {
-        inherit_node <- class_xml_first(
-            class_def,
-            ".//SYMBOL_SUB[text() = 'inherit']"
-        )
-        if (!length(inherit_node)) next
-
-        inherit_param <- class_xml_first(
-            inherit_node,
-            "following-sibling::expr[1] | following-sibling::*[1][self::EQ_ASSIGN]/following-sibling::expr[1]"
-        )
+        inherit_param <- class_xml_argument(class_def, "inherit")
         if (!length(inherit_param)) next
 
         # Extract class name from SYMBOL or STR_CONST within the expr
@@ -732,7 +660,7 @@ find_r6_subtypes <- function(doc, xdoc, parent_name, uri) {
         if (inherit_name != parent_name) next
 
         # Extract the actual class name
-        class_str <- class_xml_first(class_def, ".//STR_CONST[1]")
+        class_str <- class_xml_name(class_def)
         if (length(class_str)) {
             class_name <- gsub('["\'`]', "", xml_text(class_str))
             range_info <- get_element_range(doc, class_str)
@@ -785,8 +713,7 @@ find_s4_subtypes <- function(doc, xdoc, parent_name, uri) {
 
     for (setclass_call in all_setclass_calls) {
         # Check if this class contains parent_name
-        contains_param <- class_xml_first(setclass_call,
-            "./SYMBOL_SUB[text() = 'contains']/following-sibling::*[1][self::EQ_SUB]/following-sibling::expr[1]")
+        contains_param <- class_xml_argument(setclass_call, "contains")
 
         if (!length(contains_param)) next
 
@@ -803,8 +730,7 @@ find_s4_subtypes <- function(doc, xdoc, parent_name, uri) {
         if (!found_parent) next
 
         # Get the class name from the first string constant in the setClass call
-        class_str <- class_xml_first(setclass_call,
-            ".//SYMBOL_FUNCTION_CALL[text() = 'setClass']/parent::expr/following-sibling::expr[1]//STR_CONST[1]")
+        class_str <- class_xml_name(setclass_call)
 
         if (length(class_str)) {
             class_name <- gsub('["\'`]', "", xml_text(class_str))
@@ -834,8 +760,7 @@ find_refclass_subtypes <- function(doc, xdoc, parent_name, uri) {
 
     for (setrefclass_call in all_setrefclass_calls) {
         # Check if this class contains parent_name
-        contains_param <- class_xml_first(setrefclass_call,
-            "./SYMBOL_SUB[text() = 'contains']/following-sibling::*[1][self::EQ_SUB]/following-sibling::expr[1]")
+        contains_param <- class_xml_argument(setrefclass_call, "contains")
 
         if (!length(contains_param)) next
 
@@ -852,8 +777,7 @@ find_refclass_subtypes <- function(doc, xdoc, parent_name, uri) {
         if (!found_parent) next
 
         # Get the class name from the first string constant in the setRefClass call
-        class_str <- class_xml_first(setrefclass_call,
-            ".//SYMBOL_FUNCTION_CALL[text() = 'setRefClass']/parent::expr/following-sibling::expr[1]//STR_CONST[1]")
+        class_str <- class_xml_name(setrefclass_call)
 
         if (length(class_str)) {
             class_name <- gsub('["\'`]', "", xml_text(class_str))
@@ -958,7 +882,7 @@ extract_r6_members <- function(document, xdoc, def) {
     for (class_def in all_class_defs) {
         # Verify this is the right class
         # First try to get class name from the string argument
-        class_str <- class_xml_first(class_def, ".//STR_CONST[1]")
+        class_str <- class_xml_name(class_def)
         class_name_value <- NULL
         if (length(class_str)) {
             class_name_value <- gsub('["\047`]', "", xml_text(class_str))
@@ -983,29 +907,10 @@ extract_r6_members <- function(document, xdoc, def) {
             next
         }
 
-        # Extract public members
-        public_node <- class_xml_first(class_def, ".//SYMBOL_SUB[text() = 'public']")
-        if (length(public_node)) {
-            public_list <- class_xml_first(
-                public_node,
-                "following-sibling::expr[1] | following-sibling::*[1][self::EQ_ASSIGN]/following-sibling::expr[1]"
-            )
-            if (length(public_list)) {
-                public_members <- extract_r6_list_members(document, public_list, "public")
-                members <- c(members, public_members)
-            }
-        }
-
-        # Extract private members
-        private_node <- class_xml_first(class_def, ".//SYMBOL_SUB[text() = 'private']")
-        if (length(private_node)) {
-            private_list <- class_xml_first(
-                private_node,
-                "following-sibling::expr[1] | following-sibling::*[1][self::EQ_ASSIGN]/following-sibling::expr[1]"
-            )
-            if (length(private_list)) {
-                private_members <- extract_r6_list_members(document, private_list, "private")
-                members <- c(members, private_members)
+        for (access in c("public", "private")) {
+            members_node <- class_xml_argument(class_def, access)
+            if (length(members_node)) {
+                members <- c(members, extract_r6_list_members(document, members_node, access))
             }
         }
 
@@ -1110,10 +1015,7 @@ extract_s4_members <- function(document, xdoc, def) {
 
     for (setclass_call in all_setclass_calls) {
         # Get the first string constant (the class name)
-        first_str <- class_xml_first(
-            setclass_call,
-            ".//SYMBOL_FUNCTION_CALL[text() = 'setClass']/parent::expr/following-sibling::expr[1]//STR_CONST[1]"
-        )
+        first_str <- class_xml_name(setclass_call)
 
         if (!length(first_str)) next
         call_class_name <- gsub('["\047`]', "", xml_text(first_str))
@@ -1121,10 +1023,8 @@ extract_s4_members <- function(document, xdoc, def) {
         if (call_class_name != class_name) next
 
         # Extract slots/representation
-        slots_node <- class_xml_first(
-            setclass_call,
-            "./SYMBOL_SUB[text() = 'slots' or text() = 'representation']/following-sibling::*[1][self::EQ_SUB]/following-sibling::expr[1]"
-        )
+        slots_node <- class_xml_argument(setclass_call, "slots")
+        if (!length(slots_node)) slots_node <- class_xml_argument(setclass_call, "representation")
 
         if (length(slots_node)) {
             # Find all named slots
@@ -1201,10 +1101,7 @@ extract_refclass_members <- function(document, xdoc, def) {
 
     for (setrefclass_call in all_setrefclass_calls) {
         # Get the first string constant (the class name)
-        first_str <- class_xml_first(
-            setrefclass_call,
-            ".//SYMBOL_FUNCTION_CALL[text() = 'setRefClass']/parent::expr/following-sibling::expr[1]//STR_CONST[1]"
-        )
+        first_str <- class_xml_name(setrefclass_call)
 
         if (!length(first_str)) next
         call_class_name <- gsub('["\047`]', "", xml_text(first_str))
@@ -1212,10 +1109,7 @@ extract_refclass_members <- function(document, xdoc, def) {
         if (call_class_name != class_name) next
 
         # Extract fields
-        fields_node <- class_xml_first(
-            setrefclass_call,
-            "./SYMBOL_SUB[text() = 'fields']/following-sibling::*[1][self::EQ_SUB]/following-sibling::expr[1]"
-        )
+        fields_node <- class_xml_argument(setrefclass_call, "fields")
 
         if (length(fields_node)) {
             field_names <- class_xml_all(fields_node,

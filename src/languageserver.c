@@ -70,7 +70,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"navigation_find_token_c", (DL_FUNC) &navigation_find_token_c, 6},
     {"reference_resolve_local_c", (DL_FUNC) &reference_resolve_local_c, 8},
     {"signature_info_c", (DL_FUNC) &signature_info_c, 1},
-    {"active_parameter_c", (DL_FUNC) &active_parameter_c, 2},
+    {"active_parameter_c", (DL_FUNC) &active_parameter_c, 5},
     {"semantic_token_delta_c", (DL_FUNC) &semantic_token_delta_c, 2},
     {"semantic_token_range_c", (DL_FUNC) &semantic_token_range_c, 3},
     {"range_line_bounds_c", (DL_FUNC) &range_line_bounds_c, 3},

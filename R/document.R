@@ -690,7 +690,7 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
         env$range_data <- range_provider_parse_data(data, content, env$syntax_data)
         env$source_specs <- index_source_specs(expr)
         env$reference_index <- reference_parse_data(
-            data, content, env$completion_data, uri, env$definitions)
+            data, content, env$completion_data, uri, env$definitions, env$syntax_data)
         # Indexed providers need no XML. Keep it out of worker snapshots and
         # materialize it from syntax only for class extraction or a legacy provider.
         env$xml_deferred <- !include_xml

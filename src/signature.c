@@ -1,4 +1,5 @@
 #include "signature.h"
+#include "fsm.h"
 
 #include <limits.h>
 #include <string.h>
@@ -179,12 +180,217 @@ static int name_matches(const char *text, int left, int right, const char *name)
     return left == right && name_left == name_size;
 }
 
-SEXP active_parameter_c(SEXP call_text, SEXP parameters) {
+/* Inspect the tokens immediately before the call head. Walking back through
+ * names and accessors handles qualified functions without inheriting the pipe
+ * of an enclosing call. Comments and quoted operator text are not operators. */
+static int call_pipe(SEXP content, int row, int col) {
+    enum { OTHER, NAME, ACCESS, NATIVE_PIPE, MAGRITTR_PIPE };
+    int want_name = 1;
+    for (int line = row; line >= 0; line--) {
+        if (STRING_ELT(content, line) == NA_STRING) return 0;
+        const char *text = Rf_translateCharUTF8(STRING_ELT(content, line));
+        int size = (int) strlen(text);
+        if (line == row) size = col;
+        int *tokens = (int *) R_alloc((size_t) size + 1, sizeof(int));
+        int count = 0;
+        for (int i = 0; i < size;) {
+            if ((i & 65535) == 0) R_CheckUserInterrupt();
+            if (space(text[i])) { i++; continue; }
+            if (text[i] == '#') break;
+            int end = literal_end(text, i, size);
+            int token = OTHER;
+            if (end > i) {
+                token = NAME;
+            } else if (identifier(text[i])) {
+                token = NAME;
+                end = i + 1;
+                while (end < size && identifier(text[end])) end++;
+            } else if (text[i] == '$' || text[i] == '@') {
+                token = ACCESS;
+                end = i + 1;
+            } else if (i + 1 < size && text[i] == ':' && text[i + 1] == ':') {
+                token = ACCESS;
+                end = i + 2;
+                if (end < size && text[end] == ':') end++;
+            } else if (i + 1 < size && text[i] == '|' && text[i + 1] == '>') {
+                token = NATIVE_PIPE;
+                end = i + 2;
+            } else if (text[i] == '%') {
+                end = i + 1;
+                while (end < size && text[end] != '%') end++;
+                if (end < size) end++;
+                if ((end - i == 3 && memcmp(text + i, "%>%", 3) == 0) ||
+                        (end - i == 4 && (memcmp(text + i, "%<>%", 4) == 0 ||
+                            memcmp(text + i, "%T>%", 4) == 0))) {
+                    token = MAGRITTR_PIPE;
+                }
+            } else {
+                end = i + 1;
+            }
+            tokens[count++] = token;
+            i = end;
+        }
+        for (int i = count - 1; i >= 0; i--) {
+            if (want_name && tokens[i] == NAME) want_name = 0;
+            else if (!want_name && tokens[i] == ACCESS) want_name = 1;
+            else if (!want_name && tokens[i] == NATIVE_PIPE) return 1;
+            else if (!want_name && tokens[i] == MAGRITTR_PIPE) return 2;
+            else return 0;
+        }
+    }
+    return 0;
+}
+
+/* Only piped calls need text after the cursor. Find their closing parenthesis
+ * before allocating, so a short call does not copy the rest of the document. */
+static const char *pipe_call_text(SEXP content, int row, int col) {
+    fsm_state state;
+    fsm_initialize(&state);
+    int depth = 0;
+    int last_row = row;
+    int last_col = col;
+    size_t size = 0;
+    for (int line = row; line < Rf_length(content); line++) {
+        if (STRING_ELT(content, line) == NA_STRING) break;
+        const char *text = Rf_translateCharUTF8(STRING_ELT(content, line));
+        int start = line == row ? col : 0;
+        int i = start;
+        for (; text[i]; i++) {
+            if ((i & 65535) == 0) R_CheckUserInterrupt();
+            char ch = text[i];
+            if (!state.single_quoted && !state.double_quoted && !state.backticked) {
+                if (ch == '#') { i += (int) strlen(text + i); break; }
+                if (ch == ')' && depth == 0) break;
+                if (ch == '(' || ch == '[' || ch == '{') depth++;
+                else if (ch == ')' || ch == ']' || ch == '}') depth--;
+            }
+            fsm_feed(&state, ch);
+        }
+        size += (size_t) (i - start) + (line > row);
+        if (size > INT_MAX) Rf_error("call text is too large");
+        last_row = line;
+        last_col = i;
+        if (text[i] == ')') break;
+        fsm_feed(&state, '\n');
+    }
+    char *result = (char *) R_alloc(size + 1, sizeof(char));
+    size_t at = 0;
+    for (int line = row; line <= last_row; line++) {
+        const char *text = Rf_translateCharUTF8(STRING_ELT(content, line));
+        int start = line == row ? col : 0;
+        int end = line == last_row ? last_col : (int) strlen(text);
+        if (line > row) result[at++] = '\n';
+        memcpy(result + at, text + start, (size_t) (end - start));
+        at += (size_t) (end - start);
+    }
+    result[at] = '\0';
+    return result;
+}
+
+static int parameter_match(const char *text, int start, int end, SEXP parameters) {
+    while (start < end && space(text[start])) start++;
+    while (end > start && space(text[end - 1])) end--;
+    for (int i = 0; i < Rf_length(parameters); i++) {
+        if (STRING_ELT(parameters, i) != NA_STRING && name_matches(
+                text, start, end, Rf_translateCharUTF8(STRING_ELT(parameters, i)))) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static int pipe_active_parameter(const char *text, int cursor, SEXP parameters, int pipe) {
+    int size = (int) strlen(text);
+    int nparameters = Rf_length(parameters);
+    int *used = (int *) R_alloc((size_t) nparameters + 1, sizeof(int));
+    memset(used, 0, ((size_t) nparameters + 1) * sizeof(int));
+    int depth = 0, start = 0, name_end = -1;
+    int value_tokens = 0, placeholder = 0, has_placeholder = 0;
+    int positional = 0, active_name = -1, active = 0;
+    for (int i = 0; i <= size; i++) {
+        if ((i & 65535) == 0) R_CheckUserInterrupt();
+        char ch = text[i];
+        if (i == size || (ch == ',' && depth == 0)) {
+            int matched = name_end < 0 ? -1 : parameter_match(text, start, name_end, parameters);
+            int current = start <= cursor && cursor <= i;
+            if (matched >= 0) used[matched] = 1;
+            if (current && name_end >= 0 && name_end < cursor) active_name = matched;
+            if (i < cursor) {
+                active++;
+                if (name_end < 0) positional++;
+            }
+            if (placeholder && value_tokens == 1 && (pipe == 2 || name_end >= 0)) {
+                has_placeholder = 1;
+            }
+            start = i + 1;
+            name_end = -1;
+            value_tokens = placeholder = 0;
+            continue;
+        }
+        if (space(ch)) continue;
+        if (ch == '#') {
+            int comment = i;
+            while (i < size && text[i] != '\n') i++;
+            int before = start;
+            while (before < comment && space(text[before])) before++;
+            if (before == comment) start = i;
+            i--;
+            continue;
+        }
+        int end = literal_end(text, i, size);
+        if (end > i) {
+            value_tokens++;
+            i = end - 1;
+            continue;
+        }
+        if (ch == '=' && depth == 0 && name_end < 0 &&
+                text[i + 1] != '=' && (i == 0 || (text[i - 1] != '=' &&
+                    text[i - 1] != '!' && text[i - 1] != '<' && text[i - 1] != '>'))) {
+            name_end = i;
+            value_tokens = placeholder = 0;
+            continue;
+        }
+        value_tokens++;
+        if (identifier(ch)) {
+            end = i + 1;
+            while (end < size && identifier(text[end])) end++;
+            if (depth == 0 && value_tokens == 1 && end == i + 1 &&
+                    ch == (pipe == 1 ? '_' : '.')) placeholder = 1;
+            i = end - 1;
+        } else if (ch == '(' || ch == '[' || ch == '{') depth++;
+        else if (ch == ')' || ch == ']' || ch == '}') depth--;
+    }
+    if (active_name >= 0) return active_name;
+    positional += !has_placeholder;
+    for (int i = 0; i < nparameters; i++) {
+        if (STRING_ELT(parameters, i) != NA_STRING &&
+                strcmp(CHAR(STRING_ELT(parameters, i)), "...") == 0) return i;
+        if (!used[i] && positional-- == 0) return i;
+    }
+    return active + !has_placeholder;
+}
+
+SEXP active_parameter_c(SEXP call_text, SEXP parameters, SEXP content,
+    SEXP start_row, SEXP start_col) {
     const char *text = single_string(call_text, "call text");
     if (TYPEOF(parameters) != STRSXP) Rf_error("parameters must be character");
     size_t size_long = strlen(text);
     if (size_long > INT_MAX) Rf_error("call text is too large");
     int size = (int) size_long;
+    int row = Rf_asInteger(start_row);
+    int col = Rf_asInteger(start_col);
+    if (TYPEOF(content) == STRSXP && row >= 0 && row < Rf_length(content) &&
+            col >= 0 && STRING_ELT(content, row) != NA_STRING) {
+        const char *line = Rf_translateCharUTF8(STRING_ELT(content, row));
+        int byte = 0;
+        for (int point = 0; line[byte] && point < col; point++) {
+            byte++;
+            while (((unsigned char) line[byte] & 0xc0) == 0x80) byte++;
+        }
+        int pipe = line[byte] == '(' ? call_pipe(content, row, byte) : 0;
+        if (pipe) return Rf_ScalarInteger(pipe_active_parameter(
+            pipe_call_text(content, row, byte + 1), size, parameters, pipe));
+    }
     int depth = 0;
     int count = 0;
     int start = 0;
