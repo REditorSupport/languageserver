@@ -88,6 +88,74 @@ lifecycle_drain_index <- function(server, workspace) {
     stop("index did not drain")
 }
 
+test_that("folderless parsing publishes diagnostics and drains pending replies", {
+    lifecycle_settings(diagnostics = TRUE, diagnostics_cache_ttl = 0)
+    root <- withr::local_tempdir()
+    withr::local_dir(root)
+    writeLines("linters: list(assignment_linter())", file.path(root, ".lintr"))
+    path <- file.path(root, "standalone.R")
+    content <- c('foo = function() "red"', "foo()", "")
+    writeLines(content, path)
+
+    for (uri in c(path_to_uri(path), "untitled:Untitled-794")) {
+        server <- LifecycleServer$new()
+        on_initialize(server, 1L, list(
+            rootUri = NULL, rootPath = NULL, workspaceFolders = NULL,
+            capabilities = list()
+        ))
+        expect_length(server$rootPath, 0L)
+        server$messages <- list()
+        text_document_did_open(server, list(textDocument = list(
+            uri = uri, languageId = "r", version = 1L,
+            text = paste(content, collapse = "\n")
+        )))
+        params <- list(textDocument = list(uri = uri))
+        text_document_document_color(server, 2L, params)
+        text_document_code_lens(server, 3L, params)
+        queues <- server$pending_replies$get(uri)
+        expect_equal(queues[["textDocument/documentColor"]]$size(), 1L)
+        expect_equal(queues[["textDocument/codeLens"]]$size(), 1L)
+        expect_length(server$messages, 0L)
+
+        server$parse_task_manager$finish_one()
+        expect_true(server$diagnostics_task_manager$tasks$has(uri))
+        expect_identical(server$process_pending_replies(time_budget_ms = Inf), 2L)
+        expect_length(server$messages, 2L)
+        expect_equal(server$messages[[1L]]$id, 2L)
+        expect_equal(server$messages[[1L]]$result[[1L]]$color,
+            list(red = 1, green = 0, blue = 0, alpha = 1))
+        expect_equal(server$messages[[2L]]$id, 3L)
+        expect_length(server$messages[[2L]]$result, 1L)
+        expect_equal(queues[["textDocument/documentColor"]]$size(), 0L)
+        expect_equal(queues[["textDocument/codeLens"]]$size(), 0L)
+
+        server$diagnostics_task_manager$finish_one()
+        notification <- server$messages[[3L]]
+        expect_equal(notification$method, "textDocument/publishDiagnostics")
+        expect_equal(notification$params$uri, uri)
+        expect_equal(notification$params$version, 1L)
+        expect_length(notification$params$diagnostics, 1L)
+        expect_equal(notification$params$diagnostics[[1L]]$code, "assignment_linter")
+    }
+})
+
+test_that("diagnostics only exclude temporary files in non-temporary workspaces", {
+    lifecycle_settings(diagnostics = TRUE, diagnostics_cache_ttl = 0)
+    outside <- file.path(dirname(dirname(tempdir())), "languageserver-nontemp")
+    temp_uri <- path_to_uri(file.path(tempdir(), "standalone.R"))
+    outside_uri <- path_to_uri(file.path(outside, "standalone.R"))
+    for (root in list(NULL, character(), tempdir(), outside)) {
+        for (uri in c(temp_uri, outside_uri)) {
+            server <- LifecycleServer$new()
+            server$rootPath <- root
+            document <- Document$new(uri, version = 1L, content = "x = 1")
+            schedule_diagnostics(server, uri, document)
+            expected <- !(identical(root, outside) && identical(uri, temp_uri))
+            expect_identical(server$diagnostics_task_manager$tasks$has(uri), expected)
+        }
+    }
+})
+
 test_that("a failed package parse retries after task cleanup and restores readiness", {
     lifecycle_settings(index_persistent_cache = FALSE, diagnostics = TRUE)
     root <- withr::local_tempdir()

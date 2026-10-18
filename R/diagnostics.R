@@ -256,7 +256,8 @@ diagnostics_callback <- function(self, uri, version, diagnostics, clear = FALSE)
 schedule_diagnostics <- function(self, uri, document, delay = 0) {
     if (!lsp_settings$get("diagnostics")) return(NULL)
     temp_root <- dirname(tempdir())
-    if (path_has_parent(self$rootPath, temp_root) ||
+    # Only suppress temporary files when there is a non-temporary workspace.
+    if (!length(self$rootPath) || path_has_parent(self$rootPath, temp_root) ||
             !path_has_parent(path_from_uri(uri), temp_root)) {
         self$diagnostics_task_manager$add_task(
             uri,
