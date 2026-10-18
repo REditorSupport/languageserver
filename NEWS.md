@@ -1,5 +1,8 @@
 # languageserver 0.3.20
 
+- Restore diagnostics and queued document color/CodeLens replies when opening
+  files or untitled buffers without a workspace folder (#794).
+
 - Keep known R6 member signatures and hover when initializer analysis reaches
   its inference limit. Select members directly from the inferred receiver and
   allow more time in parallel tests without changing the normal request budget.

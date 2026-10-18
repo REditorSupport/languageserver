@@ -37,6 +37,33 @@ test_that("lintr works", {
     )
 })
 
+test_that("folderless clients receive diagnostics, colors, and code lenses", {
+    skip_on_cran()
+    root <- withr::local_tempdir()
+    withr::local_dir(root)
+    writeLines("linters: list(assignment_linter())", file.path(root, ".lintr"))
+    path <- file.path(root, "standalone.R")
+    content <- c('foo = function() "red"', "foo()", "")
+    writeLines(content, path)
+    client <- language_client(working_dir = NULL, diagnostics = TRUE)
+
+    for (uri in c(path_to_uri(path), "untitled:Untitled-794")) {
+        did_open(client, path, uri = uri, text = content)
+        data <- wait_for(client, "textDocument/publishDiagnostics")
+        expect_equal(data$uri, uri)
+        expect_length(data$diagnostics, 1L)
+        expect_equal(data$diagnostics[[1L]]$code, "assignment_linter")
+
+        params <- list(textDocument = list(uri = uri))
+        colors <- respond(client, "textDocument/documentColor", params, retry = FALSE)
+        expect_length(colors, 1L)
+        expect_equal(colors[[1L]]$color, list(red = 1, green = 0, blue = 0, alpha = 1))
+        lenses <- respond(client, "textDocument/codeLens", params, retry = FALSE)
+        expect_length(lenses, 1L)
+        expect_equal(lenses[[1L]]$data$symbol, "foo")
+    }
+})
+
 test_that("lintr config file works", {
     skip_on_cran()
 
