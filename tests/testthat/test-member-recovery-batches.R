@@ -39,6 +39,7 @@ test_that("batched incomplete recovery preserves statements ranges and limits", 
         c("f <- function(x) {", rep("x <- x + 1", 130), "}", "after <- 1", "after$"),
         c("a <- 1; b <- 2", "if (TRUE) a <- 2", "else b <- 3", "b$"),
         c("x <- 1 +", "  2", "f <- function(x = list(a = 1)) x", "f()$"),
+        c('#line 1000 "virtual.R"', "value <- list(alpha = 1)", rep("", 130), "value$"),
         c(paste0("#", paste(rep("a", 65537), collapse = "")), "x <- 1", "y <- 2", "y$"),
         character())
     for (content in cases) {
@@ -48,6 +49,16 @@ test_that("batched incomplete recovery preserves statements ranges and limits", 
         })
         expect_identical(actual, recovery_line_items(content))
     }
+})
+
+test_that("line directives do not shift recovered binding positions into virtual files", {
+    content <- c('#line 1000 "virtual.R"', "value <- list(alpha = 1)", rep("", 130), "value$")
+    index <- member_document_index(content)
+    expect_identical(index$items[[1L]]$start, c(1L, 0L))
+    fixture <- provider_fixture(content)
+    result <- member_completion(fixture$uri, fixture$workspace, fixture$document,
+        list(row = 132L, col = 6L), TRUE, 200L)
+    expect_true("alpha" %in% vapply(result, `[[`, character(1L), "label"))
 })
 
 test_that("complete recovery sections do not parse once per line", {

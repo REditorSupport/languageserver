@@ -30,7 +30,11 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL) {
             if (end == start && end > batch_end) {
                 batch_end <- min(length(content), start + 128L)
                 text <- content[seq.int(start, batch_end)]
-                if (sum(nchar(text, type = "bytes")) <= 65536L) {
+                # A #line directive changes later source references within a
+                # parse call. Keep the original physical-buffer recovery for
+                # these sections instead of shifting subsequent bindings.
+                if (sum(nchar(text, type = "bytes")) <= 65536L &&
+                        !any(grepl("^[ \t]*#line[ \t]", text))) {
                     parsed <- tryCatch(parse(text = text, keep.source = TRUE), error = function(e) NULL)
                     if (!is.null(parsed)) {
                         append_parsed(parsed, start)
