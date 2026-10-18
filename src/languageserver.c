@@ -13,6 +13,7 @@
 #include "call_hierarchy.h"
 #include "json.h"
 #include "member.h"
+#include "parse_xml.h"
 
 #ifdef _WIN32
 
@@ -61,6 +62,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"member_binding_c", (DL_FUNC) &member_binding_c, 3},
     {"member_syntax_names_c", (DL_FUNC) &member_syntax_names_c, 1},
     {"source_calls_c", (DL_FUNC) &source_calls_c, 1},
+    {"syntax_xml_c", (DL_FUNC) &syntax_xml_c, 1},
     {"syntax_index_c", (DL_FUNC) &syntax_index_c, 2},
     {"navigation_index_c", (DL_FUNC) &navigation_index_c, 1},
     {"syntax_enclosing_c", (DL_FUNC) &syntax_enclosing_c, 2},

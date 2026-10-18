@@ -182,6 +182,31 @@ test_that("Namespace-qualified factories request package metadata without librar
     expect_length(data$member_data$imports, 0L)
 })
 
+test_that("empty package requests cancel obsolete resolution without a worker", {
+    uri <- "file:///no-packages.R"
+    workspace <- Workspace$new(NULL)
+    document <- Document$new(uri, version = 1L, content = "")
+    workspace$documents$set(uri, document)
+    manager <- TaskManager$new("resolve")
+    withr::defer(manager$stop())
+    self <- list(get_workspace = function(...) workspace, resolve_task_manager = manager,
+        pending_replies = collections::dict())
+    parse_callback(self, uri, 1L, parse_document(uri, ""))
+    expect_false(manager$has_work())
+    expect_identical(document$loaded_packages, character())
+
+    parse_callback(self, uri, 1L, parse_document(uri, "library(callr)"))
+    expect_true(manager$has_work())
+    parse_callback(self, uri, 1L, parse_document(uri, ""))
+    expect_false(manager$has_work())
+    expect_identical(document$loaded_packages, character())
+    expect_setequal(workspace$loaded_packages, workspace$startup_packages)
+
+    # Namespace-only requests still need metadata, even without attachments.
+    parse_callback(self, uri, 1L, parse_document(uri, "callr::r_bg"))
+    expect_true(manager$has_work())
+})
+
 test_that("Package requests distinguish attachment changes from namespace references", {
     uri <- "file:///package-attachment.R"
     workspace <- Workspace$new(NULL)

@@ -590,7 +590,7 @@ get_content_hash <- function(content) {
 }
 
 parse_document <- function(uri, content, is_rmarkdown = FALSE,
-    content_hash = NULL) {
+    content_hash = NULL, include_xml = TRUE) {
     parse_content <- normalize_parse_content(content, is_rmarkdown)
     inlay_hint_incomplete_lines <- if (is_rmarkdown) {
         which(parse_content != normalize_parse_content(
@@ -613,6 +613,7 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
         env$documentation <- list()
         env$xml_data <- NULL
         env$xml_doc <- NULL
+        env$xml_deferred <- FALSE
         env$syntax_data <- syntax_parse_data(NULL)
         env$outline_data <- outline_parse_data(env$syntax_data)
         env$class_data <- NULL
@@ -690,9 +691,12 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
         env$source_specs <- index_source_specs(expr)
         env$reference_index <- reference_parse_data(
             data, content, env$completion_data, uri, env$definitions, env$syntax_data)
-        # Performance: XML generation is expensive, but necessary for analysis
-        env$xml_data <- xmlparsedata::xml_parse_data(data)
-        env$class_data <- tryCatch(class_parse_data(uri, content, env$xml_data,
+        # Indexed providers need no XML. Keep it out of worker snapshots and
+        # materialize it from syntax only for class extraction or a legacy provider.
+        env$xml_deferred <- !include_xml
+        if (include_xml) env$xml_data <- syntax_xml(env$syntax_data)
+        xml <- function() if (is.null(env$xml_data)) syntax_xml(env$syntax_data) else env$xml_data
+        env$class_data <- tryCatch(class_parse_data(uri, content, xml(),
                 env$syntax_data, env$definitions), error = function(e) NULL)
         # These original-id lookup tables are used only while constructing
         # worker indexes. Providers use the compact physical syntax tree.
@@ -728,7 +732,7 @@ member_package_request <- function(parse_data) {
 }
 
 
-parse_callback <- function(self, uri, version, parse_data, source_content = NULL) {
+parse_callback <- function(self, uri, version, parse_data, source_content = NULL, cache = TRUE) {
     workspace <- self$get_workspace(uri)
     if (is.null(parse_data) || !workspace$documents$has(uri)) return(NULL)
     logger$info("parse_callback called:", list(uri = uri, version = version))
@@ -763,7 +767,7 @@ parse_callback <- function(self, uri, version, parse_data, source_content = NULL
     }
 
     # Cache parse results in the main process (child-process caches are not shared)
-    if (!is.null(parse_data$content_hash)) {
+    if (cache && !is.null(parse_data$content_hash)) {
         cache_entry <- as.list(parse_data)
         cache_entry$xml_doc <- NULL
         if (!is.null(cache_entry$navigation_data)) {
@@ -859,6 +863,14 @@ parse_task <- function(self, uri, document, delay = 0, retry = TRUE) {
     document$parse_generation <- document$parse_generation + 1L
     generation <- document$parse_generation
     was_open <- document$is_open
+    if (!is.null(document$parse_data) &&
+            identical(version, document$parse_data$version) &&
+            identical(source_content, document$parsed_content)) {
+        # Saving unchanged content still refreshes diagnostics and package
+        # metadata, but must not reparse a buffer evicted from the LRU cache.
+        parse_callback(self, uri, version, document$parse_data, source_content, cache = FALSE)
+        return(NULL)
+    }
     if (document$is_rmarkdown) {
         content <- document$content
         cache_content <- normalize_parse_content(
@@ -893,7 +905,9 @@ parse_task <- function(self, uri, document, delay = 0, retry = TRUE) {
             if (!is.null(cached_env$navigation_data)) {
                 cached_env$navigation_data$cache <- new.env(hash = TRUE, parent = emptyenv())
             }
-            parse_callback(self, uri, version, cached_env, source_content)
+            # get() already refreshed recency. Rebuilding and sizing the same
+            # snapshot would repeat worker-result work on the request loop.
+            parse_callback(self, uri, version, cached_env, source_content, cache = FALSE)
             return(NULL)
         }
     }
@@ -904,7 +918,8 @@ parse_task <- function(self, uri, document, delay = 0, retry = TRUE) {
             uri = uri,
             content = content,
             is_rmarkdown = document$is_rmarkdown,
-            content_hash = content_hash
+            content_hash = content_hash,
+            include_xml = FALSE
         ),
         callback = function(result) parse_callback(self, uri, version, result, source_content),
         error = function(e) {
@@ -967,6 +982,9 @@ resolve_callback <- function(self, uri, version, packages) {
 }
 
 resolve_task <- function(self, uri, document, packages, delay = 0, namespace_packages = character()) {
+    # Startup packages already belong to the workspace. A document with no
+    # package requests needs no subprocess to rediscover that same search path.
+    if (!length(packages) && !length(namespace_packages)) return(NULL)
     version <- document$version
     create_task(
         target = package_call(member_resolve_packages),

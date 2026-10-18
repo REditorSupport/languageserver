@@ -659,8 +659,11 @@ glue <- function(.x, ...) {
 parse_data_xml <- function(parse_data) {
     if (is.null(parse_data)) return(NULL)
     if (!is.null(parse_data$xml_doc)) return(parse_data$xml_doc)
-    if (is.null(parse_data$xml_data)) return(NULL)
-    xdoc <- tryCatch(xml2::read_xml(parse_data$xml_data), error = function(e) NULL)
+    xdoc <- tryCatch({
+        xml <- parse_data$xml_data
+        if (is.null(xml) && isTRUE(parse_data$xml_deferred)) xml <- syntax_xml(parse_data$syntax_data)
+        if (is.null(xml)) NULL else xml2::read_xml(xml)
+    }, error = function(e) NULL)
     if (!is.null(xdoc)) {
         attr(xdoc, "top_level_index") <- xdoc_top_level_index(
             xdoc, parse_data$syntax_data, parse_data$navigation_data)

@@ -16,11 +16,40 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL) {
         # Recover complete statements after unrelated syntax errors. Bounds
         # apply to incomplete runs; valid large documents use the parser above.
         start <- 1L
-        for (end in seq_along(content)) {
+        end <- 1L
+        batch_end <- 0L
+        append_parsed <- function(parsed, start) {
+            refs <- attr(parsed, "srcref")
+            for (i in seq_along(parsed)) {
+                ref <- refs[[i]]
+                append(parsed[[i]], c(start + ref[[1L]] - 2L, ref[[5L]] - 1L),
+                    c(start + ref[[3L]] - 2L, ref[[6L]]))
+            }
+        }
+        while (end <= length(content)) {
+            if (end == start && end > batch_end) {
+                batch_end <- min(length(content), start + 128L)
+                text <- content[seq.int(start, batch_end)]
+                # A #line directive changes later source references within a
+                # parse call. Keep the original physical-buffer recovery for
+                # these sections instead of shifting subsequent bindings.
+                if (sum(nchar(text, type = "bytes")) <= 65536L &&
+                        !any(grepl("^[ \t]*#line[ \t]", text))) {
+                    parsed <- tryCatch(parse(text = text, keep.source = TRUE), error = function(e) NULL)
+                    if (!is.null(parsed)) {
+                        append_parsed(parsed, start)
+                        start <- end <- batch_end + 1L
+                        next
+                    }
+                }
+                # A failing batch uses the original bounded recovery below.
+                # Do not retry that same broken section for each valid line.
+            }
             if (end - start > 128L) start <- end
             text <- content[seq.int(start, end)]
             if (sum(nchar(text, type = "bytes")) > 65536L) {
                 start <- end
+                end <- end + 1L
                 next
             }
             message <- NULL
@@ -31,17 +60,12 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL) {
             if (is.null(parsed)) {
                 # Discard an invalid single line but retain incomplete calls.
                 if (!grepl("unexpected end of input|INCOMPLETE_STRING", message)) start <- end + 1L
+                end <- end + 1L
                 next
             }
-            refs <- attr(parsed, "srcref")
-            for (i in seq_along(parsed)) {
-                ref <- refs[[i]]
-                append(
-                    parsed[[i]], c(start + ref[[1L]] - 2L, ref[[5L]] - 1L),
-                    c(start + ref[[3L]] - 2L, ref[[6L]])
-                )
-            }
+            append_parsed(parsed, start)
             start <- end + 1L
+            end <- end + 1L
         }
     }
     bindings <- new.env(hash = TRUE, parent = emptyenv())
