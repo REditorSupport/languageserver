@@ -749,3 +749,38 @@ test_that("inlay hints place labels at arguments rather than preceding comments"
         )
     }
 })
+
+test_that("inlay hints ignore computed callees while hinting nested callee calls", {
+    content <- c(
+        "factory <- function(first = NULL, second = NULL) function(actual, other) NULL",
+        "factory()(one, two)",
+        "(factory() # comment",
+        " (one, two))",
+        "pkg::factory()(one, two)",
+        "factory(one, two)(three, four)"
+    )
+    fixture <- provider_fixture(content, function(...) {
+        formals(function(first = NULL, second = NULL) NULL)
+    })
+    request <- range(position(0L, 0L), position(length(content), 0L))
+    indexed <- fixture$document$parse_data$range_data
+
+    for (use_index in c(TRUE, FALSE)) {
+        fixture$document$parse_data$range_data <- if (use_index) indexed else NULL
+        result <- inlay_hint_reply(
+            1L, fixture$uri, fixture$workspace, fixture$document, request
+        )$result
+        expect_equal(
+            vapply(result, `[[`, character(1L), "label"),
+            c("first =", "second =")
+        )
+        expect_equal(
+            vapply(result, function(hint) hint$position$line, integer(1L)),
+            c(5L, 5L)
+        )
+        expect_equal(
+            vapply(result, function(hint) hint$position$character, integer(1L)),
+            c(8L, 13L)
+        )
+    }
+})

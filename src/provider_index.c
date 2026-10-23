@@ -118,11 +118,6 @@ static provider_tree provider_tree_init(SEXP data, SEXP syntax) {
     return tree;
 }
 
-static int tree_parent(const provider_tree *tree, int row) {
-    int parent = tree->parent[row];
-    return parent > 0 ? tree->row[parent] : -1;
-}
-
 static int next_non_comment(const provider_tree *tree, int row) {
     int next = tree->next[row];
     while (next >= 0 && tree->kind[next] == P_COMMENT) next = tree->next[next];
@@ -197,33 +192,6 @@ SEXP function_assignment_ids_c(SEXP data, SEXP syntax) {
 SEXP range_provider_index_c(SEXP data, SEXP syntax) {
     provider_tree tree = provider_tree_init(data, syntax);
     int n = tree.n;
-    int *pending = (int *) R_alloc((size_t) n, sizeof(int));
-    int *queue = (int *) R_alloc((size_t) n, sizeof(int));
-    int *callee = (int *) R_alloc((size_t) n, sizeof(int));
-    int *package = (int *) R_alloc((size_t) n, sizeof(int));
-    int *member = (int *) R_alloc((size_t) n, sizeof(int));
-    memset(pending, 0, (size_t) n * sizeof(int));
-    for (int i = 0; i < n; i++) {
-        int parent = tree_parent(&tree, i);
-        if (parent >= 0) pending[parent]++;
-        callee[i] = tree.kind[i] == P_CALL ? i : -1;
-        package[i] = tree.kind[i] == P_PACKAGE ? i : -1;
-        member[i] = tree.kind[i] == P_MEMBER;
-    }
-    int queued = 0;
-    for (int i = 0; i < n; i++) if (!pending[i]) queue[queued++] = i;
-    /* Postorder propagation makes finding the first function/package token
-     * and rejecting member calls linear even for deeply nested callees. */
-    for (int head = 0; head < queued; head++) {
-        int row = queue[head], parent = tree_parent(&tree, row);
-        if (parent < 0) continue;
-        if (callee[row] >= 0 && (callee[parent] < 0 || callee[row] < callee[parent])) callee[parent] = callee[row];
-        if (package[row] >= 0 && (package[parent] < 0 || package[row] < package[parent])) package[parent] = package[row];
-        member[parent] |= member[row];
-        if (!--pending[parent]) queue[queued++] = parent;
-    }
-    if (queued != n) Rf_error("Cyclic parse data");
-
     enum { VARIABLES, CALLS, FUNCTIONS, PACKAGES, FIRST_ARG, LAST_ARG,
         ARG_CALL, ARG_FIRST, ARG_NAME, ARG_SYMBOL, FIELDS };
     int *rows[FIELDS];
@@ -234,18 +202,24 @@ SEXP range_provider_index_c(SEXP data, SEXP syntax) {
         if (tree.kind[i] == P_SYMBOL || tree.kind[i] == P_FORMAL) rows[VARIABLES][variables_n++] = i;
         if (tree.kind[i] != P_EXPR) continue;
         int callee_expr = tree.first[tree.id[i]];
-        if (callee_expr < 0 || tree.kind[callee_expr] != P_EXPR ||
-                callee[callee_expr] < 0 || member[callee_expr]) continue;
+        if (callee_expr < 0 || tree.kind[callee_expr] != P_EXPR) continue;
         int open = next_non_comment(&tree, callee_expr);
         if (open < 0 || tree.kind[open] != P_OPEN) continue;
+        int callee = -1, package = -1, member = 0;
+        for (int child = tree.first[tree.id[callee_expr]]; child >= 0; child = tree.next[child]) {
+            if (tree.kind[child] == P_CALL && callee < 0) callee = child;
+            else if (tree.kind[child] == P_PACKAGE && package < 0) package = child;
+            else if (tree.kind[child] == P_MEMBER) member = 1;
+        }
+        if (callee < 0 || member) continue;
         int close = -1;
         for (int child = next_non_comment(&tree, open); child >= 0; child = next_non_comment(&tree, child)) {
             if (tree.kind[child] == P_CLOSE) close = child;
         }
         if (close < 0) continue;
         rows[CALLS][calls_n] = i;
-        rows[FUNCTIONS][calls_n] = callee[callee_expr];
-        rows[PACKAGES][calls_n] = package[callee_expr];
+        rows[FUNCTIONS][calls_n] = callee;
+        rows[PACKAGES][calls_n] = package;
         rows[FIRST_ARG][calls_n] = args_n;
         int first = -1, last = -1, name = -1;
         for (int child = next_non_comment(&tree, open); child >= 0; child = next_non_comment(&tree, child)) {
