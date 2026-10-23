@@ -225,7 +225,7 @@ inlay_hint_reply <- function(id, uri, workspace, document, request_range) {
             " and @line1 <= ", end_line,
             " and expr[1][following-sibling::*[not(self::COMMENT)][1]",
             "[self::OP-LEFT-PAREN]] and ",
-            "expr[1]//SYMBOL_FUNCTION_CALL]"
+            "expr[1]/SYMBOL_FUNCTION_CALL]"
         )
     )
     if (!length(calls)) return(Response$new(id, result = list()))
@@ -250,15 +250,15 @@ inlay_hint_reply <- function(id, uri, workspace, document, request_range) {
         callee <- xml_find_first(call_node, "expr[1]")
         member_operator <- xml_find_first(
             callee,
-            ".//*[self::OP-DOLLAR or self::OP-AT]"
+            "./*[self::OP-DOLLAR or self::OP-AT]"
         )
         if (!inherits(member_operator, "xml_missing")) next
 
-        function_node <- xml_find_first(callee, ".//SYMBOL_FUNCTION_CALL[1]")
+        function_node <- xml_find_first(callee, "./SYMBOL_FUNCTION_CALL[1]")
         if (inherits(function_node, "xml_missing")) next
 
         function_name <- xml_text(function_node)
-        package_node <- xml_find_first(callee, ".//SYMBOL_PACKAGE[1]")
+        package_node <- xml_find_first(callee, "./SYMBOL_PACKAGE[1]")
         package <- if (inherits(package_node, "xml_missing")) NULL else xml_text(package_node)
         cache_key <- paste(if (is.null(package)) "" else package, function_name, sep = "::")
         if (exists(cache_key, envir = formals_cache, inherits = FALSE)) {
