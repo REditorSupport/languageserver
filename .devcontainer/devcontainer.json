@@ -4,7 +4,7 @@
         "ghcr.io/rocker-org/devcontainer-features/apt-packages:1": {
             "packages": "libxml2-dev"
         },
-        "ghcr.io/rocker-org/devcontainer-features/r-rig:1": {}
+        "ghcr.io/rocker-org/devcontainer-features/r-rig:2": {}
     },
     "updateContentCommand": {
         "r-tools": "Rscript -e 'pak::local_install_deps(dependencies = c(\"all\", \"Config/Needs/development\"))'"
