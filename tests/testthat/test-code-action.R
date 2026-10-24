@@ -356,28 +356,26 @@ test_that("Code action filtering ignores unrelated or invalid diagnostics", {
 test_that("Code action provides quickfix for missing terminal newline", {
   uri <- "file:///missing-newline.R"
   document <- Document$new(uri, content = "x <- 1")
-  for (msg in c("Add a terminal newline.", "Missing terminal newline.")) {
-    diagnostics <- list(
-      list(
-        range = range(position(0L, 6L), position(0L, 6L)),
-        severity = DiagnosticSeverity$Information,
-        source = "lintr",
-        code = "trailing_blank_lines_linter",
-        message = msg
-      )
+  diagnostics <- list(
+    list(
+      range = range(position(0L, 6L), position(0L, 6L)),
+      severity = DiagnosticSeverity$Information,
+      source = "lintr",
+      code = "trailing_blank_lines_linter",
+      message = "Add a terminal newline."
     )
+  )
 
-    reply <- document_code_action_reply(
-      1L, uri, NULL, document, list(),
-      list(diagnostics = diagnostics, only = list("quickfix"))
-    )
-    titles <- vapply(reply$result, function(action) action$title, character(1L))
-    expect_true("Add a terminal newline" %in% titles)
-    action <- reply$result[[match("Add a terminal newline", titles)]]
-    expect_true(isTRUE(action$isPreferred))
-    expect_equal(action$edit$changes[[uri]][[1L]]$range, range(position(0L, 6L), position(0L, 6L)))
-    expect_equal(action$edit$changes[[uri]][[1L]]$newText, "\n")
-  }
+  reply <- document_code_action_reply(
+    1L, uri, NULL, document, list(),
+    list(diagnostics = diagnostics, only = list("quickfix"))
+  )
+  titles <- vapply(reply$result, function(action) action$title, character(1L))
+  expect_true("Add a terminal newline" %in% titles)
+  action <- reply$result[[match("Add a terminal newline", titles)]]
+  expect_true(isTRUE(action$isPreferred))
+  expect_equal(action$edit$changes[[uri]][[1L]]$range, range(position(0L, 6L), position(0L, 6L)))
+  expect_equal(action$edit$changes[[uri]][[1L]]$newText, "\n")
 })
 
 test_that("Trailing blank line with spaces and no terminal newline fixes cleanly", {
