@@ -1,7 +1,18 @@
+s3_fixture_catalogs <- local({
+    cached <- list()
+    function(packages) {
+        for (package in setdiff(packages, names(cached))) {
+            cached[[package]] <<- s3_prepare_namespace(package)
+        }
+        cached[packages]
+    }
+})
+
 s3_fixture <- function(lines, packages = startup_packages) {
     fixture <- provider_fixture(lines)
     fixture$workspace$s3_metadata <- S3MetadataCache$new()
-    for (package in packages) fixture$workspace$s3_metadata$set(package, s3_prepare_namespace(package))
+    catalogs <- s3_fixture_catalogs(packages)
+    for (package in packages) fixture$workspace$s3_metadata$set(package, catalogs[[package]])
     fixture$workspace$get_documentation <- function(...) NULL
     fixture$workspace$get_signature <- function(...) NULL
     fixture$workspace$get_help <- function(...) NULL

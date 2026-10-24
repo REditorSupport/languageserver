@@ -1078,7 +1078,8 @@ workspace_startup_s3 <- local({
         if (!is.null(cached)) return(cached)
         packages <- workspace_startup_packages()
         cached <<- tryCatch(callr::r(package_call(s3_prepare_packages), args = list(packages),
-                system_profile = FALSE, user_profile = FALSE, timeout = 8),
+                system_profile = FALSE, user_profile = FALSE,
+                timeout = if (identical(Sys.getenv("R_COVR"), "true")) 60 else 8),
             error = function(e) {
                 logger$info("S3 startup metadata:", e)
                 list()

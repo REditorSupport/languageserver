@@ -1,3 +1,5 @@
+index_cache_version <- 2L
+
 #' Convert a workspace-index glob to a regular expression
 #' @noRd
 index_glob_regex <- function(pattern) {
@@ -769,7 +771,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             cache_file <- self$cache_file()
             if (is.null(cache_file) || !file.exists(cache_file)) return(NULL)
             cached <- tryCatch(readRDS(cache_file), error = function(e) NULL)
-            if (!is.list(cached) || !identical(cached$version, 2L) ||
+            if (!is.list(cached) || !identical(cached$version, index_cache_version) ||
                     !identical(cached$root, self$root) ||
                     !is.list(cached$summaries)) return(NULL)
             for (summary in cached$summaries) {
@@ -793,7 +795,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             temp_file <- tempfile("index-", tmpdir = dirname(cache_file))
             on.exit(unlink(temp_file), add = TRUE)
             value <- list(
-                version = 2L,
+                version = index_cache_version,
                 root = self$root,
                 summaries = unname(Filter(function(summary) {
                     !identical(summary$cacheable, FALSE)
