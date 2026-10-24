@@ -34,6 +34,7 @@ s3_arguments <- function(result, token) {
             args <- union(args, result$matched_parameters[[length(result$actuals)]])
         }
     }
+    if (!is.null(result$argument_names)) args <- intersect(args, result$argument_names)
     args <- args[match_with(args, token)]
     lapply(seq_along(args), function(i) {
         list(

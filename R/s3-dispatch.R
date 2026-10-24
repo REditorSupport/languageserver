@@ -538,27 +538,30 @@ resolve_s3_call <- function(uri, workspace, document, point, hover = FALSE) {
     if (is.null(method)) {
         return(NULL)
     }
-    if (!all(setdiff(names(generic_formals), "...") %in% names(method$formals))) {
-        return(NULL)
-    }
+    # Methods can omit generic formals. Validate the supplied arguments
+    # against the selected method, including arguments accepted by dots.
     method_matched <- s3_match_arguments(method$formals, actuals)
     if (is.null(method_matched)) {
         return(NULL)
     }
     formals <- method$formals
-    # A method-only formal is accepted only if the generic can forward it.
+    argument_names <- names(formals)
+    # A closed generic can forward renamed positional parameters, but only
+    # its own formal names can be offered as named argument completions.
     if (!"..." %in% names(generic_formals)) {
-        formals <- as.pairlist(formals[intersect(
-            names(formals),
-            names(generic_formals)
-        )])
+        argument_names <- intersect(names(formals), names(generic_formals))
+        dots <- match("...", names(formals))
+        positional <- if (is.na(dots)) names(formals) else names(formals)[seq_len(dots - 1L)]
+        forwarded <- utils::head(positional, length(generic_formals))
+        if (!is.na(dots) && length(generic_formals) > length(positional)) forwarded <- c(forwarded, "...")
+        formals <- as.pairlist(formals[names(formals) %in% union(argument_names, forwarded)])
     }
     signature <- get_signature(
         quote_completion_name(location$call$token),
         as.call(list(as.name("function"), formals, NULL))
     )
     result <- list(
-        signature = signature, formals = as.list(formals), method = method,
+        signature = signature, formals = as.list(formals), argument_names = argument_names, method = method,
         generic = descriptor$name, generic_package = if (owner == "source") NULL else owner,
         classes = input$classes, supplied = unique(names(method$formals)[method_matched[!vapply(
             actuals,

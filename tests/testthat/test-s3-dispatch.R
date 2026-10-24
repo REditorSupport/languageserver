@@ -75,6 +75,58 @@ test_that("S3 namespace methods and dataset metadata work without evaluation", {
     expect_identical(s3_result(fixture)$method$name, "predict.lm")
 })
 
+test_that("S3 plotting methods can omit generic formals", {
+    for (code in c(
+        "plot(lm(mpg ~ wt, data=mtcars), )",
+        "graphics::plot(stats::lm(mpg ~ wt, data=mtcars), )",
+        "graphics::plot(stats::lm(mpg ~ wt, data=mtcars), y=NULL, )"
+    )) {
+        fixture <- s3_fixture(code)
+        result <- s3_result(fixture)
+        expect_identical(result$classes, "lm", info = code)
+        expect_identical(result$method$name, "plot.lm", info = code)
+        labels <- vapply(s3_arguments(result, ""), `[[`, "", "label")
+        expect_true("which" %in% labels, info = code)
+        expect_false("y" %in% labels, info = code)
+        point <- list(row = 0L, col = nchar(code) - 1L)
+        signature <- signature_reply(1L, fixture$uri, fixture$workspace, fixture$document, point)$result
+        expect_match(signature$signatures[[1L]]$label, "^plot\\(x, which = ")
+        point$col <- regexpr("plot", code)[[1L]] - 1L
+        hover <- hover_reply(1L, fixture$uri, fixture$workspace, fixture$document, point)$result
+        expect_match(paste(hover$contents, collapse = " "), "plot.lm", fixed = TRUE)
+    }
+})
+
+test_that("S3 re-exports retain ownership and respect active bindings", {
+    catalog <- s3_fixture_catalogs("graphics")$graphics
+    owner <- unname(getNamespaceName(environment(graphics::plot)))
+    expect_identical(catalog$functions$plot$owner, owner)
+    expect_identical(catalog$functions$plot$package, "graphics")
+    imports <- new.env(parent = asNamespace("base"))
+    ns <- new.env(parent = imports)
+    for (scope in list(ns, imports)) {
+        makeActiveBinding("plot", function() stop("must not execute"), scope)
+        expect_identical(s3_namespace_binding(ns, "plot")[[1L]], "active")
+        rm("plot", envir = scope)
+    }
+})
+
+test_that("S3 methods validate supplied arguments independently of generic formals", {
+    base <- c(
+        "g <- function(x, y=NULL, ...) UseMethod('g')",
+        "g.numeric <- function(x, digits=3) NULL"
+    )
+    for (call in c("g(1)", "g(1, digits=4)", "g(x=1, dig=4)")) {
+        expect_identical(s3_result(s3_fixture(c(base, call)))$method$name, "g.numeric", info = call)
+    }
+    for (call in c("g(1, y=2)", "g(1, unknown=2)", "g(1, digits=2, digits=3)", "g(1, 2, 3)")) {
+        expect_null(s3_result(s3_fixture(c(base, call))), info = call)
+    }
+    base <- c("g <- function(x, y=NULL) UseMethod('g')", "g.numeric <- function(x) NULL")
+    expect_identical(s3_result(s3_fixture(c(base, "g(1)")))$method$name, "g.numeric")
+    expect_null(s3_result(s3_fixture(c(base, "g(1, y=2)"))))
+})
+
 test_that("S3 startup catalogs are collected in a clean worker", {
     catalogs <- callr::r(package_call(s3_prepare_packages), args = list(startup_packages),
         system_profile = FALSE, user_profile = FALSE)
@@ -173,7 +225,21 @@ test_that("S3 method-only arguments respect a closed generic interface", {
     fixture <- s3_fixture(c("g <- function(x) UseMethod('g')", "g.numeric <- function(x, digits=3) NULL", "g(1,digits=2)"))
     expect_null(s3_result(fixture))
     fixture <- s3_fixture(c("g <- function(x, ...) UseMethod('g')", "g.numeric <- function(other, digits=3) NULL", "g(1)"))
+    result <- s3_result(fixture)
+    expect_identical(result$signature, "g(other, digits = 3)")
+    expect_identical(vapply(s3_arguments(result, ""), `[[`, "", "label"), "digits")
+    fixture <- s3_fixture(c("g <- function(x, ...) UseMethod('g')", "g.numeric <- function(other, digits=3) NULL", "g(x=1)"))
     expect_null(s3_result(fixture))
+    fixture <- s3_fixture(c("g <- function(x) UseMethod('g')", "g.numeric <- function(other, digits=3) NULL", "g(1)"))
+    result <- s3_result(fixture)
+    expect_identical(result$signature, "g(other)")
+    expect_length(s3_arguments(result, ""), 0L)
+    for (call in c("g(1)", "g(1, 2)", "g(1, dig)")) {
+        fixture <- s3_fixture(c("g <- function(x, y=NULL) UseMethod('g')", "g.numeric <- function(other, digits=3) NULL", call))
+        result <- s3_result(fixture)
+        expect_identical(result$signature, "g(other, digits = 3)", info = call)
+        expect_length(s3_arguments(result, if (grepl("dig", call)) "dig" else ""), 0L)
+    }
 })
 
 test_that("S3 missing metadata cannot prove that only a default method applies", {

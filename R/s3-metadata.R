@@ -300,11 +300,16 @@ s3_prepare_packages <- function(packages) {
 }
 
 s3_namespace_binding <- function(ns, name) {
-    binding <- member_binding(ns, name, materialize = TRUE)
-    if (!identical(binding[[1L]], "value") && !identical(ns, asNamespace("base"))) {
-        binding <- member_binding(parent.env(ns), name, materialize = TRUE)
+    # Re-exports can resolve through the imports environment into base.
+    # Stop at an existing binding so active bindings never expose a fallback.
+    base <- asNamespace("base")
+    scopes <- if (identical(ns, base)) list(ns) else list(ns, parent.env(ns), base)
+    for (scope in scopes) {
+        if (exists(name, scope, inherits = FALSE)) {
+            return(member_binding(scope, name, materialize = TRUE))
+        }
     }
-    binding
+    member_binding(ns, name, materialize = TRUE)
 }
 
 s3_function_identity <- function(fn, owner = "local") {
