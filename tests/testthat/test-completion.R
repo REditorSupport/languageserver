@@ -21,7 +21,10 @@ test_that("Simple completion works", {
 
     client %>% did_open(temp_file)
 
-    result <- client %>% respond_completion(temp_file, c(0, 3))
+    # The first request also waits for cold parse and namespace workers.
+    # Instrumented workers can take more than 30 seconds on a shared runner.
+    timeout <- if (identical(Sys.getenv("R_COVR"), "true")) 60 else 10
+    result <- client %>% respond_completion(temp_file, c(0, 3), timeout = timeout)
 
     expect_length(result$items %>% keep(~.$label == "strsplit"), 1)
     expect_length(result$items %>% keep(~.$label == "strrep"), 1)
