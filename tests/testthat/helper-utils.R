@@ -123,8 +123,9 @@ respond <- function(client, method, params, timeout, allow_error = FALSE,
     retry = TRUE, retry_when = function(result) length(result) == 0) {
     if (missing(timeout)) {
         if (Sys.getenv("R_COVR", "") == "true") {
-            # we give more time to covr
-            timeout <- 30
+            # Instrumented parse and metadata workers can exceed 30 seconds
+            # when several test processes start them on a shared runner.
+            timeout <- 60
         } else {
             timeout <- 10
         }
