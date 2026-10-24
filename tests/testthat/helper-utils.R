@@ -501,7 +501,7 @@ respond_semantic_tokens_range <- function(client, path, start_pos, end_pos, ...,
     )
 }
 
-wait_for <- function(client, method, timeout = 30) {
+wait_for <- function(client, method, timeout = 30, uri = NULL) {
     if (missing(timeout) && identical(Sys.getenv("R_COVR"), "true")) {
         # Diagnostics now wait for parsing. Coverage adds overhead to both
         # workers, especially when several test processes start them together.
@@ -516,7 +516,7 @@ wait_for <- function(client, method, timeout = 30) {
         client$notification_handlers[[method]] <- original_handler
     })
     client$notification_handlers[[method]] <- function(self, params) {
-        storage$params <- params
+        if (is.null(uri) || identical(params$uri, uri)) storage$params <- params
         original_handler(self, params)
     }
 
