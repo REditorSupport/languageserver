@@ -375,6 +375,7 @@ TaskManager <- R6::R6Class("TaskManager",
             self$cancel(id)
             if (!is.null(task)) private$pending_tasks$set(id, task)
         },
+        has = function(id) private$pending_tasks$has(id) || private$running_tasks$has(id),
         promote = function(id) {
             if (private$pending_tasks$has(id)) {
                 task <- private$pending_tasks$get(id)

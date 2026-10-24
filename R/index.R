@@ -1,3 +1,5 @@
+index_cache_version <- 2L
+
 #' Convert a workspace-index glob to a regular expression
 #' @noRd
 index_glob_regex <- function(pattern) {
@@ -290,6 +292,7 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
         content_hash = get_content_hash(content),
         definitions = definitions,
         functions = functions,
+        s3 = s3_index_summary(content, path_to_uri(path), expressions, parse_data),
         sources = sources,
         source_candidates = source_candidates,
         source_candidate_exists = source_candidate_exists,
@@ -768,7 +771,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             cache_file <- self$cache_file()
             if (is.null(cache_file) || !file.exists(cache_file)) return(NULL)
             cached <- tryCatch(readRDS(cache_file), error = function(e) NULL)
-            if (!is.list(cached) || !identical(cached$version, 1L) ||
+            if (!is.list(cached) || !identical(cached$version, index_cache_version) ||
                     !identical(cached$root, self$root) ||
                     !is.list(cached$summaries)) return(NULL)
             for (summary in cached$summaries) {
@@ -792,7 +795,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             temp_file <- tempfile("index-", tmpdir = dirname(cache_file))
             on.exit(unlink(temp_file), add = TRUE)
             value <- list(
-                version = 1L,
+                version = index_cache_version,
                 root = self$root,
                 summaries = unname(Filter(function(summary) {
                     !identical(summary$cacheable, FALSE)
@@ -925,7 +928,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             previous <- self$summaries$get(uri, NULL)
             if (private$awaiting_parses$has(uri)) summary$cacheable <- private$awaiting_parses$get(uri)
             if (isTRUE(summary$parse_error) && !is.null(previous)) {
-                for (field in c("definitions", "functions", "sources",
+                for (field in c("definitions", "functions", "s3", "sources",
                         "source_candidates", "source_candidate_exists")) {
                     summary[[field]] <- previous[[field]]
                 }
@@ -1007,6 +1010,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                 previous <- self$summaries$get(uri)
                 summary$definitions <- previous$definitions
                 summary$functions <- previous$functions
+                summary$s3 <- previous$s3
                 summary$sources <- previous$sources
                 summary$source_candidates <- previous$source_candidates
                 summary$source_candidate_exists <-

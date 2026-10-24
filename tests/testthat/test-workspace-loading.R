@@ -89,7 +89,7 @@ test_that("background discovery streams caches in bounded batches and honors set
         index_shallow_summary(path, stringi::stri_read_lines(path), root)
     })
     cache <- file.path(root, "cache.rds")
-    saveRDS(list(version = 1L, root = index_normalize_path(root), summaries = cached), cache)
+    saveRDS(list(version = index_cache_version, root = index_normalize_path(root), summaries = cached), cache)
     index <- WorkspaceIndex$new(root)
     unlockBinding("cache_file", index)
     index$cache_file <- function() cache
@@ -123,6 +123,10 @@ test_that("background discovery streams caches in bounded batches and honors set
         if (!index$cache_dirty) break
     }
     expect_equal(length(readRDS(cache)$summaries), 5L)
+    reloaded <- WorkspaceIndex$new(root, cache_path = cache)
+    reloaded$discover()
+    expect_equal(reloaded$summaries$size(), 5L)
+    expect_length(reloaded$pending, 0L)
 
     lsp_settings$set("index_max_files", 2L)
     index$discover()
@@ -240,7 +244,7 @@ test_that("cached source edges are revalidated after the discovery worker return
     writeLines("source('helper.R')", main)
     summary <- index_shallow_summary(main, "source('helper.R')", root)
     cache <- file.path(root, "cache.rds")
-    saveRDS(list(version = 1L, root = root, summaries = list(summary)), cache)
+    saveRDS(list(version = index_cache_version, root = root, summaries = list(summary)), cache)
     index <- WorkspaceIndex$new(root)
     unlockBinding("cache_file", index)
     index$cache_file <- function() cache

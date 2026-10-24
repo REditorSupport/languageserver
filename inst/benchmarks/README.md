@@ -33,6 +33,17 @@ cross-package inference. These timings include the first restore and remain
 machine-dependent; the regression tests assert cache behavior without timing
 thresholds.
 
+## S3 dispatch
+
+Run `R_LIBS=/path/to/library Rscript inst/benchmarks/s3-dispatch.R results.csv 2000`.
+An optional third argument adds comma-separated installed packages, for example
+`datawizard,tibble`. The script checks the selected methods, measures cold
+resolution and warm completion, hover and signature help in a large document,
+and compares ordinary requests with S3 enabled and disabled. It also reports
+workspace startup, metadata worker time and retained cache bytes. Five timing
+batches capture timer noise; these are local measurements, without timing
+assertions in the regression suite.
+
 ## Design and implementation
 
 1. **Remove repeated parse-tree scans.** Native parent/child indexes classify

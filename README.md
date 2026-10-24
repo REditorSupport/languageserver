@@ -184,6 +184,31 @@ is not synchronized across aliases or the saved receivers for `private` and
 completion on `alias$data$` may still use the earlier `data` value. The same
 can occur when a private or superclass method returns `self$data`.
 
+## S3 method information
+
+Argument completion, hover and signature help select an ordinary S3 method when
+the input object's dispatch classes can be inferred from source or package
+metadata. This includes literal classes, aliases, simple source factories,
+package datasets and guarded constructor summaries such as `data.frame()` and
+`lm()`. Namespace-qualified and piped calls use the same resolver.
+
+For example, `summary(iris, ...)` uses `summary.data.frame`, while
+`predict(lm(mpg ~ wt, data = mtcars), ...)` uses `predict.lm`. Method-specific
+argument names, literal argument choices and parameter documentation are shown
+without executing document code, constructors, methods or defaults. See
+[the demo script](inst/examples/s3-dispatch.R).
+
+With datawizard installed, `datawizard::rescale(iris, ...)` uses its registered
+`rescale.data.frame` method and offers arguments such as `select`, `exclude`
+and `append` before the document is executed.
+
+Unknown or ambiguous classes retain the generic's information. Dynamic method
+registration, opaque reflection and unsupported constructor transformations
+also retain the generic fallback. Group/internal generics and additional
+parameters forwarded through sophisticated `NextMethod()` chains are outside
+this inference path. A method's extra arguments are offered only when the
+generic can accept them.
+
 ## Settings
 
 `languageserver` exposes the following settings via LSP configuration.
@@ -198,6 +223,7 @@ settings | default | description
 `r.lsp.rich_documentation` | `true` | rich documentation with enhanced markdown features
 `r.lsp.snippet_support` | `true` | enable snippets in auto completion
 `r.lsp.max_completions` | 200 | maximum number of completion items
+`r.lsp.s3_dispatch` | `true` | use static S3 dispatch for argument completion, hover and signature help, independently of member completion
 `r.lsp.member_completion` | `true` | infer `$` members and S4 `@` slots for completion, signature help and hover from document syntax and cached package metadata without executing document code
 `r.lsp.lint_cache` | `false` | toggle caching of lint results
 `r.lsp.parse_delay` | `0.15` | seconds to debounce parsing after an edit

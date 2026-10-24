@@ -32,10 +32,16 @@ text_document_completion  <- function(self, id, params) {
     document <- workspace$documents$get(uri, NULL)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     point <- document$from_lsp_position(params$position)
+    if (identical(document$version, document$parse_data$version) &&
+            s3_metadata_waiting(self, uri, document, point, hover = FALSE)) {
+        enqueue_latest_reply(self, uri, "textDocument/completion", list(id = id, version = document$version, params = params))
+        if (is.function(self$resolve_task_manager$promote)) self$resolve_task_manager$promote(uri)
+        return(invisible(NULL))
+    }
     # didChange schedules a debounced background parse. Scope and member
     # completion need current syntax; an immediate reply would omit new
     # context bindings and leave the client with that list until retriggered.
-    if (isTRUE(lsp_settings$get("member_completion")) &&
+    if ((isTRUE(lsp_settings$get("member_completion")) || isTRUE(lsp_settings$get("s3_dispatch"))) &&
         !identical(document$version, document$parse_data$version) &&
         !member_ordinary_request(workspace, document) &&
         ((check_scope(uri, document, point) &&
@@ -78,7 +84,13 @@ text_document_hover  <- function(self, id, params) {
     document <- workspace$documents$get(uri, NULL)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     point <- document$from_lsp_position(params$position)
-    if (isTRUE(lsp_settings$get("member_completion")) &&
+    if (identical(document$version, document$parse_data$version) &&
+            s3_metadata_waiting(self, uri, document, point, hover = TRUE)) {
+        enqueue_latest_reply(self, uri, "textDocument/hover", list(id = id, version = document$version, params = params))
+        if (is.function(self$resolve_task_manager$promote)) self$resolve_task_manager$promote(uri)
+        return(invisible(NULL))
+    }
+    if ((isTRUE(lsp_settings$get("member_completion")) || isTRUE(lsp_settings$get("s3_dispatch"))) &&
         !identical(document$version, document$parse_data$version) &&
         (!is.null(member_hover_location(document, point)) ||
                     !is.null(member_argument_location(document, point, symbols = TRUE)) ||
@@ -103,7 +115,13 @@ text_document_signature_help  <- function(self, id, params) {
     document <- workspace$documents$get(uri, NULL)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     point <- document$from_lsp_position(params$position)
-    if (isTRUE(lsp_settings$get("member_completion")) &&
+    if (identical(document$version, document$parse_data$version) &&
+            s3_metadata_waiting(self, uri, document, point, hover = FALSE)) {
+        enqueue_latest_reply(self, uri, "textDocument/signatureHelp", list(id = id, version = document$version, params = params))
+        if (is.function(self$resolve_task_manager$promote)) self$resolve_task_manager$promote(uri)
+        return(invisible(NULL))
+    }
+    if ((isTRUE(lsp_settings$get("member_completion")) || isTRUE(lsp_settings$get("s3_dispatch"))) &&
         !identical(document$version, document$parse_data$version) &&
         !is.null(member_call_location(document, point, symbols = TRUE))) {
         enqueue_latest_reply(self, uri, "textDocument/signatureHelp", list(

@@ -79,6 +79,8 @@ detect_active_parameter <- function(content, start_row, start_col,
 signature_reply <- function(id, uri, workspace, document, point) {
 
     if (!check_scope(uri, document, point)) {
+        s3 <- tryCatch(resolve_s3_call(uri, workspace, document, point), error = function(e) NULL)
+        if (!is.null(s3)) return(s3_signature_reply(id, workspace, document, point, s3))
         return(Response$new(id, list(signatures = NULL)))
     }
 
@@ -112,6 +114,13 @@ signature_reply <- function(id, uri, workspace, document, point) {
             )))
         }
     }
+
+    s3 <- tryCatch(resolve_s3_call(uri, workspace, document, point),
+        error = function(e) {
+            logger$info("S3 signature:", e)
+            NULL
+        })
+    if (!is.null(s3)) return(s3_signature_reply(id, workspace, document, point, s3))
 
     SignatureInformation <- list()
     activeSignature <- NULL

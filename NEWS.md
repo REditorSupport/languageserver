@@ -1,5 +1,13 @@
 # languageserver 0.3.20
 
+- Resolve ordinary S3 methods from statically inferred input classes for
+  argument completion, argument-value suggestions, hover and signature help
+  (#805). Share method identity and documentation across providers; support
+  source aliases, registered namespace methods, datasets, guarded constructors,
+  namespace-qualified calls and pipes. Preserve generic information when the
+  input or dispatch is uncertain, and allow S3 inference to be disabled with
+  `r.lsp.s3_dispatch` independently of member completion.
+
 - Select the correct active signature parameter and parameter-name inlay hints
   in native and magrittr piped calls (including `%T>%`), accounting for the
   implicit first argument and explicit native `_` or magrittr `.` placeholders.

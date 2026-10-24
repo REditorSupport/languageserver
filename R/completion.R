@@ -1152,6 +1152,8 @@ completion_has_call_parens <- function(document, token_result) {
 #' @noRd
 completion_reply <- function(id, uri, workspace, document, point, capabilities) {
     if (!check_scope(uri, document, point) && is.null(member_cursor(document, point))) {
+        quoted <- if (isTRUE(lsp_settings$get("s3_dispatch")) && check_r_region(document, point)) s3_quoted_values(workspace, document, point)
+        if (!is.null(quoted)) return(Response$new(id, result = list(isIncomplete = FALSE, items = unname(quoted))))
         return(Response$new(
             id,
             result = list(
@@ -1213,12 +1215,17 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
             constructor_args <- if (isTRUE(lsp_settings$get("member_completion"))) {
                 member_constructor_arguments(uri, workspace, document, point, token, call_result)
             }
+            s3 <- if (is.null(constructor_args)) tryCatch(resolve_s3_call(uri, workspace, document, point),
+                error = function(e) {
+                    logger$info("S3 completion:", e)
+                    NULL
+                })
             completions <- c(
                 completions,
-                if (!is.null(constructor_args)) constructor_args else if (nzchar(call_result$token)) arg_completion(uri, workspace, point, token,
+                if (!is.null(s3)) s3_arguments(s3, token) else if (!is.null(constructor_args)) constructor_args else if (nzchar(call_result$token)) arg_completion(uri, workspace, point, token,
                     call_result$token, call_result$package,
                     exported_only = call_result$accessor != ":::"),
-                if (is.null(constructor_args) && nzchar(call_result$token)) arg_value_completion(uri, workspace, document, point, token,
+                if (!is.null(s3)) s3_argument_values(s3, token) else if (is.null(constructor_args) && nzchar(call_result$token)) arg_value_completion(uri, workspace, document, point, token,
                     call_result$token, call_result$package,
                     exported_only = call_result$accessor != ":::"))
         }
@@ -1295,7 +1302,10 @@ completion_item_resolve_reply <- function(id, workspace, params, capabilities) {
     resolved <- FALSE
     if (is.null(params$data) || is.null(params$data$type)) {
     } else {
-        if (params$data$type == "member") {
+        if (params$data$type == "s3_parameter") {
+            params <- s3_resolve_parameter(workspace, params)
+            resolved <- TRUE
+        } else if (params$data$type == "member") {
             if (isTRUE(capabilities$completionItem$labelDetailsSupport) &&
                     !is.null(params$data$signature) && is.null(params$data$parameter)) params$labelDetails <- list(
                 detail = substring(params$data$signature, nchar(params$label) + 1L))

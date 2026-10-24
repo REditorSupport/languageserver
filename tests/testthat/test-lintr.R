@@ -74,11 +74,13 @@ test_that("lintr config file works", {
 
     client <- language_client(working_dir = dir, diagnostics = TRUE)
 
+    # Older open files can publish diagnostics after configuration changes.
+    # Wait for the newly opened document at each configuration step below.
     temp_file <- withr::local_tempfile(tmpdir = dir, fileext = ".R")
     writeLines(c("a=1", ""), temp_file)
 
     client %>% did_open(temp_file)
-    data <- client %>% wait_for("textDocument/publishDiagnostics")
+    data <- client %>% wait_for("textDocument/publishDiagnostics", uri = path_to_uri(temp_file))
 
     expect_equal(client$diagnostics$size(), 1)
     expect_equal(client$diagnostics$get(data$uri), data$diagnostics)
@@ -93,7 +95,7 @@ test_that("lintr config file works", {
     writeLines(c("a=1", ""), temp_file)
 
     client %>% did_open(temp_file)
-    data <- client %>% wait_for("textDocument/publishDiagnostics")
+    data <- client %>% wait_for("textDocument/publishDiagnostics", uri = path_to_uri(temp_file))
 
     expect_equal(client$diagnostics$size(), 2)
     expect_equal(client$diagnostics$get(data$uri), data$diagnostics)
@@ -107,7 +109,7 @@ test_that("lintr config file works", {
     writeLines("a=1", temp_file)
 
     client %>% did_open(temp_file)
-    data <- client %>% wait_for("textDocument/publishDiagnostics")
+    data <- client %>% wait_for("textDocument/publishDiagnostics", uri = path_to_uri(temp_file))
 
     expect_equal(client$diagnostics$size(), 3)
     expect_equal(client$diagnostics$get(data$uri), data$diagnostics)

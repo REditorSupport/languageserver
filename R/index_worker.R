@@ -102,7 +102,7 @@ index_worker_batch <- function(key, root, updates, requests, bootstrap = FALSE,
         dir.create(dirname(cache_file), recursive = TRUE, showWarnings = FALSE)
         temp_file <- tempfile("index-", tmpdir = dirname(cache_file))
         saved <- tryCatch({
-            suppressWarnings(saveRDS(list(version = 1L, root = root,
+            suppressWarnings(saveRDS(list(version = index_cache_version, root = root,
                         summaries = unname(as.list(state))), temp_file))
             TRUE
         }, error = function(e) FALSE)
