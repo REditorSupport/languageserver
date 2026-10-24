@@ -136,7 +136,8 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL) {
     source_bytes <- if (complete) member_compact_source(parsed, parts) else 0
     list(items = items, bindings = as.list(bindings), imports = imports, effects = effects, s4 = s4,
         source_bytes = source_bytes,
-        packages = packages, class_scope = class_scope, symbol_scope = symbol_scope)
+        packages = packages, class_scope = class_scope, symbol_scope = symbol_scope,
+        s3 = s3_source_index(items))
 }
 
 # Complete valid ordinary scopes from their source index. Class analysis is

@@ -64,7 +64,22 @@ workspace_did_change_configuration <- function(self, params) {
         "index_max_files", "index_max_file_size_mb", "index_batch_size",
         "index_time_budget_ms", "index_persistent_cache"
     ))
+    previous_s3 <- isTRUE(lsp_settings$get("s3_dispatch"))
     lsp_settings$update_from_workspace(settings)
+
+    if (!previous_s3 && isTRUE(lsp_settings$get("s3_dispatch")) &&
+            !is.null(self$resolve_task_manager)) {
+        for (workspace in self$workspaces$values()) {
+            for (document in workspace$documents$values()) {
+                parsed <- document$parse_data
+                if (!identical(document$version, parsed$version) || isTRUE(parsed$parse_error)) next
+                document$requested_packages <- member_package_request(parsed)
+                self$resolve_task_manager$add_task(document$uri,
+                    resolve_task(self, document$uri, document, document$requested_packages$packages,
+                        namespace_packages = document$requested_packages$namespace_packages))
+            }
+        }
+    }
 
     if (length(index_settings)) {
         for (workspace in self$workspaces$values()) {

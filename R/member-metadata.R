@@ -402,7 +402,7 @@ member_prepare_package <- function(package, lib_paths = .libPaths()) {
     member_index_freeze(index)
 }
 
-member_resolve_packages <- function(pkgs, lib_paths, prepare = TRUE, namespace_packages = character()) {
+member_resolve_packages <- function(pkgs, lib_paths, prepare = TRUE, namespace_packages = character(), prepare_s3 = TRUE) {
     .libPaths(lib_paths)
     packages <- resolve_attached_packages(pkgs)
     snapshots <- list()
@@ -420,6 +420,7 @@ member_resolve_packages <- function(pkgs, lib_paths, prepare = TRUE, namespace_p
     }
     list(
         packages = packages, members = snapshots,
+        s3 = if (isTRUE(prepare_s3)) s3_prepare_packages(unique(c(packages, namespace_packages))) else NULL,
         requested = list(packages = normalize_package_request(pkgs),
             namespace_packages = normalize_package_request(unique(namespace_packages)))
     )

@@ -67,6 +67,15 @@ hover_reply <- function(id, uri, workspace, document, point) {
         return(Response$new(id))
     }
 
+    s3 <- tryCatch(resolve_s3_call(uri, workspace, document, point, hover = TRUE),
+        error = function(e) {
+            logger$info("S3 hover:", e)
+            NULL
+        })
+    if (!is.null(s3)) {
+        reply <- s3_hover_reply(id, workspace, document, point, s3)
+        if (!is.null(reply)) return(reply)
+    }
     token_result <- document$detect_token(point)
     range <- token_result$range
 

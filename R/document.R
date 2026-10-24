@@ -19,6 +19,8 @@ Document <- R6::R6Class(
         requested_packages = NULL,
         member_refresh = FALSE,
         member_receivers = NULL,
+        s3_calls = NULL,
+        s3_identity = NULL,
         member_revision = NULL,
         member_ordinary_edit = FALSE,
         pending_diagnostics = FALSE,
@@ -32,6 +34,7 @@ Document <- R6::R6Class(
             self$version <- version
             self$is_rmarkdown <- is_rmarkdown(uri, language)
             self$member_receivers <- ByteLruCache$new(4 * 1024^2, max_entries = 32L)
+            self$s3_calls <- ByteLruCache$new(1 * 1024^2, max_entries = 32L)
             self$set_content(version, content)
             self$loaded_packages <- character()
             self$requested_packages <- NULL
@@ -47,6 +50,7 @@ Document <- R6::R6Class(
 
         set_content = function(version, content, change = NULL) {
             self$member_receivers$clear()
+            self$s3_calls$clear()
             current <- identical(self$version, self$parse_data$version) || isTRUE(self$member_ordinary_edit)
             # A standalone identifier changes no declaration, call, delimiter
             # or lexical scope. Full replacements and all structural edits
@@ -134,6 +138,7 @@ Document <- R6::R6Class(
 
         update_parse_data = function(parse_data) {
             self$member_receivers$clear()
+            self$s3_calls$clear()
             self$member_ordinary_edit <- FALSE
             self$parse_data <- parse_data
             self$parsed_content <- self$content
@@ -837,7 +842,12 @@ drain_pending_replies <- function(self, uri, version, max_replies = Inf, first =
         is.null(version) || is.null(item$version) || item$version <= version
     }
     repeat {
-        available <- which(vapply(queues, eligible, logical(1L)))
+        ready <- vapply(queues, eligible, logical(1L))
+        document <- if (is.function(self$get_workspace)) self$get_workspace(uri)$documents$get(uri, NULL)
+        if (!is.null(document) && s3_metadata_waiting(self, uri, document)) {
+            ready[names(queues) %in% c("textDocument/completion", "textDocument/hover", "textDocument/signatureHelp")] <- FALSE
+        }
+        available <- which(ready)
         if (!length(available) || processed >= max_replies) break
         after <- available[available >= first]
         selected <- if (length(after)) after[[1L]] else available[[1L]]
@@ -854,7 +864,7 @@ drain_pending_replies <- function(self, uri, version, max_replies = Inf, first =
         }
         processed <- processed + 1L
     }
-    list(processed = processed, ready = any(vapply(queues, eligible, logical(1L))), first = first)
+    list(processed = processed, ready = any(ready), first = first)
 }
 
 parse_task <- function(self, uri, document, delay = 0, retry = TRUE) {
@@ -972,6 +982,9 @@ resolve_callback <- function(self, uri, version, packages) {
                 }
             }
         }
+        if (!is.null(packages$s3) && !is.null(workspace$s3_metadata)) {
+            for (package in names(packages$s3)) workspace$s3_metadata$set(package, packages$s3[[package]], protect)
+        }
         packages <- packages$packages
     }
     logger$info("resolve_callback called:", list(uri = uri, version = version))
@@ -979,6 +992,7 @@ resolve_callback <- function(self, uri, version, packages) {
     doc <- workspace$documents$get(uri)
     doc$loaded_packages <- packages
     workspace$update_loaded_packages()
+    s3_queue_ready(self, uri)
 }
 
 resolve_task <- function(self, uri, document, packages, delay = 0, namespace_packages = character()) {
@@ -989,9 +1003,16 @@ resolve_task <- function(self, uri, document, packages, delay = 0, namespace_pac
     create_task(
         target = package_call(member_resolve_packages),
         args = list(pkgs = packages, lib_paths = .libPaths(), namespace_packages = namespace_packages,
-            prepare = isTRUE(lsp_settings$get("member_completion"))),
+            prepare = isTRUE(lsp_settings$get("member_completion")),
+            prepare_s3 = isTRUE(lsp_settings$get("s3_dispatch"))),
         callback = function(result) resolve_callback(self, uri, version, result),
-        error = function(e) logger$info("resolve_task:", e),
+        error = function(e) {
+            logger$info("resolve_task:", e)
+            workspace <- self$get_workspace(uri)
+            for (package in unique(c(startup_packages, packages, namespace_packages))) workspace$s3_metadata$set(package,
+                list(schema = 1L, package = package, generation = "", functions = list(), objects = list(), methods = list(), dependencies = character(), error = conditionMessage(e)))
+            s3_queue_ready(self, uri)
+        },
         delay = delay,
         profiles = FALSE
     )

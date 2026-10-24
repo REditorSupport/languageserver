@@ -357,6 +357,10 @@ Workspace <- R6::R6Class("Workspace",
         diagnostics_globals_cache = NULL,
         type_hierarchy_cache = NULL,
         member_metadata = NULL,
+        s3_metadata = NULL,
+        s3_revision = 0L,
+        s3_source_names = NULL,
+        s3_index_revision = NULL,
 
         initialize = function(root) {
             self$root <- root
@@ -392,6 +396,10 @@ Workspace <- R6::R6Class("Workspace",
             private$import_globals_cache <- collections::dict()
             self$type_hierarchy_cache <- collections::dict()
             self$member_metadata <- MemberMetadataCache$new(32 * 1024^2, max_entries = 16L)
+            self$s3_metadata <- S3MetadataCache$new()
+            if (isTRUE(lsp_settings$get("s3_dispatch"))) {
+                for (package in names(workspace_startup_s3())) self$s3_metadata$set(package, workspace_startup_s3()[[package]])
+            }
         },
 
         load_package = function(pkgname) {
@@ -820,6 +828,7 @@ Workspace <- R6::R6Class("Workspace",
         },
 
         update_parse_data = function(uri, parse_data) {
+            self$s3_revision <- self$s3_revision + 1L
             previous_parse <- self$documents$get(uri)$parse_data
             diagnostics_changed <- !identical(previous_parse$nonfuncts, parse_data$nonfuncts) ||
                 !identical(previous_parse$functions, parse_data$functions)
@@ -1060,3 +1069,20 @@ extract_namespace_imports <- function(namespace_file) {
         directives = directives
     )
 }
+
+# Prepared once in an isolated worker for a host session. If it fails, source
+# requests remain usable while later package resolution can supply metadata.
+workspace_startup_s3 <- local({
+    cached <- NULL
+    function() {
+        if (!is.null(cached)) return(cached)
+        packages <- workspace_startup_packages()
+        cached <<- tryCatch(callr::r(package_call(s3_prepare_packages), args = list(packages),
+                system_profile = FALSE, user_profile = FALSE, timeout = 8),
+            error = function(e) {
+                logger$info("S3 startup metadata:", e)
+                list()
+            })
+        cached
+    }
+})
