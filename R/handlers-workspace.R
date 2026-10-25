@@ -102,6 +102,7 @@ workspace_did_change_configuration <- function(self, params) {
     }
 
     backend_settings_changed(self, previous_backends)
+    sync_formatting_capabilities(self)
 
     if (!lsp_settings$get("diagnostics") &&
             identical(previous_backends[[1L]]$enabled, lsp_settings$get("diagnostics"))) {

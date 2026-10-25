@@ -314,10 +314,13 @@ is not created. Lintr retains its existing text-only handling of pathless buffer
 
 Jarl currently supports R diagnostics; Air supports full-document R formatting.
 CLI literate-document diagnostics return no results. Unsupported formatting modes
-or document types return an explicit request error. Initial formatting capabilities
-reflect the selected backend; after a runtime backend switch, handlers enforce its
-current modes even when a client retains the original capabilities. Restart the
-server to expose newly enabled modes to clients that retain static capabilities.
+or document types return an explicit request error. Clients supporting dynamic
+formatting registration, including vscode-R, receive updated providers after
+workspace settings arrive and whenever the backend changes. Clients using static
+capabilities retain the modes selected at startup; configure the backend through
+R options before starting those clients. Their handlers still enforce the current
+backend after a workspace setting change, but restarting with the same late
+workspace settings cannot update their static capabilities.
 On-type formatting with Air uses the server's local indentation fallback for
 newlines, without starting a CLI. Lintr and styler retain their R
 Markdown/Quarto, selection, and on-type behavior. Air follows its project formatting
