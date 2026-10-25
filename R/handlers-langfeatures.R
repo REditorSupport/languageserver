@@ -1,6 +1,8 @@
 #' Queue only the latest expensive range-style request for a version
 #' @noRd
 enqueue_latest_reply <- function(self, uri, method, item) {
+    document <- self$get_workspace(uri)$documents$get(uri, NULL)
+    if (!is.null(document) && reply_parse_failure(self, item$id, document)) return(invisible(NULL))
     queue <- self$pending_replies$get(uri)[[method]]
     retained <- list()
     while (queue$size()) {
@@ -31,6 +33,7 @@ text_document_completion  <- function(self, id, params) {
     workspace <- self$get_workspace(uri)
     document <- workspace$documents$get(uri, NULL)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
+    if (reply_parse_failure(self, id, document)) return(invisible(NULL))
     point <- document$from_lsp_position(params$position)
     if (identical(document$version, document$parse_data$version) &&
             s3_metadata_waiting(self, uri, document, point, hover = FALSE)) {
@@ -83,6 +86,7 @@ text_document_hover  <- function(self, id, params) {
     workspace <- self$get_workspace(uri)
     document <- workspace$documents$get(uri, NULL)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
+    if (reply_parse_failure(self, id, document)) return(invisible(NULL))
     point <- document$from_lsp_position(params$position)
     if (identical(document$version, document$parse_data$version) &&
             s3_metadata_waiting(self, uri, document, point, hover = TRUE)) {
@@ -114,6 +118,7 @@ text_document_signature_help  <- function(self, id, params) {
     workspace <- self$get_workspace(uri)
     document <- workspace$documents$get(uri, NULL)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
+    if (reply_parse_failure(self, id, document)) return(invisible(NULL))
     point <- document$from_lsp_position(params$position)
     if (identical(document$version, document$parse_data$version) &&
             s3_metadata_waiting(self, uri, document, point, hover = FALSE)) {

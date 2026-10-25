@@ -359,8 +359,6 @@ Workspace <- R6::R6Class("Workspace",
         member_metadata = NULL,
         s3_metadata = NULL,
         s3_revision = 0L,
-        s3_source_names = NULL,
-        s3_index_revision = NULL,
 
         initialize = function(root) {
             self$root <- root
