@@ -8,20 +8,43 @@ backend_cli_run <- function(request, arguments) {
     writeBin(charToRaw(enc2utf8(paste(request$content, collapse = "\n"))), input)
     environment <- request$env
     if (length(environment)) environment <- c("current", environment) else environment <- NULL
-    result <- tryCatch(processx::run(request$executable, arguments, stdin = input,
-            wd = request$working_directory, env = environment, timeout = request$timeout,
-            stdout = "|", stderr = "|", encoding = "UTF-8", error_on_status = FALSE,
-            cleanup_tree = TRUE, supervise = TRUE, windows_hide_window = TRUE),
+    process <- tryCatch(processx::process$new(request$executable, arguments, stdin = input,
+            wd = request$working_directory, env = environment, stdout = "|", stderr = "|",
+            encoding = "UTF-8", cleanup_tree = TRUE, supervise = TRUE, windows_hide_window = TRUE),
         error = function(error) {
-            if (inherits(error, "system_command_timeout_error")) {
-                backend_error(sprintf("Backend '%s' timed out after %s seconds.",
-                        request$backend$id, request$timeout))
-            }
             backend_error(sprintf("Could not execute backend '%s': %s", request$backend$id, conditionMessage(error)))
         })
-    if (isTRUE(result$timeout)) backend_error(sprintf("Backend '%s' timed out after %s seconds.",
-            request$backend$id, request$timeout))
-    result
+    descendants <- list()
+    on.exit({
+        task_kill_descendants(process, descendants)
+        tryCatch(process$kill(grace = 0), error = function(e) NULL)
+    }, add = TRUE)
+    deadline <- proc.time()[[3L]] + request$timeout
+    stdout <- stderr <- character()
+    repeat {
+        output <- process$read_output()
+        error_output <- process$read_error()
+        if (nzchar(output)) stdout <- c(stdout, output)
+        if (nzchar(error_output)) stderr <- c(stderr, error_output)
+        if (!process$is_alive()) break
+        descendants <- task_process_descendants(process, descendants)
+        remaining <- deadline - proc.time()[[3L]]
+        if (remaining <= 0) {
+            # Preserve PID ancestry while discovering and killing descendants;
+            # processx::run() may terminate the root before its cleanup handler.
+            task_kill_descendants(process, descendants)
+            process$kill(grace = 0, close_connections = FALSE)
+            backend_error(sprintf("Backend '%s' timed out after %s seconds.",
+                    request$backend$id, request$timeout))
+        }
+        process$poll_io(min(100, ceiling(remaining * 1000)))
+    }
+    # A completed child can still have unread bytes in both pipes.
+    stdout <- c(stdout, process$read_output())
+    stderr <- c(stderr, process$read_error())
+    list(status = process$get_exit_status(), stdout = paste0(stdout, collapse = ""),
+        stderr = paste0(stderr, collapse = ""), timeout = FALSE)
+
 }
 
 backend_cli_failure <- function(request, result) {

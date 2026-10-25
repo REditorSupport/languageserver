@@ -71,7 +71,8 @@ enqueue_formatting <- function(self, id, uri, document, options,
             formatting_options = invocation$r_options, working_directory = invocation$working_directory,
             invocation = invocation),
         callback = function(result) formatting_callback(self, request, result),
-        error = function(error) formatting_callback(self, request, error = error))
+        error = function(error) formatting_callback(self, request, error = error),
+        track_descendants = !is.null(invocation$backend$executable))
     key <- as.character(id)
     self$formatting_requests$set(key, request)
     self$formatting_task_manager$add_task(key, task)

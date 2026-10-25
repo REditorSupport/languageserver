@@ -137,5 +137,5 @@ diagnostics_task <- function(self, uri, document, delay = 0) {
                     severity = DiagnosticSeverity$Error, source = request$backend$id,
                     message = paste0("Failed to run diagnostics: ", conditionMessage(error)))))
             }
-        }, delay = delay)
+        }, delay = delay, track_descendants = !is.null(request$backend$executable))
 }

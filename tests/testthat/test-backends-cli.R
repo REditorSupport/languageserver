@@ -54,7 +54,8 @@ test_that("CLI descendants stop on cancellation, supersession, shutdown, worker 
             min_idle_sessions = 0, max_running_tasks = 1)
         withr::defer(manager$stop())
         manager$add_task("cli", create_task(package_call(backend_cli_run),
-                list(request = request, arguments = c("--vanilla", script, marker))))
+                list(request = request, arguments = c("--vanilla", script, marker)),
+                track_descendants = TRUE))
         deadline <- Sys.time() + 10
         while (!file.exists(marker) && Sys.time() < deadline) {
             manager$run_tasks()
@@ -65,6 +66,9 @@ test_that("CLI descendants stop on cancellation, supersession, shutdown, worker 
         if (!file.exists(marker)) next
         handles <- lapply(readRDS(marker), ps::ps_handle)
         withr::defer(for (handle in handles) try(ps::ps_kill(handle), silent = TRUE))
+        # The parent has observed a fully started process tree before failure.
+        Sys.sleep(0.05)
+        manager$check_tasks()
         switch(mode,
             cancel = manager$cancel("cli"),
             supersede = manager$add_task("cli", create_task(function() list(), list())),

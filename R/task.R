@@ -10,6 +10,9 @@ Task <- R6::R6Class("Task",
         error = NULL,
         cancelled = FALSE,
         completed = FALSE,
+        track_descendants = FALSE,
+        descendants = NULL,
+        descendant_check_time = -Inf,
         invoke_handler = function(handler, value, type) {
             if (private$cancelled || is.null(handler)) return(invisible(NULL))
             tryCatch(
@@ -29,10 +32,12 @@ Task <- R6::R6Class("Task",
         delay = NULL,
         started_at = NULL,
         initialize = function(target, args, callback = NULL, error = NULL, delay = 0,
-            profiles = TRUE) {
+            profiles = TRUE, track_descendants = FALSE) {
             private$target <- target
             private$args <- args
             private$profiles <- profiles
+            private$track_descendants <- isTRUE(track_descendants)
+            private$descendants <- list()
             private$callback <- callback
             private$error <- error
             self$time <- Sys.time()
@@ -60,6 +65,11 @@ Task <- R6::R6Class("Task",
         },
         check = function() {
             if (private$completed) return(TRUE)
+            if (private$track_descendants && proc.time()[[3L]] - private$descendant_check_time >= 0.05) {
+                process <- if (!is.null(private$session)) private$session else private$process
+                private$descendants <- task_process_descendants(process, private$descendants)
+                private$descendant_check_time <- proc.time()[[3L]]
+            }
             if (!is.null(private$session)) {
                 res <- private$session$read()
                 if (!is.null(res)) {
@@ -70,7 +80,7 @@ Task <- R6::R6Class("Task",
                         return(TRUE)
                     } else if (!is.null(res$code)) {
                         if (identical(private$session$get_state(), "finished")) {
-                            task_kill_descendants(private$session)
+                            task_kill_descendants(private$session, private$descendants)
                         }
                         private$completed <- TRUE
                         err <- res$error
@@ -81,7 +91,7 @@ Task <- R6::R6Class("Task",
                 }
                 state <- private$session$get_state()
                 if (identical(state, "finished")) {
-                    task_kill_descendants(private$session)
+                    task_kill_descendants(private$session, private$descendants)
                     private$completed <- TRUE
                     err <- simpleError("Session finished unexpectedly while task was running")
                     private$invoke_handler(private$error, err, "error")
@@ -97,7 +107,7 @@ Task <- R6::R6Class("Task",
             } else {
                 # r_bg$get_result() will throw
                 result <- tryCatch(private$process$get_result(), error = function(e) e)
-                if (inherits(result, "error")) task_kill_descendants(private$process)
+                if (inherits(result, "error")) task_kill_descendants(private$process, private$descendants)
                 private$completed <- TRUE
 
                 if (inherits(result, "error")) {
@@ -129,7 +139,7 @@ Task <- R6::R6Class("Task",
                     # interrupt the next task on the persistent session. Retire
                     # the worker instead so cancellation cannot leak across tasks.
                     retired_session <- private$session
-                    task_kill_descendants(private$session)
+                    task_kill_descendants(private$session, private$descendants)
                     tryCatch(
                         private$session$kill(
                             grace = 0, close_connections = FALSE),
@@ -140,7 +150,7 @@ Task <- R6::R6Class("Task",
                 if (identical(Sys.getenv("R_COVR"), "true")) {
                     private$process$wait()
                 } else {
-                    task_kill_descendants(private$process)
+                    task_kill_descendants(private$process, private$descendants)
                     private$process$kill()
                 }
             }
@@ -635,26 +645,36 @@ package_call <- function(target) {
 }
 
 create_task <- function(target, args, callback = NULL, error = NULL, delay = 0,
-    profiles = TRUE) {
+    profiles = TRUE, track_descendants = FALSE) {
     Task$new(
         target = target,
         args = args,
         callback = callback,
         error = error,
         delay = delay,
-        profiles = profiles
+        profiles = profiles, track_descendants = track_descendants
     )
 }
 
 # Kill descendants while the worker still exists, so process ancestry is intact.
-task_kill_descendants <- function(process) {
-    # Environment-marker lookup alone can miss a descendant between fork and
-    # exec. Also walk live PID ancestry before retiring the worker.
+task_process_descendants <- function(process, previous = list()) {
     if (is.function(process$get_pid) && ps::ps_is_supported()) {
         children <- tryCatch(ps::ps_children(ps::ps_handle(process$get_pid()), recursive = TRUE),
             error = function(e) list())
-        for (child in rev(children)) tryCatch(ps::ps_kill(child), error = function(e) NULL)
+        handles <- c(previous, children)
+        if (length(handles)) {
+            identities <- vapply(handles, function(handle) paste(ps::ps_pid(handle), ps::ps_create_time(handle)), character(1L))
+            return(handles[!duplicated(identities)])
+        }
     }
+    previous
+}
+
+task_kill_descendants <- function(process, previous = list()) {
+    # Environment-marker lookup alone can miss a descendant between fork and
+    # exec. Also walk live PID ancestry before retiring the worker.
+    children <- task_process_descendants(process, previous)
+    for (child in rev(children)) tryCatch(ps::ps_kill(child), error = function(e) NULL)
     if (is.function(process$kill_tree)) tryCatch(
         process$kill_tree(grace = 0, close_connections = FALSE), error = function(e) NULL)
     invisible(NULL)
