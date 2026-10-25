@@ -48,6 +48,7 @@ on_initialize <- function(self, id, params) {
     server_capabilities <- merge_list(
         server_capabilities,
         lsp_settings$get("server_capabilities"))
+    server_capabilities <- disable_dynamic_formatting_capabilities(server_capabilities, self$ClientCapabilities)
     self$ServerCapabilities <- server_capabilities
     self$deliver(Response$new(id = id, result = list(capabilities = server_capabilities)))
 }
@@ -59,6 +60,8 @@ on_initialize <- function(self, id, params) {
 #' @noRd
 on_initialized <- function(self, params) {
     logger$info("on_initialized")
+    register_backend_watches(self)
+    sync_formatting_capabilities(self, initialized = TRUE)
     # a bit like devtools::load_all()
     self$load_workspaces()
     # TODO: result lint result of the package

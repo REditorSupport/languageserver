@@ -142,6 +142,12 @@ LanguageServer <- R6::R6Class("LanguageServer",
         formatting_task_manager = NULL,
         index_task_manager = NULL,
         formatting_requests = NULL,
+        formatting_capability_state = NULL,
+        backend_generations = NULL,
+        backend_documents = NULL,
+        backend_messages = NULL,
+        backend_poll_time = -Inf,
+        backend_poll_queue = NULL,
         pending_replies = NULL,
         initialize = function(host, port) {
             if (is.null(port)) {
@@ -221,9 +227,11 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$resolve_task_manager$run_tasks()
             self$formatting_task_manager$run_tasks()
             self$refresh_workspace_diagnostics()
+            poll_backend_configuration(self)
             self$report_workspace_progress()
             for (workspace in self$workspaces$values()) {
-                if (!isTRUE(workspace$poll_namespace_file(throttle = TRUE))) {
+                if (!isTRUE(workspace$poll_namespace_file(throttle = TRUE)) ||
+                        !diagnostics_needs_workspace_globals()) {
                     next
                 }
                 for (doc in workspace$documents$values()) {
@@ -497,7 +505,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
         },
         process_parse_retries = function(max_documents = 20L) {
             if (is.null(private$parse_retries)) return(invisible(NULL))
-            for (uri in head(private$parse_retries$keys(), max_documents)) {
+            for (uri in utils::head(private$parse_retries$keys(), max_documents)) {
                 retry <- private$parse_retries$pop(uri)
                 retry()
             }
@@ -549,7 +557,8 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 entry <- private$diagnostics_workspaces$get(root)
                 workspace <- entry$workspace
                 current <- any(vapply(self$workspaces$values(), identical, logical(1L), y = workspace))
-                if (!current || !lsp_settings$get("diagnostics")) {
+                if (!current || !lsp_settings$get("diagnostics") ||
+                        !diagnostics_needs_workspace_globals()) {
                     private$diagnostics_workspaces$remove(root)
                     next
                 }
@@ -611,7 +620,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             }
             invisible(NULL)
         },
-        text_sync = function(uri, document, run_lintr = FALSE, parse = FALSE,
+        text_sync = function(uri, document, run_diagnostics = FALSE, parse = FALSE,
             delay = 0, parse_delay = delay,
             diagnostics_delay = delay) {
             if (!self$pending_replies$has(uri)) {
@@ -633,7 +642,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 ))
             }
 
-            if (run_lintr && lsp_settings$get("diagnostics")) {
+            if (run_diagnostics && lsp_settings$get("diagnostics")) {
                 if (parse) {
                     self$diagnostics_task_manager$cancel(uri)
                     document$pending_diagnostics <- TRUE

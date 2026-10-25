@@ -46,6 +46,7 @@ test_that("incremental document changes are sequential and UTF-16 aware", {
 })
 
 test_that("LSP 3.18 multiple-range formatting returns non-overlapping edits", {
+    skip_if_not_installed("styler", "1.5.1")
     document <- Document$new(
         "file:///format.R",
         language = "r",

@@ -138,6 +138,10 @@ respond <- function(client, method, params, timeout, allow_error = FALSE,
         } else if (allow_error) {
             storage$done <- TRUE
             storage$result <- error
+        } else {
+            storage$done <- TRUE
+            storage$error <- error
+            fail(paste0("LSP request ", method, " failed: ", error$message))
         }
     }
 
@@ -158,6 +162,7 @@ respond <- function(client, method, params, timeout, allow_error = FALSE,
         remaining <- (start_time + timeout) - Sys.time()
     }
     result <- storage$result
+    if (!is.null(storage$error)) return(NULL)
     if (retry && retry_when(result)) {
         remaining <- (start_time + timeout) - Sys.time()
         if (remaining < 0) {

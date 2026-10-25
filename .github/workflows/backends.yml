@@ -1,0 +1,60 @@
+name: Backend contracts
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+permissions: read-all
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  minimal-install:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+      - uses: r-lib/actions/setup-r-dependencies@v2
+      - name: Install server
+        shell: bash
+        run: R CMD INSTALL .
+      - name: Check a library with mandatory dependencies only
+        run: Rscript tools/check-minimal-install.R
+
+  cli-contracts:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+      - uses: r-lib/actions/setup-r-dependencies@v2
+      - name: Install server
+        shell: bash
+        run: R CMD INSTALL .
+      - name: Install pinned Air and Jarl
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/backend-downloads" "$RUNNER_TEMP/backend-bin"
+          gh release download 0.7.1 --repo etiennebacher/jarl --pattern 'jarl-x86_64-unknown-linux-gnu.tar.gz*' --dir "$RUNNER_TEMP/backend-downloads"
+          gh release download 0.12.0 --repo posit-dev/air --pattern 'air-x86_64-unknown-linux-gnu.tar.gz*' --dir "$RUNNER_TEMP/backend-downloads"
+          cd "$RUNNER_TEMP/backend-downloads"
+          sha256sum --check jarl-x86_64-unknown-linux-gnu.tar.gz.sha256
+          sha256sum --check air-x86_64-unknown-linux-gnu.tar.gz.sha256
+          tar -xzf jarl-x86_64-unknown-linux-gnu.tar.gz --strip-components=1 -C "$RUNNER_TEMP/backend-bin"
+          tar -xzf air-x86_64-unknown-linux-gnu.tar.gz --strip-components=1 -C "$RUNNER_TEMP/backend-bin"
+          echo "$RUNNER_TEMP/backend-bin" >> "$GITHUB_PATH"
+      - name: Check released CLI contracts
+        run: Rscript tools/check-cli-backends.R

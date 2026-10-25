@@ -26,30 +26,31 @@ Imports:
     digest,
     fs (>= 1.3.1),
     jsonlite (>= 1.6),
-    lintr (>= 3.3.0-1),
     parallel,
+    processx (>= 3.4.1),
+    ps,
     R6 (>= 2.4.1),
     roxygen2 (>= 7.0.0),
     stringi (>= 1.1.7),
-    styler (>= 1.5.1),
     tools,
     utils,
     xml2 (>= 1.2.2),
     xmlparsedata (>= 1.0.3)
 Suggests:
     covr (>= 3.4.0),
+    lintr (>= 3.3.0-1),
     magrittr (>= 1.5),
     methods,
     mockery (>= 0.4.2),
     pacman,
-    processx (>= 3.4.1),
     purrr (>= 0.3.3),
     testthat (>= 2.1.0),
     withr (>= 2.3.0),
     rmarkdown (>= 2.0),
     S7,
     stats4,
-    stringr
+    stringr,
+    styler (>= 1.5.1)
 ByteCompile: yes
 Encoding: UTF-8
 NeedsCompilation: yes
