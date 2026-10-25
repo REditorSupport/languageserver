@@ -1,7 +1,8 @@
 #' Resolve and execute diagnostics and formatting adapters
 #' @noRd
-backend_error <- function(message, unavailable = FALSE) {
-    classes <- c(if (unavailable) "backend_unavailable", "backend_error", "error", "condition")
+backend_error <- function(message, unavailable = FALSE, unsupported = FALSE) {
+    classes <- c(if (unavailable) "backend_unavailable", if (unsupported) "backend_unsupported",
+        "backend_error", "error", "condition")
     stop(structure(list(message = message, call = NULL), class = classes))
 }
 
@@ -115,19 +116,13 @@ backend_ancestors <- function(path) {
 }
 
 backend_configuration_paths <- function(descriptor, path, working_directory, r_options, env = NULL) {
+    if (identical(descriptor$id, "lintr")) return(lintr_configuration_paths(path, working_directory, r_options))
     directories <- backend_ancestors(if (nzchar(path)) dirname(path) else working_directory)
     files <- descriptor$config_files
-    if (identical(descriptor$id, "lintr")) {
-        files <- r_options[["lintr.linter_file"]]
-        if (is.null(files)) files <- ".lintr"
-    }
     paths <- unlist(lapply(files, function(file) {
         if (fs::is_absolute_path(file)) file else file.path(directories, file)
     }), use.names = FALSE)
-    if (identical(descriptor$id, "lintr")) {
-        paths <- c(paths, file.path(path.expand("~"), files),
-            file.path(tools::R_user_dir("lintr", "config"), "config"))
-    } else if (identical(descriptor$id, "air")) {
+    if (identical(descriptor$id, "air")) {
         environment_value <- function(name, default = "") {
             if (name %in% names(env)) unname(env[[name]]) else Sys.getenv(name, unset = default)
         }
@@ -207,6 +202,11 @@ backend_supported <- function(request) {
         (request$kind != "formatting" || request$mode %in% request$backend$modes)
 }
 
+backend_unsupported_message <- function(request) {
+    sprintf("Backend '%s' does not support %s formatting for %s documents.",
+        request$backend$id, request$mode, request$document_type)
+}
+
 backend_check_available <- function(request) {
     descriptor <- request$backend
     if (!is.null(descriptor$package) && (!requireNamespace(descriptor$package, quietly = TRUE) ||
@@ -222,7 +222,10 @@ backend_check_available <- function(request) {
 }
 
 run_backend <- function(request) {
-    if (!backend_supported(request)) return(list())
+    if (!backend_supported(request)) {
+        if (request$kind == "formatting") backend_error(backend_unsupported_message(request), unsupported = TRUE)
+        return(list())
+    }
     backend_check_available(request)
     prefix <- switch(request$backend$id, lintr = "^lintr\\.", styler = "^styler\\.", NULL)
     keys <- if (is.null(prefix)) character() else names(base::options())[
@@ -431,8 +434,9 @@ backend_settings_changed <- function(self, previous) {
 }
 
 backend_watched_configuration <- function(self, path) {
-    names <- c(".lintr", "jarl.toml", "air.toml", ".air.toml", "DESCRIPTION", "NAMESPACE",
-        basename(getOption("lintr.linter_file", ".lintr")))
+    configured <- basename(getOption("lintr.linter_file", Sys.getenv("R_LINTR_LINTER_FILE", ".lintr")))
+    names <- c(".lintr", ".lintr.R", "jarl.toml", "air.toml", ".air.toml", "DESCRIPTION", "NAMESPACE",
+        configured, paste0(configured, ".R"))
     tracked <- if (is.null(self$backend_documents)) list() else self$backend_documents$values()
     if (basename(path) %in% names || any(vapply(tracked, function(entry) {
         path %in% entry$request$signature$configuration$paths
@@ -450,7 +454,7 @@ register_backend_watches <- function(self) {
     registration <- list(
         id = "languageserver-backend-configuration", method = "workspace/didChangeWatchedFiles",
         registerOptions = list(watchers = list(list(
-            globPattern = "**/{.lintr,jarl.toml,air.toml,.air.toml,DESCRIPTION,NAMESPACE}", kind = 7L))))
+            globPattern = "**/{.lintr,.lintr.R,jarl.toml,air.toml,.air.toml,DESCRIPTION,NAMESPACE}", kind = 7L))))
     self$deliver(self$request("client/registerCapability", list(registrations = list(registration))),
         callback = function(self, result, error = NULL) {
             if (!is.null(error)) logger$info("Backend configuration watches unavailable: ", error)

@@ -237,12 +237,81 @@ test_that("formatting cancels obsolete configuration once and respects modes", {
     expect_false(fixture$self$formatting_task_manager$has_work())
     enqueue_formatting(fixture$self, 2L, fixture$uri, fixture$document, list(tabSize = 2L),
         range = list(start = list(row = 0L, col = 0L), end = list(row = 0L, col = 3L)))
-    expect_identical(fixture$self$deliveries[[2L]]$result, list())
+    expect_equal(fixture$self$deliveries[[2L]]$error$code, -32803L)
+    expect_match(fixture$self$deliveries[[2L]]$error$message, "does not support range formatting")
     expect_false(fixture$self$formatting_task_manager$has_work())
     document <- Document$new(fixture$uri, language = "r", content = c("f(", ""))
     reply <- on_type_formatting_reply(3L, fixture$uri, document, list(row = 1L, col = 0L),
         "\n", list(tabSize = 2L, insertSpaces = TRUE))
     expect_equal(reply$result[[1L]]$newText, "  ")
+})
+
+test_that("formatting capabilities match the selected backend modes", {
+    local_backend_settings(formatting_backend = "air")
+    capabilities <- update_server_capabilities(ServerCapabilities, list())
+    expect_true(capabilities$documentFormattingProvider)
+    expect_false(capabilities$documentRangeFormattingProvider)
+    expect_equal(capabilities$documentOnTypeFormattingProvider, list(firstTriggerCharacter = "\n"))
+    lsp_settings$set("formatting_backend", "styler")
+    capabilities <- update_server_capabilities(ServerCapabilities, list())
+    expect_true(capabilities$documentRangeFormattingProvider$rangesSupport)
+    lsp_settings$set("formatting_backend", fake_backend(modes = "range"))
+    capabilities <- update_server_capabilities(ServerCapabilities, list())
+    expect_false(capabilities$documentFormattingProvider)
+    expect_false(capabilities$documentRangeFormattingProvider$rangesSupport)
+    expect_null(capabilities$documentOnTypeFormattingProvider)
+})
+
+test_that("unsupported formatting requests fail explicitly after a backend change", {
+    fixture <- backend_fixture()
+    local_backend_settings(formatting_backend = "air", backend_options = list())
+    request <- backend_request("formatting", fixture$uri, fixture$document,
+        mode = "ranges", ranges = list())
+    error <- tryCatch(run_backend(request), error = identity)
+    expect_s3_class(error, "backend_unsupported")
+    reply <- on_type_formatting_reply(1L, fixture$uri, fixture$document,
+        list(row = 0L, col = 0L), ")", list(tabSize = 2L))
+    expect_equal(reply$error$code, -32803L)
+})
+
+test_that("lintr R configs and GitHub locations invalidate idle diagnostics with native precedence", {
+    skip_if_not_installed("lintr", "3.3.0.1")
+    fixture <- backend_fixture(c("value = 1", ""))
+    withr::local_dir(fixture$workspace$root)
+    withr::local_options(lintr.linter_file = ".lintr")
+    local_backend_settings(diagnostics_backend = "lintr", formatting_backend = "styler", backend_options = list(),
+        diagnostics = TRUE, diagnostics_cache_ttl = 0)
+    nested <- file.path(fixture$workspace$root, "nested")
+    dir.create(nested)
+    fixture$uri <- path_to_uri(file.path(nested, "buffer.R"))
+    fixture$document$uri <- fixture$uri
+    fixture$workspace$documents$clear()
+    fixture$workspace$documents$set(fixture$uri, fixture$document)
+    config <- file.path(fixture$workspace$root, ".lintr")
+    r_config <- paste0(config, ".R")
+    writeLines("linters: list()", config)
+    diagnostics_task(fixture$self, fixture$uri, fixture$document)
+    writeLines("linters <- list(assignment_linter())", r_config)
+    poll_backend_configuration(fixture$self, force = TRUE)
+    task <- fixture$self$diagnostics_task_manager$.__enclos_env__$private$pending_tasks$get(fixture$uri)
+    expect_equal(run_backend(task$.__enclos_env__$private$args$request)[[1L]]$code, "assignment_linter")
+    expect_true(r_config %in% task$.__enclos_env__$private$args$request$signature$configuration$paths)
+    expect_equal(asNamespace("lintr")$find_config(path_from_uri(fixture$uri)), normalizePath(r_config, winslash = "/"))
+
+    unlink(c(config, r_config))
+    github <- file.path(nested, ".github", "linters")
+    dir.create(github, recursive = TRUE)
+    github_config <- file.path(github, ".lintr")
+    writeLines("linters: list()", github_config)
+    poll_backend_configuration(fixture$self, force = TRUE)
+    task <- fixture$self$diagnostics_task_manager$.__enclos_env__$private$pending_tasks$get(fixture$uri)
+    expect_length(run_backend(task$.__enclos_env__$private$args$request), 0L)
+    writeLines("linters <- list(assignment_linter())", paste0(github_config, ".R"))
+    backend_watched_configuration(fixture$self, paste0(github_config, ".R"))
+    task <- fixture$self$diagnostics_task_manager$.__enclos_env__$private$pending_tasks$get(fixture$uri)
+    expect_equal(run_backend(task$.__enclos_env__$private$args$request)[[1L]]$code, "assignment_linter")
+    expect_equal(asNamespace("lintr")$find_config(path_from_uri(fixture$uri)),
+        normalizePath(paste0(github_config, ".R"), winslash = "/"))
 })
 
 test_that("missing backends report availability once without disabling language features", {

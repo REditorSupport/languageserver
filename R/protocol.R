@@ -115,6 +115,7 @@ Response <- R6::R6Class("Response",
 
 
 ErrorCodes <- list(
+    RequestFailed = -32803,
     ParseError = -32700,
     InvalidRequest = -32600,
     MethodNotFound = -32601,

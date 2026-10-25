@@ -278,7 +278,8 @@ recognized; project code is never executed to resolve a path.
 ### Linters
 
 The default backend requires [lintr](https://github.com/r-lib/lintr) >= 3.3.0-1.
-Specify rules in `.lintr` at the project or home directory; see the lintr
+Specify rules in `.lintr` or `.lintr.R`, including the `.github/linters/`
+project locations supported by lintr; see the lintr
 [documentation](https://lintr.r-lib.org/articles/lintr.html).
 
 ### Selecting diagnostics and formatting backends
@@ -312,9 +313,13 @@ folderless session, and a synthetic `__languageserver_untitled__.R` filename tha
 is not created. Lintr retains its existing text-only handling of pathless buffers.
 
 Jarl currently supports R diagnostics; Air supports full-document R formatting.
-CLI literate-document formatting/diagnostics and range/multiple-range formatting
-return no results. On-type formatting with Air uses the server's local indentation
-fallback for newlines, without starting a CLI. Lintr and styler retain their R
+CLI literate-document diagnostics return no results. Unsupported formatting modes
+or document types return an explicit request error. Initial formatting capabilities
+reflect the selected backend; after a runtime backend switch, handlers enforce its
+current modes even when a client retains the original capabilities. Restart the
+server to expose newly enabled modes to clients that retain static capabilities.
+On-type formatting with Air uses the server's local indentation fallback for
+newlines, without starting a CLI. Lintr and styler retain their R
 Markdown/Quarto, selection, and on-type behavior. Air follows its project formatting
 settings rather than overriding them with LSP `tabSize`/`insertSpaces`. CLI edits use
 LF line endings and otherwise preserve the formatter's terminal-newline output.

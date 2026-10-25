@@ -117,10 +117,25 @@ ServerCapabilities <- list(
 )
 
 update_server_capabilities <- function(server_capabilities, client_capabilities) {
+    formatter <- tryCatch(backend_descriptor("formatting"), error = function(e) NULL)
+    modes <- formatter$modes
+    server_capabilities$documentFormattingProvider <- "document" %in% modes
+    server_capabilities$documentRangeFormattingProvider <- if ("range" %in% modes) {
+        list(rangesSupport = "ranges" %in% modes)
+    } else {
+        FALSE
+    }
+    server_capabilities$documentOnTypeFormattingProvider <- if ("on_type" %in% modes) {
+        DocumentOnTypeFormattingOptions
+    } else if (!is.null(formatter) && identical(formatter$id, "air")) {
+        list(firstTriggerCharacter = "\n")
+    } else {
+        NULL
+    }
     # RenameOptions may only be specified if the client states that
     # it supports prepareSupport in its initial initialize request
     if (isTRUE(server_capabilities$renameProvider) &&
-        isTRUE(client_capabilities$textDocument$rename$prepareSupport)) {
+            isTRUE(client_capabilities$textDocument$rename$prepareSupport)) {
         server_capabilities$renameProvider <- RenameOptions
     }
 

@@ -152,3 +152,29 @@ diagnose_file <- function(uri, content, is_rmarkdown = FALSE, globals = NULL, ca
     names(diagnostics) <- NULL
     diagnostics
 }
+lintr_configuration_paths <- function(path, working_directory, r_options) {
+    filename <- r_options[["lintr.linter_file"]]
+    if (is.null(filename)) filename <- Sys.getenv("R_LINTR_LINTER_FILE", ".lintr")
+    if (!backend_string(filename)) backend_error("lintr.linter_file must be one configuration filename.")
+    directories <- backend_ancestors(if (nzchar(path)) dirname(path) else working_directory)
+    if (fs::is_absolute_path(filename)) {
+        candidates <- filename
+    } else {
+        variants <- c(paste0(filename, ".R"), filename)
+        candidates <- unlist(lapply(directories, function(directory) {
+            c(file.path(directory, variants), file.path(directory, ".github", "linters", variants))
+        }),
+        use.names = FALSE)
+        candidates <- c(candidates, file.path(path.expand("~"), filename),
+            file.path(tools::R_user_dir("lintr", "config"), "config"))
+    }
+    # Let lintr resolve the active file and its precedence; candidate paths also
+    # detect creation of a nearer config that did not exist at dispatch time.
+    if (requireNamespace("lintr", quietly = TRUE)) {
+        previous <- base::options(lintr.linter_file = filename)
+        on.exit(base::options(previous), add = TRUE)
+        resolved <- asNamespace("lintr")$find_config(if (nzchar(path)) path else working_directory)
+        candidates <- c(resolved, candidates)
+    }
+    unique(candidates)
+}

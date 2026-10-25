@@ -59,7 +59,8 @@ enqueue_formatting <- function(self, id, uri, document, options,
         })
     if (is.null(invocation)) return(invisible(NULL))
     backend_track(self, invocation, document, workspace)
-    if (!backend_supported(invocation)) return(self$deliver(Response$new(id, list())))
+    if (!backend_supported(invocation)) return(self$deliver(ResponseErrorMessage$new(id,
+                "RequestFailed", backend_unsupported_message(invocation))))
     request <- list(id = id, uri = uri, version = document$version,
         content = document$content, is_open = document$is_open, document = document,
         token = new.env(parent = emptyenv()), invocation = invocation, workspace = workspace,
@@ -179,7 +180,8 @@ on_type_formatting_reply <- function(id, uri, document, point, ch, options) {
         request <- backend_request("formatting", uri, document, mode = "on_type",
             options = options, point = point, ch = ch)
         if (backend_supported(request)) return(Response$new(id, run_backend(request)))
-        if (!check_scope(uri, document, point) || ch != "\n") return(Response$new(id))
+        if (!check_scope(uri, document, point)) return(Response$new(id))
+        if (ch != "\n") return(ResponseErrorMessage$new(id, "RequestFailed", backend_unsupported_message(request)))
         run <- if (document$is_rmarkdown) literate_r_run_at(document$regions, point$row)
         else list(start_line = 1L)
         if (is.null(run)) return(Response$new(id))
