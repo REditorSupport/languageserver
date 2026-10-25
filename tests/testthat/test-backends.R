@@ -295,7 +295,8 @@ test_that("lintr R configs and GitHub locations invalidate idle diagnostics with
     poll_backend_configuration(fixture$self, force = TRUE)
     task <- fixture$self$diagnostics_task_manager$.__enclos_env__$private$pending_tasks$get(fixture$uri)
     expect_equal(run_backend(task$.__enclos_env__$private$args$request)[[1L]]$code, "assignment_linter")
-    expect_true(r_config %in% task$.__enclos_env__$private$args$request$signature$configuration$paths)
+    expect_true(normalizePath(r_config, winslash = "/") %in%
+            task$.__enclos_env__$private$args$request$signature$configuration$paths)
     expect_equal(asNamespace("lintr")$find_config(path_from_uri(fixture$uri)), normalizePath(r_config, winslash = "/"))
 
     unlink(c(config, r_config))
