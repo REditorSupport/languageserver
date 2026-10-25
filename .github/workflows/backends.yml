@@ -26,6 +26,7 @@ jobs:
           use-public-rspm: true
       - uses: r-lib/actions/setup-r-dependencies@v2
       - name: Install server
+        shell: bash
         run: R CMD INSTALL .
       - name: Check a library with mandatory dependencies only
         run: Rscript tools/check-minimal-install.R
@@ -41,6 +42,7 @@ jobs:
           use-public-rspm: true
       - uses: r-lib/actions/setup-r-dependencies@v2
       - name: Install server
+        shell: bash
         run: R CMD INSTALL .
       - name: Install pinned Air and Jarl
         shell: bash

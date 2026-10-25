@@ -1,10 +1,21 @@
 # Run after a regular installation to locate dependencies. Install the source
 # into a fresh library with mandatory dependencies only, then start an LSP client.
+minimal_install_dependencies <- function(installed, package = "languageserver") {
+    runtime <- tools::package_dependencies(package, db = installed,
+        which = c("Depends", "Imports"), recursive = TRUE)[[1L]]
+    # Header packages are required to build this source package, but not to load
+    # already-installed dependencies. Their own runtime dependencies still apply.
+    headers <- tools::package_dependencies(package, db = installed,
+        which = "LinkingTo", recursive = FALSE)[[1L]]
+    header_runtime <- if (length(headers)) unlist(tools::package_dependencies(headers, db = installed,
+            which = c("Depends", "Imports"), recursive = TRUE), use.names = FALSE) else character()
+    unique(c(runtime, headers, header_runtime))
+}
+
 check_minimal_install <- function(source_path = ".") {
     source_path <- normalizePath(source_path, mustWork = TRUE)
     installed <- installed.packages()
-    dependencies <- tools::package_dependencies("languageserver", db = installed,
-        which = c("Depends", "Imports", "LinkingTo"), recursive = TRUE)[[1L]]
+    dependencies <- minimal_install_dependencies(installed)
     library <- tempfile("languageserver-minimal-")
     dir.create(library)
     on.exit(unlink(library, recursive = TRUE), add = TRUE)
