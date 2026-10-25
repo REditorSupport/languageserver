@@ -445,7 +445,7 @@ TaskManager <- R6::R6Class("TaskManager",
                 # growing the pool for a single pending task.
                 private$ensure_demand_sessions(length(pending_ids))
                 sessions <- private$available_sessions()
-                pending_ids <- head(pending_ids, length(sessions))
+                pending_ids <- utils::head(pending_ids, length(sessions))
             }
 
             selected_tasks <- lapply(pending_ids, private$pending_tasks$get)

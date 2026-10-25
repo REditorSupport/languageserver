@@ -1057,7 +1057,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                     if (!is.null(private$discovery_stale)) {
                         started <- proc.time()[[3L]]
                         consumed <- 0L
-                        for (uri in head(private$discovery_stale, batch_size)) {
+                        for (uri in utils::head(private$discovery_stale, batch_size)) {
                             consumed <- consumed + 1L
                             summary <- self$summaries$get(uri, NULL)
                             if (private$discovery_is_current(uri) &&
@@ -1104,7 +1104,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                     ))
                     return(character())
                 }
-                candidates <- head(self$pending, batch_size)
+                candidates <- utils::head(self$pending, batch_size)
                 requests <- lapply(candidates, function(uri) {
                     list(uri = uri, path = path_from_uri(uri),
                         generation = private$generations$get(uri, 0L))
@@ -1119,10 +1119,10 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                 if (bootstrap) {
                     private$worker_sync_uris <- self$summaries$keys()
                 }
-                sync_uris <- head(private$worker_sync_uris, batch_size)
+                sync_uris <- utils::head(private$worker_sync_uris, batch_size)
                 if (length(sync_uris)) private$worker_sync_uris <- private$worker_sync_uris[-seq_along(sync_uris)]
                 remaining <- max(batch_size - length(sync_uris), 0L)
-                update_uris <- unique(c(sync_uris, head(private$dirty_updates$keys(), remaining)))
+                update_uris <- unique(c(sync_uris, utils::head(private$dirty_updates$keys(), remaining)))
                 updates <- stats::setNames(lapply(update_uris, function(uri) {
                     if (private$dirty_updates$has(uri)) private$dirty_updates$pop(uri)
                     else self$summaries$get(uri, NULL)
@@ -1171,7 +1171,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             if (length(budget) != 1L || is.na(budget) || budget <= 0) budget <- 25
             started <- proc.time()[[3L]]
             processed <- character()
-            candidates <- head(self$pending, batch_size)
+            candidates <- utils::head(self$pending, batch_size)
             consumed <- 0L
             self$processing_batch <- TRUE
             on.exit({

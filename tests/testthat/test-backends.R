@@ -173,6 +173,21 @@ test_that("stale document, backend and configuration results are not cached or p
     }
 })
 
+test_that("cache identity ignores instrumentation counters but tracks adapter replacement", {
+    state <- new.env(parent = baseenv())
+    state$counter <- 0L
+    adapter <- function(request) list()
+    environment(adapter) <- state
+    signature <- list(adapter = list(id = "fixture", run = adapter))
+    first <- diagnostics_cache_key("untitled:cache", "x", signature)
+    state$counter <- 1L
+    expect_identical(diagnostics_cache_key("untitled:cache", "x", signature), first)
+    replacement <- function(request) list()
+    environment(replacement) <- new.env(parent = baseenv())
+    signature$adapter$run <- replacement
+    expect_false(identical(diagnostics_cache_key("untitled:cache", "x", signature), first))
+})
+
 test_that("backend switching, re-enable and file changes refresh open diagnostics", {
     fixture <- backend_fixture()
     withr::local_dir(fixture$workspace$root)

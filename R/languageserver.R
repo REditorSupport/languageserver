@@ -504,7 +504,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
         },
         process_parse_retries = function(max_documents = 20L) {
             if (is.null(private$parse_retries)) return(invisible(NULL))
-            for (uri in head(private$parse_retries$keys(), max_documents)) {
+            for (uri in utils::head(private$parse_retries$keys(), max_documents)) {
                 retry <- private$parse_retries$pop(uri)
                 retry()
             }

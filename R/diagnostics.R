@@ -62,8 +62,20 @@ schedule_diagnostics <- function(self, uri, document, delay = 0) {
 
 
 diagnostics_cache_key <- function(uri, content, signature, generation = 0L) {
-    paste(uri, get_content_hash(content), digest::digest(list(signature, generation),
+    paste(uri, get_content_hash(content), digest::digest(list(backend_cache_identity(signature), generation),
             algo = "xxhash64"), sep = "::")
+}
+
+# Function environments can contain instrumentation counters unrelated to
+# backend configuration. Keep code and environment identity without walking
+# those mutable environments when hashing an invocation.
+backend_cache_identity <- function(value) {
+    if (is.function(value)) return(list(
+        class = class(value), formals = deparse(formals(value)), body = deparse(body(value)),
+        environment = format(environment(value))))
+    if (is.environment(value)) return(format(value))
+    if (is.list(value)) return(list(class = class(value), values = lapply(value, backend_cache_identity)))
+    value
 }
 
 diagnostics_needs_workspace_globals <- function() {

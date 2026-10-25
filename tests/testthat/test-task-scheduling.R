@@ -117,3 +117,24 @@ test_that("fast tasks reset a reused worker's idle timeout", {
     expect_length(manager$.__enclos_env__$private$sessions, 1L)
     expect_true(is.finite(attr(session, "idle_start")))
 })
+test_that("worker pools dispatch with only base attached", {
+    skip_on_cran()
+    completed <- callr::r(function() {
+        stopifnot(!"package:utils" %in% search())
+        namespace <- asNamespace("languageserver")
+        manager <- namespace$TaskManager$new("base-only", use_session = TRUE,
+            min_idle_sessions = 0L, max_running_tasks = 1L)
+        on.exit(manager$stop())
+        finished <- FALSE
+        manager$add_task("request", namespace$create_task(function() TRUE, list(),
+                callback = function(result) finished <<- isTRUE(result)))
+        deadline <- Sys.time() + 15
+        while (manager$has_work() && Sys.time() < deadline) {
+            manager$run_tasks()
+            manager$check_tasks()
+            Sys.sleep(0.01)
+        }
+        finished
+    }, system_profile = FALSE, user_profile = FALSE, env = c(R_DEFAULT_PACKAGES = "NULL"))
+    expect_true(completed)
+})

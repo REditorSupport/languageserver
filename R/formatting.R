@@ -53,6 +53,7 @@ enqueue_formatting <- function(self, id, uri, document, options,
     invocation <- tryCatch(backend_request("formatting", uri, document, workspace,
             mode = if (!is.null(ranges)) "ranges" else if (!is.null(range)) "range" else "document",
             options = options, range = range, ranges = ranges), error = function(error) {
+            logger$info("formatting request setup failed: ", error)
             self$deliver(ResponseErrorMessage$new(id, "InternalError", conditionMessage(error)))
             NULL
         })

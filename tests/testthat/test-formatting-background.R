@@ -15,6 +15,23 @@ test_that("direct formatting snapshots preserve package defaults and explicit ov
     expect_null(getOption("languageserver.formatting_style"))
 })
 
+test_that("first namespace loading through a library alias preserves formatting identity", {
+    stable <- callr::r(function() {
+        namespace <- asNamespace("languageserver")
+        alias <- tempfile("library-alias-")
+        dir.create(alias)
+        on.exit(unlink(alias, recursive = TRUE))
+        if (!suppressWarnings(file.symlink(find.package("styler"), file.path(alias, "styler")))) return(NA)
+        .libPaths(c(alias, .libPaths()))
+        document <- namespace$Document$new("untitled:library-alias", language = "r", version = 1L, content = "x=1")
+        first <- namespace$backend_request("formatting", document$uri, document)
+        second <- namespace$backend_request("formatting", document$uri, document)
+        identical(first$signature, second$signature)
+    }, system_profile = FALSE, user_profile = FALSE)
+    skip_if(is.na(stable), "Directory symlinks are unavailable")
+    expect_true(stable)
+})
+
 formatting_fixture <- function(content = "x=1", uri = "file:///formatting.R") {
     self <- new.env(parent = baseenv())
     document <- Document$new(uri, version = 1L, content = content)

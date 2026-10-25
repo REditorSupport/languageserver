@@ -184,7 +184,7 @@ backend_request <- function(kind, uri, document, workspace = NULL,
     resolved <- if (is.null(executable)) NULL else if (fs::is_absolute_path(executable)) executable
     else unname(Sys.which(executable))
     package_file <- if (is.null(descriptor$package)) character()
-    else system.file("DESCRIPTION", package = descriptor$package)
+    else normalizePath(system.file("DESCRIPTION", package = descriptor$package), winslash = "/", mustWork = FALSE)
     r_options <- backend_r_options(descriptor)
     configuration_files <- backend_configuration_paths(descriptor, original_path, working_directory, r_options, env)
     signature <- list(adapter = descriptor, options = execution_options, r_options = r_options,

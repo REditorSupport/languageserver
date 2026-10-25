@@ -14,7 +14,8 @@ test_that("CLI runner streams exact stdin independently from stdout and stderr",
     request <- cli_fixture_request(content)
     result <- backend_cli_run(request, c("--vanilla", script))
     expect_identical(result$status, 0L)
-    expect_equal(result$stdout, paste(content, collapse = "\n"))
+    # R's text-mode stdout uses CRLF on Windows; stdin bytes remain unchanged.
+    expect_equal(gsub("\r\n", "\n", result$stdout, fixed = TRUE), paste(content, collapse = "\n"))
     expect_equal(nchar(result$stderr), 100000)
 })
 
@@ -26,8 +27,8 @@ test_that("CLI runner uses explicit cwd, environment, arguments and timeout", {
     request$working_directory <- directory
     request$env <- c(LANGUAGESERVER_CLI_TEST = "value")
     result <- backend_cli_run(request, c("--vanilla", script, "argument with spaces"))
-    expect_equal(strsplit(result$stdout, "\n", fixed = TRUE)[[1L]],
-        c(normalizePath(directory), "value", "argument with spaces"))
+    expect_equal(strsplit(gsub("\r\n", "\n", result$stdout, fixed = TRUE), "\n", fixed = TRUE)[[1L]],
+        c(normalizePath(directory, winslash = "/"), "value", "argument with spaces"))
     request$timeout <- 0.2
     expect_error(backend_cli_run(request, c("--vanilla", "-e", "Sys.sleep(10)")), "timed out")
 })
@@ -72,7 +73,8 @@ test_that("CLI descendants stop on cancellation, supersession, shutdown, worker 
                 .__enclos_env__$private$session$kill(grace = 0, close_connections = FALSE),
             timeout = NULL)
         alive <- function(handle) {
-            ps::ps_is_running(handle) && !ps::ps_status(handle) %in% c("zombie", "dead")
+            tryCatch(ps::ps_is_running(handle) && !ps::ps_status(handle) %in% c("zombie", "dead"),
+                no_such_process = function(e) FALSE)
         }
         deadline <- Sys.time() + 5
         while (any(vapply(handles, alive, logical(1L))) && Sys.time() < deadline) {
