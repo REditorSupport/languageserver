@@ -13,7 +13,7 @@ test_that("lintr works", {
     writeLines(c("a = 1", ""), temp_file)
 
     client %>% did_open(temp_file)
-    data <- client %>% wait_for("textDocument/publishDiagnostics")
+    data <- client %>% wait_for("textDocument/publishDiagnostics", uri = path_to_uri(temp_file))
 
     expect_equal(client$diagnostics$size(), 1)
     expect_equal(client$diagnostics$get(data$uri), data$diagnostics)
@@ -25,7 +25,7 @@ test_that("lintr works", {
     cat("x <- 1", file = no_newline_file)
 
     client %>% did_open(no_newline_file)
-    data_no_newline <- client %>% wait_for("textDocument/publishDiagnostics")
+    data_no_newline <- client %>% wait_for("textDocument/publishDiagnostics", uri = path_to_uri(no_newline_file))
 
     expect_length(data_no_newline$diagnostics, 1L)
     expect_equal(data_no_newline$diagnostics[[1]]$code, "trailing_blank_lines_linter")
@@ -51,7 +51,7 @@ test_that("folderless clients receive diagnostics, colors, and code lenses", {
 
     for (uri in c(path_to_uri(path), "untitled:Untitled-794")) {
         did_open(client, path, uri = uri, text = content)
-        data <- wait_for(client, "textDocument/publishDiagnostics")
+        data <- wait_for(client, "textDocument/publishDiagnostics", uri = uri)
         expect_equal(data$uri, uri)
         expect_length(data$diagnostics, 1L)
         expect_equal(data$diagnostics[[1L]]$code, "assignment_linter")
