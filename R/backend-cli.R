@@ -26,8 +26,10 @@ backend_cli_run <- function(request, arguments) {
         error_output <- process$read_error()
         if (nzchar(output)) stdout <- c(stdout, output)
         if (nzchar(error_output)) stderr <- c(stderr, error_output)
-        if (!process$is_alive()) break
-        descendants <- task_process_descendants(process, descendants)
+        alive <- process$is_alive()
+        # Process exit does not imply EOF; decoded bytes may remain buffered.
+        if (!alive && !process$is_incomplete_output() && !process$is_incomplete_error()) break
+        if (alive) descendants <- task_process_descendants(process, descendants)
         remaining <- deadline - proc.time()[[3L]]
         if (remaining <= 0) {
             # Preserve PID ancestry while discovering and killing descendants;
@@ -37,11 +39,8 @@ backend_cli_run <- function(request, arguments) {
             backend_error(sprintf("Backend '%s' timed out after %s seconds.",
                     request$backend$id, request$timeout))
         }
-        process$poll_io(min(100, ceiling(remaining * 1000)))
+        if (!nzchar(output) && !nzchar(error_output)) process$poll_io(min(100, ceiling(remaining * 1000)))
     }
-    # A completed child can still have unread bytes in both pipes.
-    stdout <- c(stdout, process$read_output())
-    stderr <- c(stderr, process$read_error())
     list(status = process$get_exit_status(), stdout = paste0(stdout, collapse = ""),
         stderr = paste0(stderr, collapse = ""), timeout = FALSE)
 

@@ -33,6 +33,39 @@ test_that("CLI runner uses explicit cwd, environment, arguments and timeout", {
     expect_error(backend_cli_run(request, c("--vanilla", "-e", "Sys.sleep(10)")), "timed out")
 })
 
+test_that("CLI runner drains fast-exiting stdout and stderr through partial reads to EOF", {
+    script <- withr::local_tempfile(fileext = ".R")
+    writeLines(c(
+        "for (i in 1:32) {",
+        "    cat(strrep('output', 16384))",
+        "    cat(strrep('error', 16384), file = stderr())",
+        "}"
+    ), script)
+    native_process <- processx::process
+    # A text read may return just a portion of the bytes buffered in a pipe.
+    partial_process <- R6::R6Class("PartialReadProcess", inherit = native_process,
+        public = list(read_output = function(n = -1) super$read_output(4096),
+            read_error = function(n = -1) super$read_error(4096)))
+    testthat::local_mocked_bindings(process = partial_process, .package = "processx")
+    result <- backend_cli_run(cli_fixture_request(timeout = 30), c("--vanilla", script))
+    expect_identical(result$status, 0L)
+    expect_identical(result$stdout, strrep("output", 16384 * 32))
+    expect_identical(result$stderr, strrep("error", 16384 * 32))
+})
+
+test_that("CLI timeout also bounds pipe draining after the process exits", {
+    state <- new.env(parent = emptyenv())
+    state$killed <- FALSE
+    process <- list(read_output = function() "", read_error = function() "",
+        is_alive = function() FALSE, is_incomplete_output = function() TRUE,
+        is_incomplete_error = function() FALSE,
+        poll_io = function(timeout) Sys.sleep(timeout / 1000),
+        kill = function(...) state$killed <- TRUE)
+    testthat::local_mocked_bindings(process = list(new = function(...) process), .package = "processx")
+    expect_error(backend_cli_run(cli_fixture_request(timeout = 0.05), character()), "timed out")
+    expect_true(state$killed)
+})
+
 test_that("CLI descendants stop on cancellation, supersession, shutdown, worker death and timeout", {
     skip_on_cran()
     skip_if(identical(Sys.getenv("R_COVR"), "true"))
