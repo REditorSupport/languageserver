@@ -318,7 +318,7 @@ test_that("Active parameter detection ignores nested and quoted commas", {
     cases <- list(
         list("fun(list(1, 2), ", 1L),
         list("fun('a,b', ", 1L),
-        list('fun("a,\\\"b", ', 1L),
+        list(r"(fun("a,\"b", )", 1L),
         list("fun(first = 1, named = ", 4L),
         list("fun(1, unknown = ", 1L),
         list("fun(1, 2, 3, 4, ", 3L),

@@ -71,7 +71,6 @@ test_that("Document link works", {
 
 test_that("Document link works with raw strings", {
     skip_on_cran()
-    skip_if(getRversion() < "4.0.0")
 
     dir <- tempdir()
     client <- language_client(dir)

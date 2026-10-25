@@ -465,14 +465,14 @@ throttle <- function(fun, t = 1) {
 #'
 #' @noRd
 sanitize_names <- function(objects) {
-    objects[stringi::stri_detect_regex(objects, "^([^\\W_]|\\.(?!_))(\\w|\\.)*$")]
+    objects[stringi::stri_detect_regex(objects, r"(^([^\W_]|\.(?!_))(\w|\.)*$)")]
 }
 
 na_to_empty_string <- function(x) if (is.na(x)) "" else x
 empty_string_to_null <- function(x) if (nzchar(x)) x else NULL
 
 look_forward <- function(text) {
-    matches <- stringi::stri_match_first_regex(text, "^(?:[^\\W]|\\.)*\\b")[1]
+    matches <- stringi::stri_match_first_regex(text, r"(^(?:[^\W]|\.)*\b)")[1]
     list(
         token = na_to_empty_string(matches[1])
     )
@@ -480,7 +480,7 @@ look_forward <- function(text) {
 
 look_backward <- function(text) {
     matches <- stringi::stri_match_first_regex(
-        text, "(?<!\\$)(?:\\b|(?=\\.))(?:([a-zA-Z][a-zA-Z0-9.]+)(:::?))?((?:[^\\W_]|\\.)(?:[^\\W]|\\.)*)?$")
+        text, r"((?<!\$)(?:\b|(?=\.))(?:([a-zA-Z][a-zA-Z0-9.]+)(:::?))?((?:[^\W_]|\.)(?:[^\W]|\.)*)?$)")
     list(
         full_token = na_to_empty_string(matches[1]),
         package  = na_to_empty_string(matches[2]),

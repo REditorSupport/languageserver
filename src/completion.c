@@ -10,7 +10,7 @@
 SEXP member_binding_c(SEXP env, SEXP name, SEXP materialize) {
     if (TYPEOF(env) != ENVSXP || TYPEOF(name) != STRSXP || XLENGTH(name) != 1 ||
             STRING_ELT(name, 0) == NA_STRING) Rf_error("Invalid binding");
-    SEXP sym = Rf_installChar(STRING_ELT(name, 0));
+    SEXP sym = Rf_installTrChar(STRING_ELT(name, 0));
     SEXP result = PROTECT(Rf_allocVector(VECSXP, 2));
 #if R_VERSION >= R_Version(4, 6, 0)
     R_BindingType_t kind = R_GetBindingType(sym, env);
@@ -42,9 +42,7 @@ SEXP member_binding_c(SEXP env, SEXP name, SEXP materialize) {
         SET_VECTOR_ELT(result, 0, Rf_mkString("deferred"));
     } else if (R_BindingIsActive(sym, env)) {
         SET_VECTOR_ELT(result, 0, Rf_mkString("active"));
-#if R_VERSION >= R_Version(4, 0, 0)
         SET_VECTOR_ELT(result, 1, R_ActiveBindingFunction(sym, env));
-#endif
     } else {
         SEXP value = Rf_findVarInFrame(env, sym);
         if (TYPEOF(value) == PROMSXP && PRVALUE(value) != R_UnboundValue) {

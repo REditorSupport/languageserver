@@ -172,7 +172,7 @@ formatting_registrations <- function(client_capabilities) {
         method <- formatting_capability_methods[[field]]
         value <- capabilities[[field]]
         if (!isTRUE(client_capabilities$textDocument[[method]]$dynamicRegistration) ||
-                is.null(value) || identical(value, FALSE)) next
+                is.null(value) || isFALSE(value)) next
         registrations[[field]] <- list(id = paste0("languageserver-", method),
             method = paste0("textDocument/", method),
             registerOptions = c(list(documentSelector = NULL), if (is.list(value)) value))

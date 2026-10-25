@@ -32,7 +32,7 @@ document_color_reply <- function(id, uri, workspace, document) {
             str_col2 <- strings$col2[keep]
         }
         str_expr <- substr(document$content[str_line1], str_col1, str_col2)
-        str_texts <- tryCatch(as.character(parse(text = str_expr, keep.source = FALSE)),
+        str_texts <- tryCatch(as.character(str2expression(str_expr)),
             error = function(e) NULL)
 
         if (length(str_texts)) {

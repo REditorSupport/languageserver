@@ -29,7 +29,7 @@ syntax_xml <- function(syntax) {
     result <- .Call("syntax_xml_c", syntax, PACKAGE = "languageserver")
     if (!is.null(result)) return(result)
     columns <- c("token", "text", "terminal", "line1", "col1", "line2", "col2")
-    data <- as.data.frame(syntax[columns], stringsAsFactors = FALSE)
+    data <- list2DF(syntax[columns])
     data$parent <- integer(nrow(data))
     xmlparsedata::xml_parse_data(data)
 }
@@ -133,7 +133,7 @@ navigation_signature <- function(document, parse_data, row, symbol) {
     closing <- syntax$function_close[[row]]
     text <- get_range_text(document$content,
         syntax$line1[[row]], syntax$col1[[row]], syntax$line2[[closing]], syntax$col2[[closing]])
-    expr <- parse(text = c(text, "NULL"), keep.source = FALSE)
+    expr <- str2expression(c(text, "NULL"))
     found <- get_signature(symbol, expr[[1L]])
     assign(key, found, envir = index$cache)
     found

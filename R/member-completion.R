@@ -147,14 +147,14 @@ member_scope_required <- function(workspace, document, point = NULL) {
     data <- document$parse_data
     if ((!identical(document$version, data$version) && !member_ordinary_request(workspace, document)) ||
             isTRUE(data$parse_error)) return(TRUE)
-    if (!identical(data$member_data$class_scope, FALSE)) return(TRUE)
+    if (!isFALSE(data$member_data$class_scope)) return(TRUE)
     if (!is.null(point)) return(member_package_scope_required(workspace, data$member_data, "class_scope"))
     metadata <- workspace$member_metadata
     if (is.null(metadata)) return(FALSE)
     for (package in metadata$keys()) {
         # Older snapshots without the hint retain the inference path.
         candidate <- if (is.function(metadata$catalog)) metadata$catalog(package) else metadata$get(package)
-        if (!identical(candidate$class_scope, FALSE)) return(TRUE)
+        if (!isFALSE(candidate$class_scope)) return(TRUE)
     }
     FALSE
 }
@@ -249,13 +249,13 @@ member_recover <- function(document, point, cursor, data) {
         local <- lines[seq.int(skip, length(lines))]
         local[[length(local)]] <- paste0(local[[length(local)]], sentinel)
         closers <- missing_closing_delimiters(local)
-        parsed <- tryCatch(parse(text = paste0(paste(local, collapse = "\n"), closers)), error = function(e) NULL)
+        parsed <- tryCatch(str2expression(paste0(paste(local, collapse = "\n"), closers)), error = function(e) NULL)
         if (is.null(parsed) && !is.null(cursor$accessor) && any(grepl("|>", local, fixed = TRUE))) {
             # Native pipes require a call on the RHS. The cursor sentinel is
             # a callee here; its synthetic arguments are never evaluated.
             local[[length(local)]] <- paste0(local[[length(local)]], "()")
             closers <- missing_closing_delimiters(local)
-            parsed <- tryCatch(parse(text = paste0(paste(local, collapse = "\n"), closers)), error = function(e) NULL)
+            parsed <- tryCatch(str2expression(paste0(paste(local, collapse = "\n"), closers)), error = function(e) NULL)
         }
         if (is.null(parsed)) next
         found <- FALSE
@@ -321,7 +321,7 @@ member_recover_context <- function(document, content, point, cursor, start, colu
     for (end in seq.int(offset, length(full))) {
         lines <- full[seq_len(end)]
         if (sum(nchar(lines, type = "bytes")) > 65536L) break
-        context <- tryCatch(parse(text = lines), error = function(e) NULL)
+        context <- tryCatch(str2expression(lines), error = function(e) NULL)
         if (!is.null(context)) return(context)
     }
     NULL
@@ -667,7 +667,7 @@ member_recover_scope <- function(document, point, cursor, data) {
             if (point$row == ref[[3L]] - 1L) end <- end + nchar(sentinel) - (cursor$end - cursor$start)
             lines[[length(lines)]] <- substr(lines[[length(lines)]], 1L, end)
             lines[[1L]] <- substring(lines[[1L]], ref[[5L]])
-            parsed <- tryCatch(parse(text = lines), error = function(e) NULL)
+            parsed <- tryCatch(str2expression(lines), error = function(e) NULL)
             if (length(parsed) == 1L) {
                 local_path <- member_cursor_path(parsed[[1L]], sentinel, cursor$accessor)
                 if (!is.null(local_path)) {
@@ -946,7 +946,7 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
 # inference context, leaving unknown symbols to their existing providers.
 member_class_completion_info <- function(uri, workspace, document, point, token, items, resolved = NULL) {
     if (!length(items) || !is.null(token$package) || !identical(token$accessor, "")) return(items)
-    if (identical(resolved, FALSE)) return(items)
+    if (isFALSE(resolved)) return(items)
     start <- token$range$start$col
     cursor <- list(operator = start + 1L, operator_row = point$row,
         start = start, end = token$range$end$col, accessor = NULL,
@@ -964,7 +964,7 @@ member_class_completion_info <- function(uri, workspace, document, point, token,
         if (!is.null(package) && !package %in% c("", WORKSPACE)) next
         if (identical(items[[i]]$data$type, "parameter") || !is.null(items[[i]]$data$parameter)) next
         label <- items[[i]]$label
-        if (startsWith(label, "`")) label <- tryCatch(as.character(parse(text = label)[[1L]]), error = function(e) label)
+        if (startsWith(label, "`")) label <- tryCatch(as.character(str2lang(label)), error = function(e) label)
         if (!label %in% local_names && !label %in% document_names) next
         value <- if (label %in% field_names) {
             member_completion_value(fields[[label]], resolved$index, resolved$budget)

@@ -35,8 +35,8 @@ backend_descriptor <- function(kind, selection = lsp_settings$get(paste0(kind, "
                         !length(descriptor$modes) || anyNA(descriptor$modes) ||
                         !all(descriptor$modes %in% c("document", "range", "ranges", "on_type")))) ||
             (!is.null(descriptor$needs_workspace_globals) &&
-                    !identical(descriptor$needs_workspace_globals, TRUE) &&
-                    !identical(descriptor$needs_workspace_globals, FALSE)) ||
+                    !isTRUE(descriptor$needs_workspace_globals) &&
+                    !isFALSE(descriptor$needs_workspace_globals)) ||
             (!is.null(descriptor$package) && (!backend_string(descriptor$package) ||
                         !backend_string(descriptor$version) || !backend_version_valid(descriptor$version))) ||
             (!is.null(descriptor$executable) && !backend_string(descriptor$executable)) ||

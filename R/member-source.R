@@ -4,7 +4,7 @@ member_source_key <- function(path) paste(c("root", path), collapse = ":")
 
 member_function_parts <- function(data) {
     parts <- new.env(hash = TRUE, parent = emptyenv())
-    functions <- data$parent[data$token %in% c("FUNCTION", "'\\\\'")]
+    functions <- data$parent[data$token %in% c("FUNCTION", r"('\\')")]
     rows <- which(data$token == "expr" & data$parent %in% functions)
     children <- split(rows, data$parent[rows])
     for (row in which(data$id %in% functions)) {

@@ -44,7 +44,7 @@ check_minimal_install <- function(source_path = ".") {
             else do.call(Sys.setenv, stats::setNames(list(value), variable))
         }
     }, add = TRUE)
-    profile <- if (.Platform$OS.type == "windows") "NUL" else "/dev/null"
+    profile <- nullfile()
     # Installers, servers and workers must all inherit the same isolated library.
     Sys.setenv(R_LIBS = library, R_LIBS_USER = library, R_LIBS_SITE = "",
         R_PROFILE = profile, R_PROFILE_USER = profile, R_ENVIRON = profile, R_ENVIRON_USER = profile)

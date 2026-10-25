@@ -135,7 +135,7 @@ inlay_hint_apply_change <- function(indexed, change, content) {
         end$line + 1L,
         code_point_from_unit(line_text(end$line), end$character)
     )
-    if (any(grepl("[#\"'`\\\\]", c(change$text, removed), useBytes = TRUE), na.rm = TRUE)) {
+    if (any(grepl(r"([#"'`\\])", c(change$text, removed), useBytes = TRUE), na.rm = TRUE)) {
         after[] <- FALSE
     }
     keep <- before | after

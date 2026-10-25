@@ -454,7 +454,7 @@ member_infer <- function(
         }
         if (member_head(node, "if")) {
             cond <- infer(node[[2L]], env)
-            yes <- !isTRUE(cond$known_literal) || !identical(cond$literal, FALSE)
+            yes <- !isTRUE(cond$known_literal) || !isFALSE(cond$literal)
             no <- !isTRUE(cond$known_literal) || !identical(cond$literal, TRUE)
             a <- if (yes) flow(node[[3L]], env) else NULL
             b <- if (no) {
@@ -1055,7 +1055,7 @@ member_infer <- function(
             return(result)
         }
         if (head %in% c("&&", "||") && isTRUE(arg(1L)$known_literal)) {
-            if (head == "&&" && identical(arg(1L)$literal, FALSE)) {
+            if (head == "&&" && isFALSE(arg(1L)$literal)) {
                 return(member_literal(FALSE))
             }
             if (head == "||" && identical(arg(1L)$literal, TRUE)) {
@@ -1123,7 +1123,7 @@ member_infer <- function(
                     (identical(member_name(args[[1L]]), "...") && identical(x$type, "list") &&
                         !is.null(x$elements) && length(x$elements) == 0L),
                 isTRUE = if (x$known_literal) identical(x$literal, TRUE) else NA,
-                isFALSE = if (x$known_literal) identical(x$literal, FALSE) else NA,
+                isFALSE = if (x$known_literal) isFALSE(x$literal) else NA,
                 inherits = if (isTRUE(arg(2L)$known_literal)) arg(2L)$literal %in% member_classes(x, index) else NA,
                 is.character = identical(x$type, "character"),
                 is.numeric = x$type %in% c("double", "integer"),
@@ -1340,7 +1340,7 @@ member_registration_effect <- function(expr, index, bindings, budget = NULL) {
 member_generic_index <- function(code) {
     index <- new.env(parent = emptyenv())
     index$definitions <- list()
-    for (expr in parse(text = code, keep.source = FALSE)) {
+    for (expr in str2expression(code)) {
         if (member_head(expr, "<-") && is.symbol(expr[[2L]])) {
             index$definitions[as.character(expr[[2L]])] <- list(expr[[3L]])
         }

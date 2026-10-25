@@ -139,14 +139,12 @@ s3_runtime_shape <- function(object, depth = 0L) {
     if (depth > 2L || isS4(object) || is.environment(object) || is.function(object)) {
         return(NULL)
     }
-    classes <- attr(object, "class", exact = TRUE)
     dims <- attr(object, "dim", exact = TRUE)
-    if (is.null(classes)) classes <- s3_implicit_classes(typeof(object), dims)
     plain <- unclass(object)
     fields <- if (is.data.frame(object) && length(plain) <= 256L) {
         lapply(plain, s3_runtime_shape, depth = depth + 1L)
     }
-    s3_value(classes = classes, type = typeof(object), fields = fields, dimensions = dims,
+    s3_value(classes = .class2(object), type = typeof(object), fields = fields, dimensions = dims,
         explicit_class = !is.null(attr(object, "class", exact = TRUE)))
 }
 
@@ -314,5 +312,5 @@ s3_namespace_binding <- function(ns, name) {
 
 s3_function_identity <- function(fn, owner = "local") {
     syntax <- as.call(list(as.name("function"), fn[[2L]], fn[[3L]]))
-    digest::digest(list(owner, paste(deparse(syntax, width.cutoff = 500L), collapse = "\n")), algo = "sha256")
+    digest::digest(list(owner, deparse1(syntax, collapse = "\n")), algo = "sha256")
 }

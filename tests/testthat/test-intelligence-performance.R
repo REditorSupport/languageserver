@@ -4,13 +4,13 @@ test_that("Native signature ranges preserve Unicode and escaped defaults", {
     expect_identical(parse_signature_parameters(signature), list(
         list(label = c(2L, 10L)), list(label = c(12L, 17L))))
 
-    signature <- "fun(first = \"a\\\",b\", `odd=name` = list(1, 2), ...)"
+    signature <- r"(fun(first = "a\",b", `odd=name` = list(1, 2), ...))"
     expect_identical(extract_parameter_names(signature),
         c("first", "`odd=name`", "..."))
     parameters <- parse_signature_parameters(signature)
     expect_length(parameters, 3L)
     expect_identical(substr(signature, parameters[[1L]]$label[[1L]] + 1L,
-            parameters[[1L]]$label[[2L]]), "first = \"a\\\",b\"")
+            parameters[[1L]]$label[[2L]]), r"(first = "a\",b")")
 
     raw_signature <- 'fun(first = r"--(a",b)--", second = 2)'
     expect_identical(extract_parameter_names(raw_signature), c("first", "second"))

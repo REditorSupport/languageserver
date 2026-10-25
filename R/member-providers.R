@@ -91,7 +91,7 @@ member_hover_location <- function(document, point) {
         return(NULL)
     }
     token <- substr(document$line0(point$row), cursor$start + 1L, cursor$end)
-    name <- tryCatch(member_name(parse(text = token)[[1L]]), error = function(e) NULL)
+    name <- tryCatch(member_name(str2lang(token)), error = function(e) NULL)
     if (is.null(name) || !nzchar(name)) {
         return(NULL)
     }
@@ -218,8 +218,10 @@ member_hover_reply <- function(id, uri, workspace, document, location,
         detail <- if (!is.null(signature)) {
             signature
         } else if (isTRUE(value$known_literal)) {
-            paste(deparse(value$literal), collapse = "\n")
-        } else if (length(value$type)) paste(value$type, collapse = " | ")
+            deparse1(value$literal, collapse = "\n")
+        } else if (length(value$type)) {
+            paste(value$type, collapse = " | ")
+        }
         contents <- c(if (!is.null(detail)) sprintf("```r\n%s\n```", detail), description)
     }
     if (is.null(contents)) {

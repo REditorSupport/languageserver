@@ -104,7 +104,7 @@ complete_incomplete_expression <- function(text) {
                 source, separator, hole, closers, trailing_body
             )
             parsed <- tryCatch(
-                parse(text = completed, keep.source = FALSE),
+                str2expression(completed),
                 error = function(e) NULL
             )
             if (!is.null(parsed) && length(parsed)) {
@@ -295,7 +295,7 @@ find_on_type_formatting_chunk <- function(content, end_line, complete_at_end = F
     while (start_line >= 1L) {
         text <- content[start_line:end_line]
         parsed <- tryCatch(
-            parse(text = text, keep.source = FALSE),
+            str2expression(text),
             error = function(e) NULL
         )
 
