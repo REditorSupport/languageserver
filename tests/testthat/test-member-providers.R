@@ -83,24 +83,82 @@ test_that("Multiline dollar chains share completion, signatures and hover", {
     arg_loc <- member_argument_location(fixture$document, list(row = 14L, col = 6L))
     expect_identical(arg_loc$parameter, "format")
     expect_null(member_argument_location(fixture$document, list(row = 14L, col = 22L)))
-    fixture_multiline <- member_provider_fixture(c(
-        code[1:11],
-        "pipeline$filter(\"multiline",
-        "string\")$collect",
-        "  (format = \"list\")"
-    ))
+    for (chain in list(
+        c(
+            "pipeline$filter(\"multiline",
+            "string\")$collect",
+            "  (format = \"list\")"
+        ),
+        c(
+            "(pipeline$filter(\"first line",
+            "# literal\")$collect",
+            "  (format = \"list\"))"
+        ),
+        c(
+            "(pipeline$filter(r\"(a\"b)\")$collect # comment",
+            "  (format = \"list\"))"
+        ),
+        c(
+            "(pipeline$filter(r\"(a) \" # literal)\")$collect",
+            "  (format = \"list\"))"
+        ),
+        c(
+            "(pipeline$filter(r'-(a)- ' # literal)-')$collect # comment",
+            "  (format = \"list\"))"
+        )
+    )) {
+        fixture_chain <- member_provider_fixture(c(code[1:11], chain))
+        call_row <- fixture_chain$document$nline - 1L
+        callee_row <- call_row - 1L
+        callee_col <- regexpr("collect", fixture_chain$document$line0(callee_row), fixed = TRUE)[[1L]]
+        expect_identical(
+            member_call_location(fixture_chain$document, list(row = call_row, col = 4L))$cursor$token,
+            "collect"
+        )
+        expect_identical(
+            member_provider_signature(fixture_chain, call_row, 4L)$signatures[[1L]]$label,
+            "collect(format = \"list\")"
+        )
+        expect_identical(
+            member_provider_hover(fixture_chain, callee_row, callee_col)$contents,
+            "```r\ncollect(format = \"list\")\n```"
+        )
+        expect_identical(
+            member_argument_location(fixture_chain$document, list(row = call_row, col = 5L))$parameter,
+            "format"
+        )
+    }
     expect_identical(
-        member_call_location(fixture_multiline$document, list(row = 13L, col = 4L))$cursor$token,
-        "collect"
+        member_uncomment_line("pipeline$filter(r\"(a) \" # literal)\")$collect # comment"),
+        "pipeline$filter(r\"(a) \" # literal)\")$collect "
     )
-    fixture_raw <- member_provider_fixture(c(
+    fixture_same_line <- member_provider_fixture(c(
         code[1:11],
-        "pipeline$filter(r\"(a\"b)\")$collect # comment",
-        "  (format = \"list\")"
+        "(pipeline$filter(r\"(a) \" # literal)\")$collect(format = \"list\"))"
     ))
+    arg_col <- regexpr("format", fixture_same_line$document$line0(11L), fixed = TRUE)[[1L]]
     expect_identical(
-        member_call_location(fixture_raw$document, list(row = 12L, col = 4L))$cursor$token,
-        "collect"
+        member_argument_location(fixture_same_line$document, list(row = 11L, col = arg_col))$parameter,
+        "format"
+    )
+    fixture_split_operator <- member_provider_fixture(c(
+        code[1:11],
+        "(pipeline$filter(\"first line",
+        "# literal\")$ # comment",
+        "  collect(format = \"list\"))"
+    ))
+    items <- member_completion(
+        fixture_split_operator$uri, fixture_split_operator$workspace,
+        fixture_split_operator$document, list(row = 13L, col = 5L), TRUE, 200L
+    )
+    expect_identical(vapply(items, `[[`, character(1L), "label"), "collect")
+    expect_identical(
+        member_provider_signature(fixture_split_operator, 13L, 12L)$signatures[[1L]]$label,
+        "collect(format = \"list\")"
+    )
+    expect_identical(
+        member_provider_hover(fixture_split_operator, 13L, 4L)$contents,
+        "```r\ncollect(format = \"list\")\n```"
     )
     fixture_symbol <- member_provider_fixture(c(
         "MyClass <- function(value = 1) value",
@@ -472,12 +530,18 @@ test_that("Unknown and shadowed member receivers never resolve unrelated bare fu
 test_that("Member providers stay inside R cells", {
     fixture <- member_provider_fixture(c(
         "```{r}", "x <- list(run=function(value=1) NULL)",
-        "x$run(", "```", "```{python}", "x$run(", "```"
+        "x$run(", "```", "```{python}", "x$run(", "```",
+        "```{r}", "  (", "```"
     ), language = "quarto")
     expect_identical(member_provider_signature(fixture, 2L)$signatures[[1L]]$label, "run(value = 1)")
     expect_identical(member_provider_hover(fixture, 2L, 3L)$contents, "```r\nrun(value = 1)\n```")
     expect_null(member_provider_hover(fixture, 5L, 3L))
     expect_null(member_provider_signature(fixture, 5L)$signatures)
+    expect_null(member_call_location(fixture$document, list(row = 8L, col = 3L)))
+    expect_null(member_call_location(
+        Document$new("file:///paren.R", content = "(x"),
+        list(row = 0L, col = 2L)
+    ))
 })
 
 test_that("Installed package members retain method signatures and documentation identity", {

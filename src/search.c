@@ -256,3 +256,104 @@ SEXP detect_comments(SEXP content, SEXP _row) {
     }
     return Rf_ScalarInteger(out);
 }
+
+SEXP uncomment_lines_c(SEXP content, SEXP _start_row, SEXP _end_row,
+    SEXP _scan_from) {
+    if (!Rf_isString(content)) {
+        Rf_error("content must be a character vector");
+    }
+    int ncontent = Rf_length(content);
+    int start_row = Rf_asInteger(_start_row);
+    int end_row = Rf_asInteger(_end_row);
+    int scan_from = Rf_asInteger(_scan_from);
+    if (ncontent == 0 || start_row > end_row || end_row < 0 ||
+            start_row >= ncontent) {
+        return Rf_allocVector(STRSXP, 0);
+    }
+    if (start_row < 0) start_row = 0;
+    if (end_row >= ncontent) end_row = ncontent - 1;
+    if (scan_from < 0 || scan_from > start_row) scan_from = start_row;
+
+    SEXP out = PROTECT(Rf_allocVector(STRSXP, end_row - start_row + 1));
+    fsm_state state;
+    fsm_initialize(&state);
+    for (int i = scan_from; i <= end_row; i++) {
+        SEXP elt = STRING_ELT(content, i);
+        if (elt == NA_STRING) {
+            if (i >= start_row) {
+                SET_STRING_ELT(out, i - start_row, NA_STRING);
+            }
+            continue;
+        }
+        const char *c = Rf_translateCharUTF8(elt);
+        int j = 0;
+        while (c[j] != '\0') {
+            char cj = c[j];
+            if (!state.single_quoted && !state.double_quoted &&
+                    !state.backticked && !state.escaped && cj == '#') {
+                break;
+            }
+            fsm_feed(&state, cj);
+            j++;
+        }
+        fsm_feed(&state, '\n');
+        if (i >= start_row) {
+            if (c[j] == '\0') {
+                SET_STRING_ELT(out, i - start_row, elt);
+            } else {
+                SET_STRING_ELT(out, i - start_row,
+                    Rf_mkCharLenCE(c, j, CE_UTF8));
+            }
+        }
+    }
+    UNPROTECT(1);
+    return out;
+}
+
+SEXP missing_closing_delimiters_c(SEXP content) {
+    if (!Rf_isString(content)) {
+        Rf_error("content must be a character vector");
+    }
+    int ncontent = Rf_length(content);
+    fsm_state state;
+    fsm_initialize(&state);
+    stack closers;
+    stack_initialize(&closers);
+    int n = 0;
+    for (int i = 0; i < ncontent; i++) {
+        if (STRING_ELT(content, i) == NA_STRING) continue;
+        const char *c = Rf_translateCharUTF8(STRING_ELT(content, i));
+        for (int j = 0; c[j] != '\0'; j++) {
+            char cj = c[j];
+            if (!state.single_quoted && !state.double_quoted &&
+                    !state.backticked && !state.escaped) {
+                if (cj == '#') {
+                    break;
+                } else if (cj == '(') {
+                    stack_push(&closers, ')');
+                    n++;
+                } else if (cj == '[') {
+                    stack_push(&closers, ']');
+                    n++;
+                } else if (cj == '{') {
+                    stack_push(&closers, '}');
+                    n++;
+                } else if (cj == ')' || cj == ']' || cj == '}') {
+                    if (n > 0) {
+                        stack_pop(&closers);
+                        n--;
+                    }
+                }
+            }
+            fsm_feed(&state, cj);
+        }
+        fsm_feed(&state, '\n');
+    }
+    char *buf = (char *) R_alloc((size_t) n + 1, sizeof(char));
+    for (int i = 0; i < n; i++) {
+        buf[i] = (char) stack_pop(&closers);
+    }
+    buf[n] = '\0';
+    stack_clear(&closers);
+    return Rf_mkString(buf);
+}

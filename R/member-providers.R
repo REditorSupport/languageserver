@@ -106,21 +106,43 @@ member_hover_location <- function(document, point) {
 }
 
 member_uncomment_line <- function(line) {
-    if (!grepl("#", line, fixed = TRUE)) return(line)
-    uncommented <- regexpr(
-        paste0(
-            "^((?:[^\"'`#\\\\rR]|\\\\.|",
-            "[rR]\"(-*)(?:\\([^)]*\\)|\\[[^]]*\\]|\\{[^}]*\\})\\2\"|",
-            "[rR]'(-*)(?:\\([^)]*\\)|\\[[^]]*\\]|\\{[^}]*\\})\\3'|",
-            "[rR]|",
-            "\"(?:[^\"\\\\]|\\\\.)*\"|",
-            "'(?:[^'\\\\]|\\\\.)*'|",
-            "`(?:[^`\\\\]|\\\\.)*`)*)"
-        ),
-        line, perl = TRUE
+    .Call(
+        "uncomment_lines_c",
+        PACKAGE = "languageserver",
+        as.character(line), 0L, length(line) - 1L, 0L
     )
-    len <- attr(uncommented, "match.length")
-    if (substr(line, len + 1L, len + 1L) == "#") substr(line, 1L, len) else line
+}
+
+document_uncomment_lines <- function(document, start_row, end_row = start_row) {
+    cell <- if (isTRUE(document$is_rmarkdown)) literate_r_cell_at(document$regions, end_row)
+    scan_from <- if (is.null(cell)) 0L else max(0L, cell$body_start - 1L)
+    .Call(
+        "uncomment_lines_c",
+        PACKAGE = "languageserver",
+        document$content, as.integer(start_row), as.integer(end_row), as.integer(scan_from)
+    )
+}
+
+document_call_callee <- function(document, opening) {
+    row <- opening$row
+    col <- nchar(sub("[ \t]+$", "", substr(document$line0(row), 1L, opening$col)))
+    if (col > 0L) {
+        return(list(row = row, col = col))
+    }
+    start_row <- max(0L, row - 128L)
+    if (start_row >= row) {
+        return(NULL)
+    }
+    # R permits whitespace/newlines/comments between a callee and its call parenthesis.
+    uncommented <- document_uncomment_lines(document, start_row, row - 1L)
+    for (r in seq.int(row - 1L, start_row)) {
+        if (!check_r_region(document, list(row = r, col = 0L))) break
+        col <- nchar(sub("[ \t]+$", "", uncommented[[r - start_row + 1L]]))
+        if (col > 0L) {
+            return(list(row = r, col = col))
+        }
+    }
+    NULL
 }
 
 member_call_location <- function(document, point, call = document$detect_call(point), symbols = FALSE) {
@@ -128,23 +150,13 @@ member_call_location <- function(document, point, call = document$detect_call(po
     if (is.null(opening) || !check_r_region(document, point)) {
         return(NULL)
     }
-    row <- opening$row
-    col <- opening$col
-    # R permits whitespace/newlines/comments between a member and its call parenthesis.
-    for (i in seq_len(129L)) {
-        prefix <- substr(document$line0(row), 1L, col)
-        if (i > 1L) prefix <- member_uncomment_line(prefix)
-        col <- nchar(sub("[ \t]+$", "", prefix))
-        if (col > 0L) {
-            location <- member_hover_location(document, list(row = row, col = col))
-            if (is.null(location) && symbols) location <- member_symbol_location(document, list(row = row, col = col))
-            return(location)
-        }
-        row <- row - 1L
-        if (row < 0L || !check_r_region(document, list(row = row, col = 0L))) break
-        col <- nchar(document$line0(row))
+    callee <- if ("callee" %in% names(call)) call$callee else document_call_callee(document, opening)
+    if (is.null(callee)) {
+        return(NULL)
     }
-    NULL
+    location <- member_hover_location(document, callee)
+    if (is.null(location) && symbols) location <- member_symbol_location(document, callee)
+    location
 }
 
 # Reuse cursor recovery for class references, callable bindings and aliases.
@@ -205,15 +217,17 @@ member_argument_location <- function(document, point, symbols = FALSE) {
     }
     token <- document$detect_token(point)
     end <- token$range$end
-    line <- member_uncomment_line(document$line0(end$row))
+    last_row <- min(document$nline - 1L, end$row + 128L)
+    uncommented <- document_uncomment_lines(document, end$row, last_row)
+    line <- uncommented[[1L]]
     if (!nzchar(token$token) || !identical(token$accessor, "") || end$col > nchar(line)) {
         return(NULL)
     }
     named <- FALSE
-    for (row in seq.int(end$row, min(document$nline - 1L, end$row + 128L))) {
+    for (row in seq.int(end$row, last_row)) {
         if (row > end$row && !check_r_region(document, list(row = row, col = 0L))) break
-        rest <- if (row == end$row) substring(line, end$col + 1L) else document$line0(row)
-        if (grepl("^[ \t]*(#.*)?$", rest)) next
+        rest <- if (row == end$row) substring(line, end$col + 1L) else uncommented[[row - end$row + 1L]]
+        if (grepl("^[ \t]*$", rest)) next
         named <- grepl("^[ \t]*=(?!=)", rest, perl = TRUE)
         break
     }

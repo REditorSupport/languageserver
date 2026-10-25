@@ -190,4 +190,25 @@ test_that("quote detection handles backticks and raw-string delimiters", {
     expect_false(enclosed("R'[raw]' + value", 12L))
     expect_false(enclosed("R\"[raw]\" + value", 12L))
     expect_false(enclosed("R'{raw}' + value", 12L))
+
+    expect_error(
+        .Call("uncomment_lines_c", 1L, 0L, 0L, 0L, PACKAGE = "languageserver"),
+        "content must be a character vector"
+    )
+    expect_identical(
+        .Call("uncomment_lines_c", character(), 0L, 0L, 0L, PACKAGE = "languageserver"),
+        character()
+    )
+    expect_identical(
+        .Call("uncomment_lines_c", c(NA_character_, "x # c"), 0L, 1L, 0L, PACKAGE = "languageserver"),
+        c(NA_character_, "x ")
+    )
+    expect_error(
+        .Call("missing_closing_delimiters_c", 1L, PACKAGE = "languageserver"),
+        "content must be a character vector"
+    )
+    expect_identical(
+        .Call("missing_closing_delimiters_c", c(NA_character_, "f({["), PACKAGE = "languageserver"),
+        "]})"
+    )
 })

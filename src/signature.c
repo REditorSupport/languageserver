@@ -20,7 +20,9 @@ static int identifier(unsigned char ch) {
 static int literal_end(const char *text, int at, int size) {
     unsigned char quote = (unsigned char) text[at];
     if ((quote == 'r' || quote == 'R') && at + 1 < size &&
-            text[at + 1] == '"' && (at == 0 || !identifier(text[at - 1]))) {
+            (text[at + 1] == '"' || text[at + 1] == '\'') &&
+            (at == 0 || !identifier(text[at - 1]))) {
+        char raw_quote = text[at + 1];
         int open = at + 2;
         while (open < size && text[open] == '-') open++;
         if (open < size && (text[open] == '(' || text[open] == '[' ||
@@ -32,7 +34,7 @@ static int literal_end(const char *text, int at, int size) {
                 if (text[i] != close) continue;
                 int j = i + 1;
                 while (j < size && j - i - 1 < dashes && text[j] == '-') j++;
-                if (j < size && j - i - 1 == dashes && text[j] == '"') {
+                if (j < size && j - i - 1 == dashes && text[j] == raw_quote) {
                     return j + 1;
                 }
             }

@@ -14,4 +14,8 @@ SEXP enclosed_by_quotes(SEXP s, SEXP _col);
 
 SEXP detect_comments(SEXP content, SEXP _row);
 
+SEXP uncomment_lines_c(SEXP content, SEXP _start_row, SEXP _end_row,
+    SEXP _scan_from);
+SEXP missing_closing_delimiters_c(SEXP content);
+
 #endif /* end of include guard: SEARCH_H__ */
