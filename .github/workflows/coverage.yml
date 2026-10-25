@@ -36,7 +36,6 @@ jobs:
       # Each test worker starts a server with its own R worker pools. Coverage
       # instrumentation makes those subprocesses costly on the shared runner.
       TESTTHAT_CPUS: 2
-      TESTTHAT_TIMINGS: ${{ runner.temp }}/coverage-timings.csv
 
     steps:
       - uses: actions/checkout@v7
@@ -56,6 +55,8 @@ jobs:
           Rscript .github/coverage-shards.R ${{ strategy.job-total }} ${{ matrix.shard }}
 
       - name: Test coverage
+        env:
+          TESTTHAT_TIMINGS: ${{ runner.temp }}/coverage-timings.csv
         run: |
           cov <- covr::package_coverage(
             quiet = FALSE,
