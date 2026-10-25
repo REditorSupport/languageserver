@@ -20,6 +20,7 @@ backend_cli_run <- function(request, arguments) {
         tryCatch(process$kill(grace = 0), error = function(e) NULL)
     }, add = TRUE)
     deadline <- proc.time()[[3L]] + request$timeout
+    next_descendant_check <- -Inf
     stdout <- stderr <- character()
     repeat {
         output <- process$read_output()
@@ -29,7 +30,12 @@ backend_cli_run <- function(request, arguments) {
         alive <- process$is_alive()
         # Process exit does not imply EOF; decoded bytes may remain buffered.
         if (!alive && !process$is_incomplete_output() && !process$is_incomplete_error()) break
-        if (alive) descendants <- task_process_descendants(process, descendants)
+        # Process-table enumeration is costly on Windows. Keep it independent
+        # of the number of chunks read, as in the parent task's monitoring.
+        if (alive && proc.time()[[3L]] >= next_descendant_check) {
+            descendants <- task_process_descendants(process, descendants)
+            next_descendant_check <- proc.time()[[3L]] + 0.05
+        }
         remaining <- deadline - proc.time()[[3L]]
         if (remaining <= 0) {
             # Preserve PID ancestry while discovering and killing descendants;

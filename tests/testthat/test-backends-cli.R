@@ -66,6 +66,44 @@ test_that("CLI timeout also bounds pipe draining after the process exits", {
     expect_true(state$killed)
 })
 
+test_that("slow descendant enumeration leaves the CLI time to drain its output", {
+    clock <- new.env(parent = emptyenv())
+    clock$elapsed <- 0
+    clock$output <- clock$error <- 500L
+    fixture_process <- list(
+        read_output = function() {
+            clock$elapsed <- clock$elapsed + 0.0001
+            if (!clock$output) return("")
+            clock$output <- clock$output - 1L
+            strrep("x", 4096)
+        },
+        read_error = function() {
+            clock$elapsed <- clock$elapsed + 0.0001
+            if (!clock$error) return("")
+            clock$error <- clock$error - 1L
+            strrep("e", 4096)
+        },
+        is_alive = function() clock$output > 0L || clock$error > 0L,
+        is_incomplete_output = function() clock$output > 0L,
+        is_incomplete_error = function() clock$error > 0L,
+        poll_io = function(timeout) clock$elapsed <- clock$elapsed + timeout / 1000,
+        get_exit_status = function() 0L,
+        kill = function(...) NULL)
+    runner <- backend_cli_run
+    stub(runner, "proc.time", function() c(0, 0, clock$elapsed))
+    stub(runner, "task_process_descendants", function(process, previous) {
+        # Model an expensive process-table query without depending on machine speed.
+        clock$elapsed <- clock$elapsed + 0.02
+        previous
+    })
+    testthat::local_mocked_bindings(process = list(new = function(...) fixture_process), .package = "processx")
+    result <- runner(cli_fixture_request(timeout = 1), character())
+    expect_identical(result$status, 0L)
+    expect_identical(result$stdout, strrep("x", 4096 * 500))
+    expect_identical(result$stderr, strrep("e", 4096 * 500))
+    expect_lt(clock$elapsed, 1)
+})
+
 test_that("CLI descendants stop on cancellation, supersession, shutdown, worker death and timeout", {
     skip_on_cran()
     skip_if(identical(Sys.getenv("R_COVR"), "true"))
