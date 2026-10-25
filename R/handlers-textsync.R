@@ -51,7 +51,7 @@ text_document_did_open <- function(self, params) {
     doc$did_open()
     update_document_index(self, workspace, uri, doc$content)
     # Performance: Parse immediately on open (no delay) to have data ready for initial requests
-    self$text_sync(uri, document = doc, run_lintr = TRUE, parse = TRUE, delay = 0)
+    self$text_sync(uri, document = doc, run_diagnostics = TRUE, parse = TRUE, delay = 0)
 }
 
 #' `textDocument/didChange` notification handler
@@ -109,7 +109,7 @@ text_document_did_change <- function(self, params) {
     self$text_sync(
         uri,
         document = doc,
-        run_lintr = TRUE,
+        run_diagnostics = TRUE,
         parse = TRUE,
         parse_delay = lsp_settings$get("parse_delay"),
         diagnostics_delay = lsp_settings$get("diagnostics_delay")
@@ -160,7 +160,7 @@ text_document_did_save <- function(self, params) {
     doc$did_open()
     update_document_index(
         self, workspace, uri, doc$content, cacheable = TRUE)
-    self$text_sync(uri, document = doc, run_lintr = TRUE, parse = TRUE)
+    self$text_sync(uri, document = doc, run_diagnostics = TRUE, parse = TRUE)
 }
 
 #' `textDocument/didClose` notification handler

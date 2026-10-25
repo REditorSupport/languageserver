@@ -171,6 +171,7 @@ test_that("point providers do not leak from R cells into Markdown", {
 })
 
 test_that("range formatting rejects Markdown and cross-cell ranges", {
+    skip_if_not_installed("styler", "1.5.1")
     document <- Document$new(
         "file:///format.qmd", language = "quarto",
         content = c(

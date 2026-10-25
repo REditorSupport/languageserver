@@ -64,6 +64,7 @@ workspace_did_change_configuration <- function(self, params) {
         "index_max_files", "index_max_file_size_mb", "index_batch_size",
         "index_time_budget_ms", "index_persistent_cache"
     ))
+    previous_backends <- backend_settings_identity()
     previous_s3 <- isTRUE(lsp_settings$get("s3_dispatch"))
     lsp_settings$update_from_workspace(settings)
 
@@ -100,7 +101,10 @@ workspace_did_change_configuration <- function(self, params) {
         }
     }
 
-    if (!lsp_settings$get("diagnostics")) {
+    backend_settings_changed(self, previous_backends)
+
+    if (!lsp_settings$get("diagnostics") &&
+            identical(previous_backends[[1L]]$enabled, lsp_settings$get("diagnostics"))) {
         for (workspace in self$workspaces$values()) {
             for (uri in workspace$documents$keys()) {
                 if (!is.null(self$diagnostics_task_manager)) {
@@ -120,6 +124,7 @@ workspace_did_change_watched_files <- function(self, params) {
     for (file_event in params$changes) {
         uri <- uri_escape_unicode(file_event$uri)
         path <- path_from_uri(uri)
+        backend_watched_configuration(self, path)
         workspace <- self$get_workspace(uri)
 
         if (workspace$documents$has(uri)) {

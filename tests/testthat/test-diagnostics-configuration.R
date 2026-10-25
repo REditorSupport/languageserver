@@ -1,3 +1,5 @@
+skip_if_not_installed("lintr", "3.3.0.1")
+
 test_that("diagnostics use nested configuration for saved and new buffers", {
     root <- withr::local_tempdir()
     nested <- file.path(root, "nested")
@@ -186,6 +188,7 @@ test_that("disabling diagnostics clears documents and cancels pending work", {
     expect_length(self$deliveries, 2L)
     workspace_did_change_configuration(self, list(settings = list(diagnostics = TRUE)))
     diagnostics_callback(self, uri, 1L, warning)
-    expect_length(self$deliveries, 3L)
-    expect_identical(self$deliveries[[3L]]$params$diagnostics, warning)
+    expect_length(self$deliveries, 4L)
+    expect_identical(self$deliveries[[3L]]$params$diagnostics, list())
+    expect_identical(self$deliveries[[4L]]$params$diagnostics, warning)
 })

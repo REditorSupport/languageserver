@@ -1,3 +1,20 @@
+skip_if_not_installed("styler", "1.5.1")
+
+test_that("direct formatting snapshots preserve package defaults and explicit overrides", {
+    snapshot <- list(uri = "untitled:direct-format", language = "r", version = 1L, content = "x=1")
+    withr::local_options(languageserver.formatting_style = NULL)
+    edits <- format_document(snapshot, list(tabSize = 2L))
+    expect_equal(edits[[1L]]$newText, "x <- 1\n")
+    edits <- format_document(snapshot, list(tabSize = 2L), formatting_options = list(
+        languageserver.formatting_style = function(options) {
+            style <- styler::tidyverse_style(indent_by = options$tabSize)
+            style$token$force_assignment_op <- NULL
+            style
+        }))
+    expect_equal(edits[[1L]]$newText, "x = 1\n")
+    expect_null(getOption("languageserver.formatting_style"))
+})
+
 formatting_fixture <- function(content = "x=1", uri = "file:///formatting.R") {
     self <- new.env(parent = baseenv())
     document <- Document$new(uri, version = 1L, content = content)

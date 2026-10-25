@@ -69,6 +69,9 @@ Task <- R6::R6Class("Task",
                             private$callback, res$result, "completion")
                         return(TRUE)
                     } else if (!is.null(res$code)) {
+                        if (identical(private$session$get_state(), "finished")) {
+                            task_kill_descendants(private$session)
+                        }
                         private$completed <- TRUE
                         err <- res$error
                         if (is.null(err)) err <- simpleError(paste("Session error with code", res$code))
@@ -78,6 +81,7 @@ Task <- R6::R6Class("Task",
                 }
                 state <- private$session$get_state()
                 if (identical(state, "finished")) {
+                    task_kill_descendants(private$session)
                     private$completed <- TRUE
                     err <- simpleError("Session finished unexpectedly while task was running")
                     private$invoke_handler(private$error, err, "error")
@@ -93,6 +97,7 @@ Task <- R6::R6Class("Task",
             } else {
                 # r_bg$get_result() will throw
                 result <- tryCatch(private$process$get_result(), error = function(e) e)
+                if (inherits(result, "error")) task_kill_descendants(private$process)
                 private$completed <- TRUE
 
                 if (inherits(result, "error")) {
@@ -124,6 +129,7 @@ Task <- R6::R6Class("Task",
                     # interrupt the next task on the persistent session. Retire
                     # the worker instead so cancellation cannot leak across tasks.
                     retired_session <- private$session
+                    task_kill_descendants(private$session)
                     tryCatch(
                         private$session$kill(
                             grace = 0, close_connections = FALSE),
@@ -134,6 +140,7 @@ Task <- R6::R6Class("Task",
                 if (identical(Sys.getenv("R_COVR"), "true")) {
                     private$process$wait()
                 } else {
+                    task_kill_descendants(private$process)
                     private$process$kill()
                 }
             }
@@ -197,6 +204,7 @@ TaskManager <- R6::R6Class("TaskManager",
         retire_session = function(session) {
             private$remove_session(session)
             if (!identical(Sys.getenv("R_COVR"), "true")) {
+                task_kill_descendants(session)
                 tryCatch(
                     session$kill(grace = 0),
                     error = function(e) private$log_error(
@@ -290,6 +298,7 @@ TaskManager <- R6::R6Class("TaskManager",
                     next
                 }
                 if (state == "finished") {
+                    task_kill_descendants(session)
                     private$sessions[[i]] <- NULL
                 } else if (state == "idle") {
                     idle_start <- attr(session, "idle_start")
@@ -635,4 +644,18 @@ create_task <- function(target, args, callback = NULL, error = NULL, delay = 0,
         delay = delay,
         profiles = profiles
     )
+}
+
+# Kill descendants while the worker still exists, so process ancestry is intact.
+task_kill_descendants <- function(process) {
+    # Environment-marker lookup alone can miss a descendant between fork and
+    # exec. Also walk live PID ancestry before retiring the worker.
+    if (is.function(process$get_pid) && ps::ps_is_supported()) {
+        children <- tryCatch(ps::ps_children(ps::ps_handle(process$get_pid()), recursive = TRUE),
+            error = function(e) list())
+        for (child in rev(children)) tryCatch(ps::ps_kill(child), error = function(e) NULL)
+    }
+    if (is.function(process$kill_tree)) tryCatch(
+        process$kill_tree(grace = 0, close_connections = FALSE), error = function(e) NULL)
+    invisible(NULL)
 }

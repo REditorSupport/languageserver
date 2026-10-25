@@ -1,3 +1,5 @@
+skip_if_not_installed("lintr", "3.3.0.1")
+
 test_that("lintr works", {
     skip_on_cran()
 
@@ -224,7 +226,8 @@ test_that("diagnostics_task reuses fresh cached results", {
     workspace$root <- tempdir()
     workspace$documents <- documents
     workspace$diagnostics_cache <- ByteLruCache$new(1024^2)
-    key <- paste(uri, get_content_hash(document$content), sep = "::")
+    key <- diagnostics_cache_key(uri, document$content,
+        backend_request("diagnostics", uri, document, workspace)$signature)
     cached <- list(list(message = "cached"))
     workspace$diagnostics_cache$set(key, list(
         time = Sys.time(), diagnostics = cached

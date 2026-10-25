@@ -59,6 +59,7 @@ on_initialize <- function(self, id, params) {
 #' @noRd
 on_initialized <- function(self, params) {
     logger$info("on_initialized")
+    register_backend_watches(self)
     # a bit like devtools::load_all()
     self$load_workspaces()
     # TODO: result lint result of the package

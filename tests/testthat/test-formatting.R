@@ -1,3 +1,5 @@
+skip_if_not_installed("styler", "1.5.1")
+
 test_that("Formatting document works", {
     skip_on_cran()
     client <- language_client()
