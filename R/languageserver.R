@@ -343,12 +343,13 @@ LanguageServer <- R6::R6Class("LanguageServer",
             invisible(doc)
         },
 
-        refresh_index_documents = function(workspace, entry_uri = NULL) {
+        refresh_index_documents = function(workspace, entry_uri = NULL, refresh = TRUE) {
             index <- workspace$index
             if (is.null(index) || !isTRUE(index$enabled)) return(invisible(NULL))
             if (is.null(private$diagnostics_workspaces)) private$diagnostics_workspaces <- collections::dict()
             private$diagnostics_workspaces$set(workspace$root,
                 list(workspace = workspace, ready_at = proc.time()[[3L]] + 0.25))
+            if (!refresh) return(invisible(NULL))
             entries <- if (is.null(entry_uri)) {
                 Filter(function(uri) {
                     doc <- workspace$documents$get(uri, NULL)
@@ -386,6 +387,9 @@ LanguageServer <- R6::R6Class("LanguageServer",
         prune_index_documents = function(workspace) {
             index <- workspace$index
             if (is.null(index) || !isTRUE(index$enabled)) return(invisible(NULL))
+            # The streamed file catalog is incomplete until discovery ends.
+            # Pruning now can discard package documents not delivered yet.
+            if (index$discovering) return(invisible(NULL))
             document_uris <- workspace$documents$keys()
             open_uris <- Filter(function(uri) {
                 isTRUE(workspace$documents$get(uri)$is_open)
@@ -461,6 +465,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             }
             logger$info("load workspace:", workspace$root)
             if (!is.null(self$index_task_manager)) {
+                topology <- workspace$index$topology_revision
                 workspace$index$attach_worker(self$index_task_manager,
                     on_update = function(uris) {
                         for (uri in uris) {
@@ -468,7 +473,10 @@ LanguageServer <- R6::R6Class("LanguageServer",
                                 private$queue_workspace_document(workspace, uri)
                             }
                         }
-                        self$refresh_index_documents(workspace)
+                        changed <- !identical(topology, workspace$index$topology_revision)
+                        topology <<- workspace$index$topology_revision
+                        self$refresh_index_documents(workspace,
+                            refresh = changed || !length(uris))
                     })
                 private$start_workspace_progress(workspace)
             }

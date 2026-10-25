@@ -759,10 +759,13 @@ parse_callback <- function(self, uri, version, parse_data, source_content = NULL
             !isTRUE(old_parse_data$parse_error)) {
         previous_packages <- member_package_request(old_parse_data)
     }
+    topology <- workspace$index$topology_revision
     workspace$update_parse_data(uri, parse_data)
     if (!is.null(workspace$index) && isTRUE(workspace$index$enabled) &&
             is.function(self$refresh_index_documents)) {
-        self$refresh_index_documents(workspace, uri)
+        self$refresh_index_documents(workspace, uri,
+            refresh = isTRUE(doc$is_open) || is.null(workspace$index$package_root_for_uri(uri)) ||
+                !identical(topology, workspace$index$topology_revision))
     }
 
     if (isTRUE(doc$pending_diagnostics)) {
@@ -814,8 +817,10 @@ parse_callback <- function(self, uri, version, parse_data, source_content = NULL
                 resolve_task(self, uri, doc, normalize_package_request(parse_data$packages),
                     namespace_packages = parse_data$member_data$packages)
             )
-            doc$loaded_packages <- normalize_package_request(parse_data$packages)
-            workspace$update_loaded_packages()
+            loaded_packages <- normalize_package_request(parse_data$packages)
+            changed <- !setequal(doc$loaded_packages, loaded_packages)
+            doc$loaded_packages <- loaded_packages
+            if (changed) workspace$update_loaded_packages()
         } else if (is.null(doc$requested_packages)) {
             doc$requested_packages <- requested_packages
         }
