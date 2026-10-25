@@ -104,3 +104,32 @@ test_that("dispatch callbacks can stop the manager during a selected batch", {
     expect_error(manager$run_tasks(), NA)
     expect_false(manager$has_work())
 })
+test_that("native worker exit cleans descendants despite a buffered session state", {
+    state <- new.env(parent = emptyenv())
+    state$cleaned <- FALSE
+    state$failed <- FALSE
+    session <- list(call = function(...) NULL, is_alive = function() FALSE,
+        get_state = function() "idle", read = function() stop("A dead worker buffer must not be read"))
+    testthat::local_mocked_bindings(task_kill_descendants = function(...) {
+        state$cleaned <- TRUE
+    }, .package = "languageserver")
+    task <- create_task(function() NULL, list(), track_descendants = TRUE,
+        error = function(error) state$failed <- inherits(error, "error"))
+    task$start(session)
+    expect_true(task$check())
+    expect_true(state$cleaned)
+    expect_true(state$failed)
+})
+test_that("a buffered worker error cleans observed children before completing", {
+    state <- new.env(parent = emptyenv())
+    state$cleaned <- FALSE
+    session <- list(call = function(...) NULL, is_alive = function() TRUE,
+        get_state = function() "idle", read = function() list(code = 500L, error = simpleError("Worker exited")))
+    testthat::local_mocked_bindings(task_kill_observed_children = function(...) {
+        state$cleaned <- TRUE
+    }, task_kill_descendants = function(...) stop("The reusable worker must not be killed"), .package = "languageserver")
+    task <- create_task(function() NULL, list(), track_descendants = TRUE)
+    task$start(session)
+    expect_true(task$check())
+    expect_true(state$cleaned)
+})

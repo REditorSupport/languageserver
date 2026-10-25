@@ -65,6 +65,15 @@ Task <- R6::R6Class("Task",
         },
         check = function() {
             if (private$completed) return(TRUE)
+            # callr can retain a buffered logical state after its native worker
+            # has exited. Clean observed children before reading that buffer.
+            if (private$track_descendants && !is.null(private$session) &&
+                    is.function(private$session$is_alive) && !isTRUE(private$session$is_alive())) {
+                task_kill_descendants(private$session, private$descendants)
+                private$completed <- TRUE
+                private$invoke_handler(private$error, simpleError("Session finished unexpectedly while task was running"), "error")
+                return(TRUE)
+            }
             if (private$track_descendants && proc.time()[[3L]] - private$descendant_check_time >= 0.05) {
                 process <- if (!is.null(private$session)) private$session else private$process
                 private$descendants <- task_process_descendants(process, private$descendants)
@@ -79,6 +88,7 @@ Task <- R6::R6Class("Task",
                             private$callback, res$result, "completion")
                         return(TRUE)
                     } else if (!is.null(res$code)) {
+                        if (private$track_descendants) task_kill_observed_children(private$descendants)
                         if (identical(private$session$get_state(), "finished")) {
                             task_kill_descendants(private$session, private$descendants)
                         }
@@ -674,8 +684,13 @@ task_kill_descendants <- function(process, previous = list()) {
     # Environment-marker lookup alone can miss a descendant between fork and
     # exec. Also walk live PID ancestry before retiring the worker.
     children <- task_process_descendants(process, previous)
-    for (child in rev(children)) tryCatch(ps::ps_kill(child), error = function(e) NULL)
+    task_kill_observed_children(children)
     if (is.function(process$kill_tree)) tryCatch(
         process$kill_tree(grace = 0, close_connections = FALSE), error = function(e) NULL)
+    invisible(NULL)
+}
+
+task_kill_observed_children <- function(children) {
+    for (child in rev(children)) tryCatch(ps::ps_kill(child), error = function(e) NULL)
     invisible(NULL)
 }
