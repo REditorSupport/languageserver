@@ -517,9 +517,14 @@ test_that("first LSP requests honor an attached generic that masks a base functi
         c("CMD", "INSTALL", paste0("--library=", shQuote(library_path)), shQuote(package_path)),
         stdout = TRUE, stderr = TRUE)
     expect_identical(attr(install, "status") %s3_or% 0L, 0L, info = paste(install, collapse = "\n"))
+    startup_paths <- .libPaths()
+    startup_profile <- file.path(root, "startup.R")
+    writeLines(paste0(".libPaths(", paste(deparse(startup_paths), collapse = "\n"), ")"), startup_profile)
     withr::local_libpaths(c(library_path, .libPaths()))
-    withr::local_envvar(R_LIBS = paste(.libPaths(), collapse = .Platform$path.sep))
-    client <- language_client(withr::local_tempdir())
+    # R CMD check workers can inherit profiles that restore the check's
+    # original library paths, overriding the fixture path in R_LIBS.
+    withr::local_envvar(R_PROFILE_USER = startup_profile)
+    client <- language_client(withr::local_tempdir(), lib_paths = .libPaths())
     path <- withr::local_tempfile(fileext = ".R")
     uri <- path_to_uri(path)
     lines <- c("library(s3maskingfixture)", "findInterval(data.frame(x = 1), )")

@@ -19,7 +19,7 @@ symbol_range <- function(symbol) {
     symbol$range
 }
 
-language_client <- function(working_dir = getwd(), workspace_folders = NULL, diagnostics = FALSE, capabilities = NULL) {
+language_client <- function(working_dir = getwd(), workspace_folders = NULL, diagnostics = FALSE, capabilities = NULL, lib_paths = NULL) {
 
     if (nzchar(Sys.getenv("R_LANGSVR_LOG"))) {
         script <- sprintf(
@@ -27,6 +27,11 @@ language_client <- function(working_dir = getwd(), workspace_folders = NULL, dia
             normalizePath(Sys.getenv("R_LANGSVR_LOG"), "/", mustWork = FALSE))
     } else {
         script <- "options(languageserver.formatting_style = NULL); languageserver::run()"
+    }
+    if (!is.null(lib_paths)) {
+        # Apply explicit test paths after inherited startup profiles, which
+        # can otherwise restore the check worker's original library paths.
+        script <- paste0(".libPaths(", paste(deparse(lib_paths), collapse = "\n"), "); ", script)
     }
 
     client <- LanguageClient$new(
