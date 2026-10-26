@@ -198,7 +198,14 @@ Document <- R6::R6Class(
             if (loc[1] < 0 || loc[2] < 0 || bracket != "(")
                 return(list(token = ""))
 
-            result <- self$find_token(loc[1], loc[2], forward = FALSE)
+            opening <- list(row = loc[[1L]], col = loc[[2L]])
+            callee <- document_call_callee(self, opening)
+            call_row <- if (is.null(callee)) opening$row else callee$row
+            call_col <- if (is.null(callee)) opening$col else callee$col
+            result <- self$find_token(call_row, call_col, forward = FALSE)
+            if (result$token %in% c("if", "for", "while", "function")) {
+                result <- list(full_token = "", package = NULL, accessor = "", token = "")
+            }
             logger$info("call:", result)
 
             list(
@@ -206,7 +213,8 @@ Document <- R6::R6Class(
                 package = result$package,
                 accessor = result$accessor,
                 token = result$token,
-                opening = list(row = loc[[1L]], col = loc[[2L]])
+                opening = opening,
+                callee = callee
             )
         },
 

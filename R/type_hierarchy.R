@@ -408,7 +408,7 @@ find_r6_supertypes <- function(doc, xdoc, class_name, uri) {
     for (class_def in all_class_defs) {
         class_str <- class_xml_name(class_def)
         class_symbol <- class_xml_first(class_def,
-            "ancestor::expr[LEFT_ASSIGN or EQ_ASSIGN][1]/expr[1]/SYMBOL")
+            "ancestor::expr[LEFT_ASSIGN or EQ_ASSIGN][1]/expr[1]/SYMBOL[1]")
         class_name_value <- NULL
         if (length(class_str)) {
             class_name_value <- gsub('["\'`]', "", xml_text(class_str))
@@ -928,7 +928,7 @@ extract_r6_list_members <- function(document, list_node, access_modifier) {
 
     # Find SYMBOL_SUB elements that have EQ_SUB as immediate next sibling
     # This indicates name = value patterns
-    all_symbol_subs <- class_xml_all(list_node, ".//SYMBOL_SUB[following-sibling::*[1][self::EQ_SUB]]")
+    all_symbol_subs <- class_xml_all(list_node, ".//SYMBOL_SUB[following-sibling::*[not(self::COMMENT)][1][self::EQ_SUB]]")
 
     # Process all SYMBOL_SUB elements and try to find their values
     for (symbol_sub in all_symbol_subs) {
@@ -1029,7 +1029,7 @@ extract_s4_members <- function(document, xdoc, def) {
         if (length(slots_node)) {
             # Find all named slots
             slot_names <- class_xml_all(slots_node,
-                ".//SYMBOL_SUB[following-sibling::*[1][self::EQ_SUB]] | .//STR_CONST[following-sibling::*[1][self::EQ_SUB]]")
+                ".//SYMBOL_SUB[following-sibling::*[not(self::COMMENT)][1][self::EQ_SUB]] | .//STR_CONST[following-sibling::*[not(self::COMMENT)][1][self::EQ_SUB]]")
             for (slot_name_node in slot_names) {
                 slot_name_text <- xml_text(slot_name_node)
                 slot_name <- gsub('["\047`]', "", slot_name_text)
@@ -1113,7 +1113,7 @@ extract_refclass_members <- function(document, xdoc, def) {
 
         if (length(fields_node)) {
             field_names <- class_xml_all(fields_node,
-                "./SYMBOL_SUB[following-sibling::*[1][self::EQ_SUB]] | ./STR_CONST[following-sibling::*[1][self::EQ_SUB]]")
+                "./SYMBOL_SUB[following-sibling::*[not(self::COMMENT)][1][self::EQ_SUB]] | ./STR_CONST[following-sibling::*[not(self::COMMENT)][1][self::EQ_SUB]]")
             for (field_name_node in field_names) {
                 field_name <- gsub('["\047`]', "", xml_text(field_name_node))
                 field_range <- get_element_range(document, field_name_node)
@@ -1133,12 +1133,12 @@ extract_refclass_members <- function(document, xdoc, def) {
         # Extract methods
         methods_node <- class_xml_first(
             setrefclass_call,
-            "./SYMBOL_SUB[text() = 'methods']/following-sibling::*[1][self::EQ_SUB]/following-sibling::expr[1]"
+            "./SYMBOL_SUB[text() = 'methods']/following-sibling::*[not(self::COMMENT)][1][self::EQ_SUB]/following-sibling::expr[1]"
         )
 
         if (length(methods_node)) {
             method_names <- class_xml_all(methods_node,
-                "./SYMBOL_SUB[following-sibling::*[1][self::EQ_SUB]] | ./STR_CONST[following-sibling::*[1][self::EQ_SUB]]")
+                "./SYMBOL_SUB[following-sibling::*[not(self::COMMENT)][1][self::EQ_SUB]] | ./STR_CONST[following-sibling::*[not(self::COMMENT)][1][self::EQ_SUB]]")
             for (method_name_node in method_names) {
                 method_name <- gsub('["\047`]', "", xml_text(method_name_node))
                 method_range <- get_element_range(document, method_name_node)

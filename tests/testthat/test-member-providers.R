@@ -67,6 +67,226 @@ test_that("Multiline dollar chains share completion, signatures and hover", {
     fixture <- member_provider_fixture(c(code[1:11], "pipeline$ # continue", " # comment", "", "  collect(format = "))
     expect_identical(member_provider_signature(fixture)$signatures[[1L]]$label, "collect(format = \"list\")")
     expect_identical(member_provider_hover(fixture, 14L, 4L)$range$start$character, 2L)
+    fixture <- member_provider_fixture(c(
+        code[1:11],
+        "pipeline$collect # trailing comment before (",
+        "  # full-line comment before (",
+        "  (",
+        "    format # comment before =",
+        "      = \"list\"",
+        "  )"
+    ))
+    expect_identical(
+        member_provider_signature(fixture, 14L, 4L)$signatures[[1L]]$label,
+        "collect(format = \"list\")"
+    )
+    arg_loc <- member_argument_location(fixture$document, list(row = 14L, col = 6L))
+    expect_identical(arg_loc$parameter, "format")
+    expect_null(member_argument_location(fixture$document, list(row = 14L, col = 0L)))
+    expect_null(member_argument_location(fixture$document, list(row = 14L, col = 22L)))
+    for (chain in list(
+        c(
+            "pipeline$filter(\"multiline",
+            "string\")$collect",
+            "  (format = \"list\")"
+        ),
+        c(
+            "(pipeline$filter(\"first line",
+            "# literal\")$collect",
+            "  (format = \"list\"))"
+        ),
+        c(
+            "(pipeline$filter(r\"(a\"b)\")$collect # comment",
+            "  (format = \"list\"))"
+        ),
+        c(
+            "(pipeline$filter(r\"(a) \" # literal)\")$collect",
+            "  (format = \"list\"))"
+        ),
+        c(
+            "(pipeline$filter(r'-(a)- ' # literal)-')$collect # comment",
+            "  (format = \"list\"))"
+        )
+    )) {
+        fixture_chain <- member_provider_fixture(c(code[1:11], chain))
+        call_row <- fixture_chain$document$nline - 1L
+        callee_row <- call_row - 1L
+        callee_col <- regexpr("collect", fixture_chain$document$line0(callee_row), fixed = TRUE)[[1L]]
+        expect_identical(
+            member_call_location(fixture_chain$document, list(row = call_row, col = 4L))$cursor$token,
+            "collect"
+        )
+        expect_identical(
+            member_provider_signature(fixture_chain, call_row, 4L)$signatures[[1L]]$label,
+            "collect(format = \"list\")"
+        )
+        expect_identical(
+            member_provider_hover(fixture_chain, callee_row, callee_col)$contents,
+            "```r\ncollect(format = \"list\")\n```"
+        )
+        expect_identical(
+            member_argument_location(fixture_chain$document, list(row = call_row, col = 5L))$parameter,
+            "format"
+        )
+    }
+    expect_identical(
+        member_uncomment_line("pipeline$filter(r\"(a) \" # literal)\")$collect # comment"),
+        "pipeline$filter(r\"(a) \" # literal)\")$collect "
+    )
+    fixture_same_line <- member_provider_fixture(c(
+        code[1:11],
+        "(pipeline$filter(r\"(a) \" # literal)\")$collect(format = \"list\"))"
+    ))
+    arg_col <- regexpr("format", fixture_same_line$document$line0(11L), fixed = TRUE)[[1L]]
+    expect_identical(
+        member_argument_location(fixture_same_line$document, list(row = 11L, col = arg_col))$parameter,
+        "format"
+    )
+    fixture_split_operator <- member_provider_fixture(c(
+        code[1:11],
+        "(pipeline$filter(\"first line",
+        "# literal\")$ # comment",
+        "  collect(format = \"list\"))"
+    ))
+    items <- member_completion(
+        fixture_split_operator$uri, fixture_split_operator$workspace,
+        fixture_split_operator$document, list(row = 13L, col = 5L), TRUE, 200L
+    )
+    expect_identical(vapply(items, `[[`, character(1L), "label"), "collect")
+    expect_identical(
+        member_provider_signature(fixture_split_operator, 13L, 12L)$signatures[[1L]]$label,
+        "collect(format = \"list\")"
+    )
+    expect_identical(
+        member_provider_hover(fixture_split_operator, 13L, 4L)$contents,
+        "```r\ncollect(format = \"list\")\n```"
+    )
+    for (empty_fixture in list(
+        list(fixture = member_provider_fixture("x <- 1"), point = list(row = 1L, col = 0L)),
+        list(fixture = member_provider_fixture(character()), point = list(row = 0L, col = 0L))
+    )) {
+        empty_fixture$fixture$workspace$get_parse_data <- function(...) NULL
+        empty_fixture$fixture$workspace$get_help <- function(...) NULL
+        empty_fixture$fixture$workspace$get_definition <- function(...) NULL
+        empty_fixture$fixture$workspace$guess_namespace <- function(...) NULL
+        empty_fixture$fixture$workspace$get_signature <- function(...) NULL
+        expect_null(
+            hover_reply(
+                1L, empty_fixture$fixture$uri, empty_fixture$fixture$workspace,
+                empty_fixture$fixture$document, empty_fixture$point
+            )$result
+        )
+        expect_null(member_hover_location(empty_fixture$fixture$document, empty_fixture$point))
+        expect_null(member_argument_location(empty_fixture$fixture$document, empty_fixture$point))
+        expect_null(member_cursor(empty_fixture$fixture$document, empty_fixture$point))
+        expect_identical(document_uncomment_lines(empty_fixture$fixture$document, empty_fixture$point$row), character())
+        expect_null(document_call_callee(empty_fixture$fixture$document, empty_fixture$point))
+    }
+    quarto_multiline <- member_provider_fixture(c(
+        "---",
+        "title: \"Test\"",
+        "---",
+        "She said \"hello.",
+        "```{r}",
+        code[1:11],
+        "(pipeline$filter(\"# literal\")$collect",
+        "  (format = \"list\"))",
+        "```"
+    ), language = "quarto")
+    expect_identical(
+        member_call_location(quarto_multiline$document, list(row = 17L, col = 4L))$cursor$token,
+        "collect"
+    )
+    expect_identical(
+        member_provider_signature(quarto_multiline, 17L, 4L)$signatures[[1L]]$label,
+        "collect(format = \"list\")"
+    )
+    expect_identical(
+        member_provider_hover(quarto_multiline, 16L, 33L)$contents,
+        "```r\ncollect(format = \"list\")\n```"
+    )
+    expect_identical(
+        member_argument_location(quarto_multiline$document, list(row = 17L, col = 5L))$parameter,
+        "format"
+    )
+    expect_null(document_r_bounds(quarto_multiline$document, 3L))
+    expect_null(member_call_location(
+        quarto_multiline$document,
+        list(row = 17L, col = 4L),
+        call = list(opening = list(row = 3L, col = 0L))
+    ))
+    expect_null(document_call_callee(quarto_multiline$document, list(row = 5L, col = 0L)))
+    expect_null(member_call_location(
+        member_provider_fixture(c("# comment", "(1)"))$document,
+        list(row = 1L, col = 1L)
+    ))
+    quarto_same_line <- member_provider_fixture(c(
+        "She said \"hello.",
+        "```{r}",
+        code[1:11],
+        "(pipeline$filter(\"# literal\")$collect(format = \"list\"))",
+        "```"
+    ), language = "quarto")
+    quarto_arg_col <- regexpr("format", quarto_same_line$document$line0(13L), fixed = TRUE)[[1L]]
+    expect_identical(
+        member_argument_location(quarto_same_line$document, list(row = 13L, col = quarto_arg_col))$parameter,
+        "format"
+    )
+    quarto_split <- member_provider_fixture(c(
+        "She said \"hello.",
+        "```{r}",
+        code[1:11],
+        "(pipeline$filter(\"# literal\")$ # comment",
+        "  collect(format = \"list\"))",
+        "```"
+    ), language = "quarto")
+    quarto_items <- member_completion(
+        quarto_split$uri, quarto_split$workspace, quarto_split$document,
+        list(row = 14L, col = 5L), TRUE, 200L
+    )
+    expect_identical(vapply(quarto_items, `[[`, character(1L), "label"), "collect")
+    expect_identical(
+        member_provider_signature(quarto_split, 14L, 12L)$signatures[[1L]]$label,
+        "collect(format = \"list\")"
+    )
+    expect_identical(
+        member_provider_hover(quarto_split, 14L, 4L)$contents,
+        "```r\ncollect(format = \"list\")\n```"
+    )
+    fixture_special <- member_provider_fixture(c(
+        "`%#%` <- function(lhs, rhs) lhs",
+        "`%\"%` <- function(lhs, rhs) rhs",
+        "Widget <- R6::R6Class(\"Widget\", public = list(",
+        "  run = function(text = 1 %#% 2, value = 1) self",
+        "))",
+        "x <- Widget$new()",
+        "x$run(text = 1 %#% 2, value = 3)",
+        "x$run(text = 1 %\"% 2, value = 3)"
+    ))
+    for (special_row in c(6L, 7L)) {
+        special_col <- regexpr("value", fixture_special$document$line0(special_row), fixed = TRUE)[[1L]]
+        special_hover <- member_provider_hover(fixture_special, special_row, special_col)
+        expect_identical(
+            special_hover$contents[[1L]],
+            "```r\nrun(text = 1 %#% 2, value = 1)\n```"
+        )
+        expect_identical(
+            special_hover$contents[[2L]],
+            "Public method of R6 class `Widget`"
+        )
+        special_sig <- member_provider_signature(fixture_special, special_row, special_col + 8L)
+        expect_identical(special_sig$signatures[[1L]]$label, "run(text = 1 %#% 2, value = 1)")
+        expect_equal(special_sig$activeParameter, 1L)
+    }
+    fixture_symbol <- member_provider_fixture(c(
+        "MyClass <- function(value = 1) value",
+        "MyClass# comment without space",
+        "  (value = 2)"
+    ))
+    expect_identical(
+        member_call_location(fixture_symbol$document, list(row = 2L, col = 4L), symbols = TRUE)$cursor$token,
+        "MyClass"
+    )
     fixture <- member_provider_fixture(c("x <- list(`a b`=function(value=1) NULL)", "x$", "  `a b`("))
     expect_identical(member_provider_signature(fixture)$signatures[[1L]]$label, "`a b`(value = 1)")
     expect_identical(member_provider_hover(fixture, 2L, 4L)$contents, "```r\n`a b`(value = 1)\n```")
@@ -428,12 +648,18 @@ test_that("Unknown and shadowed member receivers never resolve unrelated bare fu
 test_that("Member providers stay inside R cells", {
     fixture <- member_provider_fixture(c(
         "```{r}", "x <- list(run=function(value=1) NULL)",
-        "x$run(", "```", "```{python}", "x$run(", "```"
+        "x$run(", "```", "```{python}", "x$run(", "```",
+        "```{r}", "  (", "```"
     ), language = "quarto")
     expect_identical(member_provider_signature(fixture, 2L)$signatures[[1L]]$label, "run(value = 1)")
     expect_identical(member_provider_hover(fixture, 2L, 3L)$contents, "```r\nrun(value = 1)\n```")
     expect_null(member_provider_hover(fixture, 5L, 3L))
     expect_null(member_provider_signature(fixture, 5L)$signatures)
+    expect_null(member_call_location(fixture$document, list(row = 8L, col = 3L)))
+    expect_null(member_call_location(
+        Document$new("file:///paren.R", content = "(x"),
+        list(row = 0L, col = 2L)
+    ))
 })
 
 test_that("Installed package members retain method signatures and documentation identity", {

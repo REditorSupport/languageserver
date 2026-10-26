@@ -42,6 +42,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"response_json_c", (DL_FUNC) &response_json_c, 2},
     {"enclosed_by_quotes", (DL_FUNC) &enclosed_by_quotes, 2},
     {"detect_comments", (DL_FUNC) &detect_comments, 2},
+    {"uncomment_lines_c", (DL_FUNC) &uncomment_lines_c, 4},
+    {"missing_closing_delimiters_c", (DL_FUNC) &missing_closing_delimiters_c, 1},
     {"stdin_read_char", (DL_FUNC) &stdin_read_char, 1},
     {"stdin_read_line", (DL_FUNC) &stdin_read_line},
     {"stdin_read_raw", (DL_FUNC) &stdin_read_raw, 1},

@@ -105,27 +105,78 @@ member_hover_location <- function(document, point) {
     )
 }
 
-member_call_location <- function(document, point, call = document$detect_call(point), symbols = FALSE) {
-    opening <- call$opening
-    if (is.null(opening) || !check_r_region(document, point)) {
+member_uncomment_line <- function(line) {
+    .Call(
+        "uncomment_lines_c",
+        PACKAGE = "languageserver",
+        as.character(line), 0L, length(line) - 1L, 0L
+    )
+}
+
+document_r_bounds <- function(document, row) {
+    if (is.null(row) || row < 0L || row >= document$nline) {
         return(NULL)
     }
+    if (!isTRUE(document$is_rmarkdown)) {
+        return(c(0L, document$nline - 1L))
+    }
+    run <- literate_r_run_at(document$regions, row)
+    if (is.null(run)) NULL else c(run$start_line - 1L, run$end_line - 1L)
+}
+
+document_uncomment_lines <- function(document, start_row, end_row = start_row,
+    bounds = document_r_bounds(document, start_row)) {
+    if (is.null(bounds)) {
+        return(character())
+    }
+    start_row <- max(as.integer(start_row), bounds[[1L]])
+    end_row <- min(as.integer(end_row), bounds[[2L]])
+    .Call(
+        "uncomment_lines_c",
+        PACKAGE = "languageserver",
+        document$content, start_row, end_row, bounds[[1L]]
+    )
+}
+
+document_call_callee <- function(document, opening) {
     row <- opening$row
-    col <- opening$col
-    # R permits whitespace/newlines between a member and its call parenthesis.
-    for (i in seq_len(129L)) {
-        prefix <- substr(document$line0(row), 1L, col)
-        col <- nchar(sub("[ \\t]+$", "", prefix))
+    bounds <- document_r_bounds(document, row)
+    if (is.null(bounds)) {
+        return(NULL)
+    }
+    col <- nchar(sub("[ \t]+$", "", substr(document$line0(row), 1L, opening$col)))
+    if (col > 0L) {
+        return(list(row = row, col = col))
+    }
+    start_row <- max(bounds[[1L]], row - 128L)
+    if (start_row >= row) {
+        return(NULL)
+    }
+    # R permits whitespace/newlines/comments between a callee and its call parenthesis.
+    uncommented <- document_uncomment_lines(document, start_row, row - 1L, bounds)
+    for (r in seq.int(row - 1L, start_row)) {
+        col <- nchar(sub("[ \t]+$", "", uncommented[[r - start_row + 1L]]))
         if (col > 0L) {
-            location <- member_hover_location(document, list(row = row, col = col))
-            if (is.null(location) && symbols) location <- member_symbol_location(document, list(row = row, col = col))
-            return(location)
+            return(list(row = r, col = col))
         }
-        row <- row - 1L
-        if (row < 0L || !check_r_region(document, list(row = row, col = 0L))) break
-        col <- nchar(document$line0(row))
     }
     NULL
+}
+
+member_call_location <- function(document, point, call = document$detect_call(point), symbols = FALSE) {
+    opening <- call$opening
+    bounds <- document_r_bounds(document, point$row)
+    if (is.null(opening) || is.null(bounds) ||
+            opening$row < bounds[[1L]] || opening$row > bounds[[2L]]) {
+        return(NULL)
+    }
+    callee <- if ("callee" %in% names(call)) call$callee else document_call_callee(document, opening)
+    if (is.null(callee)) {
+        return(NULL)
+    }
+    location <- member_hover_location(document, callee)
+    if (is.null(location) && symbols) location <- member_symbol_location(document, callee)
+    location
 }
 
 # Reuse cursor recovery for class references, callable bindings and aliases.
@@ -134,9 +185,11 @@ member_symbol_location <- function(document, point) {
     if (!check_scope(document$uri, document, point)) return(NULL)
     semantic <- document$parse_data$semantic_data
     col <- document$to_lsp_position(point$row, point$col)$character
-    excluded <- semantic$lines == point$row & semantic$cols <= col &
-        ((semantic$types == SemanticTokenTypes$comment & semantic$cols + semantic$lengths >= col) |
-                (semantic$types == SemanticTokenTypes$string & semantic$cols + semantic$lengths > col))
+    in_comment <- semantic$types == SemanticTokenTypes$comment &
+        semantic$cols < col & semantic$cols + semantic$lengths >= col
+    in_string <- semantic$types == SemanticTokenTypes$string &
+        semantic$cols <= col & semantic$cols + semantic$lengths > col
+    excluded <- semantic$lines == point$row & (in_comment | in_string)
     if (identical(document$version, document$parse_data$version) && any(excluded)) return(NULL)
     token <- document$detect_token(point)
     if (!token$accessor %in% c("", "::") || !nzchar(token$token)) return(NULL)
@@ -179,13 +232,29 @@ member_constructor_arguments <- function(uri, workspace, document, point, token,
 }
 
 member_argument_location <- function(document, point, symbols = FALSE) {
-    if (!check_scope(document$uri, document, point)) {
+    bounds <- document_r_bounds(document, point$row)
+    if (is.null(bounds) || !check_scope(document$uri, document, point)) {
         return(NULL)
     }
     token <- document$detect_token(point)
     end <- token$range$end
-    if (!nzchar(token$token) || !identical(token$accessor, "") ||
-        !grepl("^[ \\t]*=(?!=)", substring(document$line0(end$row), end$col + 1L), perl = TRUE)) {
+    if (!nzchar(token$token) || !identical(token$accessor, "")) {
+        return(NULL)
+    }
+    last_row <- min(bounds[[2L]], end$row + 128L)
+    uncommented <- document_uncomment_lines(document, end$row, last_row, bounds)
+    if (!length(uncommented) || end$col > nchar(uncommented[[1L]])) {
+        return(NULL)
+    }
+    line <- uncommented[[1L]]
+    named <- FALSE
+    for (row in seq.int(end$row, last_row)) {
+        rest <- if (row == end$row) substring(line, end$col + 1L) else uncommented[[row - end$row + 1L]]
+        if (grepl("^[ \t]*$", rest)) next
+        named <- grepl("^[ \t]*=(?!=)", rest, perl = TRUE)
+        break
+    }
+    if (!named) {
         return(NULL)
     }
     location <- member_call_location(document, point, symbols = symbols)

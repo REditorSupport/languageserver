@@ -155,13 +155,18 @@ SEXP function_assignment_ids_c(SEXP data, SEXP syntax) {
         if (tree.parent[i] <= 0) continue;
         int before = -1, after = -1, before_n = 0, after_n = 0, passed = 0;
         for (int child = tree.first[tree.parent[i]]; child >= 0; child = tree.next[child]) {
+            if (tree.kind[child] == P_COMMENT) continue;
             if (child == i) { passed = 1; continue; }
             if (passed) { after = child; after_n++; }
             else { before = child; before_n++; }
         }
+        int lhs = kind == P_RIGHT_ASSIGN ? after : before;
+        int lhs_n = kind == P_RIGHT_ASSIGN ? after_n : before_n;
         int rhs = kind == P_RIGHT_ASSIGN ? before : after;
         int rhs_n = kind == P_RIGHT_ASSIGN ? before_n : after_n;
-        if (rhs_n != 1) continue;
+        if (lhs_n != 1 || rhs_n != 1 || tree.kind[lhs] != P_EXPR) continue;
+        int symbol = simple_symbol(&tree, lhs);
+        if (symbol < 0) continue;
         /* Unwrap only syntactic parentheses, ignoring comments inside them. */
         int depth = 0;
         while (!function_expr[tree.id[rhs]]) {
@@ -177,17 +182,7 @@ SEXP function_assignment_ids_c(SEXP data, SEXP syntax) {
             rhs = children[1];
             if (++depth > tree.n) Rf_error("Cyclic parse data");
         }
-        if (!function_expr[tree.id[rhs]]) continue;
-        passed = 0;
-        for (int child = tree.first[tree.parent[i]]; child >= 0; child = tree.next[child]) {
-            if (child == i) { passed = 1; continue; }
-            if ((kind == P_RIGHT_ASSIGN ? !passed : passed) || tree.kind[child] != P_EXPR) continue;
-            int symbol = -1, terminals = 0;
-            for (int leaf = tree.first[tree.id[child]]; leaf >= 0; leaf = tree.next[leaf]) {
-                if (tree.terminal[leaf]) { terminals++; symbol = leaf; }
-            }
-            if (terminals == 1 && tree.kind[symbol] == P_SYMBOL) result[count++] = tree.id[symbol];
-        }
+        if (function_expr[tree.id[rhs]]) result[count++] = tree.id[symbol];
     }
     return provider_rows(result, count, 0);
 }

@@ -165,7 +165,8 @@ member_before <- function(a, b) {
 }
 
 member_cursor <- function(document, point) {
-    if (!check_r_region(document, point)) {
+    bounds <- document_r_bounds(document, point$row)
+    if (is.null(bounds)) {
         return(NULL)
     }
     line <- document$line0(point$row)
@@ -179,16 +180,19 @@ member_cursor <- function(document, point) {
         # lines or comments. Recovery still validates the operator in the AST.
         match <- regexec("^[ \\t]*(`[^`]*`?|[[:alnum:]_.]*)$", prefix, perl = TRUE)[[1L]]
         if (match[[1L]] < 0L) return(NULL)
-        for (row in seq.int(point$row - 1L, max(0L, point$row - 128L))) {
-            if (row < 0L || !check_r_region(document, list(row = row, col = 0L))) break
-            previous <- document$line0(row)
-            if (grepl("^[ \\t]*(#.*)?$", previous)) next
-            operator <- regexpr("[$@][ \\t]*(#.*)?$", previous, perl = TRUE)[[1L]]
-            if (operator > 0L) {
-                operator_row <- row
-                accessor <- substr(previous, operator, operator)
+        start_row <- max(bounds[[1L]], point$row - 128L)
+        if (start_row < point$row) {
+            uncommented <- document_uncomment_lines(document, start_row, point$row - 1L, bounds)
+            for (row in seq.int(point$row - 1L, start_row)) {
+                previous <- uncommented[[row - start_row + 1L]]
+                if (grepl("^[ \\t]*$", previous)) next
+                operator <- regexpr("[$@][ \\t]*$", previous, perl = TRUE)[[1L]]
+                if (operator > 0L) {
+                    operator_row <- row
+                    accessor <- substr(previous, operator, operator)
+                }
+                break
             }
-            break
         }
         if (is.null(accessor)) return(NULL)
     } else {

@@ -40,30 +40,11 @@ style_text <- function(text, style, indention = 0L, trailing_empty_line = FALSE)
 #' @noRd
 missing_closing_delimiters <- function(text) {
     if (!length(text)) return("")
-
-    row <- length(text) - 1L
-    col <- nchar(text[[length(text)]]) - 1L
-    openers <- character()
-
-    while (row >= 0L) {
-        result <- find_unbalanced_bracket(text, row, col)
-        location <- result[[1L]]
-        if (any(location < 0L)) break
-
-        opener <- result[[2L]]
-        if (!opener %in% c("(", "[", "{")) break
-        openers <- c(openers, opener)
-
-        row <- location[[1L]]
-        col <- location[[2L]] - 1L
-        if (col < 0L) {
-            row <- row - 1L
-            if (row >= 0L) col <- nchar(text[[row + 1L]]) - 1L
-        }
-    }
-
-    closing <- c("(" = ")", "[" = "]", "{" = "}")
-    paste0(unname(closing[openers]), collapse = "")
+    .Call(
+        "missing_closing_delimiters_c",
+        PACKAGE = "languageserver",
+        as.character(text)
+    )
 }
 
 
