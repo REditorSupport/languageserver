@@ -155,7 +155,7 @@ workspace_did_change_watched_files <- function(self, params) {
         if (!is.null(index) && isTRUE(index$enabled)) {
             if (basename(path) == "DESCRIPTION" && index$should_index(dirname(path), directory = TRUE)) {
                 root <- index_normalize_path(dirname(path))
-                relevant <- identical(root, workspace$root) || !index$is_lazy() || index$watches_package(root) ||
+                relevant <- identical(root, index$root) || !index$is_lazy() || index$watches_package(root) ||
                     any(vapply(workspace$documents$values(), function(doc) {
                         isTRUE(doc$is_open) && path_has_parent(path_from_uri(doc$uri), file.path(root, "R"))
                     }, logical(1L)))

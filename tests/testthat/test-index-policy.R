@@ -231,6 +231,34 @@ test_that("package descriptor changes reselect auto policy without losing open b
     expect_true(workspace$index$has_definition("unsaved"))
 })
 
+test_that("root descriptor events compare normalized index paths", {
+    policy_settings()
+    root <- withr::local_tempdir()
+    dir.create(file.path(root, "R"))
+    writeLines("helper <- function(x) x", file.path(root, "R", "helper.R"))
+    writeLines("saved <- 1", file.path(root, "main.R"))
+    normalize <- index_normalize_path
+    testthat::local_mocked_bindings(index_normalize_path = function(path) {
+        normalize(chartr("\\", "/", path))
+    }, .package = "languageserver")
+    # Workspace retains the caller's path spelling; its index canonicalizes
+    # separators, as it does for a Windows root received through file URIs.
+    workspace <- policy_workspace(chartr("/", "\\", root))
+    expect_false(identical(workspace$root, workspace$index$root))
+    server <- PolicyServer$new(workspace)
+    server$load_workspace(workspace)
+    doc <- policy_open(server, file.path(root, "main.R"), "unsaved <- 2")
+    policy_drain(server)
+    descriptor <- file.path(root, "DESCRIPTION")
+    writeLines("Package: converted", descriptor)
+    workspace_did_change_watched_files(server, list(changes = list(list(uri = path_to_uri(descriptor), type = 1L))))
+    policy_drain(server)
+    expect_identical(workspace$index$mode, "full")
+    expect_true(workspace$index$has_definition("helper"))
+    expect_identical(workspace$documents$get(doc$uri), doc)
+    expect_identical(doc$content, "unsaved <- 2")
+})
+
 test_that("local references stay lazy and stale global refactoring requests are cancelled", {
     policy_settings()
     root <- withr::local_tempdir()
