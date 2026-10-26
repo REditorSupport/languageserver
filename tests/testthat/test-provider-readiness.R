@@ -94,6 +94,70 @@ readiness_masking_catalog <- function() {
                 class = "data.frame", formals = as.pairlist(alist(x = , columns = NULL, ... = )))))
 }
 
+readiness_task_manager <- function() {
+    manager <- new.env(parent = emptyenv())
+    manager$tasks <- collections::dict()
+    manager$add_task <- function(uri, task) {
+        if (is.null(task)) manager$tasks$pop(uri, NULL) else manager$tasks$set(uri, task)
+    }
+    manager$cancel <- function(uri) manager$tasks$pop(uri, NULL)
+    manager$has <- function(uri) manager$tasks$has(uri)
+    manager$promote <- function(...) NULL
+    manager
+}
+
+test_that("generic providers do not wait for member-completion model preparation", {
+    fixture <- readiness_fixture("print()")
+    server <- fixture$server
+    server$resolve_task_manager <- readiness_task_manager()
+    server$member_task_manager <- readiness_task_manager()
+    prepare_calls <- 0L
+    testthat::local_mocked_bindings(member_prepare_package = function(...) {
+        prepare_calls <<- prepare_calls + 1L
+        list(schema = 1L, roots = list(), namespace_roots = list(), generation = "fixture")
+    }, .package = "languageserver")
+    task <- resolve_task(server, fixture$uri, fixture$document, character(), namespace_packages = c("base", "pending"))
+    server$resolve_task_manager$add_task(fixture$uri, task)
+    expect_true(fixture$workspace$index$indexing_status()$done)
+    text_document_signature_help(server, 1L, readiness_params(fixture, 0L, 6L))
+    text_document_hover(server, 2L, readiness_params(fixture, 0L, 2L))
+    expect_length(server$replies, 0L)
+    private <- task$.__enclos_env__$private
+    expect_false(private$args$prepare)
+    result <- do.call(private$target, private$args)
+    expect_identical(prepare_calls, 0L)
+    server$resolve_task_manager$cancel(fixture$uri)
+    private$callback(result)
+    expect_true(server$member_task_manager$has(fixture$uri))
+    expect_length(server$replies, 2L)
+    replies <- stats::setNames(server$replies, vapply(server$replies, function(reply) as.character(reply$id), ""))
+    expect_match(replies$`1`$result$signatures[[1L]]$label, "print(x", fixed = TRUE)
+    expect_match(paste(replies$`2`$result$contents, collapse = " "), "print", fixed = TRUE)
+    model <- server$member_task_manager$tasks$get(fixture$uri)$.__enclos_env__$private
+    expect_true(model$args$prepare)
+    expect_false(model$args$prepare_s3)
+
+    resolve_task(server, fixture$uri, fixture$document, character(), namespace_packages = "base")
+    expect_false(server$member_task_manager$has(fixture$uri))
+})
+
+test_that("resolve completion wakes requests even if result application fails or is stale", {
+    fixture <- readiness_fixture("print()")
+    server <- fixture$server
+    queued <- character()
+    server$queue_pending_replies <- function(uri) queued <<- c(queued, uri)
+    load <- fixture$workspace$load_packages
+    unlockBinding("load_packages", fixture$workspace)
+    fixture$workspace$load_packages <- function(...) stop("cannot apply package metadata")
+    withr::defer(fixture$workspace$load_packages <- load)
+    expect_error(resolve_callback(server, fixture$uri, 1L, startup_packages), "cannot apply package metadata")
+    expect_identical(queued, fixture$uri)
+    queued <- character()
+    fixture$document$version <- 2L
+    expect_null(resolve_callback(server, fixture$uri, 1L, startup_packages))
+    expect_identical(queued, fixture$uri)
+})
+
 test_that("ordinary providers respond while unrelated package metadata is pending", {
     fixture <- readiness_fixture(c("base::findInterval(1, c(0, 2))", "findInterval(1, c(0, 2))",
             "local_fn <- function(value = 1) value", "local_fn(1)"))

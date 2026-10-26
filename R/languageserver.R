@@ -139,6 +139,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
         diagnostics_task_manager = NULL,
         parse_task_manager = NULL,
         resolve_task_manager = NULL,
+        member_task_manager = NULL,
         formatting_task_manager = NULL,
         index_task_manager = NULL,
         formatting_requests = NULL,
@@ -183,6 +184,10 @@ LanguageServer <- R6::R6Class("LanguageServer",
             # no pool for resolve task
             # resolve task require a new session for every task
             self$resolve_task_manager <- TaskManager$new("resolve")
+            # Member models can be much slower than namespace/S3 metadata.
+            # Keep their workers out of the latency-sensitive resolve queue.
+            self$member_task_manager <- TaskManager$new("members",
+                process_recent_first = TRUE, cpu_load = 0.25, max_running_tasks = 2)
 
             self$formatting_task_manager <- TaskManager$new(
                 "formatting", use_session = TRUE,
@@ -205,6 +210,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$parse_task_manager$check_tasks()
             self$diagnostics_task_manager$check_tasks()
             self$resolve_task_manager$check_tasks()
+            if (!is.null(self$member_task_manager)) self$member_task_manager$check_tasks()
             self$formatting_task_manager$check_tasks()
             if (!is.null(self$index_task_manager)) self$index_task_manager$check_tasks()
             self$process_parse_retries()
@@ -225,6 +231,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             if (!is.null(self$index_task_manager)) self$index_task_manager$run_tasks()
             self$diagnostics_task_manager$run_tasks()
             self$resolve_task_manager$run_tasks()
+            if (!is.null(self$member_task_manager)) self$member_task_manager$run_tasks()
             self$formatting_task_manager$run_tasks()
             self$refresh_workspace_diagnostics()
             poll_backend_configuration(self)
@@ -273,6 +280,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 self$end_workspace_progress(workspace, "Workspace removed")
                 if (!is.null(workspace$index)) workspace$index$detach_worker()
                 for (doc_uri in workspace$documents$keys()) {
+                    if (!is.null(self$member_task_manager)) self$member_task_manager$cancel(doc_uri)
                     diagnostics_callback(self, doc_uri, NULL, list())
                 }
                 self$workspaces$remove(key)
@@ -409,6 +417,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 index$contains_path(path_from_uri(uri))
             }, remove)
             for (uri in remove) {
+                if (!is.null(self$member_task_manager)) self$member_task_manager$cancel(uri)
                 diagnostics_callback(self, uri, NULL, list())
                 workspace$documents$remove(uri)
                 if (index$document_pending(uri) || index$parse_failed(uri)) {
@@ -740,7 +749,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             if (!is.null(private$ready_reply_uris) && private$ready_reply_uris$size()) return(0)
             timeout <- max_timeout
             for (manager in list(self$parse_task_manager, self$diagnostics_task_manager,
-                    self$resolve_task_manager, self$formatting_task_manager, self$index_task_manager)) {
+                    self$resolve_task_manager, self$member_task_manager, self$formatting_task_manager, self$index_task_manager)) {
                 if (is.function(manager$wait_timeout)) timeout <- min(timeout, manager$wait_timeout(max_timeout))
             }
             timeout
@@ -797,6 +806,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     if (!is.null(self$parse_task_manager)) self$parse_task_manager$stop()
                     if (!is.null(self$diagnostics_task_manager)) self$diagnostics_task_manager$stop()
                     if (!is.null(self$resolve_task_manager)) self$resolve_task_manager$stop()
+                    if (!is.null(self$member_task_manager)) self$member_task_manager$stop()
                     if (!is.null(self$formatting_task_manager)) self$formatting_task_manager$stop()
                     if (!is.null(self$index_task_manager)) self$index_task_manager$stop()
                 },
