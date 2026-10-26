@@ -348,6 +348,17 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
         source_closures = NULL,
         dependent_closures = NULL,
         package_memberships = NULL,
+        definition_counts = NULL,
+        update_definition_names = function(previous, current) {
+            for (name in setdiff(previous, current)) {
+                count <- private$definition_counts$get(name, 0L) - 1L
+                if (count > 0L) private$definition_counts$set(name, count)
+                else private$definition_counts$pop(name, NULL)
+            }
+            for (name in setdiff(current, previous)) {
+                private$definition_counts$set(name, private$definition_counts$get(name, 0L) + 1L)
+            }
+        },
         invalidate_scopes = function(contexts, references) {
             for (uri in contexts) {
                 private$context_generations$set(uri,
@@ -538,6 +549,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             private$source_closures <- collections::dict()
             private$dependent_closures <- collections::dict()
             private$package_memberships <- collections::dict()
+            private$definition_counts <- collections::dict()
             private$worker_key <- tempfile("workspace-index-")
             mode <- lsp_settings$get("index_mode")
             if (!is.character(mode) || length(mode) != 1L || is.na(mode)) {
@@ -934,8 +946,8 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                 }
             }
             old_sources <- self$source_edges$get(uri, character())
-            sources <- unlist(summary$sources, use.names = FALSE)
-            old_sources <- unlist(old_sources, use.names = FALSE)
+            sources <- as.character(unlist(summary$sources, use.names = FALSE))
+            old_sources <- as.character(unlist(old_sources, use.names = FALSE))
             topology_changed <- !identical(old_sources, sources)
             if (!identical(names(previous$definitions), names(summary$definitions)) ||
                     !identical(previous$functions, summary$functions) ||
@@ -982,6 +994,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                 private$package_memberships$clear()
             }
             self$summaries$set(uri, summary)
+            private$update_definition_names(names(previous$definitions), names(summary$definitions))
             private$failed_parses$pop(uri, NULL)
             if (private$awaiting_parses$has(uri)) private$awaiting_parses$remove(uri)
             private$mark_dirty(uri, summary)
@@ -1308,6 +1321,8 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             private$package_memberships$set(key, result)
             result
         },
+
+        has_definition = function(name) private$definition_counts$has(name),
 
         definitions_for_query = function(pattern) {
             if (is.null(private$catalog) || !identical(private$catalog_revision, self$revision)) {

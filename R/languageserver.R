@@ -343,17 +343,21 @@ LanguageServer <- R6::R6Class("LanguageServer",
             invisible(doc)
         },
 
-        refresh_index_documents = function(workspace, entry_uri = NULL) {
+        refresh_index_documents = function(workspace, entry_uri = NULL, refresh = TRUE) {
             index <- workspace$index
             if (is.null(index) || !isTRUE(index$enabled)) return(invisible(NULL))
             if (is.null(private$diagnostics_workspaces)) private$diagnostics_workspaces <- collections::dict()
             private$diagnostics_workspaces$set(workspace$root,
                 list(workspace = workspace, ready_at = proc.time()[[3L]] + 0.25))
+            if (!refresh) return(invisible(NULL))
             entries <- if (is.null(entry_uri)) {
-                Filter(function(uri) {
+                open <- Filter(function(uri) {
                     doc <- workspace$documents$get(uri, NULL)
                     !is.null(doc) && isTRUE(doc$is_open)
                 }, workspace$documents$keys())
+                sourced <- Filter(function(uri) length(index$source_edges$get(uri, character())) > 0L,
+                    index$package_source_uris())
+                union(open, sourced)
             } else {
                 entry_uri
             }
@@ -386,12 +390,17 @@ LanguageServer <- R6::R6Class("LanguageServer",
         prune_index_documents = function(workspace) {
             index <- workspace$index
             if (is.null(index) || !isTRUE(index$enabled)) return(invisible(NULL))
+            # The streamed file catalog is incomplete until discovery ends.
+            # Pruning now can discard package documents not delivered yet.
+            if (index$discovering) return(invisible(NULL))
             document_uris <- workspace$documents$keys()
             open_uris <- Filter(function(uri) {
                 isTRUE(workspace$documents$get(uri)$is_open)
             }, document_uris)
-            keep <- union(index$package_source_uris(), open_uris)
-            for (uri in open_uris) keep <- union(keep, index$source_closure(uri))
+            package_uris <- index$package_source_uris()
+            sourced <- Filter(function(uri) length(index$source_edges$get(uri, character())) > 0L, package_uris)
+            keep <- union(package_uris, open_uris)
+            for (uri in union(open_uris, sourced)) keep <- union(keep, index$source_closure(uri))
             keep <- unique(vapply(keep, index_canonical_uri, character(1L)))
             remove <- document_uris[!vapply(document_uris, function(uri) {
                 index_canonical_uri(uri) %in% keep
@@ -461,6 +470,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             }
             logger$info("load workspace:", workspace$root)
             if (!is.null(self$index_task_manager)) {
+                topology <- workspace$index$topology_revision
                 workspace$index$attach_worker(self$index_task_manager,
                     on_update = function(uris) {
                         for (uri in uris) {
@@ -468,7 +478,10 @@ LanguageServer <- R6::R6Class("LanguageServer",
                                 private$queue_workspace_document(workspace, uri)
                             }
                         }
-                        self$refresh_index_documents(workspace)
+                        changed <- !identical(topology, workspace$index$topology_revision)
+                        topology <<- workspace$index$topology_revision
+                        self$refresh_index_documents(workspace,
+                            refresh = changed || !length(uris))
                     })
                 private$start_workspace_progress(workspace)
             }
@@ -623,6 +636,10 @@ LanguageServer <- R6::R6Class("LanguageServer",
         text_sync = function(uri, document, run_diagnostics = FALSE, parse = FALSE,
             delay = 0, parse_delay = delay,
             diagnostics_delay = delay) {
+            workspace <- self$get_workspace(uri)
+            # A peer's last parse becomes stale before its replacement arrives.
+            # Stop using its imports as soon as an edit or reload is scheduled.
+            if (is.function(workspace$invalidate_s3_context)) workspace$invalidate_s3_context()
             if (!self$pending_replies$has(uri)) {
                 self$pending_replies$set(uri, list(
                     `textDocument/completion` = collections::queue(),

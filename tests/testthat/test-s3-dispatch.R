@@ -496,6 +496,49 @@ test_that("S3 works over LSP on the first request after an edit", {
     expect_match(paste(unlist(result$contents), collapse = " "), "g.numeric", fixed = TRUE)
 })
 
+test_that("first LSP requests honor an attached generic that masks a base function", {
+    skip_on_cran()
+    root <- withr::local_tempdir()
+    package_path <- file.path(root, "s3maskingfixture")
+    library_path <- file.path(root, "library")
+    dir.create(file.path(package_path, "R"), recursive = TRUE)
+    dir.create(library_path)
+    writeLines(c(
+        "Package: s3maskingfixture", "Version: 0.0.1", "Title: S3 Masking Fixture",
+        "Description: Verify namespace masking and first-request S3 metadata.", "License: MIT",
+        "Author: Test Fixture", "Maintainer: Test Fixture <fixture@example.org>"
+    ), file.path(package_path, "DESCRIPTION"))
+    writeLines(c("export(findInterval)", "S3method(findInterval, data.frame)"), file.path(package_path, "NAMESPACE"))
+    writeLines(c(
+        "findInterval <- function(x, ...) UseMethod('findInterval')",
+        "findInterval.data.frame <- function(x, columns = NULL, ...) x"
+    ), file.path(package_path, "R", "methods.R"))
+    install <- system2(file.path(R.home("bin"), "R"),
+        c("CMD", "INSTALL", paste0("--library=", shQuote(library_path)), shQuote(package_path)),
+        stdout = TRUE, stderr = TRUE)
+    expect_identical(attr(install, "status") %s3_or% 0L, 0L, info = paste(install, collapse = "\n"))
+    startup_profile <- file.path(root, "startup.R")
+    fixture_path <- normalizePath(library_path, winslash = "/")
+    writeLines(paste0(".libPaths(setdiff(.libPaths(), ", deparse(fixture_path), "))"), startup_profile)
+    withr::local_envvar(R_LIBS = paste(c(library_path, .libPaths()), collapse = .Platform$path.sep))
+    # R CMD check workers can inherit profiles that restore the check's
+    # original library paths, overriding the fixture path in R_LIBS.
+    withr::local_envvar(R_PROFILE_USER = startup_profile)
+    client <- language_client(withr::local_tempdir(), lib_paths = library_path)
+    path <- withr::local_tempfile(fileext = ".R")
+    uri <- path_to_uri(path)
+    lines <- c("library(s3maskingfixture)", "findInterval(data.frame(x = 1), )")
+    notify(client, "textDocument/didOpen", list(textDocument = list(
+        uri = uri, languageId = "r", version = 1L, text = paste(lines, collapse = "\n"))))
+    point <- c(1L, nchar(lines[[2L]]) - 1L)
+    signature <- respond_signature(client, path, point, retry = FALSE)
+    expect_match(signature$signatures[[1L]]$label, "columns = NULL", fixed = TRUE)
+    completion <- respond_completion(client, path, point, retry = FALSE)
+    expect_true("columns" %in% vapply(completion$items, `[[`, "", "label"))
+    hover <- respond_hover(client, path, c(1L, 5L), retry = FALSE)
+    expect_match(paste(hover$contents, collapse = " "), "findInterval.data.frame", fixed = TRUE)
+})
+
 test_that("S3 cold namespace requests wait for metadata", {
     skip_on_cran()
     skip_if_not_installed("datawizard")

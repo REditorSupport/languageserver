@@ -349,6 +349,69 @@ test_that("stale parse failures and deferred retries leave newer work intact", {
     }
 })
 
+test_that("closed package files load preindexed source dependencies outside R", {
+    lifecycle_settings(index_persistent_cache = FALSE, diagnostics = FALSE)
+    root <- withr::local_tempdir()
+    dir.create(file.path(root, "R"))
+    dir.create(file.path(root, "scripts"))
+    writeLines("Package: sourcedfixture", file.path(root, "DESCRIPTION"))
+    main <- path_to_uri(file.path(root, "R", "main.R"))
+    helper <- path_to_uri(file.path(root, "scripts", "helper.R"))
+    nested <- path_to_uri(file.path(root, "scripts", "nested.R"))
+    writeLines(c("source('scripts/helper.R')", "main <- function() helper()"), path_from_uri(main))
+    writeLines(c("source('nested.R')", "helper <- function(value = 2) value", "helper(1)"), path_from_uri(helper))
+    writeLines("nested <- function(flag = TRUE) flag", path_from_uri(nested))
+    server <- LifecycleServer$new(root)
+    workspace <- server$get_workspace(main)
+    # Finish shallow indexing before loading the package document, without
+    # an on_update callback that could queue its dependencies for us.
+    workspace$index$attach_worker(server$index_task_manager)
+    workspace$index$discover()
+    lifecycle_drain_index(server, workspace)
+    expect_identical(workspace$index$source_edges$get(main), helper)
+    expect_identical(workspace$index$source_edges$get(helper), nested)
+    topology <- workspace$index$topology_revision
+
+    server$load_index_document(workspace, main)
+    server$parse_task_manager$finish_one()
+    expect_identical(workspace$index$topology_revision, topology)
+    expect_true(workspace$index$document_pending(helper))
+    for (i in seq_len(3L)) {
+        server$process_workspace_documents()
+        while (server$parse_task_manager$has_work()) server$parse_task_manager$finish_one()
+    }
+    expect_true(workspace$documents$has(helper))
+    expect_true(workspace$documents$has(nested))
+    helper_document <- workspace$documents$get(helper, NULL)
+    if (!is.null(helper_document)) {
+        result <- signature_reply(1L, helper, workspace, helper_document, list(row = 2L, col = 7L))$result
+        expect_match(result$signatures[[1L]]$label, "helper(value = 2)", fixed = TRUE)
+    }
+    expect_true(workspace$index$indexing_status()$done)
+
+    # A cached full package parse must also restore missing source documents
+    # when discovery finishes without changing any source edges.
+    generation <- workspace$documents$get(main)$parse_generation
+    workspace$documents$remove(helper)
+    workspace$documents$remove(nested)
+    server$load_workspace(workspace)
+    lifecycle_drain_index(server, workspace)
+    for (i in seq_len(3L)) {
+        server$process_workspace_documents()
+        while (server$parse_task_manager$has_work()) server$parse_task_manager$finish_one()
+    }
+    expect_identical(workspace$documents$get(main)$parse_generation, generation)
+    expect_true(workspace$documents$has(helper))
+    expect_true(workspace$documents$has(nested))
+
+    writeLines("main <- function() 1", path_from_uri(main))
+    document <- workspace$documents$get(main)
+    document$set_content(NULL, "main <- function() 1")
+    parse_callback(server, main, NULL, parse_document(main, document$content))
+    expect_false(workspace$documents$has(helper))
+    expect_false(workspace$documents$has(nested))
+})
+
 test_that("pruning an unneeded source releases its pending full parse", {
     lifecycle_settings(index_persistent_cache = FALSE, diagnostics = FALSE)
     root <- withr::local_tempdir()

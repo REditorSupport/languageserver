@@ -10,6 +10,7 @@ Document <- R6::R6Class(
         call_scan_cache = NULL,
         parse_data = NULL,
         parse_generation = 0L,
+        parse_failure = NULL,
         parsed_content = NULL,
         inlay_hint_data = NULL,
         inlay_hint_formals = NULL,
@@ -753,16 +754,21 @@ parse_callback <- function(self, uri, version, parse_data, source_content = NULL
     }
 
     parse_data$version <- version
+    doc$parse_failure <- NULL
     old_parse_data <- doc$parse_data
     previous_packages <- doc$requested_packages
     if (is.null(previous_packages) && !is.null(old_parse_data) &&
             !isTRUE(old_parse_data$parse_error)) {
         previous_packages <- member_package_request(old_parse_data)
     }
+    topology <- workspace$index$topology_revision
     workspace$update_parse_data(uri, parse_data)
     if (!is.null(workspace$index) && isTRUE(workspace$index$enabled) &&
             is.function(self$refresh_index_documents)) {
-        self$refresh_index_documents(workspace, uri)
+        self$refresh_index_documents(workspace, uri,
+            refresh = isTRUE(doc$is_open) || is.null(workspace$index$package_root_for_uri(uri)) ||
+                length(workspace$index$source_edges$get(index_canonical_uri(uri), character())) > 0L ||
+                !identical(topology, workspace$index$topology_revision))
     }
 
     if (isTRUE(doc$pending_diagnostics)) {
@@ -814,8 +820,10 @@ parse_callback <- function(self, uri, version, parse_data, source_content = NULL
                 resolve_task(self, uri, doc, normalize_package_request(parse_data$packages),
                     namespace_packages = parse_data$member_data$packages)
             )
-            doc$loaded_packages <- normalize_package_request(parse_data$packages)
-            workspace$update_loaded_packages()
+            loaded_packages <- normalize_package_request(parse_data$packages)
+            changed <- !setequal(doc$loaded_packages, loaded_packages)
+            doc$loaded_packages <- loaded_packages
+            if (changed) workspace$update_loaded_packages()
         } else if (is.null(doc$requested_packages)) {
             doc$requested_packages <- requested_packages
         }
@@ -836,17 +844,20 @@ drain_pending_replies <- function(self, uri, version, max_replies = Inf, first =
     n <- length(queues)
     processed <- 0L
     if (!n) return(list(processed = processed, ready = FALSE, first = 1L))
-    eligible <- function(queue) {
+    eligible <- function(queue, method) {
         if (!queue$size()) return(FALSE)
         item <- queue$peek()
-        is.null(version) || is.null(item$version) || item$version <= version
+        if (!is.null(version) && !is.null(item$version) && item$version > version) return(FALSE)
+        if (!is.null(document) && identical(item$version, document$version) &&
+                method %in% c("textDocument/completion", "textDocument/hover", "textDocument/signatureHelp")) {
+            point <- document$from_lsp_position(item$params$position)
+            if (s3_metadata_waiting(self, uri, document, point, hover = identical(method, "textDocument/hover"))) return(FALSE)
+        }
+        TRUE
     }
     repeat {
-        ready <- vapply(queues, eligible, logical(1L))
         document <- if (is.function(self$get_workspace)) self$get_workspace(uri)$documents$get(uri, NULL)
-        if (!is.null(document) && s3_metadata_waiting(self, uri, document)) {
-            ready[names(queues) %in% c("textDocument/completion", "textDocument/hover", "textDocument/signatureHelp")] <- FALSE
-        }
+        ready <- vapply(names(queues), function(method) eligible(queues[[method]], method), logical(1L))
         available <- which(ready)
         if (!length(available) || processed >= max_replies) break
         after <- available[available >= first]
@@ -871,6 +882,7 @@ parse_task <- function(self, uri, document, delay = 0, retry = TRUE) {
     version <- document$version
     source_content <- document$content
     document$parse_generation <- document$parse_generation + 1L
+    document$parse_failure <- NULL
     generation <- document$parse_generation
     was_open <- document$is_open
     if (!is.null(document$parse_data) &&
@@ -942,13 +954,45 @@ parse_task <- function(self, uri, document, delay = 0, retry = TRUE) {
                     if (current()) self$parse_task_manager$add_task(uri,
                         parse_task(self, uri, document, retry = FALSE))
                 })
-            } else if (!is.null(index)) {
-                index$fail_parse(uri)
-                self$refresh_index_documents(workspace)
+            } else {
+                document$parse_failure <- list(version = version,
+                    message = paste("Document parsing failed:", conditionMessage(e)))
+                fail_pending_replies(self, uri, version)
+                if (!is.null(index)) {
+                    index$fail_parse(uri)
+                    self$refresh_index_documents(workspace)
+                }
             }
         },
         delay = delay
     )
+}
+
+reply_parse_failure <- function(self, id, document) {
+    failure <- document$parse_failure
+    if (is.null(failure) || !identical(failure$version, document$version)) return(FALSE)
+    self$deliver(ResponseErrorMessage$new(id, "InternalError", failure$message))
+    TRUE
+}
+
+fail_pending_replies <- function(self, uri, version) {
+    document <- self$get_workspace(uri)$documents$get(uri)
+    for (queue in self$pending_replies$get(uri, NULL)) {
+        retained <- list()
+        while (queue$size()) {
+            item <- queue$pop()
+            if (!is.null(item$version) && !is.null(version) && item$version > version) {
+                retained[[length(retained) + 1L]] <- item
+            } else if (!is.null(item$version) && !is.null(version) && item$version < version) {
+                self$deliver(ResponseErrorMessage$new(item$id, "RequestCancelled",
+                        "Request superseded by a newer parse result"))
+            } else {
+                reply_parse_failure(self, item$id, document)
+            }
+        }
+        for (item in retained) queue$push(item)
+    }
+    invisible(NULL)
 }
 
 resolve_callback <- function(self, uri, version, packages) {

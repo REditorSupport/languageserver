@@ -669,9 +669,89 @@ s3_pipe_call <- function(lhs, call) {
     call
 }
 
-s3_may_dispatch <- function(workspace, document, location) {
+s3_catalog_ordinary_call <- function(catalog, token) {
+    token %in% catalog$callables && is.null(catalog$functions[[token]]$generic)
+}
+
+s3_peer_packages <- function(workspace, document) {
+    if (is.function(workspace$get_s3_package_imports)) {
+        cached <- workspace$get_s3_package_imports(document$uri)
+        if (!is.null(cached)) return(cached)
+    }
+    packages <- character()
+    add_source <- function(source, packages) {
+        for (import in source$index$imports) {
+            packages <- union(packages, import$package)
+        }
+        packages
+    }
+    others <- workspace_document_uris(workspace, document$uri)
+    for (uri in setdiff(others, document$uri)) {
+        candidate <- workspace$documents$get(uri, NULL)
+        if (!is.null(candidate) && identical(candidate$version, candidate$parse_data$version)) {
+            packages <- add_source(s3_source_view(candidate), packages)
+        }
+    }
+    index <- workspace$index
+    if (isTRUE(index$enabled)) {
+        root <- index$package_root_for_uri(document$uri)
+        uris <- if (is.null(root)) index$source_closure(document$uri) else index$package_source_uris(root)
+        for (uri in setdiff(uris, c(document$uri, others))) packages <- add_source(index$summaries$get(uri, NULL)$s3, packages)
+    }
+    if (is.function(workspace$set_s3_package_imports)) workspace$set_s3_package_imports(document$uri, packages)
+    packages
+}
+
+s3_call_packages <- function(workspace, document, at) {
+    packages <- unique(c(workspace$startup_packages %s3_or% startup_packages, workspace$imported_packages))
+    source <- s3_source_view(document)
+    for (import in source$index$imports) {
+        if (member_before(source$items[[import$item]]$end, at)) packages <- union(packages, import$package)
+    }
+    recorded <- vapply(source$index$imports, function(import) import$package %s3_or% "", "")
+    # Current-document imports depend on the cursor and remain uncached.
+    # Nested library requests are still treated as possible masking bindings.
+    packages <- union(packages, setdiff(document$requested_packages$packages, recorded))
+    union(packages, s3_peer_packages(workspace, document))
+}
+
+s3_known_ordinary_call <- function(metadata, token, packages) {
+    # Inspect the first possible binding in search-path order. An unresolved
+    # attached package may mask every callable in an earlier namespace.
+    for (package in rev(unique(packages))) {
+        catalog <- metadata$catalog(package)
+        if (is.null(catalog) || !is.null(catalog$error)) return(FALSE)
+        if (token %in% catalog$callables) return(s3_catalog_ordinary_call(catalog, token))
+    }
+    FALSE
+}
+
+s3_source_binding <- function(workspace, document, at, token) {
+    # Navigation retains source backticks; call tokens can be unquoted.
+    for (name in unique(c(token, encodeString(token, quote = "`")))) {
+        if (isTRUE(workspace$index$enabled) && workspace$index$has_definition(name)) return(TRUE)
+        if (length(navigation_definitions(document$parse_data, at[[1L]] + 1L, at[[2L]] + 1L,
+                    name, last = TRUE))) return(TRUE)
+    }
+    FALSE
+}
+
+s3_may_dispatch <- function(workspace, document, location, packages = NULL) {
+    if (!is.null(location$call$package) && is.function(workspace$s3_metadata$catalog)) {
+        catalog <- workspace$s3_metadata$catalog(location$call$package)
+        if (s3_catalog_ordinary_call(catalog, location$call$token)) return(FALSE)
+    }
     data <- document$parse_data$member_data
     at <- c(location$point$row, location$point$col)
+    metadata <- workspace$s3_metadata
+    # A nested ordinary call needs no S3 context unless a known generic or
+    # a source binding (including formals and aliases) can change its meaning.
+    if (is.null(location$call$package) && !isTRUE(document$parse_data$parse_error) &&
+            !is.null(document$parse_data$syntax_data) && !is.null(document$parse_data$navigation_data) &&
+            is.function(metadata$catalog) && !s3_source_binding(workspace, document, at, location$call$token)) {
+        packages <- packages %s3_or% s3_call_packages(workspace, document, at)
+        if (s3_known_ordinary_call(metadata, location$call$token, packages)) return(FALSE)
+    }
     # Lexical scopes and aliases use full recovery; ordinary top-level calls
     # can be rejected by their source declaration or the compact catalog.
     lo <- 1L
@@ -706,16 +786,7 @@ s3_may_dispatch <- function(workspace, document, location) {
         }
     }
     if (is.null(location$call$package) && !is.null(workspace$index) && isTRUE(workspace$index$enabled)) {
-        if (!identical(workspace$s3_index_revision, workspace$index$revision)) {
-            names <- unique(unlist(lapply(workspace$index$summaries$values(), function(x) names(x$definitions)),
-                    use.names = FALSE
-                ))
-            workspace$s3_source_names <- list2env(stats::setNames(rep(list(TRUE), length(names)), names),
-                parent = emptyenv()
-            )
-            workspace$s3_index_revision <- workspace$index$revision
-        }
-        if (exists(location$call$token, workspace$s3_source_names, inherits = FALSE)) {
+        if (workspace$index$has_definition(location$call$token)) {
             return(TRUE)
         }
     }
@@ -751,12 +822,33 @@ s3_metadata_waiting <- function(self, uri, document, point = NULL, hover = FALSE
             !self$resolve_task_manager$has(uri)) {
         return(FALSE)
     }
-    if (!is.null(point) && is.null(s3_call_location(document, point, hover))) {
-        return(FALSE)
-    }
     workspace <- self$get_workspace(uri)
-    requested <- unique(c(startup_packages, document$requested_packages$packages, document$requested_packages$namespace_packages))
-    any(!requested %in% workspace$s3_metadata$keys())
+    packages <- character()
+    if (!is.null(point)) {
+        location <- s3_call_location(document, point, hover)
+        if (is.null(location)) return(FALSE)
+        # A pending library() or namespace request must not hold ordinary
+        # functions hostage to metadata needed only for S3 dispatch.
+        package <- location$call$package
+        if (!is.null(package)) {
+            catalog <- workspace$s3_metadata$catalog(package)
+            if (is.null(catalog)) return(TRUE)
+            if (s3_catalog_ordinary_call(catalog, location$call$token)) return(FALSE)
+        }
+        packages <- s3_call_packages(workspace, document, c(location$point$row, location$point$col))
+        if (!s3_may_dispatch(workspace, document, location, packages)) {
+            history <- document$parse_data$member_data$s3$histories[[location$call$token]]
+            if (is.null(package) && member_history_position(history, c(point$row, point$col))) return(FALSE)
+            if (s3_known_ordinary_call(workspace$s3_metadata, location$call$token, packages)) return(FALSE)
+            # Unknown calls may belong to a generic in the package currently
+            # being resolved. Preserve the wait until its catalog arrives.
+        }
+    }
+    requested <- unique(c(startup_packages, document$requested_packages$packages, document$requested_packages$namespace_packages, packages))
+    any(vapply(requested, function(package) {
+        catalog <- workspace$s3_metadata$catalog(package)
+        is.null(catalog) || !is.null(catalog$error)
+    }, logical(1L)))
 }
 
 s3_queue_ready <- function(self, uri) {

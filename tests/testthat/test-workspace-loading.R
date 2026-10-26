@@ -53,6 +53,44 @@ WorkspaceLoadingServer <- R6::R6Class("WorkspaceLoadingServer",
     )
 )
 
+test_that("background package parsing avoids repeated workspace scans", {
+    workspace_loading_settings(index_persistent_cache = FALSE, index_batch_size = 20L)
+    root <- withr::local_tempdir()
+    dir.create(file.path(root, "R"))
+    writeLines(c("Package: loadingfixture", "Version: 0.0.1"), file.path(root, "DESCRIPTION"))
+    paths <- file.path(root, "R", paste0(seq_len(60L), ".R"))
+    for (path in paths) writeLines("value <- function(x) x", path)
+    workspace <- Workspace$new(root)
+    server <- WorkspaceLoadingServer$new(workspace)
+    server$resolve_task_manager <- list(add_task = function(...) NULL)
+    scans <- 0L
+    prune <- server$prune_index_documents
+    unlockBinding("prune_index_documents", server)
+    server$prune_index_documents <- function(workspace) {
+        scans <<- scans + 1L
+        prune(workspace)
+    }
+    server$load_workspace(workspace)
+    workspace_loading_drain(workspace$index, server$index_task_manager)
+    expect_identical(scans, 1L)
+    for (i in seq_len(4L)) server$process_workspace_documents(time_budget_ms = Inf)
+    expect_identical(workspace$documents$size(), 60L)
+    for (task in server$parse_task_manager$tasks$values()) {
+        private <- task$.__enclos_env__$private
+        private$callback(do.call(private$target, private$args))
+    }
+    expect_identical(scans, 1L)
+    expect_true(all(vapply(workspace$documents$values(), function(document) {
+        !is.null(document$parse_data)
+    }, logical(1L))))
+
+    document <- workspace$documents$get(path_to_uri(paths[[1L]]))
+    document$set_content(NULL, "source('2.R')")
+    parse_callback(server, document$uri, NULL, parse_document(document$uri, document$content))
+    expect_identical(scans, 2L)
+    expect_setequal(workspace$index$source_closure(document$uri), vapply(paths[1:2], path_to_uri, ""))
+})
+
 test_that("initialized queues discovery and handles requests before scanning files", {
     workspace_loading_settings(index_persistent_cache = FALSE)
     root <- withr::local_tempdir()
