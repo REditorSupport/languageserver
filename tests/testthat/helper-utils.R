@@ -19,6 +19,12 @@ symbol_range <- function(symbol) {
     symbol$range
 }
 
+flatten_document_symbols <- function(symbols) {
+    unlist(lapply(symbols, function(symbol) {
+        c(list(symbol), flatten_document_symbols(symbol$children))
+    }), recursive = FALSE, use.names = FALSE)
+}
+
 language_client <- function(working_dir = getwd(), workspace_folders = NULL, diagnostics = FALSE, capabilities = NULL, lib_paths = NULL) {
 
     if (nzchar(Sys.getenv("R_LANGSVR_LOG"))) {
