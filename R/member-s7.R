@@ -519,7 +519,7 @@ member_s7_slot <- function(value, name, index, bindings, budget = NULL) {
 
 # Normalize S4 class representations without initialize() or prototype access.
 member_s7_s4_descriptor <- function(descriptor) {
-    if (is.null(descriptor) || identical(descriptor$complete, FALSE)) return(NULL)
+    if (is.null(descriptor) || isFALSE(descriptor$complete)) return(NULL)
     properties <- lapply(descriptor$slots, function(type) {
         list(class = list(kind = "base", name = as.character(type)), getter = FALSE, setter = FALSE)
     })

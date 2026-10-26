@@ -629,7 +629,7 @@ s3_recover_call <- function(document, location, recovered) {
     for (end in seq.int(offset, length(lines))) {
         text <- lines[seq_len(end)]
         if (sum(nchar(text, type = "bytes")) > 65536L) break
-        parsed <- tryCatch(parse(text = text), error = function(e) NULL)
+        parsed <- tryCatch(str2expression(text), error = function(e) NULL)
         if (!is.null(parsed) && !is.null(member_cursor_path(parsed, recovered$sentinel, NULL))) {
             return(parsed)
         }
@@ -640,7 +640,7 @@ s3_recover_call <- function(document, location, recovered) {
         for (quote in c("", "\"", "'", "`")) {
             fixed <- text
             fixed[[length(fixed)]] <- paste0(fixed[[length(fixed)]], quote)
-            parsed <- tryCatch(parse(text = paste0(
+            parsed <- tryCatch(str2expression(paste0(
                 paste(fixed, collapse = "\n"), "\n",
                 missing_closing_delimiters(fixed)
             )), error = function(e) NULL)

@@ -179,7 +179,7 @@ s3_quoted_values <- function(workspace, document, point) {
         return(NULL)
     }
     prefix <- substr(line, opening + 1L, point$col)
-    token <- tryCatch(parse(text = paste0(quote, prefix, quote))[[1L]], error = function(e) prefix)
+    token <- tryCatch(str2lang(paste0(quote, prefix, quote)), error = function(e) prefix)
     active <- detect_active_parameter(
         document$content, result$opening$row, result$opening$col, point$row,
         point$col, result$signature

@@ -625,8 +625,8 @@ Workspace <- R6::R6Class("Workspace",
                             rmarkdown::pandoc_available()) {
                         html <- get_help(hfile, "html")
                         # Make header look prettier:
-                        pattern <- "<table.*?<td>(.*?)\\s*{(.*?)}<\\/td>.*?<\\/table>\\n*<h2>\\s*(.*?)\\s*<\\/h2>"
-                        replacement <- "<b>\\1</b> <i>{\\2}</i><p>\\3</p><hr/>"
+                        pattern <- r"(<table.*?<td>(.*?)\s*{(.*?)}<\/td>.*?<\/table>\n*<h2>\s*(.*?)\s*<\/h2>)"
+                        replacement <- r"(<b>\1</b> <i>{\2}</i><p>\3</p><hr/>)"
                         html <- gsub(pattern, replacement, html, perl = TRUE)
                         result <- html_to_markdown(html)
                     }
@@ -870,7 +870,7 @@ Workspace <- R6::R6Class("Workspace",
                 cacheable <- if (is.null(previous)) {
                     !isTRUE(doc$is_open)
                 } else {
-                    !identical(previous$cacheable, FALSE)
+                    !isFALSE(previous$cacheable)
                 }
                 summary <- self$index$update_content(
                     uri, doc$content, cacheable = cacheable,

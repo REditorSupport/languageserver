@@ -32,7 +32,7 @@ document_link_reply <- function(id, uri, workspace, document, rootPath) {
             str_col1 <- indexed$col1
             str_col2 <- indexed$col2
             str_expr <- substr(document$content[str_line1], str_col1, str_col2)
-            str_texts <- tryCatch(as.character(parse(text = str_expr, keep.source = FALSE)),
+            str_texts <- tryCatch(as.character(str2expression(str_expr)),
                 error = function(e) NULL)
             unique_texts <- unique(str_texts)
             strings <- list(

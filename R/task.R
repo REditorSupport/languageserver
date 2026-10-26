@@ -508,7 +508,7 @@ TaskManager <- R6::R6Class("TaskManager",
                 task <- running_tasks$get(key, NULL)
                 if (is.null(task)) next
                 check_result <- tryCatch(task$check(), error = function(e) e)
-                if (identical(check_result, FALSE) &&
+                if (isFALSE(check_result) &&
                         private$superseded_tasks$has(key) &&
                         proc.time()[[3L]] >= private$superseded_tasks$get(key)) {
                     retired_session <- task$kill()

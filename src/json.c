@@ -17,13 +17,9 @@ typedef struct {
 } json_measure;
 
 static int deferred_vector(SEXP value) {
-#if R_VERSION >= R_Version(3, 5, 0)
     /* An extension's ALTREP accessor can execute code or change between
      * passes. Let jsonlite handle these rather than trusting a measured size. */
     return ALTREP(value);
-#else
-    return 0;
-#endif
 }
 
 static int add_size(json_measure *measure, size_t amount) {

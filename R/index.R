@@ -51,7 +51,7 @@ index_glob_match <- function(path, patterns, directory = FALSE, regex = NULL) {
 #' @noRd
 index_normalize_path <- function(path) {
     path <- path.expand(path)
-    absolute <- grepl("^(?:/|[[:alpha:]]:[/\\\\])", path)
+    absolute <- grepl(r"(^(?:/|[[:alpha:]]:[/\\]))", path)
     if (!absolute) path <- file.path(getwd(), path)
     if (.Platform$OS.type == "windows") {
         path <- gsub("\\", "/", path, fixed = TRUE)
@@ -163,7 +163,7 @@ index_source_specs <- function(expr) {
 index_source_candidates <- function(spec, from_path, workspace_root) {
     if (is.null(spec) || !length(spec$path) || !nzchar(spec$path)) return(NULL)
     raw_path <- path.expand(spec$path)
-    absolute <- grepl("^(?:/|[[:alpha:]]:[/\\\\])", raw_path)
+    absolute <- grepl(r"(^(?:/|[[:alpha:]]:[/\\]))", raw_path)
     join_path <- function(base, relative) {
         normalized_base <- fs::path_norm(base)
         normalized <- fs::path_norm(file.path(base, relative))
@@ -602,7 +602,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             private$failed_parses$pop(uri, NULL)
             private$awaiting_parses$set(uri, isTRUE(cacheable))
             previous <- self$summaries$get(uri, NULL)
-            if (!is.null(previous) && identical(previous$cacheable, FALSE) !=
+            if (!is.null(previous) && isFALSE(previous$cacheable) !=
                     !isTRUE(cacheable)) {
                 previous$cacheable <- isTRUE(cacheable)
                 self$set_summary(previous)
@@ -768,13 +768,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
         cache_file = function() {
             if (!isTRUE(lsp_settings$get("index_persistent_cache"))) return(NULL)
             if (!is.null(private$cache_path)) return(private$cache_path)
-            base <- if (exists("R_user_dir", envir = asNamespace("tools"),
-                    inherits = FALSE)) {
-                get("R_user_dir", envir = asNamespace("tools"))(
-                    "languageserver", "cache")
-            } else {
-                file.path(path.expand("~"), ".cache", "R", "languageserver")
-            }
+            base <- tools::R_user_dir("languageserver", "cache")
             file.path(base, "workspace-index",
                 paste0(digest::digest(self$root, algo = "xxhash64"), ".rds"))
         },
@@ -810,7 +804,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                 version = index_cache_version,
                 root = self$root,
                 summaries = unname(Filter(function(summary) {
-                    !identical(summary$cacheable, FALSE)
+                    !isFALSE(summary$cacheable)
                 }, self$summaries$values()))
             )
             saved <- tryCatch({
@@ -1074,7 +1068,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                             consumed <- consumed + 1L
                             summary <- self$summaries$get(uri, NULL)
                             if (private$discovery_is_current(uri) &&
-                                    !identical(summary$cacheable, FALSE) &&
+                                    !isFALSE(summary$cacheable) &&
                                     !private$parse_blocked(uri)) self$remove(uri)
                             if ((proc.time()[[3L]] - started) * 1000 >= budget) break
                         }

@@ -63,7 +63,7 @@ index_worker_batch <- function(key, root, updates, requests, bootstrap = FALSE,
     # state until index_worker_release(), just like discovery cursors above.
     for (uri in names(updates)) {
         summary <- updates[[uri]]
-        if (is.null(summary) || identical(summary$cacheable, FALSE)) {
+        if (is.null(summary) || isFALSE(summary$cacheable)) {
             if (exists(uri, envir = state, inherits = FALSE)) rm(list = uri, envir = state)
         } else {
             assign(uri, summary, envir = state)

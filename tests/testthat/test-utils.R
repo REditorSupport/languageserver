@@ -230,7 +230,7 @@ test_that("documentation helpers render roxygen and Rd structures", {
     expect_identical(fallback, "ordinary comment")
 
     rd <- tools::parse_Rd(
-        textConnection("\\code{x} \\R{} \\dots{}"),
+        textConnection(r"(\code{x} \R{} \dots{})"),
         fragment = TRUE
     )
     markdown <- convert_doc_string(rd)

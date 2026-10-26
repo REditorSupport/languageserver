@@ -17,12 +17,10 @@ test_that("native XML matches parser XML for syntax and detached comments", {
         "`odd&<name>` <- 'a&b<c>d'; value <- '\"quotes\"'",
         c("α <- '😀中文'", "fun <- function(β = α) β", "# café & < >"),
         c("{", "# before the only expression", "x", "# after the only expression", "}"),
-        c("x <- ", "  function()", "    1", "# detached", "y <- 2"))
+        c("x <- ", "  function()", "    1", "# detached", "y <- 2"),
+        'x <- r"--(hello\n& < > " quotes)--"')
     if (getRversion() >= "4.1.0") {
-        cases <- c(cases, list(paste0("f <- ", intToUtf8(92), "(x) x |> identity()")))
-    }
-    if (getRversion() >= "4.0.0") {
-        cases <- c(cases, list('x <- r"--(hello\n& < > " quotes)--"'))
+        cases <- c(cases, list(r"(f <- \(x) x |> identity())"))
     }
     for (content in cases) {
         for (include_text in c(FALSE, TRUE)) {

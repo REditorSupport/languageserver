@@ -145,10 +145,7 @@ s3_analyzer <- function(context, env = new.env(parent = emptyenv())) {
             return(s3_unknown("missing"))
         }
         if (is.null(expr) || is.atomic(expr)) {
-            return(s3_value(
-                s3_implicit_classes(typeof(expr), attr(expr, "dim", exact = TRUE)), typeof(expr), expr,
-                TRUE
-            ))
+            return(s3_value(.class2(expr), typeof(expr), expr, TRUE))
         }
         if (is.symbol(expr)) {
             v <- get_value(as.character(expr), scope)
@@ -213,7 +210,7 @@ s3_analyzer <- function(context, env = new.env(parent = emptyenv())) {
             if (isTRUE(cond$known) && identical(cond$literal, TRUE)) {
                 return(recur(expr[[3]]))
             }
-            if (isTRUE(cond$known) && identical(cond$literal, FALSE)) {
+            if (isTRUE(cond$known) && isFALSE(cond$literal)) {
                 return(if (length(expr) > 3L) recur(expr[[4]]) else s3_value("NULL", "NULL"))
             }
             a_scope <- s3_copy_scope(scope)
@@ -313,7 +310,7 @@ s3_analyzer <- function(context, env = new.env(parent = emptyenv())) {
                 } else {
                     s3_unknown()
                 }
-                if (!is.null(drop) && identical(drop, FALSE)) {
+                if (isFALSE(drop)) {
                     return(x)
                 }
                 if (isTRUE(sel$known) && length(sel$literal) > 1L) {
@@ -452,8 +449,7 @@ s3_analyzer <- function(context, env = new.env(parent = emptyenv())) {
                     if (identical(fields[[field]]$type, "character")) {
                         if (!is.null(strings) && isTRUE(strings$known) && identical(strings$literal, TRUE)) {
                             fields[[field]] <- s3_value("factor", "integer")
-                        } else if ((!is.null(strings) && !isTRUE(strings$known)) || (is.null(strings) &&
-                                    getRversion() < "4.0.0")) {
+                        } else if (!is.null(strings) && !isTRUE(strings$known)) {
                             fields[[field]] <- s3_unknown("unknown_strings_as_factors")
                         }
                     }
@@ -464,7 +460,7 @@ s3_analyzer <- function(context, env = new.env(parent = emptyenv())) {
         if (identical(package, "base") && name == "c") {
             if (all(vapply(actuals, function(x) isTRUE(x$known) && is.null(attr(x$literal, "class")), logical(1)))) {
                 lit <- do.call(base::c, lapply(actuals, `[[`, "literal"))
-                return(s3_value(s3_implicit_classes(typeof(lit)), typeof(lit), lit, TRUE))
+                return(s3_value(.class2(lit), typeof(lit), lit, TRUE))
             }
             return(s3_unknown("c_dispatch"))
         }
@@ -484,7 +480,7 @@ s3_analyzer <- function(context, env = new.env(parent = emptyenv())) {
                     }))
                 }
                 lit <- a:b
-                return(s3_value(s3_implicit_classes(typeof(lit)), typeof(lit), lit, TRUE))
+                return(s3_value(.class2(lit), typeof(lit), lit, TRUE))
             }
             return(s3_unknown("range_type"))
         }
@@ -510,7 +506,7 @@ s3_analyzer <- function(context, env = new.env(parent = emptyenv())) {
                     "==" = a == b,
                     "!=" = a != b
                 )
-                return(s3_value(s3_implicit_classes(typeof(lit)), typeof(lit), lit, TRUE))
+                return(s3_value(.class2(lit), typeof(lit), lit, TRUE))
             }
             return(s3_unknown("arithmetic_dispatch"))
         }
@@ -628,7 +624,7 @@ s3_constructor_summary <- function(name, package, raw, actuals, env, recur, cont
             }
             return(s3_unknown("dynamic_ts_class"))
         }
-        if (!identical(x$explicit_class, FALSE)) return(s3_unknown("unknown_ts_dimension"))
+        if (!isFALSE(x$explicit_class)) return(s3_unknown("unknown_ts_dimension"))
         if ("matrix" %in% x$classes) {
             columns <- if (length(x$dimensions) == 2L) x$dimensions[[2L]] else NA_real_
             if (is.na(columns) || !is.finite(columns)) return(s3_unknown("unknown_ts_dimension"))
@@ -642,7 +638,7 @@ s3_constructor_summary <- function(name, package, raw, actuals, env, recur, cont
         if (!isTRUE(dims$known) || is.null(x$classes)) {
             return(s3_unknown("unknown_array_dimension"))
         }
-        if (is.null(x$type) || identical(x$type, "NULL") || !identical(x$explicit_class, FALSE) ||
+        if (is.null(x$type) || identical(x$type, "NULL") || !isFALSE(x$explicit_class) ||
                 !identical(x$classes, s3_implicit_classes(x$type, x$dimensions))) {
             return(s3_unknown("array_coercion"))
         }
@@ -699,7 +695,7 @@ s3_constructor_summary <- function(name, package, raw, actuals, env, recur, cont
     }
     if (key %in% c("base::matrix", "base::array")) {
         x <- actuals[[1L]]
-        if (is.null(x$type) || identical(x$type, "NULL") || !identical(x$explicit_class, FALSE) ||
+        if (is.null(x$type) || identical(x$type, "NULL") || !isFALSE(x$explicit_class) ||
                 !identical(x$classes, s3_implicit_classes(x$type, x$dimensions))) {
             return(s3_unknown("matrix_coercion"))
         }

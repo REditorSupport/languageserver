@@ -160,7 +160,7 @@ member_s4_shape <- function(name, index, bindings, package = NULL, trail = chara
     identity <- paste(package, name, sep = "::")
     if (length(trail) > 32L || identity %in% trail) return(member_value(reason = "s4_cycle"))
     descriptor <- member_s4_descriptor(name, index, bindings, package)
-    if (is.null(descriptor) || identical(descriptor$complete, FALSE)) return(member_value(reason = "unknown_s4_class"))
+    if (is.null(descriptor) || isFALSE(descriptor$complete)) return(member_value(reason = "unknown_s4_class"))
     trail <- c(trail, identity)
     if (!is.null(descriptor$union)) {
         if (!length(descriptor$union)) return(member_value(reason = "unknown_s4_union"))

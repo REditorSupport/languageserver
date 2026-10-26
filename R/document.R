@@ -326,7 +326,7 @@ is_base_call <- function(x) {
 
 # Handle `base` function specically by removing the `base::` prefix
 fun_string <- function(x) {
-    if (is_base_call(x)) as.character(x[[3L]]) else deparse(x)
+    if (is_base_call(x)) as.character(x[[3L]]) else deparse1(x)
 }
 
 # to see the pos/env/assign.env of assigning functions is set or not

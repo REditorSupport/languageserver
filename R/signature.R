@@ -14,7 +14,7 @@ local_function_signature <- function(document, node, symbol) {
         col2 = as.integer(xml_attr(closing, "col2")))
     # Only the formals are used by get_signature(). A large body contributes
     # no signature information and need not be allocated or parsed again.
-    expr <- parse(text = c(text, "NULL"), keep.source = FALSE)
+    expr <- str2expression(c(text, "NULL"))
     get_signature(symbol, expr[[1L]])
 }
 

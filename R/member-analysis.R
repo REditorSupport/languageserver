@@ -7,14 +7,14 @@ member_syntax_names <- function(expr) {
 member_symbol_required <- function(workspace, document) {
     data <- document$parse_data
     if (!identical(document$version, data$version) || isTRUE(data$parse_error)) return(TRUE)
-    if (!identical(data$member_data$symbol_scope, FALSE)) return(TRUE)
+    if (!isFALSE(data$member_data$symbol_scope)) return(TRUE)
     member_package_scope_required(workspace, data$member_data, "symbol_scope")
 }
 
 member_ordinary_request <- function(workspace, document) {
     isTRUE(document$member_ordinary_edit) && !isTRUE(document$parse_data$parse_error) &&
-        identical(document$parse_data$member_data$class_scope, FALSE) &&
-        identical(document$parse_data$member_data$symbol_scope, FALSE) &&
+        isFALSE(document$parse_data$member_data$class_scope) &&
+        isFALSE(document$parse_data$member_data$symbol_scope) &&
         !member_package_scope_required(workspace, document$parse_data$member_data, "symbol_scope")
 }
 
@@ -28,7 +28,7 @@ member_package_scope_required <- function(workspace, data, capability) {
     }, character(1L))))
     for (package in intersect(packages, metadata$keys())) {
         candidate <- if (is.function(metadata$catalog)) metadata$catalog(package) else metadata$get(package)
-        if (!identical(candidate[[capability]], FALSE)) return(TRUE)
+        if (!isFALSE(candidate[[capability]])) return(TRUE)
     }
     FALSE
 }

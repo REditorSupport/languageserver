@@ -182,8 +182,8 @@ test_that("Member snippets preserve R escapes in quoted method names", {
     item <- member_items(code)[[1L]]
     # These are the literal characters a snippet client inserts before ().
     inserted <- sub("($0)", "()", item$textEdit$newText, fixed = TRUE)
-    inserted <- gsub("\\\\([\\\\$}])", "\\1", inserted, perl = TRUE)
-    parsed <- parse(text = paste0("x$", inserted))[[1L]]
+    inserted <- gsub(r"(\\([\\$}]))", r"(\1)", inserted, perl = TRUE)
+    parsed <- str2lang(paste0("x$", inserted))
     expect_identical(as.character(parsed[[1L]][[3L]]), label)
     expect_identical(item$insertTextFormat, InsertTextFormat$Snippet)
 
@@ -739,8 +739,7 @@ test_that("Metadata resolution survives edits with unchanged package requests", 
 })
 
 test_that("Package extraction follows registries and factories with unrelated names", {
-    marker <- tempfile()
-    on.exit(unlink(marker))
+    marker <- withr::local_tempfile()
     code <- paste(c(
         "api <- new.env(parent=emptyenv())",
         "commands <- new.env(parent=emptyenv())",
@@ -781,15 +780,14 @@ test_that("Package extraction follows registries and factories with unrelated na
 })
 
 test_that("Prepared returns preserve argument-dependent results and metadata changes", {
-    marker <- tempfile()
-    on.exit(unlink(marker))
+    marker <- withr::local_tempfile()
     code <- paste(c(
         "api <- new.env(parent=emptyenv())",
         "native_box <- function(pointer) {box <- new.env(); box$step <- make_step(pointer); class(box) <- \"raw_box\"; box}",
         "make_step <- function(pointer) function() native_box(.Call(\"never\",pointer))",
         "adapt <- function(x) UseMethod(\"adapt\")",
         "adapt.raw_box <- function(x) {box <- new.env(); box$raw <- x; class(box) <- \"public_box\"; box}",
-        sprintf("fixed <- function(first={writeLines(\"ran\",%s)}, second=1, third=1, fourth=1, fifth=1, sixth=1, seventh=1, eighth=1, ninth=1, tenth=1) adapt(native_box(.Call(\"never\")))", deparse(marker)),
+        sprintf("fixed <- function(first={writeLines(\"ran\",%s)}, second=1, third=1, fourth=1, fifth=1, sixth=1, seventh=1, eighth=1, ninth=1, tenth=1) adapt(native_box(.Call(\"never\")))", deparse1(marker)),
         "varying <- function(first, second=1, third=1, fourth=1, fifth=1, sixth=1, seventh=1, eighth=1, ninth=1, tenth=1) if(first) adapt(native_box(NULL)) else list(other=1)",
         "short <- function(first, flag=TRUE) {if(flag) native_box(NULL); adapt(native_box(.Call(\"never\")))}",
         "short_varying <- function(flag) if(flag) adapt(native_box(NULL)) else list(other=1)",

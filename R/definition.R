@@ -46,7 +46,7 @@ definition_reply <- function(id, uri, workspace, document, point,
                 first <- syntax$line1[[token]]
                 if (first == syntax$line2[[token]]) {
                     text <- substr(document$content[[first]], syntax$col1[[token]], syntax$col2[[token]])
-                    text <- tryCatch(as.character(parse(text = text, keep.source = FALSE)), error = function(e) NULL)
+                    text <- tryCatch(as.character(str2lang(text)), error = function(e) NULL)
                     if (is.character(text) && with_wd(rootPath,
                             file.exists(text) && !dir.exists(text) && is_text_file(text))) {
                         result <- list(uri = path_to_uri(fs::path_abs(text, rootPath)),
@@ -104,7 +104,7 @@ definition_reply <- function(id, uri, workspace, document, point,
                     str_col1 <- as.integer(xml_attr(token, "col1"))
                     str_col2 <- as.integer(xml_attr(token, "col2"))
                     str_expr <- substr(document$content[str_line1], str_col1, str_col2)
-                    str_text <- tryCatch(as.character(parse(text = str_expr, keep.source = FALSE)),
+                    str_text <- tryCatch(as.character(str2lang(str_expr)),
                         error = function(e) NULL)
                     if (is.character(str_text)) {
                         if (with_wd(rootPath, file.exists(str_text) && !dir.exists(str_text) && is_text_file(str_text))) {

@@ -102,7 +102,7 @@ LanguageBase <- R6::R6Class("LanguageBase",
             # Callers may pass a difftime remaining budget from a deadline.
             timeout <- if (inherits(timeout, "difftime")) as.numeric(timeout, units = "secs") else as.numeric(timeout)
             start_time <- proc.time()[["elapsed"]]
-            if (is.function(self$read_raw) && !identical(self$raw_input_available, FALSE)) {
+            if (is.function(self$read_raw) && !isFALSE(self$raw_input_available)) {
                 if (is.null(private$message_buffer)) {
                     private$message_buffer <- .Call("new_message_buffer_c",
                         PACKAGE = "languageserver")

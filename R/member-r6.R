@@ -84,7 +84,7 @@ member_r6_shape <- function(expr, index, bindings, budget, depth = 0L, trail = c
     # R6 locks instance environments before initialize() runs. Only an explicit
     # FALSE can allow new bindings; an unknown setting remains conservative.
     locked <- is.null(args$lock_objects) ||
-        !identical(infer(args$lock_objects)$literal, FALSE)
+        !isFALSE(infer(args$lock_objects)$literal)
     private_value <- member_value(type = "environment", fields = private,
         r6_class = class, r6_role = "private")
     private_value$r6_locked <- locked
@@ -103,8 +103,8 @@ member_r6_shape <- function(expr, index, bindings, budget, depth = 0L, trail = c
     instance$r6_private$r6_bindings <- bindings_private
     instance$r6_locked <- locked
     instance$r6_bindings <- bindings_public
-    instance$r6_cloneable <- !identical(args$cloneable, FALSE) &&
-        !identical(inherited$r6_cloneable, FALSE)
+    instance$r6_cloneable <- !isFALSE(args$cloneable) &&
+        !isFALSE(inherited$r6_cloneable)
     # new() forwards its arguments to the public (possibly inherited)
     # initialize method. Preserve defaults as syntax, without evaluating them.
     unknown_parent <- !is.null(args$inherit) && !identical(args$inherit, quote(NULL)) &&
@@ -255,7 +255,7 @@ member_r6_context <- function(expr, index, bindings, budget) {
     if (any(instance$r6_bindings == "active")) {
         scope$.__active__ <- member_value(type = "list", r6_class = instance$r6_class, r6_role = "active")
     }
-    if (identical(args$portable, FALSE)) {
+    if (isFALSE(args$portable)) {
         # Non-portable methods enclose the public environment, whose parent
         # contains private bindings. Public bindings win on lookup.
         scope <- utils::modifyList(private$fields, utils::modifyList(instance$fields, scope))

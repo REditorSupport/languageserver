@@ -771,7 +771,7 @@ context_scope_completion <- function(uri, workspace, token, point,
     # Indexed definitions include source backticks; inferred bindings do not.
     exclude <- vapply(exclude, function(name) {
         if (!startsWith(name, "`")) return(name)
-        tryCatch(as.character(parse(text = name)[[1L]]), error = function(e) name)
+        tryCatch(as.character(str2lang(name)), error = function(e) name)
     }, character(1L))
     # Source-indexed candidates still need inferred class information. Resolve
     # a bounded set in the same lexical environment, so aliases and shadowing
@@ -907,7 +907,7 @@ scope_completion <- function(uri, workspace, token, point,
     normalize_names <- function(names) {
         vapply(names, function(name) {
             if (!startsWith(name, "`")) return(name)
-            tryCatch(as.character(parse(text = name)[[1L]]), error = function(e) name)
+            tryCatch(as.character(str2lang(name)), error = function(e) name)
         }, character(1L))
     }
     # Drop enclosing candidates hidden by the method context. For source
@@ -1031,7 +1031,7 @@ scope_completion <- function(uri, workspace, token, point,
     class_info <- attr(context_completions, "class_info")
     for (i in seq_along(completions)) {
         label <- completions[[i]]$label
-        if (startsWith(label, "`")) label <- tryCatch(as.character(parse(text = label)[[1L]]), error = function(e) label)
+        if (startsWith(label, "`")) label <- tryCatch(as.character(str2lang(label)), error = function(e) label)
         description <- class_info[[label]]
         if (!is.null(description)) {
             completions[[i]]$detail <- paste("[scope]", gsub("`", "", description, fixed = TRUE))
@@ -1127,7 +1127,7 @@ completion_token <- function(document, point) {
     result$accessor <- namespace$accessor
     result$full_token <- paste0("`", quoted$token)
     result$token <- tryCatch(
-        as.character(parse(text = paste0("`", quoted$token, "`"))[[1L]]),
+        as.character(str2lang(paste0("`", quoted$token, "`"))),
         error = function(e) quoted$token
     )
     result$range <- list(
