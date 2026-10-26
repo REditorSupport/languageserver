@@ -31,7 +31,9 @@ language_client <- function(working_dir = getwd(), workspace_folders = NULL, dia
     if (!is.null(lib_paths)) {
         # Apply explicit test paths after inherited startup profiles, which
         # can otherwise restore the check worker's original library paths.
-        script <- paste0(".libPaths(", paste(deparse(lib_paths), collapse = "\n"), "); ", script)
+        # Retain the server's dependency paths rather than copying a worker's
+        # temporary proxy library into a standalone R process.
+        script <- paste0(".libPaths(c(", paste(deparse(lib_paths), collapse = "\n"), ", .libPaths())); ", script)
     }
 
     client <- LanguageClient$new(
@@ -48,7 +50,10 @@ language_client <- function(working_dir = getwd(), workspace_folders = NULL, dia
     client$start(working_dir = working_dir, workspace_folders = workspace_folders, capabilities = capabilities)
     client$catch_callback_error <- FALSE
     # initialize request
-    data <- client$fetch(blocking = TRUE)
+    data <- tryCatch(client$fetch(blocking = TRUE), error = function(e) {
+        stderr <- paste(client$process$read_error_lines(), collapse = "\n")
+        stop(paste(c(conditionMessage(e), stderr[nzchar(stderr)]), collapse = "\n"), call. = FALSE)
+    })
     client$handle_raw(data)
     client %>% notify("initialized")
     client %>% notify(
