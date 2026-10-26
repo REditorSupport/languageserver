@@ -35,6 +35,13 @@ text_document_completion  <- function(self, id, params) {
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     if (reply_parse_failure(self, id, document)) return(invisible(NULL))
     point <- document$from_lsp_position(params$position)
+    if ((isTRUE(lsp_settings$get("member_completion")) || isTRUE(lsp_settings$get("s3_dispatch"))) &&
+            !identical(document$version, document$parse_data$version) &&
+            !member_ordinary_request(workspace, document)) {
+        basic <- basic_name_completion_reply(id, workspace, document, point,
+            self$ClientCapabilities$textDocument$completion)
+        if (!is.null(basic)) return(self$deliver(basic))
+    }
     if (identical(document$version, document$parse_data$version) &&
             s3_metadata_waiting(self, uri, document, point, hover = FALSE)) {
         enqueue_latest_reply(self, uri, "textDocument/completion", list(id = id, version = document$version, params = params))

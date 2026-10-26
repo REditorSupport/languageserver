@@ -1148,6 +1148,30 @@ completion_has_call_parens <- function(document, token_result) {
     startsWith(trimws(rest_of_line), "(")
 }
 
+#' Complete cached package symbols while the current document parse is pending
+#' @noRd
+basic_name_completion_reply <- function(id, workspace, document, point, capabilities) {
+    if (!check_scope(document$uri, document, point)) return(NULL)
+    line <- document$line0(point$row)
+    if (!grepl("^[[:blank:]]*[[:alpha:]_.][[:alnum:]_.]*[[:blank:]]*$", line)) return(NULL)
+    token <- completion_token(document, point)
+    if (!nzchar(token$token) || !is.null(token$package) || !identical(token$accessor, "")) return(NULL)
+    if (!is.null(member_cursor(document, point)) ||
+            !is.null(member_call_location(document, point, symbols = TRUE))) return(NULL)
+    if (is.null(workspace$namespaces)) return(NULL)
+    # Before syntax is ready, cached startup namespaces can still provide
+    # real function items, snippets and documentation-resolution metadata.
+    loaded <- loadedNamespaces()
+    ready <- list(loaded_packages = intersect(workspace$startup_packages, loaded),
+        imported_objects = collections::dict(),
+        get_namespace = function(package) workspace$namespaces$get(package, NULL))
+    snippets <- isTRUE(capabilities$completionItem$snippetSupport) && lsp_settings$get("snippet_support")
+    items <- workspace_completion(ready, token$token, snippet_support = snippets,
+        limit = lsp_settings$get("max_completions"))
+    if (!length(items)) return(NULL)
+    Response$new(id, result = list(isIncomplete = TRUE, items = unname(items)))
+}
+
 #' The response to a textDocument/completion request
 #' @noRd
 completion_reply <- function(id, uri, workspace, document, point, capabilities) {
