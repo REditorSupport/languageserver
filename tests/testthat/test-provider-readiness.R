@@ -176,6 +176,69 @@ test_that("basic function completion responds before and during document parsing
     }
 })
 
+test_that("the first preparse response includes current local declarations", {
+    fixture <- readiness_fixture(c("hello <- function(value) value", "hel"))
+    fixture$document$parse_data <- NULL
+    fixture$server$parse_task_manager$promote <- function(...) stop("waited for full parse")
+    text_document_completion(fixture$server, 1L, readiness_params(fixture, 1L, 3L))
+    expect_length(fixture$server$replies, 1L)
+    items <- fixture$server$replies[[1L]]$result$items
+    hello <- Filter(function(item) identical(item$label, "hello"), items)
+    expect_length(hello, 1L)
+    expect_identical(hello[[1L]]$kind, CompletionItemKind$Function)
+    expect_identical(hello[[1L]]$data$uri, fixture$uri)
+    expect_identical(fixture$server$pending_replies$get(fixture$uri)$`textDocument/completion`$size(), 0L)
+
+    # A structural edit must replace the outline rather than preserve a stale
+    # declaration from the first response. No second request is needed to fix it.
+    fixture$document$set_content(2L, c("helpful <- function(value) value", "hel"))
+    text_document_completion(fixture$server, 2L, readiness_params(fixture, 1L, 3L))
+    names <- vapply(fixture$server$replies[[2L]]$result$items, `[[`, "", "label")
+    expect_true("helpful" %in% names)
+    expect_false("hello" %in% names)
+    fixture$document$set_content(3L, c("for (hello in 1:3) { hello <- hello + 1 }", "hel"))
+    text_document_completion(fixture$server, 3L, readiness_params(fixture, 1L, 3L))
+    hello <- Filter(function(item) identical(item$label, "hello"), fixture$server$replies[[3L]]$result$items)
+    expect_length(hello, 1L)
+    expect_identical(hello[[1L]]$kind, CompletionItemKind$Field)
+})
+
+test_that("preparse outlines preserve lexical scope and local masking", {
+    fixture <- readiness_fixture(c("outer <- function(hidden) { hidden_local <- 1 }",
+            "f <- function(print) {", "  primary <- function(value) value", "  pri", "}"))
+    fixture$document$parse_data <- NULL
+    text_document_completion(fixture$server, 1L, readiness_params(fixture, 3L, 5L))
+    items <- fixture$server$replies[[1L]]$result$items
+    print <- Filter(function(item) identical(item$label, "print"), items)
+    expect_length(print, 1L)
+    expect_identical(print[[1L]]$kind, CompletionItemKind$Field)
+    expect_true("primary" %in% vapply(items, `[[`, "", "label"))
+    fixture$document$set_content(2L, c("f <- function(`print`) {", "  pri", "}"))
+    text_document_completion(fixture$server, 2L, readiness_params(fixture, 1L, 5L))
+    print <- Filter(function(item) item$label %in% c("print", "`print`"), fixture$server$replies[[2L]]$result$items)
+    expect_length(print, 1L)
+    expect_identical(print[[1L]]$kind, CompletionItemKind$Field)
+    fixture$document$set_content(3L, c("outer <- function(hidden) { hidden_local <- 1 }",
+            "f <- function(print) {", "  primary <- function(value) value", "  pri", "}"))
+    items <- basic_name_completion_reply(2L, fixture$workspace, fixture$document,
+        list(row = 3L, col = 2L), list())
+    expect_null(items)
+    fixture$document$set_content(4L, c("outer <- function(hidden) { hidden_local <- 1 }", "hidden"))
+    expect_null(basic_name_completion_reply(3L, fixture$workspace, fixture$document,
+            list(row = 1L, col = 6L), list()))
+})
+
+test_that("uncertain and oversized outlines wait for the full current parse", {
+    fixture <- readiness_fixture("pri")
+    for (content in list(c("hello <- function() {", "pri"),
+            c("with(data, {", "pri", "})"), c(paste0("#", strrep("x", 1024^2)), "pri"))) {
+        fixture$document$set_content(2L, content)
+        row <- match("pri", content) - 1L
+        expect_null(basic_name_completion_reply(1L, fixture$workspace, fixture$document,
+                list(row = row, col = 3L), list()))
+    }
+})
+
 test_that("preparse completion leaves contextual and unmatched names to the current parse", {
     fixture <- readiness_fixture("pri")
     for (line in c("value <- pri", "base::pri", "object$pri", "print(pri)", "# pri", '"pri"', "my_local_name")) {
@@ -223,6 +286,8 @@ test_that("generic providers do not wait for member-completion model preparation
     }, .package = "languageserver")
     task <- resolve_task(server, fixture$uri, fixture$document, character(), namespace_packages = c("base", "pending"))
     server$resolve_task_manager$add_task(fixture$uri, task)
+    expect_true(server$member_task_manager$has(fixture$uri))
+    member_task <- server$member_task_manager$tasks$get(fixture$uri)
     expect_true(fixture$workspace$index$indexing_status()$done)
     text_document_signature_help(server, 1L, readiness_params(fixture, 0L, 6L))
     text_document_hover(server, 2L, readiness_params(fixture, 0L, 2L))
@@ -234,6 +299,7 @@ test_that("generic providers do not wait for member-completion model preparation
     server$resolve_task_manager$cancel(fixture$uri)
     private$callback(result)
     expect_true(server$member_task_manager$has(fixture$uri))
+    expect_identical(server$member_task_manager$tasks$get(fixture$uri), member_task)
     expect_length(server$replies, 2L)
     replies <- stats::setNames(server$replies, vapply(server$replies, function(reply) as.character(reply$id), ""))
     expect_match(replies$`1`$result$signatures[[1L]]$label, "print(x", fixed = TRUE)
@@ -243,7 +309,34 @@ test_that("generic providers do not wait for member-completion model preparation
     expect_false(model$args$prepare_s3)
 
     resolve_task(server, fixture$uri, fixture$document, character(), namespace_packages = "base")
+    expect_true(server$member_task_manager$has(fixture$uri))
+    expect_false(identical(server$member_task_manager$tasks$get(fixture$uri), member_task))
+    resolve_task(server, fixture$uri, fixture$document, character(), namespace_packages = character())
     expect_false(server$member_task_manager$has(fixture$uri))
+})
+
+test_that("member models finish independently of pending and failed S3 resolution", {
+    testthat::local_mocked_bindings(member_prepare_package = function(...) {
+        list(schema = 1L, roots = list(), namespace_roots = list(), generation = "fixture")
+    }, .package = "languageserver")
+    for (failed in c(FALSE, TRUE)) {
+        fixture <- readiness_fixture("print()")
+        server <- fixture$server
+        server$resolve_task_manager <- readiness_task_manager()
+        server$member_task_manager <- readiness_task_manager()
+        task <- resolve_task(server, fixture$uri, fixture$document, character(), namespace_packages = "pending")
+        server$resolve_task_manager$add_task(fixture$uri, task)
+        member <- server$member_task_manager$tasks$get(fixture$uri)$.__enclos_env__$private
+        expect_false(member$args$prepare_s3)
+        if (failed) task$.__enclos_env__$private$error(simpleError("S3 preparation timed out"))
+        member$callback(do.call(member$target, member$args))
+        expect_true(server$resolve_task_manager$has(fixture$uri))
+        expect_identical(fixture$workspace$member_metadata$catalog("pending")$generation, "fixture")
+        text_document_signature_help(server, 1L, readiness_params(fixture, 0L, 6L))
+        text_document_hover(server, 2L, readiness_params(fixture, 0L, 2L))
+        expect_length(server$replies, 2L)
+        expect_match(server$replies[[1L]]$result$signatures[[1L]]$label, "print(x", fixed = TRUE)
+    }
 })
 
 test_that("resolve completion wakes requests even if result application fails or is stale", {

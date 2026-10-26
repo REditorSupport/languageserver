@@ -1148,7 +1148,75 @@ completion_has_call_parens <- function(document, token_result) {
     startsWith(trimws(rest_of_line), "(")
 }
 
-#' Complete cached package symbols while the current document parse is pending
+#' Collect ordinary global declarations without evaluating source or function bodies
+#' @noRd
+completion_global_outline <- function(parsed) {
+    bindings <- new.env(hash = TRUE, parent = emptyenv())
+    controls <- c("{", "(", "if", "for", "while", "repeat", "system.time", "try", "tryCatch",
+        "withCallingHandlers", "withRestarts", "allowInterrupts", "suspendInterrupts",
+        "suppressPackageStartupMessages", "suppressMessages", "suppressWarnings")
+    walk <- function(expr, ref = NULL) {
+        if (is.expression(expr) || is.list(expr)) {
+            refs <- attr(expr, "srcref")
+            for (i in seq_along(expr)) walk(expr[[i]], if (length(refs) >= i) refs[[i]] else ref)
+        } else if (is_simple_call(expr)) {
+            head <- if (is.symbol(expr[[1L]])) as.character(expr[[1L]]) else fun_string(expr[[1L]])
+            if (head %in% c("<-", "=")) {
+                if (length(expr) == 3L && is.symbol(expr[[2L]])) {
+                    name <- as.character(expr[[2L]])
+                    assign(name, list(name = name, function_kind = member_head(expr[[3L]], "function"),
+                            line = if (is.null(ref)) 1L else ref[[1L]]), envir = bindings)
+                    walk(expr[[3L]], ref)
+                }
+            } else if (head %in% controls) {
+                if (head == "for" && is.symbol(expr[[2L]])) {
+                    name <- as.character(expr[[2L]])
+                    assign(name, list(name = name, function_kind = FALSE,
+                            line = if (is.null(ref)) 1L else ref[[1L]]), envir = bindings)
+                }
+                children <- as.list(expr)[-1L]
+                refs <- attr(expr, "srcref")
+                for (i in seq_along(children)) {
+                    if (!identical(children[[i]], quote(expr = ))) {
+                        walk(children[[i]], if (length(refs) >= i + 1L) refs[[i + 1L]] else ref)
+                    }
+                }
+            }
+        }
+        invisible(NULL)
+    }
+    walk(parsed)
+    as.list(bindings)
+}
+
+#' Build only lexical completion facts from the current buffer
+#' @noRd
+completion_outline <- function(document) {
+    cached <- document$completion_outline
+    if (!is.null(cached) && identical(cached$version, document$version)) return(cached$data)
+    # Bound synchronous work to the open buffer, independently of workspace
+    # size. Larger or incomplete buffers retain the queued current-parse path.
+    result <- NULL
+    if (length(document$content) <= 20000L &&
+            sum(nchar(document$content, type = "bytes")) <= 1024^2) {
+        content <- normalize_parse_content(document$content, document$is_rmarkdown, parseable_only = FALSE)
+        parsed <- tryCatch(parse(text = content, keep.source = TRUE), error = function(e) NULL)
+        if (!is.null(parsed)) {
+            data <- utils::getParseData(parsed)
+            # Execution and class contexts need the full scope provider.
+            contexts <- c("R6Class", member_s7_intrinsics, "with", "within", "local", "evalq",
+                "assign", "delayedAssign", "makeActiveBinding")
+            if (!any(data$token == "SYMBOL_FUNCTION_CALL" & data$text %in% contexts)) {
+                result <- tryCatch(list(completion_data = completion_parse_data(data, syntax_parse_data(data)),
+                        globals = completion_global_outline(parsed)), error = function(e) NULL)
+            }
+        }
+    }
+    document$completion_outline <- list(version = document$version, data = result)
+    result
+}
+
+#' Complete current lexical declarations and cached packages before full parsing
 #' @noRd
 basic_name_completion_reply <- function(id, workspace, document, point, capabilities) {
     if (!check_scope(document$uri, document, point)) return(NULL)
@@ -1159,16 +1227,51 @@ basic_name_completion_reply <- function(id, workspace, document, point, capabili
     if (!is.null(member_cursor(document, point)) ||
             !is.null(member_call_location(document, point, symbols = TRUE))) return(NULL)
     if (is.null(workspace$namespaces)) return(NULL)
-    # Before syntax is ready, cached startup namespaces can still provide
-    # real function items, snippets and documentation-resolution metadata.
+    outline <- completion_outline(document)
+    if (is.null(outline)) return(NULL)
+    # The first response must contain current local declarations: clients do
+    # not refresh a displayed list merely because its full parse finishes.
     loaded <- loadedNamespaces()
     ready <- list(loaded_packages = intersect(workspace$startup_packages, loaded),
         imported_objects = collections::dict(),
-        get_namespace = function(package) workspace$namespaces$get(package, NULL))
+        get_namespace = function(package) workspace$namespaces$get(package, NULL),
+        get_parse_data = function(...) outline)
     snippets <- isTRUE(capabilities$completionItem$snippetSupport) && lsp_settings$get("snippet_support")
-    items <- workspace_completion(ready, token$token, snippet_support = snippets,
-        limit = lsp_settings$get("max_completions"))
+    limit <- lsp_settings$get("max_completions")
+    locals <- scope_completion(document$uri, ready, token$token, point, snippets, limit)
+    globals <- Filter(function(binding) match_with(binding$name, token$token), outline$globals)
+    global_names <- vapply(globals, `[[`, "", "name")
+    globals <- globals[completion_select_indices(global_names, global_names, token$token, limit)]
+    globals <- lapply(globals, function(binding) {
+        item <- list(label = binding$name,
+            kind = if (binding$function_kind) CompletionItemKind$Function else CompletionItemKind$Field,
+            detail = "[workspace]", sortText = paste0(sort_prefixes$workspace, binding$name),
+            data = list(type = if (binding$function_kind) "function" else "nonfunction",
+                uri = document$uri, line = binding$line))
+        inserted <- quote_completion_name(binding$name)
+        if (binding$function_kind && snippets) {
+            item$insertText <- paste0(escape_completion_snippet(inserted), "($0)")
+            item$insertTextFormat <- InsertTextFormat$Snippet
+        } else if (!identical(inserted, binding$name)) {
+            item$insertText <- inserted
+        }
+        item
+    })
+    local_names <- vapply(locals, function(item) {
+        name <- item$label
+        if (!startsWith(name, "`")) return(name)
+        tryCatch(as.character(parse(text = name)[[1L]]), error = function(e) name)
+    }, "")
+    globals <- Filter(function(item) !item$label %in% local_names, globals)
+    locals <- c(locals, globals)
+    local_names <- c(local_names, vapply(globals, `[[`, "", "label"))
+    packages <- workspace_completion(ready, token$token, snippet_support = snippets, limit = limit)
+    packages <- Filter(function(item) !item$label %in% local_names, packages)
+    items <- c(locals, packages)
     if (!length(items)) return(NULL)
+    labels <- vapply(items, `[[`, "", "label")
+    sort_text <- vapply(items, `[[`, "", "sortText")
+    items <- items[completion_select_indices(labels, sort_text, token$token, limit)]
     Response$new(id, result = list(isIncomplete = TRUE, items = unname(items)))
 }
 

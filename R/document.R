@@ -9,6 +9,7 @@ Document <- R6::R6Class(
         content = NULL,
         call_scan_cache = NULL,
         parse_data = NULL,
+        completion_outline = NULL,
         parse_generation = 0L,
         parse_failure = NULL,
         parsed_content = NULL,
@@ -50,6 +51,7 @@ Document <- R6::R6Class(
         },
 
         set_content = function(version, content, change = NULL) {
+            self$completion_outline <- NULL
             self$member_receivers$clear()
             self$s3_calls$clear()
             current <- identical(self$version, self$parse_data$version) || isTRUE(self$member_ordinary_edit)
@@ -138,6 +140,7 @@ Document <- R6::R6Class(
         },
 
         update_parse_data = function(parse_data) {
+            self$completion_outline <- NULL
             self$member_receivers$clear()
             self$s3_calls$clear()
             self$member_ordinary_edit <- FALSE
@@ -1069,24 +1072,19 @@ resolve_task <- function(self, uri, document, packages, delay = 0, namespace_pac
     # package requests needs no subprocess to rediscover that same search path.
     if (!length(packages) && !length(namespace_packages)) return(NULL)
     version <- document$version
-    workspace <- self$get_workspace(uri)
-    requested <- document$requested_packages
     prepare_members <- isTRUE(lsp_settings$get("member_completion"))
+    # Neither worker depends on the other's result. In particular, an S3
+    # timeout must not prevent member models from being prepared and applied.
+    if (split_members && prepare_members) {
+        self$member_task_manager$add_task(uri,
+            resolve_member_task(self, uri, document, packages, namespace_packages))
+    }
     create_task(
         target = package_call(member_resolve_packages),
         args = list(pkgs = packages, lib_paths = .libPaths(), namespace_packages = namespace_packages,
             prepare = prepare_members && !split_members,
             prepare_s3 = isTRUE(lsp_settings$get("s3_dispatch"))),
-        callback = function(result) {
-            resolve_callback(self, uri, version, result)
-            if (split_members && prepare_members &&
-                    identical(self$get_workspace(uri), workspace) &&
-                    identical(workspace$documents$get(uri, NULL), document) &&
-                    identical(document$requested_packages, requested)) {
-                self$member_task_manager$add_task(uri,
-                    resolve_member_task(self, uri, document, packages, namespace_packages))
-            }
-        },
+        callback = function(result) resolve_callback(self, uri, version, result),
         error = function(e) {
             on.exit(s3_queue_ready(self, uri), add = TRUE)
             logger$info("resolve_task:", e)
