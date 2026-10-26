@@ -19,7 +19,7 @@ readiness_fixture <- function(content) {
     parsed <- parse_document(uri, content, include_xml = FALSE)
     parsed$version <- document$version
     workspace$update_parse_data(uri, parsed)
-    document$requested_packages <- list(packages = "pending", namespace_packages = "base")
+    document$requested_packages <- list(packages = character(), namespace_packages = c("base", "pending"))
     server <- new.env(parent = emptyenv())
     server$get_workspace <- function(...) workspace
     server$pending_replies <- collections::dict()
@@ -39,6 +39,16 @@ readiness_fixture <- function(content) {
 
 readiness_params <- function(fixture, row, col) {
     list(textDocument = list(uri = fixture$uri), position = position(row, col))
+}
+
+readiness_masking_catalog <- function() {
+    list(schema = 1L, package = "masking", generation = "ready",
+        callables = "findInterval", objects = list(), dependencies = "base",
+        functions = list(findInterval = list(name = "findInterval", owner = "masking",
+                generic = list(name = "findInterval", formal = "x"), formals = as.pairlist(alist(x = , ... = )))),
+        methods = list("masking::findInterval.data.frame" = list(name = "findInterval.data.frame",
+                package = "masking", owner = "masking", generic = "findInterval", generic_package = "masking",
+                class = "data.frame", formals = as.pairlist(alist(x = , columns = NULL, ... = )))))
 }
 
 test_that("ordinary providers respond while unrelated package metadata is pending", {
@@ -110,6 +120,49 @@ test_that("ordinary calls inside functions remain responsive without bypassing s
     expect_true(s3_metadata_waiting(quoted$server, quoted$uri, quoted$document, list(row = 0L, col = 43L)))
     quoted_alias <- readiness_fixture(c("f <- function() {", "  `findInterval` <- base::summary", "  findInterval(1)", "}"))
     expect_true(s3_metadata_waiting(quoted_alias$server, quoted_alias$uri, quoted_alias$document, list(row = 2L, col = 15L)))
+})
+
+test_that("pending attached packages can mask ordinary functions with S3 generics", {
+    fixture <- readiness_fixture(c("library(masking)", "findInterval(data.frame(x = 1), )",
+            "base::findInterval(1, c(0, 2))"))
+    fixture$document$requested_packages <- list(packages = "masking", namespace_packages = "base")
+    server <- fixture$server
+    params <- readiness_params(fixture, 1L, nchar(fixture$document$line0(1L)) - 1L)
+    text_document_signature_help(server, 1L, params)
+    hover_params <- readiness_params(fixture, 1L, 5L)
+    text_document_hover(server, 2L, hover_params)
+    text_document_completion(server, 3L, params)
+    text_document_signature_help(server, 4L, readiness_params(fixture, 2L, 19L))
+    expect_length(server$replies, 1L)
+    queues <- server$pending_replies$get(fixture$uri)
+    expect_true(all(vapply(queues, function(queue) queue$size() == 1L, logical(1L))))
+    fixture$workspace$s3_metadata$set("masking", list(schema = 1L, package = "masking", generation = "failed",
+            functions = list(), callables = character(), methods = list(), objects = list(), error = "Previous resolution failed"))
+    expect_identical(drain_pending_replies(server, fixture$uri, 1L)$processed, 0L)
+
+    fixture$workspace$s3_metadata$set("masking", readiness_masking_catalog())
+    expect_identical(drain_pending_replies(server, fixture$uri, 1L)$processed, 3L)
+    replies <- stats::setNames(server$replies, vapply(server$replies, function(reply) as.character(reply$id), ""))
+    expect_match(replies$`1`$result$signatures[[1L]]$label, "columns = NULL", fixed = TRUE)
+    expect_match(paste(replies$`2`$result$contents, collapse = " "), "findInterval.data.frame", fixed = TRUE)
+    expect_true("columns" %in% vapply(replies$`3`$result$items, `[[`, "", "label"))
+    expect_match(replies$`4`$result$signatures[[1L]]$label, "vec", fixed = TRUE)
+})
+
+test_that("namespace-only and later package requests do not mask an earlier ordinary call", {
+    fixture <- readiness_fixture("findInterval(1, c(0, 2))")
+    fixture$document$requested_packages <- list(packages = character(), namespace_packages = c("base", "masking"))
+    params <- readiness_params(fixture, 0L, 13L)
+    text_document_signature_help(fixture$server, 1L, params)
+    expect_match(fixture$server$replies[[1L]]$result$signatures[[1L]]$label, "vec", fixed = TRUE)
+    fixture$workspace$s3_metadata$set("masking", readiness_masking_catalog())
+    text_document_signature_help(fixture$server, 2L, params)
+    expect_match(fixture$server$replies[[2L]]$result$signatures[[1L]]$label, "vec", fixed = TRUE)
+
+    later <- readiness_fixture(c("findInterval(1, c(0, 2))", "library(masking)"))
+    later$document$requested_packages <- list(packages = "masking", namespace_packages = "base")
+    text_document_signature_help(later$server, 1L, readiness_params(later, 0L, 13L))
+    expect_match(later$server$replies[[1L]]$result$signatures[[1L]]$label, "vec", fixed = TRUE)
 })
 
 test_that("ordinary requests do not rescan the workspace definition catalog", {
