@@ -636,6 +636,10 @@ LanguageServer <- R6::R6Class("LanguageServer",
         text_sync = function(uri, document, run_diagnostics = FALSE, parse = FALSE,
             delay = 0, parse_delay = delay,
             diagnostics_delay = delay) {
+            workspace <- self$get_workspace(uri)
+            # A peer's last parse becomes stale before its replacement arrives.
+            # Stop using its imports as soon as an edit or reload is scheduled.
+            if (is.function(workspace$invalidate_s3_context)) workspace$invalidate_s3_context()
             if (!self$pending_replies$has(uri)) {
                 self$pending_replies$set(uri, list(
                     `textDocument/completion` = collections::queue(),

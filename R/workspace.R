@@ -241,6 +241,8 @@ Workspace <- R6::R6Class("Workspace",
         scope_namespaces = NULL,
         scope_namespace_sets = NULL,
         import_globals_cache = NULL,
+        s3_package_cache = NULL,
+        s3_package_cache_state = NULL,
         namespace_poll_time = -Inf,
         namespace_poll_mtime = NULL,
         refresh_scope_cache = function(uris) {
@@ -395,6 +397,7 @@ Workspace <- R6::R6Class("Workspace",
             self$type_hierarchy_cache <- collections::dict()
             self$member_metadata <- MemberMetadataCache$new(32 * 1024^2, max_entries = 16L)
             self$s3_metadata <- S3MetadataCache$new()
+            private$s3_package_cache <- ByteLruCache$new(1024^2, max_entries = 64L)
             if (isTRUE(lsp_settings$get("s3_dispatch"))) {
                 for (package in names(workspace_startup_s3())) self$s3_metadata$set(package, workspace_startup_s3()[[package]])
             }
@@ -707,7 +710,31 @@ Workspace <- R6::R6Class("Workspace",
             self$documents$get(uri, NULL)$parse_data
         },
 
+        invalidate_s3_context = function() {
+            self$s3_revision <- self$s3_revision + 1L
+            invisible(NULL)
+        },
+
+        get_s3_package_imports = function(uri) {
+            # Check scalar revisions and small package vectors before querying
+            # document scopes or iterating through individual disk summaries.
+            state <- list(index = self$index, index_revision = self$index$revision,
+                revision = self$s3_revision, documents = self$documents$size(),
+                startup = self$startup_packages, imported = self$imported_packages)
+            if (!identical(state, private$s3_package_cache_state)) {
+                private$s3_package_cache$clear()
+                private$s3_package_cache_state <- state
+            }
+            private$s3_package_cache$get(uri, NULL)
+        },
+
+        set_s3_package_imports = function(uri, packages) {
+            private$s3_package_cache$set(uri, packages)
+            invisible(NULL)
+        },
+
         update_loaded_packages = function() {
+            self$invalidate_s3_context()
             loaded_packages <- union(self$startup_packages, self$imported_packages)
             for (doc in self$documents$values()) {
                 loaded_packages <- union(loaded_packages, doc$loaded_packages)
@@ -826,7 +853,7 @@ Workspace <- R6::R6Class("Workspace",
         },
 
         update_parse_data = function(uri, parse_data) {
-            self$s3_revision <- self$s3_revision + 1L
+            self$invalidate_s3_context()
             previous_parse <- self$documents$get(uri)$parse_data
             diagnostics_changed <- !identical(previous_parse$nonfuncts, parse_data$nonfuncts) ||
                 !identical(previous_parse$functions, parse_data$functions)

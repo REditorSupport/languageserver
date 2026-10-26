@@ -673,33 +673,46 @@ s3_catalog_ordinary_call <- function(catalog, token) {
     token %in% catalog$callables && is.null(catalog$functions[[token]]$generic)
 }
 
-s3_call_packages <- function(workspace, document, at) {
-    packages <- unique(c(workspace$startup_packages %s3_or% startup_packages, workspace$imported_packages))
-    add_source <- function(source) {
-        for (import in source$index$imports) {
-            if (!identical(source$uri, document$uri) || member_before(source$items[[import$item]]$end, at)) {
-                packages <<- union(packages, import$package)
-            }
-        }
+s3_peer_packages <- function(workspace, document) {
+    if (is.function(workspace$get_s3_package_imports)) {
+        cached <- workspace$get_s3_package_imports(document$uri)
+        if (!is.null(cached)) return(cached)
     }
-    source <- s3_source_view(document)
-    add_source(source)
-    recorded <- vapply(source$index$imports, function(import) import$package %s3_or% "", "")
-    # Requests not represented by top-level imports can come from nested
-    # library calls. Treat their bindings conservatively until resolved.
-    packages <- union(packages, setdiff(document$requested_packages$packages, recorded))
+    packages <- character()
+    add_source <- function(source, packages) {
+        for (import in source$index$imports) {
+            packages <- union(packages, import$package)
+        }
+        packages
+    }
     others <- workspace_document_uris(workspace, document$uri)
     for (uri in setdiff(others, document$uri)) {
         candidate <- workspace$documents$get(uri, NULL)
-        if (!is.null(candidate) && identical(candidate$version, candidate$parse_data$version)) add_source(s3_source_view(candidate))
+        if (!is.null(candidate) && identical(candidate$version, candidate$parse_data$version)) {
+            packages <- add_source(s3_source_view(candidate), packages)
+        }
     }
     index <- workspace$index
     if (isTRUE(index$enabled)) {
         root <- index$package_root_for_uri(document$uri)
         uris <- if (is.null(root)) index$source_closure(document$uri) else index$package_source_uris(root)
-        for (uri in setdiff(uris, c(document$uri, others))) add_source(index$summaries$get(uri, NULL)$s3)
+        for (uri in setdiff(uris, c(document$uri, others))) packages <- add_source(index$summaries$get(uri, NULL)$s3, packages)
     }
+    if (is.function(workspace$set_s3_package_imports)) workspace$set_s3_package_imports(document$uri, packages)
     packages
+}
+
+s3_call_packages <- function(workspace, document, at) {
+    packages <- unique(c(workspace$startup_packages %s3_or% startup_packages, workspace$imported_packages))
+    source <- s3_source_view(document)
+    for (import in source$index$imports) {
+        if (member_before(source$items[[import$item]]$end, at)) packages <- union(packages, import$package)
+    }
+    recorded <- vapply(source$index$imports, function(import) import$package %s3_or% "", "")
+    # Current-document imports depend on the cursor and remain uncached.
+    # Nested library requests are still treated as possible masking bindings.
+    packages <- union(packages, setdiff(document$requested_packages$packages, recorded))
+    union(packages, s3_peer_packages(workspace, document))
 }
 
 s3_known_ordinary_call <- function(metadata, token, packages) {

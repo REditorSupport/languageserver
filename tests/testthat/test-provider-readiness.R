@@ -6,8 +6,8 @@ readiness_catalogs <- local({
     }
 })
 
-readiness_fixture <- function(content) {
-    root <- withr::local_tempdir(.local_envir = parent.frame())
+readiness_fixture <- function(content, .local_envir = parent.frame()) {
+    root <- withr::local_tempdir(.local_envir = .local_envir)
     uri <- path_to_uri(file.path(root, "main.R"))
     workspace <- testthat::with_mocked_bindings(Workspace$new(root),
         workspace_startup_packages = function() startup_packages,
@@ -40,6 +40,49 @@ readiness_fixture <- function(content) {
 readiness_params <- function(fixture, row, col) {
     list(textDocument = list(uri = fixture$uri), position = position(row, col))
 }
+
+readiness_package_fixture <- function() {
+    fixture <- readiness_fixture("findInterval(1, c(0, 2))", .local_envir = parent.frame())
+    workspace <- fixture$workspace
+    dir.create(file.path(workspace$root, "R"))
+    writeLines("Package: readinessfixture", file.path(workspace$root, "DESCRIPTION"))
+    workspace$documents$remove(fixture$uri)
+    workspace$index$remove(fixture$uri)
+    uri <- path_to_uri(file.path(workspace$root, "R", "main.R"))
+    document <- Document$new(uri, "r", 1L, fixture$document$content)
+    workspace$documents$set(uri, document)
+    parsed <- parse_document(uri, document$content, include_xml = FALSE)
+    parsed$version <- document$version
+    workspace$update_parse_data(uri, parsed)
+    fixture$uri <- uri
+    fixture$document <- document
+    fixture
+}
+
+readiness_peer <- function(fixture, name, content, full = TRUE) {
+    uri <- path_to_uri(file.path(fixture$workspace$root, "R", paste0(name, ".R")))
+    if (full) {
+        document <- Document$new(uri, "r", 1L, content)
+        fixture$workspace$documents$set(uri, document)
+        parsed <- parse_document(uri, content, include_xml = FALSE)
+        parsed$version <- document$version
+        fixture$workspace$update_parse_data(uri, parsed)
+    } else {
+        fixture$workspace$index$update_content(uri, content)
+    }
+    uri
+}
+
+ReadinessSyncServer <- R6::R6Class("ReadinessSyncServer",
+    inherit = LanguageServer,
+    private = list(finalize = function() NULL),
+    public = list(initialize = function(workspace) {
+        self$workspaces <- collections::dict()
+        self$workspaces$set(DEFAULT_WORKSPACE, workspace)
+        self$workspace_cache <- collections::dict()
+        self$pending_replies <- collections::dict()
+    })
+)
 
 readiness_masking_catalog <- function() {
     list(schema = 1L, package = "masking", generation = "ready",
@@ -163,6 +206,103 @@ test_that("namespace-only and later package requests do not mask an earlier ordi
     later$document$requested_packages <- list(packages = "masking", namespace_packages = "base")
     text_document_signature_help(later$server, 1L, readiness_params(later, 0L, 13L))
     expect_match(later$server$replies[[1L]]$result$signatures[[1L]]$label, "vec", fixed = TRUE)
+})
+
+test_that("repeated unqualified calls avoid individual document and summary scans", {
+    fixture <- readiness_package_fixture()
+    workspace <- fixture$workspace
+    for (i in seq_len(1000L)) {
+        readiness_peer(fixture, paste0("peer", i), paste0("fn_", i, " <- function(x) x"), full = i <= 500L)
+    }
+    expect_identical(workspace$index$files$size(), 1001L)
+    counts <- new.env(parent = emptyenv())
+    counts$documents <- counts$summaries <- counts$keys <- 0L
+    get_document <- workspace$documents$get
+    get_summary <- workspace$index$summaries$get
+    get_keys <- workspace$documents$keys
+    withr::defer({
+        workspace$documents$get <- get_document
+        workspace$index$summaries$get <- get_summary
+        workspace$documents$keys <- get_keys
+    })
+    workspace$documents$get <- function(...) {
+        counts$documents <- counts$documents + 1L
+        get_document(...)
+    }
+    workspace$index$summaries$get <- function(...) {
+        counts$summaries <- counts$summaries + 1L
+        get_summary(...)
+    }
+    workspace$documents$keys <- function(...) {
+        counts$keys <- counts$keys + 1L
+        get_keys(...)
+    }
+    location <- s3_call_location(fixture$document, list(row = 0L, col = 13L))
+    expect_false(s3_may_dispatch(workspace, fixture$document, location))
+    expect_gt(counts$documents, 0L)
+    expect_gt(counts$summaries, 0L)
+    counts$documents <- counts$summaries <- counts$keys <- 0L
+    for (i in seq_len(10L)) expect_false(s3_may_dispatch(workspace, fixture$document, location))
+    expect_identical(counts$documents, 0L)
+    expect_identical(counts$summaries, 0L)
+    expect_identical(counts$keys, 0L)
+})
+
+test_that("cached peer imports follow edits, indexing and workspace membership", {
+    fixture <- readiness_package_fixture()
+    workspace <- fixture$workspace
+    peer <- readiness_peer(fixture, "peer", "library(masking)")
+    disk <- readiness_peer(fixture, "disk", "library(disk_package)", full = FALSE)
+    packages <- function() s3_call_packages(workspace, fixture$document, c(0L, 13L))
+    expect_true(all(c("masking", "disk_package") %in% packages()))
+
+    document <- workspace$documents$get(peer)
+    document$set_content(2L, "helper <- 1")
+    ReadinessSyncServer$new(workspace)$text_sync(peer, document)
+    expect_false("masking" %in% packages())
+    expect_true("disk_package" %in% packages())
+    document$set_content(3L, "library(changed_package)")
+    parsed <- parse_document(peer, document$content, include_xml = FALSE)
+    parsed$version <- document$version
+    workspace$update_parse_data(peer, parsed)
+    expect_true("changed_package" %in% packages())
+
+    workspace$index$update_content(disk, "library(updated_disk_package)")
+    expect_true("updated_disk_package" %in% packages())
+    expect_false("disk_package" %in% packages())
+
+    replacement <- Document$new(path_to_uri(file.path(workspace$root, "R", "replacement.R")), "r", 1L,
+        "library(replacement_package)")
+    parsed <- parse_document(replacement$uri, replacement$content, include_xml = FALSE)
+    parsed$version <- replacement$version
+    replacement$update_parse_data(parsed)
+    workspace$documents$remove(peer)
+    workspace$documents$set(replacement$uri, replacement)
+    workspace$update_loaded_packages()
+    expect_true("replacement_package" %in% packages())
+    # Unloaded package files remain visible through their disk summaries.
+    expect_true("changed_package" %in% packages())
+    workspace$index$remove(peer)
+    expect_false("changed_package" %in% packages())
+
+    workspace$imported_packages <- "imported_package"
+    expect_true("imported_package" %in% packages())
+    workspace$index <- WorkspaceIndex$new(workspace$root)
+    expect_false("updated_disk_package" %in% packages())
+    workspace$documents$remove(replacement$uri)
+    expect_false("replacement_package" %in% packages())
+})
+
+test_that("cached peer imports preserve cursor-specific masking in the current document", {
+    fixture <- readiness_package_fixture()
+    document <- fixture$document
+    document$set_content(2L, c("findInterval(1, c(0, 2))", "library(masking)", "findInterval(1, c(0, 2))"))
+    parsed <- parse_document(fixture$uri, document$content, include_xml = FALSE)
+    parsed$version <- document$version
+    fixture$workspace$update_parse_data(fixture$uri, parsed)
+    expect_false("masking" %in% s3_call_packages(fixture$workspace, document, c(0L, 13L)))
+    expect_true("masking" %in% s3_call_packages(fixture$workspace, document, c(2L, 13L)))
+    expect_false("masking" %in% s3_call_packages(fixture$workspace, document, c(0L, 13L)))
 })
 
 test_that("ordinary requests do not rescan the workspace definition catalog", {
