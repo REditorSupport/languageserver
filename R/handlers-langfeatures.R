@@ -215,6 +215,7 @@ text_document_document_symbol  <- function(self, id, params) {
     workspace <- self$get_workspace(uri)
     document <- workspace$documents$get(uri, NULL)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
+    if (reply_parse_failure(self, id, document)) return(invisible(NULL))
     reply <- document_symbol_reply(id, uri, workspace, document,
         self$ClientCapabilities$textDocument$documentSymbol)
     if (is.null(reply)) {
@@ -224,6 +225,7 @@ text_document_document_symbol  <- function(self, id, params) {
             version = document$version,
             params = params
         ))
+        if (is.function(self$parse_task_manager$promote)) self$parse_task_manager$promote(uri)
     } else {
         self$deliver(reply)
     }
