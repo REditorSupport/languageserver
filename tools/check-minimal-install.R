@@ -58,20 +58,19 @@ check_minimal_install <- function(source_path = ".") {
     on.exit({
         if (client$process$is_alive()) client$process$kill_tree()
     }, add = TRUE)
-    wait <- function(done) {
-        deadline <- Sys.time() + 20
+    wait <- function(done, deadline = Sys.time() + 20) {
         while (!done() && Sys.time() < deadline) {
             data <- client$fetch(blocking = TRUE, timeout = 1)
             if (!is.null(data)) client$handle_raw(data)
         }
         stopifnot(done())
     }
-    request <- function(method, params) {
+    request <- function(method, params, deadline = Sys.time() + 20) {
         response <- NULL
         client$deliver(client$request(method, params), callback = function(self, result, error = NULL) {
             response <<- list(result = result, error = error)
         })
-        wait(function() !is.null(response))
+        wait(function() !is.null(response), deadline)
         response
     }
     client$start(working_dir = tempdir())
@@ -83,10 +82,20 @@ check_minimal_install <- function(source_path = ".") {
     client$deliver(namespace$Notification$new("textDocument/didOpen", list(textDocument = list(
         uri = uri, languageId = "r", version = 1L,
         text = "hello <- function(x) x\nhel"))))
-    completion <- request("textDocument/completion", list(textDocument = list(uri = uri),
-            position = list(line = 1L, character = 3L)))
-    stopifnot(is.null(completion$error), any(vapply(completion$result$items,
-                function(item) identical(item$label, "hello"), logical(1L))))
+    completion_params <- list(textDocument = list(uri = uri), position = list(line = 1L, character = 3L))
+    has_hello <- function(response) {
+        any(vapply(response$result$items, function(item) identical(item$label, "hello"), logical(1L)))
+    }
+    deadline <- Sys.time() + 20
+    completion <- request("textDocument/completion", completion_params, deadline)
+    # Startup-package suggestions are valid partial results before the first
+    # parse. Retrigger incomplete lists until the local declaration is ready.
+    while (is.null(completion$error) && isTRUE(completion$result$isIncomplete) && !has_hello(completion)) {
+        stopifnot(Sys.time() < deadline)
+        Sys.sleep(0.05)
+        completion <- request("textDocument/completion", completion_params, deadline)
+    }
+    stopifnot(is.null(completion$error), has_hello(completion))
     formatting <- request("textDocument/formatting", list(textDocument = list(uri = uri),
             options = list(tabSize = 2L, insertSpaces = TRUE)))
     stopifnot(!is.null(formatting$error), grepl("styler", formatting$error$message))
