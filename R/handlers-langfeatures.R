@@ -23,6 +23,27 @@ enqueue_latest_reply <- function(self, uri, method, item) {
     if (is.function(self$parse_task_manager$promote)) self$parse_task_manager$promote(uri)
 }
 
+#' Wait for the current script's source graph, independently of unrelated files
+#' @noRd
+source_context_waiting <- function(workspace, document) {
+    index <- workspace$index
+    if (is.null(index) || !isTRUE(index$enabled) || !is.null(index$package_root_for_uri(document$uri))) return(FALSE)
+    related <- setdiff(index$source_closure(document$uri), index_canonical_uri(document$uri))
+    any(vapply(related, function(uri) {
+        if (!index$should_index(path_from_uri(uri)) || index$parse_failed(uri)) return(FALSE)
+        doc <- workspace$documents$get(uri, NULL)
+        is.null(doc) || !identical(doc$version, doc$parse_data$version) || !identical(doc$content, doc$parsed_content)
+    }, logical(1L)))
+}
+
+index_context_waiting <- function(self, workspace, document, point, hover = FALSE) {
+    call <- document$detect_call(point)
+    token <- document$detect_token(point)
+    if (!is.null(call$package) || !is.null(token$package) || !source_context_waiting(workspace, document)) return(FALSE)
+    if (is.function(self$queue_context_reply)) self$queue_context_reply(document$uri, workspace)
+    TRUE
+}
+
 #' `textDocument/completion` request handler
 #'
 #' Handler to the `textDocument/completion` [Request].
@@ -43,7 +64,8 @@ text_document_completion  <- function(self, id, params) {
         if (!is.null(basic)) return(self$deliver(basic))
     }
     if (identical(document$version, document$parse_data$version) &&
-            s3_metadata_waiting(self, uri, document, point, hover = FALSE)) {
+            (index_context_waiting(self, workspace, document, point) ||
+                    s3_metadata_waiting(self, uri, document, point, hover = FALSE))) {
         enqueue_latest_reply(self, uri, "textDocument/completion", list(id = id, version = document$version, params = params))
         if (is.function(self$resolve_task_manager$promote)) self$resolve_task_manager$promote(uri)
         return(invisible(NULL))
@@ -96,7 +118,8 @@ text_document_hover  <- function(self, id, params) {
     if (reply_parse_failure(self, id, document)) return(invisible(NULL))
     point <- document$from_lsp_position(params$position)
     if (identical(document$version, document$parse_data$version) &&
-            s3_metadata_waiting(self, uri, document, point, hover = TRUE)) {
+            (index_context_waiting(self, workspace, document, point, hover = TRUE) ||
+                    s3_metadata_waiting(self, uri, document, point, hover = TRUE))) {
         enqueue_latest_reply(self, uri, "textDocument/hover", list(id = id, version = document$version, params = params))
         if (is.function(self$resolve_task_manager$promote)) self$resolve_task_manager$promote(uri)
         return(invisible(NULL))
@@ -128,7 +151,8 @@ text_document_signature_help  <- function(self, id, params) {
     if (reply_parse_failure(self, id, document)) return(invisible(NULL))
     point <- document$from_lsp_position(params$position)
     if (identical(document$version, document$parse_data$version) &&
-            s3_metadata_waiting(self, uri, document, point, hover = FALSE)) {
+            (index_context_waiting(self, workspace, document, point) ||
+                    s3_metadata_waiting(self, uri, document, point, hover = FALSE))) {
         enqueue_latest_reply(self, uri, "textDocument/signatureHelp", list(id = id, version = document$version, params = params))
         if (is.function(self$resolve_task_manager$promote)) self$resolve_task_manager$promote(uri)
         return(invisible(NULL))
@@ -186,6 +210,8 @@ text_document_references  <- function(self, id, params) {
     workspace <- self$get_workspace(uri)
     document <- workspace$documents$get(uri, NULL)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
+    if (is.function(self$queue_index_request) &&
+            self$queue_index_request(id, "textDocument/references", params, list(workspace), uri)) return(invisible(NULL))
     point <- document$from_lsp_position(params$position)
     self$deliver(references_reply(id, uri, workspace, document, point,
             include_declaration = !isFALSE(params$context$includeDeclaration)))
@@ -444,6 +470,8 @@ text_document_rename <- function(self, id, params) {
     workspace <- self$get_workspace(uri)
     document <- workspace$documents$get(uri, NULL)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
+    if (is.function(self$queue_index_request) &&
+            self$queue_index_request(id, "textDocument/rename", params, list(workspace), uri)) return(invisible(NULL))
     point <- document$from_lsp_position(params$position)
     newName <- params$newName
     self$deliver(rename_reply(id, uri, workspace, document, point, newName))

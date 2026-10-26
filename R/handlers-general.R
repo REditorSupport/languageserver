@@ -99,6 +99,12 @@ on_exit <- function(self, params) {
 cancel_request <- function(self, params) {
     request_id <- params$id
     if (!is.null(request_id)) cancel_formatting_requests(self, id = request_id)
+    if (!is.null(self$index_requests)) {
+        key <- paste0(if (is.character(request_id)) "string:" else "number:", request_id)
+        request <- self$index_requests$pop(key, NULL)
+        if (!is.null(request$workspace)) request$workspace$index$prune_pending <- TRUE
+        if (!is.null(request)) self$deliver(ResponseErrorMessage$new(request$id, "RequestCancelled", "Request cancelled by client"))
+    }
     for (uri in self$pending_replies$keys()) {
         queues <- self$pending_replies$get(uri)
         for (queue in queues) {

@@ -246,14 +246,14 @@ settings | default | description
 `r.lsp.diagnostics_delay` | `0.75` | seconds to debounce diagnostics after the current parse
 `r.lsp.parse_cache_max_mb` | `64` | maximum memory used by cached document parse versions
 `r.lsp.diagnostics_cache_max_mb` | `16` | maximum memory used by cached diagnostics
-`r.lsp.index_mode` | `"auto"` | index R files in the complete workspace; use `"off"` to restore package-only loading
+`r.lsp.index_mode` | `"auto"` | eagerly index package workspaces; lazily index open files and static source dependencies otherwise; `"full"` forces workspace discovery, `"lazy"` defers it, and `"off"` restores legacy package-only loading
 `r.lsp.index_include` | `"**/*.R"` | glob or character vector of globs included in workspace indexing
 `r.lsp.index_exclude` | common VCS, dependency, cache, and output directories | glob or character vector of globs excluded from workspace indexing
 `r.lsp.index_max_files` | `10000` | maximum number of eligible R files discovered per workspace
 `r.lsp.index_max_file_size_mb` | `2` | maximum size of a file included in the workspace index
 `r.lsp.index_batch_size` | `20` | maximum number of shallow summaries built in one idle batch
 `r.lsp.index_time_budget_ms` | `25` | approximate event-loop budget for each shallow-index batch
-`r.lsp.index_persistent_cache` | `true` | persist validated shallow summaries in the user cache directory
+`r.lsp.index_persistent_cache` | `true` | persist validated summaries for full indexes; lazy indexes stay in memory
 `r.lsp.server_capabilities` | `{}` | override server capabilities defined in [capabilities.R](https://github.com/REditorSupport/languageserver/blob/master/R/capabilities.R). See FAQ below.
 `r.lsp.link_file_size_limit` | 16384 | maximum file size (in bytes) that supports document links
 
@@ -265,9 +265,27 @@ options(languageserver.snippet_support = FALSE)
 
 will turn off snippet support globally. LSP configuration settings are always overriden by `options()`.
 
+Automatic indexing recognizes a package by its `DESCRIPTION` with a `Package`
+field and its `R/` directory. Package indexing runs in the background and
+prioritizes package sources. A workspace containing standalone scripts starts
+without recursively discovering files or loading a saved whole-workspace index.
+Opening a script indexes its statically resolvable `source()` and `sys.source()`
+dependencies recursively. Opening a nested package source activates that
+package's `R/` namespace without scanning neighboring projects. Closing standalone scripts
+or removing source relationships releases files that are no longer relevant.
+
+Workspace symbol searches, global references, and global renames request a full
+background scan when needed and wait for the required source files. Local
+references remain local. Cancelling a query cancels its reply; the shared index
+may continue building for subsequent queries. Completion, hover, and signature
+help do not wait for unrelated workspace files. A requested full index is retained
+until the language server is restarted or indexing settings change. Dynamic source expressions
+remain unresolved, and full discovery does not merge unrelated scripts into a
+single execution scope. Include/exclude patterns and file limits still apply.
+
 Project indexing is deliberately two-tiered. Package `R/` files, open files,
 and the transitive dependencies of static `source()` or `sys.source()` calls
-receive full semantic parsing. Other scripts receive only a lightweight symbol
+receive full semantic parsing. Other discovered scripts receive only a lightweight symbol
 and source-call summary, so they appear in workspace symbol search without
 polluting completion, definition, references, or rename in unrelated scripts.
 Static paths built from string literals, `file.path()`, and `here::here()` are

@@ -251,13 +251,14 @@ test_that("repeated parse failures settle without replacing an unsaved buffer", 
 
     # Lookups and a new discovery pass must not quietly index disk content.
     workspace$index$queue_path(path_from_uri(uri), invalidate = FALSE)
-    previous <- workspace$index$summaries$get(uri)
+    previous <- workspace$index$summaries$get(uri, NULL)
     server$load_workspace(workspace)
     lifecycle_drain_index(server, workspace)
     server$process_workspace_documents()
     expect_true(workspace$index$indexing_status()$done)
     expect_true(workspace$index$parse_failed(uri))
-    expect_identical(workspace$index$summaries$get(uri), previous)
+    expect_identical(workspace$index$summaries$get(uri, NULL), previous)
+    expect_false(workspace$index$has_definition("saved"))
     expect_identical(workspace$documents$get(uri), document)
     expect_false(manager$has_work())
 
@@ -491,7 +492,7 @@ test_that("queued disk reloads preserve a buffer reopened before the read", {
 })
 
 test_that("discovery completes across more roots than the worker snapshot cache", {
-    lifecycle_settings(index_persistent_cache = FALSE, diagnostics = FALSE, index_batch_size = 1L)
+    lifecycle_settings(index_mode = "full", index_persistent_cache = FALSE, diagnostics = FALSE, index_batch_size = 1L)
     root <- withr::local_tempdir()
     server <- LifecycleServer$new()
     workspaces <- lapply(seq_len(17L), function(i) {

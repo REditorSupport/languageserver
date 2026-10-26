@@ -729,7 +729,7 @@ s3_known_ordinary_call <- function(metadata, token, packages) {
 s3_source_binding <- function(workspace, document, at, token) {
     # Navigation retains source backticks; call tokens can be unquoted.
     for (name in unique(c(token, encodeString(token, quote = "`")))) {
-        if (isTRUE(workspace$index$enabled) && workspace$index$has_definition(name)) return(TRUE)
+        if (isTRUE(workspace$index$enabled) && workspace$index$has_definition(name, uri = document$uri)) return(TRUE)
         if (length(navigation_definitions(document$parse_data, at[[1L]] + 1L, at[[2L]] + 1L,
                     name, last = TRUE))) return(TRUE)
     }

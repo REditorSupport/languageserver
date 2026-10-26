@@ -216,7 +216,12 @@ test_that("workspace folder changes retain new unsaved buffer summaries after di
 
 test_that("workspace folder changes restore edited buffers over persistent disk caches", {
     old_cache <- lsp_settings$get("index_persistent_cache")
-    withr::defer(lsp_settings$set("index_persistent_cache", old_cache))
+    old_mode <- lsp_settings$get("index_mode")
+    withr::defer({
+        lsp_settings$set("index_persistent_cache", old_cache)
+        lsp_settings$set("index_mode", old_mode)
+    })
+    lsp_settings$set("index_mode", "full")
     lsp_settings$set("index_persistent_cache", TRUE)
     withr::local_envvar(R_USER_CACHE_DIR = withr::local_tempdir())
 
