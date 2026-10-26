@@ -816,6 +816,26 @@ s3_catalog <- function(context, package) {
     catalog
 }
 
+#' Check existing namespaces without loading packages or preparing S3 catalogs
+#' @noRd
+s3_cached_callee <- function(workspace, document, location, packages) {
+    if (is.null(workspace$namespaces)) return(FALSE)
+    package <- location$call$package
+    if (is.null(package) && s3_source_binding(workspace, document,
+            c(location$point$row, location$point$col), location$call$token)) return(FALSE)
+    visible <- if (is.null(package)) rev(unique(packages)) else package
+    loaded <- loadedNamespaces()
+    for (candidate in visible) {
+        if (!candidate %in% loaded) return(FALSE)
+        namespace <- workspace$namespaces$get(candidate, NULL)
+        if (is.null(namespace)) return(FALSE)
+        found <- tryCatch(namespace$exists_funct(location$call$token,
+                exported_only = location$call$accessor != ":::"), error = function(e) FALSE)
+        if (isTRUE(found)) return(TRUE)
+    }
+    FALSE
+}
+
 s3_metadata_waiting <- function(self, uri, document, point = NULL, hover = FALSE) {
     if (!isTRUE(lsp_settings$get("s3_dispatch")) || is.null(self$resolve_task_manager) ||
             !is.function(self$resolve_task_manager$has) ||
@@ -832,10 +852,13 @@ s3_metadata_waiting <- function(self, uri, document, point = NULL, hover = FALSE
         package <- location$call$package
         if (!is.null(package)) {
             catalog <- workspace$s3_metadata$catalog(package)
-            if (is.null(catalog)) return(TRUE)
             if (s3_catalog_ordinary_call(catalog, location$call$token)) return(FALSE)
         }
         packages <- s3_call_packages(workspace, document, c(location$point$row, location$point$col))
+        # Missing S3 catalogs affect method-specific refinement, not an
+        # already-known callable's ordinary signature/help. A missing cached
+        # namespace still blocks this path when it could mask the callee.
+        if (s3_cached_callee(workspace, document, location, packages)) return(FALSE)
         if (!s3_may_dispatch(workspace, document, location, packages)) {
             history <- document$parse_data$member_data$s3$histories[[location$call$token]]
             if (is.null(package) && member_history_position(history, c(point$row, point$col))) return(FALSE)

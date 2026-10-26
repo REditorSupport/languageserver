@@ -9,6 +9,7 @@ Document <- R6::R6Class(
         content = NULL,
         call_scan_cache = NULL,
         parse_data = NULL,
+        completion_outline = NULL,
         parse_generation = 0L,
         parse_failure = NULL,
         parsed_content = NULL,
@@ -50,6 +51,7 @@ Document <- R6::R6Class(
         },
 
         set_content = function(version, content, change = NULL) {
+            self$completion_outline <- NULL
             self$member_receivers$clear()
             self$s3_calls$clear()
             current <- identical(self$version, self$parse_data$version) || isTRUE(self$member_ordinary_edit)
@@ -138,6 +140,7 @@ Document <- R6::R6Class(
         },
 
         update_parse_data = function(parse_data) {
+            self$completion_outline <- NULL
             self$member_receivers$clear()
             self$s3_calls$clear()
             self$member_ordinary_edit <- FALSE
@@ -1004,6 +1007,9 @@ fail_pending_replies <- function(self, uri, version) {
 }
 
 resolve_callback <- function(self, uri, version, packages) {
+    # Version changes or a metadata-application error must not strand requests
+    # after TaskManager removes the completed resolve task.
+    on.exit(s3_queue_ready(self, uri), add = TRUE)
     workspace <- self$get_workspace(uri)
     if (!workspace$documents$has(uri)) return(NULL)
     doc <- workspace$documents$get(uri)
@@ -1044,26 +1050,55 @@ resolve_callback <- function(self, uri, version, packages) {
     doc <- workspace$documents$get(uri)
     doc$loaded_packages <- packages
     workspace$update_loaded_packages()
-    s3_queue_ready(self, uri)
+}
+
+resolve_member_task <- function(self, uri, document, packages, namespace_packages) {
+    workspace <- self$get_workspace(uri)
+    requested <- document$requested_packages
+    version <- document$version
+    current <- function() {
+        identical(self$get_workspace(uri), workspace) &&
+            identical(workspace$documents$get(uri, NULL), document) &&
+            identical(document$requested_packages, requested)
+    }
+    create_task(
+        target = package_call(member_resolve_packages),
+        args = list(pkgs = packages, lib_paths = .libPaths(), namespace_packages = namespace_packages,
+            prepare = TRUE, prepare_s3 = FALSE),
+        callback = function(result) {
+            if (current()) resolve_callback(self, uri, version, result)
+        },
+        error = function(e) logger$info("member metadata task:", e),
+        profiles = FALSE
+    )
 }
 
 resolve_task <- function(self, uri, document, packages, delay = 0, namespace_packages = character()) {
+    split_members <- !is.null(self$member_task_manager)
+    if (split_members) self$member_task_manager$cancel(uri)
     # Startup packages already belong to the workspace. A document with no
     # package requests needs no subprocess to rediscover that same search path.
     if (!length(packages) && !length(namespace_packages)) return(NULL)
     version <- document$version
+    prepare_members <- isTRUE(lsp_settings$get("member_completion"))
+    # Neither worker depends on the other's result. In particular, an S3
+    # timeout must not prevent member models from being prepared and applied.
+    if (split_members && prepare_members) {
+        self$member_task_manager$add_task(uri,
+            resolve_member_task(self, uri, document, packages, namespace_packages))
+    }
     create_task(
         target = package_call(member_resolve_packages),
         args = list(pkgs = packages, lib_paths = .libPaths(), namespace_packages = namespace_packages,
-            prepare = isTRUE(lsp_settings$get("member_completion")),
+            prepare = prepare_members && !split_members,
             prepare_s3 = isTRUE(lsp_settings$get("s3_dispatch"))),
         callback = function(result) resolve_callback(self, uri, version, result),
         error = function(e) {
+            on.exit(s3_queue_ready(self, uri), add = TRUE)
             logger$info("resolve_task:", e)
             workspace <- self$get_workspace(uri)
             for (package in unique(c(startup_packages, packages, namespace_packages))) workspace$s3_metadata$set(package,
                 list(schema = 1L, package = package, generation = "", functions = list(), objects = list(), methods = list(), dependencies = character(), error = conditionMessage(e)))
-            s3_queue_ready(self, uri)
         },
         delay = delay,
         profiles = FALSE
