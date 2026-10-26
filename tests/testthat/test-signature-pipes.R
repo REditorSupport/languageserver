@@ -46,6 +46,8 @@ test_that("Piped signature parameters account for implicit and explicit argument
         list(c("x |> f(", "  <cursor>", ", vec = _)", "f()"), 0L),
         list(c("x |> f(1, # vec = _", "  <cursor>)"), 2L),
         list(c("x |> f(vec = _ # a comment", ", <cursor>)"), 0L),
+        list("x |> f(1 %#% 2, <cursor>)", 2L),
+        list("x |> f(1 %\"% 2<cursor>, vec = _)", 0L),
         list("数据 |> f('😀', <cursor>)", 2L)
     )
     for (case in cases) {

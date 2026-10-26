@@ -113,30 +113,48 @@ member_uncomment_line <- function(line) {
     )
 }
 
-document_uncomment_lines <- function(document, start_row, end_row = start_row) {
-    cell <- if (isTRUE(document$is_rmarkdown)) literate_r_cell_at(document$regions, end_row)
-    scan_from <- if (is.null(cell)) 0L else max(0L, cell$body_start - 1L)
+document_r_bounds <- function(document, row) {
+    if (is.null(row) || row < 0L || row >= document$nline) {
+        return(NULL)
+    }
+    if (!isTRUE(document$is_rmarkdown)) {
+        return(c(0L, document$nline - 1L))
+    }
+    run <- literate_r_run_at(document$regions, row)
+    if (is.null(run)) NULL else c(run$start_line - 1L, run$end_line - 1L)
+}
+
+document_uncomment_lines <- function(document, start_row, end_row = start_row,
+    bounds = document_r_bounds(document, start_row)) {
+    if (is.null(bounds)) {
+        return(character())
+    }
+    start_row <- max(as.integer(start_row), bounds[[1L]])
+    end_row <- min(as.integer(end_row), bounds[[2L]])
     .Call(
         "uncomment_lines_c",
         PACKAGE = "languageserver",
-        document$content, as.integer(start_row), as.integer(end_row), as.integer(scan_from)
+        document$content, start_row, end_row, bounds[[1L]]
     )
 }
 
 document_call_callee <- function(document, opening) {
     row <- opening$row
+    bounds <- document_r_bounds(document, row)
+    if (is.null(bounds)) {
+        return(NULL)
+    }
     col <- nchar(sub("[ \t]+$", "", substr(document$line0(row), 1L, opening$col)))
     if (col > 0L) {
         return(list(row = row, col = col))
     }
-    start_row <- max(0L, row - 128L)
+    start_row <- max(bounds[[1L]], row - 128L)
     if (start_row >= row) {
         return(NULL)
     }
     # R permits whitespace/newlines/comments between a callee and its call parenthesis.
-    uncommented <- document_uncomment_lines(document, start_row, row - 1L)
+    uncommented <- document_uncomment_lines(document, start_row, row - 1L, bounds)
     for (r in seq.int(row - 1L, start_row)) {
-        if (!check_r_region(document, list(row = r, col = 0L))) break
         col <- nchar(sub("[ \t]+$", "", uncommented[[r - start_row + 1L]]))
         if (col > 0L) {
             return(list(row = r, col = col))
@@ -147,7 +165,9 @@ document_call_callee <- function(document, opening) {
 
 member_call_location <- function(document, point, call = document$detect_call(point), symbols = FALSE) {
     opening <- call$opening
-    if (is.null(opening) || !check_r_region(document, point)) {
+    bounds <- document_r_bounds(document, point$row)
+    if (is.null(opening) || is.null(bounds) ||
+            opening$row < bounds[[1L]] || opening$row > bounds[[2L]]) {
         return(NULL)
     }
     callee <- if ("callee" %in% names(call)) call$callee else document_call_callee(document, opening)
@@ -212,20 +232,23 @@ member_constructor_arguments <- function(uri, workspace, document, point, token,
 }
 
 member_argument_location <- function(document, point, symbols = FALSE) {
-    if (!check_scope(document$uri, document, point)) {
+    bounds <- document_r_bounds(document, point$row)
+    if (is.null(bounds) || !check_scope(document$uri, document, point)) {
         return(NULL)
     }
     token <- document$detect_token(point)
     end <- token$range$end
-    last_row <- min(document$nline - 1L, end$row + 128L)
-    uncommented <- document_uncomment_lines(document, end$row, last_row)
-    line <- uncommented[[1L]]
-    if (!nzchar(token$token) || !identical(token$accessor, "") || end$col > nchar(line)) {
+    if (!nzchar(token$token) || !identical(token$accessor, "")) {
         return(NULL)
     }
+    last_row <- min(bounds[[2L]], end$row + 128L)
+    uncommented <- document_uncomment_lines(document, end$row, last_row, bounds)
+    if (!length(uncommented) || end$col > nchar(uncommented[[1L]])) {
+        return(NULL)
+    }
+    line <- uncommented[[1L]]
     named <- FALSE
     for (row in seq.int(end$row, last_row)) {
-        if (row > end$row && !check_r_region(document, list(row = row, col = 0L))) break
         rest <- if (row == end$row) substring(line, end$col + 1L) else uncommented[[row - end$row + 1L]]
         if (grepl("^[ \t]*$", rest)) next
         named <- grepl("^[ \t]*=(?!=)", rest, perl = TRUE)

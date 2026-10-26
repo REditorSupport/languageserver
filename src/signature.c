@@ -50,6 +50,14 @@ static int literal_end(const char *text, int at, int size) {
     return size;
 }
 
+static int special_end(const char *text, int at, int size) {
+    if (text[at] != '%') return at;
+    for (int i = at + 1; i < size && text[i] != '\n'; i++) {
+        if (text[i] == '%') return i + 1;
+    }
+    return at;
+}
+
 static const char *single_string(SEXP value, const char *name) {
     if (TYPEOF(value) != STRSXP || XLENGTH(value) != 1 ||
             STRING_ELT(value, 0) == NA_STRING) {
@@ -99,6 +107,7 @@ SEXP signature_info_c(SEXP signature) {
     for (int i = open + 1; i < size; i++) {
         if ((i & 65535) == 0) R_CheckUserInterrupt();
         int end = literal_end(text, i, size);
+        if (end == i) end = special_end(text, i, size);
         if (end > i) {
             if (left < 0) left = i;
             right = end;
@@ -265,11 +274,21 @@ static const char *pipe_call_text(SEXP content, int row, int col) {
         const char *text = Rf_translateCharUTF8(STRING_ELT(content, line));
         int start = line == row ? col : 0;
         int i = start;
+        int in_special = 0;
         for (; text[i]; i++) {
             if ((i & 65535) == 0) R_CheckUserInterrupt();
             char ch = text[i];
-            if (!state.single_quoted && !state.double_quoted && !state.backticked) {
+            if (in_special) {
+                if (ch == '%') in_special = 0;
+                continue;
+            }
+            if (!state.single_quoted && !state.double_quoted && !state.backticked && !state.escaped) {
                 if (ch == '#') { i += (int) strlen(text + i); break; }
+                if (ch == '%' && strchr(text + i + 1, '%') != NULL) {
+                    in_special = 1;
+                    fsm_feed(&state, ch);
+                    continue;
+                }
                 if (ch == ')' && depth == 0) break;
                 if (ch == '(' || ch == '[' || ch == '{') depth++;
                 else if (ch == ')' || ch == ']' || ch == '}') depth--;
@@ -348,6 +367,7 @@ static int pipe_active_parameter(const char *text, int cursor, SEXP parameters, 
             continue;
         }
         int end = literal_end(text, i, size);
+        if (end == i) end = special_end(text, i, size);
         if (end > i) {
             value_tokens++;
             i = end - 1;
@@ -409,6 +429,7 @@ SEXP active_parameter_c(SEXP call_text, SEXP parameters, SEXP content,
     for (int i = 0; i < size; i++) {
         if ((i & 65535) == 0) R_CheckUserInterrupt();
         int end = literal_end(text, i, size);
+        if (end == i) end = special_end(text, i, size);
         if (end > i) {
             if (left < 0) left = i;
             right = end;

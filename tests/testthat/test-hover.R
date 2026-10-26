@@ -69,6 +69,27 @@ test_that("hover handles package and literal token classes", {
         list(row = 99L, col = 0L)
     )
     expect_null(outside$result)
+    expect_null(hover_reply(
+        1L,
+        fixture$uri,
+        fixture$workspace,
+        fixture$document,
+        list(row = 6L, col = 0L)
+    )$result)
+
+    empty_fixture <- provider_fixture(character())
+    empty_fixture$workspace$get_help <- function(...) NULL
+    empty_fixture$workspace$get_documentation <- function(...) NULL
+    empty_fixture$workspace$get_signature <- function(...) NULL
+    empty_fixture$workspace$get_definition <- function(...) NULL
+    empty_fixture$workspace$guess_namespace <- function(...) NULL
+    expect_null(hover_reply(
+        1L,
+        empty_fixture$uri,
+        empty_fixture$workspace,
+        empty_fixture$document,
+        list(row = 0L, col = 0L)
+    )$result)
 
     installed <- hover_reply(
         2L, fixture$uri, fixture$workspace, fixture$document,
