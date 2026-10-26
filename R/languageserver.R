@@ -351,10 +351,13 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 list(workspace = workspace, ready_at = proc.time()[[3L]] + 0.25))
             if (!refresh) return(invisible(NULL))
             entries <- if (is.null(entry_uri)) {
-                Filter(function(uri) {
+                open <- Filter(function(uri) {
                     doc <- workspace$documents$get(uri, NULL)
                     !is.null(doc) && isTRUE(doc$is_open)
                 }, workspace$documents$keys())
+                sourced <- Filter(function(uri) length(index$source_edges$get(uri, character())) > 0L,
+                    index$package_source_uris())
+                union(open, sourced)
             } else {
                 entry_uri
             }
@@ -394,8 +397,10 @@ LanguageServer <- R6::R6Class("LanguageServer",
             open_uris <- Filter(function(uri) {
                 isTRUE(workspace$documents$get(uri)$is_open)
             }, document_uris)
-            keep <- union(index$package_source_uris(), open_uris)
-            for (uri in open_uris) keep <- union(keep, index$source_closure(uri))
+            package_uris <- index$package_source_uris()
+            sourced <- Filter(function(uri) length(index$source_edges$get(uri, character())) > 0L, package_uris)
+            keep <- union(package_uris, open_uris)
+            for (uri in union(open_uris, sourced)) keep <- union(keep, index$source_closure(uri))
             keep <- unique(vapply(keep, index_canonical_uri, character(1L)))
             remove <- document_uris[!vapply(document_uris, function(uri) {
                 index_canonical_uri(uri) %in% keep

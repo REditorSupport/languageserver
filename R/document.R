@@ -767,6 +767,7 @@ parse_callback <- function(self, uri, version, parse_data, source_content = NULL
             is.function(self$refresh_index_documents)) {
         self$refresh_index_documents(workspace, uri,
             refresh = isTRUE(doc$is_open) || is.null(workspace$index$package_root_for_uri(uri)) ||
+                length(workspace$index$source_edges$get(index_canonical_uri(uri), character())) > 0L ||
                 !identical(topology, workspace$index$topology_revision))
     }
 
