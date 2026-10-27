@@ -1,6 +1,11 @@
+# These cases exercise aggregate references between out-of-root open buffers.
+# Give each client an empty workspace so global rename requests do not scan
+# the installed test suite.
+
 test_that("Rename works for functions in files", {
     skip_on_cran()
-    client <- language_client()
+    directory <- withr::local_tempdir()
+    client <- language_client(working_dir = directory)
 
     defn_file <- withr::local_tempfile(fileext = ".R")
     defn2_file <- withr::local_tempfile(fileext = ".R")
@@ -93,7 +98,8 @@ test_that("Rename works for functions in files", {
 
 test_that("Rename works in single file", {
     skip_on_cran()
-    client <- language_client()
+    directory <- withr::local_tempdir()
+    client <- language_client(working_dir = directory)
 
     single_file <- withr::local_tempfile(fileext = ".R")
     writeLines(
@@ -125,7 +131,8 @@ test_that("Rename works in single file", {
 
 test_that("Rename works in scope with different assignment operators", {
     skip_on_cran()
-    client <- language_client()
+    directory <- withr::local_tempdir()
+    client <- language_client(working_dir = directory)
 
     single_file <- withr::local_tempfile(fileext = ".R")
     writeLines(c(
@@ -233,7 +240,8 @@ test_that("Rename works in scope with different assignment operators", {
 
 test_that("Rename in Rmarkdown works", {
     skip_on_cran()
-    client <- language_client()
+    directory <- withr::local_tempdir()
+    client <- language_client(working_dir = directory)
 
     single_file <- withr::local_tempfile(fileext = ".Rmd")
     writeLines(
@@ -274,7 +282,8 @@ test_that("Rename in Rmarkdown works", {
 
 test_that("Prepare rename works in single file", {
     skip_on_cran()
-    client <- language_client()
+    directory <- withr::local_tempdir()
+    client <- language_client(working_dir = directory)
 
     single_file <- withr::local_tempfile(fileext = ".R")
     writeLines(
