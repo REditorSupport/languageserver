@@ -7,13 +7,19 @@ lifecycle_settings <- function(...) {
     for (name in names(values)) lsp_settings$set(name, values[[name]])
 }
 
-lifecycle_manager <- function(run = FALSE) {
+lifecycle_manager <- function(run = FALSE, discovery_batch_size = NULL) {
     manager <- new.env(parent = emptyenv())
     manager$tasks <- collections::ordered_dict()
     manager$cancelled <- character()
     manager$discoveries <- 0L
     manager$add_task <- function(id, task) {
-        if (!is.null(task)) manager$tasks$set(id, task)
+        if (!is.null(task)) {
+            private <- task$.__enclos_env__$private
+            if (!is.null(discovery_batch_size) && !is.null(private$args$batch_size)) {
+                private$args$batch_size <- discovery_batch_size
+            }
+            manager$tasks$set(id, task)
+        }
     }
     manager$cancel <- function(id) {
         manager$cancelled <- c(manager$cancelled, id)
@@ -495,6 +501,7 @@ test_that("discovery completes across more roots than the worker snapshot cache"
     lifecycle_settings(index_mode = "full", index_persistent_cache = FALSE, diagnostics = FALSE, index_batch_size = 1L)
     root <- withr::local_tempdir()
     server <- LifecycleServer$new()
+    server$index_task_manager <- lifecycle_manager(run = TRUE, discovery_batch_size = 1L)
     workspaces <- lapply(seq_len(17L), function(i) {
         directory <- file.path(root, paste0("workspace", i))
         dir.create(directory)
@@ -505,6 +512,11 @@ test_that("discovery completes across more roots than the worker snapshot cache"
         server$load_workspace(workspace)
         workspace
     })
+    keys <- vapply(workspaces, function(workspace) workspace$index$.__enclos_env__$private$worker_key, "")
+    withr::defer(for (key in keys) index_worker_release(key))
+    for (i in seq_along(workspaces)) server$process_events()
+    discoveries <- get(".languageserver_workspace_discoveries", globalenv())
+    expect_true(all(vapply(keys, discoveries$has, logical(1L))))
     for (i in seq_len(1600L)) {
         server$process_events()
         discovering <- vapply(workspaces, function(workspace) workspace$index$discovering, logical(1L))
@@ -544,7 +556,8 @@ test_that("detaching releases worker cursors and catalogs without affecting reat
     lifecycle_settings(index_persistent_cache = FALSE, index_batch_size = 1L)
     root <- withr::local_tempdir()
     for (i in seq_len(2L)) writeLines("value <- 1", file.path(root, paste0(i, ".R")))
-    manager <- lifecycle_manager()
+    # Retain unfinished cursors independently of the server acceptance budget.
+    manager <- lifecycle_manager(discovery_batch_size = 1L)
     index <- WorkspaceIndex$new(root)
     index$attach_worker(manager)
     index$discover()

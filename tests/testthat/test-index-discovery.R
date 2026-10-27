@@ -10,7 +10,7 @@ discovery_settings <- function(...) {
 test_that("discovery preserves custom filtering, reserved filenames, and metadata", {
     discovery_settings(index_include = c("**/KEEP*.R", "**/special #%.r"),
         index_exclude = "**/SKIP/**", index_max_file_size_mb = 0.0001)
-    root <- withr::local_tempdir()
+    root <- index_normalize_path(withr::local_tempdir())
     dir.create(file.path(root, "Case"))
     dir.create(file.path(root, "skip"))
     expected <- file.path(root, c("keep.R", "special #%.r", "Case/keep.r"))
@@ -37,7 +37,7 @@ test_that("discovery preserves custom filtering, reserved filenames, and metadat
 
 test_that("discovery assigns the nearest package and prioritizes root package files", {
     discovery_settings()
-    root <- withr::local_tempdir()
+    root <- index_normalize_path(withr::local_tempdir())
     dir.create(file.path(root, "R", "sub"), recursive = TRUE)
     nested <- file.path(root, "R", "nested")
     dir.create(file.path(nested, "R"), recursive = TRUE)
@@ -65,7 +65,7 @@ test_that("discovery assigns the nearest package and prioritizes root package fi
 
 test_that("rediscovery updates directory package membership after descriptor changes", {
     discovery_settings()
-    root <- withr::local_tempdir()
+    root <- index_normalize_path(withr::local_tempdir())
     dir.create(file.path(root, "R"))
     paths <- file.path(root, "R", c("first.R", "second.R"))
     for (path in paths) writeLines("value <- 1", path)
@@ -96,19 +96,18 @@ test_that("rediscovery updates directory package membership after descriptor cha
 
 test_that("discovery contains symlinks within the workspace and terminates cycles", {
     discovery_settings()
-    root <- withr::local_tempdir()
-    outside <- withr::local_tempdir()
+    root <- index_normalize_path(withr::local_tempdir())
+    outside <- index_normalize_path(withr::local_tempdir())
     dir.create(file.path(root, "files"))
     first <- file.path(root, "first.R")
     second <- file.path(root, "files", "second.r")
     external <- file.path(outside, "external.R")
     for (path in c(first, second, external)) writeLines("value <- 1", path)
-    links <- suppressWarnings(c(
-        file.symlink(outside, file.path(root, "escape-dir")),
-        file.symlink(external, file.path(root, "escape.R")),
-        file.symlink(file.path(root, "files"), file.path(root, "alias")),
-        file.symlink(root, file.path(root, "cycle"))
-    ))
+    link_paths <- file.path(root, c("escape-dir", "escape.R", "alias", "cycle"))
+    links <- suppressWarnings(file.symlink(c(outside, external, file.path(root, "files"), root), link_paths))
+    # Remove links before recursive temp-directory cleanup. On Windows the
+    # directory links can be junctions, which base unlink() cannot always remove.
+    withr::defer(fs::link_delete(link_paths[links]))
     if (!all(links)) skip("filesystem does not support creating these symbolic links")
 
     index <- WorkspaceIndex$new(root)
