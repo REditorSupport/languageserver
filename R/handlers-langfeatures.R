@@ -167,7 +167,7 @@ text_document_signature_help  <- function(self, id, params) {
         ))
         return(invisible(NULL))
     }
-    self$deliver(signature_reply(id, uri, workspace, document, point))
+    self$deliver(signature_reply(id, uri, workspace, document, point, self$ClientCapabilities))
 }
 
 #' `textDocument/definition` request handler

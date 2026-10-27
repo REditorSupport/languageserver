@@ -1,6 +1,7 @@
 #include "signature.h"
 #include "fsm.h"
 
+#include <R_ext/Parse.h>
 #include <limits.h>
 #include <string.h>
 
@@ -178,7 +179,8 @@ SEXP signature_info_c(SEXP signature) {
     return result;
 }
 
-static int name_matches(const char *text, int left, int right, const char *name) {
+static int name_matches(const char *text, int left, int right, const char *name,
+    int partial) {
     int name_size = (int) strlen(name);
     int name_left = 0;
     if (right > left + 1 && (text[left] == '`' || text[left] == '\'' ||
@@ -196,7 +198,86 @@ static int name_matches(const char *text, int left, int right, const char *name)
         if (name[name_left] == '\\' && name_left + 1 < name_size) name_left++;
         if (text[left++] != name[name_left++]) return 0;
     }
-    return left == right && name_left == name_size;
+    return left == right && (partial || name_left == name_size);
+}
+
+typedef struct signature_literal_parse {
+    SEXP text;
+    ParseStatus status;
+} signature_literal_parse;
+
+static SEXP parse_signature_literal(void *data) {
+    signature_literal_parse *literal = (signature_literal_parse *) data;
+    return R_ParseVector(literal->text, -1, &literal->status, R_NilValue);
+}
+
+static SEXP invalid_signature_literal(SEXP error, void *data) {
+    (void) error;
+    signature_literal_parse *literal = (signature_literal_parse *) data;
+    literal->status = PARSE_ERROR;
+    return R_NilValue;
+}
+
+/* Decode only an isolated literal/name token. The parser supplies R's escape
+ * and raw-string rules; expressions and calls are rejected and never evaluated.
+ * Keep the legacy byte matcher separate for clients without nullable support. */
+static const char *signature_literal_name(const char *text, int start, int end) {
+    if (start >= end) return NULL;
+    int quoted = text[start] == '`' || text[start] == '\'' || text[start] == '"';
+    int raw = (text[start] == 'r' || text[start] == 'R') && start + 1 < end &&
+        (text[start + 1] == '\'' || text[start + 1] == '"');
+    if (!quoted && !raw) {
+        char *name = (char *) R_alloc((size_t) (end - start) + 1, sizeof(char));
+        memcpy(name, text + start, (size_t) (end - start));
+        name[end - start] = '\0';
+        return name;
+    }
+    SEXP source = PROTECT(Rf_ScalarString(Rf_mkCharLenCE(text + start,
+        end - start, CE_UTF8)));
+    signature_literal_parse literal = {source, PARSE_NULL};
+    SEXP parsed = PROTECT(R_tryCatchError(parse_signature_literal, &literal,
+        invalid_signature_literal, &literal));
+    const char *name = NULL;
+    if (literal.status == PARSE_OK && TYPEOF(parsed) == EXPRSXP &&
+            XLENGTH(parsed) == 1) {
+        SEXP value = VECTOR_ELT(parsed, 0);
+        SEXP string = R_NilValue;
+        if (TYPEOF(value) == SYMSXP) string = PRINTNAME(value);
+        else if (TYPEOF(value) == STRSXP && XLENGTH(value) == 1 &&
+                STRING_ELT(value, 0) != NA_STRING) string = STRING_ELT(value, 0);
+        if (string != R_NilValue) {
+            const char *decoded = Rf_translateCharUTF8(string);
+            size_t size = strlen(decoded);
+            if (size) {
+                char *copy = (char *) R_alloc(size + 1, sizeof(char));
+                memcpy(copy, decoded, size + 1);
+                name = copy;
+            }
+        }
+    }
+    UNPROTECT(2);
+    return name;
+}
+
+static int normalized_parameter_match(const char *name, const char *const *parameters,
+    int count, int partial, const int *used) {
+    if (name == NULL) return -1;
+    for (int i = 0; i < count; i++) {
+        if (parameters[i] != NULL && strcmp(name, parameters[i]) == 0) return i;
+    }
+    if (!partial) return -1;
+    size_t size = strlen(name);
+    int matched = -1;
+    for (int i = 0; i < count; i++) {
+        if (parameters[i] == NULL) continue;
+        if (strcmp(parameters[i], "...") == 0) break;
+        if (used != NULL && used[i]) continue;
+        if (strncmp(name, parameters[i], size) == 0) {
+            if (matched >= 0) return -2;
+            matched = i;
+        }
+    }
+    return matched;
 }
 
 /* Inspect the tokens immediately before the call head. Walking back through
@@ -260,22 +341,29 @@ static int call_pipe(SEXP content, int row, int col) {
     return 0;
 }
 
-/* Only piped calls need text after the cursor. Find their closing parenthesis
- * before allocating, so a short call does not copy the rest of the document. */
-static const char *pipe_call_text(SEXP content, int row, int col) {
+/* Find the closing parenthesis before allocating. Ordinary calls use bounded
+ * look-ahead so incomplete source cannot copy the remainder of a document. */
+static const char *pipe_call_text(SEXP content, int row, int col, size_t limit) {
     fsm_state state;
     fsm_initialize(&state);
     int depth = 0;
     int last_row = row;
     int last_col = col;
     size_t size = 0;
+    int bounded = 0;
     for (int line = row; line < Rf_length(content); line++) {
         if (STRING_ELT(content, line) == NA_STRING) break;
         const char *text = Rf_translateCharUTF8(STRING_ELT(content, line));
         int start = line == row ? col : 0;
+        size_t previous_size = size + (line > row);
+        if (previous_size > limit) break;
         int i = start;
         int in_special = 0;
         for (; text[i]; i++) {
+            if (previous_size + (size_t) (i - start) >= limit) {
+                bounded = 1;
+                break;
+            }
             if ((i & 65535) == 0) R_CheckUserInterrupt();
             char ch = text[i];
             if (in_special) {
@@ -283,11 +371,23 @@ static const char *pipe_call_text(SEXP content, int row, int col) {
                 continue;
             }
             if (!state.single_quoted && !state.double_quoted && !state.backticked && !state.escaped) {
-                if (ch == '#') { i += (int) strlen(text + i); break; }
-                if (ch == '%' && strchr(text + i + 1, '%') != NULL) {
-                    in_special = 1;
-                    fsm_feed(&state, ch);
-                    continue;
+                if (ch == '#') {
+                    while (text[i] && previous_size + (size_t) (i - start) < limit) i++;
+                    if (text[i]) bounded = 1;
+                    break;
+                }
+                if (ch == '%') {
+                    int special = 0;
+                    for (int next = i + 1; text[next] &&
+                            previous_size + (size_t) (next - start) < limit; next++) {
+                        if ((next & 65535) == 0) R_CheckUserInterrupt();
+                        if (text[next] == '%') { special = 1; break; }
+                    }
+                    if (special) {
+                        in_special = 1;
+                        fsm_feed(&state, ch);
+                        continue;
+                    }
                 }
                 if (ch == ')' && depth == 0) break;
                 if (ch == '(' || ch == '[' || ch == '{') depth++;
@@ -295,11 +395,11 @@ static const char *pipe_call_text(SEXP content, int row, int col) {
             }
             fsm_feed(&state, ch);
         }
-        size += (size_t) (i - start) + (line > row);
+        size = previous_size + (size_t) (i - start);
         if (size > INT_MAX) Rf_error("call text is too large");
         last_row = line;
         last_col = i;
-        if (text[i] == ')') break;
+        if (bounded || text[i] == ')') break;
         fsm_feed(&state, '\n');
     }
     char *result = (char *) R_alloc(size + 1, sizeof(char));
@@ -316,39 +416,113 @@ static const char *pipe_call_text(SEXP content, int row, int col) {
     return result;
 }
 
-static int parameter_match(const char *text, int start, int end, SEXP parameters) {
+static int parameter_match(const char *text, int start, int end, SEXP parameters,
+    int partial, const int *used, const char *const *normalized, const char **tag) {
     while (start < end && space(text[start])) start++;
     while (end > start && space(text[end - 1])) end--;
+    if (start == end) return -1;
+    /* Comments may separate an argument name and its equals sign. Keep quoted
+     * names intact while ignoring whitespace and comments after the name. */
+    int name_end = literal_end(text, start, end);
+    if (name_end == start) {
+        while (name_end < end && identifier(text[name_end])) name_end++;
+    }
+    if (name_end == start) return -1;
+    for (int at = name_end; at < end; at++) {
+        if (space(text[at])) continue;
+        if (text[at] != '#') return -1;
+        while (at < end && text[at] != '\n') at++;
+    }
+    end = name_end;
+    if (normalized != NULL) {
+        const char *name = signature_literal_name(text, start, end);
+        if (tag != NULL) *tag = name;
+        return normalized_parameter_match(name, normalized, Rf_length(parameters), partial, used);
+    }
     for (int i = 0; i < Rf_length(parameters); i++) {
         if (STRING_ELT(parameters, i) != NA_STRING && name_matches(
-                text, start, end, Rf_translateCharUTF8(STRING_ELT(parameters, i)))) {
+                text, start, end, Rf_translateCharUTF8(STRING_ELT(parameters, i)), 0)) {
             return i;
         }
     }
-    return -1;
+    if (!partial) return -1;
+    int matched = -1;
+    for (int i = 0; i < Rf_length(parameters); i++) {
+        if (STRING_ELT(parameters, i) == NA_STRING) continue;
+        const char *name = Rf_translateCharUTF8(STRING_ELT(parameters, i));
+        /* R only partially matches formals before the ellipsis. */
+        if (strcmp(name, "...") == 0) break;
+        if (used != NULL && used[i]) continue;
+        if (name_matches(text, start, end, name, 1)) {
+            if (matched >= 0) return -2;
+            matched = i;
+        }
+    }
+    return matched;
 }
 
-static int pipe_active_parameter(const char *text, int cursor, SEXP parameters, int pipe) {
+typedef struct signature_named_argument {
+    int start, end, current;
+    const char *name;
+    struct signature_named_argument *next;
+} signature_named_argument;
+
+static int pipe_active_parameter(const char *text, int cursor, SEXP parameters,
+    int pipe, int allow_null) {
     int size = (int) strlen(text);
     int nparameters = Rf_length(parameters);
+    const char **normalized = NULL;
+    if (allow_null) {
+        normalized = (const char **) R_alloc((size_t) nparameters + 1, sizeof(char *));
+        for (int i = 0; i < nparameters; i++) {
+            const char *name = STRING_ELT(parameters, i) == NA_STRING ? NULL :
+                Rf_translateCharUTF8(STRING_ELT(parameters, i));
+            normalized[i] = name == NULL ? NULL : signature_literal_name(name, 0, (int) strlen(name));
+        }
+    }
     int *used = (int *) R_alloc((size_t) nparameters + 1, sizeof(int));
     memset(used, 0, ((size_t) nparameters + 1) * sizeof(int));
     int depth = 0, start = 0, name_end = -1;
     int value_tokens = 0, placeholder = 0, has_placeholder = 0;
-    int positional = 0, active_name = -1, active = 0;
+    int positional = 0, active_name = -1, active_named = 0, active = 0;
+    signature_named_argument *partial_names = NULL, *last_partial = NULL;
+    int dots = -1;
+    for (int i = 0; i < nparameters; i++) {
+        const char *name = normalized == NULL ?
+            (STRING_ELT(parameters, i) == NA_STRING ? NULL : CHAR(STRING_ELT(parameters, i))) :
+            normalized[i];
+        if (name != NULL && strcmp(name, "...") == 0) dots = i;
+    }
     for (int i = 0; i <= size; i++) {
         if ((i & 65535) == 0) R_CheckUserInterrupt();
         char ch = text[i];
         if (i == size || (ch == ',' && depth == 0)) {
-            int matched = name_end < 0 ? -1 : parameter_match(text, start, name_end, parameters);
+            const char *tag = NULL;
+            int matched = name_end < 0 ? -1 : parameter_match(
+                text, start, name_end, parameters, 0, NULL, normalized, &tag);
             int current = start <= cursor && cursor <= i;
             if (matched >= 0) used[matched] = 1;
-            if (current && name_end >= 0 && name_end < cursor) active_name = matched;
+            if (allow_null && name_end >= 0 && matched < 0) {
+                signature_named_argument *argument = (signature_named_argument *)
+                    R_alloc(1, sizeof(signature_named_argument));
+                argument->start = start;
+                argument->end = name_end;
+                argument->current = current && name_end < cursor;
+                argument->name = tag;
+                argument->next = NULL;
+                if (last_partial != NULL) last_partial->next = argument;
+                else partial_names = argument;
+                last_partial = argument;
+            }
+            if (current && name_end >= 0 && name_end < cursor) {
+                active_name = matched;
+                active_named = 1;
+            }
             if (i < cursor) {
                 active++;
                 if (name_end < 0) positional++;
             }
-            if (placeholder && value_tokens == 1 && (pipe == 2 || name_end >= 0)) {
+            if (pipe && placeholder && value_tokens == 1 && (pipe == 2 || name_end >= 0)) {
                 has_placeholder = 1;
             }
             start = i + 1;
@@ -390,18 +564,34 @@ static int pipe_active_parameter(const char *text, int cursor, SEXP parameters, 
         } else if (ch == '(' || ch == '[' || ch == '{') depth++;
         else if (ch == ')' || ch == ']' || ch == '}') depth--;
     }
+    if (allow_null && partial_names != NULL) {
+        int *exact_used = (int *) R_alloc((size_t) nparameters + 1, sizeof(int));
+        memcpy(exact_used, used, ((size_t) nparameters + 1) * sizeof(int));
+        /* Exact matches, including names after the cursor, reserve their
+         * formals before R attempts any partial argument matching. */
+        for (signature_named_argument *argument = partial_names;
+                argument != NULL; argument = argument->next) {
+            int matched = normalized_parameter_match(argument->name, normalized,
+                nparameters, 1, exact_used);
+            if (matched >= 0) used[matched] = 1;
+            if (argument->current) active_name = matched;
+        }
+    }
     if (active_name >= 0) return active_name;
-    positional += !has_placeholder;
+    if (allow_null && active_named) return active_name == -2 ? -1 : dots;
+    positional += pipe && !has_placeholder;
     for (int i = 0; i < nparameters; i++) {
-        if (STRING_ELT(parameters, i) != NA_STRING &&
-                strcmp(CHAR(STRING_ELT(parameters, i)), "...") == 0) return i;
+        const char *name = normalized == NULL ?
+            (STRING_ELT(parameters, i) == NA_STRING ? NULL : CHAR(STRING_ELT(parameters, i))) :
+            normalized[i];
+        if (name != NULL && strcmp(name, "...") == 0) return i;
         if (!used[i] && positional-- == 0) return i;
     }
-    return active + !has_placeholder;
+    return allow_null ? -1 : active + !has_placeholder;
 }
 
 SEXP active_parameter_c(SEXP call_text, SEXP parameters, SEXP content,
-    SEXP start_row, SEXP start_col) {
+    SEXP start_row, SEXP start_col, SEXP allow_null) {
     const char *text = single_string(call_text, "call text");
     if (TYPEOF(parameters) != STRSXP) Rf_error("parameters must be character");
     size_t size_long = strlen(text);
@@ -409,6 +599,7 @@ SEXP active_parameter_c(SEXP call_text, SEXP parameters, SEXP content,
     int size = (int) size_long;
     int row = Rf_asInteger(start_row);
     int col = Rf_asInteger(start_col);
+    int nullable = Rf_asLogical(allow_null) == TRUE;
     if (TYPEOF(content) == STRSXP && row >= 0 && row < Rf_length(content) &&
             col >= 0 && STRING_ELT(content, row) != NA_STRING) {
         const char *line = Rf_translateCharUTF8(STRING_ELT(content, row));
@@ -418,8 +609,14 @@ SEXP active_parameter_c(SEXP call_text, SEXP parameters, SEXP content,
             while (((unsigned char) line[byte] & 0xc0) == 0x80) byte++;
         }
         int pipe = line[byte] == '(' ? call_pipe(content, row, byte) : 0;
-        if (pipe) return Rf_ScalarInteger(pipe_active_parameter(
-            pipe_call_text(content, row, byte + 1), size, parameters, pipe));
+        if (line[byte] == '(' && (pipe || nullable)) {
+            /* Keep the complete cursor prefix, then inspect at most 64 KiB
+             * more for named arguments that can reserve positional formals. */
+            size_t limit = pipe ? (size_t) -1 : (size_t) size + 65536;
+            int active = pipe_active_parameter(
+                pipe_call_text(content, row, byte + 1, limit), size, parameters, pipe, nullable);
+            return active < 0 ? R_NilValue : Rf_ScalarInteger(active);
+        }
     }
     int depth = 0;
     int count = 0;
@@ -467,7 +664,7 @@ SEXP active_parameter_c(SEXP call_text, SEXP parameters, SEXP content,
         for (R_xlen_t i = 0; i < XLENGTH(parameters); i++) {
             if (STRING_ELT(parameters, i) != NA_STRING && name_matches(
                     text, left, name_end,
-                    Rf_translateCharUTF8(STRING_ELT(parameters, i)))) {
+                    Rf_translateCharUTF8(STRING_ELT(parameters, i)), 0)) {
                 return Rf_ScalarInteger((int) i);
             }
         }

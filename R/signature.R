@@ -45,10 +45,10 @@ parse_signature_parameters <- function(signature) {
     signature_info(signature)$parameters
 }
 
-#' Detect the active positional or named argument without parsing user code
+#' Detect the active positional or named argument without evaluating source
 #' @noRd
 detect_active_parameter <- function(content, start_row, start_col,
-    end_row, end_col, signature = NULL) {
+    end_row, end_col, signature = NULL, no_active_parameter = FALSE) {
     if (start_row < 0L || start_row >= length(content) || end_row < start_row) {
         return(0L)
     }
@@ -67,7 +67,12 @@ detect_active_parameter <- function(content, start_row, start_col,
     parameters <- if (is.null(signature)) character() else signature_info(signature)$names
     .Call("active_parameter_c", PACKAGE = "languageserver",
         paste0(lines, collapse = "\n"), parameters, content,
-        as.integer(start_row), as.integer(start_col))
+        as.integer(start_row), as.integer(start_col),
+        isTRUE(no_active_parameter) && !is.null(signature))
+}
+
+signature_no_active_parameter_support <- function(client_capabilities) {
+    isTRUE(client_capabilities$textDocument$signatureHelp$signatureInformation$noActiveParameterSupport)
 }
 
 #' the response to a textDocument/signatureHelp Request
@@ -76,11 +81,13 @@ detect_active_parameter <- function(content, start_row, start_col,
 #' (as with [base::args()]).
 #'
 #' @noRd
-signature_reply <- function(id, uri, workspace, document, point) {
+signature_reply <- function(id, uri, workspace, document, point, client_capabilities = NULL) {
+
+    no_active_parameter <- signature_no_active_parameter_support(client_capabilities)
 
     if (!check_scope(uri, document, point)) {
         s3 <- tryCatch(resolve_s3_call(uri, workspace, document, point), error = function(e) NULL)
-        if (!is.null(s3)) return(s3_signature_reply(id, workspace, document, point, s3))
+        if (!is.null(s3)) return(s3_signature_reply(id, workspace, document, point, s3, client_capabilities))
         return(Response$new(id, list(signatures = NULL)))
     }
 
@@ -109,7 +116,8 @@ signature_reply <- function(id, uri, workspace, document, point) {
                 activeSignature = 0L,
                 activeParameter = detect_active_parameter(
                     document$content,
-                    result$opening$row, result$opening$col, point$row, point$col, sig
+                    result$opening$row, result$opening$col, point$row, point$col, sig,
+                    no_active_parameter
                 )
             )))
         }
@@ -120,7 +128,7 @@ signature_reply <- function(id, uri, workspace, document, point) {
             logger$info("S3 signature:", e)
             NULL
         })
-    if (!is.null(s3)) return(s3_signature_reply(id, workspace, document, point, s3))
+    if (!is.null(s3)) return(s3_signature_reply(id, workspace, document, point, s3, client_capabilities))
 
     SignatureInformation <- list()
     activeSignature <- NULL
@@ -236,14 +244,18 @@ signature_reply <- function(id, uri, workspace, document, point) {
             result$opening$col,
             point$row,
             point$col,
-            sig
+            sig,
+            no_active_parameter
         )
         logger$info("activeParameter set to: ", activeParameter)
     }
 
     response_result <- list(signatures = SignatureInformation)
     response_result$activeSignature <- activeSignature
-    response_result$activeParameter <- activeParameter
+    # Assign through a list slice so an explicit null survives serialization.
+    if (!is.null(activeParameter) || (no_active_parameter && !is.null(activeSignature))) {
+        response_result["activeParameter"] <- list(activeParameter)
+    }
     
     logger$info("signature_reply result: activeSignature=", activeSignature,
         ", activeParameter=", activeParameter)
