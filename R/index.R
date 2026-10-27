@@ -81,6 +81,16 @@ index_glob_match <- function(path, patterns, directory = FALSE, regex = NULL) {
     }, logical(1L)))
 }
 
+#' Match a directory's entries against compiled index globs in one pass
+#' @noRd
+index_glob_matches <- function(paths, regex) {
+    matched <- rep(FALSE, length(paths))
+    for (pattern in regex) {
+        matched <- matched | grepl(pattern, paths, ignore.case = TRUE, perl = TRUE)
+    }
+    matched
+}
+
 #' Normalize a path without requiring it to exist
 #' @noRd
 index_normalize_path <- function(path) {
@@ -216,7 +226,7 @@ index_source_candidates <- function(spec, from_path, workspace_root) {
     candidates <- unique(vapply(candidates, index_normalize_path, character(1L)))
     candidates[vapply(candidates, function(candidate) {
         (identical(candidate, workspace_root) ||
-            path_has_parent(candidate, workspace_root))
+                path_has_parent(candidate, workspace_root))
     }, logical(1L))]
 }
 
@@ -974,6 +984,8 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             count <- 0L
             max_files <- self$max_files()
             max_bytes <- self$max_file_bytes()
+            include_regex <- self$compiled_globs()
+            exclude_regex <- self$compiled_globs(TRUE)
             pending <- character(max_files)
             pending_count <- 0L
             real_root <- normalizePath(
@@ -991,37 +1003,63 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                 if (!length(entries)) next
                 entries <- sort(entries, method = "radix")
                 info <- file.info(entries)
-                for (i in seq_along(entries)) {
-                    path <- index_normalize_path(entries[[i]])
-                    real_path <- normalizePath(
-                        path, winslash = "/", mustWork = FALSE)
-                    if (!identical(real_path, real_root) &&
-                            !path_has_parent(real_path, real_root)) next
-                    is_dir <- isTRUE(info$isdir[[i]])
-                    if (is_dir) {
-                        if (self$should_index(path, directory = TRUE)) {
+                # Discovery roots are absolute, so list.files() returns absolute
+                # paths too. Batch the fs calculations instead of repeatedly
+                # expanding the working directory and platform for every entry.
+                paths <- path.expand(entries)
+                if (.Platform$OS.type == "windows") {
+                    paths <- gsub("\\", "/", paths, fixed = TRUE)
+                }
+                is_dirs <- !is.na(info$isdir) & info$isdir
+                rel <- gsub("\\", "/", fs::path_rel(paths, start = self$root), fixed = TRUE)
+                directory_paths <- rel
+                directory_paths[is_dirs] <- paste0(sub("/+$", "", rel[is_dirs]), "/")
+                eligible <- (paths == self$root | path_has_parent(paths, self$root)) &
+                    !index_glob_matches(directory_paths, exclude_regex) &
+                    (is_dirs | (index_glob_matches(rel, include_regex) &
+                                !is.na(info$size) & info$size <= max_bytes))
+                candidates <- which(!is.na(eligible) & eligible)
+                if (!length(candidates)) next
+                # Exclusions save real-path work, but every file accepted and
+                # every directory traversed must still stay inside the root.
+                package_checked <- FALSE
+                package_root <- NULL
+                # Bound real-path work as well: a low file limit should not
+                # resolve every entry in a directory containing many files.
+                for (first in seq.int(1L, length(candidates), 512L)) {
+                    chunk <- candidates[seq.int(first, min(first + 511L, length(candidates)))]
+                    real_paths <- normalizePath(paths[chunk], winslash = "/", mustWork = FALSE)
+                    contained <- real_paths == real_root | path_has_parent(real_paths, real_root)
+                    for (i in chunk[which(!is.na(contained) & contained)]) {
+                        path <- paths[[i]]
+                        if (is_dirs[[i]]) {
                             queue$push(path)
+                            next
                         }
-                        next
+                        count <- count + 1L
+                        if (count > max_files) break
+                        uri <- path_to_uri(path)
+                        # Direct files in this directory share package membership.
+                        # Recompute it for every directory on each discovery run.
+                        if (!package_checked) {
+                            package_root <- index_package_root(path, self$root)
+                            package_checked <- TRUE
+                        }
+                        metadata <- list(
+                            uri = uri,
+                            path = path,
+                            size = as.numeric(info$size[[i]]),
+                            mtime = as.numeric(info$mtime[[i]]),
+                            package_root = package_root
+                        )
+                        self$files$set(uri, metadata)
+                        private$discovery_seen$set(uri, TRUE)
+                        if (!self$summaries$has(uri) && !private$parse_blocked(uri)) {
+                            pending_count <- pending_count + 1L
+                            pending[[pending_count]] <- uri
+                        }
                     }
-                    if (!self$should_index(path) || is.na(info$size[[i]]) ||
-                            info$size[[i]] > max_bytes) next
-                    count <- count + 1L
                     if (count > max_files) break
-                    uri <- path_to_uri(path)
-                    metadata <- list(
-                        uri = uri,
-                        path = path,
-                        size = as.numeric(info$size[[i]]),
-                        mtime = as.numeric(info$mtime[[i]]),
-                        package_root = index_package_root(path, self$root)
-                    )
-                    self$files$set(uri, metadata)
-                    private$discovery_seen$set(uri, TRUE)
-                    if (!self$summaries$has(uri) && !private$parse_blocked(uri)) {
-                        pending_count <- pending_count + 1L
-                        pending[[pending_count]] <- uri
-                    }
                 }
             }
             pending <- if (pending_count) {
@@ -1231,7 +1269,10 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                         package_call(index_worker_discover),
                         list(key = private$worker_key, root = self$root, settings = settings,
                             cache_file = if (private$discovery_incremental) NULL else self$cache_file(),
-                            batch_size = min(batch_size, 20L),
+                            # Transport metadata in larger chunks; accepting it
+                            # still uses the configured file and time budgets.
+                            batch_size = 512L,
+                            summary_batch_size = min(batch_size, 20L),
                             directory = if (private$discovery_incremental) private$discovery_roots[[1L]] else NULL),
                         callback = function(result) {
                             if (!identical(lifecycle, private$worker_lifecycle)) return(NULL)

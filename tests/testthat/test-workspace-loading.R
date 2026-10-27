@@ -308,6 +308,10 @@ test_that("lost discovery worker state restarts and superseded scans cannot inst
     index$attach_worker(manager)
     index$discover()
     index$process_batch()
+    # Keep a live worker cursor even though metadata transfers are larger than
+    # the configured document acceptance batch.
+    task <- tail(manager$tasks$values(), 1L)[[1L]]$.__enclos_env__$private
+    task$args$batch_size <- 1L
     completed <- workspace_loading_result(manager)
     completed$private$callback(completed$result)
     index$process_batch()
