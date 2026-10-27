@@ -70,6 +70,61 @@ test_that("section succession breaks leave subsequent sections at the root", {
     expect_equal(result[[2L]]$children[[1L]]$name, "other")
 })
 
+test_that("sections inside R6 classes contain their members", {
+    fixture <- symbol_tree_fixture(c(
+        "# Main ----",
+        "Widget <- R6::R6Class('Widget',",
+        "  public = list(",
+        "    # Methods ----",
+        "    run = function() { 1 },",
+        "    # Fields ----",
+        "    value = 1",
+        "  )",
+        ")"
+    ))
+    result <- symbol_tree_reply(fixture)
+    widget <- result[[1L]]$children[[1L]]
+    expect_equal(widget$name, "Widget")
+    expect_equal(map_chr(widget$children, "name"), c("Methods", "Fields"))
+    expect_equal(widget$children[[1L]]$children[[1L]]$name, "run")
+    expect_equal(widget$children[[1L]]$children[[1L]]$kind, SymbolKind$Method)
+    expect_equal(widget$children[[2L]]$children[[1L]]$name, "value")
+    expect_equal(widget$children[[2L]]$children[[1L]]$kind, SymbolKind$Field)
+    expect_setequal(map_chr(flatten_document_symbols(result), "name"),
+        c("Main", "Widget", "Methods", "Fields", "run", "value"))
+    expect_length(flatten_document_symbols(result), 6L)
+})
+
+test_that("normalization preserves supplied class owners and nested subtrees", {
+    make_symbol <- function(name, first, last, children = NULL) {
+        span <- range(position(first, 0L), position(last, 10L))
+        document_symbol(name, SymbolKind$Class, span, span, children = children)
+    }
+    leaf <- make_symbol("leaf", 3L, 3L)
+    member <- make_symbol("member", 3L, 4L, list(leaf))
+    equal <- make_symbol("equal", 1L, 7L)
+    external <- make_symbol("external", 10L, 10L)
+    result <- document_symbol_tree(list(
+        make_symbol("Widget", 1L, 7L, list(member, external, equal)),
+        make_symbol("Members", 2L, 5L),
+        make_symbol("Elsewhere", 9L, 12L)
+    ))
+    expect_equal(map_chr(result, "name"), c("Widget", "Elsewhere"))
+    widget <- result[[1L]]
+    expect_equal(map_chr(widget$children, "name"), c("equal", "external"))
+    expect_equal(widget$children[[1L]]$children[[1L]]$name, "Members")
+    expect_identical(widget$children[[1L]]$children[[1L]]$children[[1L]], member)
+    expect_identical(widget$children[[2L]], external)
+    expect_null(result[[2L]]$children)
+    expect_length(flatten_document_symbols(result), 7L)
+
+    # A sole supplied owner still needs its direct child group normalized.
+    result <- document_symbol_tree(list(make_symbol("Owner", 0L, 6L,
+                list(member, make_symbol("Group", 2L, 5L)))))
+    expect_equal(result[[1L]]$children[[1L]]$name, "Group")
+    expect_identical(result[[1L]]$children[[1L]]$children[[1L]], member)
+})
+
 test_that("symbol nesting keeps class children and handles equal or crossing ranges", {
     make_symbol <- function(name, first, last, children = NULL) {
         span <- range(position(first, 0L), position(last, 10L))

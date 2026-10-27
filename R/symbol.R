@@ -76,7 +76,13 @@ document_symbol_order <- function(symbols) {
 
 #' Build the containment tree required by hierarchical DocumentSymbol clients
 #' @noRd
-document_symbol_tree <- function(symbols) {
+document_symbol_tree <- function(symbols, normalize_children = TRUE) {
+    if (normalize_children) {
+        supplied <- which(vapply(symbols, function(symbol) length(symbol$children) > 0L, logical(1L)))
+        for (i in supplied) {
+            symbols[[i]]$children <- document_symbol_tree(symbols[[i]]$children)
+        }
+    }
     if (length(symbols) < 2L) return(symbols)
     symbols <- symbols[document_symbol_order(symbols)]
     starts <- lapply(symbols, function(symbol) symbol$range$start)
@@ -102,14 +108,19 @@ document_symbol_tree <- function(symbols) {
         stack[[depth]] <- i
     }
 
-    children <- split(seq_along(symbols), parent)
-    # Descendants follow their parents in source order. Assemble bottom-up
-    # without recursive traversal or repeatedly appending individual siblings.
+    children <- list2env(split(seq_along(symbols), parent), parent = emptyenv(), hash = TRUE)
+    # Build inferred descendants bottom-up, reusing normalized branches. Only
+    # merge a sibling group again when supplied members meet new sections;
+    # keeping that merge local preserves explicit class ownership.
     for (i in rev(seq_along(symbols))) {
         nested <- children[[as.character(i)]]
         if (length(nested)) {
             members <- c(symbols[[i]]$children, symbols[nested])
-            symbols[[i]]$children <- members[document_symbol_order(members)]
+            symbols[[i]]$children <- if (length(symbols[[i]]$children)) {
+                document_symbol_tree(members, normalize_children = FALSE)
+            } else {
+                members
+            }
         }
     }
     symbols[children[["0"]]]
