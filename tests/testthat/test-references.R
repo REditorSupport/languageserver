@@ -67,7 +67,8 @@ test_that("references and rename preparation reject file path strings", {
 
 test_that("Find References works for functions in files", {
     skip_on_cran()
-    client <- language_client()
+    root <- withr::local_tempdir()
+    client <- language_client(root)
 
     defn_file <- withr::local_tempfile(fileext = ".R")
     defn2_file <- withr::local_tempfile(fileext = ".R")
@@ -152,7 +153,8 @@ test_that("Find References works for functions in files", {
 
 test_that("Find References works in single file", {
     skip_on_cran()
-    client <- language_client()
+    root <- withr::local_tempdir()
+    client <- language_client(root)
 
     single_file <- withr::local_tempfile(fileext = ".R")
     writeLines(
@@ -180,7 +182,8 @@ test_that("Find References works in single file", {
 
 test_that("Find References works in scope with different assignment operators", {
     skip_on_cran()
-    client <- language_client()
+    root <- withr::local_tempdir()
+    client <- language_client(root)
 
     single_file <- withr::local_tempfile(fileext = ".R")
     writeLines(c(
@@ -258,7 +261,8 @@ test_that("Find References works in scope with different assignment operators", 
 
 test_that("Find References in Rmarkdown works", {
     skip_on_cran()
-    client <- language_client()
+    root <- withr::local_tempdir()
+    client <- language_client(root)
 
     single_file <- withr::local_tempfile(fileext = ".Rmd")
     writeLines(
@@ -344,7 +348,7 @@ test_that("References fall back to XML when no occurrence index exists", {
 
     expect_length(reply$result, 3L)
     expect_true(all(vapply(reply$result, function(item) item$uri == uri,
-        logical(1L))))
+                logical(1L))))
     expect_equal(
         map_int(reply$result, c("range", "start", "line")),
         c(0L, 1L, 1L)

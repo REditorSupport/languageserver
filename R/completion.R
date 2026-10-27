@@ -1208,7 +1208,7 @@ completion_outline <- function(document) {
                 "assign", "delayedAssign", "makeActiveBinding")
             if (!any(data$token == "SYMBOL_FUNCTION_CALL" & data$text %in% contexts)) {
                 result <- tryCatch(list(completion_data = completion_parse_data(data, syntax_parse_data(data)),
-                        globals = completion_global_outline(parsed)), error = function(e) NULL)
+                        globals = completion_global_outline(parsed), sources = index_source_specs(parsed)), error = function(e) NULL)
             }
         }
     }
@@ -1229,6 +1229,7 @@ basic_name_completion_reply <- function(id, workspace, document, point, capabili
     if (is.null(workspace$namespaces)) return(NULL)
     outline <- completion_outline(document)
     if (is.null(outline)) return(NULL)
+    if (isTRUE(workspace$index$enabled) && length(outline$sources)) return(NULL)
     # The first response must contain current local declarations: clients do
     # not refresh a displayed list merely because its full parse finishes.
     loaded <- loadedNamespaces()

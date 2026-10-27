@@ -92,7 +92,7 @@ test_that("background package parsing avoids repeated workspace scans", {
 })
 
 test_that("initialized queues discovery and handles requests before scanning files", {
-    workspace_loading_settings(index_persistent_cache = FALSE)
+    workspace_loading_settings(index_mode = "full", index_persistent_cache = FALSE)
     root <- withr::local_tempdir()
     writeLines("value <- 1", file.path(root, "main.R"))
     workspace <- Workspace$new(root)
@@ -109,7 +109,8 @@ test_that("initialized queues discovery and handles requests before scanning fil
     expect_equal(workspace$index$files$size(), 0L)
     expect_equal(server$index_task_manager$tasks$size(), 0L)
     workspace_symbol(server, 1L, list(query = "value"))
-    expect_length(server$replies, 1L)
+    expect_length(server$replies, 0L)
+    expect_identical(server$index_requests$size(), 1L)
     workspace$index$process_batch()
     expect_equal(server$index_task_manager$tasks$size(), 1L)
     expect_true(workspace$index$worker_running)
@@ -307,6 +308,10 @@ test_that("lost discovery worker state restarts and superseded scans cannot inst
     index$attach_worker(manager)
     index$discover()
     index$process_batch()
+    # Keep a live worker cursor even though metadata transfers are larger than
+    # the configured document acceptance batch.
+    task <- tail(manager$tasks$values(), 1L)[[1L]]$.__enclos_env__$private
+    task$args$batch_size <- 1L
     completed <- workspace_loading_result(manager)
     completed$private$callback(completed$result)
     index$process_batch()

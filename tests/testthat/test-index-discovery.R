@@ -1,0 +1,121 @@
+discovery_settings <- function(...) {
+    values <- utils::modifyList(list(index_mode = "full", index_persistent_cache = FALSE,
+            index_include = "**/*.R", index_exclude = character(),
+            index_max_files = 10000L, index_max_file_size_mb = 2), list(...))
+    old <- stats::setNames(lapply(names(values), lsp_settings$get), names(values))
+    withr::defer(for (name in names(old)) lsp_settings$set(name, old[[name]]), envir = parent.frame())
+    for (name in names(values)) lsp_settings$set(name, values[[name]])
+}
+
+test_that("discovery preserves custom filtering, reserved filenames, and metadata", {
+    discovery_settings(index_include = c("**/KEEP*.R", "**/special #%.r"),
+        index_exclude = "**/SKIP/**", index_max_file_size_mb = 0.0001)
+    root <- index_normalize_path(withr::local_tempdir())
+    dir.create(file.path(root, "Case"))
+    dir.create(file.path(root, "skip"))
+    expected <- file.path(root, c("keep.R", "special #%.r", "Case/keep.r"))
+    for (path in expected) writeLines("value <- 1", path)
+    writeLines("ignored <- 1", file.path(root, "skip", "keep.R"))
+    writeLines("ignored <- 1", file.path(root, "other.R"))
+    writeLines("ignored <- 1", file.path(root, "keep.txt"))
+    writeLines(strrep("x", 500L), file.path(root, "keep-large.R"))
+
+    index <- WorkspaceIndex$new(root)
+    index$discover()
+    files <- index$files$values()
+    expect_identical(vapply(files, `[[`, "", "path"), expected)
+    expect_identical(index$pending, unname(vapply(expected, path_to_uri, "")))
+    expect_false(index$truncated)
+    for (file in files) {
+        info <- file.info(file$path)
+        expect_identical(path_from_uri(file$uri), file$path)
+        expect_identical(file$size, as.numeric(info$size[[1L]]))
+        expect_identical(file$mtime, as.numeric(info$mtime[[1L]]))
+        expect_null(file$package_root)
+    }
+})
+
+test_that("discovery assigns the nearest package and prioritizes root package files", {
+    discovery_settings()
+    root <- index_normalize_path(withr::local_tempdir())
+    dir.create(file.path(root, "R", "sub"), recursive = TRUE)
+    nested <- file.path(root, "R", "nested")
+    dir.create(file.path(nested, "R"), recursive = TRUE)
+    dir.create(file.path(root, "tests"))
+    writeLines("Package: outer", file.path(root, "DESCRIPTION"))
+    writeLines("Package: inner", file.path(nested, "DESCRIPTION"))
+    paths <- file.path(root, c("R/first.R", "R/sub/second.r", "R/nested/R/third.R",
+            "R/nested/other.R", "tests/test.R", "main.R"))
+    for (path in paths) writeLines("value <- 1", path)
+
+    index <- WorkspaceIndex$new(root)
+    index$discover()
+    expect_identical(index$files$values()[[1L]]$path, paths[[1L]])
+    roots <- lapply(paths, function(path) index$files$get(path_to_uri(path))$package_root)
+    expect_identical(roots, list(root, root, nested, root, NULL, NULL))
+    expect_setequal(index$package_source_uris(root), vapply(paths[c(1L, 2L, 4L)], path_to_uri, ""))
+    expect_identical(unlist(index$package_source_uris(nested), use.names = FALSE), path_to_uri(paths[[3L]]))
+
+    lsp_settings$set("index_max_files", 1L)
+    index$discover()
+    expect_identical(index$files$values()[[1L]]$path, paths[[1L]])
+    expect_identical(index$files$size(), 1L)
+    expect_true(index$truncated)
+})
+
+test_that("rediscovery updates directory package membership after descriptor changes", {
+    discovery_settings()
+    root <- index_normalize_path(withr::local_tempdir())
+    dir.create(file.path(root, "R"))
+    paths <- file.path(root, "R", c("first.R", "second.R"))
+    for (path in paths) writeLines("value <- 1", path)
+    uris <- unname(vapply(paths, path_to_uri, ""))
+    descriptor <- file.path(root, "DESCRIPTION")
+    index <- WorkspaceIndex$new(root)
+    memberships <- function() lapply(uris, function(uri) index$files$get(uri)$package_root)
+
+    index$discover()
+    expect_identical(memberships(), list(NULL, NULL))
+    writeLines("Package: converted", descriptor)
+    index$discover()
+    expect_identical(memberships(), list(root, root))
+    writeLines("Imports: stats", descriptor)
+    index$discover()
+    expect_identical(memberships(), list(NULL, NULL))
+    writeLines("Package: restoredpackage", descriptor)
+    index$discover()
+    expect_identical(memberships(), list(root, root))
+    unlink(descriptor)
+    index$discover()
+    expect_identical(memberships(), list(NULL, NULL))
+    unlink(paths[[1L]])
+    index$discover()
+    expect_false(index$files$has(uris[[1L]]))
+    expect_identical(index$files$values()[[1L]]$path, paths[[2L]])
+})
+
+test_that("discovery contains symlinks within the workspace and terminates cycles", {
+    discovery_settings()
+    root <- index_normalize_path(withr::local_tempdir())
+    outside <- index_normalize_path(withr::local_tempdir())
+    dir.create(file.path(root, "files"))
+    first <- file.path(root, "first.R")
+    second <- file.path(root, "files", "second.r")
+    external <- file.path(outside, "external.R")
+    for (path in c(first, second, external)) writeLines("value <- 1", path)
+    link_paths <- file.path(root, c("escape-dir", "escape.R", "alias", "cycle"))
+    links <- suppressWarnings(file.symlink(c(outside, external, file.path(root, "files"), root), link_paths))
+    # Remove links before recursive temp-directory cleanup. On Windows the
+    # directory links can be junctions, which base unlink() cannot always remove.
+    withr::defer(fs::link_delete(link_paths[links]))
+    if (!all(links)) skip("filesystem does not support creating these symbolic links")
+
+    index <- WorkspaceIndex$new(root)
+    index$discover()
+    paths <- vapply(index$files$values(), `[[`, "", "path")
+    expect_length(paths, 2L)
+    expect_setequal(normalizePath(paths, winslash = "/"), normalizePath(c(first, second), winslash = "/"))
+    expect_false(index$files$has(path_to_uri(file.path(root, "escape.R"))))
+    expect_false(any(grepl("external.R", paths, fixed = TRUE)))
+    expect_false(index$truncated)
+})

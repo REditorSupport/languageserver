@@ -315,3 +315,153 @@ test_that("persistent worker catalogs retain active roots and release detached s
     for (key in keys) index_worker_release(key)
     expect_false(any(vapply(keys, states$has, logical(1L))))
 })
+
+discovery_worker_settings <- function(...) {
+    values <- utils::modifyList(list(index_mode = "full", index_persistent_cache = FALSE,
+            index_batch_size = 20L, index_time_budget_ms = Inf), list(...))
+    old <- stats::setNames(lapply(names(values), lsp_settings$get), names(values))
+    withr::defer(for (name in names(old)) lsp_settings$set(name, old[[name]]), envir = parent.frame())
+    for (name in names(values)) lsp_settings$set(name, values[[name]])
+}
+
+test_that("large discovery transfers are installed in bounded server batches", {
+    discovery_worker_settings()
+    root <- withr::local_tempdir()
+    paths <- file.path(root, sprintf("file-%03d.R", seq_len(80L)))
+    for (path in paths) writeLines("value <- 1", path)
+    manager <- index_test_manager()
+    index <- WorkspaceIndex$new(root)
+    index$attach_worker(manager)
+    index$discover()
+    index$process_batch()
+    task <- tail(manager$tasks$values(), 1L)[[1L]]$.__enclos_env__$private
+    withr::defer(index_worker_release(task$args$key))
+    result <- do.call(index_worker_discover, task$args)
+    expect_gt(length(result$files), 20L)
+    expect_true(result$done)
+    task$callback(result)
+    expect_equal(index$files$size(), 0L)
+    expect_false(index$indexing_status()$done)
+
+    index$process_batch()
+    expect_equal(index$files$size(), 20L)
+    expect_true(index$discovering)
+    expect_false(index$complete())
+    for (i in seq_len(3L)) index$process_batch()
+    expect_equal(index$files$size(), length(paths))
+    expect_true(index$discovering)
+    index$process_batch()
+    expect_false(index$discovering)
+    expect_false(index$indexing_status()$done)
+    expect_setequal(index$pending, vapply(paths, path_to_uri, character(1L)))
+
+    lsp_settings$set("index_batch_size", 1L)
+    one_at_a_time <- WorkspaceIndex$new(root)
+    one_at_a_time$attach_worker(manager)
+    one_at_a_time$discover()
+    one_at_a_time$process_batch()
+    task <- tail(manager$tasks$values(), 1L)[[1L]]$.__enclos_env__$private
+    expect_identical(task$args$summary_batch_size, 1L)
+    result <- do.call(index_worker_discover, task$args)
+    task$callback(result)
+    one_at_a_time$process_batch()
+    expect_equal(one_at_a_time$files$size(), 1L)
+    expect_true(one_at_a_time$discovering)
+})
+
+test_that("discovery transfers retain every cached summary without oversized cache batches", {
+    discovery_worker_settings(index_persistent_cache = TRUE)
+    root <- withr::local_tempdir()
+    paths <- file.path(root, sprintf("file-%03d.R", seq_len(50L)))
+    summaries <- lapply(seq_along(paths), function(i) {
+        content <- paste0("value", i, " <- function(x = ", i, ") x")
+        writeLines(content, paths[[i]])
+        index_shallow_summary(paths[[i]], content, root)
+    })
+    cache_file <- file.path(root, "cache.rds")
+    saveRDS(list(version = index_cache_version, root = index_normalize_path(root),
+            summaries = summaries), cache_file)
+    keys <- paste0(tempfile("discovery-cached-transfer-"), seq_len(2L))
+    withr::defer(for (key in keys) index_worker_release(key))
+    for (i in seq_along(keys)) {
+        limit <- c(20L, 1L)[[i]]
+        key <- keys[[i]]
+        result <- index_worker_discover(key, root, settings = list(index_mode = "full"),
+            cache_file = cache_file, batch_size = 512L, summary_batch_size = limit)
+        files <- list()
+        restored <- list()
+        repeat {
+            expect_lte(sum(!vapply(result$summaries, is.null, logical(1L))), limit)
+            files <- c(files, result$files)
+            restored <- c(restored, result$summaries)
+            if (result$done) break
+            result <- index_worker_discover(key, root, batch_size = 512L, summary_batch_size = limit)
+        }
+        expect_identical(vapply(files, `[[`, character(1L), "uri"),
+            unname(vapply(paths, path_to_uri, character(1L))))
+        expect_length(restored, length(summaries))
+        for (field in c("content_hash", "definitions", "functions")) {
+            expect_identical(lapply(restored, `[[`, field), lapply(summaries, `[[`, field))
+        }
+    }
+})
+
+test_that("unaccepted discovery tails preserve changed buffers and revalidate disk files", {
+    discovery_worker_settings(index_persistent_cache = TRUE)
+    root <- withr::local_tempdir()
+    paths <- file.path(root, sprintf("file-%03d.R", seq_len(80L)))
+    for (path in paths) writeLines("saved <- 1", path)
+    changed <- c(40L, 50L, 60L)
+    summaries <- lapply(paths[changed], function(path) index_shallow_summary(path, "saved <- 1", root))
+    cache_file <- file.path(root, "cache.rds")
+    saveRDS(list(version = index_cache_version, root = index_normalize_path(root),
+            summaries = summaries), cache_file)
+    manager <- index_test_manager()
+    index <- WorkspaceIndex$new(root, cache_path = cache_file)
+    index$attach_worker(manager)
+    index$discover()
+    index$process_batch()
+    task <- tail(manager$tasks$values(), 1L)[[1L]]$.__enclos_env__$private
+    withr::defer(index_worker_release(task$args$key))
+    result <- do.call(index_worker_discover, task$args)
+    expect_gt(length(result$files), 20L)
+    task$callback(result)
+    index$process_batch()
+    expect_equal(index$files$size(), 20L)
+
+    uris <- vapply(paths[changed], path_to_uri, character(1L))
+    index$await_parse(uris[[1L]], cacheable = FALSE)
+    index$update_content(uris[[1L]], "unsaved <- function(value) value", cacheable = FALSE)
+    unlink(paths[[changed[[2L]]]])
+    writeLines("changed <- function(value = 123456) value", paths[[changed[[3L]]]])
+    for (i in seq_len(4L)) index$process_batch()
+    expect_false(index$discovering)
+    expect_identical(index$summaries$get(uris[[1L]])$content_hash,
+        get_content_hash("unsaved <- function(value) value"))
+    expect_false(uris[[1L]] %in% index$pending)
+    expect_false(index$files$has(uris[[2L]]))
+    expect_false(index$summaries$has(uris[[2L]]))
+    expect_false(index$summaries$has(uris[[3L]]))
+    expect_true(uris[[3L]] %in% index$pending)
+})
+
+test_that("late discovery callbacks cannot revive a detached index", {
+    discovery_worker_settings()
+    root <- withr::local_tempdir()
+    writeLines("saved <- 1", file.path(root, "main.R"))
+    manager <- index_test_manager()
+    index <- WorkspaceIndex$new(root)
+    index$attach_worker(manager)
+    index$discover()
+    index$process_batch()
+    task <- tail(manager$tasks$values(), 1L)[[1L]]$.__enclos_env__$private
+    withr::defer(index_worker_release(task$args$key))
+    result <- do.call(index_worker_discover, task$args)
+    index$detach_worker()
+    task$callback(result)
+    expect_false(index$discovering)
+    expect_false(index$worker_running)
+    expect_equal(index$files$size(), 0L)
+    expect_length(index$pending, 0L)
+    expect_null(index$.__enclos_env__$private$discovery_result)
+})

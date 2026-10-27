@@ -29,6 +29,33 @@ refresh_index_summary <- function(workspace, index, uri) {
     else index$queue_path(path_from_uri(uri))
 }
 
+#' Rebuild index policy while retaining open editor buffers
+#' @noRd
+reset_workspace_index <- function(self, workspace) {
+    open <- Filter(function(doc) isTRUE(doc$is_open), workspace$documents$values())
+    if (!is.null(workspace$index)) workspace$index$detach_worker()
+    workspace$index <- WorkspaceIndex$new(workspace$root)
+    self$load_workspace(workspace)
+    if (workspace$index$enabled) {
+        for (doc in open) {
+            if (!is.null(doc$parse_failure) && identical(doc$parse_failure$version, doc$version)) {
+                workspace$index$fail_parse(doc$uri)
+            } else if (identical(doc$version, doc$parse_data$version) && identical(doc$content, doc$parsed_content)) {
+                workspace$index$update_content(doc$uri, doc$content, cacheable = FALSE, parse_data = doc$parse_data)
+            } else {
+                self$text_sync(doc$uri, doc, parse = TRUE)
+            }
+            if (workspace$index$activate_package(doc$uri) && is.function(self$start_index_progress)) {
+                self$start_index_progress(workspace)
+            }
+        }
+        self$refresh_index_documents(workspace)
+    } else {
+        self$prune_legacy_documents(workspace)
+    }
+    invisible(NULL)
+}
+
 #' `workspace/didChangeWorkspaceFolders` notification handler
 #'
 #' Handler to the `workspace/didChangeWorkspaceFolders` [Notification]
@@ -84,20 +111,7 @@ workspace_did_change_configuration <- function(self, params) {
 
     if (length(index_settings)) {
         for (workspace in self$workspaces$values()) {
-            open_documents <- Filter(function(doc) isTRUE(doc$is_open),
-                workspace$documents$values())
-            if (!is.null(workspace$index)) workspace$index$detach_worker()
-            workspace$index <- WorkspaceIndex$new(workspace$root)
-            self$load_workspace(workspace)
-            if (isTRUE(workspace$index$enabled)) {
-                for (doc in open_documents) {
-                    workspace$index$update_content(
-                        doc$uri, doc$content, cacheable = FALSE)
-                }
-                self$refresh_index_documents(workspace)
-            } else {
-                self$prune_legacy_documents(workspace)
-            }
+            reset_workspace_index(self, workspace)
         }
     }
 
@@ -139,7 +153,17 @@ workspace_did_change_watched_files <- function(self, params) {
         type <- file_event$type
         index <- workspace$index
         if (!is.null(index) && isTRUE(index$enabled)) {
+            if (basename(path) == "DESCRIPTION" && index$should_index(dirname(path), directory = TRUE)) {
+                root <- index_normalize_path(dirname(path))
+                relevant <- identical(root, index$root) || !index$is_lazy() || index$watches_package(root) ||
+                    any(vapply(workspace$documents$values(), function(doc) {
+                        isTRUE(doc$is_open) && path_has_parent(path_from_uri(doc$uri), file.path(root, "R"))
+                    }, logical(1L)))
+                if (relevant) reset_workspace_index(self, workspace)
+                next
+            }
             if (!index$should_index(path) && type != FileChangeType$Deleted) next
+            if (index$is_lazy() && !index$watches_path(path)) next
 
             dependents <- index$dependents(
                 uri, include_candidates = type == FileChangeType$Created)
@@ -206,8 +230,10 @@ workspace_did_change_watched_files <- function(self, params) {
 #' Handler to the `workspace/symbol` [Request].
 #' @noRd
 workspace_symbol <- function(self, id, params) {
+    if (is.function(self$queue_index_request) &&
+            self$queue_index_request(id, "workspace/symbol", params, self$workspaces$values())) return(invisible(NULL))
     self$deliver(workspace_symbol_reply(
-            id, self$workspaces$values(), params$query))
+        id, self$workspaces$values(), params$query))
 }
 
 #' `workspace/executeCommand` request handler

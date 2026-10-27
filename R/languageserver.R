@@ -23,10 +23,10 @@ LanguageServer <- R6::R6Class("LanguageServer",
         diagnostics_workspaces = NULL,
         parse_retries = NULL,
         queue_workspace_document = function(workspace, uri) {
+            if (!is.null(workspace$index) && workspace$index$parse_failed(uri)) return(invisible(NULL))
             document <- workspace$documents$get(uri, NULL)
             if (!is.null(document)) {
                 if (isTRUE(document$is_open) ||
-                        (!is.null(workspace$index) && workspace$index$parse_failed(uri)) ||
                         (!is.null(workspace$index) && workspace$index$document_pending(uri))) {
                     return(invisible(NULL))
                 }
@@ -51,6 +51,21 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 private$workspace_document_keys$set(key, entry)
                 private$workspace_document_queue$push(entry)
                 if (!is.null(workspace$index)) workspace$index$queue_document(uri)
+            }
+            invisible(NULL)
+        },
+        deliver_index_request = function(request) {
+            if (request$method == "workspace/symbol") {
+                self$deliver(workspace_symbol_reply(request$id, request$workspaces, request$params$query))
+            } else {
+                point <- request$document$from_lsp_position(request$params$position)
+                reply <- if (request$method == "textDocument/rename") {
+                    rename_reply(request$id, request$uri, request$workspace, request$document, point, request$params$newName)
+                } else {
+                    references_reply(request$id, request$uri, request$workspace, request$document, point,
+                        include_declaration = !isFALSE(request$params$context$includeDeclaration))
+                }
+                self$deliver(reply)
             }
             invisible(NULL)
         },
@@ -150,6 +165,8 @@ LanguageServer <- R6::R6Class("LanguageServer",
         backend_poll_time = -Inf,
         backend_poll_queue = NULL,
         pending_replies = NULL,
+        index_requests = NULL,
+        context_replies = NULL,
         initialize = function(host, port) {
             if (is.null(port)) {
                 logger$info("connection type: stdio")
@@ -200,6 +217,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$formatting_requests <- collections::dict()
 
             self$pending_replies <- collections::dict()
+            self$index_requests <- collections::ordered_dict()
             self$workspaces <- collections::dict()
             self$workspace_cache <- collections::dict()
             self$workspaces$set(DEFAULT_WORKSPACE, Workspace$new(NULL))
@@ -228,6 +246,13 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 }
             }
             self$process_workspace_documents()
+            self$process_context_replies()
+            for (workspace in self$workspaces$values()) {
+                if (isTRUE(workspace$index$prune_pending) && workspace$index$complete()) {
+                    self$prune_index_documents(workspace)
+                }
+            }
+            self$process_index_requests()
             if (!is.null(self$index_task_manager)) self$index_task_manager$run_tasks()
             self$diagnostics_task_manager$run_tasks()
             self$resolve_task_manager$run_tasks()
@@ -336,10 +361,36 @@ LanguageServer <- R6::R6Class("LanguageServer",
             existing <- workspace$documents$get(uri, NULL)
             if (!is.null(existing) && (!reload || isTRUE(existing$is_open))) return(invisible(existing))
             path <- path_from_uri(uri)
-            if (!file.exists(path) || dir.exists(path)) return(invisible(NULL))
+            if (!file.exists(path) || dir.exists(path)) {
+                if (!is.null(workspace$index)) workspace$index$remove(uri)
+                if (!is.null(existing)) {
+                    workspace$documents$remove(uri)
+                    workspace$diagnostics_globals_cache <- NULL
+                    workspace$type_hierarchy_cache$clear()
+                    workspace$update_loaded_packages()
+                }
+                return(invisible(NULL))
+            }
             content <- tryCatch(stringi::stri_read_lines(path),
                 error = function(e) NULL)
-            if (is.null(content)) return(invisible(NULL))
+            if (is.null(content)) {
+                index <- workspace$index
+                if (!is.null(index) && isTRUE(index$enabled) && index$should_index(path)) {
+                    if (!is.null(existing)) {
+                        workspace$documents$remove(uri)
+                        workspace$diagnostics_globals_cache <- NULL
+                        workspace$type_hierarchy_cache$clear()
+                        workspace$update_loaded_packages()
+                    }
+                    # Keep eligible files in the catalog, but settle failed reads
+                    # so context waiters can respond. A file event or open buffer
+                    # starts a new attempt and releases this terminal state.
+                    index$await_parse(uri, cacheable = TRUE)
+                    index$fail_parse(uri, discard_summary = TRUE)
+                    index$prune_pending <- TRUE
+                }
+                return(invisible(NULL))
+            }
             doc <- Document$new(
                 uri, language = "r", version = NULL, content = content)
             workspace$documents$set(uri, doc)
@@ -401,6 +452,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             # The streamed file catalog is incomplete until discovery ends.
             # Pruning now can discard package documents not delivered yet.
             if (index$discovering) return(invisible(NULL))
+            index$prune_pending <- FALSE
             document_uris <- workspace$documents$keys()
             open_uris <- Filter(function(uri) {
                 isTRUE(workspace$documents$get(uri)$is_open)
@@ -409,7 +461,22 @@ LanguageServer <- R6::R6Class("LanguageServer",
             sourced <- Filter(function(uri) length(index$source_edges$get(uri, character())) > 0L, package_uris)
             keep <- union(package_uris, open_uris)
             for (uri in union(open_uris, sourced)) keep <- union(keep, index$source_closure(uri))
+            if (!is.null(self$index_requests)) {
+                for (request in self$index_requests$values()) {
+                    if (identical(request$workspace, workspace)) keep <- union(keep, request$held_documents)
+                }
+            }
             keep <- unique(vapply(keep, index_canonical_uri, character(1L)))
+            # Wait only for reachable graphs whose edges are still unknown.
+            # An in-flight parse that lost its last source edge can be pruned
+            # immediately instead of keeping itself alive indefinitely.
+            if (index$is_lazy() && any(vapply(keep, function(uri) {
+                index$should_index(path_from_uri(uri)) && !index$summaries$has(uri) &&
+                    !index$parse_failed(uri)
+            }, logical(1L)))) {
+                index$prune_pending <- TRUE
+                return(invisible(NULL))
+            }
             remove <- document_uris[!vapply(document_uris, function(uri) {
                 index_canonical_uri(uri) %in% keep
             }, logical(1L))]
@@ -434,6 +501,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 workspace$type_hierarchy_cache$clear()
                 workspace$update_loaded_packages()
             }
+            index$prune_inactive(keep)
             invisible(NULL)
         },
 
@@ -492,9 +560,9 @@ LanguageServer <- R6::R6Class("LanguageServer",
                         self$refresh_index_documents(workspace,
                             refresh = changed || !length(uris))
                     })
-                private$start_workspace_progress(workspace)
             }
-            workspace$index$discover()
+            workspace$index$discover(full = FALSE)
+            if (workspace$index$discovering) private$start_workspace_progress(workspace)
             # Discovery can load disk caches or drop files that only exist in
             # the editor. Restore open buffers before loading package files.
             for (doc in workspace$documents$values()) {
@@ -519,6 +587,28 @@ LanguageServer <- R6::R6Class("LanguageServer",
             for (workspace in self$workspaces$values()) {
                 self$load_workspace(workspace)
             }
+        },
+        start_index_progress = function(workspace) private$start_workspace_progress(workspace),
+
+        queue_context_reply = function(uri, workspace) {
+            if (is.null(self$context_replies)) self$context_replies <- collections::dict()
+            self$context_replies$set(uri, workspace)
+            invisible(NULL)
+        },
+
+        process_context_replies = function() {
+            if (is.null(self$context_replies)) return(invisible(NULL))
+            for (uri in self$context_replies$keys()) {
+                workspace <- self$context_replies$get(uri)
+                document <- workspace$documents$get(uri, NULL)
+                if (is.null(document) || !identical(self$get_workspace(uri), workspace)) {
+                    self$context_replies$remove(uri)
+                } else if (!source_context_waiting(workspace, document)) {
+                    self$context_replies$remove(uri)
+                    self$queue_pending_replies(uri)
+                }
+            }
+            invisible(NULL)
         },
         queue_parse_retry = function(uri, callback) {
             if (is.null(private$parse_retries)) private$parse_retries <- collections::ordered_dict()
@@ -549,11 +639,13 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 if (current && (is.null(workspace$index) || !isTRUE(workspace$index$enabled) ||
                             workspace$index$should_index(path_from_uri(entry$uri)))) {
                     loaded <- self$load_index_document(workspace, entry$uri, reload = entry$reload)
-                    if (!workspace$documents$has(entry$uri) && !is.null(workspace$index)) {
-                        workspace$index$remove(entry$uri)
-                    } else if (is.null(loaded) && !is.null(workspace$index) &&
-                            !isTRUE(workspace$documents$get(entry$uri)$is_open)) {
-                        workspace$index$finish_document(entry$uri)
+                    if (is.null(workspace$index) || !workspace$index$parse_failed(entry$uri)) {
+                        if (!workspace$documents$has(entry$uri) && !is.null(workspace$index)) {
+                            workspace$index$remove(entry$uri)
+                        } else if (is.null(loaded) && !is.null(workspace$index) &&
+                                !isTRUE(workspace$documents$get(entry$uri)$is_open)) {
+                            workspace$index$finish_document(entry$uri)
+                        }
                     }
                 } else if (!is.null(entry$index)) {
                     entry$index$finish_document(entry$uri)
@@ -646,6 +738,9 @@ LanguageServer <- R6::R6Class("LanguageServer",
             delay = 0, parse_delay = delay,
             diagnostics_delay = delay) {
             workspace <- self$get_workspace(uri)
+            if (!is.null(workspace$index) && workspace$index$activate_package(uri)) {
+                private$start_workspace_progress(workspace)
+            }
             # A peer's last parse becomes stale before its replacement arrives.
             # Stop using its imports as soon as an edit or reload is scheduled.
             if (is.function(workspace$invalidate_s3_context)) workspace$invalidate_s3_context()
@@ -680,6 +775,10 @@ LanguageServer <- R6::R6Class("LanguageServer",
             }
 
             if (parse) {
+                if (isTRUE(document$is_open) && !is.null(workspace$index) &&
+                        isTRUE(workspace$index$enabled)) {
+                    workspace$index$await_parse(uri, cacheable = FALSE)
+                }
                 self$parse_task_manager$add_task(
                     uri,
                     parse_task(self, uri, document, delay = parse_delay)
@@ -762,6 +861,138 @@ LanguageServer <- R6::R6Class("LanguageServer",
             if (!private$ready_reply_methods$has(uri)) {
                 private$ready_reply_methods$set(uri, 1L)
                 private$ready_reply_uris$push(uri)
+            }
+            invisible(NULL)
+        },
+
+        queue_index_request = function(id, method, params, workspaces, uri = NULL) {
+            document <- if (is.null(uri)) NULL else self$get_workspace(uri)$documents$get(uri, NULL)
+            waiting_parse <- !is.null(document) && (is.null(document$parse_data) ||
+                    !identical(document$version, document$parse_data$version) ||
+                    !identical(document$content, document$parsed_content))
+            if (!is.null(document) && !waiting_parse) {
+                point <- document$from_lsp_position(params$position)
+                if (!check_scope(uri, document, point)) return(FALSE)
+                token <- document$detect_token(point)
+                key <- reference_key_at(document$parse_data$reference_index, point, token$token)
+                if (!is.null(key) && !startsWith(key, "global:")) return(FALSE)
+            }
+            indexes <- list()
+            pending <- waiting_parse
+            for (workspace in if (waiting_parse) list() else workspaces) {
+                index <- workspace$index
+                if (is.null(index) || !isTRUE(index$enabled) || !dir.exists(index$root)) next
+                if (!index$full_started) {
+                    if (is.null(index$task_manager) && !is.null(self$index_task_manager)) self$load_workspace(workspace)
+                    index$discover()
+                    private$start_workspace_progress(workspace)
+                    for (doc in workspace$documents$values()) {
+                        if (isTRUE(doc$is_open)) refresh_index_summary(workspace, index, doc$uri)
+                    }
+                }
+                indexes[[length(indexes) + 1L]] <- list(workspace = workspace, index = index)
+                pending <- pending || !index$complete()
+            }
+            # Global references also need closed callers parsed after their
+            # source edges have been discovered. Queue that second phase below.
+            if (!is.null(uri) && length(indexes)) pending <- TRUE
+            if (!pending) return(FALSE)
+            if (is.null(self$index_requests)) self$index_requests <- collections::ordered_dict()
+            key <- paste0(if (is.character(id)) "string:" else "number:", id)
+            self$index_requests$set(key, list(id = id, method = method, params = params,
+                    indexes = indexes, workspaces = workspaces, uri = uri,
+                    workspace = if (is.null(uri)) NULL else self$get_workspace(uri),
+                    workspace_index = if (is.null(uri)) NULL else self$get_workspace(uri)$index,
+                    document = document, version = document$version, content = document$content, open = document$is_open,
+                    held_documents = character(), prepared = is.null(uri), waiting_parse = waiting_parse))
+            if (waiting_parse && is.function(self$parse_task_manager$promote)) self$parse_task_manager$promote(uri)
+            TRUE
+        },
+
+        process_index_requests = function(max_requests = 20L) {
+            if (is.null(self$index_requests)) return(invisible(NULL))
+            for (key in utils::head(self$index_requests$keys(), max_requests)) {
+                # Rotate pending requests so a ready local parse is not held
+                # behind an older batch of long-running workspace queries.
+                request <- self$index_requests$pop(key, NULL)
+                if (is.null(request)) next
+                self$index_requests$set(key, request)
+                current <- all(vapply(request$indexes, function(entry) {
+                    identical(entry$index, entry$workspace$index) &&
+                        any(vapply(self$workspaces$values(), identical, logical(1L), y = entry$workspace))
+                }, logical(1L)))
+                if (!is.null(request$uri)) {
+                    doc <- request$workspace$documents$get(request$uri, NULL)
+                    current <- current && identical(doc, request$document) &&
+                        any(vapply(self$workspaces$values(), identical, logical(1L), y = request$workspace)) &&
+                        identical(self$get_workspace(request$uri), request$workspace) &&
+                        identical(request$workspace$index, request$workspace_index) &&
+                        identical(doc$version, request$version) && identical(doc$content, request$content) &&
+                        identical(doc$is_open, request$open)
+                } else if (request$method == "workspace/symbol") {
+                    workspaces <- self$workspaces$values()
+                    current <- current && length(workspaces) == length(request$workspaces) &&
+                        all(vapply(request$workspaces, function(workspace) {
+                            any(vapply(workspaces, identical, logical(1L), y = workspace))
+                        }, logical(1L)))
+                }
+                if (!current) {
+                    self$index_requests$remove(key)
+                    if (!is.null(request$workspace)) request$workspace$index$prune_pending <- TRUE
+                    self$deliver(ResponseErrorMessage$new(request$id, "RequestCancelled",
+                            "Workspace or document changed while indexing"))
+                    next
+                }
+                if (isTRUE(request$waiting_parse)) {
+                    doc <- request$document
+                    if (!is.null(doc$parse_failure) && identical(doc$parse_failure$version, doc$version)) {
+                        self$index_requests$remove(key)
+                        reply_parse_failure(self, request$id, doc)
+                        next
+                    }
+                    if (is.null(doc$parse_data) || !identical(doc$version, doc$parse_data$version) ||
+                            !identical(doc$content, doc$parsed_content)) next
+                    # Only the accepted current parse can determine whether
+                    # this request needs a workspace scan or stays local.
+                    self$index_requests$remove(key)
+                    queued <- self$queue_index_request(request$id, request$method, request$params,
+                        request$workspaces, request$uri)
+                    if (!queued) private$deliver_index_request(request)
+                    next
+                }
+                if (!all(vapply(request$indexes, function(entry) entry$index$complete(), logical(1L)))) next
+                if (request$method != "workspace/symbol" &&
+                        any(vapply(request$indexes, function(entry) entry$index$indexing_status()$failed > 0L, logical(1L)))) {
+                    self$index_requests$remove(key)
+                    self$deliver(ResponseErrorMessage$new(request$id, "InternalError", "Required workspace files could not be parsed"))
+                    next
+                }
+                if (!is.null(request$uri)) {
+                    doc <- request$document
+                    if (!is.null(doc$parse_failure) && identical(doc$parse_failure$version, doc$version)) {
+                        self$index_requests$remove(key)
+                        reply_parse_failure(self, request$id, doc)
+                        next
+                    }
+                    if (!identical(doc$version, doc$parse_data$version) ||
+                            !identical(doc$content, doc$parsed_content)) next
+                    point <- doc$from_lsp_position(request$params$position)
+                    definition <- definition_reply(NULL, request$uri, request$workspace, doc, point)$result
+                    # Source edges can change while closed callers are parsed.
+                    # Recompute their closure after each settled batch; queuing
+                    # an already-current document is a no-op.
+                    uris <- if (length(definition)) request$workspace$index$dependent_closure(definition$uri) else character()
+                    request$held_documents <- uris
+                    request$prepared <- TRUE
+                    self$index_requests$set(key, request)
+                    for (uri in uris) private$queue_workspace_document(request$workspace, uri)
+                    if (!request$workspace$index$complete()) next
+                }
+                self$index_requests$remove(key)
+                if (!is.null(request$workspace)) request$workspace$index$prune_pending <- TRUE
+                # Deliver directly after preparation, rather than requeueing
+                # the same global request through its public handler.
+                private$deliver_index_request(request)
             }
             invisible(NULL)
         },

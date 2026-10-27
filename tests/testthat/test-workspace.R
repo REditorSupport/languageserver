@@ -23,7 +23,7 @@ test_that("Changes in non-open files in package workspace are handled", {
   dir.create(dir)
 
   desc_file <- file.path(dir, "DESCRIPTION")
-  file.create(desc_file)
+  writeLines("Package: workspacefixture", desc_file)
 
   source_dir <- file.path(dir, "R")
   dir.create(source_dir, "R")
@@ -119,13 +119,13 @@ test_that("Multiple workspace folders are loaded and handled", {
 
   dir1 <- tempfile()
   dir.create(dir1)
-  file.create(file.path(dir1, "DESCRIPTION"))
+  writeLines("Package: workspacefixture1", file.path(dir1, "DESCRIPTION"))
   dir.create(file.path(dir1, "R"))
   writeLines(c("fun_wk1 <- function(x) { x }"), file.path(dir1, "R", "test1.R"))
 
   dir2 <- tempfile()
   dir.create(dir2)
-  file.create(file.path(dir2, "DESCRIPTION"))
+  writeLines("Package: workspacefixture2", file.path(dir2, "DESCRIPTION"))
   dir.create(file.path(dir2, "R"))
   writeLines(c("fun_wk2 <- function(y) { y }"), file.path(dir2, "R", "test2.R"))
 
@@ -160,7 +160,7 @@ test_that("Multiple workspace folders are loaded and handled", {
   # Additionally check dynamically adding a workspace folder
   dir3 <- tempfile()
   dir.create(dir3)
-  file.create(file.path(dir3, "DESCRIPTION"))
+  writeLines("Package: workspacefixture3", file.path(dir3, "DESCRIPTION"))
   dir.create(file.path(dir3, "R"))
   writeLines(c("fun_wk3 <- function(z) { z }"), file.path(dir3, "R", "test3.R"))
 
@@ -188,7 +188,7 @@ test_that("Fallback workspace cleans up documents when directory is added", {
   dir1 <- tempfile()
   dir.create(dir1)
   dir.create(file.path(dir1, "R"))
-  file.create(file.path(dir1, "DESCRIPTION"))
+  writeLines("Package: workspacefixture1", file.path(dir1, "DESCRIPTION"))
   file1 <- file.path(dir1, "R", "test1.R")
   writeLines(c("fun_wk1 <- function(x) { x }"), file1)
 

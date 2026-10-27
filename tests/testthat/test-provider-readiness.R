@@ -378,6 +378,53 @@ test_that("ordinary providers respond while unrelated package metadata is pendin
     expect_true(all(vapply(fixture$server$pending_replies$get(fixture$uri), function(queue) queue$size() == 0L, logical(1L))))
 })
 
+test_that("basic providers remain available through partially accepted discovery transfers", {
+    values <- list(index_mode = "full", index_persistent_cache = FALSE,
+        index_batch_size = 20L, index_time_budget_ms = Inf)
+    old <- stats::setNames(lapply(names(values), lsp_settings$get), names(values))
+    withr::defer(for (name in names(old)) lsp_settings$set(name, old[[name]]))
+    for (name in names(values)) lsp_settings$set(name, values[[name]])
+    fixture <- readiness_fixture(c("print(1)", "pri"))
+    fixture$workspace$s3_metadata <- S3MetadataCache$new()
+    paths <- file.path(fixture$workspace$root, sprintf("unrelated-%03d.R", seq_len(80L)))
+    for (path in paths) writeLines("unrelated <- function(value) value", path)
+    manager <- readiness_task_manager()
+    index <- fixture$workspace$index
+    index$attach_worker(manager)
+    request <- function() {
+        fixture$server$replies <- list()
+        text_document_completion(fixture$server, 1L, readiness_params(fixture, 1L, 3L))
+        text_document_signature_help(fixture$server, 2L, readiness_params(fixture, 0L, 6L))
+        text_document_hover(fixture$server, 3L, readiness_params(fixture, 0L, 2L))
+        expect_length(fixture$server$replies, 3L)
+        replies <- stats::setNames(fixture$server$replies,
+            vapply(fixture$server$replies, function(reply) as.character(reply$id), character(1L)))
+        expect_true("print" %in% vapply(replies$`1`$result$items, `[[`, character(1L), "label"))
+        expect_match(replies$`2`$result$signatures[[1L]]$label, "print(x", fixed = TRUE)
+        expect_match(replies$`3`$result$contents[[1L]], "print", fixed = TRUE)
+        expect_true(all(vapply(fixture$server$pending_replies$get(fixture$uri),
+                    function(queue) queue$size() == 0L, logical(1L))))
+    }
+    request()
+    index$discover()
+    index$process_batch()
+    request()
+    task <- tail(manager$tasks$values(), 1L)[[1L]]$.__enclos_env__$private
+    withr::defer(index_worker_release(task$args$key))
+    result <- do.call(index_worker_discover, task$args)
+    expect_gt(length(result$files), 20L)
+    task$callback(result)
+    request()
+    index$process_batch()
+    expect_true(index$discovering)
+    expect_lt(index$files$size(), length(result$files))
+    request()
+    for (i in seq_len(4L)) index$process_batch()
+    expect_false(index$discovering)
+    expect_false(index$complete())
+    request()
+})
+
 test_that("queued ordinary requests drain independently of S3 metadata waits", {
     fixture <- readiness_fixture(c("base::findInterval(1, c(0, 2))", "pending::new_generic(1)"))
     server <- fixture$server

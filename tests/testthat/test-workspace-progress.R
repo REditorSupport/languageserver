@@ -26,7 +26,10 @@ WorkspaceProgressServer <- R6::R6Class("WorkspaceProgressServer",
     )
 )
 
-progress_fixture <- function(supported = TRUE) {
+progress_fixture <- function(supported = TRUE, mode = "full") {
+    old_mode <- lsp_settings$get("index_mode")
+    withr::defer(lsp_settings$set("index_mode", old_mode), envir = parent.frame())
+    lsp_settings$set("index_mode", mode)
     root <- withr::local_tempdir(.local_envir = parent.frame())
     server <- WorkspaceProgressServer$new(root, supported)
     workspace <- server$workspaces$values()[[1L]]
@@ -69,6 +72,15 @@ test_that("workspace progress is capability gated and starts after client acknow
     payload <- jsonlite::fromJSON(tail(server$messages, 1L)[[1L]]$to_json())
     expect_identical(payload$params$token, request$params$token)
     expect_identical(payload$params$value$kind, "begin")
+})
+
+test_that("automatic standalone workspaces do not start discovery or progress", {
+    fixture <- progress_fixture(mode = "auto")
+    expect_true(fixture$index$is_lazy())
+    expect_false(fixture$index$discovering)
+    expect_length(fixture$server$messages, 0L)
+    fixture$server$report_workspace_progress()
+    expect_length(fixture$server$messages, 0L)
 })
 
 test_that("progress counts queued and running files and waits for full package parses", {

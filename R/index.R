@@ -1,5 +1,39 @@
 index_cache_version <- 2L
 
+#' Recognize a package without recursively searching a workspace
+#' @noRd
+index_is_package <- local({
+    cached <- new.env(hash = TRUE, parent = emptyenv())
+    function(root) {
+        if (!length(root) || !nzchar(root) || !dir.exists(file.path(root, "R"))) return(FALSE)
+        path <- file.path(root, "DESCRIPTION")
+        info <- file.info(path)
+        if (is.na(info$size) || isTRUE(info$isdir) || info$size > 65536L) return(FALSE)
+        identity <- info[c("size", "mtime", "ctime")]
+        previous <- get0(root, cached, inherits = FALSE)
+        if (identical(previous$identity, identity)) return(previous$package)
+        value <- tryCatch(read.dcf(path, fields = "Package"), error = function(e) NULL)
+        package <- !is.null(value) && nrow(value) == 1L && !is.na(value[[1L]]) && nzchar(value[[1L]])
+        if (length(cached) >= 64L) rm(list = ls(cached, all.names = TRUE), envir = cached)
+        assign(root, list(identity = identity, package = package), envir = cached)
+        package
+    }
+})
+
+#' Resolve the automatic indexing policy for one workspace root
+#' @noRd
+index_mode <- function(root) {
+    mode <- lsp_settings$get("index_mode")
+    if (!is.character(mode) || length(mode) != 1L || is.na(mode) ||
+            !tolower(mode) %in% c("auto", "full", "lazy", "off")) mode <- "auto"
+    mode <- tolower(mode)
+    if (mode == "auto") {
+        if (index_is_package(root)) "full" else "lazy"
+    } else {
+        mode
+    }
+}
+
 #' Convert a workspace-index glob to a regular expression
 #' @noRd
 index_glob_regex <- function(pattern) {
@@ -47,6 +81,16 @@ index_glob_match <- function(path, patterns, directory = FALSE, regex = NULL) {
     }, logical(1L)))
 }
 
+#' Match a directory's entries against compiled index globs in one pass
+#' @noRd
+index_glob_matches <- function(paths, regex) {
+    matched <- rep(FALSE, length(paths))
+    for (pattern in regex) {
+        matched <- matched | grepl(pattern, paths, ignore.case = TRUE, perl = TRUE)
+    }
+    matched
+}
+
 #' Normalize a path without requiring it to exist
 #' @noRd
 index_normalize_path <- function(path) {
@@ -80,8 +124,7 @@ index_package_root <- function(path, workspace_root = NULL) {
     current <- dirname(path)
     repeat {
         source_dir <- file.path(current, "R")
-        if (file.exists(file.path(current, "DESCRIPTION")) &&
-                path_has_parent(path, source_dir)) {
+        if (path_has_parent(path, source_dir) && index_is_package(current)) {
             return(current)
         }
         if (!is.null(workspace_root) && identical(current, workspace_root)) break
@@ -183,7 +226,7 @@ index_source_candidates <- function(spec, from_path, workspace_root) {
     candidates <- unique(vapply(candidates, index_normalize_path, character(1L)))
     candidates[vapply(candidates, function(candidate) {
         (identical(candidate, workspace_root) ||
-            path_has_parent(candidate, workspace_root))
+                path_has_parent(candidate, workspace_root))
     }, logical(1L))]
 }
 
@@ -345,18 +388,38 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
         discovery_stale = NULL,
         discovery_result = NULL,
         discovery_position = 1L,
+        discovery_roots = character(),
+        discovery_incremental = FALSE,
+        discovery_seen = NULL,
+        discovery_known = character(),
+        discovery_known_set = NULL,
+        discovery_limit = 0L,
+        discovered_files = NULL,
+        pending_package_roots = character(),
+        activated_packages = NULL,
         source_closures = NULL,
         dependent_closures = NULL,
         package_memberships = NULL,
         definition_counts = NULL,
-        update_definition_names = function(previous, current) {
+        package_definition_counts = NULL,
+        update_definition_names = function(previous, current, counts = private$definition_counts) {
             for (name in setdiff(previous, current)) {
-                count <- private$definition_counts$get(name, 0L) - 1L
-                if (count > 0L) private$definition_counts$set(name, count)
-                else private$definition_counts$pop(name, NULL)
+                count <- counts$get(name, 0L) - 1L
+                if (count > 0L) counts$set(name, count)
+                else counts$pop(name, NULL)
             }
             for (name in setdiff(current, previous)) {
-                private$definition_counts$set(name, private$definition_counts$get(name, 0L) + 1L)
+                counts$set(name, counts$get(name, 0L) + 1L)
+            }
+        },
+        update_package_definitions = function(previous, current) {
+            for (root in unique(Filter(Negate(is.null), list(previous$package_root, current$package_root)))) {
+                if (!private$package_definition_counts$has(root)) {
+                    private$package_definition_counts$set(root, collections::dict())
+                }
+                before <- if (identical(previous$package_root, root)) names(previous$definitions) else character()
+                after <- if (identical(current$package_root, root)) names(current$definitions) else character()
+                private$update_definition_names(before, after, private$package_definition_counts$get(root))
             }
         },
         invalidate_scopes = function(contexts, references) {
@@ -400,6 +463,37 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             if (is.null(generation)) generation <- 0L
             identical(private$generations$get(uri, 0L), generation)
         },
+        discovery_directory_allowed = function(directory) {
+            if (!self$contains_path(directory)) return(FALSE)
+            root <- fs::path_norm(self$root)
+            directory <- fs::path_norm(directory)
+            while (!identical(as.character(directory), as.character(root))) {
+                if (!self$should_index(directory, directory = TRUE)) return(FALSE)
+                directory <- dirname(directory)
+            }
+            TRUE
+        },
+        required_file = function(uri) {
+            isFALSE(self$summaries$get(uri, NULL)$cacheable) ||
+                (private$awaiting_parses$has(uri) && !private$awaiting_parses$get(uri)) ||
+                self$reverse_edges$has(uri)
+        },
+        automatic_file_count = function() {
+            # Discovery origin remains stable when a peer is opened and closed.
+            private$discovered_files$size()
+        },
+        discovery_stale_files = function(candidates, truncated) {
+            stale <- setdiff(candidates, private$discovery_seen$keys())
+            if (private$discovery_incremental && isTRUE(truncated)) {
+                # A quota-limited refresh may stop before an existing entry.
+                # Retain it unless it has actually disappeared or been excluded.
+                stale <- Filter(function(uri) {
+                    path <- path_from_uri(uri)
+                    !file.exists(path) || !self$should_index(path)
+                }, stale)
+            }
+            stale
+        },
         finish_discovery = function(batch_size, budget) {
             result <- private$discovery_result
             if (isTRUE(result$restart)) {
@@ -420,13 +514,18 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                 info <- file.info(file$path)
                 if (!nrow(info) || is.na(info$size[[1L]]) || isTRUE(info$isdir[[1L]])) next
                 self$files$set(uri, file)
+                if (!private$discovery_known_set$has(uri) && !private$required_file(uri)) {
+                    private$discovered_files$set(uri, TRUE)
+                }
+                private$discovery_seen$set(uri, TRUE)
                 summary <- result$summaries[[i]]
-                if (!private$parse_blocked(uri) && !is.null(summary) &&
+                buffer <- isFALSE(self$summaries$get(uri, NULL)$cacheable)
+                if (!buffer && !private$parse_blocked(uri) && !is.null(summary) &&
                         identical(as.numeric(info$size[[1L]]), summary$size) &&
                         identical(as.numeric(info$mtime[[1L]]), summary$mtime) &&
                         index_source_candidates_current(summary)) {
                     self$set_summary(summary)
-                } else if (!private$parse_blocked(uri)) {
+                } else if (!buffer && !private$parse_blocked(uri)) {
                     self$pending <- union(self$pending, uri)
                 }
                 changed <- c(changed, uri)
@@ -441,8 +540,18 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             if (private$discovery_position > length(result$files)) {
                 private$discovery_result <- NULL
                 if (isTRUE(result$done)) {
-                    self$truncated <- result$truncated
-                    private$discovery_stale <- setdiff(self$summaries$keys(), self$files$keys())
+                    self$truncated <- isTRUE(result$truncated) ||
+                        (private$discovery_incremental && self$truncated)
+                    candidates <- if (private$discovery_incremental) {
+                        Filter(function(uri) {
+                            any(vapply(private$discovery_roots, function(root) {
+                                path_has_parent(path_from_uri(uri), root)
+                            }, logical(1L)))
+                        }, union(self$summaries$keys(), self$files$keys()))
+                    } else {
+                        self$summaries$keys()
+                    }
+                    private$discovery_stale <- private$discovery_stale_files(candidates, result$truncated)
                 }
             }
             invisible(NULL)
@@ -523,6 +632,10 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
         on_update = NULL,
         worker_running = FALSE,
         discovering = FALSE,
+        mode = NULL,
+        full_requested = FALSE,
+        full_started = FALSE,
+        prune_pending = FALSE,
 
         initialize = function(root, cache_path = NULL) {
             private$cache_path <- cache_path
@@ -550,13 +663,53 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             private$dependent_closures <- collections::dict()
             private$package_memberships <- collections::dict()
             private$definition_counts <- collections::dict()
+            private$package_definition_counts <- collections::dict()
+            private$activated_packages <- collections::dict()
+            private$discovery_seen <- collections::dict()
+            private$discovered_files <- collections::dict()
+            private$discovery_known_set <- collections::dict()
             private$worker_key <- tempfile("workspace-index-")
-            mode <- lsp_settings$get("index_mode")
-            if (!is.character(mode) || length(mode) != 1L || is.na(mode)) {
-                mode <- "auto"
-            }
-            self$enabled <- !is.null(self$root) &&
-                !identical(tolower(mode), "off")
+            self$mode <- index_mode(self$root)
+            self$full_requested <- self$mode == "full"
+            self$enabled <- !is.null(self$root) && self$mode != "off"
+        },
+
+        is_lazy = function() self$enabled && !self$full_requested,
+
+        activate_package = function(uri) {
+            if (!self$is_lazy()) return(FALSE)
+            root <- self$package_root_for_uri(uri)
+            if (is.null(root) || private$activated_packages$has(root) ||
+                    !private$discovery_directory_allowed(file.path(root, "R"))) return(FALSE)
+            private$activated_packages$set(root, TRUE)
+            private$pending_package_roots <- union(private$pending_package_roots, file.path(root, "R"))
+            TRUE
+        },
+
+        watches_package = function(root) private$activated_packages$has(root),
+
+        watches_path = function(path) {
+            if (!self$should_index(path)) return(FALSE)
+            if (!self$is_lazy()) return(TRUE)
+            uri <- index_canonical_uri(path_to_uri(path))
+            root <- self$package_root_for_uri(uri)
+            self$files$has(uri) || self$summaries$has(uri) ||
+                length(self$dependents(uri, include_candidates = TRUE)) > 0L ||
+                (!is.null(root) && private$activated_packages$has(root))
+        },
+
+        prune_inactive = function(keep) {
+            if (!self$is_lazy()) return(invisible(NULL))
+            keep <- vapply(keep, index_canonical_uri, "")
+            known <- unique(c(self$files$keys(), self$summaries$keys(), private$failed_parses$keys()))
+            for (uri in setdiff(known, keep)) self$remove(uri)
+            invisible(NULL)
+        },
+
+        complete = function() {
+            !self$discovering && !length(private$pending_package_roots) &&
+                !length(self$pending) && !length(private$worker_requests) &&
+                private$awaiting_parses$size() == 0L && private$pending_documents$size() == 0L
         },
 
         attach_worker = function(manager, on_update = NULL) {
@@ -667,8 +820,19 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             private$pending_documents$has(index_canonical_uri(uri))
         },
 
-        fail_parse = function(uri) {
+        fail_parse = function(uri, discard_summary = FALSE) {
             uri <- index_canonical_uri(uri)
+            if (isTRUE(discard_summary) && self$summaries$has(uri)) {
+                empty <- self$summaries$get(uri)
+                empty$sources <- empty$source_candidates <- character()
+                empty$definitions <- empty$functions <- list()
+                empty$parse_error <- FALSE
+                empty$package_root <- NULL
+                self$set_summary(empty)
+                self$summaries$remove(uri)
+                if (self$source_edges$has(uri)) self$source_edges$remove(uri)
+                private$mark_dirty(uri)
+            }
             self$finish_document(uri)
             self$invalidate(uri)
             private$awaiting_parses$pop(uri, NULL)
@@ -695,10 +859,10 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                     vapply(current, `[[`, character(1L), "uri"),
                     private$pending_documents$keys(), queued_documents))
             total <- self$files$size()
-            list(discovering = self$discovering, total = total,
+            list(discovering = self$discovering || length(private$pending_package_roots) > 0L, total = total,
                 completed = max(total - length(pending), 0L),
                 failed = private$failed_parses$size(),
-                done = !self$discovering && !length(pending), truncated = self$truncated)
+                done = !self$discovering && !length(private$pending_package_roots) && !length(pending), truncated = self$truncated)
         },
 
         diagnostics_generation = function(uri) {
@@ -766,6 +930,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
         },
 
         cache_file = function() {
+            if (self$is_lazy()) return(NULL)
             if (!isTRUE(lsp_settings$get("index_persistent_cache"))) return(NULL)
             if (!is.null(private$cache_path)) return(private$cache_path)
             base <- tools::R_user_dir("languageserver", "cache")
@@ -788,6 +953,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                         !identical(as.numeric(info$size[[1L]]), summary$size) ||
                         !identical(as.numeric(info$mtime[[1L]]), summary$mtime)) next
                 if (!index_source_candidates_current(summary)) next
+                summary$package_root <- index_package_root(summary$path, self$root)
                 self$set_summary(summary)
             }
             invisible(NULL)
@@ -822,8 +988,39 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             invisible(NULL)
         },
 
-        discover = function() {
+        discover = function(full = TRUE, directory = NULL, known_uris = NULL, file_limit = NULL) {
             if (!self$enabled || !dir.exists(self$root)) return(invisible(NULL))
+            if (!isTRUE(full) && self$is_lazy() && is.null(directory)) return(invisible(NULL))
+            if (isTRUE(full)) {
+                self$full_requested <- self$full_started <- TRUE
+                private$pending_package_roots <- character()
+            }
+            if (is.null(directory) && self$full_requested) self$full_started <- TRUE
+            roots <- if (!is.null(directory)) {
+                directory
+            } else {
+                if (index_is_package(self$root)) c(file.path(self$root, "R"), self$root) else self$root
+            }
+            roots <- Filter(private$discovery_directory_allowed, roots)
+            if (!length(roots)) return(invisible(NULL))
+            private$discovery_incremental <- !is.null(directory)
+            private$discovery_roots <- roots
+            private$discovery_known <- if (!is.null(known_uris)) {
+                known_uris
+            } else {
+                known <- union(self$files$keys(), self$pending)
+                if (private$discovery_incremental) known else Filter(private$required_file, known)
+            }
+            private$discovery_known_set <- collections::dict()
+            for (uri in private$discovery_known) private$discovery_known_set$set(uri, TRUE)
+            private$discovery_limit <- if (!is.null(file_limit)) {
+                max(0L, file_limit)
+            } else if (private$discovery_incremental) {
+                max(0L, self$max_files() - private$automatic_file_count())
+            } else {
+                self$max_files()
+            }
+            private$discovery_seen <- collections::dict()
             private$diagnostics_discovery <- private$diagnostics_discovery + 1L
             if (!is.null(self$task_manager)) {
                 private$worker_lifecycle <- private$worker_lifecycle + 1L
@@ -837,31 +1034,42 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                 private$discovery_result <- NULL
                 private$discovery_generations <- stats::setNames(
                     private$generations$values(), private$generations$keys())
-                self$files$clear()
-                self$pending <- character()
-                self$truncated <- FALSE
+                if (!private$discovery_incremental) {
+                    self$files$clear()
+                    private$discovered_files$clear()
+                    self$pending <- character()
+                    self$truncated <- FALSE
+                }
                 self$package_revision <- self$package_revision + 1L
                 private$package_memberships$clear()
                 self$revision <- self$revision + 1
                 return(invisible(NULL))
             }
             old_files <- self$files$values()
-            self$files$clear()
-            self$pending <- character()
-            self$truncated <- FALSE
-            self$load_cache()
+            if (!private$discovery_incremental) {
+                self$files$clear()
+                private$discovered_files$clear()
+                self$pending <- character()
+                self$truncated <- FALSE
+                self$load_cache()
+            }
             queue <- collections::queue()
-            queue$push(self$root)
+            for (root in private$discovery_roots) queue$push(root)
             visited <- new.env(hash = TRUE, parent = emptyenv())
+            known <- new.env(hash = TRUE, parent = emptyenv())
+            for (uri in private$discovery_known) assign(uri, TRUE, envir = known)
             count <- 0L
-            max_files <- self$max_files()
+            max_files <- private$discovery_limit
             max_bytes <- self$max_file_bytes()
-            pending <- character(max_files)
+            include_regex <- self$compiled_globs()
+            exclude_regex <- self$compiled_globs(TRUE)
+            pending <- character(max_files + length(private$discovery_known))
             pending_count <- 0L
+            limit_reached <- FALSE
             real_root <- normalizePath(
                 self$root, winslash = "/", mustWork = FALSE)
 
-            while (queue$size() && count < max_files) {
+            while (queue$size() && !limit_reached) {
                 directory <- queue$pop()
                 canonical <- normalizePath(
                     directory, winslash = "/", mustWork = FALSE)
@@ -873,46 +1081,94 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                 if (!length(entries)) next
                 entries <- sort(entries, method = "radix")
                 info <- file.info(entries)
-                for (i in seq_along(entries)) {
-                    path <- index_normalize_path(entries[[i]])
-                    real_path <- normalizePath(
-                        path, winslash = "/", mustWork = FALSE)
-                    if (!identical(real_path, real_root) &&
-                            !path_has_parent(real_path, real_root)) next
-                    is_dir <- isTRUE(info$isdir[[i]])
-                    if (is_dir) {
-                        if (self$should_index(path, directory = TRUE)) {
+                # Discovery roots are absolute, so list.files() returns absolute
+                # paths too. Batch the fs calculations instead of repeatedly
+                # expanding the working directory and platform for every entry.
+                paths <- path.expand(entries)
+                if (.Platform$OS.type == "windows") {
+                    paths <- gsub("\\", "/", paths, fixed = TRUE)
+                }
+                is_dirs <- !is.na(info$isdir) & info$isdir
+                rel <- gsub("\\", "/", fs::path_rel(paths, start = self$root), fixed = TRUE)
+                directory_paths <- rel
+                directory_paths[is_dirs] <- paste0(sub("/+$", "", rel[is_dirs]), "/")
+                eligible <- (paths == self$root | path_has_parent(paths, self$root)) &
+                    !index_glob_matches(directory_paths, exclude_regex) &
+                    (is_dirs | (index_glob_matches(rel, include_regex) &
+                                !is.na(info$size) & info$size <= max_bytes))
+                candidates <- which(!is.na(eligible) & eligible)
+                if (!length(candidates)) next
+                # Exclusions save real-path work, but every file accepted and
+                # every directory traversed must still stay inside the root.
+                package_checked <- FALSE
+                package_root <- NULL
+                # Bound real-path work as well: a low file limit should not
+                # resolve every entry in a directory containing many files.
+                for (first in seq.int(1L, length(candidates), 512L)) {
+                    chunk <- candidates[seq.int(first, min(first + 511L, length(candidates)))]
+                    real_paths <- normalizePath(paths[chunk], winslash = "/", mustWork = FALSE)
+                    contained <- real_paths == real_root | path_has_parent(real_paths, real_root)
+                    for (i in chunk[which(!is.na(contained) & contained)]) {
+                        path <- paths[[i]]
+                        if (is_dirs[[i]]) {
                             queue$push(path)
+                            next
                         }
-                        next
+                        uri <- path_to_uri(path)
+                        if (!exists(uri, envir = known, inherits = FALSE)) {
+                            if (count >= max_files) {
+                                limit_reached <- TRUE
+                                break
+                            }
+                            count <- count + 1L
+                        }
+                        # Direct files in this directory share package membership.
+                        # Recompute it for every directory on each discovery run.
+                        if (!package_checked) {
+                            package_root <- index_package_root(path, self$root)
+                            package_checked <- TRUE
+                        }
+                        metadata <- list(
+                            uri = uri,
+                            path = path,
+                            size = as.numeric(info$size[[i]]),
+                            mtime = as.numeric(info$mtime[[i]]),
+                            package_root = package_root
+                        )
+                        self$files$set(uri, metadata)
+                        if (!exists(uri, envir = known, inherits = FALSE) && !private$required_file(uri)) {
+                            private$discovered_files$set(uri, TRUE)
+                        }
+                        private$discovery_seen$set(uri, TRUE)
+                        if (!self$summaries$has(uri) && !private$parse_blocked(uri)) {
+                            pending_count <- pending_count + 1L
+                            pending[[pending_count]] <- uri
+                        }
                     }
-                    if (!self$should_index(path) || is.na(info$size[[i]]) ||
-                            info$size[[i]] > max_bytes) next
-                    count <- count + 1L
-                    if (count > max_files) break
-                    uri <- path_to_uri(path)
-                    metadata <- list(
-                        uri = uri,
-                        path = path,
-                        size = as.numeric(info$size[[i]]),
-                        mtime = as.numeric(info$mtime[[i]]),
-                        package_root = index_package_root(path, self$root)
-                    )
-                    self$files$set(uri, metadata)
-                    if (!self$summaries$has(uri) && !private$parse_blocked(uri)) {
-                        pending_count <- pending_count + 1L
-                        pending[[pending_count]] <- uri
-                    }
+                    if (limit_reached) break
                 }
             }
-            self$pending <- if (pending_count) {
+            pending <- if (pending_count) {
                 pending[seq_len(pending_count)]
             } else {
                 character()
             }
-            stale <- setdiff(self$summaries$keys(), self$files$keys())
-            for (uri in stale) self$remove(uri)
-            self$truncated <- queue$size() > 0L || count >= max_files
+            self$pending <- union(self$pending, pending)
+            candidates <- if (private$discovery_incremental) {
+                Filter(function(uri) {
+                    any(vapply(private$discovery_roots, function(root) {
+                        path_has_parent(path_from_uri(uri), root)
+                    }, logical(1L)))
+                }, union(self$summaries$keys(), self$files$keys()))
+            } else {
+                self$summaries$keys()
+            }
+            truncated <- limit_reached || queue$size() > 0L || (max_files > 0L && count >= max_files)
+            stale <- private$discovery_stale_files(candidates, truncated)
+            for (uri in stale) {
+                if (!isFALSE(self$summaries$get(uri, NULL)$cacheable) && !private$parse_blocked(uri)) self$remove(uri)
+            }
+            self$truncated <- truncated || (private$discovery_incremental && self$truncated)
             package <- vapply(self$pending, function(uri) {
                 !is.null(self$files$get(uri)$package_root)
             }, logical(1L))
@@ -989,6 +1245,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             }
             self$summaries$set(uri, summary)
             private$update_definition_names(names(previous$definitions), names(summary$definitions))
+            private$update_package_definitions(previous, summary)
             private$failed_parses$pop(uri, NULL)
             if (private$awaiting_parses$has(uri)) private$awaiting_parses$remove(uri)
             private$mark_dirty(uri, summary)
@@ -1050,6 +1307,11 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
         },
 
         process_batch = function() {
+            if (!self$worker_running && !self$discovering && length(private$pending_package_roots)) {
+                directory <- private$pending_package_roots[[1L]]
+                private$pending_package_roots <- private$pending_package_roots[-1L]
+                self$discover(full = FALSE, directory = directory)
+            }
             if (!is.null(self$task_manager)) {
                 if (self$worker_running) return(character())
                 batch_size <- suppressWarnings(as.integer(lsp_settings$get("index_batch_size")))
@@ -1095,7 +1357,14 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                     self$task_manager$add_task(private$worker_key, create_task(
                         package_call(index_worker_discover),
                         list(key = private$worker_key, root = self$root, settings = settings,
-                            cache_file = self$cache_file(), batch_size = min(batch_size, 20L)),
+                            cache_file = if (private$discovery_incremental) NULL else self$cache_file(),
+                            # Transport metadata in larger chunks; accepting it
+                            # still uses the configured file and time budgets.
+                            batch_size = 512L,
+                            summary_batch_size = min(batch_size, 20L),
+                            directory = if (private$discovery_incremental) private$discovery_roots[[1L]] else NULL,
+                            known_uris = if (!is.null(settings)) private$discovery_known else character(),
+                            file_limit = private$discovery_limit),
                         callback = function(result) {
                             if (!identical(lifecycle, private$worker_lifecycle)) return(NULL)
                             self$worker_running <- FALSE
@@ -1199,6 +1468,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
 
         remove = function(uri) {
             uri <- index_canonical_uri(uri)
+            private$discovered_files$pop(uri, NULL)
             self$finish_document(uri)
             self$invalidate(uri)
             if (private$awaiting_parses$has(uri)) private$awaiting_parses$remove(uri)
@@ -1316,7 +1586,18 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             result
         },
 
-        has_definition = function(name) private$definition_counts$has(name),
+        has_definition = function(name, uri = NULL) {
+            if (!private$definition_counts$has(name)) return(FALSE)
+            if (is.null(uri)) return(TRUE)
+            root <- self$package_root_for_uri(uri)
+            if (!is.null(root)) {
+                counts <- private$package_definition_counts$get(root, NULL)
+                return(!is.null(counts) && counts$has(name))
+            }
+            any(vapply(self$source_closure(uri), function(source) {
+                name %in% names(self$summaries$get(source, NULL)$definitions)
+            }, logical(1L)))
+        },
 
         definitions_for_query = function(pattern) {
             if (is.null(private$catalog) || !identical(private$catalog_revision, self$revision)) {

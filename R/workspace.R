@@ -746,7 +746,7 @@ Workspace <- R6::R6Class("Workspace",
             if (!is.null(uri) && !is.null(self$index) &&
                     isTRUE(self$index$enabled)) {
                 if (!self$index$files$size() && !self$index$discovering) {
-                    self$index$discover()
+                    self$index$discover(full = FALSE)
                 }
                 package_root <- self$index$package_root_for_uri(uri)
                 import_root <- if (!is.null(package_root)) {
