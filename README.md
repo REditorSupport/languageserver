@@ -241,6 +241,10 @@ strings or quoted names use ordinary text edits to preserve their contents.
 Ordinary edits use a unique generated name, which can be changed with Rename.
 Compatible editors also offer a documentation link in the refactoring menu.
 
+Try [the LSP 3.18 demo script](inst/examples/lsp-3-18.R) for signature help,
+linked extraction names, multiline string preservation, generated package
+definitions and refactoring documentation.
+
 ## Generated package definitions
 
 When a package function has no source-file location, Go to Definition shows its
