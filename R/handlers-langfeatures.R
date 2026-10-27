@@ -30,8 +30,10 @@ source_context_waiting <- function(workspace, document) {
     if (is.null(index) || !isTRUE(index$enabled) || !is.null(index$package_root_for_uri(document$uri))) return(FALSE)
     related <- setdiff(index$source_closure(document$uri), index_canonical_uri(document$uri))
     any(vapply(related, function(uri) {
-        if (!index$should_index(path_from_uri(uri)) || index$parse_failed(uri)) return(FALSE)
+        path <- path_from_uri(uri)
+        if (!index$should_index(path) || index$parse_failed(uri)) return(FALSE)
         doc <- workspace$documents$get(uri, NULL)
+        if ((is.null(doc) || !isTRUE(doc$is_open)) && (!file.exists(path) || dir.exists(path))) return(FALSE)
         is.null(doc) || !identical(doc$version, doc$parse_data$version) || !identical(doc$content, doc$parsed_content)
     }, logical(1L)))
 }
@@ -74,10 +76,10 @@ text_document_completion  <- function(self, id, params) {
     # completion need current syntax; an immediate reply would omit new
     # context bindings and leave the client with that list until retriggered.
     if ((isTRUE(lsp_settings$get("member_completion")) || isTRUE(lsp_settings$get("s3_dispatch"))) &&
-        !identical(document$version, document$parse_data$version) &&
-        !member_ordinary_request(workspace, document) &&
-        ((check_scope(uri, document, point) &&
-                    identical(completion_token(document, point)$accessor, "")) ||
+            !identical(document$version, document$parse_data$version) &&
+            !member_ordinary_request(workspace, document) &&
+            ((check_scope(uri, document, point) &&
+                        identical(completion_token(document, point)$accessor, "")) ||
                     !is.null(member_cursor(document, point)) ||
                     !is.null(member_call_location(document, point, symbols = TRUE)))) {
         enqueue_latest_reply(self, uri, "textDocument/completion", list(
@@ -86,7 +88,7 @@ text_document_completion  <- function(self, id, params) {
         return(invisible(NULL))
     }
     self$deliver(completion_reply(id, uri, workspace, document, point,
-        self$ClientCapabilities$textDocument$completion))
+            self$ClientCapabilities$textDocument$completion))
 }
 
 #' `completionItem/resolve` request handler
@@ -125,8 +127,8 @@ text_document_hover  <- function(self, id, params) {
         return(invisible(NULL))
     }
     if ((isTRUE(lsp_settings$get("member_completion")) || isTRUE(lsp_settings$get("s3_dispatch"))) &&
-        !identical(document$version, document$parse_data$version) &&
-        (!is.null(member_hover_location(document, point)) ||
+            !identical(document$version, document$parse_data$version) &&
+            (!is.null(member_hover_location(document, point)) ||
                     !is.null(member_argument_location(document, point, symbols = TRUE)) ||
                     !is.null(member_symbol_location(document, point)))) {
         enqueue_latest_reply(self, uri, "textDocument/hover", list(
@@ -158,8 +160,8 @@ text_document_signature_help  <- function(self, id, params) {
         return(invisible(NULL))
     }
     if ((isTRUE(lsp_settings$get("member_completion")) || isTRUE(lsp_settings$get("s3_dispatch"))) &&
-        !identical(document$version, document$parse_data$version) &&
-        !is.null(member_call_location(document, point, symbols = TRUE))) {
+            !identical(document$version, document$parse_data$version) &&
+            !is.null(member_call_location(document, point, symbols = TRUE))) {
         enqueue_latest_reply(self, uri, "textDocument/signatureHelp", list(
             id = id, version = document$version, params = params
         ))
@@ -701,10 +703,10 @@ text_document_semantic_tokens_delta <- function(self, id, params) {
     if (is.null(reply)) {
         enqueue_latest_reply(
             self, uri, "textDocument/semanticTokens/full/delta", list(
-            id = id,
-            version = document$version,
-            params = params
-        ))
+                id = id,
+                version = document$version,
+                params = params
+            ))
     } else {
         self$deliver(reply)
     }

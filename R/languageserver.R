@@ -23,10 +23,10 @@ LanguageServer <- R6::R6Class("LanguageServer",
         diagnostics_workspaces = NULL,
         parse_retries = NULL,
         queue_workspace_document = function(workspace, uri) {
+            if (!is.null(workspace$index) && workspace$index$parse_failed(uri)) return(invisible(NULL))
             document <- workspace$documents$get(uri, NULL)
             if (!is.null(document)) {
                 if (isTRUE(document$is_open) ||
-                        (!is.null(workspace$index) && workspace$index$parse_failed(uri)) ||
                         (!is.null(workspace$index) && workspace$index$document_pending(uri))) {
                     return(invisible(NULL))
                 }
@@ -346,10 +346,36 @@ LanguageServer <- R6::R6Class("LanguageServer",
             existing <- workspace$documents$get(uri, NULL)
             if (!is.null(existing) && (!reload || isTRUE(existing$is_open))) return(invisible(existing))
             path <- path_from_uri(uri)
-            if (!file.exists(path) || dir.exists(path)) return(invisible(NULL))
+            if (!file.exists(path) || dir.exists(path)) {
+                if (!is.null(workspace$index)) workspace$index$remove(uri)
+                if (!is.null(existing)) {
+                    workspace$documents$remove(uri)
+                    workspace$diagnostics_globals_cache <- NULL
+                    workspace$type_hierarchy_cache$clear()
+                    workspace$update_loaded_packages()
+                }
+                return(invisible(NULL))
+            }
             content <- tryCatch(stringi::stri_read_lines(path),
                 error = function(e) NULL)
-            if (is.null(content)) return(invisible(NULL))
+            if (is.null(content)) {
+                index <- workspace$index
+                if (!is.null(index) && isTRUE(index$enabled) && index$should_index(path)) {
+                    if (!is.null(existing)) {
+                        workspace$documents$remove(uri)
+                        workspace$diagnostics_globals_cache <- NULL
+                        workspace$type_hierarchy_cache$clear()
+                        workspace$update_loaded_packages()
+                    }
+                    # Keep eligible files in the catalog, but settle failed reads
+                    # so context waiters can respond. A file event or open buffer
+                    # starts a new attempt and releases this terminal state.
+                    index$await_parse(uri, cacheable = TRUE)
+                    index$fail_parse(uri, discard_summary = TRUE)
+                    index$prune_pending <- TRUE
+                }
+                return(invisible(NULL))
+            }
             doc <- Document$new(
                 uri, language = "r", version = NULL, content = content)
             workspace$documents$set(uri, doc)
@@ -598,11 +624,13 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 if (current && (is.null(workspace$index) || !isTRUE(workspace$index$enabled) ||
                             workspace$index$should_index(path_from_uri(entry$uri)))) {
                     loaded <- self$load_index_document(workspace, entry$uri, reload = entry$reload)
-                    if (!workspace$documents$has(entry$uri) && !is.null(workspace$index)) {
-                        workspace$index$remove(entry$uri)
-                    } else if (is.null(loaded) && !is.null(workspace$index) &&
-                            !isTRUE(workspace$documents$get(entry$uri)$is_open)) {
-                        workspace$index$finish_document(entry$uri)
+                    if (is.null(workspace$index) || !workspace$index$parse_failed(entry$uri)) {
+                        if (!workspace$documents$has(entry$uri) && !is.null(workspace$index)) {
+                            workspace$index$remove(entry$uri)
+                        } else if (is.null(loaded) && !is.null(workspace$index) &&
+                                !isTRUE(workspace$documents$get(entry$uri)$is_open)) {
+                            workspace$index$finish_document(entry$uri)
+                        }
                     }
                 } else if (!is.null(entry$index)) {
                     entry$index$finish_document(entry$uri)
@@ -855,7 +883,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             key <- paste0(if (is.character(id)) "string:" else "number:", id)
             self$index_requests$set(key, list(id = id, method = method, params = params,
                     indexes = indexes, uri = uri, workspace = if (is.null(uri)) NULL else self$get_workspace(uri),
-                    document = document, version = document$version, open = document$is_open,
+                    document = document, version = document$version, content = document$content, open = document$is_open,
                     held_documents = character(), prepared = is.null(uri)))
             TRUE
         },
@@ -871,7 +899,8 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 if (!is.null(request$uri)) {
                     doc <- request$workspace$documents$get(request$uri, NULL)
                     current <- current && identical(doc, request$document) &&
-                        identical(doc$version, request$version) && identical(doc$is_open, request$open)
+                        identical(doc$version, request$version) && identical(doc$content, request$content) &&
+                        identical(doc$is_open, request$open)
                 }
                 if (!current) {
                     self$index_requests$remove(key)
@@ -886,7 +915,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     self$deliver(ResponseErrorMessage$new(request$id, "InternalError", "Required workspace files could not be parsed"))
                     next
                 }
-                if (!request$prepared) {
+                if (!is.null(request$uri)) {
                     doc <- request$document
                     if (!is.null(doc$parse_failure) && identical(doc$parse_failure$version, doc$version)) {
                         self$index_requests$remove(key)
@@ -897,14 +926,14 @@ LanguageServer <- R6::R6Class("LanguageServer",
                             !identical(doc$content, doc$parsed_content)) next
                     point <- doc$from_lsp_position(request$params$position)
                     definition <- definition_reply(NULL, request$uri, request$workspace, doc, point)$result
-                    if (length(definition)) {
-                        uris <- request$workspace$index$dependent_closure(definition$uri)
-                        request$held_documents <- uris
-                        self$index_requests$set(key, request)
-                        for (uri in uris) private$queue_workspace_document(request$workspace, uri)
-                    }
+                    # Source edges can change while closed callers are parsed.
+                    # Recompute their closure after each settled batch; queuing
+                    # an already-current document is a no-op.
+                    uris <- if (length(definition)) request$workspace$index$dependent_closure(definition$uri) else character()
+                    request$held_documents <- uris
                     request$prepared <- TRUE
                     self$index_requests$set(key, request)
+                    for (uri in uris) private$queue_workspace_document(request$workspace, uri)
                     if (!request$workspace$index$complete()) next
                 }
                 self$index_requests$remove(key)

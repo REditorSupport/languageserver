@@ -282,6 +282,10 @@ help do not wait for unrelated workspace files. A requested full index is retain
 until the language server is restarted or indexing settings change. Dynamic source expressions
 remain unresolved, and full discovery does not merge unrelated scripts into a
 single execution scope. Include/exclude patterns and file limits still apply.
+The file limit is shared by automatic discovery across activated packages.
+Files loaded for open buffers or required static source dependencies remain
+available even when they exceed that limit and do not consume additional discovery
+slots. Automatically discovered files retain their slots until they are removed.
 
 Project indexing is deliberately two-tiered. Package `R/` files, open files,
 and the transitive dependencies of static `source()` or `sys.source()` calls

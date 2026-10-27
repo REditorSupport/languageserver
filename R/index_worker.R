@@ -1,7 +1,8 @@
 #' Discover files and restore cached summaries outside the server event loop
 #' @noRd
 index_worker_discover <- function(key, root, settings = NULL, cache_file = NULL,
-    batch_size = 20L, directory = NULL, summary_batch_size = min(batch_size, 20L)) {
+    batch_size = 20L, directory = NULL, summary_batch_size = min(batch_size, 20L),
+    known_uris = character(), file_limit = NULL) {
     state_name <- ".languageserver_workspace_discoveries"
     states <- get0(state_name, envir = globalenv(), inherits = FALSE)
     if (!is.environment(states) || !identical(states$.__class__, "ordered_dict")) {
@@ -13,7 +14,8 @@ index_worker_discover <- function(key, root, settings = NULL, cache_file = NULL,
         for (name in names(settings)) lsp_settings$set(name, settings[[name]])
         lsp_settings$set("index_persistent_cache", !is.null(cache_file))
         index <- WorkspaceIndex$new(root, cache_path = cache_file)
-        index$discover(full = is.null(directory), directory = directory)
+        index$discover(full = is.null(directory), directory = directory,
+            known_uris = known_uris, file_limit = file_limit)
         state <- list(files = index$files$values(), summaries = index$summaries,
             position = 1L, truncated = index$truncated)
     }
