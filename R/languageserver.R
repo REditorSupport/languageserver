@@ -54,6 +54,21 @@ LanguageServer <- R6::R6Class("LanguageServer",
             }
             invisible(NULL)
         },
+        deliver_index_request = function(request) {
+            if (request$method == "workspace/symbol") {
+                self$deliver(workspace_symbol_reply(request$id, request$workspaces, request$params$query))
+            } else {
+                point <- request$document$from_lsp_position(request$params$position)
+                reply <- if (request$method == "textDocument/rename") {
+                    rename_reply(request$id, request$uri, request$workspace, request$document, point, request$params$newName)
+                } else {
+                    references_reply(request$id, request$uri, request$workspace, request$document, point,
+                        include_declaration = !isFALSE(request$params$context$includeDeclaration))
+                }
+                self$deliver(reply)
+            }
+            invisible(NULL)
+        },
         send_workspace_progress = function(state, value) {
             self$deliver(Notification$new("$/progress", list(token = state$token, value = value)))
             invisible(NULL)
@@ -852,7 +867,10 @@ LanguageServer <- R6::R6Class("LanguageServer",
 
         queue_index_request = function(id, method, params, workspaces, uri = NULL) {
             document <- if (is.null(uri)) NULL else self$get_workspace(uri)$documents$get(uri, NULL)
-            if (!is.null(document) && identical(document$version, document$parse_data$version)) {
+            waiting_parse <- !is.null(document) && (is.null(document$parse_data) ||
+                    !identical(document$version, document$parse_data$version) ||
+                    !identical(document$content, document$parsed_content))
+            if (!is.null(document) && !waiting_parse) {
                 point <- document$from_lsp_position(params$position)
                 if (!check_scope(uri, document, point)) return(FALSE)
                 token <- document$detect_token(point)
@@ -860,8 +878,8 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 if (!is.null(key) && !startsWith(key, "global:")) return(FALSE)
             }
             indexes <- list()
-            pending <- FALSE
-            for (workspace in workspaces) {
+            pending <- waiting_parse
+            for (workspace in if (waiting_parse) list() else workspaces) {
                 index <- workspace$index
                 if (is.null(index) || !isTRUE(index$enabled) || !dir.exists(index$root)) next
                 if (!index$full_started) {
@@ -882,16 +900,23 @@ LanguageServer <- R6::R6Class("LanguageServer",
             if (is.null(self$index_requests)) self$index_requests <- collections::ordered_dict()
             key <- paste0(if (is.character(id)) "string:" else "number:", id)
             self$index_requests$set(key, list(id = id, method = method, params = params,
-                    indexes = indexes, uri = uri, workspace = if (is.null(uri)) NULL else self$get_workspace(uri),
+                    indexes = indexes, workspaces = workspaces, uri = uri,
+                    workspace = if (is.null(uri)) NULL else self$get_workspace(uri),
+                    workspace_index = if (is.null(uri)) NULL else self$get_workspace(uri)$index,
                     document = document, version = document$version, content = document$content, open = document$is_open,
-                    held_documents = character(), prepared = is.null(uri)))
+                    held_documents = character(), prepared = is.null(uri), waiting_parse = waiting_parse))
+            if (waiting_parse && is.function(self$parse_task_manager$promote)) self$parse_task_manager$promote(uri)
             TRUE
         },
 
         process_index_requests = function(max_requests = 20L) {
             if (is.null(self$index_requests)) return(invisible(NULL))
             for (key in utils::head(self$index_requests$keys(), max_requests)) {
-                request <- self$index_requests$get(key)
+                # Rotate pending requests so a ready local parse is not held
+                # behind an older batch of long-running workspace queries.
+                request <- self$index_requests$pop(key, NULL)
+                if (is.null(request)) next
+                self$index_requests$set(key, request)
                 current <- all(vapply(request$indexes, function(entry) {
                     identical(entry$index, entry$workspace$index) &&
                         any(vapply(self$workspaces$values(), identical, logical(1L), y = entry$workspace))
@@ -899,8 +924,17 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 if (!is.null(request$uri)) {
                     doc <- request$workspace$documents$get(request$uri, NULL)
                     current <- current && identical(doc, request$document) &&
+                        any(vapply(self$workspaces$values(), identical, logical(1L), y = request$workspace)) &&
+                        identical(self$get_workspace(request$uri), request$workspace) &&
+                        identical(request$workspace$index, request$workspace_index) &&
                         identical(doc$version, request$version) && identical(doc$content, request$content) &&
                         identical(doc$is_open, request$open)
+                } else if (request$method == "workspace/symbol") {
+                    workspaces <- self$workspaces$values()
+                    current <- current && length(workspaces) == length(request$workspaces) &&
+                        all(vapply(request$workspaces, function(workspace) {
+                            any(vapply(workspaces, identical, logical(1L), y = workspace))
+                        }, logical(1L)))
                 }
                 if (!current) {
                     self$index_requests$remove(key)
@@ -909,8 +943,26 @@ LanguageServer <- R6::R6Class("LanguageServer",
                             "Workspace or document changed while indexing"))
                     next
                 }
+                if (isTRUE(request$waiting_parse)) {
+                    doc <- request$document
+                    if (!is.null(doc$parse_failure) && identical(doc$parse_failure$version, doc$version)) {
+                        self$index_requests$remove(key)
+                        reply_parse_failure(self, request$id, doc)
+                        next
+                    }
+                    if (is.null(doc$parse_data) || !identical(doc$version, doc$parse_data$version) ||
+                            !identical(doc$content, doc$parsed_content)) next
+                    # Only the accepted current parse can determine whether
+                    # this request needs a workspace scan or stays local.
+                    self$index_requests$remove(key)
+                    queued <- self$queue_index_request(request$id, request$method, request$params,
+                        request$workspaces, request$uri)
+                    if (!queued) private$deliver_index_request(request)
+                    next
+                }
                 if (!all(vapply(request$indexes, function(entry) entry$index$complete(), logical(1L)))) next
-                if (any(vapply(request$indexes, function(entry) entry$index$indexing_status()$failed > 0L, logical(1L)))) {
+                if (request$method != "workspace/symbol" &&
+                        any(vapply(request$indexes, function(entry) entry$index$indexing_status()$failed > 0L, logical(1L)))) {
                     self$index_requests$remove(key)
                     self$deliver(ResponseErrorMessage$new(request$id, "InternalError", "Required workspace files could not be parsed"))
                     next
@@ -940,18 +992,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 if (!is.null(request$workspace)) request$workspace$index$prune_pending <- TRUE
                 # Deliver directly after preparation, rather than requeueing
                 # the same global request through its public handler.
-                if (request$method == "workspace/symbol") {
-                    self$deliver(workspace_symbol_reply(request$id, self$workspaces$values(), request$params$query))
-                } else {
-                    point <- request$document$from_lsp_position(request$params$position)
-                    reply <- if (request$method == "textDocument/rename") {
-                        rename_reply(request$id, request$uri, request$workspace, request$document, point, request$params$newName)
-                    } else {
-                        references_reply(request$id, request$uri, request$workspace, request$document, point,
-                            include_declaration = !isFALSE(request$params$context$includeDeclaration))
-                    }
-                    self$deliver(reply)
-                }
+                private$deliver_index_request(request)
             }
             invisible(NULL)
         },
