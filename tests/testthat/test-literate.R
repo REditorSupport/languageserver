@@ -226,6 +226,8 @@ test_that("Quarto documents work end to end with isolated cells", {
 
     client %>% did_open(path, languageId = "quarto")
     symbols <- client %>% respond_document_symbol(path)
+    expect_equal(map_chr(symbols, "name"), "Analysis")
+    symbols <- flatten_document_symbols(symbols)
     expect_setequal(
         map_chr(symbols, ~ .x$name),
         c(

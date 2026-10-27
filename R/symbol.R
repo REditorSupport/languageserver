@@ -63,6 +63,69 @@ get_document_symbols <- function(document, xdoc, outline = NULL) {
     }
 }
 
+#' Sort enclosing symbols before their descendants
+#' @noRd
+document_symbol_order <- function(symbols) {
+    order(
+        vapply(symbols, function(symbol) symbol$range$start$line, numeric(1L)),
+        vapply(symbols, function(symbol) symbol$range$start$character, numeric(1L)),
+        -vapply(symbols, function(symbol) symbol$range$end$line, numeric(1L)),
+        -vapply(symbols, function(symbol) symbol$range$end$character, numeric(1L))
+    )
+}
+
+#' Build the containment tree required by hierarchical DocumentSymbol clients
+#' @noRd
+document_symbol_tree <- function(symbols, normalize_children = TRUE) {
+    if (normalize_children) {
+        supplied <- which(vapply(symbols, function(symbol) length(symbol$children) > 0L, logical(1L)))
+        for (i in supplied) {
+            symbols[[i]]$children <- document_symbol_tree(symbols[[i]]$children)
+        }
+    }
+    if (length(symbols) < 2L) return(symbols)
+    symbols <- symbols[document_symbol_order(symbols)]
+    starts <- lapply(symbols, function(symbol) symbol$range$start)
+    ends <- lapply(symbols, function(symbol) symbol$range$end)
+    parent <- integer(length(symbols))
+    stack <- integer(length(symbols))
+    depth <- 0L
+    for (i in seq_along(symbols)) {
+        while (depth > 0L) {
+            enclosing <- stack[[depth]]
+            contains_end <- ends[[i]]$line < ends[[enclosing]]$line ||
+                (ends[[i]]$line == ends[[enclosing]]$line &&
+                        ends[[i]]$character <= ends[[enclosing]]$character)
+            same_range <- starts[[i]]$line == starts[[enclosing]]$line &&
+                starts[[i]]$character == starts[[enclosing]]$character &&
+                ends[[i]]$line == ends[[enclosing]]$line &&
+                ends[[i]]$character == ends[[enclosing]]$character
+            if (contains_end && !same_range) break
+            depth <- depth - 1L
+        }
+        if (depth > 0L) parent[[i]] <- stack[[depth]]
+        depth <- depth + 1L
+        stack[[depth]] <- i
+    }
+
+    children <- list2env(split(seq_along(symbols), parent), parent = emptyenv(), hash = TRUE)
+    # Build inferred descendants bottom-up, reusing normalized branches. Only
+    # merge a sibling group again when supplied members meet new sections;
+    # keeping that merge local preserves explicit class ownership.
+    for (i in rev(seq_along(symbols))) {
+        nested <- children[[as.character(i)]]
+        if (length(nested)) {
+            members <- c(symbols[[i]]$children, symbols[nested])
+            symbols[[i]]$children <- if (length(symbols[[i]]$children)) {
+                document_symbol_tree(members, normalize_children = FALSE)
+            } else {
+                members
+            }
+        }
+    }
+    symbols[children[["0"]]]
+}
+
 #' Get all the symbols in the document
 #' @noRd
 document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
@@ -148,7 +211,7 @@ document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
             )
         })
         
-        result <- c(definition_symbols, section_symbols)
+        result <- document_symbol_tree(c(definition_symbols, section_symbols))
     } else {
         # Use flat SymbolInformation format for backward compatibility
         definition_symbols <- lapply(seq_along(defns), function(i) {

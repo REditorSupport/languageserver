@@ -77,7 +77,7 @@ test_that("hierarchical symbols attempt member extraction for classes", {
     )
 
     expect_true(any(vapply(
-        reply$result,
+        flatten_document_symbols(reply$result),
         function(item) identical(item$name, "Widget"),
         logical(1L)
     )))
@@ -189,6 +189,10 @@ test_that("Document section symbol works", {
     client %>% did_open(defn_file)
     result <- client %>% respond_document_symbol(defn_file)
 
+    expect_equal(map_chr(result, "name"), c("section1", "section2"))
+    expect_equal(result[[1L]]$children[[1L]]$name, "f")
+    expect_equal(map_chr(result[[1L]]$children[[1L]]$children, "name"), c("step1", "step2"))
+    result <- flatten_document_symbols(result)
     expect_setequal(
         result %>% map_chr(~ .$name),
         c("section1", "f", "step1", "step2", "section2", "g", "p", "m")
@@ -340,6 +344,10 @@ test_that("Document section symbol works in Rmarkdown", {
     client %>% did_open(defn_file)
     result <- client %>% respond_document_symbol(defn_file)
 
+    expect_equal(map_chr(result, "name"), c("section1", "section2"))
+    expect_equal(result[[1L]]$children[[1L]]$name, "subsection1")
+    expect_equal(result[[1L]]$children[[1L]]$children[[1L]]$name, "unnamed-chunk-1")
+    result <- flatten_document_symbols(result)
     expect_setequal(
         result %>% map_chr(~ .$name),
         c("section1", "subsection1", "unnamed-chunk-1",

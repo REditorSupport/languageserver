@@ -1,5 +1,9 @@
 # languageserver 0.3.20
 
+- Restore nested sections, definitions and code chunks in document outlines
+  and breadcrumbs, preserving class member symbols (#814, #685).
+- Promote pending parses for outline requests after edits and report completed
+  parse-worker failures instead of leaving later outline requests queued.
 - Resolve ordinary S3 methods from statically inferred input classes for
   argument completion, argument-value suggestions, hover and signature help
   (#805). Share method identity and documentation across providers; support
