@@ -179,7 +179,7 @@ The following editors are supported by installing the corresponding extensions:
 - [x] [typeHierarchySubtypes](https://microsoft.github.io/language-server-protocol/specifications/specification-current/#typeHierarchy_subtypes)
 - [x] [semanticTokens](https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocument_semanticTokens)
 - [x] [linkedEditingRange](https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocument_linkedEditingRange)
-- [ ] [executeCommandProvider](https://microsoft.github.io/language-server-protocol/specifications/specification-current/#workspace_executeCommand)
+- [x] [executeCommandProvider](https://microsoft.github.io/language-server-protocol/specifications/specification-current/#workspace_executeCommand) (refactoring documentation)
 - [x] [inlineValueProvider](https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocument_inlineValue)
 - [x] [inlayHintProvider](https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocument_inlayHint)
 
