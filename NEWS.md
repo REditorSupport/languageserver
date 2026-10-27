@@ -1,5 +1,12 @@
 # languageserver 0.3.20
 
+- Use LSP 3.18 capabilities for read-only generated package definitions,
+  linked editable names in extraction refactorings, and signature help with no
+  highlighted parameter when an argument matches no formal. Preserve existing
+  behavior for clients without these capabilities, and add documentation links
+  to compatible refactoring menus. Preserve multiline string contents during
+  extraction.
+
 - Restore nested sections, definitions and code chunks in document outlines
   and breadcrumbs, preserving class member symbols (#814, #685).
 - Promote pending parses for outline requests after edits and report completed

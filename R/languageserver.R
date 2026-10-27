@@ -151,6 +151,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
         initializationOptions = NULL,
         ClientCapabilities = NULL,
         ServerCapabilities = NULL,
+        documentation_command = NULL,
         diagnostics_task_manager = NULL,
         parse_task_manager = NULL,
         resolve_task_manager = NULL,
@@ -167,6 +168,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
         pending_replies = NULL,
         index_requests = NULL,
         context_replies = NULL,
+        text_document_content = NULL,
         initialize = function(host, port) {
             if (is.null(port)) {
                 logger$info("connection type: stdio")
@@ -1111,7 +1113,9 @@ LanguageServer$set("public", "register_handlers", function() {
         `textDocument/semanticTokens/full` = text_document_semantic_tokens_full,
         `textDocument/semanticTokens/full/delta` = text_document_semantic_tokens_delta,
         `textDocument/semanticTokens/range` = text_document_semantic_tokens_range,
-        `workspace/symbol` = workspace_symbol
+        `workspace/symbol` = workspace_symbol,
+        `workspace/textDocumentContent` = workspace_text_document_content,
+        `workspace/executeCommand` = workspace_execute_command
     )
 
     self$notification_handlers <- list(

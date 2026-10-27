@@ -604,19 +604,19 @@ Workspace <- R6::R6Class("Workspace",
             }
             # note: the parantheses are neccessary
             hfile <- tryCatch({
-                    if (is.null(pkgname)) {
-                        utils::help((topic))
-                    } else {
-                        utils::help((topic), (pkgname))
-                    }
-                },
-                error = function(e) character(0)
+                if (is.null(pkgname)) {
+                    utils::help((topic))
+                } else {
+                    utils::help((topic), (pkgname))
+                }
+            },
+            error = function(e) character(0)
             )
 
             if (length(hfile) > 0) {
                 key <- as.character(hfile)
                 if (self$help_cache$has(key)) {
-                    return(self$help_cache$get(key))
+                    self$help_cache$get(key)
                 } else {
                     result <- NULL
 
@@ -638,7 +638,7 @@ Workspace <- R6::R6Class("Workspace",
                     if (!is.null(result)) {
                         self$help_cache$set(key, result)
                     }
-                    return(result)
+                    result
                 }
             }
         },
@@ -658,7 +658,7 @@ Workspace <- R6::R6Class("Workspace",
         },
 
         get_definition = function(symbol, pkgname = NULL, exported_only = TRUE,
-            uri = NULL) {
+            uri = NULL, content_scheme = NULL) {
             if (is.null(pkgname)) {
                 pkgname <- self$guess_namespace(symbol, isf = FALSE, uri = uri)
                 if (is.null(pkgname)) {
@@ -667,7 +667,12 @@ Workspace <- R6::R6Class("Workspace",
             }
             ns <- self$get_namespace(pkgname, uri = uri)
             if (!is.null(ns)) {
-                ns$get_definition(symbol, exported_only = exported_only)
+                if (inherits(ns, "PackageNamespace")) {
+                    ns$get_definition(symbol, exported_only = exported_only,
+                        content_scheme = content_scheme)
+                } else {
+                    ns$get_definition(symbol, exported_only = exported_only)
+                }
             }
         },
 

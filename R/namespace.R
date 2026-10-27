@@ -169,7 +169,7 @@ PackageNamespace <- R6::R6Class("PackageNamespace",
                 arguments <- list()
                 if (length(arguments_item)) {
                     arg_items <- arguments_item[vapply(arguments_item,
-                        function(arg) attr(arg, "Rd_tag") == "\\item", logical(1L))]
+                            function(arg) attr(arg, "Rd_tag") == "\\item", logical(1L))]
                     arg_names <- vapply(arg_items, function(item) {
                         argname <- item[[1]][[1]]
                         switch(attr(argname, "Rd_tag"),
@@ -192,18 +192,32 @@ PackageNamespace <- R6::R6Class("PackageNamespace",
             value
         },
 
-        get_definition = function(symbol, exported_only = TRUE) {
+        get_definition = function(symbol, exported_only = TRUE,
+            content_scheme = NULL) {
             code <- self$get_body(symbol, exported_only = exported_only)
             if (is.null(code)) {
                 return(NULL)
             }
 
-            # if the function exists in the workspace, write the code to a file
-            temp_file <- file.path(tempdir(), paste0(symbol, ".R"))
-            stringi::stri_write_lines(c(
+            text <- c(
                 "# Generated from function body. Editing this file has no effect.",
                 code
-            ), temp_file)
+            )
+            if (!is.null(content_scheme)) {
+                uri <- paste0(content_scheme, ":/",
+                    text_document_content_segment(self$package_name), "/",
+                    text_document_content_segment(symbol), ".R")
+                def <- list(uri = uri, range = range(
+                    position(0L, 0L), position(length(text), 0L)))
+                attr(def, "text_document_content") <- paste0(
+                    paste(text, collapse = "\n"), "\n")
+                attr(def, "namespace") <- self$package_name
+                return(def)
+            }
+
+            # Legacy clients open the generated body through a normal file URI.
+            temp_file <- file.path(tempdir(), paste0(symbol, ".R"))
+            stringi::stri_write_lines(text, temp_file)
             def <- list(
                 uri = path_to_uri(temp_file),
                 range = range(

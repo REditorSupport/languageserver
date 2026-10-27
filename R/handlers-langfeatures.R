@@ -182,7 +182,8 @@ text_document_definition  <- function(self, id, params) {
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     point <- document$from_lsp_position(params$position)
     rootPath <- get_root_path_for_uri(uri, self$rootPath)
-    self$deliver(definition_reply(id, uri, workspace, document, point, rootPath))
+    self$deliver(definition_reply(id, uri, workspace, document, point, rootPath,
+            text_document_content = self$text_document_content))
 }
 
 #' `textDocument/typeDefinition` request handler
