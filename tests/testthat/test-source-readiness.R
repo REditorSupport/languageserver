@@ -178,6 +178,41 @@ test_that("pending open source buffers still wait when their disk files disappea
     expect_false(workspace$index$parse_failed(peer$uri))
 })
 
+test_that("quoted namespace text does not bypass signature source readiness", {
+    source_read_settings()
+    root <- index_normalize_path(withr::local_tempdir())
+    helper <- file.path(root, "helper.R")
+    main <- file.path(root, "main.R")
+    writeLines("helper_fn <- function(old) old", helper)
+    call <- 'helper_fn("base::fun")'
+    writeLines(c("source('helper.R')", call), main)
+    server <- SourceReadServer$new(root)
+    document <- source_read_open(server, main)
+    source_read_drain(server)
+    workspace <- server$get_workspace(document$uri)
+    peer <- workspace$documents$get(path_to_uri(helper))
+    peer$did_open()
+    peer$set_content(2L, "helper_fn <- function(changed) changed")
+    server$text_sync(peer$uri, peer, parse = TRUE)
+
+    text_document_signature_help(server, 1L, list(textDocument = list(uri = document$uri),
+        position = position(1L, nchar(call) - 2L)))
+    expect_length(server$replies, 0L)
+    queue <- server$pending_replies$get(document$uri)[["textDocument/signatureHelp"]]
+    expect_identical(queue$size(), 1L)
+    for (i in seq_len(3L)) {
+        server$queue_pending_replies(document$uri)
+        expect_identical(server$process_pending_replies(max_replies = 3L, time_budget_ms = Inf), 0L)
+        expect_identical(queue$size(), 1L)
+        expect_identical(queue$peek()$id, 1L)
+        expect_length(server$replies, 0L)
+    }
+    source_read_drain(server)
+    expect_identical(queue$size(), 0L)
+    expect_length(server$replies, 1L)
+    expect_match(server$replies[[1L]]$result$signatures[[1L]]$label, "helper_fn(changed", fixed = TRUE)
+})
+
 test_that("closing a source graph prunes terminal and orphan failures", {
     source_read_settings()
     root <- index_normalize_path(withr::local_tempdir())

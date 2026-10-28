@@ -445,6 +445,41 @@ test_that("queued ordinary requests drain independently of S3 metadata waits", {
     expect_length(server$replies, 2L)
 })
 
+test_that("queued signatures use the enclosing call while S3 metadata is pending", {
+    fixture <- readiness_fixture(c('masking::new_generic(data.frame(x = 1), r"(first',
+        'base::findInterval(1)")'))
+    fixture$document$requested_packages <- list(packages = character(), namespace_packages = c("base", "masking"))
+    server <- fixture$server
+    col <- nchar("base::findInterval(1")
+    text_document_signature_help(server, 1L, readiness_params(fixture, 1L, col))
+    queue <- server$pending_replies$get(fixture$uri)$`textDocument/signatureHelp`
+    expect_length(server$replies, 0L)
+    expect_identical(queue$size(), 1L)
+    for (i in seq_len(3L)) {
+        result <- drain_pending_replies(server, fixture$uri, 1L, max_replies = 3L)
+        expect_identical(result$processed, 0L)
+        expect_false(result$ready)
+        expect_identical(queue$size(), 1L)
+        expect_identical(queue$peek()$id, 1L)
+        expect_length(server$replies, 0L)
+    }
+    catalog <- readiness_masking_catalog()
+    catalog$callables <- "new_generic"
+    generic <- catalog$functions$findInterval
+    generic$name <- generic$generic$name <- "new_generic"
+    catalog$functions <- list(new_generic = generic)
+    method <- catalog$methods[[1L]]
+    method$name <- "new_generic.data.frame"
+    method$generic <- "new_generic"
+    catalog$methods <- list("masking::new_generic.data.frame" = method)
+    fixture$workspace$s3_metadata$set("masking", catalog)
+    result <- drain_pending_replies(server, fixture$uri, 1L)
+    expect_identical(result$processed, 1L)
+    expect_identical(queue$size(), 0L)
+    expect_length(server$replies, 1L)
+    expect_match(server$replies[[1L]]$result$signatures[[1L]]$label, "columns = NULL", fixed = TRUE)
+})
+
 test_that("unknown package generics still wait for their first catalog", {
     fixture <- readiness_fixture(c("new_generic(1)", "pending::new_generic(1)",
             "f <- function() base::findInterval(1, c(0, 2))"))

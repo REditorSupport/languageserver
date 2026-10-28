@@ -8,6 +8,7 @@ Document <- R6::R6Class(
         nline = 0,
         content = NULL,
         call_scan_cache = NULL,
+        signature_call_cache = NULL,
         parse_data = NULL,
         completion_outline = NULL,
         parse_generation = 0L,
@@ -178,11 +179,23 @@ Document <- R6::R6Class(
             ))
         },
 
-        detect_call = function(point) {
+        detect_call = function(point, signature = FALSE) {
             row <- point$row
             col <- point$col
 
-            if (col > 0) {
+            if (signature) {
+                bounds <- document_r_bounds(self, row)
+                if (is.null(bounds)) return(list(token = ""))
+                if (is.null(self$signature_call_cache)) {
+                    self$signature_call_cache <- .Call("new_signature_call_cache_c",
+                        PACKAGE = "languageserver")
+                }
+                fub_result <- .Call("signature_call_bracket_c",
+                    self$content, row, col, bounds[[1L]], self$signature_call_cache,
+                    PACKAGE = "languageserver")
+                loc <- fub_result[[1L]]
+                bracket <- fub_result[[2L]]
+            } else if (col > 0) {
                 if (is.null(self$call_scan_cache)) {
                     self$call_scan_cache <- .Call("new_bracket_scan_cache_c",
                         PACKAGE = "languageserver")
@@ -862,9 +875,15 @@ drain_pending_replies <- function(self, uri, version, max_replies = Inf, first =
         if (!is.null(document) && identical(item$version, document$version) &&
                 method %in% c("textDocument/completion", "textDocument/hover", "textDocument/signatureHelp")) {
             point <- document$from_lsp_position(item$params$position)
+            call <- if (identical(method, "textDocument/signatureHelp")) {
+                document$detect_call(point, signature = TRUE)
+            } else {
+                NULL
+            }
             if (index_context_waiting(self, self$get_workspace(uri), document, point,
-                    hover = identical(method, "textDocument/hover"))) return(FALSE)
-            if (s3_metadata_waiting(self, uri, document, point, hover = identical(method, "textDocument/hover"))) return(FALSE)
+                    hover = identical(method, "textDocument/hover"), call = call)) return(FALSE)
+            if (s3_metadata_waiting(self, uri, document, point,
+                    hover = identical(method, "textDocument/hover"), call = call)) return(FALSE)
         }
         TRUE
     }
