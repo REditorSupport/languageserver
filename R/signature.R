@@ -81,17 +81,16 @@ signature_no_active_parameter_support <- function(client_capabilities) {
 #' (as with [base::args()]).
 #'
 #' @noRd
-signature_reply <- function(id, uri, workspace, document, point, client_capabilities = NULL) {
+signature_reply <- function(id, uri, workspace, document, point, client_capabilities = NULL,
+    call = NULL) {
 
     no_active_parameter <- signature_no_active_parameter_support(client_capabilities)
 
-    if (!check_scope(uri, document, point)) {
-        s3 <- tryCatch(resolve_s3_call(uri, workspace, document, point), error = function(e) NULL)
-        if (!is.null(s3)) return(s3_signature_reply(id, workspace, document, point, s3, client_capabilities))
+    if (!check_r_region(document, point)) {
         return(Response$new(id, list(signatures = NULL)))
     }
 
-    result <- document$detect_call(point)
+    result <- if (is.null(call)) document$detect_call(point, signature = TRUE) else call
     if (isTRUE(lsp_settings$get("member_completion"))) {
         location <- member_call_location(document, point, result,
             symbols = member_symbol_required(workspace, document))
@@ -123,7 +122,7 @@ signature_reply <- function(id, uri, workspace, document, point, client_capabili
         }
     }
 
-    s3 <- tryCatch(resolve_s3_call(uri, workspace, document, point),
+    s3 <- tryCatch(resolve_s3_call(uri, workspace, document, point, call = result),
         error = function(e) {
             logger$info("S3 signature:", e)
             NULL
