@@ -99,18 +99,35 @@ member_subset_method <- function(value, operator, index, bindings, budget, depth
     if (!length(value$classes) && !length(member_lookup(owner$classes, value$type))) return(NULL)
     classes <- member_classes(value, owner)
     if (!length(classes)) return(NULL)
+    registries <- c(list(owner$subset_registry), lapply(index$namespace_indices, function(candidate) candidate$subset_registry))
     for (key in paste0(operator, ".", c(classes, "default"))) {
         history <- member_lookup(index$document_bindings, key)
         at <- bindings$.__member_position__
         if (key %in% names(bindings) || (length(history) && (is.null(at) || member_history_position(history, at)))) {
             return(member_infer(as.name(key), index, bindings, depth = depth + 1L, trail = trail, budget = budget))
         }
-        if (!is.null(member_definition(owner$definitions, key))) {
+        registered <- unique(unlist(lapply(registries, function(registry) member_lookup(registry, key)), use.names = FALSE))
+        definition <- member_definition(owner$definitions, key)
+        if (length(registered)) {
+            # Registrations can come from another namespace, or replace a
+            # method after this receiver's package snapshot was prepared.
+            if (identical(registered, "base")) return(NULL)
+            expected <- if (member_head(definition, "function")) {
+                paste0("namespace:", owner$package, ":", digest::digest(definition, algo = "xxhash64"))
+            }
+            if (length(registered) != 1L || is.null(expected) || !identical(registered, expected)) {
+                return(member_value(reason = "unresolved_subset_dispatch"))
+            }
             return(member_value(function_key = key, metadata = owner$package))
         }
+        if (!is.null(definition)) return(member_value(function_key = key, metadata = owner$package))
+    }
+    if (!is.null(value$member_package) && !isTRUE(owner$subset_registry_complete)) {
+        return(member_value(reason = "unresolved_subset_dispatch"))
     }
     NULL
 }
+
 member_value <- function(
   type = NULL, function_key = NULL, receiver = NULL,
   fields = NULL, function_expr = NULL, closure = NULL, receiver_name = NULL,

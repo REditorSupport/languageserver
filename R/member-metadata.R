@@ -31,6 +31,41 @@ member_list_storage <- function(value) {
     storage
 }
 
+# Internal subset generics use the registered method table in base. Read
+# identities only in the worker; request handlers never look up runtime methods.
+member_subset_registry <- function(ns, package) {
+    record <- member_binding(asNamespace("base"), ".__S3MethodsTable__.")
+    if (!identical(record[[1L]], "value") || !is.environment(record[[2L]])) {
+        return(list(methods = character(), complete = FALSE))
+    }
+    table <- record[[2L]]
+    keys <- ls(table, all.names = TRUE)
+    keys <- keys[startsWith(keys, "[.") | startsWith(keys, "[[.")]
+    if (length(keys) > 5000L) return(list(methods = character(), complete = FALSE))
+    methods <- stats::setNames(vapply(keys, function(key) {
+        registered <- member_binding(table, key)
+        if (!identical(registered[[1L]], "value") || typeof(registered[[2L]]) != "closure") return("opaque")
+        fn <- registered[[2L]]
+        if (key %in% c("[.data.frame", "[[.data.frame")) {
+            standard <- member_binding(asNamespace("base"), key)
+            if (identical(standard[[1L]], "value") && identical(standard[[2L]], fn)) return("base")
+        }
+        local <- member_binding(ns, key)
+        if (identical(local[[1L]], "value") && identical(local[[2L]], fn)) {
+            provider <- package
+        } else {
+            scope <- environment(fn)
+            while (is.environment(scope) && !isNamespace(scope) && !identical(scope, emptyenv())) scope <- parent.env(scope)
+            if (!isNamespace(scope)) return("opaque")
+            provider <- unname(getNamespaceName(scope))
+            original <- member_binding(scope, key)
+            if (!identical(original[[1L]], "value") || !identical(original[[2L]], fn)) return("opaque")
+        }
+        paste0("namespace:", provider, ":", digest::digest(member_function_syntax(fn), algo = "xxhash64"))
+    }, character(1L)), keys)
+    list(methods = methods, complete = TRUE)
+}
+
 member_snapshot <- function(env, max_depth = 4L, max_bindings = 5000L, s7_modes = list(),
     lookup_scope = parent.frame()) {
     seen <- list()
@@ -602,12 +637,14 @@ member_namespace_input <- function(
             member_snapshot_shape(snapshot, package)
         }, error = function(e) member_snapshot_shape(list(kind = "unknown", reason = "dataset_metadata_error"), package))
     }), lazy_names)
+    subsets <- member_subset_registry(ns, package)
     list(
         definitions = definitions, locations = list(), expressions = list(),
         exports = union(namespace_exports, union(lazy_names, names(targets)[targets %in% names(lazy_roots)])),
         namespace_exports = namespace_exports, namespace_export_targets = targets,
         namespace_lazydata_blocked = blocked,
         lazydata_roots = lazy_roots, registries = registries,
+        subset_registry = subsets$methods, subset_registry_complete = subsets$complete,
         snapshots = snapshots, links = links, descriptors = descriptors, package = package, intrinsics = intrinsics,
         s4_classes = s4_classes, s4_roots = s4_roots, s4_objects = s4_objects,
         s7_roots = s7_roots, s7_capabilities = s7_modes,

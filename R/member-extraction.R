@@ -216,6 +216,8 @@ member_package_index <- function(input) {
     index$definitions <- input$definitions
     index$locations <- input$locations
     index$exports <- input$exports
+    index$subset_registry <- input$subset_registry
+    index$subset_registry_complete <- isTRUE(input$subset_registry_complete)
     index$registries <- if (!is.null(input$registries)) input$registries else member_source_registries(input)
     index$intrinsics <- if (!is.null(input$intrinsics)) input$intrinsics else character()
     index$nonreturning_functions <- intersect(c("stop", "abort"), c(member_base_intrinsics, index$intrinsics))

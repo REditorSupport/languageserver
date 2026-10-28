@@ -59,6 +59,7 @@ member_metadata_waiting <- function(self, uri, document, point) {
     if (is.null(recovered)) return(FALSE)
     referenced <- member_source_names(recovered$parsed, recovered$source, recovered$path,
         accessor = cursor$accessor)
+    expressions <- list(recovered$parsed)
     seen <- character()
     for (pass in seq_len(16L)) {
         pending <- setdiff(referenced, seen)
@@ -67,16 +68,41 @@ member_metadata_waiting <- function(self, uri, document, point) {
         for (name in pending) {
             history <- document$parse_data$member_data$bindings[[name]]
             position <- member_history_position(history, recovered$start)
-            if (position) referenced <- union(referenced, member_syntax_names(history[[position]]$expr))
+            if (position) {
+                expression <- history[[position]]$expr
+                referenced <- union(referenced, member_syntax_names(expression))
+                expressions[[length(expressions) + 1L]] <- expression
+            }
         }
     }
     packages <- intersect(document$requested_packages$namespace_packages, referenced)
     if (!length(packages)) return(FALSE)
     metadata <- self$get_workspace(uri)$member_metadata
     if (is.null(metadata)) return(TRUE)
+    requests <- new.env(parent = emptyenv())
+    requests$ready <- FALSE
+    requests$objects <- list()
+    requests$private <- character()
     any(vapply(packages, function(package) {
         catalog <- if (is.function(metadata$catalog)) metadata$catalog(package) else metadata$get(package, NULL)
-        is.null(catalog) || !is.null(catalog$error)
+        if (is.null(catalog) || !is.null(catalog$error)) return(TRUE)
+        if (!isTRUE(catalog$dataset_only) || isTRUE(catalog$namespace_attempted)) return(FALSE)
+        # Startup catalogs contain only public datasets. A dataset already in
+        # that catalog is usable, but regular or private objects must wait for
+        # the pending namespace upgrade. Failed bounded upgrades are final.
+        if (!requests$ready) {
+            for (expression in expressions) member_walk(expression, function(node) {
+                if (length(node) != 3L || !(member_head(node, "::") || member_head(node, ":::"))) return()
+                name <- member_name(node[[2L]])
+                object <- member_name(node[[3L]])
+                if (is.null(name) || is.null(object)) return()
+                requests$objects[[name]] <- union(requests$objects[[name]], object)
+                if (member_head(node, ":::")) requests$private <- union(requests$private, name)
+            })
+            requests$ready <- TRUE
+        }
+        objects <- requests$objects[[package]]
+        package %in% requests$private || !length(objects) || !all(objects %in% names(catalog$roots))
     }, logical(1L)))
 }
 

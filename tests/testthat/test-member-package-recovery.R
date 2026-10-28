@@ -103,6 +103,57 @@ test_that("Cold member requests wait for only the receiver's pending namespace",
     expect_false(member_metadata_waiting(fixture$server, fixture$uri, fixture$document, fixture$point))
 })
 
+test_that("Startup dataset-only catalogs wait for regular namespace objects", {
+    for (code in c("recoveryfixture::frame$", "value <- recoveryfixture::frame\nvalue$",
+            "list(known = recoveryfixture::observations, missing = recoveryfixture::frame)$missing$")) {
+        fixture <- package_recovery_wait_fixture(code)
+        partial <- list(package = "recoveryfixture", dataset_only = TRUE,
+            roots = list(observations = member_value(type = "list", fields = list(column = member_literal(1L)))))
+        fixture$workspace$member_metadata$set("recoveryfixture", partial)
+        expect_true(member_metadata_waiting(fixture$server, fixture$uri, fixture$document, fixture$point), info = code)
+        partial$dataset_only <- FALSE
+        fixture$workspace$member_metadata$set("recoveryfixture", partial)
+        expect_false(member_metadata_waiting(fixture$server, fixture$uri, fixture$document, fixture$point))
+        partial$dataset_only <- TRUE
+        partial$namespace_attempted <- TRUE
+        fixture$workspace$member_metadata$set("recoveryfixture", partial)
+        expect_false(member_metadata_waiting(fixture$server, fixture$uri, fixture$document, fixture$point))
+        partial$error <- "failed namespace preparation"
+        fixture$workspace$member_metadata$set("recoveryfixture", partial)
+        expect_true(member_metadata_waiting(fixture$server, fixture$uri, fixture$document, fixture$point))
+        fixture$server$member_task_manager <- list(has = function(...) FALSE)
+        expect_false(member_metadata_waiting(fixture$server, fixture$uri, fixture$document, fixture$point))
+    }
+})
+
+test_that("Readiness distinguishes dataset-only models in the member metadata cache", {
+    fixture <- package_recovery_wait_fixture("recoveryfixture::frame$")
+    fixture$workspace$member_metadata <- MemberMetadataCache$new(32 * 1024^2)
+    fixture$server$get_workspace <- function(...) fixture$workspace
+    index <- member_generic_index("")
+    index$package <- "recoveryfixture"
+    index$dataset_only <- TRUE
+    index$roots <- list(observations = member_value(type = "list", fields = list(column = member_literal(1L))))
+    fixture$workspace$member_metadata$set("recoveryfixture", member_index_freeze(index))
+    expect_true(member_metadata_waiting(fixture$server, fixture$uri, fixture$document, fixture$point))
+    index$namespace_attempted <- TRUE
+    fixture$workspace$member_metadata$set("recoveryfixture", member_index_freeze(index))
+    expect_false(member_metadata_waiting(fixture$server, fixture$uri, fixture$document, fixture$point))
+})
+
+test_that("Startup public datasets are usable before a namespace upgrade", {
+    for (code in c("recoveryfixture::observations$", "value <- recoveryfixture::observations\nvalue$")) {
+        fixture <- package_recovery_wait_fixture(code)
+        fixture$workspace$member_metadata$set("recoveryfixture", list(package = "recoveryfixture", dataset_only = TRUE,
+                roots = list(observations = member_value(type = "list", fields = list(column = member_literal(1L))))))
+        expect_false(member_metadata_waiting(fixture$server, fixture$uri, fixture$document, fixture$point), info = code)
+    }
+    fixture <- package_recovery_wait_fixture("recoveryfixture:::observations$")
+    fixture$workspace$member_metadata$set("recoveryfixture", list(package = "recoveryfixture", dataset_only = TRUE,
+            roots = list(observations = member_value(type = "list", fields = list(column = member_literal(1L))))))
+    expect_true(member_metadata_waiting(fixture$server, fixture$uri, fixture$document, fixture$point))
+})
+
 test_that("The first namespace member request queues independently of S3", {
     fixture <- package_recovery_wait_fixture("recoveryfixture::frame$")
     server <- fixture$server
@@ -110,6 +161,8 @@ test_that("The first namespace member request queues independently of S3", {
     queue <- collections::queue()
     server$pending_replies$set(fixture$uri, list(`textDocument/completion` = queue))
     server$ClientCapabilities <- list()
+    fixture$workspace$member_metadata$set("recoveryfixture", list(package = "recoveryfixture", dataset_only = TRUE,
+            roots = list(observations = member_value(type = "list", fields = list(column = member_literal(1L))))))
     replies <- list()
     server$deliver <- function(reply) replies[[length(replies) + 1L]] <<- reply
     promoted <- 0L
