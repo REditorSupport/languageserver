@@ -1,5 +1,9 @@
 # languageserver 0.3.20
 
+- Avoid suggesting function arguments after `$` or `@` inside a call when
+  member or slot completion cannot resolve the receiver, including names
+  enclosed in backticks, single quotes or double quotes.
+
 - Keep signature help visible while editing quoted and raw string arguments,
   including strings spanning multiple lines.
 

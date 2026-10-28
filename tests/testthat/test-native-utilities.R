@@ -141,6 +141,27 @@ test_that("Backtick completion scanning respects escapes and source offsets", {
             PACKAGE = "languageserver"), "col must be a single integer")
 })
 
+test_that("Closed-string scanning locates quoted names without confusing their contents", {
+    scan <- function(text, col = nchar(text)) {
+        .Call("scan_closed_string_completion_c", text, as.integer(col),
+            PACKAGE = "languageserver")
+    }
+    expect_identical(scan('x$"pos"'), list(token = "pos", start = 2L, end = 7L))
+    expect_identical(scan("x$'pos'"), list(token = "pos", start = 2L, end = 7L))
+    expect_null(scan('x$"pos"', 5L))
+    expect_identical(scan('x$"a\\\"pos"'), list(token = 'a\\"pos', start = 2L, end = 10L))
+    expect_identical(scan("x$'a\\'pos'"), list(token = "a\\'pos", start = 2L, end = 10L))
+    text <- paste0('"', intToUtf8(0x1f680), '"; x$"', intToUtf8(0xe9), '"')
+    expect_identical(scan(text), list(token = intToUtf8(0xe9), start = 7L, end = 10L))
+    for (text in c("plain", 'x$"closed" + ', '# x$"pos"', '`x$"pos"`')) {
+        expect_null(scan(text))
+    }
+    expect_error(.Call("scan_closed_string_completion_c", c("x", "y"), 0L,
+            PACKAGE = "languageserver"), "line must be a single character string")
+    expect_error(.Call("scan_closed_string_completion_c", "x", 0,
+            PACKAGE = "languageserver"), "col must be a single integer")
+})
+
 test_that("UTF-16 conversion handles every UTF-8 width and boundary", {
     text <- intToUtf8(c(0x61, 0xe9, 0x4f62, 0x10400, 0x7a))
 

@@ -1339,7 +1339,16 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
 
     if (token_result$accessor == "") {
         call_result <- document$detect_call(point)
+        # An unresolved member access must not fall back to arguments of its
+        # enclosing call. Check before a quoted name so that operators within
+        # the name do not hide an accessor on the preceding line.
+        member_point <- if (isTRUE(token_result$quoted)) token_result$range$start else point
         if (!is.null(call_result$opening)) {
+            string <- .Call("scan_closed_string_completion_c", document$line0(point$row),
+                as.integer(point$col), PACKAGE = "languageserver")
+            if (!is.null(string)) member_point <- list(row = point$row, col = string$start)
+        }
+        if (!is.null(call_result$opening) && is.null(member_cursor(document, member_point))) {
             constructor_args <- if (isTRUE(lsp_settings$get("member_completion"))) {
                 member_constructor_arguments(uri, workspace, document, point, token, call_result)
             }

@@ -105,7 +105,11 @@ static SEXP make_str(const char *text, int start, int len) {
 }
 
 /* Keep source offsets separate from the decoded name used for completion. */
-SEXP scan_backtick_completion_c(SEXP line, SEXP col) {
+static int completion_quote_state(const fsm_state *state, int strings) {
+    return strings ? state->single_quoted || state->double_quoted : state->backticked;
+}
+
+static SEXP scan_quoted_completion(SEXP line, SEXP col, int strings) {
     if (!Rf_isString(line) || Rf_length(line) != 1) {
         Rf_error("line must be a single character string");
     }
@@ -115,7 +119,12 @@ SEXP scan_backtick_completion_c(SEXP line, SEXP col) {
     const char *text = Rf_translateCharUTF8(STRING_ELT(line, 0));
     int len = (int) strlen(text);
     int cursor = byte_index_for_cp(text, len, INTEGER(col)[0]);
-    if (memchr(text, '`', cursor) == NULL) return R_NilValue;
+    if (strings) {
+        if (memchr(text, '\'', cursor) == NULL &&
+                memchr(text, '"', cursor) == NULL) return R_NilValue;
+    } else if (memchr(text, '`', cursor) == NULL) {
+        return R_NilValue;
+    }
 
     fsm_state state;
     fsm_initialize(&state);
@@ -126,22 +135,25 @@ SEXP scan_backtick_completion_c(SEXP line, SEXP col) {
                 !state.backticked && !state.escaped && text[i] == '#') {
             return R_NilValue;
         }
-        int backticked = state.backticked;
+        int quoted = completion_quote_state(&state, strings);
         fsm_feed(&state, text[i]);
-        if (!backticked && state.backticked) start = i;
-        if (backticked && !state.backticked) closing = i;
+        int next_quoted = completion_quote_state(&state, strings);
+        if (!quoted && next_quoted) start = i;
+        if (quoted && !next_quoted) closing = i;
     }
-    if (start < 0 || (!state.backticked && closing + 1 != cursor)) {
+    int quoted = completion_quote_state(&state, strings);
+    /* Strings only need a context check immediately after their closing quote. */
+    if (start < 0 || (strings && quoted) || (!quoted && closing + 1 != cursor)) {
         return R_NilValue;
     }
 
-    int prefix_end = state.backticked ? cursor : closing;
+    int prefix_end = quoted ? cursor : closing;
     int end = cursor;
-    if (state.backticked) {
+    if (quoted) {
         end = len;
         for (int i = cursor; i < len; i++) {
             fsm_feed(&state, text[i]);
-            if (!state.backticked) {
+            if (!completion_quote_state(&state, strings)) {
                 end = i + 1;
                 break;
             }
@@ -166,6 +178,14 @@ SEXP scan_backtick_completion_c(SEXP line, SEXP col) {
     Rf_setAttrib(out, R_NamesSymbol, names);
     UNPROTECT(2);
     return out;
+}
+
+SEXP scan_backtick_completion_c(SEXP line, SEXP col) {
+    return scan_quoted_completion(line, col, 0);
+}
+
+SEXP scan_closed_string_completion_c(SEXP line, SEXP col) {
+    return scan_quoted_completion(line, col, 1);
 }
 
 SEXP scan_token_c(SEXP line, SEXP col, SEXP forward) {
