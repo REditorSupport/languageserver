@@ -17,6 +17,42 @@ lazydata_labels <- function(code, snapshots, startup = character(), point = NULL
     vapply(items, `[[`, character(1L), "label")
 }
 
+lazydata_test_package <- function(.local_envir = parent.frame()) {
+    root <- withr::local_tempdir(.local_envir = .local_envir)
+    package <- "lazycolumnfixture"
+    path <- file.path(root, package)
+    library <- file.path(root, "library")
+    marker <- file.path(root, "getter-called")
+    dir.create(file.path(path, "R"), recursive = TRUE)
+    dir.create(file.path(path, "data"))
+    dir.create(library)
+    writeLines(c(
+        "Package: lazycolumnfixture", "Version: 0.0.1", "Title: Lazy Dataset Fixture",
+        "Description: Test lazy dataset completion without external packages.", "License: MIT",
+        "Author: Test Fixture", "Maintainer: Test Fixture <fixture@example.org>", "LazyData: true"
+    ), file.path(path, "DESCRIPTION"))
+    writeLines('S3method("$", lazy_fixture_frame)', file.path(path, "NAMESPACE"))
+    writeLines(c(
+        "`$.lazy_fixture_frame` <- function(x, name) {",
+        paste0("writeLines(\"getter\", ", deparse(marker), ")"),
+        ".subset2(x, name)", "}"
+    ), file.path(path, "R", "methods.R"))
+    columns <- c("alpha", "beta", "a b")
+    observations <- data.frame(alpha = seq_len(150L), beta = rep("value", 150L),
+        `a b` = rep(TRUE, 150L), check.names = FALSE)
+    class(observations) <- c("lazy_fixture_frame", "lazy_fixture_table", "data.frame")
+    save(observations, file = file.path(path, "data", "observations.rda"), version = 2)
+    install <- system2(file.path(R.home("bin"), "R"),
+        c("CMD", "INSTALL", paste0("--library=", shQuote(library)), shQuote(path)),
+        stdout = TRUE, stderr = TRUE)
+    status <- attr(install, "status")
+    if (is.null(status)) status <- 0L
+    expect_identical(status, 0L, info = paste(install, collapse = "\n"))
+    if (status != 0L) stop("Lazy dataset fixture installation failed")
+    withr::defer(if (package %in% loadedNamespaces()) unloadNamespace(package), envir = .local_envir)
+    list(root = root, package = package, library = library, columns = columns, marker = marker)
+}
+
 test_that("Lazy datasets retain public visibility without exposing private bindings", {
     state <- new.env(parent = emptyenv())
     state$loads <- 0L
@@ -89,17 +125,32 @@ test_that("Data-frame subclasses propose stored columns without invoking dollar 
     expect_false(file.exists(marker))
 })
 
-test_that("Installed datasets supply mtcars and diamonds columns", {
+test_that("Installed startup datasets supply mtcars columns", {
     snapshots <- member_prepare_startup_data("datasets")
     expect_true(isTRUE(snapshots$datasets$dataset_only))
     expect_identical(lazydata_labels("mtcars$", snapshots, "datasets"), sort(names(datasets::mtcars)))
     expect_identical(lazydata_labels("datasets::mtcars$", snapshots), sort(names(datasets::mtcars)))
     expect_length(lazydata_labels("datasets:::mtcars$", snapshots), 0L)
-    skip_if_not_installed("ggplot2")
-    snapshots$ggplot2 <- member_prepare_package("ggplot2")
-    expect_identical(lazydata_labels("ggplot2::diamonds$", snapshots, "datasets"), sort(names(ggplot2::diamonds)))
-    expect_identical(lazydata_labels("library(ggplot2)\ndiamonds$", snapshots, "datasets"), sort(names(ggplot2::diamonds)))
-    expect_identical(lazydata_labels("copy <- ggplot2::diamonds\ncopy$", snapshots, "datasets"), sort(names(ggplot2::diamonds)))
+})
+
+test_that("Installed lazy dataset subclasses supply columns without invoking getters", {
+    fixture <- lazydata_test_package()
+    withr::local_libpaths(c(fixture$library, .libPaths()))
+    ns <- asNamespace(fixture$package)
+    expect_false(exists("observations", ns, inherits = FALSE))
+    expect_false("observations" %in% getNamespaceExports(ns))
+    snapshots <- list(lazycolumnfixture = member_prepare_package(fixture$package))
+    for (code in c("lazycolumnfixture::observations$", "library(lazycolumnfixture)\nobservations$",
+            "copy <- lazycolumnfixture::observations\ncopy$")) {
+        expect_identical(lazydata_labels(code, snapshots), sort(fixture$columns), info = code)
+    }
+    expect_length(lazydata_labels("lazycolumnfixture:::observations$", snapshots), 0L)
+    completion <- lazydata_fixture("lazycolumnfixture::observations$`a", snapshots)
+    items <- member_completion(completion$document$uri, completion$workspace, completion$document,
+        completion$point, FALSE, 200L)
+    item <- items[[which(vapply(items, `[[`, character(1L), "label") == "a b")]]
+    expect_identical(item$textEdit$newText, "`a b`")
+    expect_false(file.exists(fixture$marker))
 })
 
 test_that("Startup dataset models can be enabled later and stay protected in the cache", {
@@ -129,15 +180,15 @@ test_that("Startup dataset models can be enabled later and stay protected in the
 
 test_that("Dataset completion works over LSP from an initially incomplete buffer", {
     skip_on_cran()
-    root <- withr::local_tempdir()
-    client <- language_client(working_dir = root)
-    cases <- list(list(code = "mtcars$", columns = names(datasets::mtcars)))
-    if (requireNamespace("ggplot2", quietly = TRUE)) {
-        cases[[2L]] <- list(code = "ggplot2::diamonds$", columns = names(ggplot2::diamonds))
-    }
+    fixture <- lazydata_test_package()
+    # Add only the fixture directory, retaining the standalone server's normal
+    # library paths instead of forwarding check-worker proxy libraries.
+    client <- language_client(working_dir = fixture$root, lib_paths = fixture$library)
+    cases <- list(list(code = "mtcars$", columns = names(datasets::mtcars)),
+        list(code = "lazycolumnfixture::observations$", columns = fixture$columns))
     for (i in seq_along(cases)) {
         case <- cases[[i]]
-        path <- file.path(root, paste0("dataset-", i, ".R"))
+        path <- file.path(fixture$root, paste0("dataset-", i, ".R"))
         did_open(client, path, text = case$code)
         timeout <- if (identical(Sys.getenv("R_COVR"), "true")) 90 else 45
         result <- respond_completion(client, path, c(0L, nchar(case$code)), timeout = timeout, retry = FALSE)
@@ -145,4 +196,5 @@ test_that("Dataset completion works over LSP from an initially incomplete buffer
         expect_true(all(case$columns %in% labels), info = case$code)
         expect_identical(sort(labels), sort(case$columns), info = case$code)
     }
+    expect_false(file.exists(fixture$marker))
 })
