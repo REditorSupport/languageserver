@@ -38,10 +38,14 @@ source_context_waiting <- function(workspace, document) {
     }, logical(1L)))
 }
 
-index_context_waiting <- function(self, workspace, document, point, hover = FALSE) {
-    call <- document$detect_call(point)
-    token <- document$detect_token(point)
-    if (!is.null(call$package) || !is.null(token$package) || !source_context_waiting(workspace, document)) return(FALSE)
+index_context_waiting <- function(self, workspace, document, point, hover = FALSE, call = NULL) {
+    if (is.null(call)) {
+        call <- document$detect_call(point)
+        if (!is.null(document$detect_token(point)$package)) return(FALSE)
+    }
+    # Signature requests pass their callee explicitly; a namespace-shaped
+    # token inside an argument does not determine where that callee is defined.
+    if (!is.null(call$package) || !source_context_waiting(workspace, document)) return(FALSE)
     if (is.function(self$queue_context_reply)) self$queue_context_reply(document$uri, workspace)
     TRUE
 }
@@ -214,22 +218,23 @@ text_document_signature_help  <- function(self, id, params) {
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     if (reply_parse_failure(self, id, document)) return(invisible(NULL))
     point <- document$from_lsp_position(params$position)
+    call <- document$detect_call(point, signature = TRUE)
     if (identical(document$version, document$parse_data$version) &&
-            (index_context_waiting(self, workspace, document, point) ||
-                    s3_metadata_waiting(self, uri, document, point, hover = FALSE))) {
+            (index_context_waiting(self, workspace, document, point, call = call) ||
+                    s3_metadata_waiting(self, uri, document, point, hover = FALSE, call = call))) {
         enqueue_latest_reply(self, uri, "textDocument/signatureHelp", list(id = id, version = document$version, params = params))
         if (is.function(self$resolve_task_manager$promote)) self$resolve_task_manager$promote(uri)
         return(invisible(NULL))
     }
     if ((isTRUE(lsp_settings$get("member_completion")) || isTRUE(lsp_settings$get("s3_dispatch"))) &&
             !identical(document$version, document$parse_data$version) &&
-            !is.null(member_call_location(document, point, symbols = TRUE))) {
+            !is.null(member_call_location(document, point, call = call, symbols = TRUE))) {
         enqueue_latest_reply(self, uri, "textDocument/signatureHelp", list(
             id = id, version = document$version, params = params
         ))
         return(invisible(NULL))
     }
-    self$deliver(signature_reply(id, uri, workspace, document, point, self$ClientCapabilities))
+    self$deliver(signature_reply(id, uri, workspace, document, point, self$ClientCapabilities, call = call))
 }
 
 #' `textDocument/definition` request handler

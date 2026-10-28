@@ -1,5 +1,8 @@
 # languageserver 0.3.20
 
+- Keep signature help visible while editing quoted and raw string arguments,
+  including strings spanning multiple lines.
+
 - Use LSP 3.18 capabilities for read-only generated package definitions,
   linked editable names in extraction refactorings, and signature help with no
   highlighted parameter when an argument matches no formal. Preserve existing

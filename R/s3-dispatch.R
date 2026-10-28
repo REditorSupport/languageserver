@@ -346,12 +346,12 @@ s3_context <- function(uri, workspace, document, at) {
 
 # Recover the enclosing call with its lexical scopes and following arguments.
 # The same path is used for complete source and bounded incomplete recovery.
-s3_call_location <- function(document, point, hover = FALSE) {
+s3_call_location <- function(document, point, hover = FALSE, call = NULL) {
     if (!check_r_region(document, point)) {
         return(NULL)
     }
     token <- if (hover) document$detect_token(point)
-    call <- document$detect_call(point)
+    if (is.null(call)) call <- document$detect_call(point)
     if (hover && nzchar(token$token)) {
         end <- token$range$end
         following <- substring(document$line0(end$row), end$col + 1L)
@@ -477,12 +477,12 @@ s3_match_arguments <- function(formals, actuals) {
     result
 }
 
-resolve_s3_call <- function(uri, workspace, document, point, hover = FALSE) {
+resolve_s3_call <- function(uri, workspace, document, point, hover = FALSE, call = NULL) {
     if (!isTRUE(lsp_settings$get("s3_dispatch")) ||
             !identical(document$version, document$parse_data$version)) {
         return(NULL)
     }
-    location <- s3_call_location(document, point, hover)
+    location <- s3_call_location(document, point, hover, call)
     if (is.null(location) || !s3_may_dispatch(workspace, document, location)) {
         return(NULL)
     }
@@ -836,7 +836,7 @@ s3_cached_callee <- function(workspace, document, location, packages) {
     FALSE
 }
 
-s3_metadata_waiting <- function(self, uri, document, point = NULL, hover = FALSE) {
+s3_metadata_waiting <- function(self, uri, document, point = NULL, hover = FALSE, call = NULL) {
     if (!isTRUE(lsp_settings$get("s3_dispatch")) || is.null(self$resolve_task_manager) ||
             !is.function(self$resolve_task_manager$has) ||
             !self$resolve_task_manager$has(uri)) {
@@ -845,7 +845,7 @@ s3_metadata_waiting <- function(self, uri, document, point = NULL, hover = FALSE
     workspace <- self$get_workspace(uri)
     packages <- character()
     if (!is.null(point)) {
-        location <- s3_call_location(document, point, hover)
+        location <- s3_call_location(document, point, hover, call)
         if (is.null(location)) return(FALSE)
         # A pending library() or namespace request must not hold ordinary
         # functions hostage to metadata needed only for S3 dispatch.

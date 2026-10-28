@@ -42,6 +42,24 @@ test_that("S3 source methods share completion, signatures and hover", {
     expect_match(paste(hover$contents, collapse = " "), "render.data.frame", fixed = TRUE)
 })
 
+test_that("S3 signature help remains available in quoted arguments", {
+    definitions <- c(
+        "render <- function(x, ...) UseMethod('render')",
+        "render.data.frame <- function(x, columns = NULL, ...) NULL",
+        "obj <- data.frame(a = 1:3)"
+    )
+    for (call in list('render(obj, columns = "a, (fake)")',
+            'render(obj, columns = r"--[a, " (fake)]--")',
+            c('render(obj, columns = r"--[first', 'fake(" text]--")'))) {
+        fixture <- s3_fixture(c(definitions, call))
+        col <- regexpr("fake", tail(call, 1L), fixed = TRUE)[[1L]] + 2L
+        result <- signature_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+            list(row = length(definitions) + length(call) - 1L, col = col))$result
+        expect_identical(result$signatures[[1L]]$label, "render(x, columns = NULL, ...)")
+        expect_identical(result$activeParameter, 1L)
+    }
+})
+
 test_that("S3 class chains preserve order and implicit numeric fallback", {
     base <- c(
         "g <- function(x, ...) UseMethod('g')", "g.numeric <- function(x, digits=2, ...) NULL",
