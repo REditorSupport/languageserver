@@ -169,6 +169,84 @@ test_that("S4 namespace constructors and objects use inert descriptor metadata",
     expect_identical(s4_labels("s4fixture::Widget()@", list(s4fixture = changed)), "changed")
 })
 
+test_that("Static S4 namespace slots preserve stored objects and callable syntax", {
+    scope <- new.env(parent = asNamespace("methods"))
+    leaf <- paste0("StaticS4Leaf", Sys.getpid())
+    box <- paste0("StaticS4Box", Sys.getpid())
+    scope$Leaf <- methods::setClass(leaf, slots = c(value = "numeric"),
+        where = scope, package = "languageserver")
+    withr::defer(suppressWarnings(methods::removeClass(leaf, where = scope)))
+    scope$Box <- methods::setClass(box, slots = c(typed = leaf, flexible = "ANY", items = "list", run = "function"),
+        where = scope, package = "languageserver")
+    withr::defer(suppressWarnings(methods::removeClass(box, where = scope)))
+    marker <- withr::local_tempfile()
+    scope$object <- scope$Box(
+        typed = scope$Leaf(value = 1), flexible = scope$Leaf(value = 2),
+        items = list(child = scope$Leaf(value = 3)),
+        run = function(first, second = 2) {
+            writeLines("method", marker)
+            list(done = first)
+        }
+    )
+    scope$private <- scope$object
+    store <- paste0(box, "Store")
+    Store <- methods::setClass(store, contains = "environment", where = scope, package = "languageserver")
+    withr::defer(suppressWarnings(methods::removeClass(store, where = scope)))
+    scope$store <- Store()
+    scope$store@.xData$payload <- list(flag = TRUE)
+    snapshot <- member_index_freeze(member_package_index(member_namespace_input(
+        scope, package = "languageserver", exports = c("object", "store")
+    )))
+    snapshots <- list(languageserver = snapshot)
+    for (code in list("languageserver::object@", c("library(languageserver)", "object@"),
+            c("original <- languageserver::object", "copy <- original", "copy@"))) {
+        expect_identical(s4_labels(code, snapshots), c("flexible", "items", "run", "typed"))
+    }
+    expect_identical(s4_labels("languageserver::object@typed@", snapshots), "value")
+    expect_identical(s4_labels("languageserver::object@flexible@", snapshots), "value")
+    expect_identical(s4_labels("languageserver::object@items$", snapshots), "child")
+    expect_identical(s4_labels("languageserver::object@items$child@", snapshots), "value")
+    expect_identical(s4_labels("languageserver:::private@flexible@", snapshots), "value")
+    expect_identical(s4_labels(c("copy <- languageserver:::private", "copy@"), snapshots),
+        c("flexible", "items", "run", "typed"))
+    expect_length(s4_labels("languageserver::private@", snapshots), 0L)
+    expect_identical(s4_labels("languageserver::store@", snapshots), ".xData")
+    expect_identical(s4_labels("languageserver::store@.xData$", snapshots), "payload")
+    expect_identical(s4_labels("languageserver::store@.xData$payload$", snapshots), "flag")
+    item <- s4_items("languageserver::object@ru", snapshots)[[1L]]
+    expect_identical(item$detail, "run(first, second = 2)")
+    expect_identical(item$kind, CompletionItemKind$Method)
+    fixture <- s4_fixture("languageserver::object@run(second = ", snapshots)
+    signature <- signature_reply(1L, fixture$uri, fixture$workspace, fixture$document, fixture$point)$result
+    expect_identical(signature$signatures[[1L]]$label, "run(first, second = 2)")
+    expect_identical(s4_labels("languageserver::object@run(stop(\"argument\"))$", snapshots), "done")
+    expect_length(s4_labels(c("object <- unknown()", "object@"), snapshots), 0L)
+    expect_false(file.exists(marker))
+    expect_identical(unserialize(serialize(snapshot, NULL)), snapshot)
+})
+
+test_that("Static S4 snapshots bound stored slots and skip deferred class metadata", {
+    scope <- new.env(parent = asNamespace("methods"))
+    class <- paste0("StaticS4Deferred", Sys.getpid())
+    Class <- methods::setClass(class, slots = c(value = "numeric"), where = scope, package = "languageserver")
+    withr::defer(suppressWarnings(methods::removeClass(class, where = scope)))
+    object <- Class(value = 1)
+    marker <- withr::local_tempfile()
+    lookup <- new.env(parent = emptyenv())
+    delayedAssign(paste0(".__C__", class), {
+        writeLines("descriptor", marker)
+        stop("descriptor")
+    }, assign.env = lookup)
+    describe <- function(...) stop("stored slot visitor")
+    snapshot <- member_s4_instance_snapshot(object, describe, 0L, 4L, lookup)
+    expect_identical(snapshot$reason, "unknown_s4_class")
+    expect_false(file.exists(marker))
+    snapshot <- member_s4_instance_snapshot(object, describe, 5L, 4L, scope)
+    expect_identical(snapshot$reason, "snapshot_depth")
+    snapshot <- member_s4_instance_snapshot(object, describe, 0L, 4L, scope, reserve = function(n) FALSE)
+    expect_identical(snapshot$reason, "snapshot_budget")
+})
+
 test_that("S4 dependency slots and union branches preserve class package identities", {
     skip_if_not_installed("stats4")
     loadNamespace("stats4")

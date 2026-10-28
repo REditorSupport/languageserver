@@ -44,6 +44,7 @@ member_constructor <- function(fn) {
         return(NULL)
     }
     statements <- as.list(body)[-1L]
+    if (!length(statements)) return(NULL)
     last <- statements[[length(statements)]]
     if (member_head(last, "return") && length(last) == 2L) last <- last[[2L]]
     target <- member_name(last)
@@ -309,21 +310,32 @@ member_package_index <- function(input) {
             }
         }
     }
-    # Every ordinary environment surface is discovered, including static bundles
+    # Every static object surface is discovered, including named lists, bundles
     # and exported roots. Active names are retained but getters are only analyzed.
     for (name in names(input$snapshots)) {
         snapshot <- input$snapshots[[name]]
-        shape <- member_snapshot_shape(snapshot)
-        shape$type <- name
+        shape <- member_snapshot_shape(snapshot, input$package)
+        if (identical(snapshot$kind, "environment")) shape$type <- name
         for (field in names(index$registries[[name]])) {
             if (is.null(shape$fields[[field]]$s7_generator)) {
-                shape$fields[field] <- list(member_value(function_key = index$registries[[name]][[field]]))
+                method <- if (identical(snapshot$kind, "r6_instance")) shape$fields[[field]] else member_value()
+                method$function_key <- index$registries[[name]][[field]]
+                shape$fields[field] <- list(method)
             }
         }
-        for (field in names(input$links[[name]])) shape$fields[field] <- list(member_value(type = input$links[[name]][[field]]))
+        for (field in names(input$links[[name]])) {
+            linked <- shape$fields[[field]]
+            if (identical(linked$type, "environment") && is.null(linked$r6_role)) {
+                shape$fields[field] <- list(member_value(type = input$links[[name]][[field]],
+                        classes = linked$classes, default_dollar = linked$default_dollar))
+            }
+        }
         index$package_roots[name] <- list(shape)
-        for (field in names(snapshot$fields)) {
+        for (field in names(shape$fields)) {
             if (!field %in% names(index$members[[name]])) index$members[[name]][field] <- NA_character_
+            if (identical(snapshot$kind, "environment") && is.null(shape$fields[[field]]$function_key)) {
+                index$properties[[name]][field] <- list(shape$fields[[field]])
+            }
         }
     }
     # Registry lookup branches describe membership, precedence, lexical receiver
@@ -553,7 +565,9 @@ member_package_index <- function(input) {
     for (name in names(input$s7_roots)) index$package_roots[name] <- input$s7_roots[name]
     for (name in names(input$s4_objects)) {
         class <- input$s4_objects[[name]]
-        index$package_roots[name] <- list(member_s4_shape(class$name, index, list(), class$package))
+        if (is.null(index$package_roots[[name]]$s4_class)) {
+            index$package_roots[name] <- list(member_s4_shape(class$name, index, list(), class$package))
+        }
     }
     index$roots <- index$package_roots[intersect(names(index$package_roots), index$exports)]
     for (name in names(index$roots)) index$namespace_roots[paste(input$package, name, sep = "::")] <- list(index$roots[[name]])

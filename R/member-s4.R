@@ -279,6 +279,64 @@ member_s4_runtime_descriptor <- function(value) {
         virtual = isTRUE(attr(value, "virtual", exact = TRUE)), complete = TRUE)
 }
 
+# Static instances store ordinary slots as attributes. Read their already
+# loaded class record and storage directly, without slot(), initialization or
+# validity methods. The shared snapshot visitor accounts for nested values.
+member_s4_instance_snapshot <- function(value, describe, depth, max_depth,
+    lookup_scope, reserve = function(n) TRUE) {
+    if (!isS4(value) || typeof(value) == "closure" ||
+            any(c("classRepresentation", "ClassUnionRepresentation") %in% attr(value, "class", exact = TRUE))) {
+        return(NULL)
+    }
+    if (depth > max_depth) return(list(kind = "unknown", reason = "snapshot_depth"))
+    class <- attr(value, "class", exact = TRUE)
+    if (!is.character(class) || length(class) != 1L || is.na(class) || !nzchar(class)) {
+        return(list(kind = "unknown", reason = "unknown_s4_class"))
+    }
+    package <- attr(class, "package", exact = TRUE)
+    if (!is.null(package) && (!is.character(package) || length(package) != 1L || is.na(package))) {
+        return(list(kind = "unknown", reason = "unknown_s4_class"))
+    }
+    key <- paste0(".__C__", class)
+    descriptor <- NULL
+    scopes <- list(lookup_scope)
+    if (!is.null(package) && package %in% loadedNamespaces()) scopes[[length(scopes) + 1L]] <- asNamespace(package)
+    for (start in scopes) {
+        scope <- start
+        while (is.environment(scope) && !identical(scope, emptyenv())) {
+            if (exists(key, scope, inherits = FALSE)) {
+                record <- member_binding(scope, key)
+                candidate <- if (identical(record[[1L]], "value") && isS4(record[[2L]])) {
+                    member_s4_runtime_descriptor(record[[2L]])
+                }
+                if (!is.null(candidate) && identical(candidate$name, as.character(class)) &&
+                        (is.null(package) || is.null(candidate$package) || identical(package, candidate$package))) {
+                    descriptor <- candidate
+                    break
+                }
+            }
+            scope <- parent.env(scope)
+        }
+        if (!is.null(descriptor)) break
+    }
+    if (is.null(descriptor) || isFALSE(descriptor$complete)) {
+        return(list(kind = "unknown", reason = "unknown_s4_class"))
+    }
+    names <- names(descriptor$slots)
+    if (!isTRUE(reserve(length(names)))) return(list(kind = "unknown", reason = "snapshot_budget"))
+    stored <- attributes(value)
+    names <- intersect(names, names(stored))
+    slots <- stats::setNames(lapply(names, function(name) describe(stored[[name]], depth + 1L)), names)
+    list(kind = "s4_instance", descriptor = descriptor, slots = slots)
+}
+
+member_s4_snapshot_shape <- function(record, decode, trail = integer()) {
+    descriptor <- record$descriptor
+    member_value(type = descriptor$name,
+        s4_class = list(name = descriptor$name, package = descriptor$package),
+        slot_types = descriptor$slots, slots = lapply(record$slots, decode, trail))
+}
+
 member_s4_dependencies <- function(classes, references = list()) {
     out <- list()
     queue <- c(classes, list(list(slots = references)))

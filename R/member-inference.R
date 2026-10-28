@@ -87,9 +87,9 @@ member_value <- function(
   open = FALSE, result_shape = NULL, binding_expr = NULL, binding_env = NULL,
   metadata = NULL, slots = NULL, slot_types = NULL, s4_class = NULL,
   s4_generator = NULL, r6_private = NULL, r6_super = NULL, r6_self = NULL,
-  r6_class = NULL, r6_role = NULL
+  r6_class = NULL, r6_role = NULL, default_dollar = FALSE
 ) {
-    list(
+    value <- list(
         type = type, function_key = function_key, receiver = receiver,
         fields = fields, function_expr = function_expr, closure = closure,
         receiver_name = receiver_name, receiver_value = receiver_value,
@@ -102,6 +102,8 @@ member_value <- function(
         r6_super = r6_super, r6_self = r6_self,
         r6_class = r6_class, r6_role = r6_role
     )
+    if (isTRUE(default_dollar)) value$default_dollar <- TRUE
+    value
 }
 
 member_literal <- function(x) {
@@ -116,7 +118,9 @@ member_join <- function(a, b) {
     if (identical(b$type, ".never")) {
         return(a)
     }
-    if (identical(a, b)) {
+    # Compacted snapshots and source values can omit different optional NULLs.
+    if (identical(a, b) || (isTRUE(a$known_literal) && isTRUE(b$known_literal) &&
+                identical(a[!vapply(a, is.null, logical(1L))], b[!vapply(b, is.null, logical(1L))]))) {
         return(a)
     }
     if (!length(a$type) || !length(b$type)) {
@@ -145,7 +149,10 @@ member_join <- function(a, b) {
         slots = slots, slot_types = slot_types,
         s4_class = if (identical(a$s4_class, b$s4_class)) a$s4_class else NULL,
         element_shape = if (!is.null(a$element_shape) && !is.null(b$element_shape)) member_join(a$element_shape, b$element_shape) else NULL,
-        classes = if (identical(a$classes, b$classes)) a$classes else NULL
+        classes = if (identical(a$classes, b$classes)) a$classes else if (
+            isTRUE(a$default_dollar) || isTRUE(b$default_dollar)
+        ) unique(c(a$classes, b$classes)) else NULL,
+        default_dollar = isTRUE(a$default_dollar) && isTRUE(b$default_dollar)
     )
     if (isTRUE(a$s7) && isTRUE(b$s7)) value$s7 <- TRUE
     if (identical(a$r6_class, b$r6_class)) value$r6_class <- a$r6_class
@@ -174,6 +181,29 @@ member_classes <- function(value, index) {
     if (is.null(classes)) value$type else classes
 }
 
+# A worker snapshot can verify ordinary environment access. A method declared
+# in the document or current lexical scope invalidates that package-time fact.
+member_default_dollar <- function(value, index, bindings) {
+    if (!isTRUE(value$default_dollar)) return(FALSE)
+    if (!length(value$classes)) return(TRUE)
+    methods <- paste0("$.", c(value$classes, "default"))
+    if (any(methods %in% names(bindings))) return(FALSE)
+    for (method in methods) {
+        if (!is.null(member_lookup(index$definitions, method))) return(FALSE)
+        history <- member_lookup(index$document_bindings, method)
+        at <- bindings$.__member_position__
+        if (length(history) && (is.null(at) || member_history_position(history, at))) return(FALSE)
+    }
+    TRUE
+}
+
+member_elements <- function(value) {
+    if (!is.null(value$elements)) return(value$elements)
+    if (isTRUE(value$default_dollar) && !isTRUE(value$open) &&
+            length(value$type) == 1L && value$type %in% c("list", "pairlist")) return(value$fields)
+    NULL
+}
+
 member_members <- function(value, index, bindings = list(), accessor = "$") {
     if (!length(value$type) || any(value$type %in% c(".never", ".missing"))) {
         return(character())
@@ -182,8 +212,10 @@ member_members <- function(value, index, bindings = list(), accessor = "$") {
         slots <- names(value$slot_types)
         return(stats::setNames(rep(NA_character_, length(slots)), slots))
     }
-    if (length(value$classes) && !all(value$classes %in% c("data.frame", "list", "environment", "R6")) &&
-        !any(value$classes %in% names(index$members))) {
+    if (isTRUE(value$default_dollar) && !member_default_dollar(value, index, bindings)) return(character())
+    if (!isTRUE(value$default_dollar) && length(value$classes) &&
+            !all(value$classes %in% c("data.frame", "list", "environment", "R6")) &&
+            !any(value$classes %in% names(index$members))) {
         return(character())
     }
     sets <- lapply(value$type, function(type) {
@@ -214,7 +246,8 @@ member_shape_key <- function(value, depth = 0L) {
         return("...")
     }
     list(
-        type = value$type, classes = value$classes, literal = if (isTRUE(value$known_literal) &&
+        type = value$type, classes = value$classes, default_dollar = value$default_dollar,
+        literal = if (isTRUE(value$known_literal) &&
             length(value$literal) <= 8L) {
             value$literal
         } else {
@@ -289,6 +322,9 @@ member_slot <- function(value, name, index, bindings, budget = NULL) {
 
 member_access <- function(lhs, name, index, bindings) {
     unknown <- member_value(reason = "unsupported")
+    if (isTRUE(lhs$default_dollar) && !member_default_dollar(lhs, index, bindings)) {
+        return(member_value(reason = "unresolved_dollar_dispatch"))
+    }
     dispatch_classes <- c(
         names(index$members), names(index$classes),
         unlist(lapply(index$namespace_indices, function(x) names(x$classes)))
@@ -296,7 +332,8 @@ member_access <- function(lhs, name, index, bindings) {
     if (!is.null(lhs$fields) && any(lhs$classes %in% index$record_dispatch_classes)) {
         dispatch_classes <- c(dispatch_classes, lhs$classes)
     }
-    if (length(lhs$classes) && !all(lhs$classes %in% c("list", "environment", "data.frame", "R6")) &&
+    if (!isTRUE(lhs$default_dollar) && length(lhs$classes) &&
+            !all(lhs$classes %in% c("list", "environment", "data.frame", "R6")) &&
             !any(lhs$classes %in% dispatch_classes)) {
         return(member_value(reason = "unresolved_dollar_dispatch"))
     }
@@ -566,6 +603,7 @@ member_infer <- function(
                 if (!is.null(object) && length(classes)) {
                     object$type <- classes[[1L]]
                     object$classes <- classes
+                    object$default_dollar <- FALSE
                     env[name] <- list(object)
                 } else if (!is.null(name)) env[name] <- list(unknown)
             }
@@ -851,22 +889,28 @@ member_infer <- function(
         s7 <- member_s7_call(expr, index, bindings, budget)
         if (!is.null(s7)) return(s7)
     }
-    if (member_head(expr, "::")) {
+    if (member_head(expr, "::") || member_head(expr, ":::")) {
         package <- member_name(expr[[2L]])
         name <- member_name(expr[[3L]])
+        private <- member_head(expr, ":::")
         root <- member_lookup(index$namespace_roots, paste(package, name, sep = "::"))
         if (!is.null(root)) {
             return(root)
         }
         package_index <- member_namespace_index(index, package)
-        if (!is.null(package_index) && name %in% package_index$exports &&
+        if (private) {
+            root <- member_lookup(package_index$package_roots, name)
+            if (is.null(root) && identical(package, index$package)) root <- member_lookup(index$package_roots, name)
+            if (!is.null(root)) return(root)
+        }
+        if (!is.null(package_index) && (private || name %in% package_index$exports) &&
             name %in% names(package_index$definitions)) {
             return(member_value(
                 function_key = name, metadata = package
             ))
         }
         if (identical(package, index$package) && name %in% names(index$definitions) &&
-            (is.null(index$exports) || name %in% index$exports)) {
+                (private || is.null(index$exports) || name %in% index$exports)) {
             return(member_value(function_key = name))
         }
         return(unknown)
@@ -886,22 +930,23 @@ member_infer <- function(
     }
     if (head %in% c("[[", "[")) {
         lhs <- infer(expr[[2L]])
+        elements <- member_elements(lhs)
         selector <- if (length(expr) >= 3L && !identical(expr[[3L]], quote(expr = ))) infer(expr[[3L]]) else unknown
         if (isTRUE(selector$known_literal) && length(selector$literal) == 1L) {
             name <- selector$literal
             if (is.character(name)) {
                 return(member_access(lhs, name, index, bindings))
             }
-            if (head == "[[" && !is.null(lhs$elements) && is.numeric(name) &&
-                name >= 1L && name <= length(lhs$elements)) {
-                return(lhs$elements[[name]])
+            if (head == "[[" && !is.null(elements) && is.numeric(name) &&
+                    name >= 1L && name <= length(elements)) {
+                return(elements[[name]])
             }
         }
         if (head == "[" && length(lhs$type) == 1L && lhs$type %in% c("double", "integer", "character", "logical", "list", "data.frame")) {
             return(lhs)
         }
-        if (!is.null(lhs$elements) && length(lhs$elements) && head == "[[") {
-            return(Reduce(member_join, lhs$elements))
+        if (!is.null(elements) && length(elements) && head == "[[") {
+            return(Reduce(member_join, elements))
         }
         if (!is.null(lhs$element_shape) && head == "[[") {
             return(lhs$element_shape)
@@ -1065,9 +1110,11 @@ member_infer <- function(
         if (head == "structure") {
             out <- arg(1L)
             classes <- actuals[["class"]]
-            if (!is.null(classes) && classes$known_literal) {
+            if (!is.null(classes)) {
+                if (!classes$known_literal || !is.character(classes$literal) || !length(classes$literal)) return(unknown)
                 out$type <- classes$literal[[1L]]
                 out$classes <- classes$literal
+                out$default_dollar <- FALSE
             }
             return(out)
         }
@@ -1076,8 +1123,9 @@ member_infer <- function(
         }
         if (head == "length") {
             x <- arg(1L)
-            if (!is.null(x$elements)) {
-                return(member_literal(length(x$elements)))
+            elements <- member_elements(x)
+            if (!is.null(elements)) {
+                return(member_literal(length(elements)))
             }
             if (x$known_literal) {
                 return(member_literal(length(x$literal)))
@@ -1137,7 +1185,7 @@ member_infer <- function(
             return(if (length(yes) == 1L && !is.na(yes)) member_literal(yes) else member_value(type = "logical"))
         }
         if (head == "lapply") {
-            xs <- arg(1L)$elements
+            xs <- member_elements(arg(1L))
             fn <- arg(2L)
             if (is.null(xs)) {
                 input <- if (is.null(arg(1L)$element_shape)) unknown else arg(1L)$element_shape
@@ -1162,7 +1210,7 @@ member_infer <- function(
         }
         if (head == "Reduce") {
             fn <- arg(1L)
-            xs <- arg(2L)$elements
+            xs <- member_elements(arg(2L))
             init <- member_lookup(actuals, "init")
             if (is.null(init) && length(actuals) >= 3L) init <- arg(3L)
             if (is.null(xs)) {
