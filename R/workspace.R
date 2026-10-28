@@ -183,7 +183,8 @@ MemberMetadataCache <- R6::R6Class(
             # Selection, imports and dispatch need only this compact catalog.
             # Keep it in the snapshot budget without decoding function bodies.
             fields <- c("package", "generation", "roots", "exports", "namespace_roots", "classes", "class_scope", "symbol_scope",
-                "s4_classes", "s4_dependencies", "s7_dependencies", "s7_capabilities")
+                "s4_classes", "s4_dependencies", "s7_dependencies", "s7_capabilities", "dataset_only", "namespace_attempted",
+                "subset_registry", "subset_registry_complete")
             entry <- list(
                 compressed = memCompress(serialize(snapshot, NULL), "gzip"),
                 catalog = snapshot[intersect(fields, names(snapshot))]
@@ -352,6 +353,7 @@ Workspace <- R6::R6Class("Workspace",
         namespace_file_mt = NULL,
 
         startup_packages = NULL,
+        startup_member_packages = NULL,
         loaded_packages = NULL,
         help_cache = NULL,
         parse_cache = NULL,  # Performance: Cache parse results by content hash
@@ -371,6 +373,7 @@ Workspace <- R6::R6Class("Workspace",
             self$global_env <- GlobalEnv$new(self$documents)
             self$namespaces <- collections::dict()
             self$startup_packages <- workspace_startup_packages()
+            self$startup_member_packages <- character()
             self$loaded_packages <- self$startup_packages
             for (pkgname in self$loaded_packages) {
                 self$namespaces$set(pkgname, PackageNamespace$new(pkgname))
@@ -396,11 +399,28 @@ Workspace <- R6::R6Class("Workspace",
             private$import_globals_cache <- collections::dict()
             self$type_hierarchy_cache <- collections::dict()
             self$member_metadata <- MemberMetadataCache$new(32 * 1024^2, max_entries = 16L)
+            if (isTRUE(lsp_settings$get("member_completion"))) {
+                self$load_startup_members()
+            }
             self$s3_metadata <- S3MetadataCache$new()
             private$s3_package_cache <- ByteLruCache$new(1024^2, max_entries = 64L)
             if (isTRUE(lsp_settings$get("s3_dispatch"))) {
                 for (package in names(workspace_startup_s3())) self$s3_metadata$set(package, workspace_startup_s3()[[package]])
             }
+        },
+
+        load_startup_members = function() {
+            members <- workspace_startup_members()
+            packages <- intersect(self$startup_packages, names(members))
+            self$startup_member_packages <- union(intersect(self$startup_packages, self$startup_member_packages), packages)
+            for (package in packages) {
+                # A document may already have upgraded this dataset-only
+                # seed to a complete namespace model. Keep that valid model.
+                current <- self$member_metadata$catalog(package)
+                if (isTRUE(nzchar(current$generation))) next
+                self$member_metadata$set(package, members[[package]], protect = self$startup_member_packages)
+            }
+            invisible(NULL)
         },
 
         load_package = function(pkgname) {
@@ -1115,5 +1135,29 @@ workspace_startup_s3 <- local({
                 list()
             })
         cached
+    }
+})
+
+# Startup datasets have no library() or namespace expression in the document.
+# Prepare their bounded member models once in an isolated worker, then share
+# only snapshots across workspaces. Failed workers can retry on a later setup.
+workspace_startup_members <- local({
+    cached <- NULL
+    previous <- NULL
+    function() {
+        requested <- list(packages = workspace_startup_packages(), lib_paths = .libPaths())
+        if (!is.null(cached) && identical(requested, previous)) return(cached)
+        if (!length(requested$packages)) return(list())
+        result <- tryCatch(callr::r(package_call(member_prepare_startup_data), args = requested,
+                system_profile = FALSE, user_profile = FALSE,
+                timeout = if (identical(Sys.getenv("R_COVR"), "true")) 60 else 8),
+            error = function(e) {
+                logger$info("startup member metadata:", e)
+                NULL
+            })
+        if (is.null(result)) return(list())
+        cached <<- result
+        previous <<- requested
+        result
     }
 })

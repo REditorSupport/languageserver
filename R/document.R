@@ -8,6 +8,7 @@ Document <- R6::R6Class(
         nline = 0,
         content = NULL,
         call_scan_cache = NULL,
+        signature_call_cache = NULL,
         parse_data = NULL,
         completion_outline = NULL,
         parse_generation = 0L,
@@ -178,11 +179,23 @@ Document <- R6::R6Class(
             ))
         },
 
-        detect_call = function(point) {
+        detect_call = function(point, signature = FALSE) {
             row <- point$row
             col <- point$col
 
-            if (col > 0) {
+            if (signature) {
+                bounds <- document_r_bounds(self, row)
+                if (is.null(bounds)) return(list(token = ""))
+                if (is.null(self$signature_call_cache)) {
+                    self$signature_call_cache <- .Call("new_signature_call_cache_c",
+                        PACKAGE = "languageserver")
+                }
+                fub_result <- .Call("signature_call_bracket_c",
+                    self$content, row, col, bounds[[1L]], self$signature_call_cache,
+                    PACKAGE = "languageserver")
+                loc <- fub_result[[1L]]
+                bracket <- fub_result[[2L]]
+            } else if (col > 0) {
                 if (is.null(self$call_scan_cache)) {
                     self$call_scan_cache <- .Call("new_bracket_scan_cache_c",
                         PACKAGE = "languageserver")
@@ -838,6 +851,22 @@ parse_callback <- function(self, uri, version, parse_data, source_content = NULL
         } else if (is.null(doc$requested_packages)) {
             doc$requested_packages <- requested_packages
         }
+    } else if (length(parse_data$member_data$packages)) {
+        # A newly pasted namespace receiver can end at $ or @ before any
+        # valid parse has requested its metadata. Retain the last valid imports
+        # while resolving only syntax-confirmed namespace hints from recovery.
+        requested_packages <- previous_packages
+        if (is.null(requested_packages)) requested_packages <- list(
+            packages = normalize_package_request(doc$loaded_packages), namespace_packages = character())
+        requested_packages$namespace_packages <- normalize_package_request(union(
+            requested_packages$namespace_packages, parse_data$member_data$packages))
+        if (!identical(doc$requested_packages, requested_packages) || isTRUE(doc$member_refresh)) {
+            doc$member_refresh <- FALSE
+            doc$requested_packages <- requested_packages
+            self$resolve_task_manager$add_task(uri,
+                resolve_task(self, uri, doc, requested_packages$packages,
+                    namespace_packages = requested_packages$namespace_packages))
+        }
     }
 
     if (is.function(self$queue_pending_replies)) {
@@ -862,9 +891,17 @@ drain_pending_replies <- function(self, uri, version, max_replies = Inf, first =
         if (!is.null(document) && identical(item$version, document$version) &&
                 method %in% c("textDocument/completion", "textDocument/hover", "textDocument/signatureHelp")) {
             point <- document$from_lsp_position(item$params$position)
+            call <- if (identical(method, "textDocument/signatureHelp")) {
+                document$detect_call(point, signature = TRUE)
+            } else {
+                NULL
+            }
             if (index_context_waiting(self, self$get_workspace(uri), document, point,
-                    hover = identical(method, "textDocument/hover"))) return(FALSE)
-            if (s3_metadata_waiting(self, uri, document, point, hover = identical(method, "textDocument/hover"))) return(FALSE)
+                    hover = identical(method, "textDocument/hover"), call = call)) return(FALSE)
+            if (identical(method, "textDocument/completion") &&
+                    member_metadata_waiting(self, uri, document, point)) return(FALSE)
+            if (s3_metadata_waiting(self, uri, document, point,
+                    hover = identical(method, "textDocument/hover"), call = call)) return(FALSE)
         }
         TRUE
     }
@@ -1025,6 +1062,7 @@ resolve_callback <- function(self, uri, version, packages) {
         protect <- unique(unlist(lapply(open_documents, function(document) {
             c(document$requested_packages$packages, document$requested_packages$namespace_packages)
         }), use.names = FALSE))
+        protect <- union(protect, workspace$startup_member_packages)
         for (package in names(packages$members)) {
             snapshot <- packages$members[[package]]
             if (inherits(workspace$member_metadata, "MemberMetadataCache")) {
@@ -1070,7 +1108,10 @@ resolve_member_task <- function(self, uri, document, packages, namespace_package
         callback = function(result) {
             if (current()) resolve_callback(self, uri, version, result)
         },
-        error = function(e) logger$info("member metadata task:", e),
+        error = function(e) {
+            on.exit(s3_queue_ready(self, uri), add = TRUE)
+            logger$info("member metadata task:", e)
+        },
         profiles = FALSE
     )
 }

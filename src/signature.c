@@ -16,6 +16,147 @@ static int identifier(unsigned char ch) {
         ch == '_' || ch == '.';
 }
 
+typedef struct {
+    int row;
+    int col;
+    char bracket;
+} signature_bracket;
+
+typedef struct {
+    fsm_state state;
+    signature_bracket *brackets;
+    int depth;
+    int capacity;
+    int first_row;
+    int row;
+    int valid;
+} signature_call_cache;
+
+static void signature_call_cache_finalizer(SEXP object) {
+    signature_call_cache *cache = R_ExternalPtrAddr(object);
+    if (cache != NULL) {
+        if (cache->brackets != NULL) R_Free(cache->brackets);
+        R_Free(cache);
+        R_ClearExternalPtr(object);
+    }
+}
+
+static void signature_call_cache_init(SEXP object) {
+    signature_call_cache *cache = R_Calloc(1, signature_call_cache);
+    R_SetExternalPtrAddr(object, cache);
+    R_RegisterCFinalizerEx(object, signature_call_cache_finalizer, TRUE);
+}
+
+SEXP new_signature_call_cache_c(void) {
+    SEXP object = PROTECT(R_MakeExternalPtr(NULL,
+        Rf_install("languageserver.signature_call_cache"), R_NilValue));
+    signature_call_cache_init(object);
+    UNPROTECT(1);
+    return object;
+}
+
+static void signature_call_scan_line(signature_call_cache *cache,
+    const char *text, int row, int limit) {
+    int col = 0;
+    int special = 0;
+    for (int i = 0; text[i]; i++) {
+        unsigned char ch = (unsigned char) text[i];
+        if ((ch & 0xc0) == 0x80) continue;
+        if (col >= limit) break;
+        if ((i & 65535) == 0) R_CheckUserInterrupt();
+        int current_col = col++;
+        if (special) {
+            if (ch == '%') special = 0;
+            continue;
+        }
+        fsm_state *state = &cache->state;
+        if (!state->single_quoted && !state->double_quoted &&
+                !state->backticked && !state->escaped) {
+            if (ch == '#') break;
+            if (ch == '%' && strchr(text + i + 1, '%') != NULL) {
+                special = 1;
+            } else if (ch == '(' || ch == '[' || ch == '{') {
+                if (cache->depth == cache->capacity) {
+                    if (cache->capacity > INT_MAX / 2) Rf_error("too many open brackets");
+                    int capacity = cache->capacity ? cache->capacity * 2 : 16;
+                    cache->brackets = R_Realloc(cache->brackets, capacity, signature_bracket);
+                    cache->capacity = capacity;
+                }
+                cache->brackets[cache->depth++] = (signature_bracket) {row, current_col, (char) ch};
+            } else if ((ch == ')' || ch == ']' || ch == '}') && cache->depth) {
+                cache->depth--;
+            }
+        }
+        fsm_feed(state, (char) ch);
+    }
+}
+
+/* Cache the lexical state and open brackets through the preceding line. This
+ * keeps edits on the cursor line cheap while correctly handling strings that
+ * span lines, even before the current document can be parsed. */
+SEXP signature_call_bracket_c(SEXP content, SEXP row_, SEXP col_,
+    SEXP first_row_, SEXP object) {
+    if (TYPEOF(content) != STRSXP || TYPEOF(object) != EXTPTRSXP ||
+            R_ExternalPtrTag(object) != Rf_install("languageserver.signature_call_cache")) {
+        Rf_error("invalid signature call scan input");
+    }
+    if (R_ExternalPtrAddr(object) == NULL) signature_call_cache_init(object);
+    signature_call_cache *cache = R_ExternalPtrAddr(object);
+    int row = Rf_asInteger(row_);
+    int col = Rf_asInteger(col_);
+    int first_row = Rf_asInteger(first_row_);
+    if (row < 0 || row >= Rf_length(content) || col < 0 ||
+            first_row < 0 || first_row > row) Rf_error("invalid signature call position");
+
+    SEXP previous = R_ExternalPtrProtected(object);
+    int matches = cache->valid && cache->row == row && cache->first_row == first_row;
+    if (matches && previous != content) {
+        for (int i = first_row; i < row; i++) {
+            if (STRING_ELT(previous, i) != STRING_ELT(content, i)) {
+                matches = 0;
+                break;
+            }
+        }
+    }
+    if (!matches) {
+        cache->valid = 0;
+        cache->depth = 0;
+        fsm_initialize(&cache->state);
+        for (int i = first_row; i < row; i++) {
+            if (STRING_ELT(content, i) == NA_STRING) continue;
+            signature_call_scan_line(cache, Rf_translateCharUTF8(STRING_ELT(content, i)), i, INT_MAX);
+            fsm_feed(&cache->state, '\n');
+        }
+        cache->row = row;
+        cache->first_row = first_row;
+    }
+    R_SetExternalPtrProtected(object, content);
+    int depth = cache->depth;
+    fsm_state state = cache->state;
+    signature_bracket *saved = (signature_bracket *) R_alloc((size_t) depth, sizeof(signature_bracket));
+    if (depth) memcpy(saved, cache->brackets, (size_t) depth * sizeof(signature_bracket));
+    cache->valid = 0;
+    if (STRING_ELT(content, row) != NA_STRING) {
+        signature_call_scan_line(cache, Rf_translateCharUTF8(STRING_ELT(content, row)), row, col);
+    }
+    signature_bracket found = cache->depth ? cache->brackets[cache->depth - 1] :
+        (signature_bracket) {-1, -1, ' '};
+    cache->state = state;
+    cache->depth = depth;
+    if (depth) memcpy(cache->brackets, saved, (size_t) depth * sizeof(signature_bracket));
+    cache->valid = 1;
+
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 2));
+    SEXP loc = PROTECT(Rf_allocVector(INTSXP, 2));
+    INTEGER(loc)[0] = found.row;
+    INTEGER(loc)[1] = found.col;
+    SET_VECTOR_ELT(out, 0, loc);
+    char bracket[] = {found.bracket, '\0'};
+    SET_VECTOR_ELT(out, 1, Rf_mkString(bracket));
+    UNPROTECT(2);
+    return out;
+}
+
 /* Return the first byte after a quoted or raw string, or at if not a string.
  * Parsing source text never evaluates defaults or user expressions. */
 static int literal_end(const char *text, int at, int size) {

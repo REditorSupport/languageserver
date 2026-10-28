@@ -51,7 +51,7 @@ member_scope_index <- function(node) {
     writes <- lapply(seq_along(children), function(i) {
         if (nzchar(assigned[[i]])) assigned[[i]] else member_assigned_names(children[[i]])
     })
-    mandatory <- which(!nzchar(assigned) | vapply(reads, function(names) {
+    mandatory <- which(!nzchar(assigned) | startsWith(assigned, "$.") | startsWith(assigned, "[[.") | vapply(reads, function(names) {
         any(names %in% c("setClass", "setClassUnion"))
     }, logical(1L)))
     histories <- split(which(nzchar(assigned)), assigned[nzchar(assigned)])

@@ -24,6 +24,19 @@ r6_symbol_signature <- function(fixture, row = fixture$document$nline - 1L) {
         list(row = row, col = nchar(fixture$document$line0(row))))$result
 }
 
+test_that("R6 member signature help remains available in quoted arguments", {
+    definition <- 'C <- R6::R6Class("Widget", public = list(run = function(first, second) NULL))'
+    for (call in list('object$run(1, "a, (fake)")', 'object$run(1, r"[a, \" (fake)]")',
+            c('object$run(1, r"[first', 'fake(" text]")'))) {
+        fixture <- r6_symbol_fixture(c(definition, "object <- C$new()", call))
+        col <- regexpr("fake", tail(call, 1L), fixed = TRUE)[[1L]] + 2L
+        result <- signature_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+            list(row = length(call) + 1L, col = col))$result
+        expect_identical(result$signatures[[1L]]$label, "run(first, second)")
+        expect_identical(result$activeParameter, 1L)
+    }
+})
+
 test_that("R6 scope completion and hover identify the referenced class", {
     for (section in c("public", "private", "active")) {
         fixture <- r6_symbol_fixture(c(

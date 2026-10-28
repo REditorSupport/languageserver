@@ -38,12 +38,76 @@ source_context_waiting <- function(workspace, document) {
     }, logical(1L)))
 }
 
-index_context_waiting <- function(self, workspace, document, point, hover = FALSE) {
-    call <- document$detect_call(point)
-    token <- document$detect_token(point)
-    if (!is.null(call$package) || !is.null(token$package) || !source_context_waiting(workspace, document)) return(FALSE)
+index_context_waiting <- function(self, workspace, document, point, hover = FALSE, call = NULL) {
+    if (is.null(call)) {
+        call <- document$detect_call(point)
+        if (!is.null(document$detect_token(point)$package)) return(FALSE)
+    }
+    # Signature requests pass their callee explicitly; a namespace-shaped
+    # token inside an argument does not determine where that callee is defined.
+    if (!is.null(call$package) || !source_context_waiting(workspace, document)) return(FALSE)
     if (is.function(self$queue_context_reply)) self$queue_context_reply(document$uri, workspace)
     TRUE
+}
+
+# Namespace member models run independently of S3 catalogs. Wait only for
+# packages used by this receiver, never unrelated source-member requests.
+member_metadata_waiting <- function(self, uri, document, point) {
+    if (!isTRUE(lsp_settings$get("member_completion"))) return(FALSE)
+    manager <- if (is.null(self$member_task_manager)) self$resolve_task_manager else self$member_task_manager
+    if (is.null(manager) || !is.function(manager$has) || !manager$has(uri)) return(FALSE)
+    cursor <- member_cursor(document, point)
+    if (is.null(cursor)) return(FALSE)
+    recovered <- tryCatch(member_recover_scope(document, point, cursor, document$parse_data$member_data),
+        error = function(e) NULL)
+    if (is.null(recovered)) return(FALSE)
+    referenced <- member_source_names(recovered$parsed, recovered$source, recovered$path,
+        accessor = cursor$accessor)
+    expressions <- list(recovered$parsed)
+    seen <- character()
+    for (pass in seq_len(16L)) {
+        pending <- setdiff(referenced, seen)
+        if (!length(pending) || length(seen) > 256L) break
+        seen <- c(seen, pending)
+        for (name in pending) {
+            history <- document$parse_data$member_data$bindings[[name]]
+            position <- member_history_position(history, recovered$start)
+            if (position) {
+                expression <- history[[position]]$expr
+                referenced <- union(referenced, member_syntax_names(expression))
+                expressions[[length(expressions) + 1L]] <- expression
+            }
+        }
+    }
+    packages <- intersect(document$requested_packages$namespace_packages, referenced)
+    if (!length(packages)) return(FALSE)
+    metadata <- self$get_workspace(uri)$member_metadata
+    if (is.null(metadata)) return(TRUE)
+    requests <- new.env(parent = emptyenv())
+    requests$ready <- FALSE
+    requests$objects <- list()
+    requests$private <- character()
+    any(vapply(packages, function(package) {
+        catalog <- if (is.function(metadata$catalog)) metadata$catalog(package) else metadata$get(package, NULL)
+        if (is.null(catalog) || !is.null(catalog$error)) return(TRUE)
+        if (!isTRUE(catalog$dataset_only) || isTRUE(catalog$namespace_attempted)) return(FALSE)
+        # Startup catalogs contain only public datasets. A dataset already in
+        # that catalog is usable, but regular or private objects must wait for
+        # the pending namespace upgrade. Failed bounded upgrades are final.
+        if (!requests$ready) {
+            for (expression in expressions) member_walk(expression, function(node) {
+                if (length(node) != 3L || !(member_head(node, "::") || member_head(node, ":::"))) return()
+                name <- member_name(node[[2L]])
+                object <- member_name(node[[3L]])
+                if (is.null(name) || is.null(object)) return()
+                requests$objects[[name]] <- union(requests$objects[[name]], object)
+                if (member_head(node, ":::")) requests$private <- union(requests$private, name)
+            })
+            requests$ready <- TRUE
+        }
+        objects <- requests$objects[[package]]
+        package %in% requests$private || !length(objects) || !all(objects %in% names(catalog$roots))
+    }, logical(1L)))
 }
 
 #' `textDocument/completion` request handler
@@ -67,9 +131,11 @@ text_document_completion  <- function(self, id, params) {
     }
     if (identical(document$version, document$parse_data$version) &&
             (index_context_waiting(self, workspace, document, point) ||
+                    member_metadata_waiting(self, uri, document, point) ||
                     s3_metadata_waiting(self, uri, document, point, hover = FALSE))) {
         enqueue_latest_reply(self, uri, "textDocument/completion", list(id = id, version = document$version, params = params))
         if (is.function(self$resolve_task_manager$promote)) self$resolve_task_manager$promote(uri)
+        if (is.function(self$member_task_manager$promote)) self$member_task_manager$promote(uri)
         return(invisible(NULL))
     }
     # didChange schedules a debounced background parse. Scope and member
@@ -152,22 +218,23 @@ text_document_signature_help  <- function(self, id, params) {
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     if (reply_parse_failure(self, id, document)) return(invisible(NULL))
     point <- document$from_lsp_position(params$position)
+    call <- document$detect_call(point, signature = TRUE)
     if (identical(document$version, document$parse_data$version) &&
-            (index_context_waiting(self, workspace, document, point) ||
-                    s3_metadata_waiting(self, uri, document, point, hover = FALSE))) {
+            (index_context_waiting(self, workspace, document, point, call = call) ||
+                    s3_metadata_waiting(self, uri, document, point, hover = FALSE, call = call))) {
         enqueue_latest_reply(self, uri, "textDocument/signatureHelp", list(id = id, version = document$version, params = params))
         if (is.function(self$resolve_task_manager$promote)) self$resolve_task_manager$promote(uri)
         return(invisible(NULL))
     }
     if ((isTRUE(lsp_settings$get("member_completion")) || isTRUE(lsp_settings$get("s3_dispatch"))) &&
             !identical(document$version, document$parse_data$version) &&
-            !is.null(member_call_location(document, point, symbols = TRUE))) {
+            !is.null(member_call_location(document, point, call = call, symbols = TRUE))) {
         enqueue_latest_reply(self, uri, "textDocument/signatureHelp", list(
             id = id, version = document$version, params = params
         ))
         return(invisible(NULL))
     }
-    self$deliver(signature_reply(id, uri, workspace, document, point, self$ClientCapabilities))
+    self$deliver(signature_reply(id, uri, workspace, document, point, self$ClientCapabilities, call = call))
 }
 
 #' `textDocument/definition` request handler

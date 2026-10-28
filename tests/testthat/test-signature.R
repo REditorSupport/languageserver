@@ -371,6 +371,170 @@ test_that("Active parameter detection ignores nested and quoted commas", {
     expect_identical(signature_info("fun(# comment\n)")$names, character())
 })
 
+test_that("Signature help stays visible inside quoted arguments", {
+    cases <- list(
+        list("fun('<cursor>')", 0L),
+        list('fun("<cursor>")', 0L),
+        list("fun('unfinished<cursor>", 0L),
+        list('fun("a, (nested) \\\"quoted\\\"<cursor>")', 0L),
+        list("fun(1, 'a, fake(<cursor>')", 1L),
+        list('fun(third = "<cursor>")', 2L),
+        list('fun(r"(<cursor>)")', 0L),
+        list("fun(R'--[raw, ' fake(<cursor>]--')", 0L),
+        list('fun(1, r"--{raw, \" fake(<cursor>}--")', 1L),
+        list('fun(third = r"(unfinished, fake(<cursor>', 2L),
+        list('fun("first", "<cursor>")', 1L),
+        list('fun("first", <cursor>)', 1L)
+    )
+    for (case in cases) {
+        marked <- case[[1L]]
+        col <- regexpr("<cursor>", marked, fixed = TRUE)[[1L]] - 1L
+        call <- sub("<cursor>", "", marked, fixed = TRUE)
+        fixture <- provider_fixture(c("fun <- function(first, second, third) NULL", call))
+        fixture$workspace$get_signature <- function(...) "fun(first, second, third)"
+        fixture$workspace$get_documentation <- function(...) NULL
+        result <- signature_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+            list(row = 1L, col = col))$result
+        expect_equal(length(result$signatures), 1L, info = marked)
+        if (length(result$signatures)) {
+            expect_identical(result$signatures[[1L]]$label, "fun(first, second, third)", info = marked)
+            expect_identical(result$activeParameter, case[[2L]], info = marked)
+        }
+    }
+
+    # A call-shaped fragment inside a string is not an actual call.
+    for (marked in c("'fun(<cursor>)'", 'r"(fun(<cursor>))"')) {
+        col <- regexpr("<cursor>", marked, fixed = TRUE)[[1L]] - 1L
+        fixture <- provider_fixture(c("fun <- function(first) NULL",
+            sub("<cursor>", "", marked, fixed = TRUE)))
+        result <- signature_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+            list(row = 1L, col = col))$result
+        expect_equal(length(result$signatures), 0L, info = marked)
+    }
+})
+
+test_that("Quoted arguments retain pipe and nullable parameter matching", {
+    capabilities <- list(textDocument = list(signatureHelp = list(
+        signatureInformation = list(noActiveParameterSupport = TRUE))))
+    cases <- list(
+        list('fun(second = 1, r"(<cursor>)")', 0L),
+        list('fun(unknown = "<cursor>")', NULL)
+    )
+    if (getRversion() >= "4.1.0") {
+        cases <- c(cases, list(list('value |> fun("<cursor>")', 1L)))
+    }
+    for (case in cases) {
+        marked <- case[[1L]]
+        col <- regexpr("<cursor>", marked, fixed = TRUE)[[1L]] - 1L
+        fixture <- provider_fixture(c("fun <- function(first, second, third) NULL",
+            sub("<cursor>", "", marked, fixed = TRUE)))
+        result <- signature_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+            list(row = 1L, col = col), capabilities)$result
+        expect_length(result$signatures, 1L)
+        expect_identical(result$activeParameter, case[[2L]])
+    }
+})
+
+test_that("Signature help follows multiline strings and ignores calls in their text", {
+    cases <- list(
+        list(c('fun(1, "first line', 'fake(<cursor>")'), 1L),
+        list(c("fun(third = 'first line", "fake(<cursor>')"), 2L),
+        list(c('fun(1, r"--[first line', 'fake("<cursor>]--")'), 1L),
+        list(c('fun("first', 'second", "third', 'fake(<cursor>")'), 1L),
+        list(c('fun(1, r"(first', '<cursor>last)'), 1L)
+    )
+    for (case in cases) {
+        marked <- case[[1L]]
+        row <- which(grepl("<cursor>", marked, fixed = TRUE))
+        col <- regexpr("<cursor>", marked[[row]], fixed = TRUE)[[1L]] - 1L
+        marked[[row]] <- sub("<cursor>", "", marked[[row]], fixed = TRUE)
+        fixture <- provider_fixture(c("fun <- function(first, second, third) NULL", marked))
+        fixture$workspace$get_signature <- function(...) "fun(first, second, third)"
+        fixture$workspace$get_documentation <- function(...) NULL
+        result <- signature_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+            list(row = row, col = col))$result
+        expect_equal(length(result$signatures), 1L, info = paste(marked, collapse = "\n"))
+        if (length(result$signatures)) {
+            expect_identical(result$signatures[[1L]]$label, "fun(first, second, third)")
+            expect_identical(result$activeParameter, case[[2L]])
+        }
+    }
+
+    for (marked in list(c('"first line', 'fun(\'<cursor>\')"'),
+            c('r"(first line', 'fun(\'<cursor>\'))"'))) {
+        col <- regexpr("<cursor>", marked[[2L]], fixed = TRUE)[[1L]] - 1L
+        marked[[2L]] <- sub("<cursor>", "", marked[[2L]], fixed = TRUE)
+        fixture <- provider_fixture(c("fun <- function(first) NULL", marked))
+        result <- signature_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+            list(row = 2L, col = col))$result
+        expect_length(result$signatures, 0L)
+    }
+})
+
+test_that("Signature call scanning follows edits and R Markdown regions", {
+    document <- Document$new("file:///signature-cache.R", version = 1L,
+        content = c('outer("first', 'fake('))
+    point <- list(row = 1L, col = 5L)
+    expect_identical(document$detect_call(point, signature = TRUE)$token, "outer")
+    cache <- document$signature_call_cache
+    document$set_content(2L, c('outer("first', 'fake(abc'))
+    expect_identical(document$detect_call(list(row = 1L, col = 8L), signature = TRUE)$token, "outer")
+    expect_identical(document$signature_call_cache, cache)
+    document$set_content(3L, c('outer("first")', 'fake('))
+    expect_identical(document$detect_call(point, signature = TRUE)$token, "fake")
+    document$set_content(4L, c('outer("first', 'fake('))
+    expect_identical(document$detect_call(point, signature = TRUE)$token, "outer")
+    document$signature_call_cache <- unserialize(serialize(cache, NULL))
+    expect_identical(document$detect_call(point, signature = TRUE)$token, "outer")
+    document$set_content(5L, c("outer(", "), fresh("))
+    expect_identical(document$detect_call(list(row = 1L, col = 9L), signature = TRUE)$token, "fresh")
+    expect_identical(document$detect_call(list(row = 1L, col = 1L), signature = TRUE)$token, "")
+    expect_identical(document$detect_call(list(row = 1L, col = 0L), signature = TRUE)$token, "outer")
+
+    content <- c('"unclosed prose', '```{r}', 'get("text")', '```', 'get("text")')
+    document <- Document$new("file:///signature.qmd", content = content)
+    expect_identical(document$detect_call(list(row = 2L, col = 6L), signature = TRUE)$token, "get")
+    expect_identical(document$detect_call(list(row = 4L, col = 6L), signature = TRUE)$token, "")
+})
+
+test_that("Installed signature help survives quoted text edits", {
+    skip_on_cran()
+    root <- withr::local_tempdir()
+    path <- file.path(root, "signature-quotes.R")
+    uri <- path_to_uri(path)
+    client <- language_client(working_dir = root)
+    did_open(client, path, text = "get()")
+    result <- respond_signature(client, path, c(0L, 4L),
+        retry_when = function(result) !length(result$signatures))
+    expect_match(result$signatures[[1L]]$label, "^get\\(x,")
+
+    notify(client, "textDocument/didChange", list(
+        textDocument = list(uri = uri, version = 2L),
+        contentChanges = list(list(range = range(position(0L, 4L), position(0L, 4L)), text = "''"))
+    ))
+    result <- respond_signature(client, path, c(0L, 5L), retry = FALSE)
+    expect_match(result$signatures[[1L]]$label, "^get\\(x,")
+    expect_identical(result$activeParameter, 0L)
+
+    inserted <- paste0(intToUtf8(0x1f600), ", fake(")
+    notify(client, "textDocument/didChange", list(
+        textDocument = list(uri = uri, version = 3L),
+        contentChanges = list(list(range = range(position(0L, 5L), position(0L, 5L)), text = inserted))
+    ))
+    result <- respond_signature(client, path, c(0L, 5L + ncodeunit(inserted)), retry = FALSE)
+    expect_match(result$signatures[[1L]]$label, "^get\\(x,")
+    expect_identical(result$activeParameter, 0L)
+
+    raw_lines <- c('get(x = r"--[first line', 'fake(" text]--")')
+    notify(client, "textDocument/didChange", list(
+        textDocument = list(uri = uri, version = 4L),
+        contentChanges = list(list(text = paste(raw_lines, collapse = "\n")))
+    ))
+    result <- respond_signature(client, path, c(1L, 6L), retry = FALSE)
+    expect_match(result$signatures[[1L]]$label, "^get\\(x,")
+    expect_identical(result$activeParameter, 0L)
+})
+
 test_that("Signature reply resolves local documented functions", {
     content <- c(
         "#' Add values",
