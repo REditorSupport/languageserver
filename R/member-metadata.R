@@ -22,6 +22,15 @@ member_function_syntax <- function(fn) {
     as.call(list(as.name("function"), formals(fn), body(fn)))
 }
 
+member_list_storage <- function(value) {
+    storage <- unclass(value)
+    nms <- attr(value, "names", exact = TRUE)
+    # Dimensions supply implicit matrix/array classes even after unclass().
+    # Keep only names so lapply() cannot dispatch a coercion method.
+    attributes(storage) <- if (is.null(nms)) NULL else list(names = nms)
+    storage
+}
+
 member_snapshot <- function(env, max_depth = 4L, max_bindings = 5000L, s7_modes = list(),
     lookup_scope = parent.frame()) {
     seen <- list()
@@ -88,9 +97,46 @@ member_snapshot <- function(env, max_depth = 4L, max_bindings = 5000L, s7_modes 
         }
         values
     }
-    visit <- function(current, depth) {
+    r6_cache <- new.env(parent = emptyenv())
+    r6_cache$receivers <- r6_cache$scopes <- list()
+    r6_method_scopes <- function(receiver) {
+        cached <- which(vapply(r6_cache$receivers, identical, logical(1L), receiver))
+        if (length(cached)) return(r6_cache$scopes[[cached[[1L]]]])
+        record <- member_binding(receiver, ".__enclos_env__")
+        queue <- if (identical(record[[1L]], "value") && is.environment(record[[2L]])) list(record[[2L]]) else list()
+        scopes <- list()
+        checked <- 0L
+        next_scope <- 1L
+        while (next_scope <= length(queue) && length(scopes) < 32L) {
+            scope <- queue[[next_scope]]
+            next_scope <- next_scope + 1L
+            if (any(vapply(scopes, identical, logical(1L), scope))) next
+            self <- member_binding(scope, "self")
+            if (!identical(self[[1L]], "value") || !identical(self[[2L]], receiver)) next
+            scopes[[length(scopes) + 1L]] <- scope
+            if (checked >= 5000L) next
+            super <- member_binding(scope, "super")
+            if (!identical(super[[1L]], "value") || !is.environment(super[[2L]])) next
+            for (name in utils::head(ls(super[[2L]], all.names = TRUE), 5000L - checked)) {
+                checked <- checked + 1L
+                method <- member_binding(super[[2L]], name)
+                if (identical(method[[1L]], "value") && typeof(method[[2L]]) == "closure") {
+                    enclosing <- environment(method[[2L]])
+                    if (!any(vapply(queue, identical, logical(1L), enclosing))) {
+                        queue[[length(queue) + 1L]] <- enclosing
+                    }
+                }
+            }
+        }
+        key <- length(r6_cache$receivers) + 1L
+        r6_cache$receivers[key] <- list(receiver)
+        r6_cache$scopes[key] <- list(scopes)
+        scopes
+    }
+    visit <- function(current, depth, r6_receiver = NULL) {
         classes <- attr(current, "class", exact = TRUE)
         r6_instance <- "R6" %in% classes && !"R6ClassGenerator" %in% classes
+        if (r6_instance) r6_receiver <- current
         kind <- if (r6_instance) "r6_instance" else "environment"
         old <- which(vapply(seen, identical, logical(1L), current))
         if (length(old)) {
@@ -115,20 +161,22 @@ member_snapshot <- function(env, max_depth = 4L, max_bindings = 5000L, s7_modes 
                     captures = if (typeof(value) == "closure") captures(value) else list()
                 )
             } else if (identical(record[[1L]], "value")) {
-                describe(value, depth + 1L)
+                receiver <- if (typeof(value) == "closure" ||
+                        (is.environment(value) && name %in% c(".__enclos_env__", "private", "super"))) r6_receiver
+                describe(value, depth + 1L, receiver)
             } else {
                 list(kind = "unknown", reason = "promise_not_forced")
             }
-            if (r6_instance) field$locked <- bindingIsLocked(name, current)
+            if (!is.null(r6_receiver)) field$locked <- bindingIsLocked(name, current)
             field
         }), nms)
         list(
             kind = kind, id = id, complete = TRUE, classes = classes, fields = fields,
             default_dollar = default_dollar(current),
-            r6_locked = if (r6_instance) environmentIsLocked(current) else NULL
+            r6_locked = if (!is.null(r6_receiver)) environmentIsLocked(current) else NULL
         )
     }
-    describe <- function(value, depth) {
+    describe <- function(value, depth, r6_receiver = NULL) {
         if (missing(value) || identical(value, quote(expr = ))) return(list(kind = "unknown", reason = "missing_value"))
         descriptor <- member_s7_instance_descriptor(value, s7_modes)
         if (!is.null(descriptor)) {
@@ -156,7 +204,23 @@ member_snapshot <- function(env, max_depth = 4L, max_bindings = 5000L, s7_modes 
             })
         if (!is.null(snapshot)) return(snapshot)
         if (typeof(value) == "closure") {
-            list(kind = "function", syntax = member_function_syntax(value), captures = captures(value))
+            syntax <- member_function_syntax(value)
+            scope <- environment(value)
+            self <- if (!is.null(r6_receiver) && is.environment(scope)) member_binding(scope, "self")
+            bound <- identical(self[[1L]], "value") && identical(self[[2L]], r6_receiver) &&
+                any(vapply(r6_method_scopes(r6_receiver), identical, logical(1L), scope))
+            contexts <- list()
+            if (bound) {
+                for (name in intersect(c("private", "super"), member_syntax_names(syntax))) {
+                    record <- member_binding(scope, name)
+                    if (identical(record[[1L]], "value")) {
+                        contexts[name] <- list(describe(record[[2L]], depth + 1L, r6_receiver))
+                    }
+                }
+            }
+            list(kind = "function", syntax = syntax, captures = captures(value),
+                r6_bound = bound, r6_contexts = contexts,
+                r6_classes = if (bound) attr(r6_receiver, "class", exact = TRUE))
         } else if (is.environment(value)) {
             # Namespace registries can refer back to whole package namespaces.
             # Apply the root exclusion recursively rather than copying those
@@ -164,11 +228,11 @@ member_snapshot <- function(env, max_depth = 4L, max_bindings = 5000L, s7_modes 
             if (isNamespace(value) || identical(value, globalenv()) || identical(value, baseenv())) {
                 return(list(kind = "unknown", reason = "namespace_environment"))
             }
-            visit(value, depth)
+            visit(value, depth, r6_receiver)
         } else if (!is.object(value) && is.atomic(value) && length(value) <= 100L) {
             list(kind = "literal", value = value)
         } else if (typeof(value) %in% c("list", "pairlist") && !isS4(value) && depth <= max_depth) {
-            storage <- unclass(value)
+            storage <- member_list_storage(value)
             if (length(storage) > remaining) return(list(kind = "unknown", reason = "snapshot_budget"))
             remaining <<- remaining - length(storage)
             list(
@@ -192,6 +256,8 @@ member_snapshot_shape <- function(snapshot, package = "") {
             for (field in record$elements) collect(field)
         } else if (record$kind %in% c("s7_instance", "s4_instance")) {
             for (field in record$slots) collect(field)
+        } else if (identical(record$kind, "function")) {
+            for (context in record$r6_contexts) collect(context)
         }
     }
     collect(snapshot)
@@ -203,9 +269,40 @@ member_snapshot_shape <- function(snapshot, package = "") {
             return(decode(records[[as.character(record$id)]], trail))
         }
         if (identical(record$kind, "function")) {
-            return(member_value(
+            value <- member_value(
                 type = "function", function_expr = record$syntax, closure = lapply(record$captures, member_literal)
-            ))
+            )
+            if (isTRUE(record$r6_bound)) {
+                classes <- setdiff(record$r6_classes, "R6")
+                class <- list(name = if (length(classes)) classes[[1L]] else NULL, package = package)
+                value$receiver_name <- "self"
+                value$r6_static_bound <- TRUE
+                private <- member_lookup(record$r6_contexts, "private")
+                if (identical(private$kind, "reference") && identical(private$id, utils::tail(trail, 1L))) {
+                    value$r6_private_self <- TRUE
+                }
+                value$closure$self <- NULL
+                for (name in names(record$r6_contexts)) {
+                    stored <- record$r6_contexts[[name]]
+                    context <- decode(stored, trail)
+                    if (identical(stored$kind, "reference")) stored <- records[[as.character(stored$id)]]
+                    context$r6_class <- class
+                    context$r6_role <- name
+                    context$r6_locked <- isTRUE(stored$r6_locked)
+                    fields <- stored$fields
+                    context$r6_bindings <- stats::setNames(vapply(fields, function(field) {
+                        if (identical(field$kind, "active")) {
+                            "active"
+                        } else if (isTRUE(field$locked)) {
+                            if (isTRUE(field$r6_bound)) "method" else "locked"
+                        } else {
+                            "data"
+                        }
+                    }, character(1L)), names(fields))
+                    value$closure[name] <- list(context)
+                }
+            }
+            return(value)
         }
         if (identical(record$kind, "literal")) {
             return(member_literal(record$value))
@@ -238,13 +335,18 @@ member_snapshot_shape <- function(snapshot, package = "") {
             return(member_value(
                 type = if (is.null(record$type)) "list" else record$type, fields = fields,
                 elements = if (named) NULL else values,
-                classes = record$classes, default_dollar = record$default_dollar
+                classes = record$classes, default_dollar = record$default_dollar,
+                named_elements = isTRUE(named)
             ))
         }
         member_value(reason = if (identical(record$kind, "active")) "getter_not_invoked" else record$reason)
     }
     decode <- function(record, trail = integer()) {
         value <- describe_shape(record, trail)
+        if (nzchar(package)) {
+            if (!is.null(value$function_expr)) value$metadata <- package
+            if (!is.null(value$fields) || !is.null(value$slot_types)) value$member_package <- package
+        }
         # Namespace values can repeat hundreds of small structures. Optional
         # NULL fields and duplicate named elements need no serialized storage.
         value[!vapply(value, is.null, logical(1L))]
@@ -332,13 +434,16 @@ member_namespace_input <- function(
             if (!is.null(descriptor)) s4_classes[descriptor$name] <- list(descriptor)
             next
         }
-        if (isS4(value) && typeof(value) != "closure" && is.null(s7_roots[[name]])) {
+        s4_instance <- isS4(value) && !"classGeneratorFunction" %in% attr(value, "class", exact = TRUE) &&
+            is.null(s7_roots[[name]])
+        if (s4_instance) {
             classes <- attr(value, "class", exact = TRUE)
             if (is.character(classes) && length(classes) == 1L) {
                 owner <- attr(classes, "package", exact = TRUE)
                 s4_objects[name] <- list(list(name = as.character(classes), package = if (is.null(owner)) package else owner))
             }
         }
+        if (s4_instance) values[name] <- list(value)
         if (typeof(value) == "closure") {
             if ("classGeneratorFunction" %in% attr(value, "class", exact = TRUE)) {
                 class <- attr(value, "className", exact = TRUE)
@@ -374,7 +479,7 @@ member_namespace_input <- function(
                     identical(value, baseenv()))) {
             next
         }
-        storage <- if (is.environment(value)) value else if (!isS4(value)) unclass(value) else NULL
+        storage <- if (is.environment(value)) value else if (!isS4(value)) member_list_storage(value) else NULL
         size <- if (is.environment(value)) {
             length(ls(value, all.names = TRUE))
         } else if (isS4(value)) {

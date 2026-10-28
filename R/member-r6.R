@@ -145,7 +145,7 @@ member_r6_member_info <- function(value, receiver) {
 # methods independently of lock_objects; active writes invoke opaque setters.
 # A writable data field remains writable after receiving a function.
 member_r6_writable <- function(object, name) {
-    !any(member_lookup(object$r6_bindings, name) %in% c("method", "active")) &&
+    !any(member_lookup(object$r6_bindings, name) %in% c("method", "active", "locked")) &&
         (!isTRUE(object$r6_locked) || name %in% names(object$fields))
 }
 
@@ -336,48 +336,49 @@ member_r6_instance_shape <- function(value, snapshot = NULL, package = "") {
     enclosure_record <- member_lookup(snapshot$fields, ".__enclos_env__")
     private <- if (!is.null(value$r6_private)) value$r6_private else member_lookup(enclosure$fields, "private")
     super <- if (!is.null(value$r6_super)) value$r6_super else member_lookup(enclosure$fields, "super")
+    if (is.null(private)) private <- member_lookup(value$fields, "private")
+    if (is.null(super)) super <- member_lookup(value$fields, "super")
     if (is.null(private)) private <- member_value(type = "environment", fields = list())
     if (is.null(super)) super <- member_value(type = "environment", fields = list())
     private$r6_class <- super$r6_class <- class
     private$r6_role <- "private"
     super$r6_role <- "super"
     locked <- isTRUE(snapshot$r6_locked)
-    decorate <- function(fields, records, section, private_scope, super_scope) {
+    decorate <- function(fields, records, section) {
         bindings <- character()
         for (name in names(fields)) {
             field <- fields[[name]]
             record <- member_lookup(records, name)
             active <- identical(record$kind, "active") || identical(field$reason, "active_property") ||
                 identical(field$reason, "getter_not_invoked")
-            method <- !is.null(field$function_expr) || !is.null(field$function_key) || "function" %in% field$type
+            method <- isTRUE(record$r6_bound)
             field$r6_owner <- class
             field$r6_member_kind <- if (active) "active binding" else paste(section, if (method) "method" else "field")
             if (active) {
                 field$reason <- "active_property"
             } else if (method) {
                 field$receiver_name <- "self"
-                referenced <- if (is.null(field$function_expr)) c("private", "super") else
-                    member_syntax_names(field$function_expr)
-                field$closure[c("self", "private", "super")] <- NULL
-                if ("private" %in% referenced) field$closure$private <- private_scope
-                if ("super" %in% referenced) field$closure$super <- super_scope
+                field$closure$self <- NULL
             }
-            bindings[name] <- if (active) "active" else if (method && !isFALSE(record$locked)) "method" else "data"
+            bindings[name] <- if (active) "active" else if (method && !isFALSE(record$locked)) "method" else
+                if (isTRUE(record$locked)) "locked" else "data"
             fields[name] <- list(field)
         }
         list(fields = fields, bindings = bindings)
     }
     private_record <- member_lookup(enclosure_record$fields, "private")
-    private_result <- decorate(private$fields, private_record$fields, "private", private, super)
+    if (is.null(private_record)) private_record <- member_lookup(snapshot$fields, "private")
+    private_result <- decorate(private$fields, private_record$fields, "private")
     super_record <- member_lookup(enclosure_record$fields, "super")
-    super_result <- decorate(super$fields, super_record$fields, "public", private, super)
+    if (is.null(super_record)) super_record <- member_lookup(snapshot$fields, "super")
+    super_result <- decorate(super$fields, super_record$fields, "public")
     super$fields <- super_result$fields
     super$r6_bindings <- super_result$bindings
     private$fields <- private_result$fields
     private$r6_bindings <- private_result$bindings
     private$r6_locked <- locked
-    value$fields$.__enclos_env__ <- NULL
-    public_result <- decorate(value$fields, snapshot$fields, "public", private, super)
+    value$fields[c(".__enclos_env__", "self", "private", "super")] <- NULL
+    public_result <- decorate(value$fields, snapshot$fields, "public")
     value$fields <- public_result$fields
     value$type <- "environment"
     value$r6_class <- class

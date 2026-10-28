@@ -280,12 +280,12 @@ member_s4_runtime_descriptor <- function(value) {
 }
 
 # Static instances store ordinary slots as attributes. Read their already
-# loaded class record and storage directly, without slot(), initialization or
-# validity methods. The shared snapshot visitor accounts for nested values.
+# loaded class record and storage directly, without initialization or validity
+# methods. Only the built-in data-part slot reader handles non-attribute storage.
 member_s4_instance_snapshot <- function(value, describe, depth, max_depth,
     lookup_scope, reserve = function(n) TRUE) {
-    if (!isS4(value) || typeof(value) == "closure" ||
-            any(c("classRepresentation", "ClassUnionRepresentation") %in% attr(value, "class", exact = TRUE))) {
+    if (!isS4(value) || any(c("classGeneratorFunction", "classRepresentation", "ClassUnionRepresentation") %in%
+                attr(value, "class", exact = TRUE))) {
         return(NULL)
     }
     if (depth > max_depth) return(list(kind = "unknown", reason = "snapshot_depth"))
@@ -325,16 +325,27 @@ member_s4_instance_snapshot <- function(value, describe, depth, max_depth,
     names <- names(descriptor$slots)
     if (!isTRUE(reserve(length(names)))) return(list(kind = "unknown", reason = "snapshot_budget"))
     stored <- attributes(value)
+    if (".Data" %in% names && !".Data" %in% names(stored)) {
+        # slot() is a fixed .Call wrapper, not an S4 generic or user getter.
+        data <- tryCatch(methods::slot(value, ".Data"), error = function(e) NULL)
+        if (!is.null(data)) stored[".Data"] <- list(data)
+    }
     names <- intersect(names, names(stored))
     slots <- stats::setNames(lapply(names, function(name) describe(stored[[name]], depth + 1L)), names)
-    list(kind = "s4_instance", descriptor = descriptor, slots = slots)
+    list(kind = "s4_instance", descriptor = descriptor, slots = slots, callable = typeof(value) == "closure")
 }
 
 member_s4_snapshot_shape <- function(record, decode, trail = integer()) {
     descriptor <- record$descriptor
-    member_value(type = descriptor$name,
+    value <- member_value(type = descriptor$name,
         s4_class = list(name = descriptor$name, package = descriptor$package),
         slot_types = descriptor$slots, slots = lapply(record$slots, decode, trail))
+    if (isTRUE(record$callable)) {
+        fn <- member_lookup(value$slots, ".Data")
+        value$function_expr <- fn$function_expr
+        value$closure <- fn$closure
+    }
+    value
 }
 
 member_s4_dependencies <- function(classes, references = list()) {

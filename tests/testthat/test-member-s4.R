@@ -225,6 +225,40 @@ test_that("Static S4 namespace slots preserve stored objects and callable syntax
     expect_identical(unserialize(serialize(snapshot, NULL)), snapshot)
 })
 
+test_that("Static callable S4 objects retain slots and their stored data part", {
+    scope <- new.env(parent = asNamespace("methods"))
+    name <- paste0("StaticS4Function", Sys.getpid())
+    Class <- methods::setClass(name, contains = "function", slots = c(label = "character"),
+        where = scope, package = "languageserver")
+    withr::defer(suppressWarnings(methods::removeClass(name, where = scope)))
+    list_name <- paste0(name, "List")
+    List <- methods::setClass(list_name, contains = "list", where = scope, package = "languageserver")
+    withr::defer(suppressWarnings(methods::removeClass(list_name, where = scope)))
+    marker <- withr::local_tempfile()
+    scope$object <- Class(.Data = function(value = 1L) {
+        writeLines("method", marker)
+        list(done = value)
+    }, label = "callable")
+    scope$container <- List(.Data = list(list(child = TRUE)))
+    fn <- function(value = 1L) list(done = value)
+    environment(fn) <- baseenv()
+    scope$bundle <- list(callable = Class(.Data = fn, label = "bundled"))
+    snapshot <- member_index_freeze(member_package_index(member_namespace_input(
+        scope, package = "languageserver", exports = c("object", "container", "bundle")
+    )))
+    snapshots <- list(languageserver = snapshot)
+    expect_identical(s4_labels("languageserver::object@", snapshots), c(".Data", "label"))
+    expect_identical(s4_labels(c("library(languageserver)", "object@"), snapshots), c(".Data", "label"))
+    expect_identical(s4_labels("languageserver::object@.Data()$", snapshots), "done")
+    expect_identical(s4_labels("languageserver::object()$", snapshots), "done")
+    expect_identical(s4_labels("languageserver::bundle$callable@", snapshots), c(".Data", "label"))
+    expect_identical(s4_labels("languageserver::bundle$callable()$", snapshots), "done")
+    expect_identical(s4_labels("languageserver::container@.Data[[1L]]$", snapshots), "child")
+    item <- s4_items("languageserver::object@.D", snapshots)[[1L]]
+    expect_identical(item$detail, ".Data(value = 1L)")
+    expect_false(file.exists(marker))
+})
+
 test_that("Static S4 snapshots bound stored slots and skip deferred class metadata", {
     scope <- new.env(parent = asNamespace("methods"))
     class <- paste0("StaticS4Deferred", Sys.getpid())

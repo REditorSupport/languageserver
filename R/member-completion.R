@@ -513,6 +513,12 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
         if (member_head(node, accessor) && identical(member_name(node[[3L]]), sentinel)) {
             if (is.null(name)) {
                 result <<- member_infer(node[[2L]], index, env, budget = budget)
+                if (identical(accessor, "$") && isTRUE(result$default_dollar)) {
+                    context <- member_package_context(index, result$member_package)
+                    if (is.null(context) || !member_default_dollar(result, context, env)) {
+                        result <<- member_value(reason = "unresolved_dollar_dispatch")
+                    }
+                }
             } else {
                 receiver <- member_infer(node[[2L]], index, env, budget = budget)
                 result <<- if (identical(accessor, "@")) {
@@ -572,7 +578,8 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
                     if ((member_head(child, "<-") || member_head(child, "=")) && is.symbol(child[[2L]])) {
                         assigned <- as.character(child[[2L]])
                         declaration <- any(member_syntax_names(child[[3L]]) %in% c("setClass", "setClassUnion"))
-                        if (!assigned %in% needed && !declaration) {
+                        dispatch <- startsWith(assigned, "$.") || startsWith(assigned, "[[.")
+                        if (!assigned %in% needed && !declaration && !dispatch) {
                             keep[[i]] <- FALSE
                         } else {
                             needed <- union(setdiff(needed, assigned), member_syntax_names(child[[3L]]))
@@ -887,10 +894,11 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
         return(NULL)
     }
     value <- resolved$value
-    index <- resolved$index
+    index <- member_package_context(resolved$index, value$member_package)
     bindings <- resolved$bindings
     budget <- resolved$budget
-    if (is.null(value) || !length(value$type)) {
+    if (identical(value$reason, "unresolved_dollar_dispatch")) return(list())
+    if (is.null(index) || is.null(value) || !length(value$type)) {
         return(NULL)
     }
     members <- member_members(value, index, bindings, cursor$accessor)

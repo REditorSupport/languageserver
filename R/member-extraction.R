@@ -318,8 +318,11 @@ member_package_index <- function(input) {
         if (identical(snapshot$kind, "environment")) shape$type <- name
         for (field in names(index$registries[[name]])) {
             if (is.null(shape$fields[[field]]$s7_generator)) {
-                method <- if (identical(snapshot$kind, "r6_instance")) shape$fields[[field]] else member_value()
+                stored <- shape$fields[[field]]
+                method <- if (identical(snapshot$kind, "r6_instance") || !is.null(stored$s4_class) ||
+                        length(stored$closure)) stored else member_value()
                 method$function_key <- index$registries[[name]][[field]]
+                method$metadata <- input$package
                 shape$fields[field] <- list(method)
             }
         }
@@ -327,7 +330,8 @@ member_package_index <- function(input) {
             linked <- shape$fields[[field]]
             if (identical(linked$type, "environment") && is.null(linked$r6_role)) {
                 shape$fields[field] <- list(member_value(type = input$links[[name]][[field]],
-                        classes = linked$classes, default_dollar = linked$default_dollar))
+                        classes = linked$classes, default_dollar = linked$default_dollar,
+                        member_package = input$package))
             }
         }
         index$package_roots[name] <- list(shape)
