@@ -28,7 +28,7 @@ LanguageClient <- R6::R6Class("LanguageClient",
         initialize = function(cmd = NULL, args = NULL) {
             if (!is.null(cmd)) {
                 self$process <- processx::process$new(cmd, args,
-                    stdin = "|", stdout = "|")
+                    stdin = "|", stdout = "|", stderr = "|")
             }
             self$raw_input_available <- "conn_read_bytes" %in% getNamespaceExports("processx")
             self$diagnostics <- collections::dict()

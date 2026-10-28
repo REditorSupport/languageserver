@@ -372,10 +372,101 @@ test_that("Runtime R6 metadata preserves method and active binding kinds", {
     expect_false(file.exists(marker))
 })
 
+test_that("Static classed namespace environments preserve their own member surfaces", {
+    marker <- withr::local_tempfile()
+    ns <- new.env(parent = baseenv())
+    ns$first <- new.env(parent = emptyenv())
+    ns$second <- new.env(parent = emptyenv())
+    class(ns$first) <- class(ns$second) <- "static_commands"
+    ns$first$fetch <- function(key, limit = 1L) {
+        writeLines("method", marker)
+        list(value = key)
+    }
+    ns$second$store <- function(key, value) NULL
+    nested <- new.env(parent = emptyenv())
+    class(nested) <- "nested_commands"
+    nested$leaf <- list(done = TRUE)
+    ns$first$nested <- nested
+    ns$second$nested <- nested
+    snapshot <- member_index_freeze(member_package_index(member_namespace_input(
+        ns, package = "staticfixture", exports = c("first", "second")
+    )))
+    snapshots <- list(staticfixture = snapshot)
+    for (code in c("staticfixture::first$", "library(staticfixture)\nfirst$",
+            "api <- staticfixture::first\ncopy <- api\ncopy$")) {
+        expect_identical(member_labels(code, snapshots), c("fetch", "nested"), info = code)
+    }
+    expect_identical(member_labels("staticfixture::second$", snapshots), c("nested", "store"))
+    expect_identical(member_labels("staticfixture::first$nested$", snapshots), "leaf")
+    expect_identical(member_labels(paste0(
+        "choose <- function(flag) if (flag) staticfixture::first$nested else staticfixture::second$nested\n",
+        "choose(unknown)$leaf$"
+    ), snapshots), "done")
+    expect_identical(member_labels("staticfixture::first$fetch(stop(\"argument\"))$", snapshots), "value")
+    item <- member_items("staticfixture::first$fe", snapshots)[[1L]]
+    expect_identical(item$detail, "fetch(key, limit = 1L)")
+    expect_identical(item$kind, CompletionItemKind$Method)
+    expect_identical(item$data$function_id, "first$fetch")
+    expect_identical(item$data$package, "staticfixture")
+    expect_false(file.exists(marker))
+})
+
+test_that("Static environment snapshots respect custom dollar dispatch and deferred bindings", {
+    marker <- withr::local_tempfile()
+    ns <- new.env(parent = baseenv())
+    ns$api <- new.env(parent = emptyenv())
+    class(ns$api) <- "static_commands"
+    makeActiveBinding("active", function() {
+        writeLines("getter", marker)
+        stop("getter")
+    }, ns$api)
+    delayedAssign("deferred", {
+        writeLines("promise", marker)
+        stop("promise")
+    }, assign.env = ns$api)
+    ns$opaque <- new.env(parent = emptyenv())
+    ns$opaque$hidden <- list(done = TRUE)
+    class(ns$opaque) <- "static_fixture_opaque"
+    methods <- get(".__S3MethodsTable__.", asNamespace("base"))
+    registered_method <- "$.static_fixture_opaque"
+    assign(registered_method, function(x, name) {
+        writeLines("dispatch", marker)
+        stop("dispatch")
+    }, methods)
+    withr::defer(rm(list = registered_method, envir = methods))
+    snapshots <- list(staticfixture = member_index_freeze(member_package_index(member_namespace_input(
+        ns, package = "staticfixture", exports = c("api", "opaque")
+    ))))
+    expect_identical(member_labels("staticfixture::api$", snapshots), c("active", "deferred"))
+    expect_length(member_labels("staticfixture::api$active$", snapshots), 0L)
+    expect_length(member_labels("staticfixture::api$deferred$", snapshots), 0L)
+    expect_length(member_labels("staticfixture::opaque$", snapshots), 0L)
+    expect_length(member_labels("staticfixture::opaque$hidden$", snapshots), 0L)
+    expect_length(member_labels('structure(staticfixture::api, class = "unknown_commands")$', snapshots), 0L)
+    expect_length(member_labels("structure(staticfixture::api, class = unknown)$", snapshots), 0L)
+    expect_length(member_labels(paste0(
+        "choose <- function(flag) if (flag) staticfixture::api else staticfixture::opaque\nchoose(unknown)$"
+    ), snapshots), 0L)
+    for (method in c("$.static_commands", "$.default")) {
+        code <- sprintf("`%s` <- function(x, name) stop(\"dispatch\")\napi <- staticfixture::api\napi$", method)
+        expect_length(member_labels(code, snapshots), 0L)
+    }
+    expect_false(file.exists(marker))
+    expect_identical(member_binding(ns$api, "deferred")[[1L]], "deferred")
+})
+
 test_that("Installed Redux members resolve without a Redis connection", {
     skip_if_not_installed("redux")
     marker <- withr::local_tempfile()
     snapshot <- member_prepare_package("redux")
+    for (code in c("redux::redis$", "library(redux)\nredis$", "commands <- redux::redis\ncommands$")) {
+        expect_true(all(c("GET", "SET", "PING") %in% member_labels(code, list(redux = snapshot), limit = 300L)))
+        items <- member_items(paste0(code, "GE"), list(redux = snapshot))
+        item <- Filter(function(item) identical(item$label, "GET"), items)[[1L]]
+        expect_identical(item$detail, "GET(key)")
+        expect_identical(item$kind, CompletionItemKind$Method)
+        expect_identical(item$data$function_id, "redis$GET")
+    }
     expect_false("R6_redis_api" %in% names(snapshot$roots))
     expect_length(member_labels("redux::R6_redis_api$new()$", list(redux = snapshot)), 0L)
     for (code in c('redis <- redux::hiredis(host = "127.0.0.1")',
