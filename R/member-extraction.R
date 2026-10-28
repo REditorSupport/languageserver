@@ -573,7 +573,7 @@ member_package_index <- function(input) {
             index$package_roots[name] <- list(member_s4_shape(class$name, index, list(), class$package))
         }
     }
-    index$roots <- index$package_roots[intersect(names(index$package_roots), index$exports)]
+    index$roots <- member_public_roots(index, input)
     for (name in names(index$roots)) index$namespace_roots[paste(input$package, name, sep = "::")] <- list(index$roots[[name]])
     member_prepare_returns(index)
     index$cache <- new.env(parent = emptyenv())

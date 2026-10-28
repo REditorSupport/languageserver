@@ -1,7 +1,30 @@
 # Document indexes contain syntax and positions, never user values. Recovery
 # parses a bounded current expression; earlier statements come from the index.
+member_incomplete_packages <- function(content) {
+    sentinel <- ".__languageserver_namespace_hint__"
+    if (length(content) > 129L || sum(nchar(content, type = "bytes")) > 65536L ||
+            any(grepl(sentinel, content, fixed = TRUE))) return(character())
+    repaired <- c(content, sentinel)
+    parsed <- tryCatch(str2expression(paste0(paste(repaired, collapse = "\n"),
+                missing_closing_delimiters(repaired))), error = function(e) NULL)
+    packages <- character()
+    member_walk(parsed, function(node) {
+        if (length(node) == 3L && (member_head(node, "$") || member_head(node, "@")) &&
+                identical(member_name(node[[3L]]), sentinel)) {
+            member_walk(node[[2L]], function(receiver) {
+                if (length(receiver) == 3L && (member_head(receiver, "::") || member_head(receiver, ":::"))) {
+                    package <- member_name(receiver[[2L]])
+                    if (!is.null(package)) packages <<- union(packages, package)
+                }
+            })
+        }
+    })
+    packages
+}
+
 member_document_index <- function(content, parsed = NULL, syntax = NULL) {
     complete <- !is.null(parsed)
+    recovered_packages <- character()
     items <- list()
     append <- function(expr, start, end) {
         items[[length(items) + 1L]] <<- list(expr = expr, start = start, end = end)
@@ -58,6 +81,9 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL) {
                 NULL
             })
             if (is.null(parsed)) {
+                if (grepl("unexpected end of input", message)) {
+                    recovered_packages <- union(recovered_packages, member_incomplete_packages(text))
+                }
                 # Discard an invalid single line but retain incomplete calls.
                 if (!grepl("unexpected end of input|INCOMPLETE_STRING", message)) start <- end + 1L
                 end <- end + 1L
@@ -72,7 +98,7 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL) {
     s4 <- list()
     imports <- list()
     effects <- list()
-    packages <- character()
+    packages <- recovered_packages
     class_scope <- FALSE
     symbol_scope <- FALSE
     parts <- if (complete) member_function_parts(if (is.null(syntax)) utils::getParseData(parsed) else syntax) else NULL
@@ -412,6 +438,17 @@ member_context_index <- function(workspace, uri, document, at, parsed = NULL,
     if (is.null(data)) {
         return(index)
     }
+    # The startup vector is in attachment order (the search path reversed),
+    # so later packages overwrite earlier ones just as R masks their names.
+    # A cached namespace alone must not make its bare data names visible.
+    for (package in workspace$startup_packages) {
+        package_index <- member_lookup(index$namespace_indices, package)
+        if (is.null(package_index)) next
+        index$attached_roots[names(package_index$roots)] <- package_index$roots
+        if (!is.null(package_index$s4_classes)) {
+            index$attached_s4[names(package_index$s4_classes)] <- package_index$s4_classes
+        }
+    }
     for (item in data$imports) {
         if (!member_before(item$end, at)) next
         expr <- item$expr
@@ -419,10 +456,11 @@ member_context_index <- function(workspace, uri, document, at, parsed = NULL,
         if (member_head(expr, "library") || member_head(expr, "require")) {
             package <- member_name(expr[[2L]])
             if (!is.null(package) && package %in% names(index$namespace_indices)) {
-                index$attached_roots <- utils::modifyList(index$attached_roots, index$namespace_indices[[package]]$roots)
+                roots <- index$namespace_indices[[package]]$roots
+                index$attached_roots[names(roots)] <- roots
                 package_index <- index$namespace_indices[[package]]
                 if (!is.null(package_index$s4_classes)) {
-                    index$attached_s4 <- utils::modifyList(index$attached_s4, package_index$s4_classes)
+                    index$attached_s4[names(package_index$s4_classes)] <- package_index$s4_classes
                 }
                 functions <- if (isTRUE(package_index$.metadata_lazy)) {
                     package_index$functions
@@ -516,7 +554,13 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
                 if (identical(accessor, "$") && isTRUE(result$default_dollar)) {
                     context <- member_package_context(index, result$member_package)
                     if (is.null(context) || !member_default_dollar(result, context, env)) {
-                        result <<- member_value(reason = "unresolved_dollar_dispatch")
+                        if (member_dataframe_columns(result)) {
+                            result$column_names_only <<- TRUE
+                            result$default_dollar <<- NULL
+                            result$reason <<- "unresolved_dollar_dispatch"
+                        } else {
+                            result <<- member_value(reason = "unresolved_dollar_dispatch")
+                        }
                     }
                 }
             } else {
@@ -897,7 +941,7 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
     index <- member_package_context(resolved$index, value$member_package)
     bindings <- resolved$bindings
     budget <- resolved$budget
-    if (identical(value$reason, "unresolved_dollar_dispatch")) return(list())
+    if (identical(value$reason, "unresolved_dollar_dispatch") && !member_dataframe_columns(value)) return(list())
     if (is.null(index) || is.null(value) || !length(value$type)) {
         return(NULL)
     }

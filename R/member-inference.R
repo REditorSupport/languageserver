@@ -120,7 +120,7 @@ member_value <- function(
   metadata = NULL, slots = NULL, slot_types = NULL, s4_class = NULL,
   s4_generator = NULL, r6_private = NULL, r6_super = NULL, r6_self = NULL,
   r6_class = NULL, r6_role = NULL, default_dollar = FALSE, named_elements = FALSE,
-  member_package = NULL
+  member_package = NULL, column_names_only = FALSE
 ) {
     value <- list(
         type = type, function_key = function_key, receiver = receiver,
@@ -138,6 +138,7 @@ member_value <- function(
     if (isTRUE(default_dollar)) value$default_dollar <- TRUE
     if (isTRUE(named_elements)) value$named_elements <- TRUE
     if (!is.null(member_package)) value$member_package <- member_package
+    if (isTRUE(column_names_only)) value$column_names_only <- TRUE
     value
 }
 
@@ -189,7 +190,8 @@ member_join <- function(a, b) {
         ) unique(c(a$classes, b$classes)) else NULL,
         default_dollar = isTRUE(a$default_dollar) && isTRUE(b$default_dollar),
         named_elements = isTRUE(a$named_elements) && isTRUE(b$named_elements) && identical(names(a$fields), names(b$fields)),
-        member_package = if (identical(a$member_package, b$member_package)) a$member_package else NULL
+        member_package = if (identical(a$member_package, b$member_package)) a$member_package else NULL,
+        column_names_only = isTRUE(a$column_names_only) || isTRUE(b$column_names_only)
     )
     if (!identical(a$classes, b$classes) && (length(a$classes) || length(b$classes))) value$reason <- "ambiguous_class"
     if (!identical(a$member_package, b$member_package) &&
@@ -248,6 +250,10 @@ member_elements <- function(value) {
     NULL
 }
 
+member_dataframe_columns <- function(value) {
+    "data.frame" %in% value$classes && !is.null(value$fields)
+}
+
 member_members <- function(value, index, bindings = list(), accessor = "$") {
     if (!length(value$type) || any(value$type %in% c(".never", ".missing"))) {
         return(character())
@@ -258,10 +264,11 @@ member_members <- function(value, index, bindings = list(), accessor = "$") {
     }
     index <- member_package_context(index, value$member_package)
     if (is.null(index)) return(character())
-    if (isTRUE(value$default_dollar) && !member_default_dollar(value, index, bindings)) return(character())
+    columns <- member_dataframe_columns(value)
+    if (!columns && isTRUE(value$default_dollar) && !member_default_dollar(value, index, bindings)) return(character())
     if (!isTRUE(value$default_dollar) && length(value$classes) &&
             !all(value$classes %in% c("data.frame", "list", "environment", "R6")) &&
-            !any(value$classes %in% names(index$members))) {
+            !any(value$classes %in% names(index$members)) && !columns) {
         return(character())
     }
     sets <- lapply(value$type, function(type) {
@@ -294,6 +301,7 @@ member_shape_key <- function(value, depth = 0L) {
     list(
         type = value$type, classes = value$classes, default_dollar = value$default_dollar,
         named_elements = value$named_elements, member_package = value$member_package,
+        column_names_only = isTRUE(value$column_names_only),
         class_ambiguous = identical(value$reason, "ambiguous_class"),
         literal = if (isTRUE(value$known_literal) &&
             length(value$literal) <= 8L) {
@@ -372,6 +380,9 @@ member_slot <- function(value, name, index, bindings, budget = NULL) {
 
 member_access <- function(lhs, name, index, bindings) {
     unknown <- member_value(reason = "unsupported")
+    if (isTRUE(lhs$column_names_only) || identical(lhs$reason, "unresolved_dollar_dispatch")) {
+        return(member_value(reason = "unresolved_dollar_dispatch"))
+    }
     index <- member_package_context(index, lhs$member_package)
     if (is.null(index)) return(unknown)
     if (isTRUE(lhs$default_dollar) && !member_default_dollar(lhs, index, bindings)) {
@@ -951,7 +962,7 @@ member_infer <- function(
         package <- member_name(expr[[2L]])
         name <- member_name(expr[[3L]])
         private <- member_head(expr, ":::")
-        root <- member_lookup(index$namespace_roots, paste(package, name, sep = "::"))
+        root <- if (!private) member_lookup(index$namespace_roots, paste(package, name, sep = "::"))
         if (!is.null(root)) {
             return(root)
         }
@@ -1193,12 +1204,14 @@ member_infer <- function(
                 if (is.null(classes$literal) || (is.character(classes$literal) && !length(classes$literal))) {
                     out$classes <- NULL
                     out$default_dollar <- NULL
+                    out$column_names_only <- NULL
                     return(out)
                 }
                 if (!is.character(classes$literal) || anyNA(classes$literal)) return(unknown)
                 out$type <- classes$literal[[1L]]
                 out$classes <- classes$literal
                 out$default_dollar <- FALSE
+                if (!"data.frame" %in% out$classes) out$column_names_only <- NULL
             }
             return(out)
         }

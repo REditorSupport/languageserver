@@ -93,7 +93,14 @@ workspace_did_change_configuration <- function(self, params) {
     ))
     previous_backends <- backend_settings_identity()
     previous_s3 <- isTRUE(lsp_settings$get("s3_dispatch"))
+    previous_members <- isTRUE(lsp_settings$get("member_completion"))
     lsp_settings$update_from_workspace(settings)
+
+    if (!previous_members && isTRUE(lsp_settings$get("member_completion"))) {
+        for (workspace in self$workspaces$values()) {
+            if (is.function(workspace$load_startup_members)) workspace$load_startup_members()
+        }
+    }
 
     if (!previous_s3 && isTRUE(lsp_settings$get("s3_dispatch")) &&
             !is.null(self$resolve_task_manager)) {

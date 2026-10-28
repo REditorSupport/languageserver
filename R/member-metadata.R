@@ -336,7 +336,8 @@ member_snapshot_shape <- function(snapshot, package = "") {
                 type = if (is.null(record$type)) "list" else record$type, fields = fields,
                 elements = if (named) NULL else values,
                 classes = record$classes, default_dollar = record$default_dollar,
-                named_elements = isTRUE(named)
+                named_elements = isTRUE(named),
+                column_names_only = "data.frame" %in% record$classes && !isTRUE(record$default_dollar)
             ))
         }
         member_value(reason = if (identical(record$kind, "active")) "getter_not_invoked" else record$reason)
@@ -397,12 +398,58 @@ member_source_input <- function(root) {
     )
 }
 
+member_namespace_lazydata <- function(ns) {
+    if (!isNamespace(ns)) return(NULL)
+    info <- member_binding(ns, ".__NAMESPACE__.")
+    if (!identical(info[[1L]], "value") || !is.environment(info[[2L]])) return(NULL)
+    record <- member_binding(info[[2L]], "lazydata")
+    if (identical(record[[1L]], "value") && is.environment(record[[2L]])) record[[2L]] else NULL
+}
+
+member_namespace_export_targets <- function(ns, exports) {
+    targets <- stats::setNames(exports, exports)
+    if (!isNamespace(ns)) return(targets)
+    info <- member_binding(ns, ".__NAMESPACE__.")
+    if (!identical(info[[1L]], "value") || !is.environment(info[[2L]])) return(targets)
+    record <- member_binding(info[[2L]], "exports")
+    if (!identical(record[[1L]], "value") || !is.environment(record[[2L]])) return(targets)
+    for (name in exports) {
+        binding <- member_binding(record[[2L]], name)
+        target <- if (identical(binding[[1L]], "value")) member_name(binding[[2L]]) else NULL
+        if (!is.null(target)) targets[[name]] <- target
+    }
+    targets
+}
+
+# Lazy datasets are public through :: without being ordinary namespace
+# exports. Keep their surfaces separate so a private binding with the same
+# name remains private and an explicit namespace export retains precedence.
+member_public_roots <- function(index, input) {
+    exports <- if (is.null(input$namespace_exports)) index$exports else input$namespace_exports
+    roots <- index$package_roots[intersect(exports, names(index$package_roots))]
+    for (name in names(input$namespace_export_targets)) {
+        target <- input$namespace_export_targets[[name]]
+        value <- if (name %in% exports) member_lookup(index$package_roots, target) else NULL
+        if (is.null(value)) value <- member_lookup(input$lazydata_roots, target)
+        if (!is.null(value)) roots[name] <- list(value)
+    }
+    blocked <- if (is.null(input$namespace_lazydata_blocked)) exports else input$namespace_lazydata_blocked
+    lazy <- input$lazydata_roots[setdiff(names(input$lazydata_roots), union(blocked, names(roots)))]
+    c(roots, lazy)
+}
+
 member_namespace_input <- function(
     ns, package = unname(getNamespaceName(ns)),
-    exports = getNamespaceExports(ns)
+    exports = getNamespaceExports(ns), lazydata = member_namespace_lazydata(ns),
+    lazydata_only = FALSE
 ) {
-    nms <- ls(ns, all.names = TRUE)
-    if (length(nms) > 10000L) stop("Namespace exceeds metadata budget")
+    namespace_names <- ls(ns, all.names = TRUE)
+    targets <- member_namespace_export_targets(ns, exports)
+    blocked <- names(targets)[targets %in% namespace_names | targets != names(targets)]
+    nms <- if (isTRUE(lazydata_only)) character() else namespace_names
+    namespace_exports <- if (isTRUE(lazydata_only)) character() else exports
+    lazy_names <- if (is.environment(lazydata)) setdiff(ls(lazydata, all.names = TRUE), blocked) else character()
+    if (length(nms) + length(lazy_names) > 10000L) stop("Namespace exceeds metadata budget")
     definitions <- snapshots <- registries <- links <- descriptors <- s4_classes <- s4_roots <- s4_objects <- list()
     s7_roots <- list()
     s7_modes <- member_s7_capabilities()
@@ -532,7 +579,7 @@ member_namespace_input <- function(
         "list2", "arg_match0", "arg_match", "try_fetch",
         "is_character", "is_list", "is_bool", "abort"
     ), S7 = member_s7_intrinsics, methods = member_methods_intrinsics)
-    for (provider in names(providers)) {
+    for (provider in if (isTRUE(lazydata_only)) character() else names(providers)) {
         if (!provider %in% loadedNamespaces()) next
         for (name in providers[[provider]]) {
             if (name %in% names(definitions)) next
@@ -544,9 +591,23 @@ member_namespace_input <- function(
             }
         }
     }
+    lazy_roots <- stats::setNames(lapply(lazy_names, function(name) {
+        tryCatch({
+            record <- member_binding(lazydata, name, materialize = TRUE)
+            snapshot <- if (identical(record[[1L]], "value")) {
+                member_snapshot(record[[2L]], max_bindings = 5000L, s7_modes = s7_modes, lookup_scope = ns)
+            } else {
+                list(kind = "unknown", reason = "deferred_dataset")
+            }
+            member_snapshot_shape(snapshot, package)
+        }, error = function(e) member_snapshot_shape(list(kind = "unknown", reason = "dataset_metadata_error"), package))
+    }), lazy_names)
     list(
         definitions = definitions, locations = list(), expressions = list(),
-        exports = exports, registries = registries,
+        exports = union(namespace_exports, union(lazy_names, names(targets)[targets %in% names(lazy_roots)])),
+        namespace_exports = namespace_exports, namespace_export_targets = targets,
+        namespace_lazydata_blocked = blocked,
+        lazydata_roots = lazy_roots, registries = registries,
         snapshots = snapshots, links = links, descriptors = descriptors, package = package, intrinsics = intrinsics,
         s4_classes = s4_classes, s4_roots = s4_roots, s4_objects = s4_objects,
         s7_roots = s7_roots, s7_capabilities = s7_modes,
@@ -590,24 +651,58 @@ member_index_thaw <- function(snapshot) {
 member_prepare_package <- function(package, lib_paths = .libPaths()) {
     .libPaths(lib_paths)
     ns <- asNamespace(package)
-    input <- member_namespace_input(ns)
-    index <- member_package_index(input)
-    for (name in names(index$package_roots)) {
-        record <- member_binding(ns, name)
-        value <- record[[2L]]
-        if (identical(record[[1L]], "value") && is.environment(value) &&
-            "R6ClassGenerator" %in% attr(value, "class", exact = TRUE)) {
-            index$package_roots[name] <- list(member_r6_runtime_shape(value, index))
+    prepare <- function(input, preparation_error = NULL) {
+        index <- member_package_index(input)
+        for (name in names(index$package_roots)) {
+            record <- member_binding(ns, name)
+            value <- record[[2L]]
+            if (identical(record[[1L]], "value") && is.environment(value) &&
+                    "R6ClassGenerator" %in% attr(value, "class", exact = TRUE)) {
+                index$package_roots[name] <- list(member_r6_runtime_shape(value, index))
+            }
         }
+        index$roots <- member_public_roots(index, input)
+        index$r6_attached <- identical(package, "R6")
+        for (name in names(index$roots)) index$namespace_roots[paste(package, name, sep = "::")] <- list(index$roots[[name]])
+        if (!is.null(preparation_error)) {
+            index$dataset_only <- TRUE
+            index$namespace_attempted <- TRUE
+            index$preparation_error <- preparation_error
+        }
+        index$identity <- list(
+            package = package, path = find.package(package),
+            version = as.character(utils::packageVersion(package)), r = as.character(getRversion())
+        )
+        member_index_freeze(index)
     }
-    index$roots <- index$package_roots[intersect(index$exports, names(index$package_roots))]
-    index$r6_attached <- identical(package, "R6")
-    for (name in names(index$roots)) index$namespace_roots[paste(package, name, sep = "::")] <- list(index$roots[[name]])
-    index$identity <- list(
-        package = package, path = find.package(package),
-        version = as.character(utils::packageVersion(package)), r = as.character(getRversion())
-    )
-    member_index_freeze(index)
+    tryCatch(prepare(member_namespace_input(ns)), error = function(e) {
+        message <- conditionMessage(e)
+        lazydata <- member_namespace_lazydata(ns)
+        if (!grepl("^Namespace exceeds .* budget$", message) || !is.environment(lazydata) ||
+                !length(ls(lazydata, all.names = TRUE))) stop(e)
+        # A large normal namespace must not hide its lightweight public data.
+        prepare(member_namespace_input(ns, lazydata = lazydata, lazydata_only = TRUE), message)
+    })
+}
+
+member_prepare_startup_data <- function(packages, lib_paths = .libPaths()) {
+    .libPaths(lib_paths)
+    snapshots <- list()
+    for (package in unique(packages)) {
+        snapshot <- tryCatch({
+            ns <- asNamespace(package)
+            lazydata <- member_namespace_lazydata(ns)
+            if (!is.environment(lazydata) || !length(ls(lazydata, all.names = TRUE))) next
+            input <- member_namespace_input(ns, package, lazydata = lazydata, lazydata_only = TRUE)
+            index <- member_package_index(input)
+            index$dataset_only <- TRUE
+            index$identity <- list(package = package, path = find.package(package),
+                version = as.character(utils::packageVersion(package)), r = as.character(getRversion()))
+            member_index_freeze(index)
+        }, error = function(e) NULL)
+        if (!is.null(snapshot)) snapshots[package] <- list(snapshot)
+    }
+    snapshots
 }
 
 member_resolve_packages <- function(pkgs, lib_paths, prepare = TRUE, namespace_packages = character(), prepare_s3 = TRUE) {

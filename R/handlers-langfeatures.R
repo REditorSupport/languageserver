@@ -46,6 +46,40 @@ index_context_waiting <- function(self, workspace, document, point, hover = FALS
     TRUE
 }
 
+# Namespace member models run independently of S3 catalogs. Wait only for
+# packages used by this receiver, never unrelated source-member requests.
+member_metadata_waiting <- function(self, uri, document, point) {
+    if (!isTRUE(lsp_settings$get("member_completion"))) return(FALSE)
+    manager <- if (is.null(self$member_task_manager)) self$resolve_task_manager else self$member_task_manager
+    if (is.null(manager) || !is.function(manager$has) || !manager$has(uri)) return(FALSE)
+    cursor <- member_cursor(document, point)
+    if (is.null(cursor)) return(FALSE)
+    recovered <- tryCatch(member_recover_scope(document, point, cursor, document$parse_data$member_data),
+        error = function(e) NULL)
+    if (is.null(recovered)) return(FALSE)
+    referenced <- member_source_names(recovered$parsed, recovered$source, recovered$path,
+        accessor = cursor$accessor)
+    seen <- character()
+    for (pass in seq_len(16L)) {
+        pending <- setdiff(referenced, seen)
+        if (!length(pending) || length(seen) > 256L) break
+        seen <- c(seen, pending)
+        for (name in pending) {
+            history <- document$parse_data$member_data$bindings[[name]]
+            position <- member_history_position(history, recovered$start)
+            if (position) referenced <- union(referenced, member_syntax_names(history[[position]]$expr))
+        }
+    }
+    packages <- intersect(document$requested_packages$namespace_packages, referenced)
+    if (!length(packages)) return(FALSE)
+    metadata <- self$get_workspace(uri)$member_metadata
+    if (is.null(metadata)) return(TRUE)
+    any(vapply(packages, function(package) {
+        catalog <- if (is.function(metadata$catalog)) metadata$catalog(package) else metadata$get(package, NULL)
+        is.null(catalog) || !is.null(catalog$error)
+    }, logical(1L)))
+}
+
 #' `textDocument/completion` request handler
 #'
 #' Handler to the `textDocument/completion` [Request].
@@ -67,9 +101,11 @@ text_document_completion  <- function(self, id, params) {
     }
     if (identical(document$version, document$parse_data$version) &&
             (index_context_waiting(self, workspace, document, point) ||
+                    member_metadata_waiting(self, uri, document, point) ||
                     s3_metadata_waiting(self, uri, document, point, hover = FALSE))) {
         enqueue_latest_reply(self, uri, "textDocument/completion", list(id = id, version = document$version, params = params))
         if (is.function(self$resolve_task_manager$promote)) self$resolve_task_manager$promote(uri)
+        if (is.function(self$member_task_manager$promote)) self$member_task_manager$promote(uri)
         return(invisible(NULL))
     }
     # didChange schedules a debounced background parse. Scope and member
