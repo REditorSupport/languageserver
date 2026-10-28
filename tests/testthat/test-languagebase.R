@@ -177,6 +177,16 @@ test_that("clients drain output before reporting EOF without polling a closed st
     expect_error(client$fetch(blocking = TRUE), "Server is dead.", fixed = TRUE)
 })
 
+test_that("clients retain subprocess startup diagnostics after failure", {
+    client <- LanguageClient$new(file.path(R.home("bin"), "R"),
+        c("--vanilla", "--slave", "-e", 'stop("client startup marker")'))
+    withr::defer(if (client$process$is_alive()) client$process$kill())
+    client$process$wait(10000)
+    expect_false(client$process$is_alive())
+    expect_error(client$fetch(blocking = TRUE), "Server is dead.", fixed = TRUE)
+    expect_match(paste(client$process$read_error_lines(), collapse = "\n"), "client startup marker", fixed = TRUE)
+})
+
 test_that("buffered blocking fetch applies its timeout to a partial body", {
     bytes <- message_buffer_frame("body")
     base <- BufferedLanguageBase$new(list(utils::head(bytes, -1L)))

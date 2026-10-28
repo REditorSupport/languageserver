@@ -48,7 +48,7 @@ test_that("Stored R6 function fields keep their original lexical bindings", {
     })
     snapshot <- r6_review_snapshot(object)
     index <- member_index_thaw(snapshot)
-    value <- member_infer(quote(r6reviewfixture::object$callback()$value), index, index$roots)
+    value <- member_infer(str2lang("r6reviewfixture::object$callback()$value"), index, index$roots)
     expect_identical(value$literal, 42L)
     expect_identical(r6_review_labels("r6reviewfixture::object$callback()$", snapshot), "value")
     expect_length(r6_review_labels("r6reviewfixture::object$unrelated()$", snapshot), 0L)

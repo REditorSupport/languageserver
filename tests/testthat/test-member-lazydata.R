@@ -130,7 +130,7 @@ test_that("Startup dataset models can be enabled later and stay protected in the
 test_that("Dataset completion works over LSP from an initially incomplete buffer", {
     skip_on_cran()
     root <- withr::local_tempdir()
-    client <- language_client(working_dir = root, lib_paths = .libPaths())
+    client <- language_client(working_dir = root)
     cases <- list(list(code = "mtcars$", columns = names(datasets::mtcars)))
     if (requireNamespace("ggplot2", quietly = TRUE)) {
         cases[[2L]] <- list(code = "ggplot2::diamonds$", columns = names(ggplot2::diamonds))
