@@ -875,9 +875,15 @@ drain_pending_replies <- function(self, uri, version, max_replies = Inf, first =
         if (!is.null(document) && identical(item$version, document$version) &&
                 method %in% c("textDocument/completion", "textDocument/hover", "textDocument/signatureHelp")) {
             point <- document$from_lsp_position(item$params$position)
+            call <- if (identical(method, "textDocument/signatureHelp")) {
+                document$detect_call(point, signature = TRUE)
+            } else {
+                NULL
+            }
             if (index_context_waiting(self, self$get_workspace(uri), document, point,
-                    hover = identical(method, "textDocument/hover"))) return(FALSE)
-            if (s3_metadata_waiting(self, uri, document, point, hover = identical(method, "textDocument/hover"))) return(FALSE)
+                    hover = identical(method, "textDocument/hover"), call = call)) return(FALSE)
+            if (s3_metadata_waiting(self, uri, document, point,
+                    hover = identical(method, "textDocument/hover"), call = call)) return(FALSE)
         }
         TRUE
     }
