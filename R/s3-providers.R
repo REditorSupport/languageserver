@@ -81,7 +81,7 @@ s3_argument_values <- function(result, token, parameter = NULL) {
     items
 }
 
-s3_signature_reply <- function(id, workspace, document, point, result) {
+s3_signature_reply <- function(id, workspace, document, point, result, client_capabilities = NULL) {
     doc <- s3_documentation(workspace, result)
     description <- if (is.character(doc)) doc else if (is.list(doc)) doc$description
     Response$new(id, result = list(
@@ -94,7 +94,8 @@ s3_signature_reply <- function(id, workspace, document, point, result) {
         )), activeSignature = 0L,
         activeParameter = detect_active_parameter(
             document$content, result$opening$row,
-            result$opening$col, point$row, point$col, result$signature
+            result$opening$col, point$row, point$col, result$signature,
+            signature_no_active_parameter_support(client_capabilities)
         )
     ))
 }

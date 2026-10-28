@@ -9,12 +9,12 @@ definition_xpath <- paste(
 #' Get the location of a specified function definition
 #'
 #' If the function is not found in a file but is found in a loaded package,
-#' writes the function definition to a temporary file and returns that
-#' as the location.
+#' returns a generated read-only document when supported by the client,
+#' otherwise writes the function definition to a temporary file.
 #' @noRd
 definition_reply <- function(id, uri, workspace, document, point,
     rootPath = get_root_path_for_uri(uri, workspace$root),
-    context_uri = uri) {
+    context_uri = uri, text_document_content = NULL) {
 
     if (!check_r_region(document, point)) {
         return(Response$new(id))
@@ -127,10 +127,27 @@ definition_reply <- function(id, uri, workspace, document, point,
     }
 
     if (!resolved && check_scope(uri, document, point)) {
-        result <- call_with_optional_uri(
-            workspace$get_definition,
-            token_result$token, token_result$package,
+        arguments <- list(token_result$token, token_result$package,
             exported_only = token_result$accessor != ":::", uri = context_uri)
+        parameters <- names(formals(workspace$get_definition))
+        if (!is.null(text_document_content) &&
+                ("content_scheme" %in% parameters || "..." %in% parameters)) {
+            arguments$content_scheme <- text_document_content$scheme
+        }
+        result <- do.call(call_with_optional_uri,
+            c(list(workspace$get_definition), arguments))
+        text <- attr(result, "text_document_content")
+        if (!is.null(text)) {
+            if (!text_document_content$set(result$uri, text)) {
+                # Bodies exceeding the cache budget still have a usable
+                # definition, using the same fallback as legacy clients.
+                arguments$content_scheme <- NULL
+                result <- do.call(call_with_optional_uri,
+                    c(list(workspace$get_definition), arguments))
+            } else {
+                attr(result, "text_document_content") <- NULL
+            }
+        }
     }
 
     if (is.null(result)) {

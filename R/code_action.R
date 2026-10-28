@@ -10,6 +10,13 @@ CodeActionKind <- list(
     SourceFixAll = "source.fixAll"
 )
 
+#' Test whether the client accepts snippets in versioned document edits
+#' @noRd
+code_action_snippet_support <- function(client_capabilities) {
+    workspace_edit <- client_capabilities$workspace$workspaceEdit
+    isTRUE(workspace_edit$documentChanges) && isTRUE(workspace_edit$snippetEditSupport)
+}
+
 #' Create a workspace edit for one document
 #' @noRd
 code_action_workspace_edit <- function(uri, edits, document = NULL,

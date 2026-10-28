@@ -488,9 +488,10 @@ refactor_index_ready <- function(workspace) {
 #' Reindent source text from its original column
 #' @noRd
 refactor_reindent_text <- function(text, original_col, prefix,
-    trim_first = FALSE) {
+    trim_first = FALSE, protected_lines = integer()) {
     lines <- strsplit(text, "\n", fixed = TRUE)[[1L]]
     for (i in seq_along(lines)) {
+        if (i %in% protected_lines) next
         if ((i > 1L || isTRUE(trim_first)) && original_col > 0L) {
             leading <- attr(regexpr("^[ \\t]*", lines[[i]]), "match.length")
             remove <- min(leading, original_col)
@@ -501,10 +502,65 @@ refactor_reindent_text <- function(text, original_col, prefix,
     paste(lines, collapse = "\n")
 }
 
+#' Find multiline literals and quoted names whose interior whitespace is data
+#' @noRd
+refactor_multiline_quoted_ranges <- function(context) {
+    syntax <- context$parse_data$syntax_data
+    if (!is.null(syntax)) {
+        quoted <- which((syntax$token == "STR_CONST" | startsWith(syntax$token, "SYMBOL")) &
+                syntax$line1 < syntax$line2)
+        return(lapply(quoted, function(i) {
+            list(
+                start = list(row = syntax$line1[[i]] - 1L, col = syntax$col1[[i]] - 1L),
+                end = list(row = syntax$line2[[i]] - 1L, col = syntax$col2[[i]])
+            )
+        }))
+    }
+    quoted <- xml_find_all(context$xdoc,
+        "//*[@line1 < @line2 and (self::STR_CONST or starts-with(name(), 'SYMBOL'))]")
+    lapply(quoted, refactor_node_range)
+}
+
+#' Protect leading characters belonging to a multiline literal or quoted name
+#' @noRd
+refactor_protected_quoted_lines <- function(context) {
+    rows <- unique(unlist(lapply(refactor_multiline_quoted_ranges(context), function(item_range) {
+        first <- max(item_range$start$row + 1L, context$range$start$row)
+        last <- min(item_range$end$row, context$range$end$row)
+        if (first <= last) seq.int(first, last) else integer()
+    }), use.names = FALSE))
+    as.integer(rows - context$range$start$row + 1L)
+}
+
+#' Avoid editor indentation changes inside multiline literals and quoted names
+#' @noRd
+refactor_snippet_preserves_quoted_text <- function(context, insertion_point) {
+    !any(vapply(refactor_multiline_quoted_ranges(context), function(item_range) {
+        refactor_compare_point(item_range$start, context$range$end) < 0L &&
+            refactor_compare_point(item_range$end, insertion_point) > 0L
+    }, logical(1L)))
+}
+
 #' Build non-overlapping insertion and replacement edits
 #' @noRd
 refactor_insert_and_replace <- function(document, insertion_point,
-    insertion_text, replacement_range, replacement_text) {
+    insertion_text, replacement_range, replacement_text, snippet = FALSE) {
+    if (snippet) {
+        # One snippet links the declaration and its use. Separate snippet
+        # edits do not share tab stops, so include the unchanged text between
+        # the insertion point and the selection in the same bounded edit.
+        between <- refactor_range_text(document, list(
+            start = insertion_point, end = replacement_range$start
+        ))
+        return(list(list(
+            range = refactor_lsp_range(document, list(
+                start = insertion_point, end = replacement_range$end
+            )),
+            snippet = list(kind = "snippet", value = paste0(
+                insertion_text, escape_completion_snippet(between), replacement_text
+            ))
+        )))
+    }
     if (refactor_compare_point(
         insertion_point, replacement_range$start
     ) == 0L) {
@@ -597,22 +653,37 @@ refactor_extract_variable_action <- function(uri, workspace, document,
     )
     lines <- strsplit(selected_text, "\n", fixed = TRUE)[[1L]]
     if (length(lines) > 1L) {
+        protected <- refactor_protected_quoted_lines(context)
         tail_text <- paste(lines[-1L], collapse = "\n")
         tail_text <- refactor_reindent_text(
             tail_text, context$range$start$col, continuation,
-            trim_first = TRUE
+            trim_first = TRUE, protected_lines = protected[protected > 1L] - 1L
         )
         selected_text <- paste(lines[[1L]], tail_text, sep = "\n")
     }
     insertion_text <- paste0(
         insertion$indent, name, " <- ", selected_text, "\n"
     )
+    # Snippet clients can normalize indentation, including the unchanged
+    # source enclosed by the linked edit. Ordinary edits avoid that adjustment.
+    snippet <- code_action_snippet_support(client_capabilities) &&
+        refactor_snippet_preserves_quoted_text(context, insertion$point)
+    replacement <- name
+    if (snippet) {
+        insertion_text <- paste0(
+            escape_completion_snippet(insertion$indent),
+            "${1:", escape_completion_snippet(name), "}",
+            escape_completion_snippet(paste0(" <- ", selected_text, "\n"))
+        )
+        replacement <- "$1$0"
+    }
     edits <- refactor_insert_and_replace(
         document,
         insertion$point,
         insertion_text,
         context$range,
-        name
+        replacement,
+        snippet = snippet
     )
     list(
         title = "Extract expression to variable",
@@ -812,7 +883,8 @@ refactor_extract_function_action <- function(uri, workspace, document,
     selected_text <- refactor_range_text(document, context$range)
     body_indent <- paste0(insertion$indent, "  ")
     body <- refactor_reindent_text(
-        selected_text, context$range$start$col, body_indent
+        selected_text, context$range$start$col, body_indent,
+        protected_lines = refactor_protected_quoted_lines(context)
     )
     insertion_text <- paste0(
         insertion$indent, name, " <- function(", arguments, ") {\n",
@@ -824,12 +896,32 @@ refactor_extract_function_action <- function(uri, workspace, document,
     } else {
         call
     }
+    snippet <- code_action_snippet_support(client_capabilities) &&
+        refactor_snippet_preserves_quoted_text(context, insertion$point)
+    if (snippet) {
+        insertion_text <- paste0(
+            escape_completion_snippet(insertion$indent),
+            "${1:", escape_completion_snippet(name), "}",
+            escape_completion_snippet(paste0(
+                " <- function(", arguments, ") {\n", body, "\n", insertion$indent, "}\n"
+            ))
+        )
+        replacement <- paste0(
+            if (length(bindings$outputs)) {
+                escape_completion_snippet(paste0(bindings$outputs[[1L]], " <- "))
+            } else {
+                ""
+            },
+            "$1", escape_completion_snippet(paste0("(", arguments, ")")), "$0"
+        )
+    }
     edits <- refactor_insert_and_replace(
         document,
         insertion$point,
         insertion_text,
         context$range,
-        replacement
+        replacement,
+        snippet = snippet
     )
     list(
         title = "Extract selection to function",

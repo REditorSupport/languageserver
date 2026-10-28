@@ -49,6 +49,8 @@ on_initialize <- function(self, id, params) {
         server_capabilities,
         lsp_settings$get("server_capabilities"))
     server_capabilities <- disable_dynamic_formatting_capabilities(server_capabilities, self$ClientCapabilities)
+    server_capabilities <- configure_code_action_documentation(self, server_capabilities)
+    server_capabilities <- configure_text_document_content(self, server_capabilities)
     self$ServerCapabilities <- server_capabilities
     self$deliver(Response$new(id = id, result = list(capabilities = server_capabilities)))
 }
@@ -76,6 +78,7 @@ on_shutdown <- function(self, id, params) {
     if (is.function(self$end_workspace_progress)) {
         for (workspace in self$workspaces$values()) self$end_workspace_progress(workspace, "Server stopped")
     }
+    if (!is.null(self$text_document_content)) self$text_document_content$clear()
     self$exit_flag <- TRUE
     self$deliver(Response$new(id = id, result = NULL))
 }
@@ -89,6 +92,7 @@ on_exit <- function(self, params) {
     if (is.function(self$end_workspace_progress)) {
         for (workspace in self$workspaces$values()) self$end_workspace_progress(workspace, "Server stopped")
     }
+    if (!is.null(self$text_document_content)) self$text_document_content$clear()
     self$exit_flag <- TRUE
 }
 

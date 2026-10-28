@@ -48,6 +48,53 @@ refactor_action_with_title <- function(actions, title) {
     actions[[match(title, titles)]]
 }
 
+# Expand the emitted subset of the LSP snippet grammar, allowing the user to
+# rename tab stop 1. Escaped dollar signs and braces stay literal source text.
+refactor_render_snippet <- function(text, name = NULL) {
+    result <- character()
+    i <- 1L
+    size <- nchar(text)
+    while (i <= size) {
+        token <- substr(text, i, i)
+        if (token == "\\") {
+            result <- c(result, substr(text, i + 1L, i + 1L))
+            i <- i + 2L
+        } else if (substr(text, i, i + 3L) == "${1:") {
+            i <- i + 4L
+            default <- character()
+            while (i <= size && substr(text, i, i) != "}") {
+                if (substr(text, i, i) == "\\") i <- i + 1L
+                default <- c(default, substr(text, i, i))
+                i <- i + 1L
+            }
+            if (is.null(name)) name <- paste(default, collapse = "")
+            result <- c(result, name)
+            i <- i + 1L
+        } else if (substr(text, i, i + 1L) == "$1") {
+            stopifnot(!is.null(name))
+            result <- c(result, name)
+            i <- i + 2L
+        } else if (substr(text, i, i + 1L) == "$0") {
+            i <- i + 2L
+        } else {
+            stopifnot(token != "$")
+            result <- c(result, token)
+            i <- i + 1L
+        }
+    }
+    paste(result, collapse = "")
+}
+
+refactor_apply_snippet_edits <- function(content, edits, name = NULL) {
+    edits <- lapply(edits, function(edit) {
+        if (!is.null(edit$snippet)) {
+            edit$newText <- refactor_render_snippet(edit$snippet$value, name)
+        }
+        edit
+    })
+    refactor_apply_edits(content, edits)
+}
+
 test_that("extract actions keep pipe RHS expressions in their call context", {
     skip_if(getRversion() < "4.1.0", "Native pipes require R 4.1")
     for (pipe in c("|>", "%>%")) {
@@ -186,6 +233,339 @@ test_that("refactor workspace edits are versioned when the client supports them"
         list(uri = fixture$uri, version = fixture$document$version)
     )
     expect_length(action$edit$documentChanges[[1L]]$edits, 2L)
+})
+
+test_that("extract snippets link names and preserve source and document versions", {
+    content <- c(
+        "outer <- function(argument) {",
+        '  label <- "extracted_value"',
+        '  result <- paste0("😀 $1 } \\\\", argument$value)',
+        "  result",
+        "}"
+    )
+    fixture <- provider_fixture(content)
+    selected <- refactor_test_range(content, 2L, "argument$value")
+    capabilities <- list(workspace = list(workspaceEdit = list(
+        documentChanges = TRUE, snippetEditSupport = TRUE
+    )))
+    snippets <- refactor_code_actions(
+        fixture$uri, fixture$workspace, fixture$document,
+        selected, list("refactor.extract"), capabilities
+    )
+    plain <- refactor_code_actions(
+        fixture$uri, fixture$workspace, fixture$document,
+        selected, list("refactor.extract")
+    )
+
+    expect_length(snippets, 2L)
+    for (action in snippets) {
+        document_edit <- action$edit$documentChanges[[1L]]
+        expect_identical(document_edit$textDocument,
+            list(uri = fixture$uri, version = fixture$document$version))
+        expect_length(document_edit$edits, 1L)
+        edit <- document_edit$edits[[1L]]
+        expect_named(edit, c("range", "snippet"))
+        expect_identical(edit$snippet$kind, "snippet")
+        expect_identical(edit$range$start, fixture$document$to_lsp_position(2L, 0L))
+        expect_identical(edit$range$end, refactor_lsp_range(fixture$document, selected)$end)
+        expect_match(edit$snippet$value, "$1", fixed = TRUE)
+        expect_match(edit$snippet$value, "$0", fixed = TRUE)
+
+        original <- refactor_action_with_title(plain, action$title)
+        expect_identical(
+            refactor_apply_snippet_edits(content, document_edit$edits),
+            refactor_apply_edits(content, original$edit$changes[[fixture$uri]])
+        )
+        renamed <- refactor_apply_snippet_edits(content, document_edit$edits, "chosen_name")
+        expect_match(renamed, 'label <- "extracted_value"', fixed = TRUE)
+        expect_equal(length(gregexpr("chosen_name", renamed, fixed = TRUE)[[1L]]), 2L)
+        env <- new.env(parent = baseenv())
+        eval(parse(text = renamed), env)
+        expect_identical(env$outer(list(value = "value")), "😀 $1 } \\value")
+    }
+})
+
+test_that("extract snippets preserve multiline strings in unchanged enclosing source", {
+    capabilities <- list(workspace = list(workspaceEdit = list(
+        documentChanges = TRUE, snippetEditSupport = TRUE
+    )))
+    for (raw in c(FALSE, TRUE)) {
+        content <- c(
+            "outer <- function(argument) {",
+            if (raw) '  result <- paste0(r"(a' else '  result <- paste0("a',
+            if (raw) '    b)", argument$value + 1)' else '    b", argument$value + 1)',
+            "}"
+        )
+        selected <- refactor_test_range(content, 2L, "argument$value")
+        for (native in c(TRUE, FALSE)) {
+            fixture <- provider_fixture(content)
+            if (!native) fixture$document$parse_data$syntax_data <- NULL
+            actions <- refactor_code_actions(fixture$uri, fixture$workspace,
+                fixture$document, selected, list("refactor.extract"), capabilities)
+            legacy <- refactor_code_actions(fixture$uri, fixture$workspace,
+                fixture$document, selected, list("refactor.extract"))
+            expect_length(actions, 2L)
+            for (action in actions) {
+                edits <- action$edit$documentChanges[[1L]]$edits
+                expect_true(all(vapply(edits, function(edit) is.null(edit$snippet), logical(1L))))
+                expect_equal(action$edit$documentChanges[[1L]]$textDocument$version, fixture$document$version)
+                actual <- refactor_apply_edits(content, edits)
+                expected <- refactor_action_with_title(legacy, action$title)
+                expect_equal(actual, refactor_apply_edits(content, expected$edit$changes[[fixture$uri]]))
+                environment <- new.env(parent = baseenv())
+                eval(parse(text = actual), environment)
+                expect_equal(environment$outer(list(value = 2)), "a\n    b3")
+            }
+        }
+    }
+})
+
+test_that("extract snippets use ordinary edits when selected code contains multiline strings", {
+    capabilities <- list(workspace = list(workspaceEdit = list(
+        documentChanges = TRUE, snippetEditSupport = TRUE
+    )))
+    for (raw in c(FALSE, TRUE)) {
+        content <- c(
+            "outer <- function(argument) {",
+            if (raw) '  result <- paste0(r"(a' else '  result <- paste0("a',
+            if (raw) '    b)", argument$value + 1)' else '    b", argument$value + 1)',
+            "}"
+        )
+        fixture <- provider_fixture(content)
+        selected <- list(start = list(row = 1L, col = 12L),
+            end = list(row = 2L, col = nchar(content[[3L]])))
+        actions <- refactor_code_actions(fixture$uri, fixture$workspace,
+            fixture$document, selected, list("refactor.extract"), capabilities)
+        legacy <- refactor_code_actions(fixture$uri, fixture$workspace,
+            fixture$document, selected, list("refactor.extract"))
+        expect_length(actions, 2L)
+        for (action in actions) {
+            edits <- action$edit$documentChanges[[1L]]$edits
+            expect_true(all(vapply(edits, function(edit) is.null(edit$snippet), logical(1L))))
+            actual <- refactor_apply_edits(content, edits)
+            expected <- refactor_action_with_title(legacy, action$title)
+            expect_equal(actual, refactor_apply_edits(content, expected$edit$changes[[fixture$uri]]))
+            environment <- new.env(parent = baseenv())
+            eval(parse(text = actual), environment)
+            expect_equal(environment$outer(list(value = 2)), "a\n    b3")
+        }
+    }
+})
+
+test_that("extraction preserves multiline quoted identifiers and argument names", {
+    capabilities <- list(workspace = list(workspaceEdit = list(
+        documentChanges = TRUE, snippetEditSupport = TRUE
+    )))
+    cases <- list(
+        list(content = c("outer <- function(argument) {", "  result <- argument$`value",
+                "    key` + 1", "}"), end = 8L, argument = stats::setNames(list(2), "value\n    key")),
+        list(content = c("outer <- function(argument) {", "  result <- list(`value",
+                "    key` = argument$value + 1)", "}"), argument = list(value = 2)),
+        list(content = c("outer <- function(argument) {", '  result <- list("value',
+                '    key" = argument$value + 1)', "}"), argument = list(value = 2))
+    )
+    for (case in cases) {
+        end <- if (is.null(case$end)) nchar(case$content[[3L]]) else case$end
+        selected <- list(start = list(row = 1L, col = 12L), end = list(row = 2L, col = end))
+        original <- new.env(parent = baseenv())
+        eval(parse(text = case$content), original)
+        for (native in c(TRUE, FALSE)) {
+            fixture <- provider_fixture(case$content)
+            if (!native) fixture$document$parse_data$syntax_data <- NULL
+            for (client in list(NULL, capabilities)) {
+                actions <- refactor_code_actions(fixture$uri, fixture$workspace,
+                    fixture$document, selected, list("refactor.extract"), client)
+                expect_length(actions, 2L)
+                for (action in actions) {
+                    edits <- if (is.null(client)) {
+                        action$edit$changes[[fixture$uri]]
+                    } else {
+                        action$edit$documentChanges[[1L]]$edits
+                    }
+                    expect_true(all(vapply(edits, function(edit) is.null(edit$snippet), logical(1L))))
+                    actual <- refactor_apply_edits(case$content, edits)
+                    environment <- new.env(parent = baseenv())
+                    eval(parse(text = actual), environment)
+                    expect_equal(environment$outer(case$argument), original$outer(case$argument))
+                }
+            }
+        }
+    }
+})
+
+test_that("extraction reindents surrounding code without changing a selected literal tail", {
+    capabilities <- list(workspace = list(workspaceEdit = list(
+        documentChanges = TRUE, snippetEditSupport = TRUE
+    )))
+    for (raw in c(FALSE, TRUE)) {
+        content <- c(
+            "outer <- function(argument) {",
+            if (raw) '  result <- paste0(r"(a' else '  result <- paste0("a',
+            if (raw) '    b)",' else '    b",',
+            "    argument$value + 1",
+            "  )",
+            "}"
+        )
+        selected <- list(start = list(row = 1L, col = 12L), end = list(row = 4L, col = 3L))
+        original <- new.env(parent = baseenv())
+        eval(parse(text = content), original)
+        fixture <- provider_fixture(content)
+        for (client in list(NULL, capabilities)) {
+            actions <- refactor_code_actions(fixture$uri, fixture$workspace,
+                fixture$document, selected, list("refactor.extract"), client)
+            expect_length(actions, 2L)
+            for (action in actions) {
+                edits <- if (is.null(client)) {
+                    action$edit$changes[[fixture$uri]]
+                } else {
+                    action$edit$documentChanges[[1L]]$edits
+                }
+                actual <- refactor_apply_edits(content, edits)
+                environment <- new.env(parent = baseenv())
+                eval(parse(text = actual), environment)
+                expect_equal(environment$outer(list(value = 2)), original$outer(list(value = 2)))
+            }
+        }
+    }
+})
+
+test_that("quoted argument tags before the selection retain their names", {
+    capabilities <- list(workspace = list(workspaceEdit = list(
+        documentChanges = TRUE, snippetEditSupport = TRUE
+    )))
+    for (quoted in c("`", '"')) {
+        content <- c("outer <- function(argument) {", paste0("  result <- list(", quoted, "value"),
+            paste0("    key", quoted, " = argument$value + 1)"), "}")
+        selected <- refactor_test_range(content, 2L, "argument$value")
+        fixture <- provider_fixture(content)
+        actions <- refactor_code_actions(fixture$uri, fixture$workspace,
+            fixture$document, selected, list("refactor.extract"), capabilities)
+        expect_length(actions, 2L)
+        for (action in actions) {
+            edits <- action$edit$documentChanges[[1L]]$edits
+            expect_true(all(vapply(edits, function(edit) is.null(edit$snippet), logical(1L))))
+            actual <- refactor_apply_edits(content, edits)
+            environment <- new.env(parent = baseenv())
+            eval(parse(text = actual), environment)
+            expect_equal(environment$outer(list(value = 2)), stats::setNames(list(3), "value\n    key"))
+        }
+    }
+})
+
+test_that("multiline strings outside the enclosing edit do not disable linked snippets", {
+    content <- c(
+        "outer <- function(argument) {",
+        '  label <- "a',
+        '    b"',
+        '  result <- argument$value + nchar("single line")',
+        "}"
+    )
+    fixture <- provider_fixture(content)
+    selected <- refactor_test_range(content, 3L, "argument$value")
+    capabilities <- list(workspace = list(workspaceEdit = list(
+        documentChanges = TRUE, snippetEditSupport = TRUE
+    )))
+    actions <- refactor_code_actions(fixture$uri, fixture$workspace,
+        fixture$document, selected, list("refactor.extract"), capabilities)
+    expect_length(actions, 2L)
+    for (action in actions) expect_false(is.null(action$edit$documentChanges[[1L]]$edits[[1L]]$snippet))
+})
+
+test_that("extract snippets require both workspace edit capabilities", {
+    content <- c("outer <- function(x) {", "  result <- x + 1", "}")
+    fixture <- provider_fixture(content)
+    selected <- refactor_test_range(content, 1L, "x + 1")
+    for (workspace_edit in list(
+        list(snippetEditSupport = TRUE),
+        list(documentChanges = FALSE, snippetEditSupport = TRUE),
+        list(documentChanges = TRUE),
+        list(documentChanges = TRUE, snippetEditSupport = FALSE)
+    )) {
+        capabilities <- list(workspace = list(workspaceEdit = workspace_edit))
+        actions <- refactor_code_actions(fixture$uri, fixture$workspace,
+            fixture$document, selected, list("refactor.extract"), capabilities)
+        expect_length(actions, 2L)
+        for (action in actions) {
+            edits <- if (isTRUE(workspace_edit$documentChanges)) {
+                action$edit$documentChanges[[1L]]$edits
+            } else {
+                action$edit$changes[[fixture$uri]]
+            }
+            expect_true(all(vapply(edits, function(edit) {
+                is.character(edit$newText) && is.null(edit$snippet)
+            }, logical(1L))))
+        }
+    }
+})
+
+test_that("function snippets preserve multiline bodies and live-out bindings", {
+    content <- c(
+        "outer <- function(argument) {",
+        '  intermediate <- paste0(argument$value, "$1 } \\\\")',
+        "  result <- nchar(intermediate)",
+        "  result",
+        "}"
+    )
+    fixture <- provider_fixture(content)
+    selected <- list(start = list(row = 1L, col = 2L),
+        end = list(row = 2L, col = nchar(content[[3L]])))
+    capabilities <- list(workspace = list(workspaceEdit = list(
+        documentChanges = TRUE, snippetEditSupport = TRUE
+    )))
+    context <- refactor_selection_context(
+        fixture$uri, fixture$workspace, fixture$document, selected)
+    action <- refactor_extract_function_action(
+        fixture$uri, fixture$workspace, fixture$document, context, capabilities)
+    plain <- refactor_extract_function_action(
+        fixture$uri, fixture$workspace, fixture$document, context)
+    edits <- action$edit$documentChanges[[1L]]$edits
+    expect_identical(refactor_apply_snippet_edits(content, edits),
+        refactor_apply_edits(content, plain$edit$changes[[fixture$uri]]))
+    renamed <- refactor_apply_snippet_edits(content, edits, "format_value")
+    expect_match(renamed, "result <- format_value(argument)", fixed = TRUE)
+    env <- new.env(parent = baseenv())
+    eval(parse(text = renamed), env)
+    expect_identical(env$outer(list(value = "value")), nchar("value$1 } \\"))
+})
+
+test_that("extract snippets stay within a literate R cell", {
+    uri <- "file:///refactor-snippet.qmd"
+    content <- c(
+        "Text before the code: 😀 $1 }",
+        "```{r}",
+        "outer <- function(x) {",
+        "  result <- x + 1",
+        "}",
+        "```",
+        "Text after the code."
+    )
+    document <- Document$new(uri, language = "quarto", version = 7L, content = content)
+    parse_data <- parse_document(uri, content, is_rmarkdown = TRUE)
+    parse_data$version <- document$version
+    parse_data$xml_doc <- xml2::read_xml(parse_data$xml_data)
+    document$update_parse_data(parse_data)
+    documents <- collections::dict()
+    documents$set(uri, document)
+    workspace <- new.env(parent = baseenv())
+    workspace$documents <- documents
+    workspace$get_parse_data <- function(request_uri) documents$get(request_uri, NULL)$parse_data
+    capabilities <- list(workspace = list(workspaceEdit = list(
+        documentChanges = TRUE, snippetEditSupport = TRUE
+    )))
+    selected <- refactor_test_range(content, 3L, "x + 1")
+    actions <- refactor_code_actions(uri, workspace, document, selected,
+        list("refactor.extract"), capabilities)
+    expect_length(actions, 2L)
+    for (action in actions) {
+        document_edit <- action$edit$documentChanges[[1L]]
+        expect_identical(document_edit$textDocument$version, 7L)
+        expect_length(document_edit$edits, 1L)
+        rendered <- refactor_apply_snippet_edits(content, document_edit$edits, "chosen_name")
+        lines <- strsplit(rendered, "\n", fixed = TRUE)[[1L]]
+        expect_identical(lines[1:3], content[1:3])
+        expect_identical(tail(lines, 3L), tail(content, 3L))
+        expect_silent(parse(text = lines[3:(length(lines) - 2L)]))
+    }
 })
 
 test_that("extract variable preserves valid multiline source", {

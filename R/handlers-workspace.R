@@ -235,11 +235,3 @@ workspace_symbol <- function(self, id, params) {
     self$deliver(workspace_symbol_reply(
         id, self$workspaces$values(), params$query))
 }
-
-#' `workspace/executeCommand` request handler
-#'
-#' Handler to the `workspace/executeCommand` [Request].
-#' @noRd
-workspace_execute_command <- function(self, id, params) {
-
-}

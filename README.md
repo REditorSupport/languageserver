@@ -179,7 +179,7 @@ The following editors are supported by installing the corresponding extensions:
 - [x] [typeHierarchySubtypes](https://microsoft.github.io/language-server-protocol/specifications/specification-current/#typeHierarchy_subtypes)
 - [x] [semanticTokens](https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocument_semanticTokens)
 - [x] [linkedEditingRange](https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocument_linkedEditingRange)
-- [ ] [executeCommandProvider](https://microsoft.github.io/language-server-protocol/specifications/specification-current/#workspace_executeCommand)
+- [x] [executeCommandProvider](https://microsoft.github.io/language-server-protocol/specifications/specification-current/#workspace_executeCommand) (refactoring documentation)
 - [x] [inlineValueProvider](https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocument_inlineValue)
 - [x] [inlayHintProvider](https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocument_inlayHint)
 
@@ -221,6 +221,39 @@ also retain the generic fallback. Group/internal generics and additional
 parameters forwarded through sophisticated `NextMethod()` chains are outside
 this inference path. A method's extra arguments are offered only when the
 generic can accept them.
+
+## Refactoring
+
+Select an expression and choose **Extract expression to variable**, or select
+complete statements and choose **Extract selection to function**. Extraction
+keeps the selected code in its original scope and identifies the inputs needed
+by an extracted function. A local variable can also be replaced with its value
+using **Inline variable** when doing so preserves evaluation and binding behavior.
+
+These actions use static analysis and are offered only when the transformation
+can be determined safely. Unsupported selections, ambiguous bindings, and code
+whose evaluation would change may have no available action. Review the proposed
+edits before applying them.
+
+In editors supporting snippet workspace edits, eligible extractions let you edit
+a name linked between the new declaration and its use. Edits overlapping multiline
+strings or quoted names use ordinary text edits to preserve their contents.
+Ordinary edits use a unique generated name, which can be changed with Rename.
+Compatible editors also offer a documentation link in the refactoring menu.
+
+Try [the LSP 3.18 demo script](inst/examples/lsp-3-18.R) for signature help,
+linked extraction names, multiline string preservation, generated package
+definitions and refactoring documentation.
+
+## Generated package definitions
+
+When a package function has no source-file location, Go to Definition shows its
+generated body. Editors supporting LSP text document content open it as a
+read-only document owned by that R language server. Requesting the definition
+again refreshes the body if it has changed. Generated bodies share a bounded
+cache; an evicted document can be restored by requesting its definition again.
+Other editors receive the existing generated temporary file, whose edits have
+no effect on the package function.
 
 ## Settings
 
