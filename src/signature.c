@@ -567,13 +567,33 @@ static int pipe_active_parameter(const char *text, int cursor, SEXP parameters,
     if (allow_null && partial_names != NULL) {
         int *exact_used = (int *) R_alloc((size_t) nparameters + 1, sizeof(int));
         memcpy(exact_used, used, ((size_t) nparameters + 1) * sizeof(int));
+        int *partial_counts = (int *) R_alloc((size_t) nparameters + 1, sizeof(int));
+        memset(partial_counts, 0, ((size_t) nparameters + 1) * sizeof(int));
         /* Exact matches, including names after the cursor, reserve their
          * formals before R attempts any partial argument matching. */
         for (signature_named_argument *argument = partial_names;
                 argument != NULL; argument = argument->next) {
+            if (argument->name == NULL) continue;
+            size_t name_size = strlen(argument->name);
+            for (int i = 0; i < nparameters; i++) {
+                if (normalized[i] == NULL) continue;
+                if (strcmp(normalized[i], "...") == 0) break;
+                if (!exact_used[i] && strncmp(argument->name, normalized[i], name_size) == 0) {
+                    partial_counts[i]++;
+                }
+            }
+        }
+        /* Keep the exact-only snapshot fixed: consuming a partial match could
+         * incorrectly disambiguate another argument. R rejects multiple
+         * partial candidates for a formal, including ambiguous candidates. */
+        for (signature_named_argument *argument = partial_names;
+                argument != NULL; argument = argument->next) {
             int matched = normalized_parameter_match(argument->name, normalized,
                 nparameters, 1, exact_used);
-            if (matched >= 0) used[matched] = 1;
+            if (matched >= 0) {
+                used[matched] = 1;
+                if (partial_counts[matched] > 1) matched = -2;
+            }
             if (argument->current) active_name = matched;
         }
     }

@@ -51,6 +51,31 @@ test_that("Nullable signature parameters preserve R argument matching", {
             "f(first, ...)"), 1L)
 })
 
+test_that("Conflicting partial arguments have no active signature parameter", {
+    for (signature in c("f(first, second)", "f(first, ...)")) {
+        for (code in c("f(fir = <cursor>, fi = 2)", "f(fir = 1, fi = <cursor>)",
+                'f("fi\\u0072" = 1, r"(fi)" = <cursor>)',
+                "x |> f(fir = 1, fi = <cursor>)", "x %>% f(fir = <cursor>, fi = 2)")) {
+            expect_null(nullable_signature_parameter(code, signature), info = code)
+        }
+    }
+    # An ambiguous tag can conflict with another tag's unique partial match.
+    for (code in c("f(alp = <cursor>, al = 2)", "f(alp = 1, al = <cursor>)",
+            "f(al = 1, alp = <cursor>)")) {
+        expect_null(nullable_signature_parameter(code, "f(alpha, also)"), info = code)
+    }
+    expect_identical(nullable_signature_parameter("f(fir = 1, sec = <cursor>)",
+            "f(first, second)"), 1L)
+    expect_identical(nullable_signature_parameter("f(al = <cursor>, alpha = 1)",
+            "f(alpha, also)"), 1L)
+    expect_identical(nullable_signature_parameter("f(first = 1, extra = 2, extra = <cursor>)",
+            "f(first, ...)"), 1L)
+    expect_identical(nullable_signature_parameter("f(sec = 1, se = <cursor>)",
+            "f(first, ..., second)"), 1L)
+    expect_identical(nullable_signature_parameter("f(fir = 1, fi = <cursor>)",
+            "f(first, second)", nullable = FALSE), 1L)
+})
+
 test_that("Nullable signature parameters preserve pipe argument placement", {
     cases <- list(
         list("x |> f(<cursor>)", "f(first, second)", 1L),
