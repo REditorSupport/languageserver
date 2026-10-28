@@ -68,6 +68,37 @@ test_that("Ordinary and quoted argument prefixes still complete", {
     expect_setequal(vapply(values, `[[`, "", "label"), c("auto", "manual"))
 })
 
+test_that("String-quoted member names do not offer enclosing call arguments", {
+    old <- lsp_settings$get("member_completion")
+    withr::defer(lsp_settings$set("member_completion", old))
+    calls <- c(
+        'get(unknown$"pos")', "get(unknown$'pos')",
+        'get(unknown@"pos")', "get(unknown@'pos')",
+        'get(unknown $  "pos")', 'get(unknown$"a\\\"pos")',
+        "get(unknown$'a\\'pos')", 'get(unknown$\n# comment\n  "a$pos")',
+        "get(unknown@\n  'a@pos')", 'get("unknown$pos', "get('unknown@pos"
+    )
+    for (enabled in c(TRUE, FALSE)) {
+        lsp_settings$set("member_completion", enabled)
+        for (call in calls) {
+            lines <- strsplit(call, "\n", fixed = TRUE)[[1L]]
+            fixture <- member_context_fixture(lines)
+            col <- nchar(tail(lines, 1L)) - as.integer(endsWith(call, ")"))
+            items <- member_context_items(fixture, length(lines) - 1L, col)
+            expect_false(any(vapply(items, function(item) {
+                isTRUE(item$data$type %in% c("parameter", "argument_value", "s3_parameter")) ||
+                    !is.null(item$data$parameter)
+            }, logical(1L))), info = paste(enabled, call))
+        }
+        for (call in c('get("unknown$pos")', "get('unknown@pos')")) {
+            fixture <- member_context_fixture(call)
+            items <- member_context_items(fixture, 0L, nchar(call) - 1L)
+            expect_true(any(vapply(items, function(item) identical(item$data$type, "parameter"), logical(1L))),
+                info = paste(enabled, call))
+        }
+    }
+})
+
 test_that("Known members and slots still complete inside calls", {
     cases <- list(
         list(lines = c("x <- list(alpha = 1)", "get(x$)"), col = 6L, label = "alpha"),
@@ -91,9 +122,11 @@ test_that("Member triggers after edits do not offer enclosing call arguments", {
     did_open(client, path, text = "get()")
 
     ordinary <- respond_completion(client, path, c(0L, 4L),
-        retry_when = function(result) !any(vapply(result$items, function(item) {
-            identical(item$data$type, "parameter") && identical(item$label, "pos")
-        }, logical(1L))))
+        retry_when = function(result) {
+            !any(vapply(result$items, function(item) {
+                identical(item$data$type, "parameter") && identical(item$label, "pos")
+            }, logical(1L)))
+        })
     expect_true(any(vapply(ordinary$items, function(item) identical(item$label, "pos"), logical(1L))))
     notify(client, "workspace/didChangeConfiguration", list(settings = list(parse_delay = 0.5)))
 
@@ -117,6 +150,25 @@ test_that("Member triggers after edits do not offer enclosing call arguments", {
             textDocument = list(uri = uri, version = 2L * i + 1L),
             contentChanges = list(list(range = list(start = start, end = after), text = ""))
         ))
+    }
+
+    quoted_calls <- c('get(unknown$"pos")', "get(unknown$'pos')",
+        'get(unknown@"pos")', "get(unknown@'pos')")
+    for (i in seq_along(quoted_calls)) {
+        call <- quoted_calls[[i]]
+        notify(client, "textDocument/didChange", list(
+            textDocument = list(uri = uri, version = 5L + i),
+            contentChanges = list(list(text = call))
+        ))
+        result <- respond(client, "textDocument/completion", list(
+            textDocument = list(uri = uri),
+            position = list(line = 0L, character = nchar(call) - 1L),
+            context = list(triggerKind = 1L)
+        ), retry = FALSE)
+        expect_false(any(vapply(result$items, function(item) {
+            isTRUE(item$data$type %in% c("parameter", "argument_value", "s3_parameter")) ||
+                !is.null(item$data$parameter)
+        }, logical(1L))), info = call)
     }
 
     member_path <- file.path(root, "member.R")

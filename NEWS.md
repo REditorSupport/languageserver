@@ -1,7 +1,8 @@
 # languageserver 0.3.20
 
 - Avoid suggesting function arguments after `$` or `@` inside a call when
-  member or slot completion cannot resolve the receiver.
+  member or slot completion cannot resolve the receiver, including names
+  enclosed in backticks, single quotes or double quotes.
 
 - Use LSP 3.18 capabilities for read-only generated package definitions,
   linked editable names in extraction refactorings, and signature help with no
