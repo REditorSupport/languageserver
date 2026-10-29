@@ -1,5 +1,9 @@
 # languageserver 0.3.20
 
+- Preserve member completion for Polars conversions such as
+  `dt <- as_polars_df(iris)` and for `pl$` after calls using the converted frame.
+  Prepare bounded S3 method return summaries with their owning namespace.
+
 - Avoid a server crash when completion, hover or signature help is requested
   inside `function()`, `if`, `for` or `while` while package metadata is loading.
   Report errors from queued request readiness checks without stopping the server.
