@@ -445,6 +445,68 @@ test_that("queued ordinary requests drain independently of S3 metadata waits", {
     expect_length(server$replies, 2L)
 })
 
+test_that("queued requests inside special syntax do not wait for S3 metadata", {
+    cases <- c(
+        "sample_result <- dt[, lapply(.SD, function(<cursor>))]",
+        "lapply(.SD, function(<cursor>) NULL)",
+        "if (<cursor>TRUE) NULL",
+        "for (<cursor>x in 1:2) NULL",
+        "while (<cursor>TRUE) NULL"
+    )
+    for (marked in cases) {
+        col <- regexpr("<cursor>", marked, fixed = TRUE)[[1L]] - 1L
+        fixture <- readiness_fixture(sub("<cursor>", "", marked, fixed = TRUE))
+        point <- list(row = 0L, col = col)
+        expect_null(s3_call_location(fixture$document, point), info = marked)
+        expect_false(s3_metadata_waiting(fixture$server, fixture$uri, fixture$document, point), info = marked)
+
+        queues <- fixture$server$pending_replies$get(fixture$uri)
+        for (i in seq_along(queues)) {
+            queues[[i]]$push(list(id = i, version = 1L, params = readiness_params(fixture, 0L, col)))
+        }
+        expect_identical(drain_pending_replies(fixture$server, fixture$uri, 1L)$processed, 3L, info = marked)
+        expect_length(fixture$server$replies, 3L)
+        expect_true(all(vapply(fixture$server$replies, function(reply) is.null(reply$error), logical(1L))), info = marked)
+    }
+    fixture <- readiness_fixture("sample_result <- dt[, lapply(.SD, function() NULL)]")
+    point <- list(row = 0L, col = nchar("sample_result <- dt[, lapply(.SD, funct"))
+    expect_null(s3_call_location(fixture$document, point, hover = TRUE))
+    expect_false(s3_metadata_waiting(fixture$server, fixture$uri, fixture$document, point, hover = TRUE))
+    point$col <- nchar("sample_result <- dt[, lapply(")
+    expect_identical(s3_call_location(fixture$document, point)$call$token, "lapply")
+})
+
+test_that("queued readiness errors return an error and do not block later requests", {
+    fixture <- readiness_fixture("print()")
+    server <- fixture$server
+    queues <- server$pending_replies$get(fixture$uri)
+    completion <- queues$`textDocument/completion`
+    completion$push(list(id = 1L, version = 1L, params = readiness_params(fixture, 0L, 1L)))
+    completion$push(list(id = 2L, version = 1L, params = readiness_params(fixture, 0L, 2L)))
+    server$request_handlers$`textDocument/completion` <- function(self, id, params) {
+        self$deliver(Response$new(id, result = "ok"))
+    }
+    testthat::local_mocked_bindings(
+        index_context_waiting = function(...) FALSE,
+        member_metadata_waiting = function(...) FALSE,
+        s3_metadata_waiting = function(self, uri, document, point, ...) {
+            if (point$col == 1L) stop("readiness failed")
+            FALSE
+        }, .package = "languageserver")
+
+    result <- drain_pending_replies(server, fixture$uri, 1L, max_replies = 1L)
+    expect_identical(result$processed, 1L)
+    expect_true(result$ready)
+    expect_identical(server$replies[[1L]]$id, 1L)
+    expect_identical(server$replies[[1L]]$error$code, -32603)
+    expect_match(server$replies[[1L]]$error$message, "readiness failed", fixed = TRUE)
+    expect_identical(completion$size(), 1L)
+    expect_identical(drain_pending_replies(server, fixture$uri, 1L)$processed, 1L)
+    expect_identical(server$replies[[2L]]$id, 2L)
+    expect_identical(server$replies[[2L]]$result, "ok")
+    expect_identical(completion$size(), 0L)
+})
+
 test_that("queued signatures use the enclosing call while S3 metadata is pending", {
     fixture <- readiness_fixture(c('masking::new_generic(data.frame(x = 1), r"(first',
         'base::findInterval(1)")'))
