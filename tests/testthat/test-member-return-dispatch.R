@@ -41,4 +41,10 @@ test_that("Prepared S3 method returns retain namespace ownership and argument ma
     items <- member_completion(document$uri, list(member_metadata = metadata), document,
         list(row = 2L, col = nchar(content[[3L]])), FALSE, 200L)
     expect_identical(vapply(items, `[[`, character(1L), "label"), "raw")
+    content[[3L]] <- "converted$raw$step()$"
+    document <- Document$new("file:///conversion-chain.R", language = "r", version = 1L, content = content)
+    document$parse_data <- parse_document(document$uri, content)
+    items <- member_completion(document$uri, list(member_metadata = metadata), document,
+        list(row = 2L, col = nchar(content[[3L]])), FALSE, 200L)
+    expect_identical(vapply(items, `[[`, character(1L), "label"), "step")
 })

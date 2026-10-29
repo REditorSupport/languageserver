@@ -22,6 +22,7 @@ Document <- R6::R6Class(
         requested_packages = NULL,
         member_refresh = FALSE,
         member_receivers = NULL,
+        member_budgets = NULL,
         s3_calls = NULL,
         s3_identity = NULL,
         member_revision = NULL,
@@ -37,6 +38,7 @@ Document <- R6::R6Class(
             self$version <- version
             self$is_rmarkdown <- is_rmarkdown(uri, language)
             self$member_receivers <- ByteLruCache$new(4 * 1024^2, max_entries = 32L)
+            self$member_budgets <- ByteLruCache$new(16384L, max_entries = 32L)
             self$s3_calls <- ByteLruCache$new(1 * 1024^2, max_entries = 32L)
             self$set_content(version, content)
             self$loaded_packages <- character()
@@ -1099,6 +1101,16 @@ resolve_callback <- function(self, uri, version, packages) {
 
 resolve_member_task <- function(self, uri, document, packages, namespace_packages) {
     workspace <- self$get_workspace(uri)
+    metadata <- workspace$member_metadata
+    known <- list()
+    if (!is.null(metadata)) {
+        for (package in metadata$keys()) {
+            catalog <- if (is.function(metadata$catalog)) metadata$catalog(package) else metadata$get(package)
+            if (!isTRUE(catalog$dataset_only) && is.null(catalog$error) && !is.null(catalog$identity)) {
+                known[package] <- list(catalog$identity)
+            }
+        }
+    }
     requested <- document$requested_packages
     version <- document$version
     current <- function() {
@@ -1109,7 +1121,7 @@ resolve_member_task <- function(self, uri, document, packages, namespace_package
     create_task(
         target = package_call(member_resolve_packages),
         args = list(pkgs = packages, lib_paths = .libPaths(), namespace_packages = namespace_packages,
-            prepare = TRUE, prepare_s3 = FALSE),
+            prepare = TRUE, prepare_s3 = FALSE, known_members = known, cache_dir = package_metadata_cache_root()),
         callback = function(result) {
             if (current()) resolve_callback(self, uri, version, result)
         },
@@ -1139,7 +1151,7 @@ resolve_task <- function(self, uri, document, packages, delay = 0, namespace_pac
         target = package_call(member_resolve_packages),
         args = list(pkgs = packages, lib_paths = .libPaths(), namespace_packages = namespace_packages,
             prepare = prepare_members && !split_members,
-            prepare_s3 = isTRUE(lsp_settings$get("s3_dispatch"))),
+            prepare_s3 = isTRUE(lsp_settings$get("s3_dispatch")), cache_dir = package_metadata_cache_root()),
         callback = function(result) resolve_callback(self, uri, version, result),
         error = function(e) {
             on.exit(s3_queue_ready(self, uri), add = TRUE)

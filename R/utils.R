@@ -600,8 +600,13 @@ get_help <- function(hfile, format = c("html", "text")) {
         return(NULL)
     }
 
-    rd <- get_help_rd(hfile)
     pkgname <- basename(dirname(dirname(paths[[1]])))
+    identity <- tryCatch(package_metadata_identity(pkgname), error = function(e) NULL)
+    cache_path <- if (!is.null(identity)) package_metadata_cache_path(paste0("help-", format), identity,
+        list(paths, locale = Sys.getlocale("LC_MESSAGES")))
+    cached <- package_metadata_cache_read(cache_path, identity, is.character)
+    if (!is.null(cached)) return(cached)
+    rd <- get_help_rd(hfile)
 
     if (format == "html") {
         result <- paste0(utils::capture.output(
@@ -616,7 +621,9 @@ get_help <- function(hfile, format = c("html", "text")) {
         stop("Invalid format")
     }
 
-    enc2utf8(result)
+    result <- enc2utf8(result)
+    package_metadata_cache_write(cache_path, identity, result)
+    result
 }
 
 convert_doc_to_markdown <- function(doc) {

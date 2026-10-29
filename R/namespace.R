@@ -157,6 +157,13 @@ PackageNamespace <- R6::R6Class("PackageNamespace",
             if (private$documentation$has(topic)) {
                 return(private$documentation$get(topic))
             }
+            identity <- tryCatch(package_metadata_identity(pkgname), error = function(e) NULL)
+            cache_path <- if (!is.null(identity)) package_metadata_cache_path("documentation", identity, topic)
+            cached <- package_metadata_cache_read(cache_path, identity)
+            if (!is.null(cached)) {
+                private$documentation$set(topic, cached)
+                return(cached)
+            }
             hfile <- utils::help((topic), (pkgname))
 
             if (length(hfile) > 0) {
@@ -189,6 +196,7 @@ PackageNamespace <- R6::R6Class("PackageNamespace",
                 value <- list()
             }
             private$documentation$set(topic, value)
+            package_metadata_cache_write(cache_path, identity, value)
             value
         },
 

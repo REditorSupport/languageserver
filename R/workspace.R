@@ -182,7 +182,7 @@ MemberMetadataCache <- R6::R6Class(
             snapshot$cache <- NULL
             # Selection, imports and dispatch need only this compact catalog.
             # Keep it in the snapshot budget without decoding function bodies.
-            fields <- c("package", "generation", "roots", "exports", "namespace_roots", "classes", "class_scope", "symbol_scope",
+            fields <- c("package", "identity", "generation", "roots", "exports", "namespace_roots", "classes", "class_scope", "symbol_scope",
                 "s4_classes", "s4_dependencies", "s7_dependencies", "s7_capabilities", "dataset_only", "namespace_attempted",
                 "subset_registry", "subset_registry_complete")
             entry <- list(
@@ -1127,7 +1127,8 @@ workspace_startup_s3 <- local({
     function() {
         if (!is.null(cached)) return(cached)
         packages <- workspace_startup_packages()
-        cached <<- tryCatch(callr::r(package_call(s3_prepare_packages), args = list(packages),
+        cached <<- tryCatch(callr::r(package_call(s3_prepare_packages),
+                args = list(packages = packages, cache_dir = package_metadata_cache_root()),
                 system_profile = FALSE, user_profile = FALSE,
                 timeout = if (identical(Sys.getenv("R_COVR"), "true")) 60 else 8),
             error = function(e) {
@@ -1145,7 +1146,8 @@ workspace_startup_members <- local({
     cached <- NULL
     previous <- NULL
     function() {
-        requested <- list(packages = workspace_startup_packages(), lib_paths = .libPaths())
+        requested <- list(packages = workspace_startup_packages(), lib_paths = .libPaths(),
+            cache_dir = package_metadata_cache_root())
         if (!is.null(cached) && identical(requested, previous)) return(cached)
         if (!length(requested$packages)) return(list())
         result <- tryCatch(callr::r(package_call(member_prepare_startup_data), args = requested,

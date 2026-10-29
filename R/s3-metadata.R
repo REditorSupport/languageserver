@@ -259,10 +259,7 @@ s3_prepare_namespace <- function(package) {
     result <- list(
         schema = 1L, package = package, functions = functions, callables = callables, objects = objects,
         methods = methods, dependencies = dependencies,
-        identity = list(
-            path = find.package(package), version = as.character(utils::packageVersion(package)),
-            r = as.character(getRversion())
-        )
+        identity = package_metadata_identity(package)
     )
     size <- as.numeric(utils::object.size(result))
     if (size > 8 * 1024^2) stop(sprintf("Namespace %s exceeds S3 metadata budget (%d bytes)", package, size))
@@ -270,7 +267,9 @@ s3_prepare_namespace <- function(package) {
     result
 }
 
-s3_prepare_packages <- function(packages) {
+s3_prepare_packages <- function(packages, cache_dir = package_metadata_cache_root()) {
+    previous <- options(languageserver.package_cache_dir = cache_dir)
+    on.exit(options(previous), add = TRUE)
     namespaces <- list()
     pending <- unique(c(startup_packages, packages))
     # Load the requested namespaces before snapshotting any owning registry.
@@ -286,8 +285,25 @@ s3_prepare_packages <- function(packages) {
         pending <- unique(c(pending, setdiff(namespaces[[package]]$dependencies, names(namespaces))))
     }
     result <- list()
+    context <- package_metadata_context(names(namespaces))
     for (package in names(namespaces)) {
-        result[[package]] <- tryCatch(s3_prepare_namespace(package), error = function(e) {
+        result[[package]] <- tryCatch({
+            identity <- package_metadata_identity(package, context = context)
+            path <- package_metadata_cache_path("s3", identity)
+            cached <- package_metadata_cache_read(path, identity, function(value) {
+                identical(value$schema, 1L) && identical(value$identity, identity)
+            })
+            if (!is.null(cached)) {
+                cached
+            } else {
+                value <- s3_prepare_namespace(package)
+                value$identity <- identity
+                value$generation <- NULL
+                value$generation <- digest::digest(value, algo = "xxhash64")
+                package_metadata_cache_write(path, identity, value)
+                value
+            }
+        }, error = function(e) {
             list(
                 schema = 1L, package = package, functions = list(), objects = list(), methods = list(),
                 dependencies = character(), generation = "", error = conditionMessage(e)
@@ -295,6 +311,27 @@ s3_prepare_packages <- function(packages) {
         })
     }
     result
+}
+
+# Registries and exported functions may be replaced by load hooks or tracing
+# without changing package files. Include their current inert syntax in S3 keys.
+s3_metadata_context <- function(packages) {
+    records <- lapply(packages, function(package) tryCatch({
+        ns <- asNamespace(package)
+        describe <- function(scope, names) stats::setNames(lapply(names, function(name) {
+            record <- member_binding(scope, name, materialize = TRUE)
+            value <- record[[2L]]
+            owner <- if (typeof(value) == "closure" && isNamespace(environment(value))) {
+                unname(getNamespaceName(environment(value)))
+            }
+            list(kind = record[[1L]], owner = owner, syntax = if (typeof(value) == "closure") member_function_syntax(value),
+                primitive = if (is.primitive(value)) name)
+        }), names)
+        table <- member_binding(ns, ".__S3MethodsTable__.")[[2L]]
+        list(exports = describe(ns, getNamespaceExports(ns)),
+            methods = if (is.environment(table) && length(table)) describe(table, ls(table, all.names = TRUE)))
+    }, error = function(e) list(error = conditionMessage(e))))
+    digest::digest(records, algo = "xxhash64")
 }
 
 s3_namespace_binding <- function(ns, name) {

@@ -3,6 +3,14 @@
 - Preserve member completion for Polars conversions such as
   `dt <- as_polars_df(iris)` and for `pl$` after calls using the converted frame.
   Prepare bounded S3 method return summaries with their owning namespace.
+  Retain namespace ownership through chained methods and nested argument
+  expressions. Retry timed-out member requests with an adaptive allowance
+  within a one-second total deadline.
+
+- Persist package member models, startup datasets, S3 catalogs, documentation
+  summaries and rendered help in a shared bounded cache. Reuse unchanged models
+  across saves and server sessions; invalidate changes to package files,
+  dependencies, registered methods, cache format or server implementation.
 
 - Avoid a server crash when completion, hover or signature help is requested
   inside `function()`, `if`, `for` or `while` while package metadata is loading.

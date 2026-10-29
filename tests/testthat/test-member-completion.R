@@ -20,7 +20,7 @@ member_items <- function(code, snapshots = list(), point = NULL, language = "r",
 
 member_labels <- function(...) vapply(member_items(...), `[[`, character(1L), "label")
 
-test_that("Member inference allows test overhead without changing the production limit", {
+test_that("The initial inference allowance distinguishes production from test overhead", {
     fixture <- member_fixture(paste0("x <- list(alpha = list(", paste(rep("1", 256L), collapse = ","), "))\nx$"))
     calls <- 0L
     clock <- function() {
@@ -36,8 +36,10 @@ test_that("Member inference allows test overhead without changing the production
     testthat::local_mocked_bindings(member_request_budget = budget, .package = "languageserver")
     resolve <- function() {
         calls <<- 0L
-        member_resolve_cursor(fixture$document$uri, fixture$workspace, fixture$document,
-            fixture$point, member_cursor(fixture$document, fixture$point))
+        budget <- member_request_budget()
+        expr <- fixture$document$parse_data$member_data$bindings$x[[1L]]$expr
+        value <- member_infer(expr, member_generic_index(""), budget = budget)
+        list(value = value, budget = budget)
     }
     withr::local_envvar(c(TESTTHAT = "", R_COVR = ""))
     expect_true(resolve()$budget$exhausted)

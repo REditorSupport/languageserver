@@ -212,7 +212,7 @@ member_join <- function(a, b) {
     )
     if (!identical(a$classes, b$classes) && (length(a$classes) || length(b$classes))) value$reason <- "ambiguous_class"
     if (!identical(a$member_package, b$member_package) &&
-            (!is.null(a$member_package) || !is.null(b$member_package)) && !is.null(fields)) {
+            !is.null(a$member_package) && !is.null(b$member_package) && !is.null(fields)) {
         # Object names are local to each namespace; a joined receiver can only
         # retain its common structural fields, not either package's registry.
         value$type <- if (all(c(a$type, b$type) %in% c("list", "pairlist")) ||
@@ -450,11 +450,15 @@ member_access <- function(lhs, name, index, bindings) {
     }
     property <- member_lookup(member_lookup(index$properties, lhs$type), name)
     if (!is.null(property)) {
-        return(if (is.character(property)) member_value(type = property) else property)
+        value <- if (is.character(property)) member_value(type = property) else property
+        if (is.null(value$member_package) && length(value$type) == 1L && value$type %in% names(index$members)) {
+            value$member_package <- index$package
+        }
+        return(value)
     }
     raw <- member_lookup(member_lookup(index$raw_fields, lhs$type), name)
     if (!is.null(raw)) {
-        return(member_value(type = raw))
+        return(member_value(type = raw, member_package = index$package))
     }
     members <- member_lookup(index$members, lhs$type)
     if (name %in% names(members) && !is.na(members[[name]])) {
@@ -495,6 +499,7 @@ member_infer <- function(
     }
     if (isTRUE(budget$exhausted) || depth > 64L || budget$remaining < 0L || timed_out) {
         budget$exhausted <- TRUE
+        if (timed_out) budget$timed_out <- TRUE
         return(member_value(reason = "budget"))
     }
     infer <- function(x, env = bindings, ctx = context) {
@@ -514,10 +519,13 @@ member_infer <- function(
     }
     package_env <- if (!is.null(index$package_roots)) index$package_roots else index$roots
     join_env <- function(a, b) {
+        if (identical(a, b)) return(a)
         keys <- union(names(a), names(b))
-        stats::setNames(lapply(keys, function(key) {
-            x <- member_lookup(a, key)
-            y <- member_lookup(b, key)
+        xs <- a[match(keys, names(a))]
+        ys <- b[match(keys, names(b))]
+        stats::setNames(lapply(seq_along(keys), function(i) {
+            x <- xs[[i]]
+            y <- ys[[i]]
             if (identical(x, y)) return(x)
             if (!is.list(x) || !is.list(y)) unknown else member_join(x, y)
         }), keys)
@@ -785,7 +793,7 @@ member_infer <- function(
         }
         shape <- member_lookup(index$constructor_types, key)
         if (!is.null(shape)) {
-            return(member_value(type = shape))
+            return(member_value(type = shape, member_package = index$package))
         }
         if (!member_head(fn, "function")) {
             return(unknown)
@@ -861,7 +869,7 @@ member_infer <- function(
                 recipe <- ctor$fields[[name]]
                 factory <- member_lookup(index$members[[ctor$type]], name)
                 if (!is.null(factory) && !is.na(factory) && factory %in% index$native_factories) {
-                    value <- member_value(function_key = factory)
+                    value <- member_value(function_key = factory, metadata = index$package)
                 } else if (isTRUE(recipe$active)) {
                     body <- recipe$expr
                     if (member_head(body, "function")) body <- body[[3L]]
@@ -875,7 +883,8 @@ member_infer <- function(
                 }
                 fields[name] <- list(value)
             }
-            result <- member_value(type = ctor$type, classes = ctor$classes, fields = fields)
+            result <- member_value(type = ctor$type, classes = ctor$classes, fields = fields,
+                member_package = index$package)
         } else {
             body <- fn[[3L]]
             ctx <- list(key = key, actuals = actuals, formals = names(fn[[2L]]), dispatch = dispatch,

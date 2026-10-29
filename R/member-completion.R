@@ -844,7 +844,7 @@ member_recover_scope <- function(document, point, cursor, data) {
     member_recover(document, point, cursor, data)
 }
 
-member_resolve_cursor <- function(uri, workspace, document, point, cursor, name = NULL) {
+member_resolve_cursor <- function(uri, workspace, document, point, cursor, name = NULL, retry_deadline = NULL) {
     if (!identical(document$version, document$parse_data$version) &&
             !is.null(document$parse_data$version)) {
         return(NULL)
@@ -864,7 +864,14 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
         revision = revision)
     if (!identical(document$member_revision, identity)) {
         cache$clear()
+        document$member_budgets$clear()
         document$member_revision <- identity
+    }
+    budget_key <- paste(point$row, cursor$operator_row, cursor$operator, cursor$accessor, sep = ":")
+    if (!is.null(budget$time_limit) && budget$time_limit < 1) {
+        ceiling <- if (is.null(retry_deadline)) proc.time()[[3L]] + 1 else retry_deadline
+        budget$time_limit <- document$member_budgets$get(budget_key, budget$time_limit)
+        budget$deadline <- min(proc.time()[[3L]] + budget$time_limit, ceiling)
     }
     # The receiver does not depend on the member prefix or the call arguments
     # after it. Edits and accepted parses clear this document-local cache.
@@ -910,6 +917,13 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
         if (is.null(value$function_key) && length(key) && !is.na(key[[1L]]) && !is.null(value$function_expr)) {
             value$function_key <- key[[1L]]
         }
+    }
+    if (isTRUE(budget$timed_out) && budget$time_limit < 1 && is.null(retry_deadline) &&
+            proc.time()[[3L]] < ceiling) {
+        # Retry a timed-out receiver once using reusable package summaries.
+        # Learn a larger allowance for this cursor, capped at one second total.
+        document$member_budgets$set(budget_key, min(1, budget$time_limit * 2))
+        return(member_resolve_cursor(uri, workspace, document, point, cursor, name, retry_deadline = ceiling))
     }
     list(value = value, index = index, bindings = bindings, budget = budget)
 }
