@@ -9,7 +9,8 @@
   common known method members as possible-receiver suggestions when a
   conversion's input class is unresolved, without claiming a definite type.
   Share these possible receivers with signature help and hover when the member
-  implementation is unambiguous, and display an uncertainty note.
+  implementation is unambiguous, and display an uncertainty note. Preserve
+  possible results through member calls and subsequent assignments and aliases.
 
 - Persist package member models, startup datasets, S3 catalogs, documentation
   summaries and rendered help in a shared bounded cache. Reuse unchanged models

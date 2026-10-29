@@ -2,7 +2,7 @@ test_that("Unknown generic inputs offer common known members without claiming a 
     code <- paste(c(
         "commands <- new.env(parent = emptyenv())",
         "native_box <- function(pointer) {box <- new.env(); box$step <- make_step(pointer); class(box) <- \"raw_box\"; box}",
-        "make_step <- function(pointer) function() native_box(.Call(\"never\", pointer))",
+        "make_step <- function(pointer) function(delta = 1) native_box(.Call(\"never\", pointer, delta))",
         "adapt <- function(x) UseMethod(\"adapt\")",
         "adapt.raw_box <- function(x) {box <- new.env(); box$raw <- x; class(box) <- \"public_box\"; box}",
         "`$.public_box` <- function(x, name) {method_names <- names(commands); if(name %in% method_names) {f <- commands[[name]]; current <- x; environment(f) <- environment(); f} else NextMethod()}",
@@ -57,6 +57,18 @@ test_that("Unknown generic inputs offer common known members without claiming a 
     expect_match(replies$signature$signatures[[1L]]$documentation$value, "Receiver type is uncertain", fixed = TRUE)
     expect_match(paste(replies$hover$contents, collapse = "\n"), "step(delta = 1, flag = TRUE)", fixed = TRUE)
     expect_match(paste(replies$hover$contents, collapse = "\n"), "Receiver type is uncertain", fixed = TRUE)
+    chained <- append(lines[1:3], c("next_object <- converted$step(delta = 2)", "next_object$"))
+    result <- resolve(chained, metadata)
+    expect_null(result$value$type)
+    expect_identical(vapply(result$items, `[[`, character(1L), "label"), c("raw", "step"))
+    chained[[5L]] <- "next_object$step()"
+    # Use the same-width alias to check the named-member provider path.
+    chained <- append(chained[1:4], c("converted <- next_object", "converted$step()"))
+    replies <- providers(chained, metadata)
+    expect_identical(replies$signature$signatures[[1L]]$label, "step(delta = 1, flag = TRUE)")
+    expect_match(paste(replies$hover$contents, collapse = "\n"), "Receiver type is uncertain", fixed = TRUE)
+    invalid <- append(lines[1:3], c("next_object <- converted$step(delta = 1, delta = 2)", "next_object$"))
+    expect_length(resolve(invalid, metadata)$items, 0L)
     overridden <- append(lines, "convert.custom <- function(x) list(other = TRUE)", after = 0L)
     expect_length(resolve(overridden, metadata)$items, 0L)
     suppressed <- providers(append(calls, "convert.custom <- function(x) list(other = TRUE)", after = 0L), metadata)
@@ -67,6 +79,20 @@ test_that("Unknown generic inputs offer common known members without claiming a 
     suppressed <- providers(calls, make_metadata())
     expect_length(suppressed$signature$signatures, 0L)
     expect_null(suppressed$hover)
+})
+
+test_that("Call summaries do not mix different possible argument receivers", {
+    index <- member_generic_index(paste(c(
+        "transform <- function(input) input$run()",
+        "first_result <- function() list(first = TRUE)",
+        "second_result <- function() list(second = TRUE)"
+    ), collapse = "\n"))
+    index$members <- list(first_type = c(run = "first_result"), second_type = c(run = "second_result"))
+    possible <- function(type) member_value(reason = "open_dispatch", possible_returns = list(member_value(type = type)))
+    first <- member_infer(quote(transform(input)), index, list(input = possible("first_type")))
+    second <- member_infer(quote(transform(input)), index, list(input = possible("second_type")))
+    expect_identical(names(first$possible_returns[[1L]]$fields), "first")
+    expect_identical(names(second$possible_returns[[1L]]$fields), "second")
 })
 
 test_that("Conflicting possible member signatures stay unresolved", {

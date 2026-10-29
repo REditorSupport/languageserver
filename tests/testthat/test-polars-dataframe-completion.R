@@ -58,6 +58,26 @@ test_that("Polars conversions and later roots complete within a small inference 
     hover <- hover_reply(1L, document$uri, workspace, document, list(row = 3L, col = 12L))$result
     expect_match(paste(hover$contents, collapse = "\n"), "filter(...)", fixed = TRUE)
     expect_match(paste(hover$contents, collapse = "\n"), "Receiver type is uncertain", fixed = TRUE)
+    remaining <- 2048L
+    content <- c("library(polars)", 'dt <- fst::read_fst("test.fst")', "dt1 <- as_polars_df(dt)",
+        "dt2 <- dt1$select(", '  "x", "y",', '  (pl$col("x") / pl$col("y"))$alias("ratio")', ")", "dt2$")
+    document <- Document$new("file:///polars-chained-input.R", language = "r", version = 1L, content = content)
+    document$parse_data <- parse_document(document$uri, content)
+    point <- list(row = 7L, col = 4L)
+    resolved <- member_resolve_cursor(document$uri, workspace, document, point, member_cursor(document, point))
+    expect_null(resolved$value$type)
+    items <- member_completion(document$uri, workspace, document, point, TRUE, 200L)
+    expect_true(all(c("filter", "lazy", "select") %in% vapply(items, `[[`, character(1L), "label")))
+    content[[8L]] <- "dt2$filter()"
+    document$set_content(2L, content)
+    data <- parse_document(document$uri, content)
+    data$version <- 2L
+    document$update_parse_data(data)
+    signature <- signature_reply(1L, document$uri, workspace, document, list(row = 7L, col = 11L))$result
+    expect_identical(signature$signatures[[1L]]$label, "filter(...)")
+    hover <- hover_reply(1L, document$uri, workspace, document, list(row = 7L, col = 6L))$result
+    expect_match(paste(hover$contents, collapse = "\n"), "Receiver type is uncertain", fixed = TRUE)
+    remaining <- 512L
     for (expression in c(
         'dt$filter(pl$col("a") > pl$col("b")$|)',
         'dt$filter(pl$col("a") > pl$col("b")$me|an())',

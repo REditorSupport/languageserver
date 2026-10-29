@@ -333,6 +333,20 @@ member_possible_receiver <- function(value, index, bindings = list(), accessor =
     list(value = candidates[[1L]], members = common, ambiguous = ambiguous, sets = sets)
 }
 
+member_possible_result <- function(values) {
+    candidates <- list()
+    for (value in values) {
+        if (!length(value$type) && length(value$possible_returns)) {
+            candidates <- c(candidates, value$possible_returns)
+        } else if ((length(value$type) && !any(value$type %in% c(".never", ".missing"))) ||
+                !is.null(value$function_key) || !is.null(value$function_expr) || !is.null(value$result_shape)) {
+            candidates <- c(candidates, list(value))
+        }
+    }
+    candidates <- candidates[!duplicated(candidates)]
+    member_value(reason = "possible_result", possible_returns = candidates)
+}
+
 # A bounded structural cache key omits irrelevant literals/large closure maps.
 # Function identity and the metadata generation isolate package summaries.
 member_shape_key <- function(value, depth = 0L) {
@@ -377,7 +391,7 @@ member_cacheable <- function(value, depth = 0L) {
     if (is.null(value)) {
         return(TRUE)
     }
-    if (depth > 4L || isTRUE(value$open) || !is.null(value$function_expr) || !is.null(value$closure) ||
+    if (depth > 4L || isTRUE(value$open) || length(value$possible_returns) || !is.null(value$function_expr) || !is.null(value$closure) ||
         !is.null(value$binding_expr)) {
         return(FALSE)
     }
@@ -424,6 +438,14 @@ member_slot <- function(value, name, index, bindings, budget = NULL) {
 
 member_access <- function(lhs, name, index, bindings) {
     unknown <- member_value(reason = "unsupported")
+    if (is.null(name)) return(unknown)
+    possible <- member_possible_receiver(lhs, index, bindings)
+    if (!is.null(possible)) {
+        if (!name %in% possible$members) return(unknown)
+        return(member_possible_result(lapply(lhs$possible_returns, function(candidate) {
+            member_access(candidate, name, index, bindings)
+        })))
+    }
     if (isTRUE(lhs$column_names_only) || identical(lhs$reason, "unresolved_dollar_dispatch")) {
         return(member_value(reason = "unresolved_dollar_dispatch"))
     }
@@ -1458,6 +1480,20 @@ member_infer <- function(
         return(unknown)
     }
     if (is.null(callee)) callee <- infer(expr[[1L]])
+    if (length(callee$possible_returns)) {
+        if (open_dots) return(unknown)
+        # Infer arguments once, then analyse each known callable against its
+        # own receiver. Results remain possibilities through further chains.
+        env <- bindings
+        for (i in seq_along(actuals)) env[paste0(".__possible_arg", i)] <- list(actuals[[i]])
+        call <- as.call(c(list(as.name(".__possible_callee__")),
+            stats::setNames(lapply(seq_along(actuals), function(i) as.name(paste0(".__possible_arg", i))), names(actuals))))
+        values <- lapply(callee$possible_returns, function(candidate) {
+            env$.__possible_callee__ <- candidate
+            member_infer(call, index, env, depth = depth + 1L, trail = trail, budget = budget)
+        })
+        return(member_possible_result(values))
+    }
     if (identical(callee$metadata, "S7") && callee$function_key %in% member_s7_intrinsics) {
         return(member_s7_call(expr, index, bindings, budget, callee$function_key))
     }
