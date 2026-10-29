@@ -47,6 +47,17 @@ test_that("Polars conversions and later roots complete within a small inference 
     items <- member_completion(document$uri, workspace, document, point, TRUE, 200L)
     expect_true(all(c("filter", "lazy", "select") %in% vapply(items, `[[`, character(1L), "label")))
     expect_true(isTRUE(attr(items, "truncated")))
+    content[[4L]] <- "converted$filter()"
+    document$set_content(2L, content)
+    data <- parse_document(document$uri, content)
+    data$version <- 2L
+    document$update_parse_data(data)
+    signature <- signature_reply(1L, document$uri, workspace, document, list(row = 3L, col = 17L))$result
+    expect_identical(signature$signatures[[1L]]$label, "filter(...)")
+    expect_match(signature$signatures[[1L]]$documentation$value, "Receiver type is uncertain", fixed = TRUE)
+    hover <- hover_reply(1L, document$uri, workspace, document, list(row = 3L, col = 12L))$result
+    expect_match(paste(hover$contents, collapse = "\n"), "filter(...)", fixed = TRUE)
+    expect_match(paste(hover$contents, collapse = "\n"), "Receiver type is uncertain", fixed = TRUE)
     for (expression in c(
         'dt$filter(pl$col("a") > pl$col("b")$|)',
         'dt$filter(pl$col("a") > pl$col("b")$me|an())',

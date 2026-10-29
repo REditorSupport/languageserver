@@ -307,6 +307,32 @@ member_members <- function(value, index, bindings = list(), accessor = "$") {
     out
 }
 
+# Possible receivers keep their inferred type unresolved. All providers use
+# the same intersection and reject conflicting member implementations.
+member_possible_receiver <- function(value, index, bindings = list(), accessor = "$") {
+    if (length(value$type) || !length(value$possible_returns)) return(NULL)
+    candidates <- value$possible_returns
+    sets <- lapply(candidates, function(candidate) member_members(candidate, index, bindings, accessor))
+    common <- Reduce(intersect, lapply(sets, names))
+    owners <- vapply(candidates, function(candidate) {
+        if (is.null(candidate$member_package)) "" else candidate$member_package
+    }, character(1L))
+    ambiguous <- common[vapply(common, function(name) {
+        if (length(unique(owners)) > 1L || !all(vapply(sets, function(set) identical(set[[name]], sets[[1L]][[name]]), logical(1L)))) {
+            return(TRUE)
+        }
+        if (all(vapply(sets, function(set) is.na(set[[name]]), logical(1L)))) {
+            fields <- lapply(candidates, function(candidate) {
+                if (identical(accessor, "@")) member_slot(candidate, name, index, bindings) else
+                    member_access(candidate, name, index, bindings)
+            })
+            return(!all(vapply(fields, identical, logical(1L), fields[[1L]])))
+        }
+        FALSE
+    }, logical(1L))]
+    list(value = candidates[[1L]], members = common, ambiguous = ambiguous, sets = sets)
+}
+
 # A bounded structural cache key omits irrelevant literals/large closure maps.
 # Function identity and the metadata generation isolate package summaries.
 member_shape_key <- function(value, depth = 0L) {

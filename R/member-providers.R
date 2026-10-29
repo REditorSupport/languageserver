@@ -15,10 +15,15 @@ member_symbol_info <- function(label, value, key, index) {
     signature <- if (member_head(fn, "function")) get_signature(display, fn) else NULL
     delegated <- member_lookup(index$delegation, key)
     if (!is.null(delegated)) key <- delegated$original
+    description <- member_r6_description(value)
+    if (isTRUE(value$possible_receiver)) {
+        description <- paste(c("Receiver type is uncertain; this member is shared by known method results.", description),
+            collapse = "\n\n")
+    }
     list(
         label = label, signature = signature, function_id = key,
         package = index$package, value = value,
-        description = member_r6_description(value)
+        description = description
     )
 }
 

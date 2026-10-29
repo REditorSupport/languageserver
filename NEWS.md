@@ -8,6 +8,8 @@
   within a one-second total deadline and the original node allowance. Offer
   common known method members as possible-receiver suggestions when a
   conversion's input class is unresolved, without claiming a definite type.
+  Share these possible receivers with signature help and hover when the member
+  implementation is unambiguous, and display an uncertainty note.
 
 - Persist package member models, startup datasets, S3 catalogs, documentation
   summaries and rendered help in a shared bounded cache. Reuse unchanged models

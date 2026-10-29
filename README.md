@@ -307,7 +307,8 @@ inference remains local to the current document and its metadata revision.
 Conversions with unresolved input classes can offer the common members of known
 method results as suggestions, marked `[possible receiver]` or `[possible member]`.
 These suggestions do not establish the receiver's type; known conflicting method
-outcomes and local method overrides suppress them.
+outcomes and local method overrides suppress them. Signature help and hover also
+use unambiguous common members and display a note when the receiver is uncertain.
 Set `options(languageserver.package_cache_dir = "/path/to/cache")` or the
 `R_LANGSVR_PACKAGE_CACHE_DIR` environment variable to choose another cache root;
 set `options(languageserver.package_cache_dir = FALSE)` to disable disk caching.

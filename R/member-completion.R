@@ -913,12 +913,21 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
     }
     if (!is.null(cursor$accessor) && !is.null(name)) {
         receiver <- value
+        possible <- member_possible_receiver(receiver, index, bindings, cursor$accessor)
+        if (!is.null(possible)) {
+            if (!name %in% possible$members || name %in% possible$ambiguous) {
+                return(list(value = member_value(reason = "ambiguous_possible_member"),
+                    index = index, bindings = bindings, budget = budget))
+            }
+            receiver <- possible$value
+        }
         value <- if (identical(cursor$accessor, "@")) member_slot(receiver, name, index, bindings, budget) else
             member_access(receiver, name, index, bindings)
         key <- member_members(receiver, index, bindings, cursor$accessor)[name]
         if (is.null(value$function_key) && length(key) && !is.na(key[[1L]]) && !is.null(value$function_expr)) {
             value$function_key <- key[[1L]]
         }
+        if (!is.null(possible)) value$possible_receiver <- TRUE
     }
     if (isTRUE(budget$timed_out) && budget$remaining > 0L && budget$time_limit < 1 && is.null(retry_deadline) &&
             proc.time()[[3L]] < ceiling) {
@@ -955,20 +964,16 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
         return(NULL)
     }
     value <- resolved$value
-    possible <- !length(value$type) && length(value$possible_returns)
+    candidate <- member_possible_receiver(value, resolved$index, resolved$bindings, cursor$accessor)
+    possible <- !is.null(candidate)
     common <- NULL
     ambiguous <- character()
     if (possible) {
-        sets <- lapply(value$possible_returns, function(candidate) member_members(candidate, resolved$index, resolved$bindings))
-        common <- Reduce(intersect, lapply(sets, names))
+        sets <- candidate$sets
+        common <- candidate$members
         if (!length(common)) return(list())
-        owners <- vapply(value$possible_returns, function(candidate) {
-            if (is.null(candidate$member_package)) "" else candidate$member_package
-        }, character(1L))
-        ambiguous <- common[vapply(common, function(name) {
-            length(unique(owners)) > 1L || !all(vapply(sets, function(set) identical(set[[name]], sets[[1L]][[name]]), logical(1L)))
-        }, logical(1L))]
-        value <- value$possible_returns[[1L]]
+        ambiguous <- candidate$ambiguous
+        value <- candidate$value
     }
     index <- member_package_context(resolved$index, value$member_package)
     bindings <- resolved$bindings
