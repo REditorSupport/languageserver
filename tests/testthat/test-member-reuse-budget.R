@@ -4,7 +4,8 @@ test_that("Package preparation reuses unchanged models and refreshes changed dep
     identity <- function(package, ...) list(package = package, revision = revisions[[package]])
     testthat::local_mocked_bindings(
         resolve_attached_packages = function(...) names(revisions),
-        package_metadata_identity = identity,
+        package_metadata_context = function(...) list(cacheable = TRUE),
+        package_metadata_live_identity = identity,
         member_prepare_package = function(package, ...) {
             prepared <<- c(prepared, package)
             list(identity = identity(package))
@@ -68,4 +69,36 @@ test_that("Timed-out member receivers retry with more time and cache successful 
     metadata$set("changed", member_index_freeze(index))
     expect_identical(names(resolve()$value$fields), "beta")
     expect_identical(tail(limits, 2L), c(0.25, 0.5))
+})
+
+test_that("Adaptive retries share the original node allowance", {
+    metadata <- MemberMetadataCache$new(1024^2)
+    content <- c("x <- list(alpha = TRUE)", "x$")
+    document <- Document$new("file:///adaptive-nodes.R", language = "r", version = 1L, content = content)
+    document$parse_data <- parse_document(document$uri, content)
+    budget_factory <- member_request_budget
+    calls <- 0L
+    allowances <- integer()
+    testthat::local_mocked_bindings(
+        member_request_budget = function() {
+            budget <- budget_factory()
+            budget$time_limit <- 0.25
+            budget$remaining <- 100L
+            budget
+        },
+        member_cursor_value = function(parsed, sentinel, index, bindings, budget, ...) {
+            calls <<- calls + 1L
+            allowances <<- c(allowances, budget$remaining)
+            if (calls == 1L) {
+                budget$remaining <- 7L
+                budget$exhausted <- budget$timed_out <- TRUE
+                member_value(reason = "budget")
+            } else {
+                member_value(type = "list", fields = list(alpha = member_literal(TRUE)))
+            }
+        }, .package = "languageserver")
+    point <- list(row = 1L, col = 2L)
+    result <- member_resolve_cursor(document$uri, list(member_metadata = metadata), document, point, member_cursor(document, point))
+    expect_identical(allowances, c(100L, 7L))
+    expect_identical(result$value$type, "list")
 })

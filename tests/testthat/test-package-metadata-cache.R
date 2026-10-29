@@ -28,8 +28,7 @@ test_that("Persistent package models survive reads and recover from corrupt cach
     expect_null(package_metadata_cache_read(path, first$identity))
     third <- member_prepare_package("collections")
     expect_identical(prepared, 2L)
-    expect_identical(third$identity, first$identity)
-    expect_identical(package_metadata_cache_read(path, first$identity), third)
+    expect_identical(package_metadata_cache_read(package_metadata_cache_path("members", third$identity), third$identity), third)
     changed <- member_prepare_package("collections", context = "changed_namespace_context")
     expect_identical(prepared, 3L)
     expect_false(identical(changed$identity, first$identity))
@@ -54,13 +53,61 @@ test_that("Cache types, format revisions and server versions remain isolated", {
     expect_identical(package_metadata_cache_read(path, identity), list(value = "valid"))
     expect_null(package_metadata_cache_read(path, identity, is.character))
     record <- readRDS(path)
+    record$payload <- serialize(list(value = "silently modified"), NULL)
+    saveRDS(record, path)
+    expect_null(package_metadata_cache_read(path, identity))
+    expect_null(package_metadata_cache_path("s3", list(package = "fixture", context = list(cacheable = FALSE))))
+    record$payload <- serialize(list(value = "valid"), NULL)
     record$format <- 999L
     saveRDS(record, path)
     expect_null(package_metadata_cache_read(path, identity))
-    record$format <- 1L
+    record$format <- package_metadata_cache_format
     record$server$version <- "999.0.0"
     saveRDS(record, path)
     expect_null(package_metadata_cache_read(path, identity))
+})
+
+test_that("Loaded namespace changes cannot poison models for another library", {
+    root <- withr::local_tempdir()
+    withr::local_options(languageserver.package_cache_dir = file.path(root, "cache"))
+    original <- .libPaths()
+    withr::defer(.libPaths(original))
+    package <- "lscachefixture"
+    withr::defer(if (package %in% loadedNamespaces()) unloadNamespace(package))
+    install <- function(field, lib) {
+        dir.create(lib)
+        source <- file.path(root, paste0("source-", field))
+        dir.create(source)
+        dir.create(file.path(source, "R"))
+        writeLines(c("Package: lscachefixture", "Version: 0.0.1", "Title: Cache Test Fixture",
+                "Description: Test package metadata cache invalidation.", "License: MIT",
+                "Author: Test", "Maintainer: Test <test@example.com>"), file.path(source, "DESCRIPTION"))
+        writeLines("export(api)", file.path(source, "NAMESPACE"))
+        writeLines(paste0("api <- list(", field, " = TRUE)"), file.path(source, "R", "api.R"))
+        result <- callr::rcmd("INSTALL", cmdargs = c(paste0("--library=", lib), source),
+            stdout = "|", stderr = "|", system_profile = FALSE, user_profile = FALSE)
+        expect_identical(result$status, 0L)
+    }
+    first_lib <- file.path(root, "first")
+    second_lib <- file.path(root, "second")
+    install("old", first_lib)
+    install("new", second_lib)
+    .libPaths(c(first_lib, original))
+    first <- member_prepare_package(package)
+    expect_identical(names(first$roots$api$fields), "old")
+    second <- member_prepare_package(package, c(second_lib, original))
+    expect_identical(names(second$roots$api$fields), "old")
+    unloadNamespace(package)
+    third <- member_prepare_package(package, c(second_lib, original))
+    expect_identical(names(third$roots$api$fields), "new")
+    expect_false(identical(second$identity$namespace, third$identity$namespace))
+    ns <- asNamespace(package)
+    unlockBinding("api", ns)
+    assign("api", list(runtime = TRUE), ns)
+    lockBinding("api", ns)
+    changed <- member_prepare_package(package, c(second_lib, original))
+    expect_identical(names(changed$roots$api$fields), "runtime")
+    expect_false(identical(changed$identity$namespace, third$identity$namespace))
 })
 
 test_that("S3 catalogs reuse cached metadata and detect registry changes", {
@@ -72,9 +119,10 @@ test_that("S3 catalogs reuse cached metadata and detect registry changes", {
         prepare(package)
     }, .package = "languageserver")
     first <- s3_prepare_packages("datasets")
-    expect_true(length(prepared) > 0L)
+    initial_preparations <- length(prepared)
     prepared <- character()
     second <- s3_prepare_packages("datasets")
+    expect_true(initial_preparations > 0L)
     expect_length(prepared, 0L)
     expect_identical(second, first)
     table <- get(".__S3MethodsTable__.", asNamespace("base"))

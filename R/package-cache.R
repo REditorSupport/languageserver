@@ -12,6 +12,41 @@ package_metadata_identity <- function(package, lib_paths = .libPaths(), context 
         files = digest::digest(list(files, info$size, as.numeric(info$mtime)), algo = "xxhash64"), context = context)
 }
 
+package_metadata_signature <- function(value) {
+    if (is.call(value) || is.expression(value) || is.pairlist(value)) return(deparse1(value))
+    if (is.list(value)) return(lapply(value, package_metadata_signature))
+    value
+}
+
+package_metadata_namespace_state <- function(ns) {
+    # Cache keys must describe the loaded values too: .onLoad(), tracing and
+    # package reinstalls can change them without changing an export's name.
+    dollar_context <- member_snapshot_dollar_context(ns)
+    modes <- member_s7_capabilities()
+    records <- lapply(ls(ns, all.names = TRUE), function(name) {
+        record <- member_binding(ns, name, materialize = TRUE)
+        value <- record[[2L]]
+        snapshot <- if (identical(record[[1L]], "value") && !is.object(value) &&
+                is.atomic(value) && length(value) <= 256L) {
+            value
+        } else {
+            member_snapshot(value, max_bindings = 50000L, s7_modes = modes, lookup_scope = ns,
+                dollar_context = dollar_context)
+        }
+        list(name = name, kind = record[[1L]], value = digest::digest(package_metadata_signature(snapshot), algo = "xxhash64"))
+    })
+    digest::digest(list(bindings = records, subsets = member_subset_registry(ns, unname(getNamespaceName(ns)))),
+        algo = "xxhash64")
+}
+
+package_metadata_live_identity <- function(package, lib_paths = .libPaths(), context = NULL) {
+    identity <- package_metadata_identity(package, lib_paths, context)
+    identity$namespace <- package_metadata_namespace_state(asNamespace(package))
+    identity
+}
+
+package_metadata_cache_format <- 2L
+
 package_metadata_cache_root <- function() {
     value <- getOption("languageserver.package_cache_dir",
         Sys.getenv("R_LANGSVR_PACKAGE_CACHE_DIR", tools::R_user_dir("languageserver", "cache")))
@@ -59,7 +94,8 @@ package_metadata_cache_server <- local({
 package_metadata_cache_path <- function(type, identity, key = NULL) {
     directory <- package_metadata_cache_directory()
     if (is.null(directory)) return(NULL)
-    hash <- digest::digest(list(format = 1L, type = type, key = key, identity = identity,
+    if (is.list(identity$context) && identical(identity$context$cacheable, FALSE)) return(NULL)
+    hash <- digest::digest(list(format = package_metadata_cache_format, type = type, key = key, identity = identity,
             server = package_metadata_cache_server()), algo = "xxhash64")
     file.path(directory, paste0(identity$package, "-", type, "-", hash, ".rds"))
 }
@@ -68,11 +104,14 @@ package_metadata_cache_read <- function(path, identity, validate = is.list) {
     if (is.null(path) || !file.exists(path)) return(NULL)
     tryCatch({
         record <- readRDS(path)
-        if (!identical(record$format, 1L) || !identical(record$server, package_metadata_cache_server()) ||
+        if (!identical(record$format, package_metadata_cache_format) || !identical(record$server, package_metadata_cache_server()) ||
                 !identical(record$identity, identity) ||
-                !isTRUE(validate(record$value))) return(NULL)
+                !is.raw(record$payload) ||
+                !identical(record$checksum, digest::digest(record$payload, algo = "xxhash64", serialize = FALSE))) return(NULL)
+        value <- unserialize(record$payload)
+        if (!isTRUE(validate(value))) return(NULL)
         suppressWarnings(Sys.setFileTime(path, Sys.time()))
-        record$value
+        value
     }, error = function(e) NULL)
 }
 
@@ -84,7 +123,9 @@ package_metadata_cache_write <- function(path, identity, value) {
         directory <- dirname(path)
         dir.create(directory, recursive = TRUE, showWarnings = FALSE)
         temporary <- tempfile("metadata-", tmpdir = directory)
-        saveRDS(list(format = 1L, server = package_metadata_cache_server(), identity = identity, value = value), temporary)
+        payload <- serialize(value, NULL)
+        saveRDS(list(format = package_metadata_cache_format, server = package_metadata_cache_server(), identity = identity,
+                checksum = digest::digest(payload, algo = "xxhash64", serialize = FALSE), payload = payload), temporary)
         if (!file.rename(temporary, path)) {
             # Windows cannot replace an existing cache file with file.rename.
             # A racing reader can safely miss the cache and prepare its model.
@@ -103,7 +144,10 @@ package_metadata_cache_write <- function(path, identity, value) {
 }
 
 package_metadata_context <- function(packages) {
-    list(packages = lapply(packages, function(package) {
+    identities <- lapply(packages, function(package) {
         tryCatch(package_metadata_identity(package), error = function(e) list(package = package, error = conditionMessage(e)))
-    }), bindings = s3_metadata_context(packages))
+    })
+    bindings <- s3_metadata_context(packages)
+    list(packages = identities, bindings = bindings,
+        cacheable = !is.null(bindings) && !any(vapply(identities, function(identity) !is.null(identity$error), logical(1L))))
 }

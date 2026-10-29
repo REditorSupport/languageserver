@@ -493,6 +493,7 @@ member_namespace_input <- function(
     lazy_names <- if (is.environment(lazydata)) setdiff(ls(lazydata, all.names = TRUE), blocked) else character()
     if (length(nms) + length(lazy_names) > 10000L) stop("Namespace exceeds metadata budget")
     definitions <- snapshots <- registries <- links <- descriptors <- s4_classes <- s4_roots <- s4_objects <- list()
+    generic_external <- character()
     s7_roots <- list()
     s7_modes <- member_s7_capabilities()
     functions <- values <- list()
@@ -648,13 +649,29 @@ member_namespace_input <- function(
         }, error = function(e) member_snapshot_shape(list(kind = "unknown", reason = "dataset_metadata_error"), package))
     }), lazy_names)
     subsets <- member_subset_registry(ns, package)
+    table <- member_binding(ns, ".__S3MethodsTable__.")[[2L]]
+    if (is.environment(table)) {
+        methods <- ls(table, all.names = TRUE)
+        for (name in intersect(exports, names(definitions))) {
+            generic <- s3_generic_descriptor(member_definition(definitions, name))
+            if (is.null(generic)) next
+            for (method in methods[startsWith(methods, paste0(generic$name, "."))]) {
+                record <- member_binding(table, method, materialize = TRUE)
+                expected <- member_definition(definitions, method)
+                if (!identical(record[[1L]], "value") || typeof(record[[2L]]) != "closure" ||
+                        !identical(member_function_syntax(record[[2L]]), expected)) {
+                    generic_external <- union(generic_external, generic$name)
+                }
+            }
+        }
+    }
     list(
         definitions = definitions, locations = list(), expressions = list(),
         exports = union(namespace_exports, union(lazy_names, names(targets)[targets %in% names(lazy_roots)])),
         namespace_exports = namespace_exports, namespace_export_targets = targets,
         namespace_lazydata_blocked = blocked,
         lazydata_roots = lazy_roots, registries = registries,
-        subset_registry = subsets$methods, subset_registry_complete = subsets$complete,
+        subset_registry = subsets$methods, subset_registry_complete = subsets$complete, generic_external = generic_external,
         snapshots = snapshots, links = links, descriptors = descriptors, package = package, intrinsics = intrinsics,
         s4_classes = s4_classes, s4_roots = s4_roots, s4_objects = s4_objects,
         s7_roots = s7_roots, s7_capabilities = s7_modes,
@@ -695,10 +712,10 @@ member_index_thaw <- function(snapshot) {
     index
 }
 
-member_prepare_package <- function(package, lib_paths = .libPaths(), context = NULL) {
+member_prepare_package <- function(package, lib_paths = .libPaths(), context = NULL, identity = NULL) {
     .libPaths(lib_paths)
     ns <- asNamespace(package)
-    identity <- package_metadata_identity(package, lib_paths, context)
+    if (is.null(identity)) identity <- package_metadata_live_identity(package, lib_paths, context)
     cache_path <- package_metadata_cache_path("members", identity)
     cached <- package_metadata_cache_read(cache_path, identity, function(value) {
         identical(value$identity, identity) && !is.null(member_index_thaw(value))
@@ -747,7 +764,7 @@ member_prepare_startup_data <- function(packages, lib_paths = .libPaths(), cache
             ns <- asNamespace(package)
             lazydata <- member_namespace_lazydata(ns)
             if (!is.environment(lazydata) || !length(ls(lazydata, all.names = TRUE))) next
-            identity <- package_metadata_identity(package, lib_paths)
+            identity <- package_metadata_live_identity(package, lib_paths)
             path <- package_metadata_cache_path("startup-members", identity)
             cached <- package_metadata_cache_read(path, identity, function(value) {
                 identical(value$identity, identity) && isTRUE(value$dataset_only) && !is.null(member_index_thaw(value))
@@ -785,9 +802,9 @@ member_resolve_packages <- function(pkgs, lib_paths, prepare = TRUE, namespace_p
         if ("S7" %in% loadedNamespaces()) context_packages <- sort(union(context_packages, "S7"))
         context <- package_metadata_context(context_packages)
         for (package in unique(c(setdiff(packages, startup_packages), namespace_packages))) {
-            identity <- tryCatch(package_metadata_identity(package, lib_paths, context), error = function(e) NULL)
-            if (!is.null(identity) && identical(known_members[[package]], identity)) next
-            snapshots[package] <- list(tryCatch(member_prepare_package(package, lib_paths, context),
+            identity <- tryCatch(package_metadata_live_identity(package, lib_paths, context), error = function(e) NULL)
+            if (isTRUE(context$cacheable) && !is.null(identity) && identical(known_members[[package]], identity)) next
+            snapshots[package] <- list(tryCatch(member_prepare_package(package, lib_paths, context, identity),
                 error = function(e) {
                     list(
                         schema = 1L, roots = list(), namespace_roots = list(),

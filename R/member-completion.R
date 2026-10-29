@@ -844,7 +844,8 @@ member_recover_scope <- function(document, point, cursor, data) {
     member_recover(document, point, cursor, data)
 }
 
-member_resolve_cursor <- function(uri, workspace, document, point, cursor, name = NULL, retry_deadline = NULL) {
+member_resolve_cursor <- function(uri, workspace, document, point, cursor, name = NULL, retry_deadline = NULL,
+    remaining_nodes = NULL) {
     if (!identical(document$version, document$parse_data$version) &&
             !is.null(document$parse_data$version)) {
         return(NULL)
@@ -857,6 +858,7 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
         return(NULL)
     }
     budget <- member_request_budget()
+    if (!is.null(remaining_nodes)) budget$remaining <- min(budget$remaining, remaining_nodes)
     metadata <- workspace$member_metadata
     cache <- document$member_receivers
     revision <- if (is.null(metadata)) 0L else if (is.function(metadata$revision)) metadata$revision() else NULL
@@ -918,12 +920,13 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
             value$function_key <- key[[1L]]
         }
     }
-    if (isTRUE(budget$timed_out) && budget$time_limit < 1 && is.null(retry_deadline) &&
+    if (isTRUE(budget$timed_out) && budget$remaining > 0L && budget$time_limit < 1 && is.null(retry_deadline) &&
             proc.time()[[3L]] < ceiling) {
         # Retry a timed-out receiver once using reusable package summaries.
         # Learn a larger allowance for this cursor, capped at one second total.
         document$member_budgets$set(budget_key, min(1, budget$time_limit * 2))
-        return(member_resolve_cursor(uri, workspace, document, point, cursor, name, retry_deadline = ceiling))
+        return(member_resolve_cursor(uri, workspace, document, point, cursor, name, retry_deadline = ceiling,
+            remaining_nodes = budget$remaining))
     }
     list(value = value, index = index, bindings = bindings, budget = budget)
 }
@@ -952,6 +955,21 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
         return(NULL)
     }
     value <- resolved$value
+    possible <- !length(value$type) && length(value$possible_returns)
+    common <- NULL
+    ambiguous <- character()
+    if (possible) {
+        sets <- lapply(value$possible_returns, function(candidate) member_members(candidate, resolved$index, resolved$bindings))
+        common <- Reduce(intersect, lapply(sets, names))
+        if (!length(common)) return(list())
+        owners <- vapply(value$possible_returns, function(candidate) {
+            if (is.null(candidate$member_package)) "" else candidate$member_package
+        }, character(1L))
+        ambiguous <- common[vapply(common, function(name) {
+            length(unique(owners)) > 1L || !all(vapply(sets, function(set) identical(set[[name]], sets[[1L]][[name]]), logical(1L)))
+        }, logical(1L))]
+        value <- value$possible_returns[[1L]]
+    }
     index <- member_package_context(resolved$index, value$member_package)
     bindings <- resolved$bindings
     budget <- resolved$budget
@@ -960,6 +978,7 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
         return(NULL)
     }
     members <- member_members(value, index, bindings, cursor$accessor)
+    if (possible) members <- members[names(members) %in% common]
     labels <- as.character(names(members))
     if (!length(labels)) {
         return(list())
@@ -982,8 +1001,13 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
         if (!is.null(shape)) shape <- member_r6_member_info(shape, value)
         key <- members[[label]]
         symbol <- member_symbol_info(label, shape, key, index)
+        if (label %in% ambiguous) {
+            symbol$signature <- symbol$function_id <- NULL
+            symbol$package <- NULL
+        }
         is_function <- !is.null(shape$function_expr) || !is.null(shape$result_shape) ||
             !is.null(shape$function_key) || (!is.null(key) && !is.na(key))
+        if (label %in% ambiguous && any(vapply(sets, function(set) is.na(set[[label]]), logical(1L)))) is_function <- FALSE
         inserted <- quote_completion_name(label)
         snippet <- is_function && call_snippet
         text <- if (snippet) paste0(escape_completion_snippet(inserted), "($0)") else inserted
@@ -992,11 +1016,11 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
         list(
             label = label, kind = if (is_function) CompletionItemKind$Method else CompletionItemKind$Field,
             detail = if (!is.null(signature)) {
-                signature
+                if (possible) paste0(signature, " [possible receiver]") else signature
             } else if (identical(cursor$accessor, "@")) {
                 paste0(label, ": ", paste(value$slot_types[[label]], collapse = " | "))
             } else {
-                "[static member]"
+                if (possible) "[possible member]" else "[static member]"
             }, sortText = label,
             documentation = if (!is.null(symbol$description)) list(kind = "markdown", value = symbol$description),
             filterText = label, insertTextFormat = if (snippet) InsertTextFormat$Snippet else InsertTextFormat$PlainText,
@@ -1008,6 +1032,7 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
         )
     })
     if (length(matches) > limit || budget$exhausted) attr(items, "truncated") <- TRUE
+    if (possible) attr(items, "truncated") <- TRUE
     items
 }
 

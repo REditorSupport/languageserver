@@ -38,6 +38,15 @@ test_that("Polars conversions and later roots complete within a small inference 
         }
     }
     remaining <- 512L
+    content <- c("library(polars)", "upstream <- opaque_source()", "converted <- as_polars_df(upstream)", "converted$")
+    document <- Document$new("file:///polars-unknown-input.R", language = "r", version = 1L, content = content)
+    document$parse_data <- parse_document(document$uri, content)
+    point <- list(row = 3L, col = nchar(content[[4L]]))
+    resolved <- member_resolve_cursor(document$uri, workspace, document, point, member_cursor(document, point))
+    expect_null(resolved$value$type)
+    items <- member_completion(document$uri, workspace, document, point, TRUE, 200L)
+    expect_true(all(c("filter", "lazy", "select") %in% vapply(items, `[[`, character(1L), "label")))
+    expect_true(isTRUE(attr(items, "truncated")))
     for (expression in c(
         'dt$filter(pl$col("a") > pl$col("b")$|)',
         'dt$filter(pl$col("a") > pl$col("b")$me|an())',

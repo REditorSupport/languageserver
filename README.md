@@ -301,9 +301,13 @@ will turn off snippet support globally. LSP configuration settings are always ov
 Package member models, startup datasets, S3 catalogs, documentation summaries and
 rendered help share a persistent cache under `tools::R_user_dir("languageserver", "cache")`.
 It keeps up to 512 entries and 256 MiB, removing older entries as needed. Package
-file, dependency, registry, R version and server implementation changes invalidate
+file, loaded namespace, dependency, registry, R version and server implementation changes invalidate
 cached results; incompatible or corrupt entries are rebuilt. Document-dependent
 inference remains local to the current document and its metadata revision.
+Conversions with unresolved input classes can offer the common members of known
+method results as suggestions, marked `[possible receiver]` or `[possible member]`.
+These suggestions do not establish the receiver's type; known conflicting method
+outcomes and local method overrides suppress them.
 Set `options(languageserver.package_cache_dir = "/path/to/cache")` or the
 `R_LANGSVR_PACKAGE_CACHE_DIR` environment variable to choose another cache root;
 set `options(languageserver.package_cache_dir = FALSE)` to disable disk caching.

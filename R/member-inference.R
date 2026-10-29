@@ -137,7 +137,7 @@ member_value <- function(
   metadata = NULL, slots = NULL, slot_types = NULL, s4_class = NULL,
   s4_generator = NULL, r6_private = NULL, r6_super = NULL, r6_self = NULL,
   r6_class = NULL, r6_role = NULL, default_dollar = FALSE, named_elements = FALSE,
-  member_package = NULL, column_names_only = FALSE
+  member_package = NULL, column_names_only = FALSE, possible_returns = NULL
 ) {
     value <- list(
         type = type, function_key = function_key, receiver = receiver,
@@ -156,6 +156,7 @@ member_value <- function(
     if (isTRUE(named_elements)) value$named_elements <- TRUE
     if (!is.null(member_package)) value$member_package <- member_package
     if (isTRUE(column_names_only)) value$column_names_only <- TRUE
+    if (length(possible_returns)) value$possible_returns <- possible_returns
     value
 }
 
@@ -1099,7 +1100,7 @@ member_infer <- function(
             }
             classes <- member_classes(input, index)
             if (!length(classes) || !length(generic)) {
-                return(member_value(reason = "open_dispatch"))
+                return(member_value(reason = "open_dispatch", possible_returns = member_lookup(index$generic_returns, generic)))
             }
             keys <- c(paste(generic, classes, sep = "."), paste0(generic, ".default"))
             keys <- keys[keys %in% names(index$definitions)]
@@ -1448,6 +1449,21 @@ member_infer <- function(
         package_index <- member_namespace_index(index, callee$metadata)
         if (is.null(package_index)) {
             return(unknown)
+        }
+        descriptor <- s3_generic_descriptor(member_definition(package_index$definitions, callee$function_key))
+        if (!is.null(descriptor) && length(package_index$generic_returns[[descriptor$name]])) {
+            methods <- union(names(bindings), names(index$document_bindings))
+            methods <- methods[startsWith(methods, paste0(descriptor$name, "."))]
+            at <- bindings$.__member_position__
+            overridden <- any(methods %in% names(bindings)) || any(vapply(methods, function(method) {
+                history <- member_lookup(index$document_bindings, method)
+                length(history) && (is.null(at) || member_history_position(history, at) > 0L)
+            }, logical(1L)))
+            if (overridden) {
+                package_index <- list2env(as.list(package_index), parent = emptyenv())
+                package_index$generic_returns[[descriptor$name]] <- NULL
+                package_index$cache <- new.env(parent = emptyenv())
+            }
         }
         env <- package_index$package_roots
         callee$metadata <- NULL

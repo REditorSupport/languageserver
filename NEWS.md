@@ -5,12 +5,16 @@
   Prepare bounded S3 method return summaries with their owning namespace.
   Retain namespace ownership through chained methods and nested argument
   expressions. Retry timed-out member requests with an adaptive allowance
-  within a one-second total deadline.
+  within a one-second total deadline and the original node allowance. Offer
+  common known method members as possible-receiver suggestions when a
+  conversion's input class is unresolved, without claiming a definite type.
 
 - Persist package member models, startup datasets, S3 catalogs, documentation
   summaries and rendered help in a shared bounded cache. Reuse unchanged models
   across saves and server sessions; invalidate changes to package files,
-  dependencies, registered methods, cache format or server implementation.
+  loaded namespace values, dependencies, registered methods, cache format or
+  server implementation. Verify serialized payload checksums before restoring
+  cached values.
 
 - Avoid a server crash when completion, hover or signature help is requested
   inside `function()`, `if`, `for` or `while` while package metadata is loading.
