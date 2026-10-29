@@ -790,6 +790,17 @@ member_infer <- function(
         if (!member_head(fn, "function")) {
             return(unknown)
         }
+        # S3 dispatch invokes methods directly, without the ordinary callee
+        # shortcut below. Reuse a proven return shape after argument matching.
+        summary_key <- if (is.null(self)) key else paste(self$type, key, sep = "|")
+        summary <- member_lookup(index$method_results, summary_key)
+        if (is.null(summary)) summary <- member_lookup(index$method_results, key)
+        if (!is.null(summary) && !isTRUE(attr(actuals, "member_open_dots"))) {
+            if (is.null(bind_arguments(fn, actuals, list(), defaults = FALSE))) {
+                return(member_value(reason = "argument_matching"))
+            }
+            return(summary)
+        }
         # Package syntax and captures are immutable. A cached invocation has
         # already passed matching; look it up before defaults and delegation.
         cache_values <- c(list(self), actuals)

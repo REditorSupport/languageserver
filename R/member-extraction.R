@@ -612,6 +612,12 @@ member_prepare_returns <- function(index, max_nodes = 40000L, max_bytes = 1024^2
     for (key in index$exports) {
         add(key)
         add(unname(index$members[[key]]))
+        fn <- member_definition(index$definitions, key)
+        if (!member_head(fn, "function")) next
+        generic <- s3_generic_descriptor(fn)
+        if (!is.null(generic)) {
+            add(names(index$definitions)[startsWith(names(index$definitions), paste0(generic$name, "."))])
+        }
     }
     types <- intersect(names(index$members), names(index$classes))
     types <- types[order(vapply(index$members[types], length, integer(1L)), types)]
@@ -689,7 +695,7 @@ member_prepare_returns <- function(index, max_nodes = 40000L, max_bytes = 1024^2
             id <- if (is.null(type)) key else paste(type, key, sep = "|")
             # Native-backed declarative classes expose their members in the
             # index. Argument-dependent fields must not enter a universal summary.
-            value <- member_value(type = result$type, classes = result$classes)
+            value <- member_value(type = result$type, classes = result$classes, member_package = index$package)
             size <- as.numeric(utils::object.size(stats::setNames(list(value), id)))
             if (state$bytes + size <= max_bytes) {
                 index$method_results[id] <- list(value)
@@ -707,14 +713,19 @@ member_prepare_returns <- function(index, max_nodes = 40000L, max_bytes = 1024^2
     }
     preparation_index$method_results <- index$method_results
     candidates <- Filter(function(item) length(item$fn[[2L]]) < 10L, candidates)
-    unfinished <- list()
-    for (item in candidates) {
-        if (state$remaining <= 0L || state$bytes >= max_bytes) break
-        if (prepare(item, 64L)) unfinished[[length(unfinished) + 1L]] <- item
-    }
-    for (item in unfinished) {
-        if (state$remaining <= 0L || state$bytes >= max_bytes) break
-        prepare(item, 2048L)
+    # Finish exported factories and their S3 methods before large member
+    # registries consume the remaining budget with their initial probes.
+    for (exported in c(TRUE, FALSE)) {
+        group <- Filter(function(item) identical(is.null(item$type), exported), candidates)
+        unfinished <- list()
+        for (item in group) {
+            if (state$remaining <= 0L || state$bytes >= max_bytes) break
+            if (prepare(item, 64L)) unfinished[[length(unfinished) + 1L]] <- item
+        }
+        for (item in unfinished) {
+            if (state$remaining <= 0L || state$bytes >= max_bytes) break
+            prepare(item, 2048L)
+        }
     }
     index$return_definitions <- digest::digest(index$definitions, algo = "xxhash64")
     invisible(NULL)
