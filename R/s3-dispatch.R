@@ -363,6 +363,10 @@ s3_call_location <- function(document, point, hover = FALSE, call = NULL) {
             ))
         }
     }
+    # Control-flow and function headers are deliberately reported without a
+    # callee by detect_call(), even though their keyword is a valid token.
+    if (!is.character(call$token) || length(call$token) != 1L ||
+            is.na(call$token) || !nzchar(call$token)) return(NULL)
     location <- member_call_location(document, point, call, symbols = TRUE)
     if (is.null(location) || !is.null(location$cursor$accessor)) {
         return(NULL)

@@ -907,14 +907,19 @@ drain_pending_replies <- function(self, uri, version, max_replies = Inf, first =
     }
     repeat {
         document <- if (is.function(self$get_workspace)) self$get_workspace(uri)$documents$get(uri, NULL)
-        ready <- vapply(names(queues), function(method) eligible(queues[[method]], method), logical(1L))
+        readiness <- lapply(names(queues), function(method) {
+            tryCatchStack(eligible(queues[[method]], method), error = identity)
+        })
+        ready <- vapply(readiness, function(result) inherits(result, "error") || isTRUE(result), logical(1L))
         available <- which(ready)
         if (!length(available) || processed >= max_replies) break
         after <- available[available >= first]
         selected <- if (length(after)) after[[1L]] else available[[1L]]
         item <- queues[[selected]]$pop()
         first <- selected %% n + 1L
-        if (!is.null(version) && !is.null(item$version) && item$version < version) {
+        if (inherits(readiness[[selected]], "error")) {
+            self$deliver(ResponseErrorMessage$new(item$id, "InternalError", to_string(readiness[[selected]])))
+        } else if (!is.null(version) && !is.null(item$version) && item$version < version) {
             self$deliver(ResponseErrorMessage$new(item$id, "RequestCancelled",
                     "Request superseded by a newer parse result"))
         } else {

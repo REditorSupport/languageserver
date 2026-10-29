@@ -1,5 +1,9 @@
 # languageserver 0.3.20
 
+- Avoid a server crash when completion, hover or signature help is requested
+  inside `function()`, `if`, `for` or `while` while package metadata is loading.
+  Report errors from queued request readiness checks without stopping the server.
+
 - Avoid suggesting function arguments after `$` or `@` inside a call when
   member or slot completion cannot resolve the receiver, including names
   enclosed in backticks, single quotes or double quotes.
