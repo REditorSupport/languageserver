@@ -908,7 +908,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             if (!is.null(uri) && length(indexes)) pending <- TRUE
             if (!pending) return(FALSE)
             if (is.null(self$index_requests)) self$index_requests <- collections::ordered_dict()
-            key <- paste0(if (is.character(id)) "string:" else "number:", id)
+            key <- request_id_key(id)
             self$index_requests$set(key, list(id = id, method = method, params = params,
                     indexes = indexes, workspaces = workspaces, uri = uri,
                     workspace = if (is.null(uri)) NULL else self$get_workspace(uri),

@@ -18,7 +18,7 @@ WorkspaceProgressServer <- R6::R6Class("WorkspaceProgressServer",
         },
         deliver = function(message, callback = NULL) {
             self$messages[[length(self$messages) + 1L]] <- message
-            if (!is.null(callback)) self$request_callbacks$set(as.character(message$id), callback)
+            if (!is.null(callback)) self$request_callbacks$set(request_id_key(message$id), callback)
         },
         get_workspace = function(uri) {
             self$workspaces$values()[[1L]]

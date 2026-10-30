@@ -164,7 +164,7 @@ respond <- function(client, method, params, timeout, allow_error = FALSE,
     start_time <- Sys.time()
     remaining <- timeout
     request <- client$request(method, params)
-    id <- as.character(request$id)
+    id <- request_id_key(request$id)
     on.exit({
         if (client$request_callbacks$has(id)) client$request_callbacks$remove(id)
     }, add = TRUE)

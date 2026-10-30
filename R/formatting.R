@@ -19,7 +19,7 @@ format_document <- function(snapshot, options, range = NULL, ranges = NULL,
 #' Complete formatting only while its document snapshot is still current
 #' @noRd
 formatting_callback <- function(self, request, result = NULL, error = NULL) {
-    key <- as.character(request$id)
+    key <- request_id_key(request$id)
     if (!identical(self$formatting_requests$get(key, NULL), request)) {
         return(invisible(NULL))
     }
@@ -74,7 +74,7 @@ enqueue_formatting <- function(self, id, uri, document, options,
         callback = function(result) formatting_callback(self, request, result),
         error = function(error) formatting_callback(self, request, error = error),
         track_descendants = !is.null(invocation$backend$executable))
-    key <- as.character(id)
+    key <- request_id_key(id)
     self$formatting_requests$set(key, request)
     self$formatting_task_manager$add_task(key, task)
     invisible(NULL)
@@ -88,7 +88,7 @@ cancel_formatting_requests <- function(self, uri = NULL, id = NULL,
     for (key in self$formatting_requests$keys()) {
         request <- self$formatting_requests$get(key)
         if ((!is.null(uri) && !identical(request$uri, uri)) ||
-                (!is.null(id) && !identical(key, as.character(id)))) next
+                (!is.null(id) && !identical(key, request_id_key(id)))) next
         self$formatting_requests$remove(key)
         self$formatting_task_manager$cancel(key)
         self$deliver(ResponseErrorMessage$new(

@@ -62,7 +62,7 @@ formatting_fixture <- function(content = "x=1", uri = "file:///formatting.R") {
 }
 
 formatting_test_task <- function(fixture, id) {
-    fixture$manager$.__enclos_env__$private$pending_tasks$get(as.character(id))
+    fixture$manager$.__enclos_env__$private$pending_tasks$get(request_id_key(id))
 }
 
 formatting_wait_for_tasks <- function(fixture, timeout = 15) {
@@ -129,7 +129,7 @@ test_that("formatting cancellation answers once and leaves other requests queued
     text_document_formatting(fixture$self, 1L, fixture$params)
     text_document_formatting(fixture$self, 2L, fixture$params)
     task <- formatting_test_task(fixture, 1L)
-    cancel_request(fixture$self, list(id = "1"))
+    cancel_request(fixture$self, list(id = 1L))
     expect_length(fixture$self$deliveries, 1L)
     expect_equal(fixture$self$deliveries[[1L]]$id, 1L)
     expect_equal(fixture$self$deliveries[[1L]]$error$code, -32800L)
@@ -141,6 +141,27 @@ test_that("formatting cancellation answers once and leaves other requests queued
     cancel_formatting_requests(fixture$self, uri = fixture$uri)
     expect_length(fixture$self$deliveries, 2L)
     expect_false(fixture$manager$has_work())
+})
+
+test_that("formatting preserves requests with distinct numeric and string IDs", {
+    fixture <- formatting_fixture()
+    text_document_formatting(fixture$self, 1L, fixture$params)
+    text_document_formatting(fixture$self, "1", fixture$params)
+    numeric_task <- formatting_test_task(fixture, 1L)
+    string_task <- formatting_test_task(fixture, "1")
+    expect_false(identical(numeric_task, string_task))
+    expect_identical(fixture$self$formatting_requests$size(), 2L)
+    cancel_request(fixture$self, list(id = 1))
+    expect_length(fixture$self$deliveries, 1L)
+    expect_identical(fixture$self$deliveries[[1L]]$id, 1L)
+    expect_identical(fixture$self$formatting_requests$size(), 1L)
+    numeric_task$.__enclos_env__$private$callback(list())
+    expect_length(fixture$self$deliveries, 1L)
+    string_task$.__enclos_env__$private$callback(list())
+    expect_length(fixture$self$deliveries, 2L)
+    expect_identical(fixture$self$deliveries[[2L]]$id, "1")
+    expect_null(fixture$self$deliveries[[2L]]$error)
+    expect_identical(fixture$self$formatting_requests$size(), 0L)
 })
 
 test_that("formatting worker errors complete and remove their requests", {
