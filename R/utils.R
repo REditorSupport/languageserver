@@ -588,8 +588,10 @@ find_doc_item <- function(doc, tag) {
 }
 
 get_help_rd <- function(hfile) {
-    getNamespace("utils")$.getHelpFile(hfile)
+    getNamespace("utils")$.getHelpFile(package_metadata_help_file(hfile))
 }
+
+package_help_owner <- new.env(parent = emptyenv())
 
 get_help <- function(hfile, format = c("html", "text")) {
     format <- match.arg(format)
@@ -601,11 +603,16 @@ get_help <- function(hfile, format = c("html", "text")) {
     }
 
     pkgname <- basename(dirname(dirname(paths[[1]])))
-    identity <- tryCatch(package_metadata_identity(pkgname), error = function(e) NULL)
+    identity <- tryCatch(package_metadata_help_identity(hfile), error = function(e) NULL)
+    context <- package_metadata_help_context()
+    cache <- analysis_cache(package_help_owner, "rendered-help", context)
+    key <- digest::digest(list(paths, identity, format), algo = "xxhash64")
+    found <- if (!is.null(identity)) analysis_cache_get(cache, key) else list(hit = FALSE)
+    if (found$hit) return(found$value)
     cache_path <- if (!is.null(identity)) package_metadata_cache_path(paste0("help-", format), identity,
-        list(paths, locale = Sys.getlocale("LC_MESSAGES")))
+        list(paths, context = context))
     cached <- package_metadata_cache_read(cache_path, identity, is.character)
-    if (!is.null(cached)) return(cached)
+    if (!is.null(cached)) return(analysis_cache_set(cache, key, cached))
     rd <- get_help_rd(hfile)
 
     if (format == "html") {
@@ -623,6 +630,7 @@ get_help <- function(hfile, format = c("html", "text")) {
 
     result <- enc2utf8(result)
     package_metadata_cache_write(cache_path, identity, result)
+    if (!is.null(identity)) analysis_cache_set(cache, key, result)
     result
 }
 

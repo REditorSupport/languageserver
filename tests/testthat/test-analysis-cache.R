@@ -42,6 +42,44 @@ test_that("Analysis domains isolate contexts, bound storage and clone cached val
     expect_false(analysis_cache_get(bounded, "large")$hit)
 })
 
+test_that("Old handles, incompatible formats and changed limits cannot poison a new domain", {
+    owner <- new.env(parent = emptyenv())
+    old <- analysis_cache(owner, "fixture", "old", max_entries = 3L)
+    analysis_cache_set(old, "value", "old")
+    current <- analysis_cache(owner, "fixture", "current", max_entries = 3L)
+    analysis_cache_set(current, "value", "current")
+    analysis_cache_set(old, "value", "stale writer")
+    expect_identical(analysis_cache_get(current, "value")$value, "current")
+    for (i in 1:3) analysis_cache_set(current, as.character(i), i)
+    smaller <- analysis_cache(owner, "fixture", "current", max_entries = 1L)
+    expect_identical(smaller$size(), 0L)
+    for (i in 1:3) analysis_cache_set(smaller, as.character(i), i)
+    expect_identical(smaller$size(), 1L)
+    smaller$set("bad", as.raw(c(1, 2, 3)))
+    expect_false(analysis_cache_get(smaller, "bad")$hit)
+    analysis_cache_set(smaller, "bad", list(value = 1))
+    record <- smaller$get("bad")
+    record$payload <- serialize(list(value = 2), NULL)
+    smaller$set("bad", record)
+    expect_false(analysis_cache_get(smaller, "bad")$hit)
+    analysis_cache_set(smaller, "value", "old format")
+    state <- owner$analysis_caches$fixture
+    state$runtime$format <- -1L
+    owner$analysis_caches$fixture <- state
+    expect_identical(analysis_cache(owner, "fixture", "current", max_entries = 1L)$size(), 0L)
+})
+
+test_that("Source signatures account for current formatting options", {
+    document <- Document$new("file:///format-options.R", language = "r")
+    withr::local_options(scipen = 0)
+    original <- analysis_function_header(document, "function(value = 1e5)", "f")$signature
+    withr::local_options(scipen = 999)
+    current <- analysis_function_header(document, "function(value = 1e5)", "f")$signature
+    expected <- get_signature("f", str2expression(c("function(value = 1e5)", "NULL"))[[1L]])
+    expect_identical(current, expected)
+    expect_false(identical(original, current))
+})
+
 test_that("Source signatures and documentation survive reparses and retain current inputs", {
     lines <- c("#' Describe a source function.", "#' @param argument The value.",
         "target <- function(argument, option = 1) argument", "target(1, 2)")

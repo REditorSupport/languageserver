@@ -524,9 +524,9 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
             !member_head(item$expr, "function")) {
         paste(index$package, index$document_context_key, id, item$cache_prefix, sep = ":")
     }
-    cached <- if (!is.null(persistent_key)) cache$get(persistent_key) else NULL
-    if (!is.null(cached)) {
-        value <- unserialize(cached)
+    cached <- analysis_cache_get(cache, persistent_key)
+    if (cached$hit) {
+        value <- cached$value
         index$document_cache[[memo_key]] <- value
         return(value)
     }
@@ -546,7 +546,7 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
     if (!is.null(cached)) {
         index$document_cache[[memo_key]] <- cached
         if (!is.null(persistent_key) && member_binding_cacheable(cached)) {
-            cache$set(persistent_key, serialize(cached, NULL))
+            analysis_cache_set(cache, persistent_key, cached)
         }
     }
     value

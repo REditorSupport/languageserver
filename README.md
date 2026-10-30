@@ -304,6 +304,15 @@ It keeps up to 512 entries and 256 MiB, removing older entries as needed. Packag
 file, loaded namespace, dependency, registry, R version and server implementation changes invalidate
 cached results; incompatible or corrupt entries are rebuilt. Document-dependent
 inference remains local to the current document and its metadata revision.
+File contents are checksummed on first use and after changes to file identity,
+size, modification time or change time; warm lookups reuse the checksum. Help
+uses the actual database location, and checks its identity before using memory
+or disk results. Immutable help database copies live under
+`file.path(tempdir(), "languageserver-help")` for the session, avoiding stale
+bytes in R's own lazy-load cache without relying on internal R APIs. Rendered
+help and documentation memory caches are bounded. Server keys cover the cache
+schema, loaded R/native implementation, functions and inert constants, so
+incompatible server versions or development builds do not share entries.
 Conversions with unresolved input classes can offer the common members of known
 method results as suggestions, marked `[possible receiver]` or `[possible member]`.
 These suggestions do not establish the receiver's type; known conflicting method

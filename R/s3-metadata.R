@@ -116,7 +116,9 @@ s3_function_record <- function(fn, name, package) {
     syntax <- if (typeof(fn) == "closure") member_function_syntax(fn) else NULL
     arguments <- if (is.null(syntax)) args(fn) else NULL
     formals <- if (!is.null(syntax)) syntax[[2L]] else if (is.function(arguments)) formals(arguments) else NULL
-    generic <- s3_generic_descriptor(syntax)
+    foreign_environment <- typeof(fn) == "closure" && !isNamespace(environment(fn)) &&
+        !identical(environment(fn), baseenv())
+    generic <- if (!foreign_environment) s3_generic_descriptor(syntax)
     summary <- NULL
     for (candidate in s3_summary_names[[owner]]) {
         original <- member_binding(asNamespace(owner), candidate, materialize = TRUE)
@@ -324,7 +326,10 @@ s3_metadata_context <- function(packages) {
             owner <- if (typeof(value) == "closure" && isNamespace(environment(value))) {
                 unname(getNamespaceName(environment(value)))
             }
-            list(kind = record[[1L]], owner = owner, syntax = if (typeof(value) == "closure") deparse1(member_function_syntax(value)),
+            list(kind = record[[1L]], owner = owner,
+                foreign_environment = typeof(value) == "closure" && !isNamespace(environment(value)) &&
+                    !identical(environment(value), baseenv()),
+                syntax = if (typeof(value) == "closure") deparse1(member_function_syntax(value)),
                 primitive = if (is.primitive(value)) name)
         }), names)
         table <- member_binding(ns, ".__S3MethodsTable__.")[[2L]]

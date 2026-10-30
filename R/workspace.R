@@ -102,6 +102,7 @@ ByteLruCache <- R6::R6Class(
             invisible(NULL)
         },
         size = function() private$entries$size(),
+        capacity = function() list(bytes = private$max_bytes, entries = private$max_entries),
         keys = function() private$entries$keys(),
         bytes = function() private$current_bytes
     )
@@ -379,7 +380,7 @@ Workspace <- R6::R6Class("Workspace",
             for (pkgname in self$loaded_packages) {
                 self$namespaces$set(pkgname, PackageNamespace$new(pkgname))
             }
-            self$help_cache <- collections::dict()
+            self$help_cache <- ByteLruCache$new(2 * 1024^2, 128L)
             parse_cache_mb <- lsp_settings$get("parse_cache_max_mb")
             if (!is.numeric(parse_cache_mb) || length(parse_cache_mb) != 1L ||
                     is.na(parse_cache_mb) || parse_cache_mb < 0) {
@@ -635,7 +636,9 @@ Workspace <- R6::R6Class("Workspace",
             )
 
             if (length(hfile) > 0) {
-                key <- as.character(hfile)
+                identity <- tryCatch(package_metadata_help_identity(hfile), error = function(e) NULL)
+                key <- digest::digest(list(paths = as.character(hfile), identity = identity,
+                        context = package_metadata_help_context(), rich = lsp_settings$get("rich_documentation")), algo = "xxhash64")
                 if (self$help_cache$has(key)) {
                     self$help_cache$get(key)
                 } else {

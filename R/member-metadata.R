@@ -657,9 +657,8 @@ member_namespace_input <- function(
             if (is.null(generic)) next
             for (method in methods[startsWith(methods, paste0(generic$name, "."))]) {
                 record <- member_binding(table, method, materialize = TRUE)
-                expected <- member_definition(definitions, method)
                 if (!identical(record[[1L]], "value") || typeof(record[[2L]]) != "closure" ||
-                        !identical(member_function_syntax(record[[2L]]), expected)) {
+                        !identical(record[[2L]], functions[[method]])) {
                     generic_external <- union(generic_external, generic$name)
                 }
             }

@@ -142,6 +142,11 @@ member_receiver_cacheable <- function(value, index, budget) {
     if (!length(value$type)) {
         return(all(vapply(value$possible_returns, member_receiver_cacheable, logical(1L), index, budget)))
     }
+    # Alias histories can start in a generic document context. The declared
+    # native surface belongs to the receiver's namespace, regardless of which
+    # package was selected while recovering the cursor.
+    owner <- member_package_context(index, value$member_package)
+    if (is.null(owner)) return(FALSE)
     # Recursive argument analysis must not preserve partial instance fields.
     # A native-backed class-only result has a complete declared member surface
     # independent of argument values; retain just that proven surface.
@@ -149,10 +154,10 @@ member_receiver_cacheable <- function(value, index, budget) {
         is.null(value$slots) && is.null(value$function_expr) && is.null(value$closure) &&
         is.null(value$binding_expr) && is.null(value$elements) && is.null(value$element_shape) &&
         is.null(value$result_shape) && is.null(value$r6_class) && !isTRUE(value$open) &&
-        (any(index$members[[value$type]] %in% index$native_factories, na.rm = TRUE) ||
-            any(vapply(index$properties[[value$type]], function(property) {
+        (any(owner$members[[value$type]] %in% owner$native_factories, na.rm = TRUE) ||
+            any(vapply(owner$properties[[value$type]], function(property) {
                 length(property$type) == 1L &&
-                    any(index$members[[property$type]] %in% index$native_factories, na.rm = TRUE)
+                    any(owner$members[[property$type]] %in% owner$native_factories, na.rm = TRUE)
             }, logical(1L))))
 }
 

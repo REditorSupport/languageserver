@@ -236,6 +236,32 @@ test_that("Recursive arguments cache only a proven native class surface", {
     expect_false(member_receiver_cacheable(member_value(reason = "recursion"), index, budget))
 })
 
+test_that("Native surface reuse validates the receiver namespace in a generic context", {
+    owner <- member_generic_index("native_run <- function() .Call('never')")
+    owner$package <- "nativeowner"
+    owner$members$Frame <- c(run = "native_run")
+    owner$native_factories <- "native_run"
+    index <- member_generic_index("")
+    index$namespace_indices <- list(nativeowner = as.list(owner))
+    budget <- member_request_budget()
+    budget$transient <- TRUE
+    value <- member_value(type = "Frame", member_package = "nativeowner",
+        fields = list(partial = member_value(reason = "recursion")))
+    possible <- member_value(reason = "possible_result", possible_returns = list(value))
+    expect_false(member_receiver_cacheable(possible, index, budget))
+    cached <- member_receiver_cache_value(possible, index, budget)
+    expect_identical(cached$possible_returns[[1L]]$type, "Frame")
+    expect_identical(cached$possible_returns[[1L]]$member_package, "nativeowner")
+    expect_null(cached$possible_returns[[1L]]$fields)
+    expect_true(member_binding_cacheable(cached))
+    index$namespace_indices$nativeowner$native_factories <- character()
+    expect_null(member_receiver_cache_value(possible, index, budget))
+    index$members <- owner$members
+    index$native_factories <- owner$native_factories
+    index$namespace_indices <- list()
+    expect_null(member_receiver_cache_value(possible, index, budget))
+})
+
 test_that("Only standalone final ordinary identifier edits bypass parse waits", {
     fixture <- provider_fixture(c("x <- list(a = 1)", ""))
     edit <- function(doc, text) {
