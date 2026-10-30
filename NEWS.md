@@ -1,5 +1,11 @@
 # languageserver 0.3.20
 
+- Keep numeric and string request IDs distinct during cancellation, background
+  formatting and response dispatch. Normalize equivalent numeric IDs across
+  their integer and double representations.
+- Discover sourced files inside computed callees, including immediately invoked
+  anonymous functions, without evaluating project expressions.
+
 - Keep argument-value completion working with namespace-qualified default
   helpers and missing arguments. Escape suggested string literals so quotes,
   backslashes and newlines retain their original values.

@@ -159,3 +159,30 @@ test_that("unchanged buffers reuse their current parse after cache eviction", {
     document$set_content(1L, "changed <- 2")
     expect_s3_class(parse_task(self, uri, document), "Task")
 })
+test_that("source discovery includes computed callees without executing them", {
+    marker <- new.env(parent = emptyenv())
+    marker$ran <- FALSE
+    expression <- quote((function() {
+        marker$ran <- TRUE
+        base::source("callee.R")
+        sys.source("callee.R", envir = environment())
+    })(source("argument.R")))
+    calls <- .Call("source_calls_c", expression, PACKAGE = "languageserver")
+    expect_identical(calls, list(quote(base::source("callee.R")),
+            quote(sys.source("callee.R", envir = environment())), quote(source("argument.R"))))
+    expect_false(marker$ran)
+    expect_identical(vapply(index_source_specs(expression), function(spec) spec$path, character(1L)),
+        c("callee.R", "callee.R", "argument.R"))
+    local <- quote((local(source("local.R")))())
+    expect_identical(.Call("source_calls_c", local, PACKAGE = "languageserver"),
+        list(quote(source("local.R"))))
+    root <- withr::local_tempdir()
+    for (name in c("callee.R", "argument.R")) writeLines("helper <- 1", file.path(root, name))
+    path <- file.path(root, "main.R")
+    content <- deparse(expression)
+    writeLines(content, path)
+    summary <- index_shallow_summary(path, content, root)
+    expect_identical(summary$sources,
+        lapply(file.path(root, c("callee.R", "argument.R")), path_to_uri))
+    expect_false(marker$ran)
+})
