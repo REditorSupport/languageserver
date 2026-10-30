@@ -37,6 +37,21 @@ test_that("code lenses lazily resolve R function call counts", {
     )))
 })
 
+test_that("code lens counts exclude calls to same-named local functions", {
+    fixture <- provider_fixture(c(
+        "foo <- function() 1",
+        "foo()",
+        "bar <- function() { foo <- function() 2; foo() }",
+        "baz <- function(foo) foo()",
+        "foo()"
+    ))
+    locations <- function_call_locations(fixture$workspace, "foo", fixture$uri)
+    expect_equal(vapply(locations, function(item) item$range$start$line, integer(1L)), c(1L, 4L))
+    lens <- code_lens_reply(1L, fixture$uri, fixture$workspace, fixture$document)$result[[1L]]
+    resolved <- code_lens_resolve_reply(2L, fixture$workspace, lens)$result
+    expect_equal(resolved$command$title, "2 calls")
+})
+
 test_that("code lenses work through the language server after incremental edits", {
     skip_on_cran()
     client <- language_client(capabilities = list(textDocument = list(

@@ -1,5 +1,49 @@
 references_xpath <- "//*[(self::SYMBOL or self::SYMBOL_FUNCTION_CALL or self::SYMBOL_FORMALS) and text() = '{token_quote}']"
 
+#' Decode quoted symbol spellings without evaluating document code
+#' @noRd
+reference_symbol_names <- function(names) {
+    quoted <- which(!is.na(names) & startsWith(names, "`"))
+    if (!length(quoted)) return(names)
+    spellings <- unique(names[quoted])
+    decoded <- vapply(spellings, function(name) {
+        symbol <- tryCatch(str2lang(name), error = function(e) NULL)
+        if (is.symbol(symbol)) as.character(symbol) else name
+    }, character(1L), USE.NAMES = FALSE)
+    names[quoted] <- decoded[match(names[quoted], spellings)]
+    names
+}
+
+#' Preserve the complete range and name of a backtick-quoted identifier
+#' @noRd
+reference_token_at <- function(document, parse_data, point) {
+    detected <- document$detect_token(point)
+    syntax <- parse_data$syntax_data
+    if (!is.null(syntax)) {
+        row <- navigation_token(parse_data, point$row + 1L, point$col + 1L)
+        if (!row || !syntax$token[[row]] %in%
+                c("SYMBOL", "SYMBOL_FUNCTION_CALL", "SYMBOL_FORMALS")) return(detected)
+        text <- syntax$text[[row]]
+        if (!startsWith(text, "`")) return(detected)
+        first <- list(row = syntax$line1[[row]] - 1L, col = syntax$col1[[row]] - 1L)
+        last <- list(row = syntax$line2[[row]] - 1L, col = syntax$col2[[row]])
+    } else {
+        xdoc <- parse_data_xml(parse_data)
+        if (is.null(xdoc)) return(detected)
+        token <- xdoc_find_token(xdoc, point$row + 1L, point$col + 1L)
+        if (!xml_name(token) %in% c("SYMBOL", "SYMBOL_FUNCTION_CALL", "SYMBOL_FORMALS")) return(detected)
+        text <- xml_text(token)
+        if (!startsWith(text, "`")) return(detected)
+        first <- list(row = as.integer(xml_attr(token, "line1")) - 1L,
+            col = as.integer(xml_attr(token, "col1")) - 1L)
+        last <- list(row = as.integer(xml_attr(token, "line2")) - 1L,
+            col = as.integer(xml_attr(token, "col2")))
+    }
+    detected$token <- reference_symbol_names(text)
+    detected$range <- list(start = first, end = last)
+    detected
+}
+
 #' Classify bare magrittr stages as calls without changing source positions
 #' @noRd
 reference_call_tokens <- function(data, syntax = NULL) {
@@ -93,6 +137,7 @@ reference_parse_data <- function(data, content, completion_data, uri,
         ),
         c("variable", "function", "formal")
     )
+    definitions$name <- reference_symbol_names(definitions$name)
 
     global_lines <- vapply(global_definitions, function(definition) {
         as.integer(definition$range$start$line + 1L)
@@ -101,7 +146,7 @@ reference_parse_data <- function(data, content, completion_data, uri,
         definitions$line == unname(global_lines[definitions$name])
     local <- which(!is_global)
 
-    names <- data$text[rows]
+    names <- reference_symbol_names(data$text[rows])
     definition_keys <- paste0("global:", names)
     definition_kinds <- rep("global", length(rows))
     if (length(local)) {
@@ -232,12 +277,12 @@ references_reply <- function(id, uri, workspace, document, point,
         return(Response$new(id, result = list()))
     }
 
-    token <- document$detect_token(point)
+    parse_data <- workspace$get_parse_data(uri)
+    token <- reference_token_at(document, parse_data, point)
     if (!nzchar(token$token) || !check_scope(uri, document, point)) {
         return(Response$new(id, result = list()))
     }
     defn <- definition_reply(NULL, uri, workspace, document, point)
-    token_quote <- xml_single_quote(token$token)
 
     logger$info("references_reply: ", list(
         uri = uri,
@@ -248,7 +293,6 @@ references_reply <- function(id, uri, workspace, document, point,
     result <- list()
 
     if (length(defn$result)) {
-        parse_data <- workspace$get_parse_data(uri)
         token_point <- list(
             row = token$range$start$row,
             col = token$range$start$col
@@ -284,7 +328,8 @@ references_reply <- function(id, uri, workspace, document, point,
                 return(list())
             }
 
-            symbols <- xml_find_all(xdoc, glue(references_xpath, token_quote = token_quote))
+            symbols <- xml_find_all(xdoc, "//SYMBOL | //SYMBOL_FUNCTION_CALL | //SYMBOL_FORMALS")
+            symbols <- symbols[reference_symbol_names(xml_text(symbols)) == token$token]
             if (length(symbols) == 0) {
                 return(list())
             }

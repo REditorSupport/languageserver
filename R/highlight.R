@@ -17,7 +17,7 @@ document_highlight_reply <- function(id, uri, workspace, document, point) {
     result <- NULL
     parse_data <- workspace$get_parse_data(uri)
     index <- parse_data$reference_index
-    detected <- document$detect_token(point)
+    detected <- reference_token_at(document, parse_data, point)
     if (!is.null(index) && nzchar(detected$token)) {
         token_point <- list(
             row = detected$range$start$row,
