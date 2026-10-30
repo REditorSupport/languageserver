@@ -58,17 +58,24 @@ backend_cli_failure <- function(request, result) {
             result$status, if (nzchar(detail)) paste0(": ", detail) else "."))
 }
 
+#' Index the submitted buffer once for all CLI diagnostics
+#' @noRd
+backend_byte_index <- function(content) {
+    bytes <- charToRaw(enc2utf8(paste(content, collapse = "\n")))
+    list(bytes = bytes, starts = c(0L, which(bytes == as.raw(10L))))
+}
+
 #' Convert half-open UTF-8 byte offsets against the submitted buffer
 #' @noRd
-backend_byte_range <- function(content, offsets) {
-    bytes <- charToRaw(enc2utf8(paste(content, collapse = "\n")))
+backend_byte_range <- function(content, offsets, index = backend_byte_index(content)) {
+    bytes <- index$bytes
     offsets <- unlist(offsets, use.names = FALSE)
     if (!is.numeric(offsets) || length(offsets) != 2L || anyNA(offsets) ||
             any(!is.finite(offsets)) || any(offsets != floor(offsets)) ||
             offsets[[1L]] < 0 || offsets[[2L]] < offsets[[1L]] || offsets[[2L]] > length(bytes)) {
         backend_error("CLI diagnostic contains an invalid byte range.")
     }
-    starts <- c(0L, which(bytes == as.raw(10L)))
+    starts <- index$starts
     positions <- lapply(offsets, function(offset) {
         line <- findInterval(offset, starts) - 1L
         start <- starts[[line + 1L]]
@@ -111,11 +118,12 @@ jarl_diagnostics <- function(request) {
             !is.list(output$diagnostics) || !is.list(output$errors)) {
         backend_error("Jarl JSON must contain diagnostics and errors arrays.")
     }
+    index <- if (length(output$diagnostics) || length(output$errors)) backend_byte_index(request$content)
     diagnostics <- lapply(output$diagnostics, function(item) {
         if (!is.list(item) || !backend_string(item$message$body) || !backend_string(item$message$name)) {
             backend_error("Jarl returned an invalid diagnostic.")
         }
-        list(range = backend_byte_range(request$content, item$range),
+        list(range = backend_byte_range(request$content, item$range, index),
             severity = DiagnosticSeverity$Warning, source = "jarl",
             code = item$message$name, message = item$message$body,
             codeDescription = list(href = paste0("https://jarl.etiennebacher.com/rules/", item$message$name)))
@@ -130,7 +138,7 @@ jarl_diagnostics <- function(request) {
         for (syntax in error$syntax_errors) {
             if (!backend_string(syntax$message)) backend_error("Jarl returned an invalid syntax error.")
             diagnostics[[length(diagnostics) + 1L]] <- list(
-                range = backend_byte_range(request$content, syntax$range),
+                range = backend_byte_range(request$content, syntax$range, index),
                 severity = DiagnosticSeverity$Error, source = "jarl", message = syntax$message)
         }
     }

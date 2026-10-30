@@ -49,4 +49,6 @@ test_that("Argument value completion extracts each default once and keeps parame
 
     workspace$get_formals <- function(...) alist(value = 1L)
     expect_identical(arg_value_completion(NULL, workspace, NULL, NULL, "", "f"), list())
+    workspace$get_formals <- function(...) list("unnamed")
+    expect_identical(arg_value_completion(NULL, workspace, NULL, NULL, "", "f"), list())
 })

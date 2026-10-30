@@ -306,6 +306,7 @@ arg_value_completion <- function(uri, workspace, document, point, token, funct, 
     
     # Get all parameters with character vector defaults
     param_names <- names(formals_list)
+    if (is.null(param_names)) return(list())
     all_completions <- lapply(seq_along(formals_list), function(i) {
         argument_value_items(extract_default_values(formals_list[[i]]),
             funct, package_for_call, param_names[[i]], token, uri)
