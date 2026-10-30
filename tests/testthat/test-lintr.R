@@ -339,6 +339,7 @@ test_that("diagnose_file object_usage_linter acknowledges NAMESPACE imports and 
 test_that("diagnose_file reports missing terminal newline for single-line and multi-line files", {
     dir <- withr::local_tempdir()
     withr::local_dir(dir)
+    writeLines("linters: list(trailing_blank_lines_linter())", file.path(dir, ".lintr"))
     temp_file <- withr::local_tempfile(tmpdir = dir, fileext = ".R")
     cat("x <- 1", file = temp_file)
     uri <- path_to_uri(temp_file)
@@ -405,6 +406,7 @@ test_that("lint_without_terminal_newline respects linter configuration", {
 test_that("diagnose_file fallback preserves encoding, nolint directives, caching, and package context", {
     dir <- withr::local_tempdir()
     withr::local_dir(dir)
+    writeLines("linters: list(object_usage_linter(), trailing_blank_lines_linter())", file.path(dir, ".lintr"))
     temp_file <- withr::local_tempfile(tmpdir = dir, fileext = ".R")
     writeLines("x <- 1", temp_file)
     uri <- path_to_uri(temp_file)
