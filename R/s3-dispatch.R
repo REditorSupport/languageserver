@@ -898,6 +898,21 @@ s3_cached_callee <- function(workspace, document, location, packages) {
     FALSE
 }
 
+s3_member_constructor_ready <- function(workspace, document, location, packages) {
+    if (!isTRUE(lsp_settings$get("member_completion")) || !member_symbol_required(workspace, document)) return(FALSE)
+    metadata <- workspace$member_metadata
+    if (is.null(metadata) || !is.function(metadata$catalog)) return(FALSE)
+    required <- if (is.null(location$call$package)) setdiff(packages, startup_packages) else location$call$package
+    ready <- vapply(required, function(package) {
+        catalog <- metadata$catalog(package)
+        !is.null(catalog) && is.null(catalog$error) && !isTRUE(catalog$dataset_only)
+    }, logical(1L))
+    # Missing attached metadata may mask the factory used by a declaration.
+    if (!all(ready)) return(FALSE)
+    symbol <- member_constructor_symbol(document$uri, workspace, document, location)
+    !is.null(symbol$signature)
+}
+
 s3_metadata_waiting <- function(self, uri, document, point = NULL, hover = FALSE, call = NULL) {
     if (!isTRUE(lsp_settings$get("s3_dispatch")) || is.null(self$resolve_task_manager) ||
             !is.function(self$resolve_task_manager$has) ||
@@ -917,6 +932,10 @@ s3_metadata_waiting <- function(self, uri, document, point = NULL, hover = FALSE
             if (s3_catalog_ordinary_call(catalog, location$call$token)) return(FALSE)
         }
         packages <- s3_call_packages(workspace, document, c(location$point$row, location$point$col))
+        # Constructor formals come from member metadata and cannot be refined
+        # by S3 dispatch catalogs. Share the same verified constructor path as
+        # signature/hover providers instead of blocking on an unrelated worker.
+        if (s3_member_constructor_ready(workspace, document, location, packages)) return(FALSE)
         # Missing S3 catalogs affect method-specific refinement, not an
         # already-known callable's ordinary signature/help. A missing cached
         # namespace still blocks this path when it could mask the callee.

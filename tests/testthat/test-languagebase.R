@@ -46,6 +46,21 @@ TestLanguageBase <- R6::R6Class(
     )
 )
 
+test_that("Timed-out test requests discard callbacks before late replies arrive", {
+    client <- TestLanguageBase$new()
+    client$catch_callback_error <- FALSE
+    expect_failure(respond(client, "textDocument/signatureHelp", NULL, timeout = -1, retry = FALSE),
+        "timeout when obtaining response")
+    expect_identical(client$request_callbacks$size(), 0L)
+    expect_silent(client$handle_response(list(id = 1L,
+                error = list(code = -32800L, message = "Request superseded by a newer document version"))))
+    done <- FALSE
+    request <- client$request("fresh", NULL)
+    client$deliver(request, callback = function(...) done <<- TRUE)
+    client$handle_response(list(id = request$id, result = list(ready = TRUE)))
+    expect_true(done)
+})
+
 test_that("LanguageBase reads fragmented headers and content", {
     base <- TestLanguageBase$new(
         lines = list("Content-Length: 2", character(), ""),
