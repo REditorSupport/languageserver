@@ -102,8 +102,14 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL) {
     class_scope <- FALSE
     symbol_scope <- FALSE
     parts <- if (complete) member_function_parts(if (is.null(syntax)) utils::getParseData(parsed) else syntax) else NULL
+    prefix <- ""
+    previous <- c(0L, 0L)
     for (i in seq_along(items)) {
         item <- items[[i]]
+        prefix <- member_source_prefix(content, previous, item$end, prefix)
+        previous <- item$end
+        item$cache_prefix <- prefix
+        items[[i]] <- item
         expr <- item$expr
         syntax_names <- member_syntax_names(expr)
         if (!is.null(parts) && any(syntax_names %in% c("function", "{"))) {
@@ -141,7 +147,8 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL) {
             }
             if (!is.null(name) && nzchar(name)) {
                 history <- get0(name, bindings, inherits = FALSE, ifnotfound = list())
-                history[[length(history) + 1L]] <- list(expr = rhs, start = item$start, end = item$end)
+                history[[length(history) + 1L]] <- list(expr = rhs, start = item$start, end = item$end,
+                    cache_prefix = prefix)
                 assign(name, history, bindings)
             }
         }
@@ -152,7 +159,7 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL) {
                 history <- get0(name, bindings, inherits = FALSE, ifnotfound = list())
                 history[[length(history) + 1L]] <- list(
                     expr = quote(.__unknown_branch_write__),
-                    start = item$start, end = item$end
+                    start = item$start, end = item$end, cache_prefix = prefix
                 )
                 assign(name, history, bindings)
             }
@@ -360,6 +367,7 @@ member_recover_context <- function(document, content, point, cursor, start, colu
 member_context_index <- function(workspace, uri, document, at, parsed = NULL,
     referenced = member_syntax_names(parsed)) {
     metadata <- if (!is.null(workspace$member_metadata)) workspace$member_metadata else NULL
+    revision <- member_document_cache_revision(document, metadata)
     # Choose the extractor associated with roots actually referenced here. The
     # core does not recognize package names, class names, or wrapper conventions.
     # Follow a bounded set of referenced assignments (q may have a package
@@ -403,6 +411,7 @@ member_context_index <- function(workspace, uri, document, at, parsed = NULL,
     }
     index$document_bindings <- document$parse_data$member_data$bindings
     index$document_cache <- new.env(parent = emptyenv())
+    index$document_binding_cache <- if (!is.null(revision)) document$member_binding_cache else NULL
     index$methods_attached <- TRUE
     index$attached_roots <- list()
     index$attached_s4 <- list()
@@ -449,8 +458,10 @@ member_context_index <- function(workspace, uri, document, at, parsed = NULL,
             index$attached_s4[names(package_index$s4_classes)] <- package_index$s4_classes
         }
     }
+    imports <- character()
     for (item in data$imports) {
         if (!member_before(item$end, at)) next
+        imports <- c(imports, if (is.null(item$cache_prefix)) paste(item$start, item$end, collapse = ":") else item$cache_prefix)
         expr <- item$expr
         if (length(expr) < 2L) next
         if (member_head(expr, "library") || member_head(expr, "require")) {
@@ -479,6 +490,7 @@ member_context_index <- function(workspace, uri, document, at, parsed = NULL,
             if (identical(package, "S7")) index$s7_attached <- TRUE
         }
     }
+    index$document_context_key <- digest::digest(list(index$package, workspace$startup_packages, imports), algo = "xxhash64")
     index
 }
 
@@ -504,8 +516,19 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
     # A source definition in a request's top-level context has stable lexical
     # inputs. Locals/actual arguments use their own lazy binding memos instead.
     memo <- !is.null(index$document_cache) && !length(setdiff(names(bindings), ".__member_position__"))
-    memo_key <- paste(id, paste(at, collapse = ":"), sep = ":")
+    memo_key <- paste(index$package, index$document_context_key, id, paste(at, collapse = ":"), sep = ":")
     if (memo && exists(memo_key, index$document_cache, inherits = FALSE)) return(index$document_cache[[memo_key]])
+    cache <- index$document_binding_cache
+    persistent_key <- if (memo && !is.null(cache) && !is.null(item$cache_prefix) &&
+            !member_head(item$expr, "function")) {
+        paste(index$package, index$document_context_key, id, item$cache_prefix, sep = ":")
+    }
+    cached <- if (!is.null(persistent_key)) cache$get(persistent_key) else NULL
+    if (!is.null(cached)) {
+        value <- unserialize(cached)
+        index$document_cache[[memo_key]] <- value
+        return(value)
+    }
     env <- bindings
     if (!member_head(item$expr, "function")) env$.__member_position__ <- item$start
     expr <- item$expr
@@ -521,6 +544,9 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
     cached <- if (memo) member_receiver_cache_value(value, index, budget) else NULL
     if (!is.null(cached)) {
         index$document_cache[[memo_key]] <- cached
+        if (!is.null(persistent_key) && member_binding_cacheable(cached)) {
+            cache$set(persistent_key, serialize(cached, NULL))
+        }
     }
     value
 }
@@ -863,13 +889,7 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
     budget <- member_request_budget()
     metadata <- workspace$member_metadata
     cache <- document$member_receivers
-    revision <- if (is.null(metadata)) 0L else if (is.function(metadata$revision)) metadata$revision() else NULL
-    identity <- list(metadata = if (is.function(metadata$identity)) metadata$identity() else metadata,
-        revision = revision)
-    if (!identical(document$member_revision, identity)) {
-        cache$clear()
-        document$member_revision <- identity
-    }
+    revision <- member_document_cache_revision(document, metadata)
     # The receiver does not depend on the member prefix or the call arguments
     # after it. Edits and accepted parses clear this document-local cache.
     key <- paste(point$row, cursor$start, cursor$end, cursor$operator_row,

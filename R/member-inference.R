@@ -88,6 +88,7 @@ member_package_context <- function(index, package) {
     if (is.null(owner)) return(NULL)
     context <- list2env(as.list(owner), parent = emptyenv())
     for (name in c("namespace_indices", "namespace_metadata", "document_bindings", "document_s4",
+            "document_binding_cache", "document_context_key", "document_cache",
             "attached_roots", "attached_s4", "methods_attached")) context[[name]] <- index[[name]]
     context
 }

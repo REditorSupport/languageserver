@@ -13,6 +13,10 @@
   Share these possible receivers with signature help and hover when the member
   implementation is unambiguous, and display an uncertainty note. Preserve
   possible results through member calls and subsequent assignments and aliases.
+  Reuse completed binding summaries across member-name and argument edits,
+  following-code changes and different cursor positions. Validate unchanged
+  preceding source and package attachment context without retaining source
+  closures or mutable object identities across edits.
 
 - Persist package member models, startup datasets, S3 catalogs, documentation
   summaries and rendered help in a shared bounded cache. Reuse unchanged models

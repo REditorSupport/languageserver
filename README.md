@@ -319,7 +319,12 @@ with a 250 ms allowance and extends the same traversal as needed, up to two
 seconds of CPU time and five seconds elapsed. This allows for CPU contention
 without restarting analysis. Node and depth bounds remain in place. Completed
 receivers, including uncertain results, are reused across completion, signature
-help and hover until the document or its package metadata changes.
+help and hover. Completed binding summaries also survive edits to member names,
+call arguments and following code, and can serve requests at different cursor
+positions. Source-prefix fingerprints are prepared by the parser; preceding
+code, attachment-context or package-metadata changes invalidate those summaries.
+They remain in a bounded in-memory cache for the current document. Source
+closures and mutable object identities are excluded from reuse across edits.
 
 Automatic indexing recognizes a package by its `DESCRIPTION` with a `Package`
 field and its `R/` directory. Package indexing runs in the background and

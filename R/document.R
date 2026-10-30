@@ -22,6 +22,7 @@ Document <- R6::R6Class(
         requested_packages = NULL,
         member_refresh = FALSE,
         member_receivers = NULL,
+        member_binding_cache = NULL,
         s3_calls = NULL,
         s3_identity = NULL,
         member_revision = NULL,
