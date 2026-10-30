@@ -65,7 +65,8 @@ s3_source_view <- function(document) {
     if (is.null(data)) {
         return(NULL)
     }
-    list(index = data$s3 %s3_or% s3_source_index(data$items), items = data$items, uri = document$uri)
+    list(index = data$s3 %s3_or% s3_source_index(data$items), items = data$items,
+        uri = document$uri, content_key = data$content_key)
 }
 
 s3_source_value <- function(name, context) {
@@ -83,6 +84,15 @@ s3_source_value <- function(name, context) {
             return(s3_unknown("binding_cycle"))
         }
         item <- source$items[[record$item]]
+        cache_key <- if (!is.null(context$binding_cache) && s3_binding_context_unchanged(context) && !is.null(item$cache_prefix) &&
+                !is.null(context$binding_contexts[[source$uri]])) {
+            paste(source$uri, name, position, item$cache_prefix, context$binding_contexts[[source$uri]], sep = ":")
+        }
+        cached <- analysis_cache_get(context$binding_cache, cache_key)
+        if (cached$hit) {
+            context$memo[[key]] <- cached$value
+            return(cached$value)
+        }
         old_at <- context$at
         old_uri <- context$source_uri
         context$trail <- c(context$trail, key)
@@ -126,6 +136,10 @@ s3_source_value <- function(name, context) {
             result <- get0(name, scope, inherits = FALSE) %s3_or% s3_unknown("opaque_effect")
         }
         context$memo[[key]] <- result
+        if (!isTRUE(context$exhausted) && s3_binding_context_unchanged(context) &&
+                length(result$classes) && s3_binding_cacheable(result)) {
+            analysis_cache_set(context$binding_cache, cache_key, result)
+        }
         return(result)
     }
     NULL
@@ -328,10 +342,11 @@ s3_context <- function(uri, workspace, document, at) {
         }
     }
     root <- s3_package_root(workspace, uri)
+    namespace <- list(key = "", records = list(), valid = TRUE)
     if (!is.null(root)) {
-        path <- file.path(root, "NAMESPACE")
-        if (file.exists(path) && file.info(path)$size > 65536L) context$registration_unknown <- TRUE
-        for (record in s3_namespace_source(root)) {
+        namespace <- s3_namespace_snapshot(root, workspace)
+        if (!isTRUE(namespace$valid)) context$registration_unknown <- TRUE
+        for (record in namespace$records) {
             value <- s3_get_value(record$method, context$root, context, source_only = TRUE)
             if (is.null(value$fn)) next
             key <- paste(record$generic, record$class, sep = ".")
@@ -341,7 +356,35 @@ s3_context <- function(uri, workspace, document, at) {
         }
     }
     context$analyzer <- analyzer
+    context$binding_root <- as.list(context$root, all.names = TRUE)
+    context$binding_imports <- context$imports
+    context$binding_contexts <- list()
+    if (!isTRUE(context$incomplete) && !isTRUE(context$registration_unknown) && !isTRUE(context$exhausted) &&
+            is.function(metadata$revision) && is.function(metadata$identity) &&
+            all(vapply(context$sources, function(source) !is.null(source$content_key), logical(1L)))) {
+        context$binding_cache <- analysis_cache(document, "s3-bindings",
+            list(metadata = metadata$identity(), revision = metadata$revision(), namespace = namespace$key),
+            max_bytes = 4 * 1024^2)
+        source_keys <- vapply(context$sources, `[[`, "", "content_key")
+        source_uris <- vapply(context$sources, `[[`, "", "uri")
+        registrations <- unlist(lapply(context$sources, function(source) {
+            vapply(source$index$registrations, function(i) {
+                item <- source$items[[i]]
+                if (!identical(source$uri, uri) || member_before(item$end, at)) item$cache_prefix %s3_or% "" else ""
+            }, "")
+        }), use.names = FALSE)
+        for (i in seq_along(source_uris)) {
+            context$binding_contexts[[source_uris[[i]]]] <- digest::digest(list(
+                sources = source_uris[-i], content = source_keys[-i], imports = context$imports,
+                registrations = registrations, startup = startup_packages), algo = "xxhash64")
+        }
+    }
     context
+}
+
+s3_binding_context_unchanged <- function(context) {
+    identical(context$imports, context$binding_imports) &&
+        identical(as.list(context$root, all.names = TRUE), context$binding_root)
 }
 
 # Recover the enclosing call with its lexical scopes and following arguments.
@@ -507,7 +550,10 @@ resolve_s3_call <- function(uri, workspace, document, point, hover = FALSE, call
         return(cache$get(cache_key))
     }
     result <- NULL
-    on.exit(if (!is.null(revision)) cache$set(cache_key, result), add = TRUE)
+    context <- NULL
+    on.exit(if (!is.null(revision) && !isTRUE(context$exhausted)) {
+        cache$set(cache_key, result)
+    }, add = TRUE)
     context <- s3_context(uri, workspace, document, c(location$point$row, location$point$col))
     scoped <- s3_scoped_call(document, location, context)
     if (is.null(scoped)) {
@@ -599,6 +645,17 @@ s3_index_summary <- function(content, uri, expressions = NULL, parse_data = NULL
     } else {
         return(NULL)
     }
+    # Older or standalone index builders may not supply member fingerprints.
+    # Compute the same bounded source-prefix keys before compacting bodies.
+    if (length(items) && any(vapply(items, function(item) is.null(item$cache_prefix), logical(1L)))) {
+        prefix <- ""
+        previous <- c(0L, 0L)
+        for (i in seq_along(items)) {
+            prefix <- member_source_prefix(content, previous, items[[i]]$end, prefix)
+            previous <- items[[i]]$end
+            items[[i]]$cache_prefix <- prefix
+        }
+    }
     # An enormous factory cannot be analyzed within a request. Retain its
     # generic descriptor/formals without duplicating its body in disk indexes.
     items <- lapply(items, function(item) {
@@ -616,7 +673,8 @@ s3_index_summary <- function(content, uri, expressions = NULL, parse_data = NULL
         }
         item
     })
-    list(uri = uri, items = items, index = s3_source_index(items))
+    list(uri = uri, items = items, index = s3_source_index(items),
+        content_key = parse_data$member_data$content_key %s3_or% digest::digest(content, algo = "xxhash64"))
 }
 
 s3_recover_call <- function(document, location, recovered) {
@@ -840,6 +898,21 @@ s3_cached_callee <- function(workspace, document, location, packages) {
     FALSE
 }
 
+s3_member_constructor_ready <- function(workspace, document, location, packages) {
+    if (!isTRUE(lsp_settings$get("member_completion")) || !member_symbol_required(workspace, document)) return(FALSE)
+    metadata <- workspace$member_metadata
+    if (is.null(metadata) || !is.function(metadata$catalog)) return(FALSE)
+    required <- if (is.null(location$call$package)) setdiff(packages, startup_packages) else location$call$package
+    ready <- vapply(required, function(package) {
+        catalog <- metadata$catalog(package)
+        !is.null(catalog) && is.null(catalog$error) && !isTRUE(catalog$dataset_only)
+    }, logical(1L))
+    # Missing attached metadata may mask the factory used by a declaration.
+    if (!all(ready)) return(FALSE)
+    symbol <- member_constructor_symbol(document$uri, workspace, document, location)
+    !is.null(symbol$signature)
+}
+
 s3_metadata_waiting <- function(self, uri, document, point = NULL, hover = FALSE, call = NULL) {
     if (!isTRUE(lsp_settings$get("s3_dispatch")) || is.null(self$resolve_task_manager) ||
             !is.function(self$resolve_task_manager$has) ||
@@ -859,6 +932,10 @@ s3_metadata_waiting <- function(self, uri, document, point = NULL, hover = FALSE
             if (s3_catalog_ordinary_call(catalog, location$call$token)) return(FALSE)
         }
         packages <- s3_call_packages(workspace, document, c(location$point$row, location$point$col))
+        # Constructor formals come from member metadata and cannot be refined
+        # by S3 dispatch catalogs. Share the same verified constructor path as
+        # signature/hover providers instead of blocking on an unrelated worker.
+        if (s3_member_constructor_ready(workspace, document, location, packages)) return(FALSE)
         # Missing S3 catalogs affect method-specific refinement, not an
         # already-known callable's ordinary signature/help. A missing cached
         # namespace still blocks this path when it could mask the callee.
@@ -893,12 +970,17 @@ s3_queue_ready <- function(self, uri) {
     }
 }
 
-s3_namespace_source <- function(root) {
+s3_namespace_snapshot <- function(root, owner = NULL) {
     path <- file.path(root, "NAMESPACE")
-    if (!file.exists(path) || file.info(path)$size > 65536L) {
-        return(list())
-    }
-    code <- tryCatch(parse(path, keep.source = FALSE), error = function(e) NULL)
+    if (!file.exists(path)) return(list(key = "", records = list(), valid = TRUE))
+    if (file.info(path)$size > 65536L) return(list(key = "oversized", records = list(), valid = FALSE))
+    text <- tryCatch(readLines(path, warn = FALSE), error = function(e) NULL)
+    if (is.null(text)) return(list(key = "unreadable", records = list(), valid = FALSE))
+    key <- digest::digest(text, algo = "xxhash64")
+    cache <- if (!is.null(owner)) analysis_cache(owner, "namespace-declarations", max_bytes = 1024^2, max_entries = 32L)
+    cached <- analysis_cache_get(cache, paste(path, key, sep = ":"))
+    if (cached$hit) return(cached$value)
+    code <- tryCatch(parse(text = text, keep.source = FALSE), error = function(e) NULL)
     records <- list()
     for (expr in code) {
         if (!member_head(expr, "S3method") || length(expr) < 3L) next
@@ -912,8 +994,11 @@ s3_namespace_source <- function(root) {
             class = class, method = method
         )
     }
-    records
+    value <- list(key = key, records = records, valid = !is.null(code))
+    analysis_cache_set(cache, paste(path, key, sep = ":"), value)
 }
+
+s3_namespace_source <- function(root) s3_namespace_snapshot(root)$records
 
 s3_package_root <- function(workspace, uri) {
     root <- if (!is.null(workspace$index) && isTRUE(workspace$index$enabled)) {
@@ -926,9 +1011,5 @@ s3_package_root <- function(workspace, uri) {
 s3_namespace_generation <- function(workspace, uri) {
     root <- s3_package_root(workspace, uri)
     if (is.null(root)) return("")
-    path <- file.path(root, "NAMESPACE")
-    if (!file.exists(path)) return("")
-    metadata <- file.info(path)
-    if (metadata$size > 65536L) return("oversized")
-    digest::digest(readLines(path, warn = FALSE), algo = "xxhash64")
+    s3_namespace_snapshot(root, workspace)$key
 }

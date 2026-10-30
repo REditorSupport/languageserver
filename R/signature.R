@@ -14,8 +14,7 @@ local_function_signature <- function(document, node, symbol) {
         col2 = as.integer(xml_attr(closing, "col2")))
     # Only the formals are used by get_signature(). A large body contributes
     # no signature information and need not be allocated or parsed again.
-    expr <- str2expression(c(text, "NULL"))
-    get_signature(symbol, expr[[1L]])
+    analysis_function_header(document, text, symbol)$signature
 }
 
 #' Parse a signature once for both parameter names and LSP label ranges
@@ -169,7 +168,7 @@ signature_reply <- function(id, uri, workspace, document, point, client_capabili
                 doc_line1 <- detect_comments(document$content, func_line1 - 1) + 1
                 if (doc_line1 < func_line1) {
                     comment <- document$content[doc_line1:(func_line1 - 1)]
-                    doc <- convert_comment_to_documentation(comment)
+                    doc <- analysis_documentation(document, comment)
                     doc_string <- NULL
 
                     if (is.character(doc)) {

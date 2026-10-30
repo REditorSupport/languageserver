@@ -132,7 +132,7 @@ hover_reply <- function(id, uri, workspace, document, point) {
                         doc_line1 <- detect_comments(document$content, def_line1 - 1) + 1
                         if (doc_line1 < def_line1) {
                             comment <- document$content[doc_line1:(def_line1 - 1)]
-                            doc <- convert_comment_to_documentation(comment)
+                            doc <- analysis_documentation(document, comment)
                             if (is.character(doc)) {
                                 doc_string <- doc
                             } else if (is.list(doc)) {
@@ -168,7 +168,7 @@ hover_reply <- function(id, uri, workspace, document, point) {
                             doc_line1 <- detect_comments(document$content, func_line1 - 1) + 1
                             if (doc_line1 < func_line1) {
                                 comment <- document$content[doc_line1:(func_line1 - 1)]
-                                doc <- convert_comment_to_documentation(comment)
+                                doc <- analysis_documentation(document, comment)
                                 if (is.list(doc)) {
                                     doc_string <- doc$arguments[[token_text]]
                                     if (!is.null(doc_string)) {
@@ -197,7 +197,7 @@ hover_reply <- function(id, uri, workspace, document, point) {
 
                 if (doc_line1 < func_line1) {
                     comment <- document$content[doc_line1:(func_line1 - 1)]
-                    doc <- convert_comment_to_documentation(comment)
+                    doc <- analysis_documentation(document, comment)
                     if (is.list(doc)) {
                         doc_string <- doc$arguments[[token_text]]
                         if (!is.null(doc_string)) {

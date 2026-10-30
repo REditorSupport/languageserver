@@ -102,8 +102,14 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL) {
     class_scope <- FALSE
     symbol_scope <- FALSE
     parts <- if (complete) member_function_parts(if (is.null(syntax)) utils::getParseData(parsed) else syntax) else NULL
+    prefix <- ""
+    previous <- c(0L, 0L)
     for (i in seq_along(items)) {
         item <- items[[i]]
+        prefix <- member_source_prefix(content, previous, item$end, prefix)
+        previous <- item$end
+        item$cache_prefix <- prefix
+        items[[i]] <- item
         expr <- item$expr
         syntax_names <- member_syntax_names(expr)
         if (!is.null(parts) && any(syntax_names %in% c("function", "{"))) {
@@ -141,7 +147,8 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL) {
             }
             if (!is.null(name) && nzchar(name)) {
                 history <- get0(name, bindings, inherits = FALSE, ifnotfound = list())
-                history[[length(history) + 1L]] <- list(expr = rhs, start = item$start, end = item$end)
+                history[[length(history) + 1L]] <- list(expr = rhs, start = item$start, end = item$end,
+                    cache_prefix = prefix)
                 assign(name, history, bindings)
             }
         }
@@ -152,7 +159,7 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL) {
                 history <- get0(name, bindings, inherits = FALSE, ifnotfound = list())
                 history[[length(history) + 1L]] <- list(
                     expr = quote(.__unknown_branch_write__),
-                    start = item$start, end = item$end
+                    start = item$start, end = item$end, cache_prefix = prefix
                 )
                 assign(name, history, bindings)
             }
@@ -161,6 +168,7 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL) {
     }
     source_bytes <- if (complete) member_compact_source(parsed, parts) else 0
     list(items = items, bindings = as.list(bindings), imports = imports, effects = effects, s4 = s4,
+        content_key = digest::digest(content, algo = "xxhash64"),
         source_bytes = source_bytes,
         packages = packages, class_scope = class_scope, symbol_scope = symbol_scope,
         s3 = s3_source_index(items))
@@ -360,6 +368,7 @@ member_recover_context <- function(document, content, point, cursor, start, colu
 member_context_index <- function(workspace, uri, document, at, parsed = NULL,
     referenced = member_syntax_names(parsed)) {
     metadata <- if (!is.null(workspace$member_metadata)) workspace$member_metadata else NULL
+    revision <- member_document_cache_revision(document, metadata)
     # Choose the extractor associated with roots actually referenced here. The
     # core does not recognize package names, class names, or wrapper conventions.
     # Follow a bounded set of referenced assignments (q may have a package
@@ -403,6 +412,7 @@ member_context_index <- function(workspace, uri, document, at, parsed = NULL,
     }
     index$document_bindings <- document$parse_data$member_data$bindings
     index$document_cache <- new.env(parent = emptyenv())
+    index$document_binding_cache <- if (!is.null(revision)) document$member_binding_cache else NULL
     index$methods_attached <- TRUE
     index$attached_roots <- list()
     index$attached_s4 <- list()
@@ -449,8 +459,10 @@ member_context_index <- function(workspace, uri, document, at, parsed = NULL,
             index$attached_s4[names(package_index$s4_classes)] <- package_index$s4_classes
         }
     }
+    imports <- character()
     for (item in data$imports) {
         if (!member_before(item$end, at)) next
+        imports <- c(imports, if (is.null(item$cache_prefix)) paste(item$start, item$end, collapse = ":") else item$cache_prefix)
         expr <- item$expr
         if (length(expr) < 2L) next
         if (member_head(expr, "library") || member_head(expr, "require")) {
@@ -479,11 +491,13 @@ member_context_index <- function(workspace, uri, document, at, parsed = NULL,
             if (identical(package, "S7")) index$s7_attached <- TRUE
         }
     }
+    index$document_context_key <- digest::digest(list(index$package, workspace$startup_packages, imports), algo = "xxhash64")
     index
 }
 
 member_resolve_document <- function(name, index, bindings, budget, depth, trail) {
-    if (depth > 64L) return(member_value(reason = "binding_recursion"))
+    limit <- if (is.null(budget$depth_limit)) 64L else budget$depth_limit
+    if (depth > limit) return(member_value(reason = "binding_recursion"))
     history <- index$document_bindings[[name]]
     at <- bindings$.__member_position__
     if (is.null(at)) at <- c(Inf, Inf)
@@ -503,8 +517,19 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
     # A source definition in a request's top-level context has stable lexical
     # inputs. Locals/actual arguments use their own lazy binding memos instead.
     memo <- !is.null(index$document_cache) && !length(setdiff(names(bindings), ".__member_position__"))
-    memo_key <- paste(id, paste(at, collapse = ":"), sep = ":")
+    memo_key <- paste(index$package, index$document_context_key, id, paste(at, collapse = ":"), sep = ":")
     if (memo && exists(memo_key, index$document_cache, inherits = FALSE)) return(index$document_cache[[memo_key]])
+    cache <- index$document_binding_cache
+    persistent_key <- if (memo && !is.null(cache) && !is.null(item$cache_prefix) &&
+            !member_head(item$expr, "function")) {
+        paste(index$package, index$document_context_key, id, item$cache_prefix, sep = ":")
+    }
+    cached <- analysis_cache_get(cache, persistent_key)
+    if (cached$hit) {
+        value <- cached$value
+        index$document_cache[[memo_key]] <- value
+        return(value)
+    }
     env <- bindings
     if (!member_head(item$expr, "function")) env$.__member_position__ <- item$start
     expr <- item$expr
@@ -517,7 +542,13 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
         depth = depth + 1L,
         trail = c(trail, id), budget = budget
     )
-    if (memo && length(value$type) && !budget$exhausted && !budget$transient) index$document_cache[[memo_key]] <- value
+    cached <- if (memo) member_receiver_cache_value(value, index, budget) else NULL
+    if (!is.null(cached)) {
+        index$document_cache[[memo_key]] <- cached
+        if (!is.null(persistent_key) && member_binding_cacheable(cached)) {
+            analysis_cache_set(cache, persistent_key, cached)
+        }
+    }
     value
 }
 
@@ -859,13 +890,7 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
     budget <- member_request_budget()
     metadata <- workspace$member_metadata
     cache <- document$member_receivers
-    revision <- if (is.null(metadata)) 0L else if (is.function(metadata$revision)) metadata$revision() else NULL
-    identity <- list(metadata = if (is.function(metadata$identity)) metadata$identity() else metadata,
-        revision = revision)
-    if (!identical(document$member_revision, identity)) {
-        cache$clear()
-        document$member_revision <- identity
-    }
+    revision <- member_document_cache_revision(document, metadata)
     # The receiver does not depend on the member prefix or the call arguments
     # after it. Edits and accepted parses clear this document-local cache.
     key <- paste(point$row, cursor$start, cursor$end, cursor$operator_row,
@@ -894,22 +919,32 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
         value <- member_cursor_value(recovered$parsed, recovered$sentinel, index, bindings, budget,
             if (is.null(cursor$accessor)) name, cursor$accessor, recovered$context,
             recovered$path, recovered$source)
-        if (!is.null(revision) && member_receiver_cacheable(value, index, budget)) {
+        cached_value <- if (!is.null(revision)) member_receiver_cache_value(value, index, budget) else NULL
+        if (!is.null(cached_value)) {
             # Raw storage accounts for closure environments and makes each
             # hit independent of mutable request-local binding memos.
-            record <- serialize(list(value = value, bindings = bindings,
+            record <- serialize(list(value = cached_value, bindings = bindings,
                     start = recovered$start, referenced = referenced), NULL)
             cache$set(key, record)
         }
     }
     if (!is.null(cursor$accessor) && !is.null(name)) {
         receiver <- value
+        possible <- member_possible_receiver(receiver, index, bindings, cursor$accessor)
+        if (!is.null(possible)) {
+            if (!name %in% possible$members || name %in% possible$ambiguous) {
+                return(list(value = member_value(reason = "ambiguous_possible_member"),
+                    index = index, bindings = bindings, budget = budget))
+            }
+            receiver <- possible$value
+        }
         value <- if (identical(cursor$accessor, "@")) member_slot(receiver, name, index, bindings, budget) else
             member_access(receiver, name, index, bindings)
         key <- member_members(receiver, index, bindings, cursor$accessor)[name]
         if (is.null(value$function_key) && length(key) && !is.na(key[[1L]]) && !is.null(value$function_expr)) {
             value$function_key <- key[[1L]]
         }
+        if (!is.null(possible)) value$possible_receiver <- TRUE
     }
     list(value = value, index = index, bindings = bindings, budget = budget)
 }
@@ -917,6 +952,9 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
 member_request_budget <- function() {
     budget <- new.env(parent = emptyenv())
     budget$remaining <- 20000L
+    # Assignment histories add depth without adding recursive function calls.
+    # Keep a finite stack bound while allowing longer reassigned query chains.
+    budget$depth_limit <- 128L
     budget$exhausted <- budget$transient <- FALSE
     # Parallel tests compete with parse/metadata workers; coverage also rewrites
     # byte-compiled functions. Allow that overhead while keeping all bounds.
@@ -927,8 +965,30 @@ member_request_budget <- function() {
     } else {
         0.25
     }
-    budget$deadline <- proc.time()[[3L]] + budget$time_limit
+    clock <- proc.time()
+    budget$started <- clock[[3L]]
+    budget$cpu_started <- clock[[1L]] + clock[[2L]]
+    budget$deadline <- budget$scheduled_deadline <- budget$started + budget$time_limit
+    budget$cpu_limit <- max(2, budget$time_limit)
+    budget$wall_deadline <- budget$started + max(5, budget$time_limit)
     budget
+}
+
+# Grow the allowance at existing clock checkpoints, without restarting the
+# traversal or replenishing nodes. CPU time distinguishes slow analysis from
+# time spent descheduled on a busy host; a wall deadline still bounds latency.
+# Explicit caller deadlines remain strict and never receive an extension.
+member_budget_expired <- function(budget, clock) {
+    if (is.null(budget$scheduled_deadline) || !identical(budget$deadline, budget$scheduled_deadline)) {
+        return(clock[[3L]] > budget$deadline)
+    }
+    cpu <- max(0, clock[[1L]] + clock[[2L]] - budget$cpu_started)
+    if (clock[[3L]] >= budget$wall_deadline || cpu >= budget$cpu_limit) return(TRUE)
+    if (clock[[3L]] <= budget$deadline) return(FALSE)
+    budget$time_limit <- min(budget$cpu_limit, max(budget$time_limit * 2, cpu * 2))
+    budget$deadline <- budget$scheduled_deadline <- min(budget$wall_deadline,
+        clock[[3L]] + budget$time_limit - cpu)
+    FALSE
 }
 
 member_completion <- function(uri, workspace, document, point, snippet_support, limit) {
@@ -938,6 +998,17 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
         return(NULL)
     }
     value <- resolved$value
+    candidate <- member_possible_receiver(value, resolved$index, resolved$bindings, cursor$accessor)
+    possible <- !is.null(candidate)
+    common <- NULL
+    ambiguous <- character()
+    if (possible) {
+        sets <- candidate$sets
+        common <- candidate$members
+        if (!length(common)) return(list())
+        ambiguous <- candidate$ambiguous
+        value <- candidate$value
+    }
     index <- member_package_context(resolved$index, value$member_package)
     bindings <- resolved$bindings
     budget <- resolved$budget
@@ -946,6 +1017,7 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
         return(NULL)
     }
     members <- member_members(value, index, bindings, cursor$accessor)
+    if (possible) members <- members[names(members) %in% common]
     labels <- as.character(names(members))
     if (!length(labels)) {
         return(list())
@@ -968,8 +1040,13 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
         if (!is.null(shape)) shape <- member_r6_member_info(shape, value)
         key <- members[[label]]
         symbol <- member_symbol_info(label, shape, key, index)
+        if (label %in% ambiguous) {
+            symbol$signature <- symbol$function_id <- NULL
+            symbol$package <- NULL
+        }
         is_function <- !is.null(shape$function_expr) || !is.null(shape$result_shape) ||
             !is.null(shape$function_key) || (!is.null(key) && !is.na(key))
+        if (label %in% ambiguous && any(vapply(sets, function(set) is.na(set[[label]]), logical(1L)))) is_function <- FALSE
         inserted <- quote_completion_name(label)
         snippet <- is_function && call_snippet
         text <- if (snippet) paste0(escape_completion_snippet(inserted), "($0)") else inserted
@@ -978,11 +1055,11 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
         list(
             label = label, kind = if (is_function) CompletionItemKind$Method else CompletionItemKind$Field,
             detail = if (!is.null(signature)) {
-                signature
+                if (possible) paste0(signature, " [possible receiver]") else signature
             } else if (identical(cursor$accessor, "@")) {
                 paste0(label, ": ", paste(value$slot_types[[label]], collapse = " | "))
             } else {
-                "[static member]"
+                if (possible) "[possible member]" else "[static member]"
             }, sortText = label,
             documentation = if (!is.null(symbol$description)) list(kind = "markdown", value = symbol$description),
             filterText = label, insertTextFormat = if (snippet) InsertTextFormat$Snippet else InsertTextFormat$PlainText,
@@ -994,6 +1071,7 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
         )
     })
     if (length(matches) > limit || budget$exhausted) attr(items, "truncated") <- TRUE
+    if (possible) attr(items, "truncated") <- TRUE
     items
 }
 

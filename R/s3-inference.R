@@ -50,6 +50,13 @@ s3_model_classes <- list(
 # Class-only S3 analysis shares syntax, argument and source-index helpers with
 # member inference. Values are inert; document code and defaults are not run.
 s3_unknown <- function(reason = "unsupported") list(classes = NULL, type = NULL, reason = reason)
+
+s3_binding_cacheable <- function(value, depth = 0L) {
+    if (is.null(value) || depth > 12L || isTRUE(value$reason %in% c("budget", "binding_cycle")) ||
+            !is.null(value$fn) || !is.null(value$closure) || !is.null(value$info) ||
+            (isTRUE(value$known) && (!is.atomic(value$literal) || is.object(value$literal)))) return(FALSE)
+    all(vapply(value$fields, s3_binding_cacheable, logical(1L), depth + 1L))
+}
 s3_value <- function(
     classes, type = NULL, literal = NULL, known = FALSE, fields = NULL,
     fn = NULL, closure = NULL, origin = NULL, function_name = NULL, info = NULL, dimensions = NULL,
@@ -138,6 +145,7 @@ s3_analyzer <- function(context, env = new.env(parent = emptyenv())) {
     infer <- function(expr, scope = env, depth = 0L) {
         context$nodes <- context$nodes + 1L
         if (context$nodes > 20000L || depth > 64L || proc.time()[[3L]] > context$deadline) {
+            context$exhausted <- TRUE
             return(s3_unknown("budget"))
         }
         recur <- function(x, e = scope) infer(x, e, depth + 1L)

@@ -298,6 +298,52 @@ options(languageserver.snippet_support = FALSE)
 
 will turn off snippet support globally. LSP configuration settings are always overriden by `options()`.
 
+Package member models, startup datasets, S3 catalogs, documentation summaries and
+rendered help share a persistent cache under `tools::R_user_dir("languageserver", "cache")`.
+It keeps up to 512 entries and 256 MiB, removing older entries as needed. Package
+file, loaded namespace, dependency, registry, R version and server implementation changes invalidate
+cached results; incompatible or corrupt entries are rebuilt. Document-dependent
+inference remains local to the current document and its metadata revision.
+File contents are checksummed on first use and after changes to file identity,
+size, modification time or change time; warm lookups reuse the checksum. Help
+uses the actual database location, and checks its identity before using memory
+or disk results. Immutable help database copies live under
+`file.path(tempdir(), "languageserver-help")` for the session, avoiding stale
+bytes in R's own lazy-load cache without relying on internal R APIs. Rendered
+help and documentation memory caches are bounded. Server keys cover the cache
+schema, loaded R/native implementation, functions and inert constants, so
+incompatible server versions or development builds do not share entries.
+Conversions with unresolved input classes can offer the common members of known
+method results as suggestions, marked `[possible receiver]` or `[possible member]`.
+These suggestions do not establish the receiver's type; known conflicting method
+outcomes and local method overrides suppress them. Signature help and hover also
+use unambiguous common members and display a note when the receiver is uncertain.
+Possible results propagate through member calls, assignments and aliases so
+completion and provider information remain available on derived objects.
+Set `options(languageserver.package_cache_dir = "/path/to/cache")` or the
+`R_LANGSVR_PACKAGE_CACHE_DIR` environment variable to choose another cache root;
+set `options(languageserver.package_cache_dir = FALSE)` to disable disk caching.
+These options are also passed to metadata workers. Cold member analysis starts
+with a 250 ms allowance and extends the same traversal as needed, up to two
+seconds of CPU time and five seconds elapsed. This allows for CPU contention
+without restarting analysis. Node and depth bounds remain in place. Completed
+receivers, including uncertain results, are reused across completion, signature
+help and hover. Completed binding summaries also survive edits to member names,
+call arguments and following code, and can serve requests at different cursor
+positions. Source-prefix fingerprints are prepared by the parser; preceding
+code, attachment-context or package-metadata changes invalidate those summaries.
+They remain in a bounded in-memory cache for the current document. Source
+closures and mutable object identities are excluded from reuse across edits.
+
+Shared analysis caches also reuse completed S3 class summaries across requests
+and edits, checking package metadata, attachment/registration context and exact
+peer-source contents. Budget-exhausted and mutable scratch-state results are
+excluded. Local signature and documentation facts use their exact source text
+as keys and survive reparses; persistent parse workers reuse unchanged comment
+blocks. Package NAMESPACE declarations are read for current content and reuse
+their parsed facts when that content is unchanged. These bounded caches are
+allocated on demand and store serialized results for independent requests.
+
 Automatic indexing recognizes a package by its `DESCRIPTION` with a `Package`
 field and its `R/` directory. Package indexing runs in the background and
 prioritizes package sources. A workspace containing standalone scripts starts

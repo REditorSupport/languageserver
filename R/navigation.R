@@ -133,8 +133,7 @@ navigation_signature <- function(document, parse_data, row, symbol) {
     closing <- syntax$function_close[[row]]
     text <- get_range_text(document$content,
         syntax$line1[[row]], syntax$col1[[row]], syntax$line2[[closing]], syntax$col2[[closing]])
-    expr <- str2expression(c(text, "NULL"))
-    found <- get_signature(symbol, expr[[1L]])
+    found <- analysis_function_header(document, text, symbol)$signature
     assign(key, found, envir = index$cache)
     found
 }
@@ -146,7 +145,8 @@ navigation_documentation <- function(document, parse_data, line) {
     key <- paste0("documentation:", line)
     if (exists(key, envir = cache, inherits = FALSE)) return(get(key, envir = cache))
     first <- detect_comments(document$content, line - 1L) + 1L
-    doc <- if (first < line) convert_comment_to_documentation(document$content[seq.int(first, line - 1L)])
+    comments <- if (first < line) document$content[seq.int(first, line - 1L)] else character()
+    doc <- analysis_documentation(document, comments)
     assign(key, doc, envir = cache)
     doc
 }

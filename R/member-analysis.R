@@ -45,6 +45,49 @@ member_history_position <- function(history, at) {
     hi
 }
 
+# Incremental source fingerprints are prepared with the parse, not rebuilt by
+# providers. Each source segment is hashed once. Invalid virtual source ranges
+# disable reuse rather than making recovery fail.
+member_source_prefix <- function(content, start, end, prefix) {
+    if (is.null(prefix) || length(end) != 2L || anyNA(end) || !member_before(start, end) ||
+            end[[1L]] < 0L || end[[1L]] >= length(content) || end[[2L]] < 0L ||
+            is.na(content[[end[[1L]] + 1L]]) ||
+            end[[2L]] > nchar(content[[end[[1L]] + 1L]])) return(NULL)
+    lines <- content[seq.int(start[[1L]] + 1L, end[[1L]] + 1L)]
+    if (anyNA(lines)) return(NULL)
+    lines[[length(lines)]] <- substr(lines[[length(lines)]], 1L, end[[2L]])
+    lines[[1L]] <- substring(lines[[1L]], start[[2L]] + 1L)
+    digest::digest(list(prefix, start, end, lines), algo = "xxhash64")
+}
+
+member_document_cache_revision <- function(document, metadata) {
+    revision <- if (is.null(metadata)) 0L else if (is.function(metadata$revision)) metadata$revision() else NULL
+    identity <- list(metadata = if (is.function(metadata$identity)) metadata$identity() else metadata,
+        revision = revision)
+    document$member_binding_cache <- analysis_cache(document, "member-bindings", identity, max_bytes = 4 * 1024^2)
+    if (!identical(document$member_revision, identity)) {
+        document$member_receivers$clear()
+        document$member_revision <- identity
+    }
+    revision
+}
+
+# Cross-edit summaries must not capture lexical positions, source closures or
+# mutable object identities. Package function keys are tied to the metadata
+# revision; uncertain candidates have the exact same source/context key.
+member_binding_cacheable <- function(value, depth = 0L) {
+    if (is.null(value)) return(TRUE)
+    if (depth > 8L || !is.null(value$function_expr) || !is.null(value$closure) ||
+            !is.null(value$binding_expr) || !is.null(value$binding_env) ||
+            !is.null(value$r6_class) || !is.null(value$r6_identity) || !is.null(value$r6_role) ||
+            !is.null(value$s7_descriptor) || !is.null(value$s7_generator) || !is.null(value$s4_generator) ||
+            (!is.null(value$function_key) && is.null(value$metadata)) ||
+            (isTRUE(value$known_literal) && (!is.atomic(value$literal) || is.object(value$literal)))) return(FALSE)
+    children <- c(value$fields, value$slots, value$elements, value$possible_returns,
+        value[c("receiver_value", "element_shape", "result_shape", "r6_private", "r6_super", "r6_self")])
+    all(vapply(children, member_binding_cacheable, logical(1L), depth + 1L))
+}
+
 # Lazy local values keep the lexical state from before the assignment. The
 # memo belongs to this recovered scope, never to a package-wide summary.
 member_local_binding <- function(expr, bindings, referenced = member_syntax_names(expr), lookup = NULL) {
@@ -94,8 +137,16 @@ member_completion_value <- function(value, index, budget) {
 }
 
 member_receiver_cacheable <- function(value, index, budget) {
-    if (isTRUE(budget$exhausted) || !length(value$type)) return(FALSE)
+    if (isTRUE(budget$exhausted) || (!length(value$type) && !length(value$possible_returns))) return(FALSE)
     if (!isTRUE(budget$transient)) return(TRUE)
+    if (!length(value$type)) {
+        return(all(vapply(value$possible_returns, member_receiver_cacheable, logical(1L), index, budget)))
+    }
+    # Alias histories can start in a generic document context. The declared
+    # native surface belongs to the receiver's namespace, regardless of which
+    # package was selected while recovering the cursor.
+    owner <- member_package_context(index, value$member_package)
+    if (is.null(owner)) return(FALSE)
     # Recursive argument analysis must not preserve partial instance fields.
     # A native-backed class-only result has a complete declared member surface
     # independent of argument values; retain just that proven surface.
@@ -103,9 +154,25 @@ member_receiver_cacheable <- function(value, index, budget) {
         is.null(value$slots) && is.null(value$function_expr) && is.null(value$closure) &&
         is.null(value$binding_expr) && is.null(value$elements) && is.null(value$element_shape) &&
         is.null(value$result_shape) && is.null(value$r6_class) && !isTRUE(value$open) &&
-        (any(index$members[[value$type]] %in% index$native_factories, na.rm = TRUE) ||
-            any(vapply(index$properties[[value$type]], function(property) {
+        (any(owner$members[[value$type]] %in% owner$native_factories, na.rm = TRUE) ||
+            any(vapply(owner$properties[[value$type]], function(property) {
                 length(property$type) == 1L &&
-                    any(index$members[[property$type]] %in% index$native_factories, na.rm = TRUE)
+                    any(owner$members[[property$type]] %in% owner$native_factories, na.rm = TRUE)
             }, logical(1L))))
+}
+
+member_receiver_cache_value <- function(value, index, budget) {
+    if (member_receiver_cacheable(value, index, budget)) return(value)
+    if (isTRUE(budget$exhausted) || !isTRUE(budget$transient) ||
+            length(value$type) || !length(value$possible_returns)) return(NULL)
+    # A possible native result may carry argument-dependent instance fields.
+    # Its declared surface is still useful, but those partial fields cannot be
+    # retained. The existing native-surface check verifies every projection.
+    candidates <- lapply(value$possible_returns, function(candidate) {
+        candidate$fields <- NULL
+        if (member_receiver_cacheable(candidate, index, budget)) candidate else NULL
+    })
+    if (any(vapply(candidates, is.null, logical(1L)))) return(NULL)
+    value$possible_returns <- candidates
+    value
 }

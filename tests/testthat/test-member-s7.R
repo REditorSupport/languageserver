@@ -167,9 +167,10 @@ test_that("S7 constructor and property providers work on first requests after ed
     uri <- path_to_uri(path)
     code <- c("library(S7)", "Dog <- new_class(\"Dog\", properties=list(name=class_character, age=class_numeric))", "lola <- Dog(name=\"Lola\", age=11)")
     did_open(client, path, text = c(code, "lola"))
-    # Instrumented namespace workers can take over 30 seconds under parallel covr.
-    # Wait for metadata before checking the first response to each edit.
-    timeout <- if (identical(Sys.getenv("R_COVR"), "true")) 60 else 10
+    # Cold metadata workers share the CI runner with other test servers. This
+    # barrier prepares the fixture; subsequent edits retain the ordinary
+    # request timeout and still check their first response without retries.
+    timeout <- if (identical(Sys.getenv("R_COVR"), "true")) 60 else 30
     expected <- "Dog(name = character(0), age = integer(0))"
     ready <- respond_signature(client, path, c(2L, 12L), timeout = timeout,
         retry_when = function(result) !identical(result$signatures[[1L]]$label, expected))

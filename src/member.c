@@ -2,7 +2,17 @@
 
 #include <limits.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
+
+/* Session-local lookup only. The cache compares body/formals on every hit,
+ * so address reuse cannot identify a function with different syntax. */
+SEXP member_function_key_c(SEXP fn) {
+    if (TYPEOF(fn) != CLOSXP) Rf_error("Expected a closure");
+    char key[2 + 2 * sizeof(void *) + 1];
+    snprintf(key, sizeof(key), "%p", (void *) fn);
+    return Rf_mkString(key);
+}
 
 typedef struct {
     SEXP *nodes;

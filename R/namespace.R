@@ -30,8 +30,9 @@ PackageNamespace <- R6::R6Class("PackageNamespace",
             fn <- get(funct, envir = private$namespace)
             if (!is.function(fn)) return(NULL)
             cached <- private$function_metadata$get(funct, NULL)
+            context <- lapply(c("width", "digits", "scipen", "deparse.cutoff"), getOption)
             # Identity also detects assignInNamespace()/trace() replacements.
-            if (!is.null(cached) && identical(cached$fn, fn)) return(cached)
+            if (!is.null(cached) && identical(cached$fn, fn) && identical(cached$context, context)) return(cached)
             args <- args(fn)
             sig <- NULL
             if (!is.null(args)) {
@@ -40,7 +41,7 @@ PackageNamespace <- R6::R6Class("PackageNamespace",
                 sig <- paste0(trimws(sig, which = "left"), collapse = "")
                 sig <- gsub("^function\\s*", funct, sig)
             }
-            value <- list(fn = fn, signature = sig,
+            value <- list(fn = fn, context = context, signature = sig,
                 formals = if (is.null(args)) NULL else
                     formals(if (is.primitive(fn)) args else fn))
             private$function_metadata$set(funct, value)
@@ -48,10 +49,9 @@ PackageNamespace <- R6::R6Class("PackageNamespace",
         },
 
         function_stub = function(funct) {
-            if (private$function_stubs$has(funct)) {
-                return(private$function_stubs$get(funct))
-            }
             fn <- tryCatch(get0(funct, envir = private$namespace), error = function(e) NULL)
+            previous <- private$function_stubs$get(funct, NULL)
+            if (!is.null(previous) && identical(previous$fn, fn)) return(previous$value)
             stub <- if (!is.function(fn)) {
                 NULL
             } else if (is.primitive(fn)) {
@@ -61,7 +61,7 @@ PackageNamespace <- R6::R6Class("PackageNamespace",
                 formals(fun) <- formals(fn)
                 utils::removeSource(fun)
             }
-            private$function_stubs$set(funct, stub)
+            private$function_stubs$set(funct, list(fn = fn, value = stub))
             stub
         }
     ),
@@ -91,7 +91,7 @@ PackageNamespace <- R6::R6Class("PackageNamespace",
             private$function_metadata <- collections::dict()
             private$function_stubs <- collections::dict()
             private$lazydata <- as.character(names(.getNamespaceInfo(ns, "lazydata")))
-            private$documentation <- collections::dict()
+            private$documentation <- ByteLruCache$new(2 * 1024^2, 128L)
         },
 
         exists = function(objname, exported_only = TRUE) {
@@ -154,10 +154,19 @@ PackageNamespace <- R6::R6Class("PackageNamespace",
         get_documentation = function(topic) {
             private$ensure_namespace()
             pkgname <- self$package_name
-            if (private$documentation$has(topic)) {
-                return(private$documentation$get(topic))
-            }
+            previous <- private$documentation$get(topic, NULL)
+            context <- list(libraries = .libPaths(), parser = get_help_rd, converter = convert_doc_string)
+            if (identical(previous$context, context) && !is.null(previous$identity) &&
+                    identical(previous$identity, tryCatch(package_metadata_help_identity(previous$hfile, pkgname),
+                            error = function(e) NULL))) return(previous$value)
             hfile <- utils::help((topic), (pkgname))
+            identity <- tryCatch(package_metadata_help_identity(hfile, pkgname), error = function(e) NULL)
+            cache_path <- if (!is.null(identity)) package_metadata_cache_path("documentation", identity, topic)
+            cached <- package_metadata_cache_read(cache_path, identity)
+            if (!is.null(cached)) {
+                private$documentation$set(topic, list(context = context, identity = identity, hfile = hfile, value = cached))
+                return(cached)
+            }
 
             if (length(hfile) > 0) {
                 doc <- get_help_rd(hfile)
@@ -188,7 +197,8 @@ PackageNamespace <- R6::R6Class("PackageNamespace",
             } else {
                 value <- list()
             }
-            private$documentation$set(topic, value)
+            private$documentation$set(topic, list(context = context, identity = identity, hfile = hfile, value = value))
+            package_metadata_cache_write(cache_path, identity, value)
             value
         },
 

@@ -152,8 +152,10 @@ member_s4_descriptor <- function(name, index, bindings, package = NULL) {
 member_s4_shape <- function(name, index, bindings, package = NULL, trail = character(), budget = NULL) {
     if (!is.null(budget)) {
         budget$remaining <- budget$remaining - 1L
-        if (budget$remaining < 0L || (!is.null(budget$deadline) && proc.time()[[3L]] > budget$deadline)) {
+        timed_out <- !is.null(budget$deadline) && member_budget_expired(budget, proc.time())
+        if (budget$remaining < 0L || timed_out) {
             budget$exhausted <- TRUE
+            if (timed_out) budget$timed_out <- TRUE
             return(member_value(reason = "budget"))
         }
     }

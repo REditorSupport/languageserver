@@ -1,5 +1,38 @@
 # languageserver 0.3.20
 
+- Preserve member completion for Polars conversions such as
+  `dt <- as_polars_df(iris)` and for `pl$` after calls using the converted frame.
+  Prepare bounded S3 method return summaries with their owning namespace.
+  Retain namespace ownership through chained methods and nested argument
+  expressions. Extend cold member analysis in place from 250 ms up to two
+  seconds of CPU time, allowing up to five seconds elapsed on busy hosts.
+  Retain node and depth bounds and cache completed uncertain receivers for
+  repeated completion, signature help and hover requests. Offer
+  common known method members as possible-receiver suggestions when a
+  conversion's input class is unresolved, without claiming a definite type.
+  Share these possible receivers with signature help and hover when the member
+  implementation is unambiguous, and display an uncertainty note. Preserve
+  possible results through member calls and subsequent assignments and aliases.
+  Reuse completed binding summaries across member-name and argument edits,
+  following-code changes and different cursor positions. Validate unchanged
+  preceding source and package attachment context without retaining source
+  closures or mutable object identities across edits.
+
+- Share bounded semantic analysis caches across member and S3 inference,
+  source signature/documentation providers and package NAMESPACE parsing.
+  Reuse completed S3 binding summaries across edits and cursor positions while
+  validating peer-source contents, metadata and registration context. Exclude
+  exhausted and scratch-state results from reuse. Retain exact-text signature
+  and documentation facts across reparses, including unchanged comment blocks
+  in persistent parse workers.
+
+- Persist package member models, startup datasets, S3 catalogs, documentation
+  summaries and rendered help in a shared bounded cache. Reuse unchanged models
+  across saves and server sessions; invalidate changes to package files,
+  loaded namespace values, dependencies, registered methods, cache format or
+  server implementation. Verify serialized payload checksums before restoring
+  cached values.
+
 - Avoid a server crash when completion, hover or signature help is requested
   inside `function()`, `if`, `for` or `while` while package metadata is loading.
   Report errors from queued request readiness checks without stopping the server.

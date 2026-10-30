@@ -76,7 +76,7 @@ test_that("Lazy lexical locals evaluate only dependencies and respect alias hist
     expect_lt(20000L - resolved$budget$remaining, 20L)
     expect_false(resolved$budget$exhausted)
     deep <- member_value(type = "list", fields = list(a = member_literal(1)))
-    for (i in seq_len(100L)) deep <- member_local_binding(quote(x), list(x = deep))
+    for (i in seq_len(256L)) deep <- member_local_binding(quote(x), list(x = deep))
     budget <- member_request_budget()
     expect_identical(member_local_value(deep, member_generic_index(""), budget)$reason, "budget")
     expect_true(budget$exhausted)
@@ -217,11 +217,49 @@ test_that("Recursive arguments cache only a proven native class surface", {
     budget$transient <- TRUE
     value <- member_value(type = "Frame")
     expect_true(member_receiver_cacheable(value, index, budget))
+    possible <- member_value(reason = "possible_result", possible_returns = list(value))
+    expect_true(member_receiver_cacheable(possible, index, budget))
     value$fields <- list(partial = member_value(reason = "recursion"))
     expect_false(member_receiver_cacheable(value, index, budget))
+    possible$possible_returns <- list(value)
+    expect_false(member_receiver_cacheable(possible, index, budget))
+    cached <- member_receiver_cache_value(possible, index, budget)
+    expect_null(cached$type)
+    expect_identical(cached$reason, "possible_result")
+    expect_identical(cached$possible_returns[[1L]]$type, "Frame")
+    expect_null(cached$possible_returns[[1L]]$fields)
+    value$r6_class <- list(name = "Mutable")
+    possible$possible_returns <- list(value)
+    expect_null(member_receiver_cache_value(possible, index, budget))
     budget$exhausted <- TRUE
     expect_false(member_receiver_cacheable(member_value(type = "Frame"), index, budget))
     expect_false(member_receiver_cacheable(member_value(reason = "recursion"), index, budget))
+})
+
+test_that("Native surface reuse validates the receiver namespace in a generic context", {
+    owner <- member_generic_index("native_run <- function() .Call('never')")
+    owner$package <- "nativeowner"
+    owner$members$Frame <- c(run = "native_run")
+    owner$native_factories <- "native_run"
+    index <- member_generic_index("")
+    index$namespace_indices <- list(nativeowner = as.list(owner))
+    budget <- member_request_budget()
+    budget$transient <- TRUE
+    value <- member_value(type = "Frame", member_package = "nativeowner",
+        fields = list(partial = member_value(reason = "recursion")))
+    possible <- member_value(reason = "possible_result", possible_returns = list(value))
+    expect_false(member_receiver_cacheable(possible, index, budget))
+    cached <- member_receiver_cache_value(possible, index, budget)
+    expect_identical(cached$possible_returns[[1L]]$type, "Frame")
+    expect_identical(cached$possible_returns[[1L]]$member_package, "nativeowner")
+    expect_null(cached$possible_returns[[1L]]$fields)
+    expect_true(member_binding_cacheable(cached))
+    index$namespace_indices$nativeowner$native_factories <- character()
+    expect_null(member_receiver_cache_value(possible, index, budget))
+    index$members <- owner$members
+    index$native_factories <- owner$native_factories
+    index$namespace_indices <- list()
+    expect_null(member_receiver_cache_value(possible, index, budget))
 })
 
 test_that("Only standalone final ordinary identifier edits bypass parse waits", {

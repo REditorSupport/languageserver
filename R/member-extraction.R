@@ -216,6 +216,7 @@ member_package_index <- function(input) {
     index$definitions <- input$definitions
     index$locations <- input$locations
     index$exports <- input$exports
+    index$generic_external <- input$generic_external
     index$subset_registry <- input$subset_registry
     index$subset_registry_complete <- isTRUE(input$subset_registry_complete)
     index$registries <- if (!is.null(input$registries)) input$registries else member_source_registries(input)
@@ -587,6 +588,7 @@ member_package_index <- function(input) {
 # which repeatedly infer argument conversion, dispatch and delegated methods.
 member_prepare_returns <- function(index, max_nodes = 40000L, max_bytes = 1024^2) {
     index$method_results <- list()
+    index$generic_returns <- list()
     backed <- names(index$properties)[vapply(index$properties, function(fields) {
         any(vapply(fields, function(value) {
             length(value$type) == 1L &&
@@ -596,14 +598,15 @@ member_prepare_returns <- function(index, max_nodes = 40000L, max_bytes = 1024^2
     backed <- intersect(backed, names(index$classes))
     if (!length(backed)) return(invisible(NULL))
     candidates <- new.env(hash = TRUE, parent = emptyenv())
-    add <- function(keys, type = NULL) {
+    add <- function(keys, type = NULL, generic = NULL) {
         for (key in unique(keys[!is.na(keys)])) {
             fn <- member_definition(index$definitions, key)
             if (!member_head(fn, "function")) next
             cost <- length(member_syntax_names(fn)) + length(fn[[2L]])
-            if (cost < 6L) next
+            if (cost < 6L && is.null(generic)) next
             id <- if (is.null(type)) key else paste(type, key, sep = "|")
-            candidates[[id]] <- list(key = key, type = type, fn = fn)
+            item_generic <- if (is.null(generic)) candidates[[id]]$generic else generic
+            candidates[[id]] <- list(key = key, type = type, fn = fn, generic = item_generic)
         }
     }
     add(names(index$definitions)[vapply(index$definitions, function(fn) {
@@ -612,6 +615,13 @@ member_prepare_returns <- function(index, max_nodes = 40000L, max_bytes = 1024^2
     for (key in index$exports) {
         add(key)
         add(unname(index$members[[key]]))
+        fn <- member_definition(index$definitions, key)
+        if (!member_head(fn, "function")) next
+        generic <- s3_generic_descriptor(fn)
+        if (!is.null(generic)) {
+            methods <- names(index$definitions)[startsWith(names(index$definitions), paste0(generic$name, "."))]
+            add(methods, generic = generic$name)
+        }
     }
     types <- intersect(names(index$members), names(index$classes))
     types <- types[order(vapply(index$members[types], length, integer(1L)), types)]
@@ -681,6 +691,32 @@ member_prepare_returns <- function(index, max_nodes = 40000L, max_bytes = 1024^2
             context = list(key = key, formals = names(fn[[2L]]), actuals = list()))
         used <- before - budget$remaining
         state$remaining <- state$remaining - used
+        if (!is.null(item$generic) && !budget$exhausted) {
+            candidate <- result
+            body <- fn[[3L]]
+            if (member_head(body, "{") && length(body) == 2L) body <- body[[2L]]
+            simple <- is.symbol(body) || member_head(body, "$") || member_head(body, "@")
+            if (!length(candidate$type) && simple && state$remaining > 0L) {
+                class <- substring(key, nchar(item$generic) + 2L)
+                if (class != "default") {
+                    env[names(fn[[2L]])[[1L]]] <- list(member_value(type = class,
+                            classes = member_lookup(index$classes, class)))
+                    budget$remaining <- min(limit, state$remaining)
+                    before <- budget$remaining
+                    candidate <- member_infer(fn[[3L]], preparation_index, env, budget = budget,
+                        context = list(key = key, formals = names(fn[[2L]]), actuals = list()))
+                    state$remaining <- state$remaining - (before - budget$remaining)
+                }
+            }
+            if (!budget$exhausted && length(candidate$type) && !identical(candidate$type, ".never")) {
+                value <- if (length(candidate$type) == 1L && candidate$type %in% backed) {
+                    member_value(type = candidate$type, classes = candidate$classes, member_package = index$package)
+                } else {
+                    candidate
+                }
+                index$generic_returns[[item$generic]][key] <- list(value)
+            }
+        }
         if (!budget$exhausted &&
                 !isTRUE(result$open) && length(result$type) == 1L && result$type %in% backed) {
             # A wrapper may add instance fields beyond its declarative class.
@@ -689,7 +725,7 @@ member_prepare_returns <- function(index, max_nodes = 40000L, max_bytes = 1024^2
             id <- if (is.null(type)) key else paste(type, key, sep = "|")
             # Native-backed declarative classes expose their members in the
             # index. Argument-dependent fields must not enter a universal summary.
-            value <- member_value(type = result$type, classes = result$classes)
+            value <- member_value(type = result$type, classes = result$classes, member_package = index$package)
             size <- as.numeric(utils::object.size(stats::setNames(list(value), id)))
             if (state$bytes + size <= max_bytes) {
                 index$method_results[id] <- list(value)
@@ -707,15 +743,31 @@ member_prepare_returns <- function(index, max_nodes = 40000L, max_bytes = 1024^2
     }
     preparation_index$method_results <- index$method_results
     candidates <- Filter(function(item) length(item$fn[[2L]]) < 10L, candidates)
-    unfinished <- list()
-    for (item in candidates) {
-        if (state$remaining <= 0L || state$bytes >= max_bytes) break
-        if (prepare(item, 64L)) unfinished[[length(unfinished) + 1L]] <- item
+    # Finish exported factories and their S3 methods before large member
+    # registries consume the remaining budget with their initial probes.
+    for (exported in c(TRUE, FALSE)) {
+        group <- Filter(function(item) identical(is.null(item$type), exported), candidates)
+        unfinished <- list()
+        for (item in group) {
+            if (state$remaining <= 0L || state$bytes >= max_bytes) break
+            if (prepare(item, 64L)) unfinished[[length(unfinished) + 1L]] <- item
+        }
+        for (item in unfinished) {
+            if (state$remaining <= 0L || state$bytes >= max_bytes) break
+            prepare(item, 2048L)
+        }
     }
-    for (item in unfinished) {
-        if (state$remaining <= 0L || state$bytes >= max_bytes) break
-        prepare(item, 2048L)
+    # Suggestions describe known method outcomes, not a definite dispatch.
+    # Keep structural counterexamples so only their common members are offered.
+    for (generic in names(index$generic_returns)) {
+        values <- index$generic_returns[[generic]]
+        if (generic %in% index$generic_external || !any(vapply(values, function(value) any(value$type %in% backed), logical(1L)))) {
+            index$generic_returns[[generic]] <- NULL
+        } else {
+            index$generic_returns[[generic]] <- values[!duplicated(lapply(values, member_shape_key))]
+        }
     }
+    if (as.numeric(utils::object.size(index$generic_returns)) > max_bytes) index$generic_returns <- list()
     index$return_definitions <- digest::digest(index$definitions, algo = "xxhash64")
     invisible(NULL)
 }
