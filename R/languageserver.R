@@ -130,6 +130,14 @@ LanguageServer <- R6::R6Class("LanguageServer",
                         resolve_task(self, uri, doc, normalize_package_request(parsed$packages),
                             namespace_packages = parsed$member_data$packages))
                 }
+                if (isTRUE(doc$is_open) && !is.null(self$diagnostics_task_manager)) {
+                    self$text_sync(uri, doc, run_diagnostics = TRUE)
+                }
+            } else if (!is.null(self$parse_task_manager)) {
+                # Parse retries belong to the workspace that queued them. A
+                # moved buffer needs its own task even when its old worker is
+                # still running, so a late failure cannot strand providers.
+                self$text_sync(uri, doc, run_diagnostics = isTRUE(doc$is_open), parse = TRUE)
             }
         },
         finalize = function() {
