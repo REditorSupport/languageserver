@@ -979,10 +979,12 @@ member_request_budget <- function() {
 # time spent descheduled on a busy host; a wall deadline still bounds latency.
 # Explicit caller deadlines remain strict and never receive an extension.
 member_budget_expired <- function(budget, clock) {
-    if (clock[[3L]] <= budget$deadline) return(FALSE)
-    if (is.null(budget$scheduled_deadline) || !identical(budget$deadline, budget$scheduled_deadline)) return(TRUE)
+    if (is.null(budget$scheduled_deadline) || !identical(budget$deadline, budget$scheduled_deadline)) {
+        return(clock[[3L]] > budget$deadline)
+    }
     cpu <- max(0, clock[[1L]] + clock[[2L]] - budget$cpu_started)
     if (clock[[3L]] >= budget$wall_deadline || cpu >= budget$cpu_limit) return(TRUE)
+    if (clock[[3L]] <= budget$deadline) return(FALSE)
     budget$time_limit <- min(budget$cpu_limit, max(budget$time_limit * 2, cpu * 2))
     budget$deadline <- budget$scheduled_deadline <- min(budget$wall_deadline,
         clock[[3L]] + budget$time_limit - cpu)

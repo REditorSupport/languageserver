@@ -35,31 +35,90 @@ package_metadata_identity <- function(package, lib_paths = .libPaths(), context 
         files = package_metadata_file_fingerprint(files), context = context)
 }
 
+package_metadata_function_signature <- local({
+    cache <- NULL
+    previous <- NULL
+    function(fn) {
+        context <- list(syntax = member_function_syntax, formatter = deparse1,
+            options = lapply(c("digits", "scipen", "deparse.cutoff"), getOption))
+        if (is.null(cache) || !identical(context, previous)) {
+            cache <<- ByteLruCache$new(64 * 1024^2, 4096L)
+            previous <<- context
+        }
+        key <- .Call("member_function_key_c", fn, PACKAGE = "languageserver")
+        record <- cache$get(key)
+        arguments <- formals(fn)
+        code <- body(fn)
+        if (!is.null(record) && identical(record$arguments, arguments) && identical(record$code, code)) return(record$value)
+        value <- deparse1(member_function_syntax(fn))
+        # Keep syntax, rather than closure environments. Compare it on hits
+        # even if an evicted/deleted function's address has been reused.
+        cache$set(key, list(arguments = arguments, code = code, value = value))
+        value
+    }
+})
+
 package_metadata_signature <- function(value) {
+    if (typeof(value) == "closure") return(package_metadata_function_signature(value))
     if (is.call(value) || is.expression(value) || is.pairlist(value)) return(deparse1(value))
     if (is.list(value)) return(lapply(value, package_metadata_signature))
     value
 }
 
-package_metadata_namespace_state <- function(ns) {
+package_metadata_validation_record <- function(token, name) package_metadata_signature(token)
+
+# Worker-local validation tokens may contain live function references. Inspect
+# mutable bindings on every pass, but normalize only changed facts. Nothing in
+# this memo is written to disk or used to execute package/document methods.
+package_metadata_validation_records <- local({
+    cache <- NULL
+    function(key, tokens, context, normalize = package_metadata_validation_record) {
+        if (is.null(cache)) cache <<- ByteLruCache$new(32 * 1024^2, 64L)
+        if (is.null(tokens)) {
+            cache$remove(key)
+            return(NULL)
+        }
+        context <- list(inputs = context, normalize = normalize, signature = package_metadata_signature)
+        previous <- cache$get(key)
+        if (!identical(previous$context, context)) previous <- NULL
+        if (!is.null(previous) && identical(previous$tokens, tokens)) return(previous$records)
+        records <- stats::setNames(lapply(names(tokens), function(name) {
+            token <- tokens[[name]]
+            if (!is.null(previous$records[[name]]) && identical(previous$tokens[[name]], token)) return(previous$records[[name]])
+            normalize(token, name)
+        }), names(tokens))
+        cache$set(key, list(context = context, tokens = tokens, records = records))
+        records
+    }
+})
+
+package_metadata_namespace_record <- function(token, name) {
+    list(name = name, kind = token$kind,
+        value = digest::digest(package_metadata_signature(token$value), algo = "xxhash64"))
+}
+
+package_metadata_namespace_state <- function(ns, package = unname(getNamespaceName(ns))) {
     # Cache keys must describe the loaded values too: .onLoad(), tracing and
     # package reinstalls can change them without changing an export's name.
     dollar_context <- member_snapshot_dollar_context(ns)
     modes <- member_s7_capabilities()
-    records <- lapply(ls(ns, all.names = TRUE), function(name) {
-        record <- member_binding(ns, name, materialize = TRUE)
+    materialize <- isNamespace(ns)
+    binding_names <- ls(ns, all.names = TRUE)
+    tokens <- stats::setNames(lapply(binding_names, function(name) {
+        record <- member_binding(ns, name, materialize = materialize)
         value <- record[[2L]]
         snapshot <- if (identical(record[[1L]], "value") && !is.object(value) &&
                 is.atomic(value) && length(value) <= 256L) {
             value
         } else {
             member_snapshot(value, max_bindings = 50000L, s7_modes = modes, lookup_scope = ns,
-                dollar_context = dollar_context)
+                dollar_context = dollar_context, function_syntax = package_metadata_function_signature)
         }
-        list(name = name, kind = record[[1L]], value = digest::digest(package_metadata_signature(snapshot), algo = "xxhash64"))
-    })
-    digest::digest(list(bindings = records, subsets = member_subset_registry(ns, unname(getNamespaceName(ns)))),
-        algo = "xxhash64")
+        list(kind = record[[1L]], value = snapshot)
+    }), binding_names)
+    records <- package_metadata_validation_records(paste0(package, ":members"), tokens,
+        list(namespace = ns, snapshot = member_snapshot), package_metadata_namespace_record)
+    digest::digest(list(bindings = unname(records), subsets = member_subset_registry(ns, package)), algo = "xxhash64")
 }
 
 package_metadata_live_identity <- function(package, lib_paths = .libPaths(), context = NULL) {

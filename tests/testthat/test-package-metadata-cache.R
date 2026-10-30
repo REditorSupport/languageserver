@@ -162,6 +162,78 @@ test_that("Content fingerprints are reused and detect replacements preserving si
     expect_identical(computed, 1L)
 })
 
+test_that("Namespace validation reuses unchanged canonical facts and inspects mutable bindings", {
+    ns <- new.env(parent = baseenv())
+    ns$target <- function(x) x
+    environment(ns$target) <- ns
+    ns$registry <- new.env(parent = emptyenv())
+    ns$registry$value <- 1
+    captured <- new.env(parent = baseenv())
+    captured$kind <- "first"
+    ns$captured <- function(x) list(kind = kind)
+    environment(ns$captured) <- captured
+    getter <- function() {
+        writeLines("getter", marker)
+        stop("must not invoke getter")
+    }
+    marker <- withr::local_tempfile()
+    environment(getter) <- list2env(list(marker = marker), parent = baseenv())
+    makeActiveBinding("active", getter, ns)
+    delayedAssign("deferred", stop("must not force promise"), assign.env = ns)
+    calls <- 0L
+    normalize <- package_metadata_signature
+    testthat::local_mocked_bindings(package_metadata_signature = function(value) {
+        calls <<- calls + 1L
+        normalize(value)
+    }, .package = "languageserver")
+    resolve <- function() package_metadata_namespace_state(ns, "validationfixture")
+    first <- resolve()
+    initial <- calls
+    calls <- 0L
+    expect_identical(resolve(), first)
+    expect_identical(calls, 0L)
+    captured$kind <- "other"
+    expect_false(identical(resolve(), first))
+    expect_gt(calls, 0L)
+    expect_lt(calls, initial)
+    previous <- resolve()
+    ns$registry$value <- 2
+    expect_false(identical(resolve(), previous))
+    previous <- resolve()
+    ns$target <- function(revised) revised
+    environment(ns$target) <- ns
+    expect_false(identical(resolve(), previous))
+    replacement <- new.env(parent = baseenv())
+    replacement$target <- ns$target
+    expect_false(identical(package_metadata_namespace_state(replacement, "validationfixture"), resolve()))
+    expect_false(file.exists(marker))
+})
+
+test_that("Function syntax validation reuses closures and refreshes replacements and formatting", {
+    calls <- 0L
+    syntax <- member_function_syntax
+    testthat::local_mocked_bindings(member_function_syntax = function(fn) {
+        calls <<- calls + 1L
+        syntax(fn)
+    }, .package = "languageserver")
+    fn <- function(value = 1e5) value
+    withr::local_options(scipen = 0)
+    first <- package_metadata_function_signature(fn)
+    expect_identical(calls, 1L)
+    expect_identical(package_metadata_function_signature(fn), first)
+    expect_identical(calls, 1L)
+    key <- .Call("member_function_key_c", fn, PACKAGE = "languageserver")
+    replacement <- fn
+    body(replacement) <- quote(value + 1)
+    expect_false(identical(.Call("member_function_key_c", replacement, PACKAGE = "languageserver"), key))
+    expect_false(identical(package_metadata_function_signature(replacement), first))
+    expect_identical(calls, 2L)
+    withr::local_options(scipen = 999)
+    expect_false(identical(package_metadata_function_signature(fn), first))
+    expect_identical(calls, 3L)
+    expect_error(.Call("member_function_key_c", quote(value), PACKAGE = "languageserver"), "Expected a closure")
+})
+
 test_that("Loaded namespace changes cannot poison models for another library", {
     root <- withr::local_tempdir()
     withr::local_options(languageserver.package_cache_dir = file.path(root, "cache"))
@@ -205,7 +277,7 @@ test_that("Loaded namespace changes cannot poison models for another library", {
     expect_false(identical(package_metadata_help_identity(first_help), package_metadata_help_identity(second_help)))
     expect_match(get_help(second_help, "text"), "new description", fixed = TRUE)
     workspace <- Workspace$new(NULL)
-    expect_match(workspace$get_help("api", package), "old documentation", fixed = TRUE)
+    expect_match(workspace$get_help("api", package), "old description", fixed = TRUE)
     # Replace the installed help database without changing the version or
     # loaded namespace. R's own lazy-load database cache must refresh too.
     files <- list.files(file.path(second_lib, package, "help"), full.names = TRUE)
@@ -219,7 +291,7 @@ test_that("Loaded namespace changes cannot poison models for another library", {
             file.path(first_lib, package, "Meta/Rd.rds"), overwrite = TRUE))
     expect_match(namespace$get_documentation("api")$title, "new documentation", fixed = TRUE)
     expect_match(namespace$get_documentation("late_topic")$title, "new documentation", fixed = TRUE)
-    expect_match(workspace$get_help("api", package), "new documentation", fixed = TRUE)
+    expect_match(workspace$get_help("api", package), "new description", fixed = TRUE)
     expect_match(get_help(first_help, "text"), "new description", fixed = TRUE)
     # A same-version, same-size DESCRIPTION replacement changes the general
     # package identity even when its modification time is preserved.

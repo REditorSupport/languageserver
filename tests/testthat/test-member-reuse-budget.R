@@ -79,6 +79,32 @@ test_that("Adaptive inference still stops at CPU and elapsed limits", {
     }
 })
 
+test_that("Hard adaptive limits apply even before an extended scheduling deadline", {
+    withr::local_envvar(c(TESTTHAT = "", R_COVR = ""))
+    budget <- member_request_budget()
+    budget$deadline <- budget$scheduled_deadline <- budget$started + 3
+    expect_true(member_budget_expired(budget, c(budget$cpu_started + 2.1, 0, budget$started + 2.5)))
+    budget$deadline <- budget$scheduled_deadline <- budget$started + 6
+    expect_true(member_budget_expired(budget, c(budget$cpu_started + 0.1, 0, budget$started + 5.1)))
+    budget$deadline <- budget$started + 10
+    expect_false(member_budget_expired(budget, c(budget$cpu_started + 0.1, 0, budget$started + 5.1)))
+    budget$deadline <- budget$started + 0.1
+    expect_true(member_budget_expired(budget, c(budget$cpu_started + 0.01, 0, budget$started + 0.2)))
+})
+
+test_that("Wide argument lists stop at the shared node budget", {
+    index <- member_generic_index("")
+    budget <- member_request_budget()
+    budget$remaining <- 10L
+    expr <- as.call(c(list(as.name("list")), rep(list(1), 25000L)))
+    result <- member_infer(expr, index, budget = budget)
+    expect_identical(result$reason, "budget")
+    expect_true(budget$exhausted)
+    expect_identical(budget$remaining, -1L)
+    member_infer(quote(list(another = 1)), index, budget = budget)
+    expect_identical(budget$remaining, -1L)
+})
+
 test_that("S4 inheritance uses the same adaptive allowance and honors explicit deadlines", {
     withr::local_envvar(c(TESTTHAT = "", R_COVR = ""))
     timing <- new.env(parent = emptyenv())

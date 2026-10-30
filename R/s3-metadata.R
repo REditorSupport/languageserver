@@ -329,7 +329,7 @@ s3_metadata_context <- function(packages) {
             list(kind = record[[1L]], owner = owner,
                 foreign_environment = typeof(value) == "closure" && !isNamespace(environment(value)) &&
                     !identical(environment(value), baseenv()),
-                syntax = if (typeof(value) == "closure") deparse1(member_function_syntax(value)),
+                syntax = if (typeof(value) == "closure") value,
                 primitive = if (is.primitive(value)) name)
         }), names)
         table <- member_binding(ns, ".__S3MethodsTable__.")[[2L]]
@@ -342,8 +342,15 @@ s3_metadata_context <- function(packages) {
             }
             if (identical(record[[1L]], "value")) s3_runtime_shape(record[[2L]])
         }), objects)
-        list(exports = describe(ns, getNamespaceExports(ns), exported = TRUE), objects = shapes,
+        tokens <- list(exports = describe(ns, getNamespaceExports(ns), exported = TRUE), objects = shapes,
             methods = if (is.environment(table) && length(table)) describe(table, ls(table, all.names = TRUE)))
+        # Section-qualified names keep exported and registered aliases apart.
+        # Canonical function syntax is reused only while the current binding
+        # token and owning namespace are unchanged.
+        stats::setNames(lapply(names(tokens), function(section) {
+            package_metadata_validation_records(paste(package, "s3", section, sep = ":"), tokens[[section]],
+                list(namespace = ns, metadata = s3_metadata_context, shapes = s3_runtime_shape))
+        }), names(tokens))
     }, error = function(e) list(error = conditionMessage(e))))
     if (any(vapply(records, function(record) !is.null(record$error), logical(1L)))) return(NULL)
     digest::digest(records, algo = "xxhash64")

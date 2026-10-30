@@ -83,17 +83,17 @@ member_snapshot_dollar_context <- function(lookup_scope) {
             env = registered, names = ls(registered, all.names = TRUE)
         )
     }
-    list(scopes = method_scopes, registered = registered)
+    list(scopes = method_scopes, registered = registered, methods = new.env(parent = emptyenv()))
 }
 
 member_snapshot <- function(env, max_depth = 4L, max_bindings = 5000L, s7_modes = list(),
-    lookup_scope = parent.frame(), dollar_context = NULL) {
+    lookup_scope = parent.frame(), dollar_context = NULL, function_syntax = member_function_syntax) {
     seen <- list()
     remaining <- max_bindings
     if (is.null(dollar_context)) dollar_context <- member_snapshot_dollar_context(lookup_scope)
     method_scopes <- dollar_context$scopes
     registered <- dollar_context$registered
-    dollar_methods <- new.env(parent = emptyenv())
+    dollar_methods <- if (is.null(dollar_context$methods)) new.env(parent = emptyenv()) else dollar_context$methods
     default_dollar <- function(current) {
         if (isS4(current) || is.null(registered)) return(FALSE)
         classes <- attr(current, "class", exact = TRUE)
@@ -199,7 +199,7 @@ member_snapshot <- function(env, max_depth = 4L, max_bindings = 5000L, s7_modes 
             value <- record[[2L]]
             field <- if (identical(record[[1L]], "active")) {
                 list(
-                    kind = "active", syntax = if (typeof(value) == "closure") member_function_syntax(value),
+                    kind = "active", syntax = if (typeof(value) == "closure") function_syntax(value),
                     captures = if (typeof(value) == "closure") captures(value) else list()
                 )
             } else if (identical(record[[1L]], "value")) {
@@ -246,14 +246,14 @@ member_snapshot <- function(env, max_depth = 4L, max_bindings = 5000L, s7_modes 
             })
         if (!is.null(snapshot)) return(snapshot)
         if (typeof(value) == "closure") {
-            syntax <- member_function_syntax(value)
+            syntax <- function_syntax(value)
             scope <- environment(value)
             self <- if (!is.null(r6_receiver) && is.environment(scope)) member_binding(scope, "self")
             bound <- identical(self[[1L]], "value") && identical(self[[2L]], r6_receiver) &&
                 any(vapply(r6_method_scopes(r6_receiver), identical, logical(1L), scope))
             contexts <- list()
             if (bound) {
-                for (name in intersect(c("private", "super"), member_syntax_names(syntax))) {
+                for (name in intersect(c("private", "super"), member_syntax_names(member_function_syntax(value)))) {
                     record <- member_binding(scope, name)
                     if (identical(record[[1L]], "value")) {
                         contexts[name] <- list(describe(record[[2L]], depth + 1L, r6_receiver))

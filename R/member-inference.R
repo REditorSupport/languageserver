@@ -531,6 +531,7 @@ member_infer <- function(
         budget$exhausted <- FALSE
         budget$transient <- FALSE
     }
+    if (isTRUE(budget$exhausted)) return(member_value(reason = "budget"))
     budget$remaining <- budget$remaining - 1L
     # Package installation byte-compiles this engine. In development sessions,
     # start timing after R's first-call JIT compilation, before traversing ASTs.
@@ -600,6 +601,10 @@ member_infer <- function(
     }
     # Flow records keep early returns separate from fall-through values.
     flow <- function(node, env) {
+        if (isTRUE(budget$exhausted)) {
+            return(list(value = member_value(reason = "budget"), env = env,
+                    returns = member_value(type = ".never"), falls = TRUE))
+        }
         env <- member_s4_effect(node, index, env)
         if (member_head(node, "{")) {
             state <- list(
@@ -607,7 +612,7 @@ member_infer <- function(
                 returns = member_value(type = ".never"), falls = TRUE
             )
             for (child in as.list(node)[-1L]) {
-                if (!state$falls) break
+                if (!state$falls || isTRUE(budget$exhausted)) break
                 next_state <- flow(child, state$env)
                 state$returns <- member_join(state$returns, next_state$returns)
                 if (isTRUE(context$r6_initialize)) {
@@ -1172,6 +1177,7 @@ member_infer <- function(
     callee <- NULL
     if (!intrinsic(head)) {
         callee <- infer(expr[[1L]])
+        if (isTRUE(budget$exhausted)) return(member_value(reason = "budget"))
         if (!is.null(callee$function_key) && is.null(callee$metadata)) {
             self <- callee$receiver_value
             key <- if (is.null(self)) callee$function_key else paste(self$type, callee$function_key, sep = "|")
@@ -1196,21 +1202,24 @@ member_infer <- function(
             return(member_literal(length(dots$elements) == 0L))
         }
     }
-    actuals <- lapply(args, function(arg) {
-        if (identical(arg, quote(expr = ))) member_value(type = ".missing") else infer(arg)
-    })
-    # Expand syntactic dots from a known argument list without evaluating it.
-    expanded <- list()
-    open_dots <- FALSE
+    actuals <- vector("list", length(args))
+    names(actuals) <- names(args)
     for (i in seq_along(args)) {
-        if (identical(args[[i]], as.name("...")) && !is.null(actuals[[i]]$elements)) {
-            expanded <- c(expanded, actuals[[i]]$elements)
-        } else {
-            if (identical(args[[i]], as.name("...")) && isTRUE(actuals[[i]]$open)) open_dots <- TRUE
-            expanded <- c(expanded, actuals[i])
-        }
+        actuals[[i]] <- if (identical(unname(args[i]), list(quote(expr = )))) member_value(type = ".missing") else infer(args[[i]])
+        if (isTRUE(budget$exhausted)) return(member_value(reason = "budget"))
     }
-    actuals <- expanded
+    # Expand syntactic dots from a known argument list without evaluating it.
+    open_dots <- FALSE
+    dots <- vapply(args, identical, logical(1L), as.name("..."))
+    if (any(dots)) {
+        open_dots <- any(dots & vapply(actuals, function(value) is.null(value$elements) && isTRUE(value$open), logical(1L)))
+        pieces <- lapply(seq_along(args), function(i) {
+            if (dots[[i]] && !is.null(actuals[[i]]$elements)) return(actuals[[i]]$elements)
+            actuals[i]
+        })
+        actuals <- unlist(pieces, recursive = FALSE)
+        if (is.null(actuals)) actuals <- list()
+    }
     if (open_dots) attr(actuals, "member_open_dots") <- TRUE
     if (head == "|" && intrinsic(head) && length(actuals) == 2L && isTRUE(member_s7_modes(index)$union)) {
         classes <- lapply(actuals, function(value) member_s7_spec(value, index, bindings, budget, resolve = FALSE))

@@ -90,7 +90,9 @@ test_that("Static inference notices deadlines that expire during traversal", {
     expr <- as.call(c(list(as.name("list")), rep(list(1L), 256L)))
     value <- member_infer(expr, member_generic_index(""), budget = budget)
     expect_true(budget$exhausted)
-    expect_identical(tail(value$elements, 1L)[[1L]]$reason, "budget")
+    expect_identical(value$reason, "budget")
+    expect_true(budget$timed_out)
+    expect_gt(budget$remaining, 20000L - length(expr))
 })
 
 test_that("Static members propagate through source factories and aliases", {
