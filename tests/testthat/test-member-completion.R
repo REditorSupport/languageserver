@@ -42,7 +42,10 @@ test_that("The initial inference allowance distinguishes production from test ov
         list(value = value, budget = budget)
     }
     withr::local_envvar(c(TESTTHAT = "", R_COVR = ""))
-    expect_true(resolve()$budget$exhausted)
+    result <- resolve()
+    expect_false(result$budget$exhausted)
+    expect_gt(result$budget$time_limit, 0.25)
+    expect_length(result$value$fields$alpha$elements, 256L)
     withr::local_envvar(c(TESTTHAT = "true"))
     result <- resolve()
     expect_false(result$budget$exhausted)

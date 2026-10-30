@@ -483,7 +483,8 @@ member_context_index <- function(workspace, uri, document, at, parsed = NULL,
 }
 
 member_resolve_document <- function(name, index, bindings, budget, depth, trail) {
-    if (depth > 64L) return(member_value(reason = "binding_recursion"))
+    limit <- if (is.null(budget$depth_limit)) 64L else budget$depth_limit
+    if (depth > limit) return(member_value(reason = "binding_recursion"))
     history <- index$document_bindings[[name]]
     at <- bindings$.__member_position__
     if (is.null(at)) at <- c(Inf, Inf)
@@ -517,7 +518,10 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
         depth = depth + 1L,
         trail = c(trail, id), budget = budget
     )
-    if (memo && length(value$type) && !budget$exhausted && !budget$transient) index$document_cache[[memo_key]] <- value
+    cached <- if (memo) member_receiver_cache_value(value, index, budget) else NULL
+    if (!is.null(cached)) {
+        index$document_cache[[memo_key]] <- cached
+    }
     value
 }
 
@@ -844,8 +848,7 @@ member_recover_scope <- function(document, point, cursor, data) {
     member_recover(document, point, cursor, data)
 }
 
-member_resolve_cursor <- function(uri, workspace, document, point, cursor, name = NULL, retry_deadline = NULL,
-    remaining_nodes = NULL) {
+member_resolve_cursor <- function(uri, workspace, document, point, cursor, name = NULL) {
     if (!identical(document$version, document$parse_data$version) &&
             !is.null(document$parse_data$version)) {
         return(NULL)
@@ -858,7 +861,6 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
         return(NULL)
     }
     budget <- member_request_budget()
-    if (!is.null(remaining_nodes)) budget$remaining <- min(budget$remaining, remaining_nodes)
     metadata <- workspace$member_metadata
     cache <- document$member_receivers
     revision <- if (is.null(metadata)) 0L else if (is.function(metadata$revision)) metadata$revision() else NULL
@@ -866,14 +868,7 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
         revision = revision)
     if (!identical(document$member_revision, identity)) {
         cache$clear()
-        document$member_budgets$clear()
         document$member_revision <- identity
-    }
-    budget_key <- paste(point$row, cursor$operator_row, cursor$operator, cursor$accessor, sep = ":")
-    if (!is.null(budget$time_limit) && budget$time_limit < 1) {
-        ceiling <- if (is.null(retry_deadline)) proc.time()[[3L]] + 1 else retry_deadline
-        budget$time_limit <- document$member_budgets$get(budget_key, budget$time_limit)
-        budget$deadline <- min(proc.time()[[3L]] + budget$time_limit, ceiling)
     }
     # The receiver does not depend on the member prefix or the call arguments
     # after it. Edits and accepted parses clear this document-local cache.
@@ -903,10 +898,11 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
         value <- member_cursor_value(recovered$parsed, recovered$sentinel, index, bindings, budget,
             if (is.null(cursor$accessor)) name, cursor$accessor, recovered$context,
             recovered$path, recovered$source)
-        if (!is.null(revision) && member_receiver_cacheable(value, index, budget)) {
+        cached_value <- if (!is.null(revision)) member_receiver_cache_value(value, index, budget) else NULL
+        if (!is.null(cached_value)) {
             # Raw storage accounts for closure environments and makes each
             # hit independent of mutable request-local binding memos.
-            record <- serialize(list(value = value, bindings = bindings,
+            record <- serialize(list(value = cached_value, bindings = bindings,
                     start = recovered$start, referenced = referenced), NULL)
             cache$set(key, record)
         }
@@ -929,20 +925,15 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
         }
         if (!is.null(possible)) value$possible_receiver <- TRUE
     }
-    if (isTRUE(budget$timed_out) && budget$remaining > 0L && budget$time_limit < 1 && is.null(retry_deadline) &&
-            proc.time()[[3L]] < ceiling) {
-        # Retry a timed-out receiver once using reusable package summaries.
-        # Learn a larger allowance for this cursor, capped at one second total.
-        document$member_budgets$set(budget_key, min(1, budget$time_limit * 2))
-        return(member_resolve_cursor(uri, workspace, document, point, cursor, name, retry_deadline = ceiling,
-            remaining_nodes = budget$remaining))
-    }
     list(value = value, index = index, bindings = bindings, budget = budget)
 }
 
 member_request_budget <- function() {
     budget <- new.env(parent = emptyenv())
     budget$remaining <- 20000L
+    # Assignment histories add depth without adding recursive function calls.
+    # Keep a finite stack bound while allowing longer reassigned query chains.
+    budget$depth_limit <- 128L
     budget$exhausted <- budget$transient <- FALSE
     # Parallel tests compete with parse/metadata workers; coverage also rewrites
     # byte-compiled functions. Allow that overhead while keeping all bounds.
@@ -953,8 +944,28 @@ member_request_budget <- function() {
     } else {
         0.25
     }
-    budget$deadline <- proc.time()[[3L]] + budget$time_limit
+    clock <- proc.time()
+    budget$started <- clock[[3L]]
+    budget$cpu_started <- clock[[1L]] + clock[[2L]]
+    budget$deadline <- budget$scheduled_deadline <- budget$started + budget$time_limit
+    budget$cpu_limit <- max(2, budget$time_limit)
+    budget$wall_deadline <- budget$started + max(5, budget$time_limit)
     budget
+}
+
+# Grow the allowance at existing clock checkpoints, without restarting the
+# traversal or replenishing nodes. CPU time distinguishes slow analysis from
+# time spent descheduled on a busy host; a wall deadline still bounds latency.
+# Explicit caller deadlines remain strict and never receive an extension.
+member_budget_expired <- function(budget, clock) {
+    if (clock[[3L]] <= budget$deadline) return(FALSE)
+    if (is.null(budget$scheduled_deadline) || !identical(budget$deadline, budget$scheduled_deadline)) return(TRUE)
+    cpu <- max(0, clock[[1L]] + clock[[2L]] - budget$cpu_started)
+    if (clock[[3L]] >= budget$wall_deadline || cpu >= budget$cpu_limit) return(TRUE)
+    budget$time_limit <- min(budget$cpu_limit, max(budget$time_limit * 2, cpu * 2))
+    budget$deadline <- budget$scheduled_deadline <- min(budget$wall_deadline,
+        clock[[3L]] + budget$time_limit - cpu)
+    FALSE
 }
 
 member_completion <- function(uri, workspace, document, point, snippet_support, limit) {

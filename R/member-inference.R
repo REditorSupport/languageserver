@@ -544,9 +544,10 @@ member_infer <- function(
     if (!is.null(budget$deadline) && (is.null(budget$next_time_check) ||
                 budget$remaining <= budget$next_time_check)) {
         budget$next_time_check <- budget$remaining - 128L
-        timed_out <- proc.time()[[3L]] > budget$deadline
+        timed_out <- member_budget_expired(budget, proc.time())
     }
-    if (isTRUE(budget$exhausted) || depth > 64L || budget$remaining < 0L || timed_out) {
+    depth_limit <- if (is.null(budget$depth_limit)) 64L else budget$depth_limit
+    if (isTRUE(budget$exhausted) || depth > depth_limit || budget$remaining < 0L || timed_out) {
         budget$exhausted <- TRUE
         if (timed_out) budget$timed_out <- TRUE
         return(member_value(reason = "budget"))

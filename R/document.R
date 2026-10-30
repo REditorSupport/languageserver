@@ -22,7 +22,6 @@ Document <- R6::R6Class(
         requested_packages = NULL,
         member_refresh = FALSE,
         member_receivers = NULL,
-        member_budgets = NULL,
         s3_calls = NULL,
         s3_identity = NULL,
         member_revision = NULL,
@@ -38,7 +37,6 @@ Document <- R6::R6Class(
             self$version <- version
             self$is_rmarkdown <- is_rmarkdown(uri, language)
             self$member_receivers <- ByteLruCache$new(4 * 1024^2, max_entries = 32L)
-            self$member_budgets <- ByteLruCache$new(16384L, max_entries = 32L)
             self$s3_calls <- ByteLruCache$new(1 * 1024^2, max_entries = 32L)
             self$set_content(version, content)
             self$loaded_packages <- character()

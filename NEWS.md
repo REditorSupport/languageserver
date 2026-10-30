@@ -4,8 +4,10 @@
   `dt <- as_polars_df(iris)` and for `pl$` after calls using the converted frame.
   Prepare bounded S3 method return summaries with their owning namespace.
   Retain namespace ownership through chained methods and nested argument
-  expressions. Retry timed-out member requests with an adaptive allowance
-  within a one-second total deadline and the original node allowance. Offer
+  expressions. Extend cold member analysis in place from 250 ms up to two
+  seconds of CPU time, allowing up to five seconds elapsed on busy hosts.
+  Retain node and depth bounds and cache completed uncertain receivers for
+  repeated completion, signature help and hover requests. Offer
   common known method members as possible-receiver suggestions when a
   conversion's input class is unresolved, without claiming a definite type.
   Share these possible receivers with signature help and hover when the member

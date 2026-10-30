@@ -314,8 +314,12 @@ completion and provider information remain available on derived objects.
 Set `options(languageserver.package_cache_dir = "/path/to/cache")` or the
 `R_LANGSVR_PACKAGE_CACHE_DIR` environment variable to choose another cache root;
 set `options(languageserver.package_cache_dir = FALSE)` to disable disk caching.
-These options are also passed to metadata workers. Timed-out member requests
-retry once with a larger allowance, capped at one second for the whole request.
+These options are also passed to metadata workers. Cold member analysis starts
+with a 250 ms allowance and extends the same traversal as needed, up to two
+seconds of CPU time and five seconds elapsed. This allows for CPU contention
+without restarting analysis. Node and depth bounds remain in place. Completed
+receivers, including uncertain results, are reused across completion, signature
+help and hover until the document or its package metadata changes.
 
 Automatic indexing recognizes a package by its `DESCRIPTION` with a `Package`
 field and its `R/` directory. Package indexing runs in the background and

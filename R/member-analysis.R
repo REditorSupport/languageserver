@@ -94,8 +94,11 @@ member_completion_value <- function(value, index, budget) {
 }
 
 member_receiver_cacheable <- function(value, index, budget) {
-    if (isTRUE(budget$exhausted) || !length(value$type)) return(FALSE)
+    if (isTRUE(budget$exhausted) || (!length(value$type) && !length(value$possible_returns))) return(FALSE)
     if (!isTRUE(budget$transient)) return(TRUE)
+    if (!length(value$type)) {
+        return(all(vapply(value$possible_returns, member_receiver_cacheable, logical(1L), index, budget)))
+    }
     # Recursive argument analysis must not preserve partial instance fields.
     # A native-backed class-only result has a complete declared member surface
     # independent of argument values; retain just that proven surface.
@@ -108,4 +111,20 @@ member_receiver_cacheable <- function(value, index, budget) {
                 length(property$type) == 1L &&
                     any(index$members[[property$type]] %in% index$native_factories, na.rm = TRUE)
             }, logical(1L))))
+}
+
+member_receiver_cache_value <- function(value, index, budget) {
+    if (member_receiver_cacheable(value, index, budget)) return(value)
+    if (isTRUE(budget$exhausted) || !isTRUE(budget$transient) ||
+            length(value$type) || !length(value$possible_returns)) return(NULL)
+    # A possible native result may carry argument-dependent instance fields.
+    # Its declared surface is still useful, but those partial fields cannot be
+    # retained. The existing native-surface check verifies every projection.
+    candidates <- lapply(value$possible_returns, function(candidate) {
+        candidate$fields <- NULL
+        if (member_receiver_cacheable(candidate, index, budget)) candidate else NULL
+    })
+    if (any(vapply(candidates, is.null, logical(1L)))) return(NULL)
+    value$possible_returns <- candidates
+    value
 }
