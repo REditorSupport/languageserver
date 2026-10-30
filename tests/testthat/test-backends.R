@@ -229,7 +229,7 @@ test_that("formatting cancels obsolete configuration once and respects modes", {
     fixture <- backend_fixture()
     local_backend_settings(formatting_backend = fake_backend(), backend_options = list())
     enqueue_formatting(fixture$self, 1L, fixture$uri, fixture$document, list(tabSize = 2L))
-    old_task <- fixture$self$formatting_task_manager$.__enclos_env__$private$pending_tasks$get("1")
+    old_task <- fixture$self$formatting_task_manager$.__enclos_env__$private$pending_tasks$get(request_id_key(1L))
     workspace_did_change_configuration(fixture$self, list(settings = list(formatting_backend = "air")))
     expect_equal(fixture$self$deliveries[[1L]]$error$code, -32800L)
     old_task$.__enclos_env__$private$callback(list())

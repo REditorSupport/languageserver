@@ -4,7 +4,8 @@
   formatting and response dispatch. Normalize equivalent numeric IDs across
   their integer and double representations.
 - Discover sourced files inside computed callees, including immediately invoked
-  anonymous functions, without evaluating project expressions.
+  anonymous functions, without evaluating project expressions. Refresh older
+  workspace-index caches so unchanged files recover these dependencies.
 
 - Keep argument-value completion working with namespace-qualified default
   helpers and missing arguments. Escape suggested string literals so quotes,

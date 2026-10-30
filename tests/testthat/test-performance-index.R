@@ -186,3 +186,42 @@ test_that("source discovery includes computed callees without executing them", {
         lapply(file.path(root, c("callee.R", "argument.R")), path_to_uri))
     expect_false(marker$ran)
 })
+
+test_that("old persistent summaries refresh omitted computed-callee dependencies", {
+    settings <- list(index_mode = "full", index_persistent_cache = TRUE)
+    old <- stats::setNames(lapply(names(settings), lsp_settings$get), names(settings))
+    withr::defer(for (name in names(old)) lsp_settings$set(name, old[[name]]))
+    for (name in names(settings)) lsp_settings$set(name, settings[[name]])
+    root <- index_normalize_path(withr::local_tempdir())
+    helper <- file.path(root, "helper.R")
+    writeLines("helper <- function(value) value", helper)
+    path <- file.path(root, "main.R")
+    content <- '(function() source("helper.R"))()'
+    writeLines(content, path)
+    stale <- index_shallow_summary(path, content, root)
+    stale$sources <- list()
+    stale$source_candidates <- character()
+    stale$source_candidate_exists <- logical()
+    expect_true(index_source_candidates_current(stale))
+    cache_file <- file.path(root, "index.rds")
+    saveRDS(list(version = 2L, root = root, summaries = list(stale)), cache_file)
+
+    index <- WorkspaceIndex$new(root, cache_path = cache_file)
+    index$load_cache()
+    expect_identical(index$summaries$size(), 0L)
+    index$discover()
+    uri <- path_to_uri(path)
+    expect_true(uri %in% index$pending)
+    for (i in seq_len(5L)) {
+        index$process_batch()
+        if (index$complete()) break
+    }
+    expect_true(index$complete())
+    expect_identical(index$source_edges$get(uri), path_to_uri(helper))
+    expect_identical(index$summaries$get(uri)$sources, list(path_to_uri(helper)))
+    refreshed <- readRDS(cache_file)
+    expect_identical(refreshed$version, index_cache_version)
+    restored <- WorkspaceIndex$new(root, cache_path = cache_file)
+    restored$load_cache()
+    expect_identical(restored$source_edges$get(uri), path_to_uri(helper))
+})

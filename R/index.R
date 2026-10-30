@@ -1,4 +1,5 @@
-index_cache_version <- 2L
+# Computed callees can expose source dependencies omitted by older summaries.
+index_cache_version <- 3L
 
 #' Recognize a package without recursively searching a workspace
 #' @noRd
