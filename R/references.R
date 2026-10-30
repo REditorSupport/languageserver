@@ -197,6 +197,12 @@ reference_parse_data <- function(data, content, completion_data, uri,
     units <- syntax_unit_columns(content, data$line1[rows], cols, end_cols, non_ascii_lines)
     cols <- units$start
     end_cols <- units$end
+    multiline <- which(data$line1[rows] != data$line2[rows])
+    if (length(multiline)) {
+        ending <- data$col2[rows[multiline]]
+        end_cols[multiline] <- syntax_unit_columns(content, data$line2[rows[multiline]],
+            ending, ending, non_ascii_lines)$end
+    }
 
     package_rows <- which(data$token == "SYMBOL_PACKAGE")
     package_match <- match(data$parent[rows], data$parent[package_rows])

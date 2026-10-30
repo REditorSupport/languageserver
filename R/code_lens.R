@@ -3,8 +3,8 @@
 current_parse_data <- function(uri, workspace, document) {
     parse_data <- workspace$get_parse_data(uri)
     if (is.null(parse_data) ||
-        (!is.null(parse_data$version) &&
-            !isTRUE(parse_data$version == document$version))) {
+            (!is.null(parse_data$version) &&
+                    !isTRUE(parse_data$version == document$version))) {
         return(NULL)
     }
     parse_data
@@ -45,7 +45,7 @@ function_call_locations <- function(workspace, symbol, context_uri = NULL,
                 "not(preceding-sibling::NS_GET or ",
                 "preceding-sibling::NS_GET_INT)]"
             ),
-                token_quote = token_quote)
+            token_quote = token_quote)
         )
         if (!length(nodes)) next
 

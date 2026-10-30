@@ -27,6 +27,20 @@ test_that("equivalent quoted spellings share navigation and reference identities
     }
 })
 
+test_that("multiline quoted identifiers convert each endpoint on its own line", {
+    text <- paste0(intToUtf8(0x1f600), "b`")
+    fixture <- provider_fixture(c("`a", paste0(text, " <- 1"), "`a", text))
+    point <- list(row = 2L, col = 1L)
+    expected <- list(range(position(0L, 0L), position(1L, 4L)),
+        range(position(2L, 0L), position(3L, 4L)))
+    refs <- references_reply(1L, fixture$uri, fixture$workspace, fixture$document, point)$result
+    expect_equal(lapply(refs, function(ref) ref$range), expected)
+    prepared <- prepare_rename_reply(1L, fixture$uri, fixture$workspace, fixture$document, point)
+    expect_equal(prepared$result, unclass(expected[[2L]]))
+    renamed <- rename_reply(1L, fixture$uri, fixture$workspace, fixture$document, point, "renamed")
+    expect_equal(lapply(renamed$result$changes[[fixture$uri]], function(edit) edit$range), expected)
+})
+
 test_that("renaming quotes names and escapes their literal characters", {
     fixture <- provider_fixture(c("value <- 1", "value"))
     point <- list(row = 1L, col = 2L)
@@ -49,10 +63,10 @@ test_that("renaming quotes names and escapes their literal characters", {
 
 test_that("rename groups edits once while preserving URI and occurrence order", {
     fixture <- provider_fixture(c("value <- 1", "value"))
-    refs <- lapply(seq_len(1000L), function(i) location(
-        if (i %% 3L == 0L) "file:///second.R" else fixture$uri,
-        range(position(i, 0L), position(i, 5L))
-    ))
+    refs <- lapply(seq_len(1000L), function(i) {
+        location(if (i %% 3L == 0L) "file:///second.R" else fixture$uri,
+            range(position(i, 0L), position(i, 5L)))
+    })
     mockery::stub(rename_reply, "references_reply", function(...) Response$new(1L, result = refs))
     changes <- rename_reply(1L, fixture$uri, fixture$workspace, fixture$document,
         list(row = 1L, col = 2L), "renamed")$result$changes

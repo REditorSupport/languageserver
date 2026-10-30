@@ -93,7 +93,7 @@ document_highlight_reply <- function(id, uri, workspace, document, point) {
                         tokens <- xml_find_all(xdoc, xpath)
                     }
                 } else if (token_name %in% c(
-                        "SYMBOL_PACKAGE", "FUNCTION", "NUM_CONST", "STR_CONST")) {
+                    "SYMBOL_PACKAGE", "FUNCTION", "NUM_CONST", "STR_CONST")) {
                     # Compare text directly: XML entities do not escape quotes
                     # inside XPath string literals (for example, 'a string').
                     tokens <- xml_find_all(xdoc, paste0("//", token_name))

@@ -53,8 +53,9 @@ rename_reply <- function(id, uri, workspace, document, point, newName) {
     groups <- split(seq_along(uris), factor(uris, levels = unique(uris)))
     replacement <- quote_completion_name(newName)
     result <- lapply(groups, function(indices) {
-        lapply(refs$result[indices], function(ref) text_edit(
-            range = ref$range, new_text = replacement))
+        lapply(refs$result[indices], function(ref) {
+            text_edit(range = ref$range, new_text = replacement)
+        })
     })
 
     logger$info("rename_reply: ", result)
