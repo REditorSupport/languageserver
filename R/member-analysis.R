@@ -61,15 +61,12 @@ member_source_prefix <- function(content, start, end, prefix) {
 }
 
 member_document_cache_revision <- function(document, metadata) {
-    if (is.null(document$member_binding_cache)) {
-        document$member_binding_cache <- ByteLruCache$new(4 * 1024^2, max_entries = 128L)
-    }
     revision <- if (is.null(metadata)) 0L else if (is.function(metadata$revision)) metadata$revision() else NULL
     identity <- list(metadata = if (is.function(metadata$identity)) metadata$identity() else metadata,
         revision = revision)
+    document$member_binding_cache <- analysis_cache(document, "member-bindings", identity, max_bytes = 4 * 1024^2)
     if (!identical(document$member_revision, identity)) {
         document$member_receivers$clear()
-        document$member_binding_cache$clear()
         document$member_revision <- identity
     }
     revision

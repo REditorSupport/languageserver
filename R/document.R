@@ -23,6 +23,7 @@ Document <- R6::R6Class(
         member_refresh = FALSE,
         member_receivers = NULL,
         member_binding_cache = NULL,
+        analysis_caches = NULL,
         s3_calls = NULL,
         s3_identity = NULL,
         member_revision = NULL,
@@ -548,7 +549,7 @@ parse_expr <- function(content, expr, env, srcref = attr(expr, "srcref")) {
                         }
                         assign(
                             symbol,
-                            convert_comment_to_documentation(comment),
+                            analysis_documentation(NULL, comment),
                             envir = env$documentation_store
                         )
                     }

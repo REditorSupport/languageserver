@@ -18,6 +18,14 @@
   preceding source and package attachment context without retaining source
   closures or mutable object identities across edits.
 
+- Share bounded semantic analysis caches across member and S3 inference,
+  source signature/documentation providers and package NAMESPACE parsing.
+  Reuse completed S3 binding summaries across edits and cursor positions while
+  validating peer-source contents, metadata and registration context. Exclude
+  exhausted and scratch-state results from reuse. Retain exact-text signature
+  and documentation facts across reparses, including unchanged comment blocks
+  in persistent parse workers.
+
 - Persist package member models, startup datasets, S3 catalogs, documentation
   summaries and rendered help in a shared bounded cache. Reuse unchanged models
   across saves and server sessions; invalidate changes to package files,

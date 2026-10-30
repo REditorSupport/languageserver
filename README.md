@@ -326,6 +326,15 @@ code, attachment-context or package-metadata changes invalidate those summaries.
 They remain in a bounded in-memory cache for the current document. Source
 closures and mutable object identities are excluded from reuse across edits.
 
+Shared analysis caches also reuse completed S3 class summaries across requests
+and edits, checking package metadata, attachment/registration context and exact
+peer-source contents. Budget-exhausted and mutable scratch-state results are
+excluded. Local signature and documentation facts use their exact source text
+as keys and survive reparses; persistent parse workers reuse unchanged comment
+blocks. Package NAMESPACE declarations are read for current content and reuse
+their parsed facts when that content is unchanged. These bounded caches are
+allocated on demand and store serialized results for independent requests.
+
 Automatic indexing recognizes a package by its `DESCRIPTION` with a `Package`
 field and its `R/` directory. Package indexing runs in the background and
 prioritizes package sources. A workspace containing standalone scripts starts

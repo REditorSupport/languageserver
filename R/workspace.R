@@ -361,6 +361,7 @@ Workspace <- R6::R6Class("Workspace",
         diagnostics_globals_cache = NULL,
         type_hierarchy_cache = NULL,
         member_metadata = NULL,
+        analysis_caches = NULL,
         s3_metadata = NULL,
         s3_revision = 0L,
 
