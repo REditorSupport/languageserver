@@ -30,7 +30,7 @@ SourceReadServer <- R6::R6Class("SourceReadServer", inherit = LanguageServer,
         initialize = function(root) {
             workspace <- testthat::with_mocked_bindings(Workspace$new(root),
                 workspace_startup_packages = function() startup_packages,
-                workspace_startup_s3 = function() list(), .package = "languageserver")
+                workspace_startup_s3 = provider_startup_s3, .package = "languageserver")
             self$workspaces <- collections::dict()
             self$workspaces$set(DEFAULT_WORKSPACE, workspace)
             self$workspace_cache <- collections::dict()

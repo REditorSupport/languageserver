@@ -18,6 +18,16 @@ provider_fixture <- function(content, formals_resolver = function(...) NULL) {
     list(uri = uri, document = document, workspace = workspace)
 }
 
+provider_startup_s3 <- local({
+    cached <- NULL
+    function() {
+        if (is.null(cached)) {
+            cached <<- stats::setNames(lapply(startup_packages, s3_prepare_namespace), startup_packages)
+        }
+        cached
+    }
+})
+
 inlay_hint_edit <- function(fixture, version, changes) {
     document <- fixture$document
     document$apply_content_changes(version, changes)

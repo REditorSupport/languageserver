@@ -1,3 +1,13 @@
+# languageserver (development)
+
+- Keep quoted local names and parameters in capped completion results by
+  comparing decoded symbol names with the typed prefix. Preserve quoting,
+  escaped names and completion edits when many packages are installed (#827).
+- Retry failed or incomplete startup S3 metadata preparation with a cooldown,
+  and recover missing startup catalogs asynchronously for open source documents.
+  Isolate provider tests from installed packages and startup worker timing while
+  retaining real workspace/index coverage and conservative S3 precedence (#827).
+
 # languageserver 0.3.21
 
 - Preserve member completion for Polars conversions such as

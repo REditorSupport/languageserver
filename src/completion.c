@@ -201,7 +201,7 @@ static SEXP row_vector(const int *rows, int size) {
 }
 
 typedef struct {
-    const char **labels;
+    const char **matching_names;
     const char **sort_text;
     const char *token;
     size_t token_length;
@@ -221,8 +221,8 @@ static int compare_completion_candidates(
     int b,
     const completion_order_context *context
 ) {
-    int a_prefix = starts_with_token(context->labels[a], context);
-    int b_prefix = starts_with_token(context->labels[b], context);
+    int a_prefix = starts_with_token(context->matching_names[a], context);
+    int b_prefix = starts_with_token(context->matching_names[b], context);
     if (a_prefix != b_prefix) return b_prefix - a_prefix;
 
     int comparison = strcmp(context->sort_text[a], context->sort_text[b]);
@@ -272,17 +272,17 @@ static void completion_heap_sift_down(
 }
 
 SEXP completion_select_c(
-    SEXP labels,
+    SEXP matching_names,
     SEXP sort_text,
     SEXP token,
     SEXP limit
 ) {
-    if (!Rf_isString(labels) || !Rf_isString(sort_text) ||
+    if (!Rf_isString(matching_names) || !Rf_isString(sort_text) ||
             !Rf_isString(token) || XLENGTH(token) != 1 ||
             !Rf_isInteger(limit) || XLENGTH(limit) != 1) {
         Rf_error("invalid completion selector arguments");
     }
-    R_xlen_t n_long = XLENGTH(labels);
+    R_xlen_t n_long = XLENGTH(matching_names);
     if (n_long > INT_MAX || XLENGTH(sort_text) != n_long) {
         Rf_error("invalid completion selector lengths");
     }
@@ -296,22 +296,23 @@ SEXP completion_select_c(
     if (STRING_ELT(token, 0) == NA_STRING) {
         Rf_error("completion selector token must not be missing");
     }
-    const char **label_text = (const char **)
+    /* R supplies semantic names separately from the displayed sort strings. */
+    const char **matching_name_text = (const char **)
         R_alloc((size_t) n, sizeof(const char *));
     const char **sort_text_values = (const char **)
         R_alloc((size_t) n, sizeof(const char *));
     for (int i = 0; i < n; i++) {
-        if (STRING_ELT(labels, i) == NA_STRING ||
+        if (STRING_ELT(matching_names, i) == NA_STRING ||
                 STRING_ELT(sort_text, i) == NA_STRING) {
             Rf_error("completion selector candidates must not be missing");
         }
-        label_text[i] = Rf_translateCharUTF8(STRING_ELT(labels, i));
+        matching_name_text[i] = Rf_translateCharUTF8(STRING_ELT(matching_names, i));
         sort_text_values[i] = Rf_translateCharUTF8(STRING_ELT(sort_text, i));
     }
     const char *token_text = Rf_translateCharUTF8(STRING_ELT(token, 0));
 
     completion_order_context context = {
-        label_text,
+        matching_name_text,
         sort_text_values,
         token_text,
         strlen(token_text)
