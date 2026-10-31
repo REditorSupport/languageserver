@@ -560,49 +560,6 @@ member_infer <- function(
         if (isTRUE(ctx$r6_initialize)) ctx$r6_initialize <- FALSE
         member_infer(x, index, env, receiver, depth + 1L, trail, budget, ctx)
     }
-    # Symbols and literals need no call/flow machinery. Keep the shared node
-    # and time checks above, and retain ordinary nested-expression context
-    # when following a deferred binding.
-    if (is.symbol(expr)) {
-        key <- as.character(expr)
-        if (key %in% names(bindings)) {
-            value <- bindings[[key]]
-            if (!is.null(value$binding_expr)) {
-                if (!is.null(value$binding_cache)) {
-                    return(member_local_value(value, index, budget, depth, trail, receiver, context))
-                }
-                return(infer(value$binding_expr, value$binding_env))
-            }
-            return(value)
-        }
-        if (key %in% names(index$document_bindings) || key %in% names(index$attached_roots)) {
-            value <- member_resolve_document(key, index, bindings, budget, depth, trail)
-            if (!is.null(value)) {
-                return(value)
-            }
-        }
-        if (identical(key, "self") && !is.null(receiver)) {
-            return(member_value(type = receiver))
-        }
-        if (!is.null(member_lookup(index$definitions, key)) && (is.null(index$document_bindings) ||
-                    !is.null(context$key))) {
-            return(member_value(function_key = key))
-        }
-        # Imported roots must be supplied by the document/package lexical
-        # context. Never resurrect an unattached or shadowed root by name.
-        if (key %in% c("NA", "NA_real_", "NA_integer_", "NA_character_", "TRUE", "FALSE", "NULL")) {
-            return(switch(key,
-                `TRUE` = member_literal(TRUE),
-                `FALSE` = member_literal(FALSE),
-                `NULL` = member_literal(NULL),
-                unknown
-            ))
-        }
-        return(unknown)
-    }
-    if (!is.call(expr)) {
-        return(member_literal(expr))
-    }
     intrinsic <- function(name) {
         at <- bindings$.__member_position__
         history <- member_lookup(index$document_bindings, name)
@@ -1009,6 +966,46 @@ member_infer <- function(
             }
         }
         result
+    }
+    if (is.symbol(expr)) {
+        key <- as.character(expr)
+        if (key %in% names(bindings)) {
+            value <- bindings[[key]]
+            if (!is.null(value$binding_expr)) {
+                if (!is.null(value$binding_cache)) {
+                    return(member_local_value(value, index, budget, depth, trail, receiver, context))
+                }
+                return(infer(value$binding_expr, value$binding_env))
+            }
+            return(value)
+        }
+        if (key %in% names(index$document_bindings) || key %in% names(index$attached_roots)) {
+            value <- member_resolve_document(key, index, bindings, budget, depth, trail)
+            if (!is.null(value)) {
+                return(value)
+            }
+        }
+        if (identical(key, "self") && !is.null(receiver)) {
+            return(member_value(type = receiver))
+        }
+        if (!is.null(member_lookup(index$definitions, key)) && (is.null(index$document_bindings) ||
+                    !is.null(context$key))) {
+            return(member_value(function_key = key))
+        }
+        # Imported roots must be supplied by the document/package lexical
+        # context. Never resurrect an unattached or shadowed root by name.
+        if (key %in% c("NA", "NA_real_", "NA_integer_", "NA_character_", "TRUE", "FALSE", "NULL")) {
+            return(switch(key,
+                `TRUE` = member_literal(TRUE),
+                `FALSE` = member_literal(FALSE),
+                `NULL` = member_literal(NULL),
+                unknown
+            ))
+        }
+        return(unknown)
+    }
+    if (!is.call(expr)) {
+        return(member_literal(expr))
     }
     head <- member_name(expr[[1L]])
     if (is.null(head)) head <- ""
