@@ -48,7 +48,7 @@ LanguageBase <- R6::R6Class("LanguageBase",
             self$write_text(message$format())
             if (inherits(message, "Request") && !is.null(callback)) {
                 id <- message$id
-                self$request_callbacks$set(as.character(id), callback)
+                self$request_callbacks$set(request_id_key(id), callback)
             }
         },
 
@@ -233,7 +233,7 @@ LanguageBase <- R6::R6Class("LanguageBase",
         handle_response = function(response) {
             id <- response$id
             callback <- tryCatch(
-                self$request_callbacks$pop(as.character(id)),
+                self$request_callbacks$pop(request_id_key(id)),
                 error = function(e) NULL
             )
             if (is.null(response$error)) {

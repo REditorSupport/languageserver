@@ -259,12 +259,13 @@ test_that("exit, cancellation, and trace notifications update server state", {
     self$pending_replies$set("file:///one.R", list(first, second))
 
     cancel_request(self, list(id = 11L))
-    expect_equal(
-        vapply(self$deliveries, function(x) as.character(x$id), character(1L)),
-        c("11", "11")
-    )
+    expect_identical(lapply(self$deliveries, function(x) x$id), list(11L))
     expect_equal(first$size(), 1L)
     expect_equal(first$peek()$id, 12L)
+    expect_equal(second$size(), 1L)
+    expect_identical(second$peek()$id, "11")
+    cancel_request(self, list(id = "11"))
+    expect_identical(lapply(self$deliveries, function(x) x$id), list(11L, "11"))
     expect_equal(second$size(), 0L)
 
     on_exit(self, NULL)

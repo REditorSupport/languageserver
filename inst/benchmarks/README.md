@@ -5,6 +5,95 @@ latency of interactive requests. The baseline is commit `9618b5b`. Measurements
 below were taken locally with R 4.6.1 on macOS arm64; they are reproducible
 workloads, not timing assertions in the test suite.
 
+## Usage review workloads
+
+The usage review adds four workloads that check their results before timing
+the affected operation. Run installed revisions serially in separate libraries:
+
+```sh
+R_LIBS=/path/to/library Rscript --vanilla inst/benchmarks/default-values.R defaults.csv 10000 3
+R_LIBS=/path/to/library Rscript --vanilla inst/benchmarks/rename-edits.R rename.csv 10000 3
+R_LIBS=/path/to/library Rscript --vanilla inst/benchmarks/cli-diagnostics.R diagnostics.csv 500 5000 3
+R_LIBS=/path/to/library Rscript --vanilla inst/benchmarks/text-changes.R changes.csv 500 10000 3
+```
+
+Default extraction converts the language argument chain once and collects
+literals before flattening. Rename groups references once by URI before
+building edits. CLI diagnostics reuse one index of the submitted UTF-8 bytes;
+empty diagnostic batches skip indexing. Text changes invalidate pending disk
+snapshots once before their background parse.
+
+The usage-review baseline is `cf116dd`. Three local passes with R 4.6.1 on
+macOS arm64 produced these medians:
+
+| Operation | Before (ms) | After (ms) |
+| --- | ---: | ---: |
+| Extract 10,000 literal defaults | 850 | 1 |
+| Complete 2,000 defaults | 88 | 41 |
+| Construct 10,000 rename edits | 213 | 31 |
+| Convert 500 diagnostics across 5,000 lines | 646 | 15 |
+| Incremental edit with 10,000 pending disk files | 1.904 | 1.578 |
+
+Recorded R allocations fell from 1.20 GB to 520 KB for default extraction and
+from 400.52 MB to 612 KB for rename construction. These are total allocations
+within each operation, not retained memory or server startup costs.
+
+These scripts isolate extraction, edit construction, diagnostic range
+conversion and notification handling respectively. They exclude worker
+execution, reference resolution, document parsing, IPC and editor rendering.
+The text-change workload also excludes parse task creation. Default and rename
+scripts report R allocations when memory profiling is supported. Local timings
+vary with hardware and load; regression tests assert behavior without elapsed
+thresholds.
+
+## Member metadata workers
+
+Run these against separately installed revisions, without concurrent tests or
+benchmarks:
+
+```sh
+R_LIBS=/path/to/library Rscript --vanilla inst/benchmarks/member-preparation.R stages.csv 3 polars
+R_LIBS=/path/to/library Rscript --vanilla inst/benchmarks/member-tasks.R workers.csv 3 polars
+```
+
+The stage workload separates namespace loading, live identity validation,
+registry extraction, model/return preparation, freezing and disk operations.
+The worker workload uses a fresh process with startup profiles disabled for
+every request, as production member tasks do. Cold rows have empty caches;
+disk rows restore existing models; known rows validate identities already held
+by the workspace and return no duplicate models. Worker timings include server
+loading, namespace preparation and metadata transfer, but exclude scheduling,
+document parsing and editor rendering. All validation uses neutral fixtures and
+static inference; no data query or user document expression is executed.
+
+Three serial local passes on R 4.6.1/macOS arm64 with Polars 2.0.0, comparing
+`bb8eb83` with the member-preparation changes, produced these medians:
+
+| Fresh worker workload | Before (ms) | After (ms) |
+| --- | ---: | ---: |
+| Cold member preparation | 10,529 | 7,156 |
+| Existing disk model | 3,771 | 1,763 |
+| Already-known model validation | 3,564 | 1,512 |
+
+An isolated paired registry-extraction comparison also fell from 2,478 ms to
+692 ms with identical complete input. Fresh live-identity validation fell from
+approximately 2,440 ms to 437 ms with identical contexts and identity records.
+Much of the validation cost came from materializing every cache key on each
+eviction. The direct oldest-item path avoids that scan for unprotected entries;
+protected entries and older collection APIs retain their previous behavior.
+Memory budgets and live namespace/file checks are unchanged.
+
+Repeated saves retain the same queued or running member task when its complete
+request context is unchanged. Saves received during running work trigger one
+fresh validation after that work completes. New package/library/workspace
+contexts replace it immediately. These lifecycle checks use inert sessions and
+assert task identity, callback safety, and fresh metadata capture without timing
+thresholds.
+
+Debug task lines now include `queued:` and `running:` alongside total time.
+The running interval begins at dispatch and includes process startup, result
+transfer and callbacks; it is not a measurement of worker CPU time alone.
+
 ## Member metadata cache
 
 Run `R_LIBS=/path/to/library Rscript inst/benchmarks/member-metadata.R results.csv 10`

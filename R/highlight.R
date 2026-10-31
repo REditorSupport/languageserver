@@ -17,7 +17,7 @@ document_highlight_reply <- function(id, uri, workspace, document, point) {
     result <- NULL
     parse_data <- workspace$get_parse_data(uri)
     index <- parse_data$reference_index
-    detected <- document$detect_token(point)
+    detected <- reference_token_at(document, parse_data, point)
     if (!is.null(index) && nzchar(detected$token)) {
         token_point <- list(
             row = detected$range$start$row,
@@ -93,7 +93,7 @@ document_highlight_reply <- function(id, uri, workspace, document, point) {
                         tokens <- xml_find_all(xdoc, xpath)
                     }
                 } else if (token_name %in% c(
-                        "SYMBOL_PACKAGE", "FUNCTION", "NUM_CONST", "STR_CONST")) {
+                    "SYMBOL_PACKAGE", "FUNCTION", "NUM_CONST", "STR_CONST")) {
                     # Compare text directly: XML entities do not escape quotes
                     # inside XPath string literals (for example, 'a string').
                     tokens <- xml_find_all(xdoc, paste0("//", token_name))

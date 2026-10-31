@@ -286,7 +286,7 @@ test_that("LanguageBase delivery stores callbacks and ignores NULL", {
     base$deliver(request, callback)
 
     expect_length(base$writes, 1L)
-    expect_true(base$request_callbacks$has(as.character(request$id)))
+    expect_true(base$request_callbacks$has(request_id_key(request$id)))
 })
 
 test_that("LanguageBase handles malformed and unknown payloads", {
@@ -312,16 +312,36 @@ test_that("LanguageBase handles malformed and unknown payloads", {
     )))
 })
 
+test_that("response callbacks distinguish string IDs and normalize numeric IDs", {
+    base <- TestLanguageBase$new()
+    state <- new.env(parent = emptyenv())
+    state$received <- character()
+    base$deliver(Request$new(1L, "numeric"), function(...) state$received <- c(state$received, "numeric"))
+    base$deliver(Request$new("1", "string"), function(...) state$received <- c(state$received, "string"))
+    expect_identical(base$request_callbacks$size(), 2L)
+    base$handle_response(list(id = 1, result = TRUE))
+    expect_identical(state$received, "numeric")
+    expect_identical(base$request_callbacks$size(), 1L)
+    base$handle_response(list(id = "1", result = TRUE))
+    expect_identical(state$received, c("numeric", "string"))
+    expect_identical(base$request_callbacks$size(), 0L)
+
+    base$deliver(Request$new(1000000L, "large"), function(...) state$received <- c(state$received, "large"))
+    base$handle_response(list(id = 1e6, result = TRUE))
+    expect_identical(utils::tail(state$received, 1L), "large")
+    expect_identical(base$request_callbacks$size(), 0L)
+})
+
 test_that("LanguageBase isolates callback failures for results and errors", {
     base <- TestLanguageBase$new()
     result_request <- base$request("result", list())
     error_request <- base$request("error", list())
     base$request_callbacks$set(
-        as.character(result_request$id),
+        request_id_key(result_request$id),
         function(self, result) stop("result callback failed")
     )
     base$request_callbacks$set(
-        as.character(error_request$id),
+        request_id_key(error_request$id),
         function(self, result, error) stop("error callback failed")
     )
 

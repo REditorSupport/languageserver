@@ -13,6 +13,15 @@ Message <- R6::R6Class("Message",
     )
 )
 
+#' Preserve JSON-RPC ID type in request dictionaries
+#' @noRd
+request_id_key <- function(id) {
+    if (is.character(id)) return(paste0("string:", id))
+    value <- as.numeric(id)
+    value[!is.na(value) & value == 0] <- 0
+    paste0("number:", sprintf("%.17g", value))
+}
+
 #' Request Message class
 #'
 #' Describe a request between the client and the server.

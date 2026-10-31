@@ -31,6 +31,8 @@ Task <- R6::R6Class("Task",
         time = NULL,
         delay = NULL,
         started_at = NULL,
+        execution_started_at = NULL,
+        context = NULL,
         initialize = function(target, args, callback = NULL, error = NULL, delay = 0,
             profiles = TRUE, track_descendants = FALSE) {
             private$target <- target
@@ -49,6 +51,7 @@ Task <- R6::R6Class("Task",
             self$delay <- as.numeric(delay)
         },
         start = function(session = NULL) {
+            self$execution_started_at <- proc.time()[[3L]]
             if (is.null(session)) {
                 private$process <- callr::r_bg(
                     private$target,
@@ -62,6 +65,12 @@ Task <- R6::R6Class("Task",
                     private$args
                 )
             }
+        },
+        timings = function(now = proc.time()[[3L]]) {
+            total <- max(0, now - self$started_at)
+            queued <- if (is.null(self$execution_started_at)) total
+            else min(total, max(0, self$execution_started_at - self$started_at))
+            c(total = total, queued = queued, running = total - queued)
         },
         check = function() {
             if (private$completed) return(TRUE)
@@ -393,6 +402,10 @@ TaskManager <- R6::R6Class("TaskManager",
                 private$ensure_min_sessions()
             }
         },
+        get_task = function(id) {
+            task <- private$pending_tasks$get(id, NULL)
+            if (is.null(task)) private$running_tasks$get(id, NULL) else task
+        },
         add_task = function(id, task) {
             if (private$stopping) {
                 return(NULL)
@@ -539,8 +552,9 @@ TaskManager <- R6::R6Class("TaskManager",
                     check_result <- TRUE
                 }
                 if (isTRUE(check_result)) {
-                    # FIXME: debug
-                    logger$info(private$name, "task timing:", Sys.time() - task$time, " ", key)
+                    timing <- task$timings()
+                    logger$info(private$name, "task timing:", timing[["total"]],
+                        " queued:", timing[["queued"]], " running:", timing[["running"]], " ", key)
                     # The callback may have cancelled this entry or started a
                     # different task with the same id. Only remove our own entry.
                     if (identical(running_tasks$get(key, NULL), task)) {

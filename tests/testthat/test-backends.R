@@ -229,7 +229,7 @@ test_that("formatting cancels obsolete configuration once and respects modes", {
     fixture <- backend_fixture()
     local_backend_settings(formatting_backend = fake_backend(), backend_options = list())
     enqueue_formatting(fixture$self, 1L, fixture$uri, fixture$document, list(tabSize = 2L))
-    old_task <- fixture$self$formatting_task_manager$.__enclos_env__$private$pending_tasks$get("1")
+    old_task <- fixture$self$formatting_task_manager$.__enclos_env__$private$pending_tasks$get(request_id_key(1L))
     workspace_did_change_configuration(fixture$self, list(settings = list(formatting_backend = "air")))
     expect_equal(fixture$self$deliveries[[1L]]$error$code, -32800L)
     old_task$.__enclos_env__$private$callback(list())
@@ -388,10 +388,44 @@ test_that("configuration watches are registered only for capable clients", {
 
 test_that("CLI byte ranges use exact UTF-8 input and UTF-16 positions", {
     content <- c('"\U0001f600\u00e9"', "value")
+    index <- backend_byte_index(content)
     expect_equal(backend_byte_range(content, c(1, 7)), range(position(0L, 1L), position(0L, 4L)))
     expect_equal(backend_byte_range(content, c(9, 14)), range(position(1L, 0L), position(1L, 5L)))
+    expect_equal(backend_byte_range(content, c(1, 7), index), range(position(0L, 1L), position(0L, 4L)))
+    expect_equal(backend_byte_range(content, c(9, 14), index), range(position(1L, 0L), position(1L, 5L)))
+    expect_equal(backend_byte_range(content, c(8, 9), index), range(position(0L, 5L), position(1L, 0L)))
+    expect_equal(backend_byte_range(content, c(14, 14), index), range(position(1L, 5L), position(1L, 5L)))
     expect_error(backend_byte_range(content, c(2, 5)), "splits a UTF-8")
     expect_error(backend_byte_range(content, c(0, 99)), "invalid byte range")
+    expect_error(backend_byte_range(content, c(2, 5), index), "splits a UTF-8")
+    expect_error(backend_byte_range(content, c(0, 99), index), "invalid byte range")
+})
+
+test_that("Jarl shares a byte index across findings and syntax errors", {
+    fixture <- backend_fixture(c('"\U0001f600"', "x"))
+    local_backend_settings(diagnostics_backend = "jarl", backend_options = list())
+    request <- backend_request("diagnostics", fixture$uri, fixture$document, fixture$workspace)
+    result <- list(status = 255L, stderr = "", stdout = paste0(
+        '{"diagnostics":[{"range":[1,5],"message":{"name":"rule","body":"finding"}},',
+        '{"range":[7,8],"message":{"name":"rule","body":"second"}}],',
+        '"errors":[{"syntax_errors":[{"range":[0,1],"message":"syntax"}]}]}'))
+    calls <- 0L
+    native_index <- backend_byte_index
+    testthat::local_mocked_bindings(backend_cli_run = function(...) result,
+        backend_byte_index = function(content) {
+            calls <<- calls + 1L
+            native_index(content)
+        }, .package = "languageserver")
+    diagnostics <- jarl_diagnostics(request)
+    expect_identical(calls, 1L)
+    expect_equal(lapply(diagnostics, "[[", "range"), list(
+        range(position(0L, 1L), position(0L, 3L)),
+        range(position(1L, 0L), position(1L, 1L)),
+        range(position(0L, 0L), position(0L, 1L))))
+    calls <- 0L
+    result <- list(status = 0L, stderr = "", stdout = '{"diagnostics":[],"errors":[]}')
+    expect_identical(jarl_diagnostics(request), list())
+    expect_identical(calls, 0L)
 })
 
 test_that("Jarl parses findings, syntax errors and excluded buffers distinctly", {

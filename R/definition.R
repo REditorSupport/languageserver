@@ -20,11 +20,11 @@ definition_reply <- function(id, uri, workspace, document, point,
         return(Response$new(id))
     }
 
-    token_result <- document$detect_token(point)
+    parse_data <- workspace$get_parse_data(uri)
+    token_result <- reference_token_at(document, parse_data, point)
     resolved <- FALSE
     result <- NULL
 
-    parse_data <- workspace$get_parse_data(uri)
     syntax <- parse_data$syntax_data
     if (token_result$accessor == "" && !is.null(syntax)) {
         row <- point$row + 1L

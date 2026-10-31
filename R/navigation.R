@@ -67,8 +67,8 @@ navigation_parse_data <- function(syntax) {
     make_groups <- function(rows, names) {
         list2env(split(rows, names), hash = TRUE, parent = emptyenv())
     }
-    records$by_name <- make_groups(seq_along(records$node), syntax$text[records$name])
-    scope_names <- paste(records$scope, syntax$text[records$scope_name], sep = "\r")
+    records$by_name <- make_groups(seq_along(records$node), reference_symbol_names(syntax$text[records$name]))
+    scope_names <- paste(records$scope, reference_symbol_names(syntax$text[records$scope_name]), sep = "\r")
     records$by_scope_name <- make_groups(seq_along(records$scope), scope_names)
     records$cache <- new.env(hash = TRUE, parent = emptyenv())
     records$bytes <- sum(vapply(list(records$by_name, records$by_scope_name), function(groups) {
@@ -93,6 +93,7 @@ navigation_token <- function(parse_data, line, col) {
 #' @noRd
 navigation_definitions <- function(parse_data, line, col, name,
     mode = "definition", token = 0L, last = FALSE) {
+    name <- reference_symbol_names(name)
     syntax <- parse_data$syntax_data
     index <- parse_data$navigation_data
     if (is.null(syntax) || is.null(index)) return(NULL)

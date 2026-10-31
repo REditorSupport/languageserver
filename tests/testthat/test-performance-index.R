@@ -159,3 +159,69 @@ test_that("unchanged buffers reuse their current parse after cache eviction", {
     document$set_content(1L, "changed <- 2")
     expect_s3_class(parse_task(self, uri, document), "Task")
 })
+test_that("source discovery includes computed callees without executing them", {
+    marker <- new.env(parent = emptyenv())
+    marker$ran <- FALSE
+    expression <- quote((function() {
+        marker$ran <- TRUE
+        base::source("callee.R")
+        sys.source("callee.R", envir = environment())
+    })(source("argument.R")))
+    calls <- .Call("source_calls_c", expression, PACKAGE = "languageserver")
+    expect_identical(calls, list(quote(base::source("callee.R")),
+            quote(sys.source("callee.R", envir = environment())), quote(source("argument.R"))))
+    expect_false(marker$ran)
+    expect_identical(vapply(index_source_specs(expression), function(spec) spec$path, character(1L)),
+        c("callee.R", "callee.R", "argument.R"))
+    local <- quote((local(source("local.R")))())
+    expect_identical(.Call("source_calls_c", local, PACKAGE = "languageserver"),
+        list(quote(source("local.R"))))
+    root <- withr::local_tempdir()
+    for (name in c("callee.R", "argument.R")) writeLines("helper <- 1", file.path(root, name))
+    path <- file.path(root, "main.R")
+    content <- deparse(expression)
+    writeLines(content, path)
+    summary <- index_shallow_summary(path, content, root)
+    expect_identical(summary$sources,
+        lapply(file.path(root, c("callee.R", "argument.R")), path_to_uri))
+    expect_false(marker$ran)
+})
+
+test_that("old persistent summaries refresh omitted computed-callee dependencies", {
+    settings <- list(index_mode = "full", index_persistent_cache = TRUE)
+    old <- stats::setNames(lapply(names(settings), lsp_settings$get), names(settings))
+    withr::defer(for (name in names(old)) lsp_settings$set(name, old[[name]]))
+    for (name in names(settings)) lsp_settings$set(name, settings[[name]])
+    root <- index_normalize_path(withr::local_tempdir())
+    helper <- file.path(root, "helper.R")
+    writeLines("helper <- function(value) value", helper)
+    path <- file.path(root, "main.R")
+    content <- '(function() source("helper.R"))()'
+    writeLines(content, path)
+    stale <- index_shallow_summary(path, content, root)
+    stale$sources <- list()
+    stale$source_candidates <- character()
+    stale$source_candidate_exists <- logical()
+    expect_true(index_source_candidates_current(stale))
+    cache_file <- file.path(root, "index.rds")
+    saveRDS(list(version = 2L, root = root, summaries = list(stale)), cache_file)
+
+    index <- WorkspaceIndex$new(root, cache_path = cache_file)
+    index$load_cache()
+    expect_identical(index$summaries$size(), 0L)
+    index$discover()
+    uri <- path_to_uri(path)
+    expect_true(uri %in% index$pending)
+    for (i in seq_len(5L)) {
+        index$process_batch()
+        if (index$complete()) break
+    }
+    expect_true(index$complete())
+    expect_identical(index$source_edges$get(uri), path_to_uri(helper))
+    expect_identical(index$summaries$get(uri)$sources, list(path_to_uri(helper)))
+    refreshed <- readRDS(cache_file)
+    expect_identical(refreshed$version, index_cache_version)
+    restored <- WorkspaceIndex$new(root, cache_path = cache_file)
+    restored$load_cache()
+    expect_identical(restored$source_edges$get(uri), path_to_uri(helper))
+})

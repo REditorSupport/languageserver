@@ -206,29 +206,33 @@ extract_default_values <- function(default_expr) {
         return(NULL)
     }
     
-    # If it's a call to c(), extract the arguments
-    if (is.call(default_expr) && length(default_expr) > 1) {
-        func_name <- as.character(default_expr[[1]])
-        
-        if (identical(func_name, "c")) {
-            # Extract all arguments to c()
-            values <- character(0)
-            for (i in seq(2, length(default_expr))) {
-                arg <- default_expr[[i]]
-                # Only handle character literals
-                if (is.character(arg)) {
-                    values <- c(values, arg)
-                } else if (is.call(arg) && as.character(arg[[1]]) %in% c("I")) {
-                    # Handle I("value")
-                    if (length(arg) > 1 && is.character(arg[[2]])) {
-                        values <- c(values, arg[[2]])
-                    }
-                }
-            }
-            if (length(values) > 0) {
-                return(values)
+    literal_call <- function(expr, name) {
+        if (!is.call(expr)) return(FALSE)
+        head <- expr[[1L]]
+        if (is.symbol(head)) return(identical(as.character(head), name))
+        # Namespace-qualified calls have a language object as their head.
+        # Recognize only the base helpers and never evaluate other callees.
+        is.call(head) && length(head) == 3L &&
+            identical(head[[1L]], quote(`::`)) &&
+            identical(head[[2L]], quote(base)) && identical(head[[3L]], as.name(name))
+    }
+    if (literal_call(default_expr, "c") && length(default_expr) > 1L) {
+        # Language objects use pairlists; repeated [[i]] also walks/copies the
+        # argument chain. Convert once and collect literals before flattening.
+        args <- as.list(default_expr)[-1L]
+        values <- vector("list", length(args))
+        for (i in seq_along(args)) {
+            if (identical(args[[i]], quote(expr = ))) next
+            arg <- args[[i]]
+            if (is.character(arg)) {
+                values[[i]] <- arg
+            } else if (literal_call(arg, "I") && length(arg) == 2L &&
+                    !identical(arg[[2L]], quote(expr = )) && is.character(arg[[2L]])) {
+                values[[i]] <- arg[[2L]]
             }
         }
+        values <- unlist(values, use.names = FALSE)
+        if (length(values)) return(values)
     }
     
     # If it's a simple string, return it
@@ -267,9 +271,11 @@ argument_value_completion <- function(workspace, funct, package, arg_name, token
     
     default_value <- formals_list[[arg_name]]
     
-    # Extract possible values from the default
-    values <- extract_default_values(default_value)
-    
+    argument_value_items(extract_default_values(default_value), funct, package,
+        arg_name, token, uri)
+}
+
+argument_value_items <- function(values, funct, package, arg_name, token, uri) {
     if (is.null(values) || length(values) == 0) {
         return(list())
     }
@@ -284,7 +290,7 @@ argument_value_completion <- function(workspace, funct, package, arg_name, token
             kind = CompletionItemKind$Value,
             detail = paste0("value for ", arg_name),
             sortText = paste0(sort_prefixes$arg, value),
-            insertText = sprintf('"%s"', value),
+            insertText = encodeString(value, quote = "\""),
             insertTextFormat = InsertTextFormat$PlainText,
             data = list(
                 type = "argument_value",
@@ -320,24 +326,13 @@ arg_value_completion <- function(uri, workspace, document, point, token, funct, 
     
     # Get all parameters with character vector defaults
     param_names <- names(formals_list)
-    all_completions <- list()
-    
-    for (param_name in param_names) {
-        values <- extract_default_values(formals_list[[param_name]])
-        if (!is.null(values) && length(values) > 0) {
-            # Filter values that match the current token
-            matching_values <- values[match_with(values, token)]
-            if (length(matching_values) > 0) {
-                # Generate completions for this parameter
-                param_completions <- argument_value_completion(
-                    workspace, funct, package_for_call, param_name, token,
-                    exported_only, formals_list, uri = uri)
-                all_completions <- c(all_completions, param_completions)
-            }
-        }
-    }
-    
-    all_completions
+    if (is.null(param_names)) return(list())
+    all_completions <- lapply(seq_along(formals_list), function(i) {
+        argument_value_items(extract_default_values(formals_list[[i]]),
+            funct, package_for_call, param_names[[i]], token, uri)
+    })
+    items <- unlist(all_completions, recursive = FALSE, use.names = FALSE)
+    if (length(items)) items else list()
 }
 
 #' Complete a function argument

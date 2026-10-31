@@ -5,6 +5,22 @@ class_index_key <- function(type, name) paste(type, name, sep = "\r")
 class_xml_first <- function(node, xpath) xml_find_first(node, xpath, ns = character())
 class_xml_all <- function(node, xpath) xml_find_all(node, xpath, ns = character())
 
+#' Decode inert class names and member names using R literal syntax
+#' @noRd
+class_token_text <- function(text) {
+    quoted <- grep("^[\"'`]|^[rR][\"']", text)
+    if (!length(quoted)) return(text)
+    spellings <- unique(text[quoted])
+    decoded <- vapply(spellings, function(value) {
+        literal <- tryCatch(str2lang(value), error = function(e) NULL)
+        if (is.symbol(literal)) as.character(literal)
+        else if (is.character(literal) && length(literal) == 1L) literal
+        else value
+    }, character(1L), USE.NAMES = FALSE)
+    text[quoted] <- decoded[match(text[quoted], spellings)]
+    text
+}
+
 # Match inert argument indices, retaining each value's original XML location.
 # This gives class providers R's named/positional matching without evaluating
 # declarations, and keeps piped names and placeholders at their source ranges.
@@ -68,7 +84,7 @@ class_xml_index <- function(xdoc) {
     functions <- c("R6Class", "setClass", "setRefClass", "setMethod")
     result <- stats::setNames(vector("list", length(functions)), functions)
     unquote <- function(node) {
-        if (length(node)) gsub('["\047`]', "", xml_text(node)) else character()
+        if (length(node)) class_token_text(xml_text(node)) else character()
     }
     for (fun in functions) {
         calls <- class_xml_all(xdoc, paste0("//SYMBOL_FUNCTION_CALL[text() = '", fun,
@@ -84,7 +100,7 @@ class_xml_index <- function(xdoc) {
                 param <- class_xml_argument(call, "inherit")
                 symbol <- class_xml_first(param, "./SYMBOL | ./expr//SYMBOL")
                 if (length(symbol)) {
-                    parents[[i]] <- xml_text(symbol)
+                    parents[[i]] <- class_token_text(xml_text(symbol))
                 } else {
                     string <- class_xml_first(param, "./STR_CONST | ./expr//STR_CONST")
                     parents[[i]] <- unquote(if (length(string)) string else param)
@@ -92,12 +108,12 @@ class_xml_index <- function(xdoc) {
             } else {
                 names[[i]] <- if (fun == "setMethod") {
                     strings <- class_xml_all(class_xml_argument(call, "signature"), ".//STR_CONST")
-                    gsub('["\047`]', "", xml_text(strings))
+                    class_token_text(xml_text(strings))
                 } else {
                     unquote(class_xml_name(call))
                 }
                 param <- class_xml_argument(call, "contains")
-                parents[[i]] <- gsub('["\047`]', "", xml_text(class_xml_all(param, ".//STR_CONST")))
+                parents[[i]] <- class_token_text(xml_text(class_xml_all(param, ".//STR_CONST")))
             }
         }
         groups <- function(values) {

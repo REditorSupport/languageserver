@@ -356,6 +356,129 @@ test_that("stale parse failures and deferred retries leave newer work intact", {
     }
 })
 
+test_that("workspace transfers restart pending buffer parses in their destination", {
+    lifecycle_settings(index_persistent_cache = FALSE, diagnostics = FALSE)
+    for (move in c("add", "remove")) {
+        root <- withr::local_tempdir()
+        nested <- file.path(root, "nested")
+        dir.create(nested)
+        uri <- path_to_uri(file.path(nested, "main.R"))
+        server <- LifecycleServer$new(root)
+        if (move == "remove") server$add_workspace(path_to_uri(nested))
+        source <- server$get_workspace(uri)
+        document <- Document$new(uri, version = 1L, content = "buffer_value <- 1")
+        document$did_open()
+        source$documents$set(uri, document)
+        server$text_sync(uri, document, parse = TRUE)
+        text_document_document_symbol(server, 1L, list(textDocument = list(uri = uri)))
+        # Simulate a running task, which the test manager has already dispatched.
+        old <- server$parse_task_manager$tasks$pop(uri)
+
+        if (move == "add") server$add_workspace(path_to_uri(nested))
+        else server$remove_workspace(path_to_uri(nested))
+        destination <- server$get_workspace(uri)
+        replacement <- server$parse_task_manager$tasks$get(uri, NULL)
+        expect_false(identical(source, destination), info = move)
+        expect_true(inherits(replacement, "Task"), info = move)
+        expect_true(destination$index$document_pending(uri) ||
+                !destination$index$complete(), info = move)
+
+        # The worker for the old workspace may fail after the move. Its
+        # rejected retry must not leave the new workspace without a parse.
+        old$fail(simpleError("old workspace worker failed"))
+        server$process_parse_retries()
+        expect_identical(server$parse_task_manager$tasks$get(uri), replacement, info = move)
+        server$parse_task_manager$finish_one()
+        server$process_pending_replies(time_budget_ms = Inf)
+        expect_identical(names(document$parse_data$definitions), "buffer_value", info = move)
+        expect_length(server$messages, 1L)
+        expect_identical(server$messages[[1L]]$id, 1L)
+        expect_null(server$messages[[1L]]$error)
+    }
+})
+
+test_that("workspace transfers refresh diagnostics while reusing accepted parses", {
+    lifecycle_settings(index_persistent_cache = FALSE, diagnostics = TRUE, diagnostics_cache_ttl = 0)
+    for (move in c("add", "remove")) {
+        root <- withr::local_tempdir()
+        nested <- file.path(root, "nested")
+        dir.create(nested)
+        uri <- path_to_uri(file.path(nested, "main.R"))
+        server <- LifecycleServer$new(root)
+        if (move == "remove") server$add_workspace(path_to_uri(nested))
+        source <- server$get_workspace(uri)
+        document <- lifecycle_parse(source, uri, "buffer_value = 1")
+        parsed <- document$parse_data
+        generation <- document$parse_generation
+        if (move == "add") server$add_workspace(path_to_uri(nested))
+        else server$remove_workspace(path_to_uri(nested))
+
+        expect_identical(document$parse_data, parsed, info = move)
+        expect_identical(document$parse_generation, generation, info = move)
+        expect_false(server$parse_task_manager$has_work(), info = move)
+        expect_true(server$diagnostics_task_manager$tasks$has(uri), info = move)
+        request <- server$diagnostics_task_manager$tasks$get(uri)$.__enclos_env__$private$args$request
+        expect_identical(request$content, document$content, info = move)
+        expect_identical(request$workspace_root, server$get_workspace(uri)$root, info = move)
+    }
+})
+
+test_that("didChange invalidates the pending disk snapshot once per edit", {
+    lifecycle_settings(index_persistent_cache = FALSE, diagnostics = FALSE)
+    root <- withr::local_tempdir()
+    uri <- path_to_uri(file.path(root, "main.R"))
+    server <- LifecycleServer$new(root)
+    workspace <- server$get_workspace(uri)
+    CountingIndex <- R6::R6Class("CountingIndex", inherit = WorkspaceIndex,
+        public = list(invalidations = 0L, invalidate = function(uri) {
+            self$invalidations <- self$invalidations + 1L
+            super$invalidate(uri)
+        }))
+    workspace$index <- CountingIndex$new(root)
+    document <- lifecycle_parse(workspace, uri, "before <- 1")
+    index <- workspace$index
+    index$invalidations <- 0L
+    text_document_did_change(server, list(textDocument = list(uri = uri, version = 2L),
+            contentChanges = list(list(text = "after <- 2"))))
+    expect_identical(index$invalidations, 1L)
+    expect_true(server$parse_task_manager$tasks$has(uri))
+    expect_false(index$complete())
+    server$parse_task_manager$finish_one()
+    expect_identical(names(document$parse_data$definitions), "after")
+    expect_true(index$complete())
+})
+
+test_that("closing package buffers restores disk content with indexing disabled", {
+    lifecycle_settings(index_mode = "off", index_persistent_cache = FALSE, diagnostics = FALSE)
+    root <- withr::local_tempdir()
+    dir.create(file.path(root, "R"))
+    writeLines("Package: legacyclosefixture", file.path(root, "DESCRIPTION"))
+    uri <- path_to_uri(file.path(root, "R", "helper.R"))
+    writeLines("saved <- function(x) x", path_from_uri(uri))
+    server <- LifecycleServer$new(root)
+    workspace <- server$get_workspace(uri)
+    old <- lifecycle_parse(workspace, uri, "unsaved <- function(y) y")
+    server$pending_replies$set(uri, list())
+    expect_false(workspace$index$enabled)
+
+    text_document_did_close(server, list(textDocument = list(uri = uri)))
+    expect_true(workspace$documents$has(uri))
+    current <- workspace$documents$get(uri)
+    expect_false(current$is_open)
+    expect_identical(current$content, "saved <- function(x) x")
+    expect_true(server$parse_task_manager$tasks$has(uri))
+    server$parse_task_manager$finish_one()
+    expect_identical(names(current$parse_data$definitions), "saved")
+    expect_false(identical(current, old))
+
+    # A discarded new file has no disk version to retain in the package.
+    missing <- path_to_uri(file.path(root, "R", "new.R"))
+    lifecycle_parse(workspace, missing, "new_value <- 1")
+    server$pending_replies$set(missing, list())
+    text_document_did_close(server, list(textDocument = list(uri = missing)))
+    expect_false(workspace$documents$has(missing))
+})
+
 test_that("closed package files load preindexed source dependencies outside R", {
     lifecycle_settings(index_persistent_cache = FALSE, diagnostics = FALSE)
     root <- withr::local_tempdir()

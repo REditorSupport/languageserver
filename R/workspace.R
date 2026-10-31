@@ -54,6 +54,16 @@ ByteLruCache <- R6::R6Class(
         trim = function(protect = character()) {
             while (private$entries$size() > private$max_entries ||
                     private$current_bytes > private$max_bytes) {
+                # The common unprotected case can remove the oldest entry
+                # without materializing every key on each cache eviction.
+                # Older collections versions keep the existing keys path.
+                if (!length(protect) && is.function(private$entries$popitem)) {
+                    key <- private$entries$popitem(last = FALSE)$key
+                    size <- private$sizes$get(key, 0)
+                    private$sizes$remove(key)
+                    private$current_bytes <- max(private$current_bytes - size, 0)
+                    next
+                }
                 keys <- private$entries$keys()
                 if (!length(keys)) break
                 candidates <- setdiff(keys, protect)

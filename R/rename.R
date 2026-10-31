@@ -7,7 +7,7 @@ prepare_rename_reply <- function(id, uri, workspace, document, point) {
         ))
     }
 
-    token <- document$detect_token(point)
+    token <- reference_token_at(document, workspace$get_parse_data(uri), point)
     if (!nzchar(token$token) || !check_scope(uri, document, point)) {
         return(ResponseErrorMessage$new(id, "RequestCancelled", "Cannot rename the symbol"))
     }
@@ -41,19 +41,22 @@ prepare_rename_reply <- function(id, uri, workspace, document, point) {
 
 #' @noRd
 rename_reply <- function(id, uri, workspace, document, point, newName) {
+    if (!is.character(newName) || length(newName) != 1L || is.na(newName) || !nzchar(newName)) {
+        return(ResponseErrorMessage$new(id, "InvalidParams", "The new name must be a non-empty string"))
+    }
     if (!check_r_region(document, point)) {
         return(Response$new(id))
     }
 
     refs <- references_reply(NULL, uri, workspace, document, point)
-    result <- list()
-
-    for (ref in refs$result) {
-        result[[ref$uri]] <- c(result[[ref$uri]], list(text_edit(
-            range = ref$range,
-            new_text = newName
-        )))
-    }
+    uris <- vapply(refs$result, function(ref) ref$uri, character(1L))
+    groups <- split(seq_along(uris), factor(uris, levels = unique(uris)))
+    replacement <- quote_completion_name(newName)
+    result <- lapply(groups, function(indices) {
+        lapply(refs$result[indices], function(ref) {
+            text_edit(range = ref$range, new_text = replacement)
+        })
+    })
 
     logger$info("rename_reply: ", result)
 

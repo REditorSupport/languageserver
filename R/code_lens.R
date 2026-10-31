@@ -3,8 +3,8 @@
 current_parse_data <- function(uri, workspace, document) {
     parse_data <- workspace$get_parse_data(uri)
     if (is.null(parse_data) ||
-        (!is.null(parse_data$version) &&
-            !isTRUE(parse_data$version == document$version))) {
+            (!is.null(parse_data$version) &&
+                    !isTRUE(parse_data$version == document$version))) {
         return(NULL)
     }
     parse_data
@@ -12,7 +12,8 @@ current_parse_data <- function(uri, workspace, document) {
 
 #' Find calls to a workspace function without resolving every symbol
 #' @noRd
-function_call_locations <- function(workspace, symbol, context_uri = NULL) {
+function_call_locations <- function(workspace, symbol, context_uri = NULL,
+    definition_key = paste0("global:", symbol)) {
     token_quote <- xml_single_quote(symbol)
     locations <- list()
 
@@ -23,7 +24,7 @@ function_call_locations <- function(workspace, symbol, context_uri = NULL) {
         parse_data <- workspace$get_parse_data(doc_uri)
         indexed <- parse_data$reference_index
         if (!is.null(indexed)) {
-            selected <- reference_indices(indexed, symbol)
+            selected <- reference_indices(indexed, symbol, definition_key)
             selected <- selected[indexed$token[selected] == "SYMBOL_FUNCTION_CALL" &
                     !indexed$qualified_call[selected]]
             if (length(selected)) {
@@ -44,7 +45,7 @@ function_call_locations <- function(workspace, symbol, context_uri = NULL) {
                 "not(preceding-sibling::NS_GET or ",
                 "preceding-sibling::NS_GET_INT)]"
             ),
-                token_quote = token_quote)
+            token_quote = token_quote)
         )
         if (!length(nodes)) next
 

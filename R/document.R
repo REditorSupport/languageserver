@@ -1099,8 +1099,19 @@ resolve_callback <- function(self, uri, version, packages) {
     workspace$update_loaded_packages()
 }
 
+member_task_request <- function(workspace, document, packages, namespace_packages) {
+    list(workspace = workspace, document = document,
+        packages = normalize_package_request(packages),
+        namespace_packages = normalize_package_request(namespace_packages),
+        requested = document$requested_packages, lib_paths = .libPaths(),
+        cache_dir = package_metadata_cache_root())
+}
+
 resolve_member_task <- function(self, uri, document, packages, namespace_packages) {
     workspace <- self$get_workspace(uri)
+    state <- new.env(parent = emptyenv())
+    state$request <- member_task_request(workspace, document, packages, namespace_packages)
+    state$refresh_pending <- FALSE
     metadata <- workspace$member_metadata
     known <- list()
     if (!is.null(metadata)) {
@@ -1114,29 +1125,53 @@ resolve_member_task <- function(self, uri, document, packages, namespace_package
     requested <- document$requested_packages
     version <- document$version
     current <- function() {
-        identical(self$get_workspace(uri), workspace) &&
+        manager <- self$member_task_manager
+        active <- if (is.function(manager$get_task)) manager$get_task(uri) else NULL
+        isTRUE(lsp_settings$get("member_completion")) &&
+            (!is.function(manager$get_task) || identical(active$context, state)) &&
+            identical(.libPaths(), state$request$lib_paths) &&
+            identical(self$get_workspace(uri), workspace) &&
             identical(workspace$documents$get(uri, NULL), document) &&
             identical(document$requested_packages, requested)
     }
-    create_task(
+    refresh <- function() {
+        if (!isTRUE(state$refresh_pending) || !current()) return(invisible(NULL))
+        state$refresh_pending <- FALSE
+        self$member_task_manager$add_task(uri,
+            resolve_member_task(self, uri, document, packages, namespace_packages))
+        invisible(NULL)
+    }
+    task <- create_task(
         target = package_call(member_resolve_packages),
-        args = list(pkgs = packages, lib_paths = .libPaths(), namespace_packages = namespace_packages,
-            prepare = TRUE, prepare_s3 = FALSE, known_members = known, cache_dir = package_metadata_cache_root()),
+        args = list(pkgs = packages, lib_paths = state$request$lib_paths, namespace_packages = namespace_packages,
+            prepare = TRUE, prepare_s3 = FALSE, known_members = known, cache_dir = state$request$cache_dir),
         callback = function(result) {
+            on.exit({
+                refresh()
+                s3_queue_ready(self, uri)
+            }, add = TRUE)
             if (current()) resolve_callback(self, uri, version, result)
         },
         error = function(e) {
-            on.exit(s3_queue_ready(self, uri), add = TRUE)
+            on.exit({
+                refresh()
+                s3_queue_ready(self, uri)
+            }, add = TRUE)
             logger$info("member metadata task:", e)
         },
         profiles = FALSE
     )
+    task$context <- state
+    task
 }
 
 resolve_task <- function(self, uri, document, packages, delay = 0, namespace_packages = character()) {
     split_members <- !is.null(self$member_task_manager)
-    if (split_members) self$member_task_manager$cancel(uri)
     package_requests <- length(packages) > 0L || length(namespace_packages) > 0L
+    prepare_members <- package_requests && isTRUE(lsp_settings$get("member_completion"))
+    if (split_members && !prepare_members) {
+        self$member_task_manager$cancel(uri)
+    }
     prepare_s3 <- isTRUE(lsp_settings$get("s3_dispatch"))
     if (!package_requests) {
         # Repair failed startup catalogs asynchronously for an open source
@@ -1150,12 +1185,25 @@ resolve_task <- function(self, uri, document, packages, delay = 0, namespace_pac
         if (!any(missing)) return(NULL)
     }
     version <- document$version
-    prepare_members <- package_requests && isTRUE(lsp_settings$get("member_completion"))
     # Neither worker depends on the other's result. In particular, an S3
     # timeout must not prevent member models from being prepared and applied.
     if (split_members && prepare_members) {
-        self$member_task_manager$add_task(uri,
-            resolve_member_task(self, uri, document, packages, namespace_packages))
+        manager <- self$member_task_manager
+        previous <- if (is.function(manager$get_task)) manager$get_task(uri) else NULL
+        request <- member_task_request(self$get_workspace(uri), document, packages, namespace_packages)
+        if (is.environment(previous$context) && identical(previous$context$request, request)) {
+            # A queued worker already sees the latest package installation.
+            # Running work finishes once, then one fresh worker validates all
+            # saves received during preparation without repeating that work.
+            if (is.null(previous$execution_started_at)) {
+                if (is.function(manager$promote)) manager$promote(uri)
+            } else {
+                previous$context$refresh_pending <- TRUE
+            }
+        } else {
+            manager$add_task(uri,
+                resolve_member_task(self, uri, document, packages, namespace_packages))
+        }
     }
     create_task(
         target = package_call(member_resolve_packages),

@@ -8,6 +8,38 @@
   Isolate provider tests from installed packages and startup worker timing while
   retaining real workspace/index coverage and conservative S3 precedence (#827).
 
+- Prepare member metadata with indexed namespace function matching and direct
+  eviction of unprotected cache entries, preserving exact identities, LRU order
+  and memory limits.
+- Coalesce repeated member refreshes: queued work is promoted and running work
+  finishes before one fresh validation, instead of restarting on every save.
+  Changed document, workspace and package contexts still replace obsolete work.
+- Split debug task timings into total, queued and running time using the elapsed
+  clock. Redact common credential variables from the debug session header.
+
+- Keep numeric and string request IDs distinct during cancellation, background
+  formatting and response dispatch. Normalize equivalent numeric IDs across
+  their integer and double representations.
+- Discover sourced files inside computed callees, including immediately invoked
+  anonymous functions, without evaluating project expressions. Refresh older
+  workspace-index caches so unchanged files recover these dependencies.
+
+- Keep argument-value completion working with namespace-qualified default
+  helpers and missing arguments. Escape suggested string literals so quotes,
+  backslashes and newlines retain their original values.
+- Preserve quoted symbol identity and complete ranges in definitions,
+  references, highlights and rename, including multiline names with Unicode.
+  Quote nonsyntactic replacement names and exclude shadowed local calls from
+  workspace function CodeLens counts.
+- Decode raw strings and escaped class, slot and member names in type hierarchy
+  and class member symbols without evaluating declarations.
+- Restart pending parses and refresh diagnostics when documents move between
+  workspace folders. Restore saved package content after closing an unsaved
+  buffer with workspace indexing disabled.
+- Reduce repeated copying during default extraction and rename edit creation,
+  invalidate pending disk snapshots once per edit, and share one UTF-8 byte
+  index across each CLI diagnostic batch.
+
 # languageserver 0.3.21
 
 - Preserve member completion for Polars conversions such as

@@ -29,6 +29,9 @@ static void collect_source_calls(SEXP node, SEXP result, R_xlen_t *count,
         if (result != R_NilValue) SET_VECTOR_ELT(result, *count, node);
         ++*count;
     }
+    /* Computed callees can contain immediately invoked function bodies or
+     * other expressions. Visit them before arguments in source order. */
+    collect_source_calls(CAR(node), result, count, visited);
     for (SEXP args = CDR(node); args != R_NilValue; args = CDR(args)) {
         collect_source_calls(CAR(args), result, count, visited);
     }

@@ -379,7 +379,9 @@ test_that("Code action provides quickfix for missing terminal newline", {
 })
 
 test_that("Trailing blank line with spaces and no terminal newline fixes cleanly", {
-  withr::local_dir(withr::local_tempdir())
+    directory <- withr::local_tempdir()
+    withr::local_dir(directory)
+    writeLines("linters: list(trailing_blank_lines_linter())", file.path(directory, ".lintr"))
   uri <- "untitled:1"
   content <- c("x <- 1", "   ")
   document <- Document$new(uri, content = content)

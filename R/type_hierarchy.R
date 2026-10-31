@@ -140,13 +140,7 @@ detect_type_definition <- function(uri, workspace, document, point, token_text) 
 
     token_name <- xml_name(token)
 
-    token_value <- token_text
-    if (!nzchar(token_value)) {
-        token_value <- xml_text(token)
-    }
-    if (token_name == "STR_CONST") {
-        token_value <- gsub('["\'`]', "", token_value)
-    }
+    token_value <- class_token_text(xml_text(token))
 
     # Only process SYMBOL, SYMBOL_FUNCTION_CALL, or STR_CONST
     if (!(token_name %in% c("SYMBOL", "SYMBOL_FUNCTION_CALL", "STR_CONST"))) {
@@ -165,9 +159,9 @@ detect_type_definition <- function(uri, workspace, document, point, token_text) 
                 ".//LEFT_ASSIGN/preceding-sibling::expr[1]/SYMBOL | .//EQ_ASSIGN/preceding-sibling::expr[1]/SYMBOL")
             class_name_value <- NULL
             if (length(class_str)) {
-                class_name_value <- gsub('["\'`]', "", xml_text(class_str))
+                class_name_value <- class_token_text(xml_text(class_str))
             } else if (length(class_sym)) {
-                class_name_value <- xml_text(class_sym)
+                class_name_value <- class_token_text(xml_text(class_sym))
             }
 
             if (!is.null(class_name_value)) {
@@ -254,7 +248,7 @@ detect_r6class <- function(scopes, token_text, document, uri) {
 detect_class_literal <- function(scopes, token_text, document, uri, fun, type) {
     for (call in class_xml_calls(scopes, fun, token_text)) {
         node <- class_xml_name(call)
-        if (!length(node) || gsub('["\047`]', "", xml_text(node)) != token_text) next
+        if (!length(node) || class_token_text(xml_text(node)) != token_text) next
         range_info <- get_element_range(document, node)
         if (!is.null(range_info)) return(list(
             name = token_text, uri = uri, range = range_info, classType = type))
@@ -411,9 +405,9 @@ find_r6_supertypes <- function(doc, xdoc, class_name, uri) {
             "ancestor::expr[LEFT_ASSIGN or EQ_ASSIGN][1]/expr[1]/SYMBOL[1]")
         class_name_value <- NULL
         if (length(class_str)) {
-            class_name_value <- gsub('["\'`]', "", xml_text(class_str))
+            class_name_value <- class_token_text(xml_text(class_str))
         } else if (length(class_symbol)) {
-            class_name_value <- xml_text(class_symbol)
+            class_name_value <- class_token_text(xml_text(class_symbol))
         }
         if (is.null(class_name_value) || class_name_value != class_name) next
 
@@ -423,13 +417,13 @@ find_r6_supertypes <- function(doc, xdoc, class_name, uri) {
             # Extract class name from SYMBOL or STR_CONST within the expr
             inherit_symbol <- class_xml_first(inherit_param, "./SYMBOL | ./expr//SYMBOL")
             if (length(inherit_symbol)) {
-                inherit_name <- xml_text(inherit_symbol)
+                inherit_name <- class_token_text(xml_text(inherit_symbol))
             } else {
                 inherit_str <- class_xml_first(inherit_param, "./STR_CONST | ./expr//STR_CONST")
                 if (length(inherit_str)) {
-                    inherit_name <- gsub('["\'`]', "", xml_text(inherit_str))
+                    inherit_name <- class_token_text(xml_text(inherit_str))
                 } else {
-                    inherit_name <- gsub('["\'`]', "", xml_text(inherit_param))
+                    inherit_name <- class_token_text(xml_text(inherit_param))
                 }
             }
 
@@ -475,7 +469,7 @@ find_s4_supertypes <- function(doc, xdoc, class_name, uri) {
         first_str <- class_xml_name(setclass_call)
 
         if (!length(first_str)) next
-        call_class_name <- gsub('["\'`]', "", xml_text(first_str))
+        call_class_name <- class_token_text(xml_text(first_str))
 
         if (call_class_name != class_name) next
 
@@ -486,7 +480,7 @@ find_s4_supertypes <- function(doc, xdoc, class_name, uri) {
             # Could contain one or more class names as strings
             parent_strs <- class_xml_all(contains_param, ".//STR_CONST")
             for (parent_str in parent_strs) {
-                parent_name <- gsub('["\'`]', "", xml_text(parent_str))
+                parent_name <- class_token_text(xml_text(parent_str))
                 range_info <- get_element_range(doc, parent_str)
                 if (!is.null(range_info)) {
                     supertypes <- c(supertypes, list(list(
@@ -517,7 +511,7 @@ find_refclass_supertypes <- function(doc, xdoc, class_name, uri) {
         first_str <- class_xml_name(setrefclass_call)
 
         if (!length(first_str)) next
-        call_class_name <- gsub('["\'`]', "", xml_text(first_str))
+        call_class_name <- class_token_text(xml_text(first_str))
 
         if (call_class_name != class_name) next
 
@@ -527,7 +521,7 @@ find_refclass_supertypes <- function(doc, xdoc, class_name, uri) {
         if (length(contains_param) > 0) {
             parent_strs <- class_xml_all(contains_param, ".//STR_CONST")
             for (parent_str in parent_strs) {
-                parent_name <- gsub('["\'`]', "", xml_text(parent_str))
+                parent_name <- class_token_text(xml_text(parent_str))
                 range_info <- get_element_range(doc, parent_str)
                 if (!is.null(range_info)) {
                     supertypes <- c(supertypes, list(list(
@@ -647,13 +641,13 @@ find_r6_subtypes <- function(doc, xdoc, parent_name, uri) {
         # Extract class name from SYMBOL or STR_CONST within the expr
         inherit_symbol_name <- class_xml_first(inherit_param, "./SYMBOL | ./expr//SYMBOL")
         if (length(inherit_symbol_name)) {
-            inherit_name <- xml_text(inherit_symbol_name)
+            inherit_name <- class_token_text(xml_text(inherit_symbol_name))
         } else {
             inherit_str <- class_xml_first(inherit_param, "./STR_CONST | ./expr//STR_CONST")
             if (length(inherit_str)) {
-                inherit_name <- gsub('["\'`]', "", xml_text(inherit_str))
+                inherit_name <- class_token_text(xml_text(inherit_str))
             } else {
-                inherit_name <- gsub('["\'`]', "", xml_text(inherit_param))
+                inherit_name <- class_token_text(xml_text(inherit_param))
             }
         }
 
@@ -662,14 +656,14 @@ find_r6_subtypes <- function(doc, xdoc, parent_name, uri) {
         # Extract the actual class name
         class_str <- class_xml_name(class_def)
         if (length(class_str)) {
-            class_name <- gsub('["\'`]', "", xml_text(class_str))
+            class_name <- class_token_text(xml_text(class_str))
             range_info <- get_element_range(doc, class_str)
         } else {
             # Try to find from LHS of assignment
             class_sym <- class_xml_first(class_def,
                 "ancestor::expr/expr[1]/SYMBOL")
             if (length(class_sym)) {
-                class_name <- xml_text(class_sym)
+                class_name <- class_token_text(xml_text(class_sym))
                 range_info <- get_element_range(doc, class_sym)
             } else {
                 next
@@ -721,7 +715,7 @@ find_s4_subtypes <- function(doc, xdoc, parent_name, uri) {
         parent_strs <- class_xml_all(contains_param, ".//STR_CONST")
         found_parent <- FALSE
         for (parent_str in parent_strs) {
-            parent_text <- gsub('["\'`]', "", xml_text(parent_str))
+            parent_text <- class_token_text(xml_text(parent_str))
             if (parent_text == parent_name) {
                 found_parent <- TRUE
                 break
@@ -733,7 +727,7 @@ find_s4_subtypes <- function(doc, xdoc, parent_name, uri) {
         class_str <- class_xml_name(setclass_call)
 
         if (length(class_str)) {
-            class_name <- gsub('["\'`]', "", xml_text(class_str))
+            class_name <- class_token_text(xml_text(class_str))
             range_info <- get_element_range(doc, class_str)
             if (!is.null(range_info)) {
                 subtypes <- c(subtypes, list(list(
@@ -768,7 +762,7 @@ find_refclass_subtypes <- function(doc, xdoc, parent_name, uri) {
         parent_strs <- class_xml_all(contains_param, ".//STR_CONST")
         found_parent <- FALSE
         for (parent_str in parent_strs) {
-            parent_text <- gsub('["\'`]', "", xml_text(parent_str))
+            parent_text <- class_token_text(xml_text(parent_str))
             if (parent_text == parent_name) {
                 found_parent <- TRUE
                 break
@@ -780,7 +774,7 @@ find_refclass_subtypes <- function(doc, xdoc, parent_name, uri) {
         class_str <- class_xml_name(setrefclass_call)
 
         if (length(class_str)) {
-            class_name <- gsub('["\'`]', "", xml_text(class_str))
+            class_name <- class_token_text(xml_text(class_str))
             range_info <- get_element_range(doc, class_str)
             if (!is.null(range_info)) {
                 subtypes <- c(subtypes, list(list(
@@ -885,7 +879,7 @@ extract_r6_members <- function(document, xdoc, def) {
         class_str <- class_xml_name(class_def)
         class_name_value <- NULL
         if (length(class_str)) {
-            class_name_value <- gsub('["\047`]', "", xml_text(class_str))
+            class_name_value <- class_token_text(xml_text(class_str))
         }
 
         # If not found or doesn't match, try to get from left side of assignment
@@ -898,7 +892,7 @@ extract_r6_members <- function(document, xdoc, def) {
                 class_symbol <- class_xml_first(assign_expr,
                     "./expr[1]/SYMBOL[1]")
                 if (length(class_symbol)) {
-                    class_name_value <- xml_text(class_symbol)
+                    class_name_value <- class_token_text(xml_text(class_symbol))
                 }
             }
         }
@@ -928,11 +922,14 @@ extract_r6_list_members <- function(document, list_node, access_modifier) {
 
     # Find SYMBOL_SUB elements that have EQ_SUB as immediate next sibling
     # This indicates name = value patterns
-    all_symbol_subs <- class_xml_all(list_node, ".//SYMBOL_SUB[following-sibling::*[not(self::COMMENT)][1][self::EQ_SUB]]")
+    all_symbol_subs <- class_xml_all(list_node, paste(
+        ".//SYMBOL_SUB[following-sibling::*[not(self::COMMENT)][1][self::EQ_SUB]]",
+        ".//STR_CONST[following-sibling::*[not(self::COMMENT)][1][self::EQ_SUB]]",
+        sep = " | "))
 
     # Process all SYMBOL_SUB elements and try to find their values
     for (symbol_sub in all_symbol_subs) {
-        member_name <- xml_text(symbol_sub)
+        member_name <- class_token_text(xml_text(symbol_sub))
 
         # Skip if this is a nested list definition (public/private/active)
         if (member_name %in% c("public", "private", "active", "inherit", "lock_objects",
@@ -1018,7 +1015,7 @@ extract_s4_members <- function(document, xdoc, def) {
         first_str <- class_xml_name(setclass_call)
 
         if (!length(first_str)) next
-        call_class_name <- gsub('["\047`]', "", xml_text(first_str))
+        call_class_name <- class_token_text(xml_text(first_str))
 
         if (call_class_name != class_name) next
 
@@ -1032,7 +1029,7 @@ extract_s4_members <- function(document, xdoc, def) {
                 ".//SYMBOL_SUB[following-sibling::*[not(self::COMMENT)][1][self::EQ_SUB]] | .//STR_CONST[following-sibling::*[not(self::COMMENT)][1][self::EQ_SUB]]")
             for (slot_name_node in slot_names) {
                 slot_name_text <- xml_text(slot_name_node)
-                slot_name <- gsub('["\047`]', "", slot_name_text)
+                slot_name <- class_token_text(slot_name_text)
                 slot_range <- get_element_range(document, slot_name_node)
 
                 if (!is.null(slot_range) && nzchar(slot_name)) {
@@ -1063,7 +1060,7 @@ extract_s4_members <- function(document, xdoc, def) {
         found_class <- FALSE
         method_name <- NULL
         for (i in seq_along(class_strs)) {
-            str_value <- gsub('["\047`]', "", xml_text(class_strs[[i]]))
+            str_value <- class_token_text(xml_text(class_strs[[i]]))
             if (i == 1) {
                 method_name <- str_value
             } else if (str_value == class_name) {
@@ -1104,7 +1101,7 @@ extract_refclass_members <- function(document, xdoc, def) {
         first_str <- class_xml_name(setrefclass_call)
 
         if (!length(first_str)) next
-        call_class_name <- gsub('["\047`]', "", xml_text(first_str))
+        call_class_name <- class_token_text(xml_text(first_str))
 
         if (call_class_name != class_name) next
 
@@ -1115,7 +1112,7 @@ extract_refclass_members <- function(document, xdoc, def) {
             field_names <- class_xml_all(fields_node,
                 "./SYMBOL_SUB[following-sibling::*[not(self::COMMENT)][1][self::EQ_SUB]] | ./STR_CONST[following-sibling::*[not(self::COMMENT)][1][self::EQ_SUB]]")
             for (field_name_node in field_names) {
-                field_name <- gsub('["\047`]', "", xml_text(field_name_node))
+                field_name <- class_token_text(xml_text(field_name_node))
                 field_range <- get_element_range(document, field_name_node)
 
                 if (!is.null(field_range)) {
@@ -1140,7 +1137,7 @@ extract_refclass_members <- function(document, xdoc, def) {
             method_names <- class_xml_all(methods_node,
                 "./SYMBOL_SUB[following-sibling::*[not(self::COMMENT)][1][self::EQ_SUB]] | ./STR_CONST[following-sibling::*[not(self::COMMENT)][1][self::EQ_SUB]]")
             for (method_name_node in method_names) {
-                method_name <- gsub('["\047`]', "", xml_text(method_name_node))
+                method_name <- class_token_text(xml_text(method_name_node))
                 method_range <- get_element_range(document, method_name_node)
 
                 if (!is.null(method_range)) {

@@ -1,3 +1,12 @@
+#' Remove common credential variables from the debug session header
+#' @noRd
+session_environment <- function(environment = Sys.getenv()) {
+    sensitive <- grepl("(^|_)(PAT|TOKEN|PASSWORD|PASSWD|SECRET|API_KEY|ACCESS_KEY|PRIVATE_KEY|CLIENT_SECRET)($|_)",
+        names(environment), ignore.case = TRUE)
+    environment[sensitive] <- "<redacted>"
+    as.list(environment)
+}
+
 #' `initialize` handler
 #'
 #' Handler to the `initialize` [Request].
@@ -16,7 +25,7 @@ on_initialize <- function(self, id, params) {
         args = commandArgs(),
         ver = unclass(R.version),
         locale = Sys.getlocale(),
-        env = as.list(Sys.getenv()),
+        env = session_environment(),
         libpaths = .libPaths(),
         namespaces = local({
             nss <- loadedNamespaces()
@@ -102,10 +111,10 @@ on_exit <- function(self, params) {
 #' @noRd
 cancel_request <- function(self, params) {
     request_id <- params$id
+    request_key <- request_id_key(request_id)
     if (!is.null(request_id)) cancel_formatting_requests(self, id = request_id)
     if (!is.null(self$index_requests)) {
-        key <- paste0(if (is.character(request_id)) "string:" else "number:", request_id)
-        request <- self$index_requests$pop(key, NULL)
+        request <- self$index_requests$pop(request_key, NULL)
         if (!is.null(request$workspace)) request$workspace$index$prune_pending <- TRUE
         if (!is.null(request)) self$deliver(ResponseErrorMessage$new(request$id, "RequestCancelled", "Request cancelled by client"))
     }
@@ -115,7 +124,7 @@ cancel_request <- function(self, params) {
             retained <- list()
             while (queue$size()) {
                 item <- queue$pop()
-                if (identical(as.character(item$id), as.character(request_id))) {
+                if (identical(request_id_key(item$id), request_key)) {
                     self$deliver(ResponseErrorMessage$new(
                         item$id,
                         "RequestCancelled",

@@ -103,9 +103,9 @@ text_document_did_change <- function(self, params) {
         workspace$documents$set(uri, doc)
     }
     doc$did_open()
-    if (is.function(workspace$index$invalidate)) workspace$index$invalidate(uri)
     # The accepted background parse updates definitions and source edges.
     # Parsing a shallow index here would block every keystroke a second time.
+    # text_sync's await_parse also invalidates any pending disk snapshot.
     self$text_sync(
         uri,
         document = doc,
@@ -202,8 +202,13 @@ text_document_did_close <- function(self, params) {
             workspace$index$remove(uri)
         }
         self$prune_index_documents(workspace)
-    # do not remove document in package
-    } else if (!(is_package(workspace$root) && is_from_workspace)) {
+    } else if (is_package(workspace$root) && is_from_workspace) {
+        # Package providers still retain full documents with indexing off.
+        # Closing the editor discards unsaved content in this path too.
+        if (is.function(self$load_index_document)) {
+            self$load_index_document(workspace, uri, reload = TRUE)
+        }
+    } else {
         diagnostics_callback(self, uri, NULL, list())
         workspace$documents$remove(uri)
         workspace$diagnostics_globals_cache <- NULL
