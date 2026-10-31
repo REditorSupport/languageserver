@@ -1,0 +1,86 @@
+# Automatically tag and publish a GitHub release when a release branch
+# (`release/<version>`) pull request is merged into `main` or `master`.
+#
+# Steps performed on merge:
+# 1. Checks out the merged commit on the target branch.
+# 2. Verifies that `<version>` from `release/<version>` matches `Version:` in `DESCRIPTION`.
+# 3. Extracts the release notes under `# languageserver <version>` from `NEWS.md`.
+# 4. Creates and pushes the `v<version>` git tag and publishes the GitHub release.
+name: Release
+
+on:
+  pull_request_target:
+    types: [closed]
+    branches: [main, master]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'release/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout merged commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+
+      - name: Tag and create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          set -euo pipefail
+
+          VERSION="${HEAD_REF#release/}"
+          VERSION="${VERSION#v}"
+          if [[ -z "$VERSION" ]]; then
+            echo "::error::Could not determine release version from branch '$HEAD_REF'"
+            exit 1
+          fi
+
+          DESC_VERSION="$(sed -n 's/^Version:[[:space:]]*//p' DESCRIPTION | tr -d '[:space:]')"
+          if [[ "$VERSION" != "$DESC_VERSION" ]]; then
+            echo "::error::Branch version '$VERSION' does not match DESCRIPTION Version '$DESC_VERSION'"
+            exit 1
+          fi
+
+          TAG="v${VERSION}"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; skipping."
+            exit 0
+          fi
+
+          NOTES_FILE="$(mktemp)"
+          awk -v header="# languageserver $VERSION" '
+            { line = $0; sub(/[[:space:]]+$/, "", line) }
+            line == header { in_section = 1; next }
+            in_section && /^# languageserver / { exit }
+            in_section { print }
+          ' NEWS.md | sed -e '/./,$!d' -e :a -e '/^[[:space:]]*$/{$d;N;ba' -e '}' > "$NOTES_FILE"
+
+          EXISTING_TAG_SHA="$(git ls-remote --tags origin "refs/tags/$TAG" "refs/tags/${TAG}^{}" | tail -n 1 | awk '{print $1}')"
+          if [[ -n "$EXISTING_TAG_SHA" ]]; then
+            if [[ "$EXISTING_TAG_SHA" != "$MERGE_SHA" ]]; then
+              echo "::error::Tag '$TAG' already exists at '$EXISTING_TAG_SHA', expected '$MERGE_SHA'"
+              exit 1
+            fi
+          else
+            git tag "$TAG" "$MERGE_SHA"
+            git push origin "refs/tags/$TAG"
+          fi
+
+          if [[ -s "$NOTES_FILE" ]]; then
+            gh release create "$TAG" \
+              --verify-tag \
+              --title "$TAG" \
+              --notes-file "$NOTES_FILE"
+          else
+            gh release create "$TAG" \
+              --verify-tag \
+              --title "$TAG" \
+              --generate-notes
+          fi
