@@ -515,7 +515,7 @@ test_that("discovery completes across more roots than the worker snapshot cache"
     keys <- vapply(workspaces, function(workspace) workspace$index$.__enclos_env__$private$worker_key, "")
     withr::defer(for (key in keys) index_worker_release(key))
     for (i in seq_along(workspaces)) server$process_events()
-    discoveries <- get(".languageserver_workspace_discoveries", globalenv())
+    discoveries <- get(".languageserver_workspace_discoveries", index_worker_state)
     expect_true(all(vapply(keys, discoveries$has, logical(1L))))
     for (i in seq_len(1600L)) {
         server$process_events()
@@ -565,8 +565,8 @@ test_that("detaching releases worker cursors and catalogs without affecting reat
     old_key <- manager$tasks$values()[[1L]]$.__enclos_env__$private$args$key
     manager$finish_one()
     index_worker_batch(old_key, root, list(), list(), bootstrap = TRUE)
-    discoveries <- get(".languageserver_workspace_discoveries", globalenv())
-    catalogs <- get(".languageserver_workspace_indexes", globalenv())
+    discoveries <- get(".languageserver_workspace_discoveries", index_worker_state)
+    catalogs <- get(".languageserver_workspace_indexes", index_worker_state)
     expect_true(discoveries$has(old_key))
     expect_true(catalogs$has(old_key))
 

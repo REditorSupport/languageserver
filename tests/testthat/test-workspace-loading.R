@@ -317,7 +317,7 @@ test_that("lost discovery worker state restarts and superseded scans cannot inst
     index$process_batch()
     index$process_batch()
     private <- tail(manager$tasks$values(), 1L)[[1L]]$.__enclos_env__$private
-    states <- get(".languageserver_workspace_discoveries", globalenv())
+    states <- get(".languageserver_workspace_discoveries", index_worker_state)
     states$remove(private$args$key)
     completed <- workspace_loading_result(manager)
     expect_true(completed$result$restart)

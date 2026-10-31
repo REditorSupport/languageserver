@@ -1,4 +1,4 @@
-# languageserver 0.3.20
+# languageserver 0.3.21
 
 - Preserve member completion for Polars conversions such as
   `dt <- as_polars_df(iris)` and for `pl$` after calls using the converted frame.
@@ -125,6 +125,108 @@
   Follow installed S7 constructor semantics, including 1.0 development class
   references, forwarding constructors, named bindings, list property updates,
   external class references, S4 parents and deprecation declarations.
+- Resolve `$` and `@` member completion, signature help, and hover for static
+  namespace objects, lists, data frames, pairlists, stored S4/R6 values, and
+  lazy-loaded package datasets without invoking custom accessors or coercion
+  hooks (#818).
+- Make `index_mode = "auto"` package-aware so standalone workspaces index open
+  files and their static `source()`/`sys.source()` dependencies lazily while
+  triggering shared background scans on demand for workspace symbols and global
+  references (#815).
+- Keep hover, signature help, and completion responsive while workspace indexing,
+  parsing, S3 catalog building, and member-model preparation run in the
+  background, streaming indexing progress via `window/workDoneProgress` (#812, #811, #798).
+- Support pluggable diagnostics and formatting backends through R adapters,
+  including built-in support for `jarl` diagnostics and `air` formatting
+  alongside the default `lintr` and `styler` backends (#809, #776). `lintr` and
+  `styler` have moved from `Imports` to `Suggests`, so the language server
+  itself does not require `lintr` or `styler` and
+  `install.packages("languageserver")` no longer installs them automatically;
+  users must install or upgrade `lintr` (>= 3.3.0-1) and install `styler` to
+  keep the default diagnostics and formatting, or select other backends.
+- Skip `COMMENT` parse nodes and ignore computed callees when resolving function
+  calls and placing inlay hints (#807, #800, #799).
+- Reduce worker scheduling, parse, and hot-path provider latency by precomputing
+  shared syntax/scope indexes in C, omitting eager XML serialization from worker
+  snapshots, and caching receiver analysis per document (#802, #795, #793).
+- Preserve R6 class context for `self`, `super`, `private`, and aliases after
+  member assignments within methods (#797).
+- Fix URI escaping for reserved filename characters, multiline `$`/`::`/`:::`
+  reference classification, overlapping raw-string scanning, and unsaved buffer
+  transfers across workspace folder changes (#796).
+- Require R (>= 4.0.0) and modernize R 4.0 syntax; require `lintr` (>= 3.3.0-1)
+  when using the `lintr` diagnostics backend, dropping legacy `lintr`
+  workarounds (#813, #783).
+- Honor `.lintr` settings from the working directory when linting pathless and
+  untitled documents (#782).
+- Prevent function completions from inserting duplicate call parentheses when
+  an opening parenthesis already follows the token (#779, #778).
+- Populate `NAMESPACE` imports and `DESCRIPTION` `Depends` packages in
+  diagnostics globals so `lintr::object_usage_linter()` recognizes imported
+  symbols and cross-file package functions (#775, #773, #652).
+- Preserve missing terminal newline state during diagnostics and provide a preferred quick fix for `trailing_blank_lines_linter` (#774, #772).
+- Respond to `shutdown` with a `null` result instead of `[]`, which clients that type the result strictly fail to decode (#789).
+
+**Closed issues:**
+
+- Hierarchical outline broken since 0.3.17 (#814)
+- Intellisense / suggestion of arguments not depending on input (#805)
+- No diagnostics, and documentColor/codeLens never answered, when the workspace folder is null (Windows, 0.3.20) (#794)
+- enclose non syntactic names in backticks (#781)
+- Existing brackets are ignored when function is autocompleted (#778)
+- Support pluggable linting and formatting backends (#776)
+- The object_usage_linter won't acknowledge bindings from @import or @importFrom (#773)
+- Missing terminal newline lint is not reported in VSCode Problem Pane (#772)
+- Autocompletion Slow (#687)
+- Auto-completion for S7 classes? (#682)
+- LSP diagnostics shows `lintr` error although `lintr::lint_package()` does not (#652)
+- lsp sees things that lintr doesnt (#567)
+- `languageserver` doesn't use `.lintr` file? (#557)
+
+**Merged pull requests:**
+
+- Cache package metadata across sessions and fix Polars member completion (#825)
+- Prevent server crash when editing function headers (#824)
+- Fix argument completion after member access (#820)
+- Fix signature help in quoted arguments (#819)
+- Fix member completion for static namespace objects (#818)
+- Add capability-gated LSP 3.18 editor improvements (#817)
+- Restore document outline hierarchy and recover outline requests after edits (#816)
+- Use package-aware indexing and faster workspace discovery (#815)
+- R 4.0.0 modernizations (#813)
+- Keep basic providers responsive during parsing and metadata preparation (#812)
+- Keep R providers responsive during large workspace indexing (#811)
+- Balance CI coverage across eight shards (#810)
+- Support pluggable diagnostics and formatting backends (#809)
+- Add static S3 dispatch to completion, hover and signature help (#808)
+- Ignore computed callees when resolving inlay hint function calls (#807)
+- Bump ghcr.io/rocker-org/devcontainer-features/r-rig from 1.2.4 to 2.0.0 (#804)
+- Handle pipe context across signature help, inlay hints, and providers (#803)
+- Reduce worker scheduling and parse latency (#802)
+- Fix diagnostics and pending replies in folderless sessions (#801)
+- Skip parser comments correctly throughout the codebase (#800)
+- Skip COMMENT nodes when placing inlay hints (#799)
+- Keep large workspace loading responsive and report indexing progress (#798)
+- Preserve R6 references after member assignments (#797)
+- Fix URI handling, references, raw strings, and workspace buffer transfers (#796)
+- Reduce hot-path latency with worker indexes and responsive scheduling (#795)
+- Reduce member completion, hover and signature-help latency (#793)
+- Preserve R6 member providers after inference timeouts (#792)
+- Complete and describe R6 scope symbols and constructor signatures (#791)
+- Keep Polars member providers available across metadata eviction (#790)
+- Respond to shutdown with `null` result instead of `[]` (#789)
+- Quote non-syntactic completion names and preserve snippet escapes (#788)
+- Stabilize inlay hints during incomplete edits (#787)
+- Extend member completion, signature help, and hover for R6 APIs (#786)
+- Fix member completion for assigned and collected Polars queries (#785)
+- Support static member and constructor intelligence for R6, S4 and S7 (#784)
+- Require lintr (>= 3.3.0-1) and drop workarounds for older lintr (#783)
+- fix: honor lintr settings for pathless documents (#782)
+- fix: preserve existing call parentheses in completions (#779)
+- Populate NAMESPACE and Depends imports in diagnostics globals for object_usage_linter() (#775)
+- Enable detecting missing terminal newline (#774)
+
+# languageserver 0.3.20
 
 - Run full-document, range, and multiple-range formatting in a lazy, cancellable
   background worker so other editor requests remain responsive during formatting (#764, #251).
@@ -140,8 +242,6 @@
   avoiding zero-length allocations when definitions or occurrences are empty (#767).
 - Speed up test-coverage workflow by utilizing 4 CPUs, path filtering, and 4-way
   balanced test sharding (#769).
-- Preserve missing terminal newline state during diagnostics and provide a preferred quick fix for `trailing_blank_lines_linter` (#774, #772).
-- Respond to `shutdown` with a `null` result instead of `[]`, which clients that type the result strictly fail to decode.
 
 **Closed issues:**
 
