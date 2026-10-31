@@ -1167,13 +1167,23 @@ resolve_member_task <- function(self, uri, document, packages, namespace_package
 
 resolve_task <- function(self, uri, document, packages, delay = 0, namespace_packages = character()) {
     split_members <- !is.null(self$member_task_manager)
-    prepare_members <- isTRUE(lsp_settings$get("member_completion"))
-    if (split_members && (!prepare_members || (!length(packages) && !length(namespace_packages)))) {
+    package_requests <- length(packages) > 0L || length(namespace_packages) > 0L
+    prepare_members <- package_requests && isTRUE(lsp_settings$get("member_completion"))
+    if (split_members && !prepare_members) {
         self$member_task_manager$cancel(uri)
     }
-    # Startup packages already belong to the workspace. A document with no
-    # package requests needs no subprocess to rediscover that same search path.
-    if (!length(packages) && !length(namespace_packages)) return(NULL)
+    prepare_s3 <- isTRUE(lsp_settings$get("s3_dispatch"))
+    if (!package_requests) {
+        # Repair failed startup catalogs asynchronously for an open source
+        # document, without resolving every background workspace file.
+        if (!prepare_s3 || !isTRUE(document$is_open)) return(NULL)
+        metadata <- self$get_workspace(uri)$s3_metadata
+        missing <- vapply(startup_packages, function(package) {
+            catalog <- metadata$catalog(package)
+            is.null(catalog) || !is.null(catalog$error)
+        }, logical(1L))
+        if (!any(missing)) return(NULL)
+    }
     version <- document$version
     # Neither worker depends on the other's result. In particular, an S3
     # timeout must not prevent member models from being prepared and applied.
@@ -1199,7 +1209,7 @@ resolve_task <- function(self, uri, document, packages, delay = 0, namespace_pac
         target = package_call(member_resolve_packages),
         args = list(pkgs = packages, lib_paths = .libPaths(), namespace_packages = namespace_packages,
             prepare = prepare_members && !split_members,
-            prepare_s3 = isTRUE(lsp_settings$get("s3_dispatch")), cache_dir = package_metadata_cache_root()),
+            prepare_s3 = prepare_s3, cache_dir = package_metadata_cache_root()),
         callback = function(result) resolve_callback(self, uri, version, result),
         error = function(e) {
             on.exit(s3_queue_ready(self, uri), add = TRUE)

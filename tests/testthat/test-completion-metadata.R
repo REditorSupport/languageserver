@@ -102,6 +102,38 @@ test_that("Completion candidate selection uses stable UTF-8 radix ordering", {
     )
 })
 
+test_that("Completion selection distinguishes source spelling from semantic names", {
+    names <- c("a b", "a`b", "a\\b", "a\nb", paste0("a", intToUtf8(0xe9)), "`lead`")
+    source_names <- encodeString(names, quote = "`")
+    expect_identical(completion_source_names(source_names), names)
+
+    # The namespace's name contains literal backticks. Only the source item
+    # carries a quoted spelling, so decoding every label would change identity.
+    items <- list(
+        list(label = source_names[[6L]], data = list(matching_name = names[[6L]])),
+        list(label = names[[6L]], data = list(package = "example")),
+        list(label = "lead")
+    )
+    matching_names <- completion_matching_names(items)
+    expect_identical(matching_names, c("`lead`", "`lead`", "lead"))
+    sort_text <- c("0-source", "1-namespace", "2-other")
+    expect_identical(completion_select_indices(matching_names, sort_text, "`l", 2L), 1:2)
+
+    fallback <- completion_select_indices
+    mockery::stub(fallback, ".Call", function(...) NULL)
+    expect_identical(fallback(matching_names, sort_text, "`l", 2L), 1:2)
+})
+
+test_that("Quoted source declarations retain prefix priority before provider truncation", {
+    fixture <- provider_fixture(c("f <- function() {", "`a b` <- 1",
+            sprintf("a%03d <- %d", 1:250, 1:250), "`a`", "}"))
+    items <- scope_completion(fixture$uri, fixture$workspace, "a",
+        list(row = 252L, col = 2L), limit = 20L)
+    expect_length(items, 20L)
+    expect_true(isTRUE(attr(items, "truncated")))
+    expect_true("`a b`" %in% vapply(items, `[[`, character(1L), "label"))
+})
+
 test_that("Argument value completion resolves formals once", {
     calls <- 0L
     workspace <- new.env(parent = baseenv())
@@ -300,6 +332,8 @@ test_that("Namespace indexes retain names that need quoting", {
 })
 
 test_that("Quoted workspace and imported names complete with decoded prefixes", {
+    testthat::local_mocked_bindings(installed_package_names = function() character(),
+        .package = "languageserver")
     names <- c("run task", "a`b", "`lead", "a\\b", "a\nb", paste0(intToUtf8(0xe9), " task"))
     for (name in names) {
         quoted <- encodeString(name, quote = "`")
@@ -349,6 +383,8 @@ test_that("Quoted completion edit ranges use UTF-16 positions", {
 })
 
 test_that("Quoted local names and argument prefixes retain their context", {
+    testthat::local_mocked_bindings(installed_package_names = function() character(),
+        .package = "languageserver")
     fixture <- provider_fixture(c("local({", "target <- function(`a b`) NULL",
             "`run task` <- function() NULL", "target(`a`)", "`run`", "})"))
     fixture$workspace$loaded_packages <- character()
@@ -368,6 +404,45 @@ test_that("Quoted local names and argument prefixes retain their context", {
     item <- Filter(function(item) identical(item$detail, "[scope]"), items)[[1L]]
     expect_identical(item$textEdit$newText, "`run task`($0)")
     expect_identical(item$filterText, "`run task`")
+})
+
+test_that("Quoted local and parameter completions survive a crowded package library", {
+    testthat::local_mocked_bindings(
+        installed_package_names = function() sprintf("aPkg%03d", 1:250),
+        .package = "languageserver")
+    names <- c("a b", "a`b", "a\\b", "a\nb", paste0("a", intToUtf8(0xe9), " task"))
+    for (name in names) {
+        quoted <- encodeString(name, quote = "`")
+        fixture <- provider_fixture(c("local({",
+                paste0("target <- function(", quoted, ") NULL"),
+                paste0(quoted, " <- function() NULL"),
+                "target(`a`)", "`a`", "})"))
+        fixture$workspace$loaded_packages <- character()
+        fixture$workspace$imported_objects <- collections::dict()
+        fixture$workspace$get_namespace <- function(...) NULL
+        fixture$workspace$guess_namespace <- function(...) NULL
+        capabilities <- list(completionItem = list(snippetSupport = TRUE))
+
+        result <- completion_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+            list(row = 3L, col = 9L), capabilities)$result
+        expect_true(result$isIncomplete)
+        expect_length(result$items, 200L)
+        parameters <- Filter(function(item) identical(item$detail, "parameter"), result$items)
+        expect_length(parameters, 1L)
+        expect_identical(parameters[[1L]]$label, quoted)
+        expect_identical(parameters[[1L]]$textEdit$newText, paste0(quoted, " = "))
+
+        result <- completion_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+            list(row = 4L, col = 2L), capabilities)$result
+        expect_true(result$isIncomplete)
+        expect_length(result$items, 200L)
+        locals <- Filter(function(item) identical(item$detail, "[scope]"), result$items)
+        expect_length(locals, 1L)
+        expect_identical(locals[[1L]]$label, quoted)
+        expect_identical(locals[[1L]]$textEdit$newText,
+            paste0(escape_completion_snippet(quoted), "($0)"))
+        expect_identical(locals[[1L]]$filterText, quoted)
+    }
 })
 
 test_that("Quoted namespace completion works through the language client", {

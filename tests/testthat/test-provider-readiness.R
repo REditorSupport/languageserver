@@ -1,10 +1,4 @@
-readiness_catalogs <- local({
-    cached <- NULL
-    function() {
-        if (is.null(cached)) cached <<- stats::setNames(lapply(startup_packages, s3_prepare_namespace), startup_packages)
-        cached
-    }
-})
+readiness_catalogs <- provider_startup_s3
 
 readiness_fixture <- function(content, .local_envir = parent.frame()) {
     root <- withr::local_tempdir(.local_envir = .local_envir)
@@ -105,6 +99,77 @@ readiness_task_manager <- function() {
     manager$promote <- function(...) NULL
     manager
 }
+
+test_that("open source documents repair startup S3 metadata without member preparation", {
+    previous <- stats::setNames(lapply(c("s3_dispatch", "member_completion"), lsp_settings$get),
+        c("s3_dispatch", "member_completion"))
+    withr::defer(for (key in names(previous)) lsp_settings$set(key, previous[[key]]))
+    lsp_settings$set("s3_dispatch", TRUE)
+    lsp_settings$set("member_completion", TRUE)
+    testthat::local_mocked_bindings(
+        s3_prepare_packages = function(...) readiness_catalogs(),
+        resolve_attached_packages = function(...) startup_packages,
+        member_prepare_package = function(...) stop("prepared a member model for startup recovery"),
+        .package = "languageserver")
+    lines <- c("g <- function(x, ...) UseMethod('g')",
+        "g.numeric <- function(x, digits=3, mode='short', ...) NULL", "g(1, )")
+    for (failed in c(FALSE, TRUE)) {
+        for (split in c(FALSE, TRUE)) {
+            fixture <- readiness_fixture(lines)
+            workspace <- fixture$workspace
+            document <- fixture$document
+            server <- fixture$server
+            server$resolve_task_manager <- readiness_task_manager()
+            if (split) server$member_task_manager <- readiness_task_manager()
+            workspace$s3_metadata <- S3MetadataCache$new()
+            if (failed) {
+                workspace$s3_metadata$set("base", list(schema = 1L, generation = "failed",
+                        functions = list(), methods = list(), objects = list(), error = "Startup timed out"))
+            }
+            expect_null(resolve_s3_call(fixture$uri, workspace, document, list(row = 2L, col = 5L)))
+            document$requested_packages <- document$parse_data <- NULL
+            parsed <- parse_document(fixture$uri, document$content, include_xml = FALSE)
+            parse_callback(server, fixture$uri, document$version, parsed, cache = FALSE)
+            task <- server$resolve_task_manager$tasks$get(fixture$uri)
+            expect_s3_class(task, "Task")
+            private <- task$.__enclos_env__$private
+            expect_false(private$args$prepare)
+            expect_true(private$args$prepare_s3)
+            if (split) expect_false(server$member_task_manager$has(fixture$uri))
+
+            # Unchanged package requests keep the repair in flight, and its
+            # result remains useful after a source-only edit advances version.
+            document$set_content(2L, c(lines, "# another edit"))
+            parsed <- parse_document(fixture$uri, document$content, include_xml = FALSE)
+            parse_callback(server, fixture$uri, document$version, parsed, cache = FALSE)
+            expect_identical(server$resolve_task_manager$tasks$get(fixture$uri), task)
+            result <- do.call(private$target, private$args)
+            server$resolve_task_manager$cancel(fixture$uri)
+            private$callback(result)
+            resolved <- resolve_s3_call(fixture$uri, workspace, document, list(row = 2L, col = 5L))
+            expect_identical(resolved$method$name, "g.numeric")
+            text_document_completion(server, 1L, readiness_params(fixture, 2L, 5L))
+            labels <- vapply(tail(server$replies, 1L)[[1L]]$result$items, `[[`, "", "label")
+            expect_true(all(c("digits", "mode") %in% labels))
+            expect_null(resolve_task(server, fixture$uri, document, character()))
+        }
+    }
+})
+
+test_that("startup-only S3 resolution skips complete, disabled and background documents", {
+    previous <- lsp_settings$get("s3_dispatch")
+    withr::defer(lsp_settings$set("s3_dispatch", previous))
+    lsp_settings$set("s3_dispatch", TRUE)
+    fixture <- readiness_fixture("print(1)")
+    expect_null(resolve_task(fixture$server, fixture$uri, fixture$document, character()))
+    fixture$workspace$s3_metadata <- S3MetadataCache$new()
+    fixture$document$did_close()
+    expect_null(resolve_task(fixture$server, fixture$uri, fixture$document, character()))
+    fixture$document$did_open()
+    lsp_settings$set("s3_dispatch", FALSE)
+    fixture$server$get_workspace <- function(...) stop("looked up disabled startup resolution")
+    expect_null(resolve_task(fixture$server, fixture$uri, fixture$document, character()))
+})
 
 test_that("cached generic help survives missing or failed startup S3 metadata", {
     fixture <- readiness_fixture(c("print()", "base::print()", "summary(1)"))
