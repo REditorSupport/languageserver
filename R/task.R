@@ -32,6 +32,7 @@ Task <- R6::R6Class("Task",
         delay = NULL,
         started_at = NULL,
         execution_started_at = NULL,
+        context = NULL,
         initialize = function(target, args, callback = NULL, error = NULL, delay = 0,
             profiles = TRUE, track_descendants = FALSE) {
             private$target <- target
@@ -400,6 +401,10 @@ TaskManager <- R6::R6Class("TaskManager",
                 )
                 private$ensure_min_sessions()
             }
+        },
+        get_task = function(id) {
+            task <- private$pending_tasks$get(id, NULL)
+            if (is.null(task)) private$running_tasks$get(id, NULL) else task
         },
         add_task = function(id, task) {
             if (private$stopping) {
