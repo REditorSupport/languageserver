@@ -1,5 +1,14 @@
 # languageserver 0.3.20
 
+- Prepare member metadata with indexed namespace function matching and direct
+  eviction of unprotected cache entries, preserving exact identities, LRU order
+  and memory limits.
+- Coalesce repeated member refreshes: queued work is promoted and running work
+  finishes before one fresh validation, instead of restarting on every save.
+  Changed document, workspace and package contexts still replace obsolete work.
+- Split debug task timings into total, queued and running time using the elapsed
+  clock. Redact common credential variables from the debug session header.
+
 - Keep numeric and string request IDs distinct during cancellation, background
   formatting and response dispatch. Normalize equivalent numeric IDs across
   their integer and double representations.

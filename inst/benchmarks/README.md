@@ -46,6 +46,54 @@ scripts report R allocations when memory profiling is supported. Local timings
 vary with hardware and load; regression tests assert behavior without elapsed
 thresholds.
 
+## Member metadata workers
+
+Run these against separately installed revisions, without concurrent tests or
+benchmarks:
+
+```sh
+R_LIBS=/path/to/library Rscript --vanilla inst/benchmarks/member-preparation.R stages.csv 3 polars
+R_LIBS=/path/to/library Rscript --vanilla inst/benchmarks/member-tasks.R workers.csv 3 polars
+```
+
+The stage workload separates namespace loading, live identity validation,
+registry extraction, model/return preparation, freezing and disk operations.
+The worker workload uses a fresh process with startup profiles disabled for
+every request, as production member tasks do. Cold rows have empty caches;
+disk rows restore existing models; known rows validate identities already held
+by the workspace and return no duplicate models. Worker timings include server
+loading, namespace preparation and metadata transfer, but exclude scheduling,
+document parsing and editor rendering. All validation uses neutral fixtures and
+static inference; no data query or user document expression is executed.
+
+Three serial local passes on R 4.6.1/macOS arm64 with Polars 2.0.0, comparing
+`bb8eb83` with the member-preparation changes, produced these medians:
+
+| Fresh worker workload | Before (ms) | After (ms) |
+| --- | ---: | ---: |
+| Cold member preparation | 10,529 | 7,156 |
+| Existing disk model | 3,771 | 1,763 |
+| Already-known model validation | 3,564 | 1,512 |
+
+An isolated paired registry-extraction comparison also fell from 2,478 ms to
+692 ms with identical complete input. Fresh live-identity validation fell from
+approximately 2,440 ms to 437 ms with identical contexts and identity records.
+Much of the validation cost came from materializing every cache key on each
+eviction. The direct oldest-item path avoids that scan for unprotected entries;
+protected entries and older collection APIs retain their previous behavior.
+Memory budgets and live namespace/file checks are unchanged.
+
+Repeated saves retain the same queued or running member task when its complete
+request context is unchanged. Saves received during running work trigger one
+fresh validation after that work completes. New package/library/workspace
+contexts replace it immediately. These lifecycle checks use inert sessions and
+assert task identity, callback safety, and fresh metadata capture without timing
+thresholds.
+
+Debug task lines now include `queued:` and `running:` alongside total time.
+The running interval begins at dispatch and includes process startup, result
+transfer and callbacks; it is not a measurement of worker CPU time alone.
+
 ## Member metadata cache
 
 Run `R_LIBS=/path/to/library Rscript inst/benchmarks/member-metadata.R results.csv 10`
