@@ -22,6 +22,44 @@ member_function_syntax <- function(fn) {
     as.call(list(as.name("function"), formals(fn), body(fn)))
 }
 
+# Registry closures often already have a namespace name. Partition them by
+# inert syntax before comparing identities, preserving the first matching
+# binding even for equivalent copied closures or digest collisions. The memo
+# retains each closure only for this extraction, so pointer reuse cannot turn
+# an unrelated anonymous method into a cached match.
+member_function_identity_index <- function(functions) {
+    buckets <- new.env(hash = TRUE, parent = emptyenv())
+    memo <- new.env(hash = TRUE, parent = emptyenv())
+    record <- function(fn) {
+        pointer <- .Call("member_function_key_c", fn, PACKAGE = "languageserver")
+        stored <- memo[[pointer]]
+        if (is.null(stored)) {
+            stored <- list(fn = fn, key = digest::digest(deparse1(member_function_syntax(fn)), algo = "xxhash64"))
+            memo[[pointer]] <- stored
+        }
+        list(pointer = pointer, stored = stored)
+    }
+    for (name in names(functions)) {
+        key <- record(functions[[name]])$stored$key
+        buckets[[key]] <- c(buckets[[key]], name)
+    }
+    function(fn) {
+        item <- record(fn)
+        stored <- item$stored
+        if (!isTRUE(stored$matched)) {
+            for (name in buckets[[stored$key]]) {
+                if (identical(functions[[name]], fn)) {
+                    stored$name <- name
+                    break
+                }
+            }
+            stored$matched <- TRUE
+            memo[[item$pointer]] <- stored
+        }
+        stored$name
+    }
+}
+
 member_list_storage <- function(value) {
     storage <- unclass(value)
     nms <- attr(value, "names", exact = TRUE)
@@ -561,7 +599,7 @@ member_namespace_input <- function(
     }
     # Match bindings by identity, not a method-name prefix. Retain namespace
     # function IDs for documentation; anonymous registry closures get path IDs.
-    function_names <- names(functions)
+    function_match <- NULL
     remaining_bindings <- 50000L
     dollar_context <- member_snapshot_dollar_context(ns)
     for (name in names(values)) {
@@ -606,8 +644,9 @@ member_namespace_input <- function(
                 if (length(matches)) links[[name]][field] <- names(values)[[matches[[1L]]]]
             }
             if (!identical(record[[1L]], "value") || typeof(fn) != "closure") next
-            matches <- which(vapply(functions, identical, logical(1L), fn))
-            key <- if (length(matches)) function_names[[matches[[1L]]]] else paste(name, field, sep = "$")
+            if (is.null(function_match)) function_match <- member_function_identity_index(functions)
+            key <- function_match(fn)
+            if (is.null(key)) key <- paste(name, field, sep = "$")
             definitions[key] <- list(member_function_syntax(fn))
             # A static factory may also be addressed by its environment path.
             definitions[paste(name, field, sep = "$")] <- list(as.name(key))
