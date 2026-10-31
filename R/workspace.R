@@ -407,7 +407,8 @@ Workspace <- R6::R6Class("Workspace",
             self$s3_metadata <- S3MetadataCache$new()
             private$s3_package_cache <- ByteLruCache$new(1024^2, max_entries = 64L)
             if (isTRUE(lsp_settings$get("s3_dispatch"))) {
-                for (package in names(workspace_startup_s3())) self$s3_metadata$set(package, workspace_startup_s3()[[package]])
+                catalogs <- workspace_startup_s3()
+                for (package in names(catalogs)) self$s3_metadata$set(package, catalogs[[package]])
             }
         },
 
@@ -1124,24 +1125,59 @@ extract_namespace_imports <- function(namespace_file) {
     )
 }
 
-# Prepared once in an isolated worker for a host session. If it fails, source
-# requests remain usable while later package resolution can supply metadata.
-workspace_startup_s3 <- local({
-    cached <- NULL
+# Share complete startup catalogs for matching worker inputs. Failed attempts
+# retain partial catalogs and allow a later workspace to retry after a cooldown;
+# active documents can also recover through asynchronous package resolution.
+workspace_startup_s3_cache <- function(
+    prepare = function(requested) {
+        callr::r(package_call(s3_prepare_packages),
+            args = list(packages = requested$packages, cache_dir = requested$cache_dir),
+            libpath = requested$lib_paths, system_profile = FALSE, user_profile = FALSE,
+            timeout = if (identical(Sys.getenv("R_COVR"), "true")) 60 else 8)
+    },
+    clock = function() proc.time()[[3L]]) {
+    cached <- list()
+    previous <- NULL
+    complete <- FALSE
+    retry_at <- 0
+    failures <- 0L
+    force(prepare)
+    force(clock)
     function() {
-        if (!is.null(cached)) return(cached)
-        packages <- workspace_startup_packages()
-        cached <<- tryCatch(callr::r(package_call(s3_prepare_packages),
-                args = list(packages = packages, cache_dir = package_metadata_cache_root()),
-                system_profile = FALSE, user_profile = FALSE,
-                timeout = if (identical(Sys.getenv("R_COVR"), "true")) 60 else 8),
+        requested <- list(packages = workspace_startup_packages(), lib_paths = .libPaths(),
+            cache_dir = package_metadata_cache_root())
+        if (!identical(requested, previous)) {
+            cached <<- list()
+            complete <<- FALSE
+            retry_at <<- 0
+            failures <<- 0L
+            previous <<- requested
+        }
+        if (complete || clock() < retry_at) return(cached)
+        result <- tryCatch(prepare(requested),
             error = function(e) {
                 logger$info("S3 startup metadata:", e)
-                list()
+                NULL
             })
+        if (is.list(result)) {
+            cached <<- result
+            valid <- vapply(result, function(catalog) {
+                is.list(catalog) && identical(catalog$schema, 1L) && is.null(catalog$error)
+            }, logical(1L))
+            dependencies <- unlist(lapply(result[valid], `[[`, "dependencies"), use.names = FALSE)
+            required <- unique(c(startup_packages, requested$packages, dependencies))
+            complete <<- all(valid) && all(required %in% names(result))
+        }
+        if (!complete) {
+            failures <<- min(failures + 1L, 2L)
+            # Start the cooldown after the worker finishes, including timeouts.
+            retry_at <<- clock() + 30 * failures
+        }
         cached
     }
-})
+}
+
+workspace_startup_s3 <- workspace_startup_s3_cache()
 
 # Startup datasets have no library() or namespace expression in the document.
 # Prepare their bounded member models once in an isolated worker, then share

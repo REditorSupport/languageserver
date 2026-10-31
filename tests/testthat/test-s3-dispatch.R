@@ -322,8 +322,27 @@ test_that("S3 works independently of member completion and can be disabled", {
     expect_null(s3_result(fixture))
 })
 
+s3_test_workspace <- function(root = NULL) {
+    # Source-provider tests keep the real workspace and index, but do not
+    # depend on a startup subprocess finishing within its time limit.
+    catalogs <- s3_fixture_catalogs(startup_packages)
+    testthat::with_mocked_bindings(Workspace$new(root),
+        workspace_startup_packages = function() startup_packages,
+        workspace_startup_members = function() list(),
+        workspace_startup_s3 = function() catalogs,
+        .package = "languageserver")
+}
+
+s3_workspace_status <- function(workspace) {
+    status <- vapply(startup_packages, function(package) {
+        catalog <- workspace$s3_metadata$catalog(package)
+        if (is.null(catalog)) "missing" else if (!is.null(catalog$error)) catalog$error else "ready"
+    }, character(1L))
+    paste("S3 startup catalogs:", paste(names(status), status, sep = "=", collapse = ", "))
+}
+
 s3_workspace_fixture <- function(lines) {
-    workspace <- Workspace$new(NULL)
+    workspace <- s3_test_workspace()
     uri <- "file:///s3-workspace.R"
     document <- Document$new(uri, language = "r", version = 1L, content = lines)
     workspace$documents$set(uri, document)
@@ -342,7 +361,7 @@ test_that("S3 argument completion runs through the real provider", {
     point <- list(row = 2L, col = 5L)
     result <- completion_reply(1L, fixture$uri, fixture$workspace, fixture$document, point, list())$result
     labels <- vapply(result$items, `[[`, "", "label")
-    expect_true(all(c("digits", "mode") %in% labels))
+    expect_true(all(c("digits", "mode") %in% labels), info = s3_workspace_status(fixture$workspace))
     parameter <- result$items[[which(labels == "mode")[[1L]]]]
     expect_identical(parameter$data$type, "s3_parameter")
     fixture$document$set_content(2L, c(fixture$document$content[1:2], "g(1, mode=\"l"))
@@ -368,7 +387,7 @@ test_that("S3 dispatch resolves cross-file source definitions and namespace alia
         "replacement_impl <- function(x, fresh=TRUE, ...) NULL"
     ), definitions)
     writeLines("g(1, )", target)
-    workspace <- Workspace$new(root)
+    workspace <- s3_test_workspace(root)
     workspace$index$update_path(definitions)
     workspace$index$update_path(target)
     uri <- path_to_uri(target)
@@ -378,13 +397,31 @@ test_that("S3 dispatch resolves cross-file source definitions and namespace alia
     parsed$version <- 1L
     workspace$update_parse_data(uri, parsed)
     result <- resolve_s3_call(uri, workspace, doc, list(row = 0L, col = 5L))
-    expect_identical(result$method$name, "numeric_impl")
+    expect_identical(result$method$name, "numeric_impl", info = s3_workspace_status(workspace))
     expect_match(result$signature, "digits", fixed = TRUE)
     expect_match(s3_documentation(workspace, result)$arguments$digits, "Digits", fixed = TRUE)
     writeLines("S3method(g, numeric, replacement_impl)", file.path(root, "NAMESPACE"))
     result <- resolve_s3_call(uri, workspace, doc, list(row = 0L, col = 5L))
     expect_identical(result$method$name, "replacement_impl")
     expect_match(result$signature, "fresh", fixed = TRUE)
+})
+
+test_that("S3 numeric fallback waits for missing catalogs and recovers after metadata arrives", {
+    fixture <- s3_workspace_fixture(c(
+        "g <- function(x, ...) UseMethod('g')",
+        "g.numeric <- function(x, digits=3, ...) NULL",
+        "g(1, )"
+    ))
+    catalogs <- s3_fixture_catalogs(startup_packages)
+    fixture$workspace$s3_metadata$clear()
+    fixture$workspace$s3_metadata$set("base", catalogs$base)
+    point <- list(row = 2L, col = 5L)
+    # Missing metadata could contain a g.double method, which must take
+    # precedence over the known source g.numeric method.
+    expect_null(resolve_s3_call(fixture$uri, fixture$workspace, fixture$document, point))
+    for (package in names(catalogs)) fixture$workspace$s3_metadata$set(package, catalogs[[package]])
+    result <- resolve_s3_call(fixture$uri, fixture$workspace, fixture$document, point)
+    expect_identical(result$method$name, "g.numeric", info = s3_workspace_status(fixture$workspace))
 })
 
 test_that("S3 catalog handles registration closures and namespace dependencies", {

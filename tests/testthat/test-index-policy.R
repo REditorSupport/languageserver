@@ -48,7 +48,7 @@ PolicyServer <- R6::R6Class("PolicyServer", inherit = LanguageServer,
 policy_workspace <- function(root) {
     testthat::with_mocked_bindings(Workspace$new(root),
         workspace_startup_packages = function() startup_packages,
-        workspace_startup_s3 = function() list(), .package = "languageserver")
+        workspace_startup_s3 = provider_startup_s3, .package = "languageserver")
 }
 
 policy_open <- function(server, path, content = stringi::stri_read_lines(path)) {

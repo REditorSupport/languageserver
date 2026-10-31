@@ -38,6 +38,26 @@ quote_completion_name <- function(name) {
     if (identical(make.names(name), name)) name else encodeString(name, quote = "`")
 }
 
+completion_source_name <- function(name) {
+    # Source indexes retain backticks and escapes; namespace names are already
+    # decoded and must not pass through this conversion.
+    if (!startsWith(name, "`")) return(name)
+    tryCatch({
+        symbol <- str2lang(name)
+        if (is.symbol(symbol)) as.character(symbol) else name
+    }, error = function(e) name)
+}
+
+completion_source_names <- function(names) {
+    vapply(names, completion_source_name, character(1L), USE.NAMES = FALSE)
+}
+
+completion_matching_names <- function(items) {
+    vapply(items, function(item) {
+        if (is.null(item$data$matching_name)) item$label else item$data$matching_name
+    }, character(1L))
+}
+
 escape_completion_snippet <- function(text) {
     text <- gsub("\\", "\\\\", text, fixed = TRUE)
     text <- gsub("$", "\\$", text, fixed = TRUE)
@@ -391,13 +411,15 @@ arg_completion <- function(uri, workspace, point, token, funct, package = NULL, 
     completions <- .mapply(function(arg, sort_text) {
         # XML formals already include source backticks; namespace formals do not.
         inserted <- if (is.null(token_data$uri)) quote_completion_name(arg) else arg
+        data <- token_data
+        if (!is.null(data$uri)) data$matching_name <- completion_source_name(arg)
         list(label = arg,
             kind = CompletionItemKind$Variable,
             detail = "parameter",
             sortText = sort_text,
             insertText = paste0(inserted, " = "),
             insertTextFormat = InsertTextFormat$PlainText,
-            data = token_data
+            data = data
         )
     }, list(token_args, sprintf("%s%03d", sort_prefixes$arg, seq_along(token_args))), NULL)
 
@@ -499,21 +521,21 @@ imported_object_completion <- function(workspace, token, snippet_support) {
 
 #' Select the best completion candidates without constructing completion items
 #' @noRd
-completion_select_indices <- function(labels, sort_text, token, limit) {
-    if (length(labels) <= limit) {
-        return(seq_along(labels))
+completion_select_indices <- function(matching_names, sort_text, token, limit) {
+    if (length(matching_names) <= limit) {
+        return(seq_along(matching_names))
     }
     selected <- .Call(
         "completion_select_c",
         PACKAGE = "languageserver",
-        labels,
+        matching_names,
         sort_text,
         token,
         as.integer(limit)
     )
     if (is.null(selected)) {
         candidate_order <- order(
-            !startsWith(labels, token), sort_text, method = "radix")
+            !startsWith(matching_names, token), sort_text, method = "radix")
         selected <- candidate_order[seq_len(limit)]
     }
     selected
@@ -901,20 +923,15 @@ scope_completion <- function(uri, workspace, token, point,
     scope_funct_lines <- scope_funct_lines[scope_funct_selector]
 
     candidate_names <- c(scope_symbol_names, scope_funct_names)
+    candidate_matching_names <- completion_source_names(candidate_names)
     context_completions <- context_scope_completion(
         uri, workspace, token, point, snippet_support, limit, candidate_names)
     context <- attr(context_completions, "member_context")
-    normalize_names <- function(names) {
-        vapply(names, function(name) {
-            if (!startsWith(name, "`")) return(name)
-            tryCatch(as.character(str2lang(name)), error = function(e) name)
-        }, character(1L))
-    }
     # Drop enclosing candidates hidden by the method context. For source
     # locals, use the final lexical value to choose the function/field item;
     # this also removes duplicates when a local changes an outer binding kind.
     keep_source <- function(names, functions) {
-        vapply(normalize_names(names), function(name) {
+        vapply(completion_source_names(names), function(name) {
             if (name %in% context$value$context_bindings) return(FALSE)
             value <- context$value$fields[[name]]
             if (!is.null(value$binding_cache)) {
@@ -940,7 +957,7 @@ scope_completion <- function(uri, workspace, token, point,
     keep <- integer()
     if (is.null(context$value)) {
         truncated <- length(pending) > limit
-        keep <- completion_select_indices(candidate_names, candidate_names, token, limit)
+        keep <- completion_select_indices(candidate_matching_names, candidate_names, token, limit)
     } else {
         target <- limit + 1L
         ranked <- FALSE
@@ -953,7 +970,8 @@ scope_completion <- function(uri, workspace, token, point,
                 selected
             } else {
                 names <- candidate_names[pending]
-                pending[completion_select_indices(names, names, token, target - length(keep))]
+                matching_names <- candidate_matching_names[pending]
+                pending[completion_select_indices(matching_names, names, token, target - length(keep))]
             }
             functions <- batch > symbol_count
             visible <- logical(length(batch))
@@ -965,14 +983,16 @@ scope_completion <- function(uri, workspace, token, point,
                 # long run of hidden candidates cannot trigger repeated sorts.
                 pending <- pending[!pending %in% batch]
                 names <- candidate_names[pending]
-                pending <- pending[order(!startsWith(names, token), names, method = "radix")]
+                matching_names <- candidate_matching_names[pending]
+                pending <- pending[order(!startsWith(matching_names, token), names, method = "radix")]
                 ranked <- TRUE
             }
         }
         truncated <- length(keep) > limit
         if (truncated) {
             names <- candidate_names[keep]
-            keep <- keep[completion_select_indices(names, names, token, limit)]
+            matching_names <- candidate_matching_names[keep]
+            keep <- keep[completion_select_indices(matching_names, names, token, limit)]
         }
     }
     symbol_keep <- keep[keep <= symbol_count]
@@ -990,7 +1010,8 @@ scope_completion <- function(uri, workspace, token, point,
             data = list(
                 type = "nonfunction",
                 uri = uri,
-                line = line
+                line = line,
+                matching_name = completion_source_name(symbol)
             )
         )
     }, list(scope_symbol_names, scope_symbol_lines), NULL)
@@ -1007,7 +1028,8 @@ scope_completion <- function(uri, workspace, token, point,
                 data = list(
                     type = "function",
                     uri = uri,
-                    line = line
+                    line = line,
+                    matching_name = completion_source_name(symbol)
                 )
             )
         }, list(scope_funct_names, scope_funct_lines), NULL)
@@ -1021,7 +1043,8 @@ scope_completion <- function(uri, workspace, token, point,
                 data = list(
                     type = "function",
                     uri = uri,
-                    line = line
+                    line = line,
+                    matching_name = completion_source_name(symbol)
                 )
             )
         }, list(scope_funct_names, scope_funct_lines), NULL)
@@ -1041,9 +1064,9 @@ scope_completion <- function(uri, workspace, token, point,
     truncated <- truncated || isTRUE(attr(context_completions, "truncated")) ||
         length(completions) > limit
     if (length(completions) > limit) {
-        labels <- vapply(completions, `[[`, character(1L), "label")
+        matching_names <- completion_matching_names(completions)
         sort_text <- vapply(completions, `[[`, character(1L), "sortText")
-        completions <- completions[completion_select_indices(labels, sort_text, token, limit)]
+        completions <- completions[completion_select_indices(matching_names, sort_text, token, limit)]
     }
     if (truncated) {
         attr(completions, "truncated") <- TRUE
@@ -1270,9 +1293,9 @@ basic_name_completion_reply <- function(id, workspace, document, point, capabili
     packages <- Filter(function(item) !item$label %in% local_names, packages)
     items <- c(locals, packages)
     if (!length(items)) return(NULL)
-    labels <- vapply(items, `[[`, "", "label")
+    matching_names <- completion_matching_names(items)
     sort_text <- vapply(items, `[[`, "", "sortText")
-    items <- items[completion_select_indices(labels, sort_text, token$token, limit)]
+    items <- items[completion_select_indices(matching_names, sort_text, token$token, limit)]
     Response$new(id, result = list(isIncomplete = TRUE, items = unname(items)))
 }
 
@@ -1384,10 +1407,10 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
 
     if (providers_incomplete || init_count > nmax) {
         isIncomplete <- TRUE
-        label_text <- vapply(completions, "[[", character(1), "label")
+        matching_names <- completion_matching_names(completions)
         sort_text <- vapply(completions, "[[", character(1), "sortText")
         selected <- completion_select_indices(
-            label_text, sort_text, token, nmax)
+            matching_names, sort_text, token, nmax)
         completions <- completions[selected]
     } else {
         isIncomplete <- FALSE
