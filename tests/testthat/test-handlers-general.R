@@ -1,3 +1,13 @@
+test_that("session headers redact credential variables while retaining useful settings", {
+    environment <- c(GITHUB_PAT = "sample-pat", VSCODE_CLI_REQUIRE_TOKEN = "sample-token",
+        API_KEY = "sample-key", AWS_SECRET_ACCESS_KEY = "sample-secret", database_password = "sample-password",
+        PATH = "/example/bin", R_LIBS_USER = "/example/library", TOKENIZER_MODE = "ordinary")
+    header <- session_environment(environment)
+    expect_identical(unlist(header[seq_len(5L)], use.names = FALSE), rep("<redacted>", 5L))
+    expect_identical(unlist(header[-seq_len(5L)]), environment[-seq_len(5L)])
+    expect_identical(environment[["GITHUB_PAT"]], "sample-pat")
+})
+
 test_that("shutdown responds with a null result", {
     self <- new.env(parent = baseenv())
     self$exit_flag <- FALSE

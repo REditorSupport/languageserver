@@ -1,3 +1,12 @@
+#' Remove common credential variables from the debug session header
+#' @noRd
+session_environment <- function(environment = Sys.getenv()) {
+    sensitive <- grepl("(^|_)(PAT|TOKEN|PASSWORD|PASSWD|SECRET|API_KEY|ACCESS_KEY|PRIVATE_KEY|CLIENT_SECRET)($|_)",
+        names(environment), ignore.case = TRUE)
+    environment[sensitive] <- "<redacted>"
+    as.list(environment)
+}
+
 #' `initialize` handler
 #'
 #' Handler to the `initialize` [Request].
@@ -16,7 +25,7 @@ on_initialize <- function(self, id, params) {
         args = commandArgs(),
         ver = unclass(R.version),
         locale = Sys.getlocale(),
-        env = as.list(Sys.getenv()),
+        env = session_environment(),
         libpaths = .libPaths(),
         namespaces = local({
             nss <- loadedNamespaces()
