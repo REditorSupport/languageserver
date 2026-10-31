@@ -55,6 +55,94 @@ test_that("ByteLruCache prefers protected entries while retaining its bounds", {
     expect_lte(cache$bytes(), 2 * as.numeric(object.size(raw(100))))
 })
 
+test_that("Unprotected cache eviction avoids materializing the key collection", {
+    cache <- ByteLruCache$new(max_bytes = 10000, max_entries = 2L)
+    private <- cache$.__enclos_env__$private
+    entries <- private$entries
+    skip_if_not(is.function(entries$popitem), "collections has no direct oldest-item eviction")
+    private$entries <- list(set = entries$set, get = entries$get, pop = entries$pop,
+        remove = entries$remove, has = entries$has, size = entries$size,
+        popitem = entries$popitem,
+        keys = function() stop("Full key collection requested"),
+        as_list = function() stop("Full entry collection requested"))
+    cache$set("first", 1L)
+    cache$set("second", 2L)
+    cache$get("first")
+    expect_no_error(cache$set("third", 3L))
+    expect_identical(entries$keys(), list("first", "third"))
+    expect_identical(cache$bytes(), 2 * as.numeric(object.size(1L)))
+    # Oversized replacement drops only the replaced entry, without eviction
+    # or stale size accounting for the value it used to hold.
+    cache$set("first", raw(10000L))
+    expect_identical(entries$keys(), list("third"))
+    expect_identical(cache$bytes(), as.numeric(object.size(1L)))
+})
+
+test_that("Cache eviction and legacy API fallback match ordered reference sequences", {
+    max_bytes <- 4 * as.numeric(object.size(raw(50L)))
+    max_entries <- 3L
+    fast <- ByteLruCache$new(max_bytes, max_entries)
+    fallback <- ByteLruCache$new(max_bytes, max_entries)
+    entries <- fallback$.__enclos_env__$private$entries
+    # collections >= 0.3.0 installations may expose the older API without
+    # popitem. Retain its keys-based eviction and all public cache operations.
+    fallback$.__enclos_env__$private$entries <- list(set = entries$set, get = entries$get,
+        pop = entries$pop, remove = entries$remove, has = entries$has,
+        size = entries$size, keys = entries$keys, clear = entries$clear, as_list = entries$as_list)
+    state <- new.env(parent = emptyenv())
+    state$values <- stats::setNames(list(), character())
+    state$sizes <- numeric()
+    reference_remove <- function(key) {
+        state$values[key] <- NULL
+        state$sizes <- state$sizes[setdiff(names(state$sizes), key)]
+    }
+    reference_set <- function(key, value, protect, additional_bytes) {
+        reference_remove(key)
+        size <- as.numeric(object.size(value)) + additional_bytes
+        if (size > max_bytes) return()
+        state$values[key] <- list(value)
+        state$sizes[key] <- size
+        # This is the former eviction rule, using an independent ordered list.
+        while (length(state$values) > max_entries || sum(state$sizes) > max_bytes) {
+            keys <- names(state$values)
+            candidates <- setdiff(keys, protect)
+            reference_remove(if (length(candidates)) candidates[[1L]] else keys[[1L]])
+        }
+    }
+    withr::local_seed(812L)
+    operations <- c("set", "set", "get", "set", "remove", "set", "oversize", "clear",
+        sample(c("set", "set", "get", "remove", "oversize", "clear"), 80L, replace = TRUE))
+    for (operation in operations) {
+        key <- sample(letters[1:6], 1L)
+        if (operation %in% c("set", "oversize")) {
+            value <- raw(if (operation == "oversize") 1000L else sample(c(1L, 50L, 100L, 150L), 1L))
+            protect <- sample(letters[1:6], sample(0:3, 1L))
+            additional_bytes <- sample(c(0, 25, 100), 1L)
+            reference_set(key, value, protect, additional_bytes)
+            for (cache in list(fast, fallback)) cache$set(key, value, protect, additional_bytes)
+        } else if (operation == "get") {
+            expected <- state$values[[key]]
+            if (key %in% names(state$values)) {
+                state$values[key] <- NULL
+                state$values[key] <- list(expected)
+            }
+            for (cache in list(fast, fallback)) expect_identical(cache$get(key), expected)
+        } else if (operation == "remove") {
+            reference_remove(key)
+            for (cache in list(fast, fallback)) cache$remove(key)
+        } else {
+            state$values <- stats::setNames(list(), character())
+            state$sizes <- numeric()
+            for (cache in list(fast, fallback)) cache$clear()
+        }
+        for (cache in list(fast, fallback)) {
+            expect_identical(cache$.__enclos_env__$private$entries$as_list(), state$values)
+            expect_identical(cache$bytes(), as.numeric(sum(state$sizes)))
+            expect_identical(cache$size(), length(state$values))
+        }
+    }
+})
+
 test_that("Member metadata restores decoded indexes from bounded inert snapshots", {
     index <- member_generic_index("run <- function(value = 1) list(done = value)")
     index$exports <- "run"
