@@ -1,13 +1,15 @@
+index_worker_state <- new.env(parent = emptyenv())
+
 #' Discover files and restore cached summaries outside the server event loop
 #' @noRd
 index_worker_discover <- function(key, root, settings = NULL, cache_file = NULL,
     batch_size = 20L, directory = NULL, summary_batch_size = min(batch_size, 20L),
     known_uris = character(), file_limit = NULL) {
     state_name <- ".languageserver_workspace_discoveries"
-    states <- get0(state_name, envir = globalenv(), inherits = FALSE)
+    states <- get0(state_name, envir = index_worker_state, inherits = FALSE)
     if (!is.environment(states) || !identical(states$.__class__, "ordered_dict")) {
         states <- collections::ordered_dict()
-        assign(state_name, states, envir = globalenv())
+        assign(state_name, states, envir = index_worker_state)
     }
     state <- states$pop(key, NULL)
     if (!is.null(settings)) {
@@ -45,7 +47,7 @@ index_worker_discover <- function(key, root, settings = NULL, cache_file = NULL,
 #' @noRd
 index_worker_release <- function(key) {
     for (name in c(".languageserver_workspace_discoveries", ".languageserver_workspace_indexes")) {
-        states <- get0(name, envir = globalenv(), inherits = FALSE)
+        states <- get0(name, envir = index_worker_state, inherits = FALSE)
         if (is.environment(states) && identical(states$.__class__, "ordered_dict") && states$has(key)) {
             states$remove(key)
         }
@@ -59,10 +61,10 @@ index_worker_batch <- function(key, root, updates, requests, bootstrap = FALSE,
     cache_file = NULL, revision = NULL, time_budget_ms = 25,
     max_file_bytes = 2 * 1024^2) {
     state_name <- ".languageserver_workspace_indexes"
-    states <- get0(state_name, envir = globalenv(), inherits = FALSE)
+    states <- get0(state_name, envir = index_worker_state, inherits = FALSE)
     if (!is.environment(states) || !identical(states$.__class__, "ordered_dict")) {
         states <- collections::ordered_dict()
-        assign(state_name, states, envir = globalenv())
+        assign(state_name, states, envir = index_worker_state)
     }
     state <- states$pop(key, NULL)
     sync_needed <- is.null(state) && !isTRUE(bootstrap)

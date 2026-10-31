@@ -116,7 +116,7 @@ test_that("worker persistence applies deltas and refuses missing or stale state"
     summary$cacheable <- TRUE
     key <- tempfile("index-test-")
     withr::defer({
-        states <- get0(".languageserver_workspace_indexes", globalenv(), inherits = FALSE)
+        states <- get0(".languageserver_workspace_indexes", index_worker_state, inherits = FALSE)
         if (is.environment(states) && is.function(states$has) && states$has(key)) states$remove(key)
     })
     cache_file <- file.path(root, "index.rds")
@@ -134,7 +134,7 @@ test_that("worker persistence applies deltas and refuses missing or stale state"
     result <- index_worker_batch(missing, root, list(), list(), cache_file = cache_file)
     expect_true(result$sync_needed)
     expect_null(result$temp_file)
-    states <- get(".languageserver_workspace_indexes", globalenv())
+    states <- get(".languageserver_workspace_indexes", index_worker_state)
     states$remove(missing)
 
     old_cache <- lsp_settings$get("index_persistent_cache")
@@ -304,7 +304,7 @@ test_that("persistent worker catalogs retain active roots and release detached s
     root <- withr::local_tempdir()
     keys <- paste0(tempfile("bounded-index-test-"), seq_len(17L))
     for (key in keys) index_worker_batch(key, root, list(), list(), bootstrap = TRUE)
-    states <- get(".languageserver_workspace_indexes", globalenv())
+    states <- get(".languageserver_workspace_indexes", index_worker_state)
     expect_true(all(vapply(keys, states$has, logical(1L))))
     index_worker_release(keys[[1L]])
     expect_false(states$has(keys[[1L]]))
