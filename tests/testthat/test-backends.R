@@ -348,6 +348,53 @@ test_that("remote lintr buffers use their owning workspace configuration", {
     expect_length(run_backend(fallback), 0L)
 })
 
+test_that("lintr cache and idle polling track first save and deletion without text edits", {
+    skip_if_not_installed("lintr", "3.3.0.1")
+    fixture <- backend_fixture(c("value = 1", ""))
+    root <- fixture$workspace$root
+    withr::local_dir(root)
+    withr::local_options(lintr.linter_file = ".lintr", lintr.linters = NULL)
+    local_backend_settings(diagnostics_backend = "lintr", formatting_backend = fake_backend(),
+        backend_options = list(), diagnostics = TRUE, diagnostics_cache_ttl = 60)
+    writeLines(c("linters: list(assignment_linter())", "exclusions: list('new.R')"),
+        file.path(root, ".lintr"))
+    path <- file.path(root, "new.R")
+    fixture$uri <- path_to_uri(path)
+    fixture$document$uri <- fixture$uri
+    fixture$workspace$documents$clear()
+    fixture$workspace$documents$set(fixture$uri, fixture$document)
+    complete <- function(task) {
+        request <- task$.__enclos_env__$private$args$request
+        diagnostics <- run_backend(request)
+        task$.__enclos_env__$private$callback(diagnostics)
+        diagnostics
+    }
+
+    initial <- diagnostics_task(fixture$self, fixture$uri, fixture$document)
+    expect_length(complete(initial), 1L)
+    expect_equal(fixture$workspace$diagnostics_cache$size(), 1L)
+    writeLines(fixture$document$content, path)
+    saved <- diagnostics_task(fixture$self, fixture$uri, fixture$document)
+    expect_s3_class(saved, "Task")
+    if (is.null(saved)) return(invisible(NULL))
+    expect_length(complete(saved), 0L)
+    expect_length(tail(fixture$self$deliveries, 1L)[[1L]]$params$diagnostics, 0L)
+
+    request <- saved$.__enclos_env__$private$args$request
+    writeLines("different disk text", path)
+    unchanged <- backend_request("diagnostics", fixture$uri, fixture$document, fixture$workspace)
+    expect_identical(unchanged$signature, request$signature)
+    unlink(path)
+    poll_backend_configuration(fixture$self, force = TRUE)
+    expect_true(fixture$self$diagnostics_task_manager$has_work())
+    expect_equal(fixture$workspace$diagnostics_cache$size(), 0L)
+    pending <- fixture$self$diagnostics_task_manager$.__enclos_env__$private$pending_tasks$get(fixture$uri)
+    expect_s3_class(pending, "Task")
+    expect_length(complete(pending), 1L)
+    expect_equal(tail(fixture$self$deliveries, 1L)[[1L]]$params$diagnostics[[1L]]$code,
+        "assignment_linter")
+})
+
 test_that("missing backends report availability once without disabling language features", {
     fixture <- backend_fixture()
     local_backend_settings(diagnostics_backend = "jarl", backend_options = list(

@@ -43,7 +43,8 @@
 - Lint client-only and new file buffers through temporary text sources when
   their paths do not exist on the server. Preserve accessible local or owning
   workspace configuration, inline exclusions and terminal-newline checks
-  without caching temporary filenames (#688).
+  without caching temporary filenames (#688). Refresh diagnostics when a local
+  source path appears or disappears, even when the open buffer text is unchanged.
 
 # languageserver 0.3.21
 
