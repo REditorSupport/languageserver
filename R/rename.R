@@ -98,6 +98,14 @@ rename_roxygen_edits <- function(uri, workspace, document, references, new_name)
         range_key(navigation_range(document, syntax, row)) %in% reference_ranges
     }, logical(1L))]
     edits <- list()
+    comment_lines <- logical(document$nline)
+    comments <- which(syntax$token == "COMMENT" & startsWith(syntax$text, "#'"))
+    # String contents may resemble roxygen and have a trailing real comment.
+    # Require the roxygen marker to start the actual standalone comment token.
+    comment_lines[syntax$line1[comments]] <- vapply(comments, function(row) {
+        text <- sub("^[[:space:]]*", "", document$content[[syntax$line1[[row]]]])
+        identical(gsub("\t", " ", text, fixed = TRUE), syntax$text[[row]])
+    }, logical(1L))
     replacement <- if (grepl("[[:space:],]", new_name)) quote_completion_name(new_name) else new_name
     for (formal in selected) {
         declaration <- rename_function_declaration(syntax, formal)
@@ -107,7 +115,7 @@ rename_roxygen_edits <- function(uri, workspace, document, references, new_name)
         if (nzchar(trimws(prefix))) next
         rows <- integer()
         row <- first - 1L
-        while (row > 0L && grepl("^[[:space:]]*#'", document$content[[row]])) {
+        while (row > 0L && comment_lines[[row]] && grepl("^[[:space:]]*#'", document$content[[row]])) {
             rows <- c(row, rows)
             row <- row - 1L
         }
@@ -121,6 +129,10 @@ rename_roxygen_edits <- function(uri, workspace, document, references, new_name)
             interrupted <- FALSE
             while (!nzchar(trimws(substr(text, offset + 1L, nchar(text)))) && name_row < first - 1L) {
                 name_row <- name_row + 1L
+                if (!comment_lines[[name_row]]) {
+                    interrupted <- TRUE
+                    break
+                }
                 text <- document$content[[name_row]]
                 continuation <- regexpr("^[[:space:]]*#'[[:space:]]*", text)
                 offset <- attr(continuation, "match.length")

@@ -152,3 +152,41 @@ test_that("parameter Rename handles quoted names and UTF-16 documentation ranges
     unicode <- rename_roxygen_fixture(c("#' @param β Input.", "f <- function(β) β"), 1L, "β", "γ")
     expect_identical(rename_roxygen_apply(unicode), c("#' @param γ Input.", "f <- function(γ) γ"))
 })
+
+test_that("parameter Rename does not treat multiline string contents as documentation", {
+    for (delimiters in list(c('text <- "', '"'), c('text <- r"(', ')"'))) {
+        for (tag in list("#' @param x Literal text", c("#' @param", "#'   x Literal text"))) {
+            for (trailing in c("", " # ordinary comment", " #' @param x Trailing comment")) {
+                literal <- c(paste0(delimiters[[1L]], "Not documentation"), tag)
+                literal[[length(literal)]] <- paste0(literal[[length(literal)]], delimiters[[2L]], trailing)
+                content <- c(literal, "f <- function(x) x")
+                case <- rename_roxygen_fixture(content, length(content) - 1L, "x", "renamed")
+                expect_length(case$edits, 2L)
+                expect_identical(rename_roxygen_apply(case), c(literal, "f <- function(renamed) renamed"))
+            }
+        }
+    }
+})
+
+test_that("parameter Rename stops real documentation at multiline string boundaries", {
+    for (delimiters in list(c('text <- "', '"'), c('text <- r"(', ')"'))) {
+        for (trailing in c("", " # ordinary comment", " #' @param x Trailing comment")) {
+            literal <- c(paste0(delimiters[[1L]], "Not documentation"),
+                paste0("#' @param x Literal text", delimiters[[2L]], trailing))
+            content <- c(literal, "#' @param x Real documentation.", "f <- function(x) x")
+            case <- rename_roxygen_fixture(content, 3L, "x", "renamed")
+            expect_length(case$edits, 3L)
+            expect_identical(rename_roxygen_apply(case), c(literal,
+                    "#' @param renamed Real documentation.", "f <- function(renamed) renamed"))
+        }
+    }
+})
+
+test_that("parameter Rename preserves tab-indented roxygen comments", {
+    content <- c("outer <- function() {", "\t#'\t@param\tx\tInput.",
+        "\tinner <- function(x) x", "}")
+    case <- rename_roxygen_fixture(content, 2L, "x", "renamed")
+    expect_length(case$edits, 3L)
+    expect_identical(rename_roxygen_apply(case), c("outer <- function() {",
+            "\t#'\t@param\trenamed\tInput.", "\tinner <- function(renamed) renamed", "}"))
+})
