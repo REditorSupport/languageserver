@@ -17,6 +17,11 @@
 - Split debug task timings into total, queued and running time using the elapsed
   clock. Redact common credential variables from the debug session header.
 
+- Preserve manual line breaks, delimiters, literal tokens and blank lines when
+  formatting on Enter. Indent incomplete control-flow and function headers
+  without adding unmatched braces, respect tab indentation, and reject custom
+  style edits that would change source tokens or line positions (#771, #697).
+
 - Keep numeric and string request IDs distinct during cancellation, background
   formatting and response dispatch. Normalize equivalent numeric IDs across
   their integer and double representations.

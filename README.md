@@ -422,6 +422,9 @@ capabilities retain the modes selected at startup; configure the backend through
 R options before starting those clients. Their handlers still enforce the current
 backend after a workspace setting change, but restarting with the same late
 workspace settings cannot update their static capabilities.
+On-type formatting with styler adjusts whitespace and indentation on Enter,
+preserving manual line breaks, delimiters and literal tokens. Typing a closing
+parenthesis or brace retains the usual expression-formatting behavior.
 On-type formatting with Air uses the server's local indentation fallback for
 newlines, without starting a CLI. Lintr and styler retain their R
 Markdown/Quarto, selection, and on-type behavior. Air follows its project formatting
