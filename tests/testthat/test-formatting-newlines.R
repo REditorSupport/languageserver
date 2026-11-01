@@ -102,6 +102,28 @@ test_that("Enter rejects custom whitespace transforms that change source", {
     }
 })
 
+test_that("Enter preserves exact long raw literals under custom whitespace transforms", {
+    withr::local_options(R.cache.rootPath = withr::local_tempdir())
+    cases <- list(
+        c(paste0('f(r"(', strrep("a", 1100L), ')",'), ""),
+        c(paste0('f(r"(', strrep("a", 550L)), paste0(strrep("b", 550L), ')",'), "")
+    )
+    style <- function(options) {
+        result <- styler::tidyverse_style(indent_by = options$tabSize)
+        result$space$change_raw_delimiter <- function(data) {
+            raw <- which(data$token == "STR_CONST" & startsWith(data$text, 'r"('))
+            data$text[raw] <- paste0('r"[', substr(data$text[raw], 4L, nchar(data$text[raw]) - 2L), ']"')
+            data
+        }
+        result
+    }
+    for (content in cases) {
+        result <- newline_formatting_result(content, style = style)
+        expect_equal(result$content, c(content[-length(content)], "    "))
+        expect_equal(result$edits[[1L]]$range$start$line, length(content) - 1L)
+    }
+})
+
 test_that("Enter uses a distinct styler cache policy", {
     withr::local_options(languageserver.formatting_style = NULL,
         styler.cache_name = "newline-regression", R.cache.rootPath = withr::local_tempdir())

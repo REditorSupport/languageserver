@@ -323,7 +323,8 @@ newline_formatting_tokens <- function(text) {
     data <- utils::getParseData(parsed)
     data <- data[data$terminal, , drop = FALSE]
     data <- data[order(data$line1, data$col1), , drop = FALSE]
-    list(token = data$token, text = enc2utf8(data$text),
+    # Parse data abbreviates long literals; compare their exact source text.
+    list(token = data$token, text = enc2utf8(utils::getParseText(data, data$id)),
         line1 = data$line1, line2 = data$line2)
 }
 
