@@ -319,6 +319,7 @@ test_that("remote lintr buffers use their owning workspace configuration", {
     skip_if_not_installed("lintr", "3.3.0.1")
     server_root <- withr::local_tempdir()
     withr::local_dir(server_root)
+    original_directory <- getwd()
     withr::local_options(lintr.linter_file = ".lintr", lintr.linters = NULL)
     writeLines("linters: list()", file.path(server_root, ".lintr"))
     fixture <- backend_fixture(c("long_name <- 1", ""))
@@ -335,7 +336,7 @@ test_that("remote lintr buffers use their owning workspace configuration", {
         diagnostics <- run_backend(request)
         expect_length(diagnostics, 1L)
         expect_equal(diagnostics[[1L]]$code, "object_length_linter")
-        expect_equal(getwd(), normalizePath(server_root, winslash = "/"))
+        expect_identical(getwd(), original_directory)
     }
 
     writeLines("linters: list()", config)
