@@ -315,6 +315,39 @@ test_that("lintr R configs and GitHub locations invalidate idle diagnostics with
         normalizePath(paste0(github_config, ".R"), winslash = "/"))
 })
 
+test_that("remote lintr buffers use their owning workspace configuration", {
+    skip_if_not_installed("lintr", "3.3.0.1")
+    server_root <- withr::local_tempdir()
+    withr::local_dir(server_root)
+    withr::local_options(lintr.linter_file = ".lintr", lintr.linters = NULL)
+    writeLines("linters: list()", file.path(server_root, ".lintr"))
+    fixture <- backend_fixture(c("long_name <- 1", ""))
+    root <- fixture$workspace$root
+    config <- file.path(root, ".lintr")
+    writeLines("linters: list(object_length_linter(5L))", config)
+    local_backend_settings(diagnostics_backend = "lintr", backend_options = list())
+
+    for (uri in c(path_to_uri(file.path(root, "client-only", "source.R")), "untitled:remote")) {
+        request <- backend_request("diagnostics", uri, fixture$document, fixture$workspace)
+        expect_equal(request$working_directory, root)
+        expect_true(normalizePath(config, winslash = "/") %in%
+                request$signature$configuration$paths)
+        diagnostics <- run_backend(request)
+        expect_length(diagnostics, 1L)
+        expect_equal(diagnostics[[1L]]$code, "object_length_linter")
+        expect_equal(getwd(), normalizePath(server_root, winslash = "/"))
+    }
+
+    writeLines("linters: list()", config)
+    changed <- backend_request("diagnostics", request$uri, fixture$document, fixture$workspace)
+    expect_false(identical(changed$signature, request$signature))
+    expect_length(run_backend(changed), 0L)
+    fixture$workspace$root <- file.path(root, "unavailable-workspace")
+    fallback <- backend_request("diagnostics", request$uri, fixture$document, fixture$workspace)
+    expect_equal(fallback$working_directory, getwd())
+    expect_length(run_backend(fallback), 0L)
+})
+
 test_that("missing backends report availability once without disabling language features", {
     fixture <- backend_fixture()
     local_backend_settings(diagnostics_backend = "jarl", backend_options = list(

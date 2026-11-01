@@ -383,6 +383,15 @@ Specify rules in `.lintr` or `.lintr.R`, including the `.github/linters/`
 project locations supported by lintr; see the lintr
 [documentation](https://lintr.r-lib.org/articles/lintr.html).
 
+Files whose paths do not exist on the server are linted from the supplied text,
+including files opened through a container without matching host paths. Lintr
+uses configuration beside the file when its parent directory exists locally;
+otherwise it uses the owning workspace directory when available, falling back
+to the server working directory. Explicit `lintr.*` options and
+inline exclusion markers are preserved. Filename-specific exclusions and package
+context require an accessible local path; client-only paths are not mapped to
+server files. Temporary text sources are not added to lintr's persistent cache.
+
 ### Selecting diagnostics and formatting backends
 
 Install [Jarl](https://jarl.etiennebacher.com/) >= 0.7.1 and

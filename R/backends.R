@@ -170,6 +170,9 @@ backend_request <- function(kind, uri, document, workspace = NULL,
     if (!is.null(descriptor$executable)) {
         working_directory <- backend_existing_directory(if (nzchar(original_path)) dirname(original_path)
             else if (length(root) && nzchar(root)) root else getwd())
+    } else if (identical(descriptor$id, "lintr") && !dir.exists(dirname(original_path)) &&
+            length(root) == 1L && nzchar(root) && dir.exists(root)) {
+        working_directory <- root
     }
     path <- if (nzchar(original_path)) normalizePath(original_path, winslash = "/", mustWork = FALSE)
     else file.path(working_directory, "__languageserver_untitled__.R")

@@ -65,11 +65,7 @@ lintr_supports_text_terminal_newline <- function() {
 lint_without_terminal_newline <- function(path, content, linters = NULL) {
     lintr_namespace <- asNamespace("lintr")
     on.exit(lintr_namespace$reset_settings(), add = TRUE)
-    if (nzchar(path)) {
-        lintr_namespace$read_settings(path)
-    } else {
-        lintr_namespace$read_settings()
-    }
+    lintr_namespace$read_settings(lintr_configuration_location(path))
     effective_linters <- lintr_namespace$define_linters(linters)
     linter <- effective_linters[["trailing_blank_lines_linter"]]
     if (is.null(linter)) {
@@ -131,20 +127,23 @@ diagnose_file <- function(uri, content, is_rmarkdown = FALSE, globals = NULL, ca
         on.exit(do.call("detach", list(env_name, character.only = TRUE)), add = TRUE)
     }
 
-    if (nzchar(path)) {
+    has_file <- nzchar(path) && file.exists(path) && !dir.exists(path)
+    if (has_file) {
         lints <- lintr::lint(path,
             cache = cache,
             text = content,
             parse_settings = TRUE
         )
     } else {
-        # There is no stable filename to cache for a pathless document.
-        lints <- lintr::lint(
-            text = content,
-            parse_settings = TRUE
-        )
+        # Linters may require an existing filename even when text is supplied.
+        # Let lintr create its temporary source, but load the local configuration
+        # before that filename is substituted. Temporary sources are not cached.
+        lintr_namespace <- asNamespace("lintr")
+        on.exit(lintr_namespace$reset_settings(), add = TRUE)
+        lintr_namespace$read_settings(lintr_configuration_location(path))
+        lints <- lintr::lint(text = content, parse_settings = FALSE)
     }
-    if (!terminal_newline && (!nzchar(path) || !lintr_supports_text_terminal_newline())) {
+    if (!terminal_newline && (!has_file || !lintr_supports_text_terminal_newline())) {
         lints <- c(lints, lint_without_terminal_newline(path, content))
     }
 
@@ -152,11 +151,19 @@ diagnose_file <- function(uri, content, is_rmarkdown = FALSE, globals = NULL, ca
     names(diagnostics) <- NULL
     diagnostics
 }
+# Client-only directories cannot supply a local configuration. Keep new files
+# in existing directories scoped to their own configuration; remote and pathless
+# buffers use the server working directory instead.
+lintr_configuration_location <- function(path, working_directory = getwd()) {
+    if (nzchar(path) && dir.exists(dirname(path))) path else working_directory
+}
+
 lintr_configuration_paths <- function(path, working_directory, r_options) {
     filename <- r_options[["lintr.linter_file"]]
     if (is.null(filename)) filename <- Sys.getenv("R_LINTR_LINTER_FILE", ".lintr")
     if (!backend_string(filename)) backend_error("lintr.linter_file must be one configuration filename.")
-    directories <- backend_ancestors(if (nzchar(path)) dirname(path) else working_directory)
+    location <- lintr_configuration_location(path, working_directory)
+    directories <- backend_ancestors(if (dir.exists(location)) location else dirname(location))
     if (fs::is_absolute_path(filename)) {
         candidates <- filename
     } else {
@@ -173,7 +180,7 @@ lintr_configuration_paths <- function(path, working_directory, r_options) {
     if (requireNamespace("lintr", quietly = TRUE)) {
         previous <- base::options(lintr.linter_file = filename)
         on.exit(base::options(previous), add = TRUE)
-        resolved <- asNamespace("lintr")$find_config(if (nzchar(path)) path else working_directory)
+        resolved <- asNamespace("lintr")$find_config(location)
         candidates <- c(resolved, candidates)
     }
     unique(candidates)
