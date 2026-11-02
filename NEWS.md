@@ -1,5 +1,8 @@
 # languageserver (development)
 
+- Resolve relative file definitions and document links against the owning
+  workspace folder, including nested folders added or removed during a session.
+
 - Keep quoted local names and parameters in capped completion results by
   comparing decoded symbol names with the typed prefix. Preserve quoting,
   escaped names and completion edits when many packages are installed (#827).

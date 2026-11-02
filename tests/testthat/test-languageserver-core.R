@@ -82,6 +82,61 @@ test_that("Server fixture cleanup leaves subsequently opened connections alive",
     expect_true(isOpen(current$outputcon))
 })
 
+test_that("file definitions and links follow sibling and changed nested workspace roots", {
+    old_diagnostics <- lsp_settings$get("diagnostics")
+    withr::defer(lsp_settings$set("diagnostics", old_diagnostics))
+    lsp_settings$set("diagnostics", FALSE)
+    PathLanguageServer <- R6::R6Class("PathLanguageServer",
+        inherit = BareLanguageServer,
+        public = list(deliver = function(message) message))
+    server <- PathLanguageServer$new()
+    withr::defer(server$close_connections())
+    primary <- format(fs::path(withr::local_tempdir()))
+    secondary <- format(fs::path(withr::local_tempdir()))
+    nested <- file.path(secondary, "nested")
+    dir.create(nested)
+    for (root in c(primary, secondary, nested)) {
+        writeLines("value <- 1", file.path(root, "target.R"))
+    }
+    server$rootUri <- path_to_uri(primary)
+    server$rootPath <- primary
+    server$add_workspace(path_to_uri(primary))
+    server$add_workspace(path_to_uri(secondary))
+
+    add_document <- function(root) {
+        uri <- path_to_uri(file.path(root, "query.R"))
+        document <- Document$new(uri, version = 1L, content = '"target.R"')
+        document$did_open()
+        parsed <- parse_document(uri, document$content)
+        parsed$version <- document$version
+        workspace <- server$get_workspace(uri)
+        workspace$documents$set(uri, document)
+        workspace$update_parse_data(uri, parsed)
+        uri
+    }
+    expect_paths <- function(uri, root) {
+        params <- list(textDocument = list(uri = uri),
+            position = list(line = 0L, character = 3L))
+        target <- file.path(root, "target.R")
+        definition <- text_document_definition(server, 1L, params)
+        expect_equal(definition$result$uri, path_to_uri(target))
+        links <- text_document_document_link(server, 2L, params)
+        expect_length(links$result, 1L)
+        expect_equal(links$result[[1L]]$data$path, target)
+        resolved <- document_link_resolve_reply(3L, server$get_workspace(uri), links$result[[1L]])
+        expect_equal(resolved$result$target, path_to_uri(target))
+    }
+    expect_paths(add_document(primary), primary)
+    expect_paths(add_document(secondary), secondary)
+    nested_uri <- add_document(nested)
+    expect_paths(nested_uri, secondary)
+
+    server$add_workspace(path_to_uri(nested))
+    expect_paths(nested_uri, nested)
+    server$remove_workspace(path_to_uri(nested))
+    expect_paths(nested_uri, secondary)
+})
+
 test_that("LanguageServer removes workspaces and preserves open documents", {
     old_diagnostics <- lsp_settings$get("diagnostics")
     withr::defer(lsp_settings$set("diagnostics", old_diagnostics))
