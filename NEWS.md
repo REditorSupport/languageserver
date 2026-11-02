@@ -34,6 +34,8 @@
   references, highlights and rename, including multiline names with Unicode.
   Quote nonsyntactic replacement names and exclude shadowed local calls from
   workspace function CodeLens counts.
+- Rename explicit roxygen `@param` names together with their function parameters,
+  preserving descriptions and documentation attached to other functions (#806).
 - Decode raw strings and escaped class, slot and member names in type hierarchy
   and class member symbols without evaluating declarations.
 - Restart pending parses and refresh diagnostics when documents move between
