@@ -316,6 +316,29 @@ find_on_type_formatting_chunk <- function(content, end_line, complete_at_end = F
 }
 
 
+#' Compare token identity and line positions before a newline edit
+#' @noRd
+newline_formatting_tokens <- function(text) {
+    parsed <- parse(text = text, keep.source = TRUE)
+    data <- utils::getParseData(parsed)
+    data <- data[data$terminal, , drop = FALSE]
+    data <- data[order(data$line1, data$col1), , drop = FALSE]
+    # Parse data abbreviates long literals; compare their exact source text.
+    list(token = data$token, text = enc2utf8(utils::getParseText(data, data$id)),
+        line1 = data$line1, line2 = data$line2)
+}
+
+#' Measure leading whitespace using the client's tab stops
+#' @noRd
+formatting_indent_width <- function(text, tab_size) {
+    width <- 0L
+    for (character in strsplit(text, "", fixed = TRUE)[[1L]]) {
+        width <- if (character == "\t") width + tab_size - width %% tab_size else width + 1L
+    }
+    width
+}
+
+
 #' Format on type
 #' @noRd
 styler_on_type_edits <- function(uri, document, point, ch, options) {
@@ -372,16 +395,41 @@ styler_on_type_edits <- function(uri, document, point, ch, options) {
         #     chunk = content[start_line:end_line]
         # ))
 
+        leading_lines <- start_line - chunk$start_line - run$start_line + 1L
+        if (leading_lines > 0L) {
+            lines <- stringi::stri_split_lines(paste0(chunk$text, collapse = "\n"))[[1L]]
+            chunk$text <- lines[seq.int(leading_lines + 1L, length(lines))]
+        }
+
         style <- get_style(options)
+        if (ch == "\n") {
+            # Enter only adjusts whitespace. In particular, styler must not
+            # reflow a manual line break or wrap a synthesized body in braces.
+            style$line_break <- style$token <- list()
+            # Styler caches by guide metadata rather than transformer bodies.
+            style$more_specs_style_guide["languageserver_newline"] <- "whitespace-1"
+        } else {
+            # end_line could be a function parameter.
+            style$token$force_assignment_op <- NULL
+        }
 
-        # disable assignment operator fix since end_line could be function parameter
-        style$token$force_assignment_op <- NULL
-
-        indention <- nchar(stringi::stri_extract_first_regex(content[start_line], "^\\s*"))
-        new_text <- tryCatchTimeout(
-            style_text(chunk$text, style, indention = indention),
-            timeout = 1,
-            error = function(e) logger$info("on_type_formatting_reply:styler:", e)
+        prefix <- stringi::stri_extract_first_regex(content[start_line], "^\\s*")
+        indention <- if (ch == "\n" && isFALSE(options$insertSpaces)) {
+            formatting_indent_width(prefix, options$tabSize)
+        } else {
+            nchar(prefix)
+        }
+        new_text <- tryCatchTimeout({
+            styled <- style_text(chunk$text, style, indention = indention)
+            if (ch == "\n" && !is.null(styled) &&
+                    !identical(newline_formatting_tokens(chunk$text), newline_formatting_tokens(styled))) {
+                NULL
+            } else {
+                styled
+            }
+        },
+        timeout = 1,
+        error = function(e) logger$info("on_type_formatting_reply:styler:", e)
         )
         if (!is.null(new_text)) {
             if (!is.null(chunk$sentinel)) {
@@ -389,7 +437,24 @@ styler_on_type_edits <- function(uri, document, point, ch, options) {
                     new_text, chunk$sentinel
                 )
             }
+            original <- paste0(content[start_line:end_line], collapse = "\n")
+            if (ch == "\n" && !is.null(new_text) &&
+                    stringi::stri_count_fixed(new_text, "\n") != stringi::stri_count_fixed(original, "\n")) {
+                new_text <- NULL
+            }
             if (!is.null(new_text)) {
+                if (ch == "\n" && isFALSE(options$insertSpaces)) {
+                    # Preserve preceding source when the client requests tabs;
+                    # styler's indentation transformations count spaces.
+                    line <- document$line0(point$row)
+                    if (!grepl("^[ \t]*$", line)) return(NULL)
+                    lines <- stringi::stri_split_lines(new_text)[[1L]]
+                    width <- formatting_indent_width(lines[[length(lines)]], options$tabSize)
+                    new_text <- paste0(strrep("\t", width %/% options$tabSize),
+                        strrep(" ", width %% options$tabSize))
+                    if (identical(line, new_text)) return(NULL)
+                    start_line <- end_line
+                }
                 edit_range <- range(
                     start = document$to_lsp_position(row = start_line - 1L, col = 0L),
                     end = document$to_lsp_position(
