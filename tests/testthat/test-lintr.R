@@ -66,6 +66,26 @@ test_that("folderless clients receive diagnostics, colors, and code lenses", {
     }
 })
 
+test_that("clients receive diagnostics for files unavailable on the server", {
+    skip_on_cran()
+    server_root <- withr::local_tempdir()
+    root <- withr::local_tempdir()
+    writeLines("linters: list()", file.path(server_root, ".lintr"))
+    writeLines("linters: list(object_length_linter(5L))", file.path(root, ".lintr"))
+    path <- file.path(root, "client-only", "source.R")
+    uri <- path_to_uri(path)
+    client <- language_client(working_dir = server_root, workspace_folders = c(server_root, root),
+        diagnostics = TRUE)
+
+    did_open(client, path, text = c("long_name <- 1", ""))
+    data <- wait_for(client, "textDocument/publishDiagnostics", uri = uri)
+    expect_equal(data$uri, uri)
+    expect_length(data$diagnostics, 1L)
+    expect_equal(data$diagnostics[[1L]]$code, "object_length_linter")
+    expect_false(file.exists(path))
+    expect_false(dir.exists(dirname(path)))
+})
+
 test_that("lintr config file works", {
     skip_on_cran()
 

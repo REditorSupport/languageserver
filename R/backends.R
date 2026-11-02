@@ -170,6 +170,9 @@ backend_request <- function(kind, uri, document, workspace = NULL,
     if (!is.null(descriptor$executable)) {
         working_directory <- backend_existing_directory(if (nzchar(original_path)) dirname(original_path)
             else if (length(root) && nzchar(root)) root else getwd())
+    } else if (identical(descriptor$id, "lintr") && !dir.exists(dirname(original_path)) &&
+            length(root) == 1L && nzchar(root) && dir.exists(root)) {
+        working_directory <- root
     }
     path <- if (nzchar(original_path)) normalizePath(original_path, winslash = "/", mustWork = FALSE)
     else file.path(working_directory, "__languageserver_untitled__.R")
@@ -187,6 +190,12 @@ backend_request <- function(kind, uri, document, workspace = NULL,
         configuration = backend_file_fingerprints(configuration_files),
         dependency = backend_file_fingerprints(c(package_file, resolved), contents = FALSE),
         lint_cache = if (kind == "diagnostics") isTRUE(lsp_settings$get("lint_cache")) else NULL)
+    if (identical(descriptor$id, "lintr")) {
+        # First save or deletion changes filename exclusions and package context,
+        # even when the open buffer and configuration remain unchanged.
+        signature$source_mode <- if (nzchar(original_path) && file.exists(original_path) &&
+                !dir.exists(original_path)) "file" else "text"
+    }
     list(kind = kind, backend = descriptor, signature = signature, uri = uri,
         original_path = original_path, path = path, workspace_root = root,
         working_directory = working_directory, executable = resolved, timeout = timeout, env = env,
