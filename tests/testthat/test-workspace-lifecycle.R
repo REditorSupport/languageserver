@@ -162,6 +162,50 @@ test_that("diagnostics only exclude temporary files in non-temporary workspaces"
     }
 })
 
+test_that("temporary diagnostics filtering resolves aliases after files disappear", {
+    lifecycle_settings(diagnostics = TRUE, diagnostics_cache_ttl = 0,
+        diagnostics_backend = list(id = "tempfixture", run = function(request) list(),
+            document_types = "r", needs_workspace_globals = FALSE), backend_options = list())
+    fixture <- normalizePath(withr::local_tempdir(), winslash = "/")
+    temporary <- file.path(fixture, "temporary space")
+    alias <- file.path(fixture, "temporary-alias")
+    outside <- file.path(fixture, "workspace")
+    dir.create(temporary)
+    dir.create(outside)
+    linked <- suppressWarnings(file.symlink(temporary, alias))
+    if (linked) withr::defer(fs::link_delete(alias))
+    skip_if(!linked, "filesystem does not support directory symbolic links")
+    dir.create(file.path(temporary, "existing"))
+    dir.create(file.path(temporary, "project"))
+    dir.create(file.path(temporary, "deleted", "nested"), recursive = TRUE)
+    relative_paths <- c("existing/.vdoc.0000.r", "existing/.vdoc.missing.r",
+        "deleted/nested/.vdoc.0001.r")
+    for (path in file.path(temporary, relative_paths[c(1L, 3L)])) writeLines("x = 1", path)
+    unlink(file.path(temporary, "deleted"), recursive = TRUE)
+    ordinary <- file.path(outside, "ordinary.R")
+    writeLines("x = 1", ordinary)
+
+    roots <- list(outside = outside, null = NULL, empty = character(),
+        temporary = file.path(temporary, "project"), alias = file.path(alias, "project"))
+    for (temp_root in c(temporary, alias)) {
+        mockery::stub(schedule_diagnostics, "tempdir", function() file.path(temp_root, "Rtmp-session"))
+        for (root_name in names(roots)) {
+            for (uri in c(path_to_uri(file.path(temporary, relative_paths)),
+                    path_to_uri(file.path(alias, relative_paths)),
+                    path_to_uri(ordinary), "untitled:temporary-diagnostics")) {
+                server <- LifecycleServer$new()
+                server$rootPath <- roots[[root_name]]
+                document <- Document$new(uri, version = 1L, content = "x = 1")
+                schedule_diagnostics(server, uri, document)
+                expected <- root_name != "outside" ||
+                    uri %in% c(path_to_uri(ordinary), "untitled:temporary-diagnostics")
+                expect_identical(server$diagnostics_task_manager$tasks$has(uri), expected,
+                    info = paste("temp root:", temp_root, "workspace:", root_name, "uri:", uri))
+            }
+        }
+    }
+})
+
 test_that("a failed package parse retries after task cleanup and restores readiness", {
     lifecycle_settings(index_persistent_cache = FALSE, diagnostics = TRUE)
     root <- withr::local_tempdir()
