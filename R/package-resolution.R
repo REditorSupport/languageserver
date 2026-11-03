@@ -28,8 +28,8 @@ package_resolution_installations <- local({
             }
             pending <- packages
             visited <- character()
-            files <- lib_paths
-            guard <- stamp(lib_paths)
+            files <- character()
+            guard <- stamp(character())
             complete <- TRUE
             while (length(pending)) {
                 package <- pending[[1L]]
@@ -40,6 +40,17 @@ package_resolution_installations <- local({
                     break
                 }
                 visited <- c(visited, package)
+                # Check package candidates in every library so an earlier
+                # installation invalidates precedence. Unrelated library-root
+                # files (including covr worker traces) are not package changes.
+                candidates <- unlist(lapply(lib_paths, function(library) {
+                    file.path(library, package, c("DESCRIPTION", "Meta/package.rds"))
+                }), use.names = FALSE)
+                before <- stamp(candidates)
+                guard <- stats::setNames(lapply(names(guard), function(name) {
+                    c(guard[[name]], before[[name]])
+                }), names(guard))
+                files <- c(files, candidates)
                 path <- find.package(package, lib.loc = lib_paths, quiet = TRUE)
                 if (length(path) != 1L) {
                     complete <- FALSE

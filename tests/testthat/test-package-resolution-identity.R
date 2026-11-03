@@ -171,3 +171,62 @@ test_that("Resolution identities follow symlinked database targets", {
     expect_true(changed$complete)
     expect_false(identical(changed$key, original$key))
 })
+
+
+test_that("Coverage traces and unrelated library entries do not invalidate resolutions", {
+    library <- withr::local_tempdir()
+    resolution_identity_package(library, "resolutionstable")
+    identity <- package_resolution_installations("resolutionstable", library)
+    expect_true(identity$complete)
+    writeBin(charToRaw("coverage counters"), file.path(library, "covr_trace_abc"))
+    expect_identical(package_resolution_installations("resolutionstable", library), identity)
+    writeLines("unrelated log", file.path(library, "unrelated-file.txt"))
+    expect_identical(package_resolution_installations("resolutionstable", library), identity)
+    resolution_identity_package(library, "resolutionunrelated")
+    expect_identical(package_resolution_installations("resolutionstable", library), identity)
+    unlink(file.path(library, "covr_trace_abc"))
+    expect_identical(package_resolution_installations("resolutionstable", library), identity)
+})
+
+
+test_that("Candidate metadata validity changes invalidate library precedence", {
+    earlier <- withr::local_tempdir()
+    later <- withr::local_tempdir()
+    first <- resolution_identity_package(earlier, "resolutionmetacandidate")
+    resolution_identity_package(later, "resolutionmetacandidate")
+    dir.create(file.path(first, "Meta"))
+    metadata <- file.path(first, "Meta", "package.rds")
+    saveRDS(list(DESCRIPTION = c(Package = "invalidcandidate", Version = "1.0.0")), metadata)
+    libraries <- c(earlier, later)
+    identity <- package_resolution_installations("resolutionmetacandidate", libraries)
+    expect_true(identity$complete)
+    expect_identical(find.package("resolutionmetacandidate", lib.loc = libraries),
+        file.path(later, "resolutionmetacandidate"))
+    saveRDS(list(DESCRIPTION = c(Package = "resolutionmetacandidate", Version = "1.0.0")), metadata)
+    changed <- package_resolution_installations("resolutionmetacandidate", libraries)
+    expect_true(changed$complete)
+    expect_identical(find.package("resolutionmetacandidate", lib.loc = libraries), first)
+    expect_false(identical(changed$key, identity$key))
+})
+
+
+test_that("Creating valid candidate metadata can establish an earlier installation", {
+    earlier <- withr::local_tempdir()
+    later <- withr::local_tempdir()
+    first <- resolution_identity_package(earlier, "resolutionnewmeta")
+    resolution_identity_package(later, "resolutionnewmeta")
+    description <- file.path(first, "DESCRIPTION")
+    writeLines(sub("Package: resolutionnewmeta", "Package: invalidcandidate", readLines(description), fixed = TRUE),
+        description)
+    dir.create(file.path(first, "Meta"))
+    libraries <- c(earlier, later)
+    identity <- package_resolution_installations("resolutionnewmeta", libraries)
+    expect_true(identity$complete)
+    expect_identical(find.package("resolutionnewmeta", lib.loc = libraries), file.path(later, "resolutionnewmeta"))
+    saveRDS(list(DESCRIPTION = c(Package = "resolutionnewmeta", Version = "1.0.0")),
+        file.path(first, "Meta", "package.rds"))
+    changed <- package_resolution_installations("resolutionnewmeta", libraries)
+    expect_true(changed$complete)
+    expect_identical(find.package("resolutionnewmeta", lib.loc = libraries), first)
+    expect_false(identical(changed$key, identity$key))
+})
