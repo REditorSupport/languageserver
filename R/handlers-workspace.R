@@ -102,16 +102,21 @@ workspace_did_change_configuration <- function(self, params) {
         }
     }
 
-    if (!previous_s3 && isTRUE(lsp_settings$get("s3_dispatch")) &&
+    if ((previous_s3 != isTRUE(lsp_settings$get("s3_dispatch")) ||
+                previous_members != isTRUE(lsp_settings$get("member_completion"))) &&
             !is.null(self$resolve_task_manager)) {
         for (workspace in self$workspaces$values()) {
             for (document in workspace$documents$values()) {
                 parsed <- document$parse_data
                 if (!identical(document$version, parsed$version) || isTRUE(parsed$parse_error)) next
                 document$requested_packages <- member_package_request(parsed)
+                # Changed preparation modes invalidate in-flight shared jobs.
+                # Replace them even when the document's imports did not change.
+                document$member_refresh <- TRUE
                 self$resolve_task_manager$add_task(document$uri,
                     resolve_task(self, document$uri, document, document$requested_packages$packages,
                         namespace_packages = document$requested_packages$namespace_packages))
+                document$member_refresh <- FALSE
             }
         }
     }

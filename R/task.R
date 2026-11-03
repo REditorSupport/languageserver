@@ -33,6 +33,7 @@ Task <- R6::R6Class("Task",
         started_at = NULL,
         execution_started_at = NULL,
         context = NULL,
+        sharing = NULL,
         initialize = function(target, args, callback = NULL, error = NULL, delay = 0,
             profiles = TRUE, track_descendants = FALSE) {
             private$target <- target
