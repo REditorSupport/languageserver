@@ -45,14 +45,31 @@ diagnostics_callback <- function(self, uri, version, diagnostics, clear = FALSE)
     )
 }
 
+# Resolve aliases through an existing ancestor, retaining deleted-file suffixes.
+diagnostics_path_has_parent <- function(path, parent) {
+    if (!length(path) || !nzchar(path)) return(FALSE)
+    if (path_has_parent(path, parent)) return(TRUE)
+    parent <- normalizePath(parent, winslash = "/", mustWork = FALSE)
+    suffix <- character()
+    while (!file.exists(path)) {
+        ancestor <- dirname(path)
+        if (identical(ancestor, path)) break
+        suffix <- c(basename(path), suffix)
+        path <- ancestor
+    }
+    path <- normalizePath(path, winslash = "/", mustWork = FALSE)
+    if (length(suffix)) path <- do.call(file.path, as.list(c(path, suffix)))
+    path_has_parent(path, parent)
+}
+
 #' Queue diagnostics after the current parse has completed
 #' @noRd
 schedule_diagnostics <- function(self, uri, document, delay = 0) {
     if (!lsp_settings$get("diagnostics")) return(NULL)
     temp_root <- dirname(tempdir())
     # Only suppress temporary files when there is a non-temporary workspace.
-    if (!length(self$rootPath) || path_has_parent(self$rootPath, temp_root) ||
-            !path_has_parent(path_from_uri(uri), temp_root)) {
+    if (!length(self$rootPath) || diagnostics_path_has_parent(self$rootPath, temp_root) ||
+            !diagnostics_path_has_parent(path_from_uri(uri), temp_root)) {
         self$diagnostics_task_manager$add_task(
             uri,
             diagnostics_task(self, uri, document, delay = delay)
