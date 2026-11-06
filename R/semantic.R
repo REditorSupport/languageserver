@@ -192,6 +192,7 @@ semantic_parse_data <- function(data, content, syntax = NULL) {
         `!` = SemanticTokenTypes$operator,
         `'!'` = SemanticTokenTypes$operator,
         PIPE = SemanticTokenTypes$operator,
+        PIPEBIND = SemanticTokenTypes$operator,
         `\\` = SemanticTokenTypes$keyword,
         `'\\'` = SemanticTokenTypes$keyword,
         `'\\\\'` = SemanticTokenTypes$keyword
@@ -214,7 +215,6 @@ semantic_parse_data <- function(data, content, syntax = NULL) {
 
     lines <- as.integer(data$line1[single_rows] - 1L)
     cols <- as.integer(data$col1[single_rows] - 1L)
-    lengths <- as.integer(data$col2[single_rows] - data$col1[single_rows] + 1L)
     types <- as.integer(unname(token_types[tok]))
     modifiers <- as.integer(ifelse(
         tok == "SYMBOL_FORMALS",
@@ -374,6 +374,7 @@ get_token_type <- function(token_name) {
         "AND2" = SemanticTokenTypes$operator,
         "OR2" = SemanticTokenTypes$operator,
         "PIPE" = SemanticTokenTypes$operator,
+        "PIPEBIND" = SemanticTokenTypes$operator,
         "OP-DOLLAR" = SemanticTokenTypes$operator,
         "OP-AT" = SemanticTokenTypes$operator,
         "OP-TILDE" = SemanticTokenTypes$operator,
@@ -459,6 +460,7 @@ extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
         self::AND2 or
         self::OR2 or
         self::PIPE or
+        self::PIPEBIND or
         self::OP-DOLLAR or
         self::OP-AT or
         self::OP-TILDE or
