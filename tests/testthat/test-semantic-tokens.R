@@ -896,4 +896,42 @@ test_that("Named arguments and scoped parameter references emit parameter tokens
             expect_equal(matched[[1L]]$tokenModifiers, item$mod)
         }
     }
+
+    bt_uri <- "file:///backtick-parameters.R"
+    bt_content <- c(
+        "f <- function(`x` = 1, y = `x`, `...`) x + `y` + `...` + gamma",
+        "outside <- function(delta) delta + alpha",
+        "noop <- function(unused_arg) 1L"
+    )
+    bt_parsed <- parse(text = bt_content, keep.source = TRUE)
+    bt_semantic <- semantic_parse_data(
+        utils::getParseData(bt_parsed, includeText = TRUE),
+        bt_content
+    )
+    bt_xdoc <- xml2::read_xml(xmlparsedata::xml_parse_data(bt_parsed))
+    bt_doc <- Document$new(bt_uri, version = 1L, content = bt_content)
+    for (cached in c(TRUE, FALSE)) {
+        bt_ws <- list(get_parse_data = function(...) {
+            list(xml_doc = bt_xdoc, semantic_data = if (cached) bt_semantic else NULL)
+        })
+        bt_tokens <- extract_semantic_tokens(bt_uri, bt_ws, bt_doc)
+        token_type_at <- function(line, col, len) {
+            matched <- Filter(function(t) {
+                t$line == line && t$col == col && t$length == len
+            }, bt_tokens)
+            expect_length(matched, 1L)
+            matched[[1L]]$tokenType
+        }
+        expect_equal(token_type_at(0L, 27L, 3L), SemanticTokenTypes$parameter)
+        expect_equal(token_type_at(0L, 39L, 1L), SemanticTokenTypes$parameter)
+        expect_equal(token_type_at(0L, 43L, 3L), SemanticTokenTypes$parameter)
+        expect_equal(token_type_at(0L, 49L, 5L), SemanticTokenTypes$variable)
+        expect_equal(token_type_at(0L, 57L, 5L), SemanticTokenTypes$variable)
+        expect_equal(token_type_at(1L, 27L, 5L), SemanticTokenTypes$parameter)
+        expect_equal(token_type_at(1L, 35L, 5L), SemanticTokenTypes$variable)
+    }
+
+    unused_parsed <- parse(text = "noop <- function(unused_arg) 1L", keep.source = TRUE)
+    unused_pd <- utils::getParseData(unused_parsed, includeText = TRUE)
+    expect_identical(formal_parameter_symbol_ids(unused_pd), integer())
 })
