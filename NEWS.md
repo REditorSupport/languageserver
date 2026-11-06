@@ -1,5 +1,8 @@
 # languageserver (development)
 
+- Skip temporary diagnostics through symlink aliases, including macOS `/var`
+  and `/private/var`, even after temporary files or directories are deleted (#833).
+
 - Resolve relative file definitions and document links against the owning
   workspace folder, including nested folders added or removed during a session.
 
