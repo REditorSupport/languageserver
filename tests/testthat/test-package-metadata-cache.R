@@ -285,6 +285,8 @@ test_that("Loaded namespace changes cannot poison models for another library", {
         destination <- file.path(first_lib, package, "help", basename(source))
         stamp <- file.info(destination)$mtime
         expect_true(file.copy(source, destination, overwrite = TRUE))
+        # e.g. R builds with --enable-prebuilt-html.
+        if (is.na(stamp)) next
         Sys.setFileTime(destination, stamp)
     }
     expect_true(file.copy(file.path(second_lib, package, "Meta/Rd.rds"),
