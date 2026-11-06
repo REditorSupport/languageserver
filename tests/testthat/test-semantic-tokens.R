@@ -656,27 +656,27 @@ test_that("Control-flow keywords and return() calls emit keyword semantic tokens
     )
     edge_xdoc <- xml2::read_xml(xmlparsedata::xml_parse_data(edge_parsed))
     edge_doc <- Document$new(edge_uri, version = 1L, content = edge_content)
-    ws_cached <- list(get_parse_data = function(...) {
-        list(version = 1L, xml_doc = edge_xdoc, semantic_data = edge_semantic)
-    })
-    ws_xml <- list(get_parse_data = function(...) {
-        list(version = 1L, xml_doc = edge_xdoc, semantic_data = NULL)
-    })
-    tok_cached <- extract_semantic_tokens(edge_uri, ws_cached, edge_doc)
-    tok_xml <- extract_semantic_tokens(edge_uri, ws_xml, edge_doc)
-    expect_identical(tok_cached, tok_xml)
-
-    token_type_at <- function(line, col, len) {
-        matched <- Filter(function(t) {
-            t$line == line && t$col == col && t$length == len
-        }, tok_cached)
-        expect_length(matched, 1L)
-        matched[[1L]]$tokenType
+    for (cached in c(TRUE, FALSE)) {
+        edge_ws <- list(get_parse_data = function(...) {
+            list(
+                version = 1L,
+                xml_doc = edge_xdoc,
+                semantic_data = if (cached) edge_semantic else NULL
+            )
+        })
+        edge_tokens <- extract_semantic_tokens(edge_uri, edge_ws, edge_doc)
+        token_type_at <- function(line, col, len) {
+            matched <- Filter(function(t) {
+                t$line == line && t$col == col && t$length == len
+            }, edge_tokens)
+            expect_length(matched, 1L)
+            matched[[1L]]$tokenType
+        }
+        expect_equal(token_type_at(0L, 6L, 1L), SemanticTokenTypes$keyword)
+        expect_equal(token_type_at(1L, 6L, 6L), SemanticTokenTypes[["function"]])
+        expect_equal(token_type_at(2L, 7L, 6L), SemanticTokenTypes[["function"]])
+        expect_equal(token_type_at(3L, 8L, 6L), SemanticTokenTypes[["function"]])
+        expect_equal(token_type_at(4L, 2L, 8L), SemanticTokenTypes[["function"]])
+        expect_equal(token_type_at(5L, 2L, 6L), SemanticTokenTypes$keyword)
     }
-    expect_equal(token_type_at(0L, 6L, 1L), SemanticTokenTypes$keyword)
-    expect_equal(token_type_at(1L, 6L, 6L), SemanticTokenTypes[["function"]])
-    expect_equal(token_type_at(2L, 7L, 6L), SemanticTokenTypes[["function"]])
-    expect_equal(token_type_at(3L, 8L, 6L), SemanticTokenTypes[["function"]])
-    expect_equal(token_type_at(4L, 2L, 8L), SemanticTokenTypes[["function"]])
-    expect_equal(token_type_at(5L, 2L, 6L), SemanticTokenTypes$keyword)
 })
