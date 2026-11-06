@@ -154,7 +154,43 @@ semantic_parse_data <- function(data, content, syntax = NULL) {
         LEFT_ASSIGN = SemanticTokenTypes$operator,
         RIGHT_ASSIGN = SemanticTokenTypes$operator,
         EQ_ASSIGN = SemanticTokenTypes$operator,
+        EQ_SUB = SemanticTokenTypes$operator,
+        EQ_FORMALS = SemanticTokenTypes$operator,
+        SPECIAL = SemanticTokenTypes$operator,
+        NS_GET = SemanticTokenTypes$operator,
+        NS_GET_INT = SemanticTokenTypes$operator,
+        GT = SemanticTokenTypes$operator,
+        GE = SemanticTokenTypes$operator,
+        LT = SemanticTokenTypes$operator,
+        LE = SemanticTokenTypes$operator,
+        EQ = SemanticTokenTypes$operator,
+        NE = SemanticTokenTypes$operator,
+        AND = SemanticTokenTypes$operator,
+        OR = SemanticTokenTypes$operator,
+        AND2 = SemanticTokenTypes$operator,
+        OR2 = SemanticTokenTypes$operator,
         `$` = SemanticTokenTypes$operator,
+        `'$'` = SemanticTokenTypes$operator,
+        `@` = SemanticTokenTypes$operator,
+        `'@'` = SemanticTokenTypes$operator,
+        `~` = SemanticTokenTypes$operator,
+        `'~'` = SemanticTokenTypes$operator,
+        `?` = SemanticTokenTypes$operator,
+        `'?'` = SemanticTokenTypes$operator,
+        `:` = SemanticTokenTypes$operator,
+        `':'` = SemanticTokenTypes$operator,
+        `+` = SemanticTokenTypes$operator,
+        `'+'` = SemanticTokenTypes$operator,
+        `-` = SemanticTokenTypes$operator,
+        `'-'` = SemanticTokenTypes$operator,
+        `*` = SemanticTokenTypes$operator,
+        `'*'` = SemanticTokenTypes$operator,
+        `/` = SemanticTokenTypes$operator,
+        `'/'` = SemanticTokenTypes$operator,
+        `^` = SemanticTokenTypes$operator,
+        `'^'` = SemanticTokenTypes$operator,
+        `!` = SemanticTokenTypes$operator,
+        `'!'` = SemanticTokenTypes$operator,
         PIPE = SemanticTokenTypes$operator,
         `\\` = SemanticTokenTypes$keyword,
         `'\\'` = SemanticTokenTypes$keyword,
@@ -322,7 +358,33 @@ get_token_type <- function(token_name) {
         "LEFT_ASSIGN" = SemanticTokenTypes$operator,
         "RIGHT_ASSIGN" = SemanticTokenTypes$operator,
         "EQ_ASSIGN" = SemanticTokenTypes$operator,
+        "EQ_SUB" = SemanticTokenTypes$operator,
+        "EQ_FORMALS" = SemanticTokenTypes$operator,
+        "SPECIAL" = SemanticTokenTypes$operator,
+        "NS_GET" = SemanticTokenTypes$operator,
+        "NS_GET_INT" = SemanticTokenTypes$operator,
+        "GT" = SemanticTokenTypes$operator,
+        "GE" = SemanticTokenTypes$operator,
+        "LT" = SemanticTokenTypes$operator,
+        "LE" = SemanticTokenTypes$operator,
+        "EQ" = SemanticTokenTypes$operator,
+        "NE" = SemanticTokenTypes$operator,
+        "AND" = SemanticTokenTypes$operator,
+        "OR" = SemanticTokenTypes$operator,
+        "AND2" = SemanticTokenTypes$operator,
+        "OR2" = SemanticTokenTypes$operator,
+        "PIPE" = SemanticTokenTypes$operator,
         "OP-DOLLAR" = SemanticTokenTypes$operator,
+        "OP-AT" = SemanticTokenTypes$operator,
+        "OP-TILDE" = SemanticTokenTypes$operator,
+        "OP-QUESTION" = SemanticTokenTypes$operator,
+        "OP-COLON" = SemanticTokenTypes$operator,
+        "OP-PLUS" = SemanticTokenTypes$operator,
+        "OP-MINUS" = SemanticTokenTypes$operator,
+        "OP-STAR" = SemanticTokenTypes$operator,
+        "OP-SLASH" = SemanticTokenTypes$operator,
+        "OP-CARET" = SemanticTokenTypes$operator,
+        "OP-EXCLAMATION" = SemanticTokenTypes$operator,
         "OP-PIPE" = SemanticTokenTypes$operator,
         "OP" = SemanticTokenTypes$operator,
         "OP-LAMBDA" = SemanticTokenTypes$keyword,
@@ -381,7 +443,33 @@ extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
         self::LEFT_ASSIGN or
         self::RIGHT_ASSIGN or
         self::EQ_ASSIGN or
+        self::EQ_SUB or
+        self::EQ_FORMALS or
+        self::SPECIAL or
+        self::NS_GET or
+        self::NS_GET_INT or
+        self::GT or
+        self::GE or
+        self::LT or
+        self::LE or
+        self::EQ or
+        self::NE or
+        self::AND or
+        self::OR or
+        self::AND2 or
+        self::OR2 or
+        self::PIPE or
         self::OP-DOLLAR or
+        self::OP-AT or
+        self::OP-TILDE or
+        self::OP-QUESTION or
+        self::OP-COLON or
+        self::OP-PLUS or
+        self::OP-MINUS or
+        self::OP-STAR or
+        self::OP-SLASH or
+        self::OP-CARET or
+        self::OP-EXCLAMATION or
         self::OP-PIPE or
         self::OP or
         self::OP-LAMBDA
