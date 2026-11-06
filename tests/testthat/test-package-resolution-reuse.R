@@ -825,3 +825,36 @@ test_that("Workspace transfers reuse complete cached results and honor an earlie
         package_reuse_transfer(move, TRUE, "force")
     }
 })
+
+test_that("S3-only saves coalesce a fresh result after running resolution", {
+    fixture <- package_reuse_fixture(s3 = TRUE)
+    document <- package_reuse_document(fixture, "s3-refresh")
+    package_reuse_start(fixture)
+    first <- fixture$state$processes[[1L]]
+    for (i in 1:3) {
+        document$member_refresh <- TRUE
+        package_reuse_parse(fixture, document)
+    }
+    expect_length(fixture$state$processes, 1L)
+    expect_identical(first$killed, 0L)
+    first$result <- package_reuse_result(first)
+    first$result$s3$callr$generation <- "before-save"
+    first$ready <- TRUE
+    fixture$server$resolve_task_manager$check_tasks()
+    expect_null(fixture$workspace$s3_metadata$catalog("callr"))
+    expect_true(fixture$server$resolve_task_manager$has(document$uri))
+    package_reuse_start(fixture)
+    expect_length(fixture$state$processes, 2L)
+    fresh <- fixture$state$processes[[2L]]
+    expect_true(fresh$args$prepare_s3)
+    expect_false(fresh$args$prepare)
+    fresh$result <- package_reuse_result(fresh)
+    fresh$result$s3$callr$generation <- "after-save"
+    fresh$ready <- TRUE
+    fixture$server$resolve_task_manager$check_tasks()
+    expect_identical(fixture$workspace$s3_metadata$catalog("callr")$generation, "after-save")
+    expect_false(fixture$server$resolve_task_manager$has(document$uri))
+    later <- package_reuse_document(fixture, "s3-cached")
+    expect_false(fixture$server$resolve_task_manager$has(later$uri))
+    expect_length(fixture$state$processes, 2L)
+})

@@ -153,13 +153,16 @@ package_task_sharing <- function(self, uri, document, request, callback, error, 
     if (!isTRUE(request$installations$complete)) return(NULL)
     workspace <- self$get_workspace(uri)
     requested <- document$requested_packages
+    current_document <- function() {
+        identical(self$get_workspace(uri), workspace) &&
+            identical(workspace$documents$get(uri, NULL), document) &&
+            identical(document$requested_packages, requested)
+    }
     sharing <- new.env(parent = emptyenv())
     sharing$key <- digest::digest(request, algo = "xxhash64")
     sharing$refresh <- refresh
     sharing$valid <- function() {
-        identical(self$get_workspace(uri), workspace) &&
-            identical(workspace$documents$get(uri, NULL), document) &&
-            identical(document$requested_packages, requested) &&
+        current_document() &&
             identical(.libPaths(), request$lib_paths) &&
             identical(package_metadata_cache_root(), request$cache_dir) &&
             identical(Sys.getlocale(), request$locale) &&
@@ -175,6 +178,24 @@ package_task_sharing <- function(self, uri, document, request, callback, error, 
     sharing$complete <- callback
     sharing$fail <- error
     sharing$cacheable <- function(result) package_resolution_cacheable(result, request)
+    sharing$invalidated <- function() {
+        if (!current_document()) return(invisible(NULL))
+        # An obsolete metadata result cannot satisfy an earlier save/refresh.
+        # Retain that request through pending parses; current buffers can retry
+        # immediately using their accepted imports and the new installations.
+        document$member_refresh <- TRUE
+        parsed <- document$parse_data
+        if (is.null(parsed) || !identical(parsed$version, document$version) ||
+                !identical(document$parsed_content, document$content) ||
+                (isTRUE(parsed$parse_error) && !length(parsed$member_data$packages)) ||
+                is.null(self$resolve_task_manager)) return(invisible(NULL))
+        packages <- if (is.null(requested)) request$packages else requested$packages
+        namespace_packages <- if (is.null(requested)) request$namespace_packages else requested$namespace_packages
+        self$resolve_task_manager$add_task(uri,
+            resolve_task(self, uri, document, packages, namespace_packages = namespace_packages))
+        document$member_refresh <- FALSE
+        invisible(NULL)
+    }
     sharing$settled <- function() s3_queue_ready(self, uri)
     sharing
 }

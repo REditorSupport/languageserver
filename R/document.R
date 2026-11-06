@@ -1218,7 +1218,11 @@ resolve_task <- function(self, uri, document, packages, delay = 0, namespace_pac
         manager <- self$member_task_manager
         previous <- if (is.function(manager$get_task)) manager$get_task(uri) else NULL
         request <- member_task_request(self$get_workspace(uri), document, packages, namespace_packages)
+        # Incomplete fingerprints use isolated per-document workers. Their
+        # existing context checks still permit queued promotion and one
+        # followup after running preparation, without cross-document reuse.
         same_installation <- !inherits(manager, "SharedTaskManager") ||
+            (is.null(previous$sharing) && !isTRUE(member_request$installations$complete)) ||
             identical(previous$sharing$key, digest::digest(member_request, algo = "xxhash64"))
         if (same_installation && is.environment(previous$context) && identical(previous$context$request, request)) {
             # A queued worker already sees the latest package installation.
