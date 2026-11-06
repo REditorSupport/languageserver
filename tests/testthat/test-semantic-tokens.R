@@ -1163,4 +1163,63 @@ test_that("Roxygen2 comments and tags emit documentation semantic tokens", {
             expect_equal(matched[[1L]]$tokenModifiers, item$mod)
         }
     }
+
+    edge_uri <- "file:///roxygen-edge.R"
+    edge_content <- c(
+        "#' @param",
+        "#' @param x,y Paired numeric vectors.",
+        "#' @param ... Additional arguments.",
+        "#' @param `x_backtick` Backticked param.",
+        "#' @param α A 🎉 emoji description.",
+        "# Regular non-roxygen comment",
+        "f <- function(x, y, ..., x_backtick, α) NULL"
+    )
+    edge_parsed <- parse(text = edge_content, keep.source = TRUE)
+    edge_semantic <- semantic_parse_data(
+        utils::getParseData(edge_parsed, includeText = TRUE),
+        edge_content
+    )
+    edge_xdoc <- xml2::read_xml(xmlparsedata::xml_parse_data(edge_parsed))
+    edge_doc <- Document$new(edge_uri, version = 1L, content = edge_content)
+
+    expect_true(all(edge_semantic$cols >= 0L))
+    expect_true(all(edge_semantic$lengths > 0L))
+    expect_true(all(edge_semantic$encoded >= 0L))
+
+    ws_cached <- list(get_parse_data = function(...) {
+        list(xml_doc = edge_xdoc, semantic_data = edge_semantic)
+    })
+    ws_xml <- list(get_parse_data = function(...) {
+        list(xml_doc = edge_xdoc, semantic_data = NULL)
+    })
+    tok_cached <- extract_semantic_tokens(edge_uri, ws_cached, edge_doc)
+    tok_xml <- extract_semantic_tokens(edge_uri, ws_xml, edge_doc)
+    expect_identical(tok_cached, tok_xml)
+
+    edge_expected <- list(
+        # Line 0: bare #' @param (no parameter token)
+        list(line = 0L, col = 0L, len = 3L, type = SemanticTokenTypes$comment, mod = doc_mod),
+        list(line = 0L, col = 3L, len = 6L, type = SemanticTokenTypes$macro, mod = doc_mod),
+        # Line 1: @param x,y
+        list(line = 1L, col = 10L, len = 3L, type = SemanticTokenTypes$parameter, mod = doc_mod),
+        # Line 2: @param ...
+        list(line = 2L, col = 10L, len = 3L, type = SemanticTokenTypes$parameter, mod = doc_mod),
+        # Line 3: @param `x_backtick`
+        list(line = 3L, col = 10L, len = 12L, type = SemanticTokenTypes$parameter, mod = doc_mod),
+        # Line 4: @param α A 🎉 emoji description. (🎉 is 2 UTF-16 units -> trailing comment len = 24)
+        list(line = 4L, col = 10L, len = 1L, type = SemanticTokenTypes$parameter, mod = doc_mod),
+        list(line = 4L, col = 11L, len = 24L, type = SemanticTokenTypes$comment, mod = doc_mod),
+        # Line 5: regular comment has mod = 0L
+        list(line = 5L, col = 0L, len = 29L, type = SemanticTokenTypes$comment, mod = 0L)
+    )
+    for (item in edge_expected) {
+        matched <- Filter(function(token) {
+            token$line == item$line &&
+                token$col == item$col &&
+                token$length == item$len
+        }, tok_cached)
+        expect_length(matched, 1L)
+        expect_equal(matched[[1L]]$tokenType, item$type)
+        expect_equal(matched[[1L]]$tokenModifiers, item$mod)
+    }
 })
