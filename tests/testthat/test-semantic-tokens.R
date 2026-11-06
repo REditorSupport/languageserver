@@ -991,7 +991,8 @@ test_that("Builtin constants, ellipsis, and pipe placeholders emit readonly defa
     content <- c(
         "flags <- list(NULL, TRUE, FALSE, T, F)",
         "nums <- c(Inf, NaN, NA, NA_integer_, NA_real_, NA_complex_, NA_character_)",
-        "forward <- function(...) list(..., ..1, ..2) |> subset(x = _)"
+        "forward <- function(...) list(..., ..1, ..2) |> subset(x = _)",
+        "shadow <- function(T, F) list(T, F, obj$T, pkg::F, obj$...)"
     )
     parsed <- parse(text = content, keep.source = TRUE)
     semantic <- semantic_parse_data(
@@ -1024,7 +1025,14 @@ test_that("Builtin constants, ellipsis, and pipe placeholders emit readonly defa
         list(line = 2L, col = 30L, text = "...", type = SemanticTokenTypes$variable, mod = ro_default_mod),
         list(line = 2L, col = 35L, text = "..1", type = SemanticTokenTypes$variable, mod = ro_default_mod),
         list(line = 2L, col = 40L, text = "..2", type = SemanticTokenTypes$variable, mod = ro_default_mod),
-        list(line = 2L, col = 59L, text = "_", type = SemanticTokenTypes$variable, mod = ro_default_mod)
+        list(line = 2L, col = 59L, text = "_", type = SemanticTokenTypes$variable, mod = ro_default_mod),
+        list(line = 3L, col = 19L, text = "T", type = SemanticTokenTypes$parameter, mod = decl_mod),
+        list(line = 3L, col = 22L, text = "F", type = SemanticTokenTypes$parameter, mod = decl_mod),
+        list(line = 3L, col = 30L, text = "T", type = SemanticTokenTypes$parameter, mod = 0L),
+        list(line = 3L, col = 33L, text = "F", type = SemanticTokenTypes$parameter, mod = 0L),
+        list(line = 3L, col = 40L, text = "T", type = SemanticTokenTypes$variable, mod = 0L),
+        list(line = 3L, col = 48L, text = "F", type = SemanticTokenTypes$variable, mod = 0L),
+        list(line = 3L, col = 55L, text = "...", type = SemanticTokenTypes$variable, mod = 0L)
     )
 
     for (cached in c(TRUE, FALSE)) {
