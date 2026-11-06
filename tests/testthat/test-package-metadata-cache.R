@@ -283,8 +283,8 @@ test_that("Loaded namespace changes cannot poison models for another library", {
     files <- list.files(file.path(second_lib, package, "help"), full.names = TRUE)
     for (source in files) {
         destination <- file.path(first_lib, package, "help", basename(source))
-        expect_true(file.copy(source, destination, overwrite = TRUE))
         stamp <- file.info(destination)$mtime
+        expect_true(file.copy(source, destination, overwrite = TRUE))
         # e.g. R builds with --enable-prebuilt-html.
         if (is.na(stamp)) next
         Sys.setFileTime(destination, stamp)
