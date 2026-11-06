@@ -447,7 +447,7 @@ shadowed_builtin_symbol_ids <- function(data, member_or_ns_parents = NULL) {
 roxygen_comment_spans <- function(comment_text, base_col0) {
     total_len <- nchar(comment_text)
     m <- regexec(
-        "^#'\\s*(@[[:alpha:]][[:alnum:]._]*)(?:\\s+([[:alnum:]._]+(?:,[[:alnum:]._]+)*|\\.\\.\\.))?",
+        "^#'\\s*(@[[:alpha:]][[:alnum:]._]*)(?:\\s+(`(?:\\\\.|[^`\\\\])+`|[^[:space:]]+))?",
         comment_text,
         perl = TRUE
     )[[1L]]
@@ -469,7 +469,7 @@ roxygen_comment_spans <- function(comment_text, base_col0) {
     types <- c(SemanticTokenTypes$comment, SemanticTokenTypes$macro)
     last_end <- tag_end
 
-    if (identical(tag_text, "@param") && length(m) >= 3L && m[[3L]] != -1L) {
+    if (identical(tag_text, "@param") && length(m) >= 3L && m[[3L]] > 0L) {
         param_start <- m[[3L]] - 1L
         param_end <- param_start + match_lens[[3L]]
         starts <- c(starts, base_col0 + param_start)
@@ -718,21 +718,25 @@ semantic_parse_data <- function(data, content, syntax = NULL) {
     }
 
     if (length(roxygen_rows)) {
-        for (row_index in roxygen_rows) {
-            spans <- roxygen_comment_spans(
+        span_list <- lapply(roxygen_rows, function(row_index) {
+            roxygen_comment_spans(
                 data$text[[row_index]],
                 data$col1[[row_index]] - 1L
             )
-            n_spans <- length(spans$starts)
-            line1_vec <- c(
-                line1_vec,
-                rep.int(as.integer(data$line1[[row_index]]), n_spans)
-            )
-            start_cp <- c(start_cp, spans$starts)
-            end_cp <- c(end_cp, spans$ends)
-            types <- c(types, spans$types)
-            modifiers <- c(modifiers, spans$modifiers)
-        }
+        })
+        span_counts <- vapply(span_list, \(s) length(s$starts), integer(1L))
+        rx_starts <- unlist(lapply(span_list, `[[`, "starts"), use.names = FALSE)
+        line1_vec <- c(
+            line1_vec,
+            rep.int(as.integer(data$line1[roxygen_rows]), span_counts)
+        )
+        start_cp <- c(start_cp, rx_starts)
+        end_cp <- c(end_cp, unlist(lapply(span_list, `[[`, "ends"), use.names = FALSE))
+        types <- c(types, unlist(lapply(span_list, `[[`, "types"), use.names = FALSE))
+        modifiers <- c(
+            modifiers,
+            rep.int(as.integer(semantic_documentation_modifier), length(rx_starts))
+        )
     }
 
     lines <- as.integer(line1_vec - 1L)
@@ -1013,13 +1017,14 @@ extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
 
         if (token_name == "COMMENT" && startsWith(tok_text, "#'")) {
             spans <- roxygen_comment_spans(tok_text, col1 - 1L)
-            for (k in seq_along(spans$starts)) {
-                utf16_cols <- code_point_to_unit(
-                    line_text,
-                    c(spans$starts[[k]], spans$ends[[k]])
-                )
-                token_col <- utf16_cols[1]
-                token_length <- utf16_cols[2] - utf16_cols[1]
+            n_spans <- length(spans$starts)
+            utf16_cols <- code_point_to_unit(
+                line_text,
+                c(spans$starts, spans$ends)
+            )
+            for (k in seq_len(n_spans)) {
+                token_col <- utf16_cols[[k]]
+                token_length <- utf16_cols[[n_spans + k]] - token_col
                 idx <- idx + 1L
                 tokens[[idx]] <- list(
                     line = as.integer(line1 - 1L),
@@ -1086,11 +1091,11 @@ extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
 
         idx <- idx + 1L
         tokens[[idx]] <- list(
-            line = as.integer(line1 - 1),
-            col = as.integer(token_col),
-            length = as.integer(token_length),
-            tokenType = as.integer(token_type),
-            tokenModifiers = as.integer(modifiers)
+            line = as.integer(line1 - 1),  # Convert to 0-based, ensure integer
+            col = as.integer(token_col),   # UTF-16 code units, ensure integer
+            length = as.integer(token_length),  # UTF-16 code units, ensure integer
+            tokenType = as.integer(token_type),      # Ensure integer
+            tokenModifiers = as.integer(modifiers)   # Ensure integer
         )
     }
 
