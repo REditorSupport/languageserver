@@ -49,25 +49,34 @@ semantic_declaration_modifier <- bitwShiftL(1L, SemanticTokenModifiers$declarati
 
 #' Parse-data ids of body symbols resolving to enclosing `SYMBOL_FORMALS`
 #' @noRd
-formal_parameter_symbol_ids <- function(data) {
+formal_parameter_symbol_ids <- function(data, member_or_ns_parents = NULL) {
     formal_rows <- which(
         data$token == "SYMBOL_FORMALS" &
-            data$parent > 0L &
-            data$text != "..."
+            data$parent > 0L
     )
     if (!length(formal_rows)) return(integer())
+    formal_names <- reference_symbol_names(data$text[formal_rows])
+    keep_formals <- formal_names != "..."
+    formal_rows <- formal_rows[keep_formals]
+    formal_names <- formal_names[keep_formals]
+    if (!length(formal_rows)) return(integer())
 
-    unique_names <- unique(data$text[formal_rows])
-    member_or_ns_parents <- data$parent[
-        data$token %in% c("'$'", "'@'", "$", "@", "NS_GET", "NS_GET_INT") &
-            data$parent > 0L
-    ]
-    cand_rows <- which(
+    unique_names <- unique(formal_names)
+    if (is.null(member_or_ns_parents)) {
+        member_or_ns_parents <- data$parent[
+            data$token %in% c("'$'", "'@'", "$", "@", "NS_GET", "NS_GET_INT") &
+                data$parent > 0L
+        ]
+    }
+    sym_rows <- which(
         data$token == "SYMBOL" &
             data$parent > 0L &
-            data$text %in% unique_names &
             !(data$parent %in% member_or_ns_parents)
     )
+    if (!length(sym_rows)) return(integer())
+    sym_names <- reference_symbol_names(data$text[sym_rows])
+    in_formals <- sym_names %in% unique_names
+    cand_rows <- sym_rows[in_formals]
     if (!length(cand_rows)) return(integer())
 
     max_id <- max(data$id, data$parent, 0L)
@@ -75,25 +84,44 @@ formal_parameter_symbol_ids <- function(data) {
     valid_nodes <- data$id > 0L & data$parent > 0L
     id_parent[data$id[valid_nodes]] <- data$parent[valid_nodes]
 
-    stride <- as.numeric(max_id) + 1.0
-    formal_name_idx <- match(data$text[formal_rows], unique_names)
-    formal_keys <- (formal_name_idx - 1.0) * stride + data$parent[formal_rows]
+    formal_parents <- data$parent[formal_rows]
+    unique_parents <- unique(formal_parents)
+    scope_idx <- integer(max_id)
+    scope_idx[unique_parents] <- seq_along(unique_parents)
 
-    cand_name_idx <- match(data$text[cand_rows], unique_names)
+    n_names <- length(unique_names)
+    formal_name_idx <- match(formal_names, unique_names)
+    has_formal <- logical(n_names * length(unique_parents))
+    has_formal[(scope_idx[formal_parents] - 1L) * n_names + formal_name_idx] <- TRUE
+
+    cand_name_idx <- match(sym_names[in_formals], unique_names)
     anc <- data$parent[cand_rows]
     matched <- logical(length(cand_rows))
+    active <- seq_along(cand_rows)
     steps <- 0L
     max_steps <- nrow(data)
 
-    while (steps <= max_steps) {
-        active <- which(!matched & anc > 0L)
-        if (!length(active)) break
-        keys <- (cand_name_idx[active] - 1.0) * stride + anc[active]
-        hit <- keys %in% formal_keys
-        if (any(hit)) {
-            matched[active[hit]] <- TRUE
+    while (length(active) && steps <= max_steps) {
+        s <- scope_idx[anc]
+        at_scope <- which(s > 0L)
+        if (length(at_scope)) {
+            hit <- has_formal[(s[at_scope] - 1L) * n_names + cand_name_idx[at_scope]]
+            if (any(hit)) {
+                hit_idx <- at_scope[hit]
+                matched[active[hit_idx]] <- TRUE
+                active <- active[-hit_idx]
+                anc <- anc[-hit_idx]
+                cand_name_idx <- cand_name_idx[-hit_idx]
+                if (!length(active)) break
+            }
         }
-        anc[active] <- id_parent[anc[active]]
+        anc <- id_parent[anc]
+        keep <- anc > 0L
+        if (!all(keep)) {
+            active <- active[keep]
+            anc <- anc[keep]
+            cand_name_idx <- cand_name_idx[keep]
+        }
         steps <- steps + 1L
     }
 
@@ -283,12 +311,8 @@ semantic_parse_data <- function(data, content, syntax = NULL) {
         !(row_parents %in% member_or_ns_parents)
     types[is_return] <- SemanticTokenTypes$keyword
 
-    member_or_ns_parents <- data$parent[
-        data$token %in% c("'$'", "'@'", "$", "@", "NS_GET", "NS_GET_INT") &
-            data$parent > 0L
-    ]
     plain_sym <- tok == "SYMBOL" & !(row_parents %in% member_or_ns_parents)
-    param_sym_ids <- formal_parameter_symbol_ids(data)
+    param_sym_ids <- formal_parameter_symbol_ids(data, member_or_ns_parents)
     if (length(param_sym_ids)) {
         is_param_ref <- plain_sym & (row_ids %in% param_sym_ids)
         types[is_param_ref] <- SemanticTokenTypes$parameter
@@ -584,11 +608,14 @@ extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
                 ),
                 "xml_missing"
             )) {
+                sym_name <- reference_symbol_names(tok_text)
                 formal_names <- setdiff(
-                    xml_text(xml_find_all(token_node, "./ancestor::expr/SYMBOL_FORMALS")),
+                    reference_symbol_names(
+                        xml_text(xml_find_all(token_node, "./ancestor::expr/SYMBOL_FORMALS"))
+                    ),
                     "..."
                 )
-                if (tok_text %in% formal_names) {
+                if (sym_name %in% formal_names) {
                     token_type <- SemanticTokenTypes$parameter
                 }
             }
