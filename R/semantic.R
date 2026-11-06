@@ -47,6 +47,59 @@ SemanticTokenModifiers <- list(
 
 semantic_declaration_modifier <- bitwShiftL(1L, SemanticTokenModifiers$declaration)
 
+#' Parse-data ids of body symbols resolving to enclosing `SYMBOL_FORMALS`
+#' @noRd
+formal_parameter_symbol_ids <- function(data) {
+    formal_rows <- which(
+        data$token == "SYMBOL_FORMALS" &
+            data$parent > 0L &
+            data$text != "..."
+    )
+    if (!length(formal_rows)) return(integer())
+
+    unique_names <- unique(data$text[formal_rows])
+    member_or_ns_parents <- data$parent[
+        data$token %in% c("'$'", "'@'", "$", "@", "NS_GET", "NS_GET_INT") &
+            data$parent > 0L
+    ]
+    cand_rows <- which(
+        data$token == "SYMBOL" &
+            data$parent > 0L &
+            data$text %in% unique_names &
+            !(data$parent %in% member_or_ns_parents)
+    )
+    if (!length(cand_rows)) return(integer())
+
+    max_id <- max(data$id, data$parent, 0L)
+    id_parent <- integer(max_id)
+    valid_nodes <- data$id > 0L & data$parent > 0L
+    id_parent[data$id[valid_nodes]] <- data$parent[valid_nodes]
+
+    stride <- as.numeric(max_id) + 1.0
+    formal_name_idx <- match(data$text[formal_rows], unique_names)
+    formal_keys <- (formal_name_idx - 1.0) * stride + data$parent[formal_rows]
+
+    cand_name_idx <- match(data$text[cand_rows], unique_names)
+    anc <- data$parent[cand_rows]
+    matched <- logical(length(cand_rows))
+    steps <- 0L
+    max_steps <- nrow(data)
+
+    while (steps <= max_steps) {
+        active <- which(!matched & anc > 0L)
+        if (!length(active)) break
+        keys <- (cand_name_idx[active] - 1.0) * stride + anc[active]
+        hit <- keys %in% formal_keys
+        if (any(hit)) {
+            matched[active[hit]] <- TRUE
+        }
+        anc[active] <- id_parent[anc[active]]
+        steps <- steps + 1L
+    }
+
+    as.integer(data$id[cand_rows[matched]])
+}
+
 #' Get the semantic tokens legend
 #'
 #' Returns the legend that defines token types and modifiers
@@ -134,6 +187,7 @@ semantic_parse_data <- function(data, content, syntax = NULL) {
         SYMBOL = SemanticTokenTypes$variable,
         SYMBOL_FUNCTION_CALL = SemanticTokenTypes[["function"]],
         SYMBOL_FORMALS = SemanticTokenTypes$parameter,
+        SYMBOL_SUB = SemanticTokenTypes$parameter,
         SYMBOL_PACKAGE = SemanticTokenTypes$namespace,
         FUNCTION = SemanticTokenTypes$keyword,
         KEYWORD = SemanticTokenTypes$keyword,
@@ -230,6 +284,17 @@ semantic_parse_data <- function(data, content, syntax = NULL) {
         txt == "return" &
         !(row_parents %in% member_or_ns_parents)
     types[is_return] <- SemanticTokenTypes$keyword
+
+    member_or_ns_parents <- data$parent[
+        data$token %in% c("'$'", "'@'", "$", "@", "NS_GET", "NS_GET_INT") &
+            data$parent > 0L
+    ]
+    plain_sym <- tok == "SYMBOL" & !(row_parents %in% member_or_ns_parents)
+    param_sym_ids <- formal_parameter_symbol_ids(data)
+    if (length(param_sym_ids)) {
+        is_param_ref <- plain_sym & (row_ids %in% param_sym_ids)
+        types[is_param_ref] <- SemanticTokenTypes$parameter
+    }
 
     fun_lhs_ids <- function_assignment_symbol_ids(data, syntax)
     if (length(fun_lhs_ids)) {
@@ -338,6 +403,7 @@ get_token_type <- function(token_name) {
         "SYMBOL" = SemanticTokenTypes$variable,
         "SYMBOL_FUNCTION_CALL" = SemanticTokenTypes[["function"]],
         "SYMBOL_FORMALS" = SemanticTokenTypes$parameter,
+        "SYMBOL_SUB" = SemanticTokenTypes$parameter,
         "SYMBOL_PACKAGE" = SemanticTokenTypes$namespace,
         "FUNCTION" = SemanticTokenTypes$keyword,
         "KEYWORD" = SemanticTokenTypes$keyword,
@@ -424,6 +490,7 @@ extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
         self::SYMBOL or
         self::SYMBOL_FUNCTION_CALL or
         self::SYMBOL_FORMALS or
+        self::SYMBOL_SUB or
         self::SYMBOL_PACKAGE or
         self::FUNCTION or
         self::KEYWORD or
@@ -508,9 +575,25 @@ extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
         modifiers <- 0L
 
         # Determine types and modifiers based on context
-        if (token_name == "SYMBOL" && xml_symbol_is_function_assignment(token_node)) {
-            token_type <- SemanticTokenTypes[["function"]]
-            modifiers <- semantic_declaration_modifier
+        if (token_name == "SYMBOL") {
+            if (xml_symbol_is_function_assignment(token_node)) {
+                token_type <- SemanticTokenTypes[["function"]]
+                modifiers <- semantic_declaration_modifier
+            } else if (inherits(
+                xml_find_first(
+                    token_node,
+                    "./preceding-sibling::*[self::OP-DOLLAR or self::OP-AT or self::NS_GET or self::NS_GET_INT]"
+                ),
+                "xml_missing"
+            )) {
+                formal_names <- setdiff(
+                    xml_text(xml_find_all(token_node, "./ancestor::expr/SYMBOL_FORMALS")),
+                    "..."
+                )
+                if (tok_text %in% formal_names) {
+                    token_type <- SemanticTokenTypes$parameter
+                }
+            }
         } else if (token_name == "SYMBOL_FUNCTION_CALL") {
             if (identical(tok_text, "return") && xml_find_lgl(token_node, xml_not_qualified_symbol_xpath)) {
                 token_type <- SemanticTokenTypes$keyword
