@@ -427,6 +427,8 @@ test_that("Semantic token types cover every parser token category", {
         REPEAT = SemanticTokenTypes$keyword,
         NEXT = SemanticTokenTypes$keyword,
         BREAK = SemanticTokenTypes$keyword,
+        NULL_CONST = SemanticTokenTypes$keyword,
+        PLACEHOLDER = SemanticTokenTypes$variable,
         NUM_CONST = SemanticTokenTypes$number,
         INT_CONST = SemanticTokenTypes$number,
         FLOAT_CONST = SemanticTokenTypes$number,
@@ -950,4 +952,64 @@ test_that("Named arguments and scoped parameter references emit parameter tokens
     unused_parsed <- parse(text = "noop <- function(unused_arg) 1L", keep.source = TRUE)
     unused_pd <- utils::getParseData(unused_parsed, includeText = TRUE)
     expect_identical(formal_parameter_symbol_ids(unused_pd), integer())
+})
+
+test_that("Builtin constants, ellipsis, and pipe placeholders emit readonly defaultLibrary tokens", {
+    uri <- "file:///constants-semantic.R"
+    content <- c(
+        "flags <- list(NULL, TRUE, FALSE, T, F)",
+        "nums <- c(Inf, NaN, NA, NA_integer_, NA_real_, NA_complex_, NA_character_)",
+        "forward <- function(...) list(..., ..1, ..2) |> subset(x = _)"
+    )
+    parsed <- parse(text = content, keep.source = TRUE)
+    semantic <- semantic_parse_data(
+        utils::getParseData(parsed, includeText = TRUE),
+        content
+    )
+    xdoc <- xml2::read_xml(xmlparsedata::xml_parse_data(parsed))
+    document <- Document$new(uri, version = 1L, content = content)
+
+    ro_default_mod <- bitwOr(
+        bitwShiftL(1L, SemanticTokenModifiers$readonly),
+        bitwShiftL(1L, SemanticTokenModifiers$defaultLibrary)
+    )
+    decl_mod <- bitwShiftL(1L, SemanticTokenModifiers$declaration)
+
+    expected <- list(
+        list(line = 0L, col = 14L, text = "NULL", type = SemanticTokenTypes$keyword, mod = ro_default_mod),
+        list(line = 0L, col = 20L, text = "TRUE", type = SemanticTokenTypes$keyword, mod = ro_default_mod),
+        list(line = 0L, col = 26L, text = "FALSE", type = SemanticTokenTypes$keyword, mod = ro_default_mod),
+        list(line = 0L, col = 33L, text = "T", type = SemanticTokenTypes$keyword, mod = ro_default_mod),
+        list(line = 0L, col = 36L, text = "F", type = SemanticTokenTypes$keyword, mod = ro_default_mod),
+        list(line = 1L, col = 10L, text = "Inf", type = SemanticTokenTypes$number, mod = ro_default_mod),
+        list(line = 1L, col = 15L, text = "NaN", type = SemanticTokenTypes$number, mod = ro_default_mod),
+        list(line = 1L, col = 20L, text = "NA", type = SemanticTokenTypes$number, mod = ro_default_mod),
+        list(line = 1L, col = 24L, text = "NA_integer_", type = SemanticTokenTypes$number, mod = ro_default_mod),
+        list(line = 1L, col = 37L, text = "NA_real_", type = SemanticTokenTypes$number, mod = ro_default_mod),
+        list(line = 1L, col = 47L, text = "NA_complex_", type = SemanticTokenTypes$number, mod = ro_default_mod),
+        list(line = 1L, col = 60L, text = "NA_character_", type = SemanticTokenTypes$number, mod = ro_default_mod),
+        list(line = 2L, col = 20L, text = "...", type = SemanticTokenTypes$parameter, mod = decl_mod),
+        list(line = 2L, col = 30L, text = "...", type = SemanticTokenTypes$variable, mod = ro_default_mod),
+        list(line = 2L, col = 35L, text = "..1", type = SemanticTokenTypes$variable, mod = ro_default_mod),
+        list(line = 2L, col = 40L, text = "..2", type = SemanticTokenTypes$variable, mod = ro_default_mod),
+        list(line = 2L, col = 59L, text = "_", type = SemanticTokenTypes$variable, mod = ro_default_mod)
+    )
+
+    for (cached in c(TRUE, FALSE)) {
+        workspace <- list(get_parse_data = function(request_uri) {
+            expect_identical(request_uri, uri)
+            list(xml_doc = xdoc, semantic_data = if (cached) semantic else NULL)
+        })
+        tokens <- extract_semantic_tokens(uri, workspace, document)
+        for (item in expected) {
+            matched <- Filter(function(token) {
+                token$line == item$line &&
+                    token$col == item$col &&
+                    token$length == nchar(item$text)
+            }, tokens)
+            expect_length(matched, 1L)
+            expect_equal(matched[[1L]]$tokenType, item$type)
+            expect_equal(matched[[1L]]$tokenModifiers, item$mod)
+        }
+    }
 })
