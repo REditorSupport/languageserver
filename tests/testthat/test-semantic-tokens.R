@@ -418,6 +418,14 @@ test_that("Semantic token types cover every parser token category", {
         SYMBOL_PACKAGE = SemanticTokenTypes$namespace,
         FUNCTION = SemanticTokenTypes$keyword,
         KEYWORD = SemanticTokenTypes$keyword,
+        IF = SemanticTokenTypes$keyword,
+        ELSE = SemanticTokenTypes$keyword,
+        FOR = SemanticTokenTypes$keyword,
+        IN = SemanticTokenTypes$keyword,
+        WHILE = SemanticTokenTypes$keyword,
+        REPEAT = SemanticTokenTypes$keyword,
+        NEXT = SemanticTokenTypes$keyword,
+        BREAK = SemanticTokenTypes$keyword,
         NUM_CONST = SemanticTokenTypes$number,
         INT_CONST = SemanticTokenTypes$number,
         FLOAT_CONST = SemanticTokenTypes$number,
@@ -559,4 +567,60 @@ test_that("Function assignments with comments around operators emit declaration 
         vapply(fn_declarations, `[[`, integer(1L), "line"),
         c(0L, 3L, 8L, 10L, 15L)
     )
+})
+
+test_that("Control-flow keywords and return() calls emit keyword semantic tokens", {
+    uri <- "file:///control-flow-semantic.R"
+    content <- c(
+        "fn <- function(x) {",
+        "  if (x > 0) {",
+        "    for (i in seq_len(x)) {",
+        "      while (i < 10) {",
+        "        repeat {",
+        "          if (i == 5) next else break",
+        "        }",
+        "      }",
+        "    }",
+        "    return(x)",
+        "  }",
+        "}"
+    )
+    parsed <- parse(text = content, keep.source = TRUE)
+    semantic <- semantic_parse_data(
+        utils::getParseData(parsed, includeText = TRUE),
+        content
+    )
+    xdoc <- xml2::read_xml(xmlparsedata::xml_parse_data(parsed))
+    document <- Document$new(uri, version = 1L, content = content)
+
+    expected_keywords <- list(
+        list(line = 1L, col = 2L, word = "if"),
+        list(line = 2L, col = 4L, word = "for"),
+        list(line = 2L, col = 11L, word = "in"),
+        list(line = 3L, col = 6L, word = "while"),
+        list(line = 4L, col = 8L, word = "repeat"),
+        list(line = 5L, col = 10L, word = "if"),
+        list(line = 5L, col = 22L, word = "next"),
+        list(line = 5L, col = 27L, word = "else"),
+        list(line = 5L, col = 32L, word = "break"),
+        list(line = 9L, col = 4L, word = "return")
+    )
+
+    for (cached in c(TRUE, FALSE)) {
+        workspace <- list(get_parse_data = function(request_uri) {
+            expect_identical(request_uri, uri)
+            list(xml_doc = xdoc, semantic_data = if (cached) semantic else NULL)
+        })
+        tokens <- extract_semantic_tokens(uri, workspace, document)
+        for (kw in expected_keywords) {
+            matched <- Filter(function(token) {
+                token$line == kw$line &&
+                    token$col == kw$col &&
+                    token$length == nchar(kw$word)
+            }, tokens)
+            expect_length(matched, 1L)
+            expect_equal(matched[[1L]]$tokenType, SemanticTokenTypes$keyword)
+            expect_equal(matched[[1L]]$tokenModifiers, 0L)
+        }
+    }
 })
