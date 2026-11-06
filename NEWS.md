@@ -1,5 +1,10 @@
 # languageserver (development)
 
+- Share equivalent ordered package-resolution and member-metadata requests
+  across documents, reuse recent successful results, and stop abandoned workers
+  when temporary documents close. Retain isolated workers and invalidate reuse
+  after package, library, or resolution-setting changes (#834).
+
 - Skip temporary diagnostics through symlink aliases, including macOS `/var`
   and `/private/var`, even after temporary files or directories are deleted (#833).
 

@@ -180,6 +180,13 @@ text_document_did_close <- function(self, params) {
     workspace <- self$get_workspace(uri)
     
     is_from_workspace <- path_has_parent(path, workspace$root)
+    # Temporary and ordinary source documents lose their last subscription on
+    # close. Retained indexed/package sources can still serve other documents.
+    retained <- is_from_workspace && (isTRUE(workspace$index$enabled) || is_package(workspace$root))
+    if (!retained) {
+        if (!is.null(self$resolve_task_manager)) self$resolve_task_manager$cancel(uri)
+        if (!is.null(self$member_task_manager)) self$member_task_manager$cancel(uri)
+    }
     if (is.function(workspace$index$finish_document)) workspace$index$finish_document(uri)
 
     # remove diagnostics if file is not from workspace

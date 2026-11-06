@@ -146,54 +146,63 @@ respond <- function(client, method, params, timeout, allow_error = FALSE,
             timeout <- 10
         }
     }
-    storage <- new.env(parent = .GlobalEnv)
-    cb <- function(self, result, error = NULL) {
-        if (is.null(error)) {
-            storage$done <- TRUE
-            storage$result <- result
-        } else if (allow_error) {
-            storage$done <- TRUE
-            storage$result <- error
-        } else {
-            storage$done <- TRUE
-            storage$error <- error
-            fail(paste0("LSP request ", method, " failed: ", error$message))
-        }
+    deadline <- Sys.time() + timeout
+    id <- NULL
+    clear_callback <- function() {
+        if (!is.null(id) && client$request_callbacks$has(id)) client$request_callbacks$remove(id)
     }
-
-    start_time <- Sys.time()
-    remaining <- timeout
-    request <- client$request(method, params)
-    id <- request_id_key(request$id)
     on.exit({
-        if (client$request_callbacks$has(id)) client$request_callbacks$remove(id)
+        clear_callback()
     }, add = TRUE)
-    client$deliver(request, callback = cb)
-    if (method == "shutdown") {
-        # do not expect the server returns anything
-        return(NULL)
-    }
-    while (!isTRUE(storage$done)) {
-        if (remaining < 0) {
-            fail("timeout when obtaining response")
+
+    repeat {
+        storage <- new.env(parent = .GlobalEnv)
+        cb <- function(self, result, error = NULL) {
+            storage$done <- TRUE
+            if (is.null(error)) {
+                storage$result <- result
+            } else if (allow_error) {
+                storage$result <- error
+            } else {
+                storage$error <- error
+                fail(paste0("LSP request ", method, " failed: ", error$message))
+            }
+        }
+
+        request <- client$request(method, params)
+        id <- request_id_key(request$id)
+        client$deliver(request, callback = cb)
+        if (method == "shutdown") {
+            # do not expect the server returns anything
             return(NULL)
         }
-        data <- client$fetch(blocking = TRUE, timeout = remaining)
-        if (!is.null(data)) client$handle_raw(data)
-        remaining <- (start_time + timeout) - Sys.time()
-    }
-    result <- storage$result
-    if (!is.null(storage$error)) return(NULL)
-    if (retry && retry_when(result)) {
-        remaining <- (start_time + timeout) - Sys.time()
-        if (remaining < 0) {
+        while (!isTRUE(storage$done)) {
+            remaining <- as.numeric(difftime(deadline, Sys.time(), units = "secs"))
+            if (remaining < 0) {
+                fail("timeout when obtaining response")
+                return(NULL)
+            }
+            data <- client$fetch(blocking = TRUE, timeout = remaining)
+            if (!is.null(data)) client$handle_raw(data)
+        }
+        clear_callback()
+        result <- storage$result
+        if (!is.null(storage$error)) return(NULL)
+        if (!retry || !retry_when(result)) return(result)
+
+        remaining <- as.numeric(difftime(deadline, Sys.time(), units = "secs"))
+        if (remaining <= 0) {
             fail("timeout when obtaining desired response")
             return(NULL)
         }
-        Sys.sleep(0.2)
-        return(Recall(client, method, params, remaining, allow_error, retry, retry_when))
+        # Retry backoff consumes the same budget as polling. An iterative
+        # retry also keeps cold metadata waits from accumulating R frames.
+        Sys.sleep(min(0.2, remaining))
+        if (Sys.time() >= deadline) {
+            fail("timeout when obtaining desired response")
+            return(NULL)
+        }
     }
-    return(result)
 }
 
 

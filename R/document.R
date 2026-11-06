@@ -839,17 +839,20 @@ parse_callback <- function(self, uri, version, parse_data, source_content = NULL
         requested_packages <- member_package_request(parse_data)
         if (is.null(previous_packages) || isTRUE(doc$member_refresh) ||
                 !identical(previous_packages, requested_packages)) {
-            doc$member_refresh <- FALSE
             doc$requested_packages <- requested_packages
+            # Shared resolution can complete synchronously from its cache.
+            # Set explicit imports first so the expanded search path returned
+            # by that callback is not overwritten afterward.
+            loaded_packages <- normalize_package_request(parse_data$packages)
+            changed <- !setequal(doc$loaded_packages, loaded_packages)
+            doc$loaded_packages <- loaded_packages
+            if (changed) workspace$update_loaded_packages()
             self$resolve_task_manager$add_task(
                 uri,
                 resolve_task(self, uri, doc, normalize_package_request(parse_data$packages),
                     namespace_packages = parse_data$member_data$packages)
             )
-            loaded_packages <- normalize_package_request(parse_data$packages)
-            changed <- !setequal(doc$loaded_packages, loaded_packages)
-            doc$loaded_packages <- loaded_packages
-            if (changed) workspace$update_loaded_packages()
+            doc$member_refresh <- FALSE
         } else if (is.null(doc$requested_packages)) {
             doc$requested_packages <- requested_packages
         }
@@ -863,11 +866,11 @@ parse_callback <- function(self, uri, version, parse_data, source_content = NULL
         requested_packages$namespace_packages <- normalize_package_request(union(
             requested_packages$namespace_packages, parse_data$member_data$packages))
         if (!identical(doc$requested_packages, requested_packages) || isTRUE(doc$member_refresh)) {
-            doc$member_refresh <- FALSE
             doc$requested_packages <- requested_packages
             self$resolve_task_manager$add_task(uri,
                 resolve_task(self, uri, doc, requested_packages$packages,
                     namespace_packages = requested_packages$namespace_packages))
+            doc$member_refresh <- FALSE
         }
     }
 
@@ -1107,14 +1110,18 @@ member_task_request <- function(workspace, document, packages, namespace_package
         cache_dir = package_metadata_cache_root())
 }
 
-resolve_member_task <- function(self, uri, document, packages, namespace_packages) {
+resolve_member_task <- function(self, uri, document, packages, namespace_packages, force_refresh = FALSE,
+    resolution_request = NULL) {
     workspace <- self$get_workspace(uri)
     state <- new.env(parent = emptyenv())
     state$request <- member_task_request(workspace, document, packages, namespace_packages)
     state$refresh_pending <- FALSE
     metadata <- workspace$member_metadata
     known <- list()
-    if (!is.null(metadata)) {
+    shared <- inherits(self$member_task_manager, "SharedTaskManager")
+    # A shared result must include unchanged models too: another document or
+    # workspace may not have the catalogs that this workspace already knows.
+    if (!shared && !is.null(metadata)) {
         for (package in metadata$keys()) {
             catalog <- if (is.function(metadata$catalog)) metadata$catalog(package) else metadata$get(package)
             if (!isTRUE(catalog$dataset_only) && is.null(catalog$error) && !is.null(catalog$identity)) {
@@ -1138,30 +1145,42 @@ resolve_member_task <- function(self, uri, document, packages, namespace_package
         if (!isTRUE(state$refresh_pending) || !current()) return(invisible(NULL))
         state$refresh_pending <- FALSE
         self$member_task_manager$add_task(uri,
-            resolve_member_task(self, uri, document, packages, namespace_packages))
+            resolve_member_task(self, uri, document, packages, namespace_packages, force_refresh = TRUE))
         invisible(NULL)
     }
+    callback <- function(result) {
+        on.exit({
+            refresh()
+            s3_queue_ready(self, uri)
+        }, add = TRUE)
+        if (current()) resolve_callback(self, uri, version, result)
+    }
+    error <- function(e) {
+        on.exit({
+            refresh()
+            s3_queue_ready(self, uri)
+        }, add = TRUE)
+        logger$info("member metadata task:", e)
+    }
+    if (shared && is.null(resolution_request)) {
+        resolution_request <- package_resolution_request(packages, namespace_packages, TRUE, FALSE)
+    }
+    sharing <- if (shared) package_task_sharing(self, uri, document, resolution_request, callback, error,
+        refresh = isTRUE(force_refresh) || isTRUE(document$member_refresh))
     task <- create_task(
         target = package_call(member_resolve_packages),
         args = list(pkgs = packages, lib_paths = state$request$lib_paths, namespace_packages = namespace_packages,
             prepare = TRUE, prepare_s3 = FALSE, known_members = known, cache_dir = state$request$cache_dir),
         callback = function(result) {
-            on.exit({
-                refresh()
-                s3_queue_ready(self, uri)
-            }, add = TRUE)
-            if (current()) resolve_callback(self, uri, version, result)
+            if (is.null(sharing)) callback(result) else sharing$complete(result)
         },
         error = function(e) {
-            on.exit({
-                refresh()
-                s3_queue_ready(self, uri)
-            }, add = TRUE)
-            logger$info("member metadata task:", e)
+            if (is.null(sharing)) error(e) else sharing$fail(e)
         },
         profiles = FALSE
     )
     task$context <- state
+    task$sharing <- sharing
     task
 }
 
@@ -1185,13 +1204,27 @@ resolve_task <- function(self, uri, document, packages, delay = 0, namespace_pac
         if (!any(missing)) return(NULL)
     }
     version <- document$version
+    shared_members <- prepare_members && inherits(self$member_task_manager, "SharedTaskManager")
+    shared_resolve <- inherits(self$resolve_task_manager, "SharedTaskManager")
+    installations <- if (shared_members || shared_resolve) {
+        package_resolution_installations(unique(c(startup_packages, packages, namespace_packages)), .libPaths())
+    }
+    member_request <- if (shared_members) {
+        package_resolution_request(packages, namespace_packages, TRUE, FALSE, installations = installations)
+    }
     # Neither worker depends on the other's result. In particular, an S3
     # timeout must not prevent member models from being prepared and applied.
     if (split_members && prepare_members) {
         manager <- self$member_task_manager
         previous <- if (is.function(manager$get_task)) manager$get_task(uri) else NULL
         request <- member_task_request(self$get_workspace(uri), document, packages, namespace_packages)
-        if (is.environment(previous$context) && identical(previous$context$request, request)) {
+        # Incomplete fingerprints use isolated per-document workers. Their
+        # existing context checks still permit queued promotion and one
+        # followup after running preparation, without cross-document reuse.
+        same_installation <- !inherits(manager, "SharedTaskManager") ||
+            (is.null(previous$sharing) && !isTRUE(member_request$installations$complete)) ||
+            identical(previous$sharing$key, digest::digest(member_request, algo = "xxhash64"))
+        if (same_installation && is.environment(previous$context) && identical(previous$context$request, request)) {
             # A queued worker already sees the latest package installation.
             # Running work finishes once, then one fresh worker validates all
             # saves received during preparation without repeating that work.
@@ -1202,23 +1235,36 @@ resolve_task <- function(self, uri, document, packages, delay = 0, namespace_pac
             }
         } else {
             manager$add_task(uri,
-                resolve_member_task(self, uri, document, packages, namespace_packages))
+                resolve_member_task(self, uri, document, packages, namespace_packages,
+                    resolution_request = member_request))
         }
     }
-    create_task(
+    callback <- function(result) resolve_callback(self, uri, version, result)
+    error <- function(e) {
+        on.exit(s3_queue_ready(self, uri), add = TRUE)
+        logger$info("resolve_task:", e)
+        workspace <- self$get_workspace(uri)
+        for (package in unique(c(startup_packages, packages, namespace_packages))) workspace$s3_metadata$set(package,
+            list(schema = 1L, package = package, generation = "", functions = list(), objects = list(), methods = list(), dependencies = character(), error = conditionMessage(e)))
+    }
+    sharing <- if (shared_resolve) package_task_sharing(self, uri, document,
+        package_resolution_request(packages, namespace_packages, prepare_members && !split_members, prepare_s3,
+            installations = installations),
+        callback, error, refresh = isTRUE(document$member_refresh))
+    task <- create_task(
         target = package_call(member_resolve_packages),
         args = list(pkgs = packages, lib_paths = .libPaths(), namespace_packages = namespace_packages,
             prepare = prepare_members && !split_members,
             prepare_s3 = prepare_s3, cache_dir = package_metadata_cache_root()),
-        callback = function(result) resolve_callback(self, uri, version, result),
+        callback = function(result) {
+            if (is.null(sharing)) callback(result) else sharing$complete(result)
+        },
         error = function(e) {
-            on.exit(s3_queue_ready(self, uri), add = TRUE)
-            logger$info("resolve_task:", e)
-            workspace <- self$get_workspace(uri)
-            for (package in unique(c(startup_packages, packages, namespace_packages))) workspace$s3_metadata$set(package,
-                list(schema = 1L, package = package, generation = "", functions = list(), objects = list(), methods = list(), dependencies = character(), error = conditionMessage(e)))
+            if (is.null(sharing)) error(e) else sharing$fail(e)
         },
         delay = delay,
         profiles = FALSE
     )
+    task$sharing <- sharing
+    task
 }

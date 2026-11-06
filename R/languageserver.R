@@ -109,6 +109,12 @@ LanguageServer <- R6::R6Class("LanguageServer",
         },
         transfer_document = function(source, target, uri) {
             doc <- source$documents$get(uri)
+            parsed <- doc$parse_data
+            parsed_current <- !is.null(parsed) && identical(parsed$version, doc$version) &&
+                identical(doc$parsed_content, doc$content)
+            # Deferred resolution must be replaced in the new workspace even
+            # when recovery retains the last successful package request.
+            if (!parsed_current || isTRUE(parsed$parse_error)) doc$member_refresh <- TRUE
             source$documents$remove(uri)
             target$documents$set(uri, doc)
             if (!is.null(source$index) && isTRUE(source$index$enabled)) {
@@ -120,17 +126,21 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 workspace$type_hierarchy_cache$clear()
                 workspace$update_loaded_packages()
             }
-            parsed <- doc$parse_data
-            if (!is.null(parsed) && identical(parsed$version, doc$version) &&
-                    identical(doc$parsed_content, doc$content)) {
+            if (parsed_current) {
                 target$update_parse_data(uri, parsed)
                 if (!isTRUE(parsed$parse_error) && !is.null(self$resolve_task_manager)) {
                     doc$requested_packages <- member_package_request(parsed)
                     self$resolve_task_manager$add_task(uri,
                         resolve_task(self, uri, doc, normalize_package_request(parsed$packages),
                             namespace_packages = parsed$member_data$packages))
+                    doc$member_refresh <- FALSE
                 }
-                if (isTRUE(doc$is_open) && !is.null(self$diagnostics_task_manager)) {
+                if (isTRUE(parsed$parse_error) && !is.null(self$parse_task_manager)) {
+                    # Replay the current recovery index without a parse worker
+                    # so qualified receivers can prepare metadata immediately.
+                    self$text_sync(uri, doc, run_diagnostics = isTRUE(doc$is_open) &&
+                            !is.null(self$diagnostics_task_manager), parse = TRUE)
+                } else if (isTRUE(doc$is_open) && !is.null(self$diagnostics_task_manager)) {
                     self$text_sync(uri, doc, run_diagnostics = TRUE)
                 }
             } else if (!is.null(self$parse_task_manager)) {
@@ -208,12 +218,12 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 cpu_load = 0.25, max_running_tasks = 2
             )
 
-            # no pool for resolve task
-            # resolve task require a new session for every task
-            self$resolve_task_manager <- TaskManager$new("resolve")
+            # Share equivalent package requests; each cache miss still runs in
+            # an isolated process so package hooks cannot leak between jobs.
+            self$resolve_task_manager <- SharedTaskManager$new("resolve")
             # Member models can be much slower than namespace/S3 metadata.
             # Keep their workers out of the latency-sensitive resolve queue.
-            self$member_task_manager <- TaskManager$new("members",
+            self$member_task_manager <- SharedTaskManager$new("members",
                 process_recent_first = TRUE, cpu_load = 0.25, max_running_tasks = 2)
 
             self$formatting_task_manager <- TaskManager$new(
@@ -315,6 +325,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 self$end_workspace_progress(workspace, "Workspace removed")
                 if (!is.null(workspace$index)) workspace$index$detach_worker()
                 for (doc_uri in workspace$documents$keys()) {
+                    if (!is.null(self$resolve_task_manager)) self$resolve_task_manager$cancel(doc_uri)
                     if (!is.null(self$member_task_manager)) self$member_task_manager$cancel(doc_uri)
                     diagnostics_callback(self, doc_uri, NULL, list())
                 }
@@ -494,6 +505,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 index$contains_path(path_from_uri(uri))
             }, remove)
             for (uri in remove) {
+                if (!is.null(self$resolve_task_manager)) self$resolve_task_manager$cancel(uri)
                 if (!is.null(self$member_task_manager)) self$member_task_manager$cancel(uri)
                 diagnostics_callback(self, uri, NULL, list())
                 workspace$documents$remove(uri)
