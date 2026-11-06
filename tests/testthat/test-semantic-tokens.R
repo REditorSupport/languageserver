@@ -435,7 +435,33 @@ test_that("Semantic token types cover every parser token category", {
         LEFT_ASSIGN = SemanticTokenTypes$operator,
         RIGHT_ASSIGN = SemanticTokenTypes$operator,
         EQ_ASSIGN = SemanticTokenTypes$operator,
+        EQ_SUB = SemanticTokenTypes$operator,
+        EQ_FORMALS = SemanticTokenTypes$operator,
+        SPECIAL = SemanticTokenTypes$operator,
+        NS_GET = SemanticTokenTypes$operator,
+        NS_GET_INT = SemanticTokenTypes$operator,
+        GT = SemanticTokenTypes$operator,
+        GE = SemanticTokenTypes$operator,
+        LT = SemanticTokenTypes$operator,
+        LE = SemanticTokenTypes$operator,
+        EQ = SemanticTokenTypes$operator,
+        NE = SemanticTokenTypes$operator,
+        AND = SemanticTokenTypes$operator,
+        OR = SemanticTokenTypes$operator,
+        AND2 = SemanticTokenTypes$operator,
+        OR2 = SemanticTokenTypes$operator,
+        PIPE = SemanticTokenTypes$operator,
         `OP-DOLLAR` = SemanticTokenTypes$operator,
+        `OP-AT` = SemanticTokenTypes$operator,
+        `OP-TILDE` = SemanticTokenTypes$operator,
+        `OP-QUESTION` = SemanticTokenTypes$operator,
+        `OP-COLON` = SemanticTokenTypes$operator,
+        `OP-PLUS` = SemanticTokenTypes$operator,
+        `OP-MINUS` = SemanticTokenTypes$operator,
+        `OP-STAR` = SemanticTokenTypes$operator,
+        `OP-SLASH` = SemanticTokenTypes$operator,
+        `OP-CARET` = SemanticTokenTypes$operator,
+        `OP-EXCLAMATION` = SemanticTokenTypes$operator,
         `OP-PIPE` = SemanticTokenTypes$operator,
         OP = SemanticTokenTypes$operator,
         `OP-LAMBDA` = SemanticTokenTypes$keyword,
@@ -680,5 +706,54 @@ test_that("Control-flow keywords and return() calls emit keyword semantic tokens
         expect_equal(token_type_at(4L, 8L, 6L), SemanticTokenTypes[["function"]])
         expect_equal(token_type_at(5L, 2L, 8L), SemanticTokenTypes[["function"]])
         expect_equal(token_type_at(6L, 2L, 6L), SemanticTokenTypes$keyword)
+    }
+})
+
+test_that("Operators emit expected semantic tokens", {
+    uri <- "file:///operators-semantic.R"
+    content <- c(
+        "summary_fn <- function(x_val) {",
+        "  pkg::pub + pkg:::priv + obj@slot + obj$field",
+        "  dt[, col := x_val %in% 1:10 |> identity()]",
+        "  y ~ x_val",
+        "}"
+    )
+    parsed <- parse(text = content, keep.source = TRUE)
+    semantic <- semantic_parse_data(
+        utils::getParseData(parsed, includeText = TRUE),
+        content
+    )
+    xdoc <- xml2::read_xml(xmlparsedata::xml_parse_data(parsed))
+    document <- Document$new(uri, version = 1L, content = content)
+
+    expected <- list(
+        # Operators: ::, :::, @, $, :=, %in%, :, |>, ~
+        list(line = 1L, col = 5L, len = 2L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 1L, col = 16L, len = 3L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 1L, col = 29L, len = 1L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 1L, col = 40L, len = 1L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 2L, col = 11L, len = 2L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 2L, col = 20L, len = 4L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 2L, col = 26L, len = 1L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 2L, col = 30L, len = 2L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 3L, col = 4L, len = 1L, type = SemanticTokenTypes$operator, mod = 0L)
+    )
+
+    for (cached in c(TRUE, FALSE)) {
+        workspace <- list(get_parse_data = function(request_uri) {
+            expect_identical(request_uri, uri)
+            list(xml_doc = xdoc, semantic_data = if (cached) semantic else NULL)
+        })
+        tokens <- extract_semantic_tokens(uri, workspace, document)
+        for (item in expected) {
+            matched <- Filter(function(token) {
+                token$line == item$line &&
+                    token$col == item$col &&
+                    token$length == item$len
+            }, tokens)
+            expect_length(matched, 1L)
+            expect_equal(matched[[1L]]$tokenType, item$type)
+            expect_equal(matched[[1L]]$tokenModifiers, item$mod)
+        }
     }
 })
