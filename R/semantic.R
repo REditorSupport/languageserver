@@ -142,7 +142,8 @@ semantic_parse_data <- function(data, content, syntax = NULL) {
         `$` = SemanticTokenTypes$operator,
         PIPE = SemanticTokenTypes$operator,
         `\\` = SemanticTokenTypes$keyword,
-        `'\\'` = SemanticTokenTypes$keyword
+        `'\\'` = SemanticTokenTypes$keyword,
+        `'\\\\'` = SemanticTokenTypes$keyword
     )
 
     selected <- data$terminal & data$token %in% names(token_types)
@@ -158,6 +159,7 @@ semantic_parse_data <- function(data, content, syntax = NULL) {
     tok <- data$token[single_rows]
     txt <- data$text[single_rows]
     row_ids <- data$id[single_rows]
+    row_parents <- data$parent[single_rows]
 
     lines <- as.integer(data$line1[single_rows] - 1L)
     cols <- as.integer(data$col1[single_rows] - 1L)
@@ -169,7 +171,13 @@ semantic_parse_data <- function(data, content, syntax = NULL) {
         0L
     ))
 
-    is_return <- tok == "SYMBOL_FUNCTION_CALL" & txt == "return"
+    member_or_ns_parents <- data$parent[
+        data$token %in% c("'$'", "'@'", "$", "@", "NS_GET", "NS_GET_INT") &
+            data$parent > 0L
+    ]
+    is_return <- tok == "SYMBOL_FUNCTION_CALL" &
+        txt == "return" &
+        !(row_parents %in% member_or_ns_parents)
     types[is_return] <- SemanticTokenTypes$keyword
 
     fun_lhs_ids <- function_assignment_symbol_ids(data, syntax)
@@ -399,7 +407,14 @@ extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
             token_type <- SemanticTokenTypes[["function"]]
             modifiers <- semantic_declaration_modifier
         } else if (token_name == "SYMBOL_FUNCTION_CALL") {
-            if (identical(tok_text, "return")) {
+            if (identical(tok_text, "return") &&
+                    inherits(
+                        xml_find_first(
+                            token_node,
+                            "./preceding-sibling::*[self::OP-DOLLAR or self::OP-AT or self::NS_GET or self::NS_GET_INT]"
+                        ),
+                        "xml_missing"
+                    )) {
                 token_type <- SemanticTokenTypes$keyword
             }
         } else if (token_name == "SYMBOL_FORMALS") {
