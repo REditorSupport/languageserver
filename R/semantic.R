@@ -46,6 +46,7 @@ SemanticTokenModifiers <- list(
 )
 
 semantic_declaration_modifier <- bitwShiftL(1L, SemanticTokenModifiers$declaration)
+semantic_documentation_modifier <- bitwShiftL(1L, SemanticTokenModifiers$documentation)
 semantic_readonly_default_modifier <- bitwOr(
     bitwShiftL(1L, SemanticTokenModifiers$readonly),
     bitwShiftL(1L, SemanticTokenModifiers$defaultLibrary)
@@ -346,6 +347,56 @@ formal_parameter_symbol_ids <- function(data, member_or_ns_parents = NULL) {
     as.integer(data$id[cand_rows[matched]])
 }
 
+#' Split a Roxygen2 comment line (`#' ...`) into semantic token spans
+#' @noRd
+roxygen_comment_spans <- function(comment_text, base_col0) {
+    total_len <- nchar(comment_text)
+    m <- regexec(
+        "^#'\\s*(@[[:alpha:]][[:alnum:]._]*)(?:\\s+([[:alnum:]._]+(?:,[[:alnum:]._]+)*|\\.\\.\\.))?",
+        comment_text,
+        perl = TRUE
+    )[[1L]]
+    if (m[[1L]] == -1L) {
+        return(list(
+            starts = as.integer(base_col0),
+            ends = as.integer(base_col0 + total_len),
+            types = as.integer(SemanticTokenTypes$comment),
+            modifiers = as.integer(semantic_documentation_modifier)
+        ))
+    }
+    match_lens <- attr(m, "match.length")
+    tag_start <- m[[2L]] - 1L
+    tag_end <- tag_start + match_lens[[2L]]
+    tag_text <- substr(comment_text, m[[2L]], tag_end)
+
+    starts <- c(base_col0, base_col0 + tag_start)
+    ends <- c(base_col0 + tag_start, base_col0 + tag_end)
+    types <- c(SemanticTokenTypes$comment, SemanticTokenTypes$macro)
+    last_end <- tag_end
+
+    if (identical(tag_text, "@param") && length(m) >= 3L && m[[3L]] != -1L) {
+        param_start <- m[[3L]] - 1L
+        param_end <- param_start + match_lens[[3L]]
+        starts <- c(starts, base_col0 + param_start)
+        ends <- c(ends, base_col0 + param_end)
+        types <- c(types, SemanticTokenTypes$parameter)
+        last_end <- param_end
+    }
+
+    if (last_end < total_len) {
+        starts <- c(starts, base_col0 + last_end)
+        ends <- c(ends, base_col0 + total_len)
+        types <- c(types, SemanticTokenTypes$comment)
+    }
+
+    list(
+        starts = as.integer(starts),
+        ends = as.integer(ends),
+        types = as.integer(types),
+        modifiers = rep.int(as.integer(semantic_documentation_modifier), length(starts))
+    )
+}
+
 #' Get the semantic tokens legend
 #'
 #' Returns the legend that defines token types and modifiers
@@ -510,13 +561,19 @@ semantic_parse_data <- function(data, content, syntax = NULL) {
     # operation. UTF-16 conversion is only needed on lines containing UTF-8
     # multibyte characters; ASCII positions are already LSP code units.
     single_rows <- rows[data$line1[rows] == data$line2[rows]]
-    tok <- data$token[single_rows]
-    txt <- data$text[single_rows]
-    row_ids <- data$id[single_rows]
-    row_parents <- data$parent[single_rows]
+    is_roxygen <- data$token[single_rows] == "COMMENT" &
+        startsWith(data$text[single_rows], "#'")
+    roxygen_rows <- single_rows[is_roxygen]
+    std_rows <- single_rows[!is_roxygen]
 
-    lines <- as.integer(data$line1[single_rows] - 1L)
-    cols <- as.integer(data$col1[single_rows] - 1L)
+    tok <- data$token[std_rows]
+    txt <- data$text[std_rows]
+    row_ids <- data$id[std_rows]
+    row_parents <- data$parent[std_rows]
+
+    line1_vec <- as.integer(data$line1[std_rows])
+    start_cp <- as.integer(data$col1[std_rows] - 1L)
+    end_cp <- as.integer(data$col2[std_rows])
     types <- as.integer(unname(token_types[tok]))
     modifiers <- as.integer(ifelse(
         tok == "SYMBOL_FORMALS",
@@ -560,10 +617,30 @@ semantic_parse_data <- function(data, content, syntax = NULL) {
         modifiers[fun_lhs] <- semantic_declaration_modifier
     }
 
+    if (length(roxygen_rows)) {
+        for (row_index in roxygen_rows) {
+            spans <- roxygen_comment_spans(
+                data$text[[row_index]],
+                data$col1[[row_index]] - 1L
+            )
+            n_spans <- length(spans$starts)
+            line1_vec <- c(
+                line1_vec,
+                rep.int(as.integer(data$line1[[row_index]]), n_spans)
+            )
+            start_cp <- c(start_cp, spans$starts)
+            end_cp <- c(end_cp, spans$ends)
+            types <- c(types, spans$types)
+            modifiers <- c(modifiers, spans$modifiers)
+        }
+    }
+
+    lines <- as.integer(line1_vec - 1L)
     non_ascii_lines <- nchar(content, type = "bytes") !=
         nchar(content, type = "chars")
-    units <- syntax_unit_columns(content, data$line1[single_rows],
-        cols, data$col2[single_rows], non_ascii_lines)
+    units <- syntax_unit_columns(
+        content, line1_vec, start_cp, end_cp, non_ascii_lines
+    )
     cols <- units$start
     lengths <- as.integer(units$end - units$start)
 
@@ -764,7 +841,7 @@ extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
         end_pos <- document$from_lsp_position(range$end)
     }
 
-    tokens <- vector("list", length(token_elements))
+    tokens <- list()
     idx <- 0L
 
     # Process each token
@@ -779,6 +856,29 @@ extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
 
         # Skip if outside range (if range was specified)
         if (!is.null(end_pos) && line1 > end_pos$row + 1) {
+            next
+        }
+
+        line_text <- if (line1 <= length(document$content)) document$content[line1] else ""
+
+        if (token_name == "COMMENT" && startsWith(tok_text, "#'")) {
+            spans <- roxygen_comment_spans(tok_text, col1 - 1L)
+            for (k in seq_along(spans$starts)) {
+                utf16_cols <- code_point_to_unit(
+                    line_text,
+                    c(spans$starts[[k]], spans$ends[[k]])
+                )
+                token_col <- utf16_cols[1]
+                token_length <- utf16_cols[2] - utf16_cols[1]
+                idx <- idx + 1L
+                tokens[[idx]] <- list(
+                    line = as.integer(line1 - 1L),
+                    col = as.integer(token_col),
+                    length = as.integer(token_length),
+                    tokenType = as.integer(spans$types[[k]]),
+                    tokenModifiers = as.integer(spans$modifiers[[k]])
+                )
+            }
             next
         }
 
@@ -820,27 +920,22 @@ extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
 
         # Convert positions to UTF-16 code units for LSP
         # Parse data uses 1-based code point positions, LSP uses 0-based UTF-16 units
-        line_text <- if (line1 <= length(document$content)) document$content[line1] else ""
         utf16_cols <- code_point_to_unit(line_text, c(col1 - 1, col2))
         token_col <- utf16_cols[1]
         token_length <- utf16_cols[2] - utf16_cols[1]
 
         idx <- idx + 1L
         tokens[[idx]] <- list(
-            line = as.integer(line1 - 1),  # Convert to 0-based, ensure integer
-            col = as.integer(token_col),   # UTF-16 code units, ensure integer
-            length = as.integer(token_length),  # UTF-16 code units, ensure integer
-            tokenType = as.integer(token_type),      # Ensure integer
-            tokenModifiers = as.integer(modifiers)   # Ensure integer
+            line = as.integer(line1 - 1),
+            col = as.integer(token_col),
+            length = as.integer(token_length),
+            tokenType = as.integer(token_type),
+            tokenModifiers = as.integer(modifiers)
         )
     }
 
     if (idx == 0L) {
         return(list())
-    }
-
-    if (idx < length(tokens)) {
-        tokens <- tokens[seq_len(idx)]
     }
 
     tokens

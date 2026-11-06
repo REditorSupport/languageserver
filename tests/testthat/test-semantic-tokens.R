@@ -1110,3 +1110,57 @@ test_that("Native pipe placeholder (_) emits readonly defaultLibrary variable to
         expect_equal(matched[[1L]]$tokenModifiers, ro_default_mod)
     }
 })
+
+test_that("Roxygen2 comments and tags emit documentation semantic tokens", {
+    uri <- "file:///roxygen-semantic.R"
+    content <- c(
+        "#' Compute summary statistics",
+        "#' @param x_val Input numeric vector.",
+        "#' @importFrom stats median",
+        "#' @export",
+        "summary_fn <- function(x_val) x_val"
+    )
+    parsed <- parse(text = content, keep.source = TRUE)
+    semantic <- semantic_parse_data(
+        utils::getParseData(parsed, includeText = TRUE),
+        content
+    )
+    xdoc <- xml2::read_xml(xmlparsedata::xml_parse_data(parsed))
+    document <- Document$new(uri, version = 1L, content = content)
+    doc_mod <- bitwShiftL(1L, SemanticTokenModifiers$documentation)
+
+    expected <- list(
+        # Roxygen2 plain doc line
+        list(line = 0L, col = 0L, len = nchar(content[[1L]]), type = SemanticTokenTypes$comment, mod = doc_mod),
+        # Roxygen2 @param x_val line
+        list(line = 1L, col = 0L, len = 3L, type = SemanticTokenTypes$comment, mod = doc_mod),
+        list(line = 1L, col = 3L, len = 6L, type = SemanticTokenTypes$macro, mod = doc_mod),
+        list(line = 1L, col = 10L, len = 5L, type = SemanticTokenTypes$parameter, mod = doc_mod),
+        list(line = 1L, col = 15L, len = 22L, type = SemanticTokenTypes$comment, mod = doc_mod),
+        # Roxygen2 @importFrom line
+        list(line = 2L, col = 0L, len = 3L, type = SemanticTokenTypes$comment, mod = doc_mod),
+        list(line = 2L, col = 3L, len = 11L, type = SemanticTokenTypes$macro, mod = doc_mod),
+        list(line = 2L, col = 14L, len = 13L, type = SemanticTokenTypes$comment, mod = doc_mod),
+        # Roxygen2 @export line
+        list(line = 3L, col = 0L, len = 3L, type = SemanticTokenTypes$comment, mod = doc_mod),
+        list(line = 3L, col = 3L, len = 7L, type = SemanticTokenTypes$macro, mod = doc_mod)
+    )
+
+    for (cached in c(TRUE, FALSE)) {
+        workspace <- list(get_parse_data = function(request_uri) {
+            expect_identical(request_uri, uri)
+            list(xml_doc = xdoc, semantic_data = if (cached) semantic else NULL)
+        })
+        tokens <- extract_semantic_tokens(uri, workspace, document)
+        for (item in expected) {
+            matched <- Filter(function(token) {
+                token$line == item$line &&
+                    token$col == item$col &&
+                    token$length == item$len
+            }, tokens)
+            expect_length(matched, 1L)
+            expect_equal(matched[[1L]]$tokenType, item$type)
+            expect_equal(matched[[1L]]$tokenModifiers, item$mod)
+        }
+    }
+})
