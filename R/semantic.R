@@ -51,7 +51,8 @@ semantic_readonly_default_modifier <- bitwOr(
     bitwShiftL(1L, SemanticTokenModifiers$defaultLibrary)
 )
 
-semantic_boolean_constants <- c("TRUE", "FALSE", "T", "F")
+semantic_boolean_constants <- c("TRUE", "FALSE")
+semantic_boolean_symbols <- c("T", "F")
 semantic_numeric_builtin_constants <- c(
     "Inf", "NaN", "NA",
     "NA_integer_", "NA_real_", "NA_complex_", "NA_character_"
@@ -554,7 +555,7 @@ semantic_parse_data <- function(data, content, syntax = NULL) {
 
     is_tf_sym <- plain_sym &
         !(row_ids %in% param_sym_ids) &
-        (txt %in% c("T", "F"))
+        (txt %in% semantic_boolean_symbols)
     types[is_tf_sym] <- SemanticTokenTypes$keyword
     modifiers[is_tf_sym] <- semantic_readonly_default_modifier
 
@@ -853,7 +854,7 @@ extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
                     sym_name <- reference_symbol_names(tok_text)
                     if (identical(xml_symbol_binding_kind(token_node, sym_name), "formal")) {
                         token_type <- SemanticTokenTypes$parameter
-                    } else if (tok_text %in% c("T", "F")) {
+                    } else if (tok_text %in% semantic_boolean_symbols) {
                         token_type <- SemanticTokenTypes$keyword
                         modifiers <- semantic_readonly_default_modifier
                     }
