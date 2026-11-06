@@ -456,3 +456,181 @@ test_that("Enabling member completion prepares existing documents with S3 disabl
     expect_false(is.null(fixture$workspace$member_metadata$catalog("processx")))
     expect_identical(document$loaded_packages, c(startup_packages, "R6", "callr"))
 })
+
+package_reuse_pending_configuration <- function(initial_enabled, parse_state) {
+    fixture <- package_reuse_fixture(members = initial_enabled, s3 = initial_enabled)
+    if (is.null(fixture$server$member_task_manager)) {
+        fixture$server$member_task_manager <- SharedTaskManager$new("reuse-pending-members",
+            max_running_tasks = 32L, cpu_load = 1)
+    }
+    document <- package_reuse_document(fixture, "pending")
+    original_content <- document$content
+    original_parsed <- document$parse_data
+    package_reuse_start(fixture)
+    original_processes <- fixture$state$processes
+    expect_equal(length(original_processes), if (initial_enabled) 2L else 1L)
+
+    if (parse_state == "pending") {
+        document$set_content(2L, c("library(callr)", "value <- 2L"))
+        expect_false(identical(document$version, document$parse_data$version))
+    } else if (parse_state == "error") {
+        document$set_content(2L, c("library(callr)", "value <- )"))
+        package_reuse_parse(fixture, document)
+        expect_true(document$parse_data$parse_error)
+        expect_identical(document$requested_packages$packages, "callr")
+    } else {
+        if (parse_state == "missing_null_version") document$version <- NULL
+        document$parse_data <- NULL
+    }
+
+    enabled <- !initial_enabled
+    workspace_did_change_configuration(fixture$server,
+        list(settings = list(member_completion = enabled, s3_dispatch = enabled)))
+    expect_identical(lsp_settings$get("member_completion"), enabled)
+    expect_identical(lsp_settings$get("s3_dispatch"), enabled)
+    expect_identical(document$requested_packages$packages, "callr")
+    expect_true(document$member_refresh)
+    expect_equal(length(fixture$state$processes), length(original_processes))
+
+    if (parse_state == "pending") {
+        parse_callback(fixture$server, document$uri, 1L, original_parsed,
+            source_content = original_content, cache = FALSE)
+        expect_false(identical(document$version, document$parse_data$version))
+    } else if (parse_state == "error") {
+        package_reuse_parse(fixture, document)
+        expect_true(document$parse_data$parse_error)
+    } else {
+        parse_callback(fixture$server, document$uri, document$version, NULL, cache = FALSE)
+        expect_null(document$parse_data)
+    }
+    expect_true(document$member_refresh)
+    package_reuse_finish(fixture, original_processes)
+    expect_length(fixture$workspace$applied, 0L)
+    expect_identical(document$loaded_packages, "callr")
+    expect_true(document$member_refresh)
+
+    if (parse_state == "error") {
+        document$set_content(3L, c("library(callr)", "value <- 3L"))
+    }
+    package_reuse_parse(fixture, document)
+    expect_identical(document$requested_packages$packages, "callr")
+    expect_false(document$member_refresh)
+    expect_true(fixture$server$resolve_task_manager$has(document$uri))
+    expect_identical(fixture$server$member_task_manager$has(document$uri), enabled)
+    package_reuse_start(fixture)
+    expect_length(fixture$state$processes, 3L)
+    replacement <- Filter(function(process) !process$ready, fixture$state$processes)
+    expect_identical(vapply(replacement, function(process) process$args$prepare, logical(1L)),
+        if (enabled) c(FALSE, TRUE) else FALSE)
+    expect_identical(vapply(replacement, function(process) process$args$prepare_s3, logical(1L)),
+        if (enabled) c(TRUE, FALSE) else FALSE)
+
+    task <- fixture$server$resolve_task_manager$get_task(document$uri)
+    package_reuse_parse(fixture, document)
+    expect_identical(fixture$server$resolve_task_manager$get_task(document$uri), task)
+    package_reuse_start(fixture)
+    expect_length(fixture$state$processes, 3L)
+    package_reuse_finish(fixture, replacement)
+    expect_identical(document$loaded_packages, c(startup_packages, "R6", "callr"))
+    expect_identical(is.null(fixture$workspace$member_metadata$catalog("callr")), !enabled)
+    expect_identical(is.null(fixture$workspace$s3_metadata$catalog("callr")), !enabled)
+    package_reuse_parse(fixture, document)
+    expect_false(fixture$server$resolve_task_manager$has(document$uri))
+    expect_false(fixture$server$member_task_manager$has(document$uri))
+    package_reuse_start(fixture)
+    expect_length(fixture$state$processes, 3L)
+}
+
+test_that("Metadata configuration refresh survives a pending newer document version", {
+    withr::local_options(languageserver.member_completion = NULL, languageserver.s3_dispatch = NULL)
+    testthat::local_mocked_bindings(
+        backend_settings_changed = function(...) NULL,
+        sync_formatting_capabilities = function(...) NULL,
+        .package = "languageserver")
+    for (enabled in c(TRUE, FALSE)) package_reuse_pending_configuration(enabled, "pending")
+})
+
+test_that("Metadata configuration refresh survives a current parse error and recovery", {
+    withr::local_options(languageserver.member_completion = NULL, languageserver.s3_dispatch = NULL)
+    testthat::local_mocked_bindings(
+        backend_settings_changed = function(...) NULL,
+        sync_formatting_capabilities = function(...) NULL,
+        .package = "languageserver")
+    for (enabled in c(TRUE, FALSE)) package_reuse_pending_configuration(enabled, "error")
+})
+
+test_that("Metadata configuration refresh waits for a missing document parse", {
+    withr::local_options(languageserver.member_completion = NULL, languageserver.s3_dispatch = NULL)
+    testthat::local_mocked_bindings(
+        backend_settings_changed = function(...) NULL,
+        sync_formatting_capabilities = function(...) NULL,
+        .package = "languageserver")
+    for (enabled in c(TRUE, FALSE)) {
+        package_reuse_pending_configuration(enabled, "missing")
+        package_reuse_pending_configuration(enabled, "missing_null_version")
+    }
+})
+
+test_that("Namespace recovery hints consume deferred refresh with the current preparation modes", {
+    withr::local_options(languageserver.member_completion = NULL, languageserver.s3_dispatch = NULL)
+    testthat::local_mocked_bindings(
+        backend_settings_changed = function(...) NULL,
+        sync_formatting_capabilities = function(...) NULL,
+        .package = "languageserver")
+    for (initial_enabled in c(TRUE, FALSE)) {
+        fixture <- package_reuse_fixture(members = initial_enabled, s3 = initial_enabled)
+        if (is.null(fixture$server$member_task_manager)) {
+            fixture$server$member_task_manager <- SharedTaskManager$new("reuse-hint-members",
+                max_running_tasks = 32L, cpu_load = 1)
+        }
+        document <- package_reuse_document(fixture, "hint")
+        package_reuse_start(fixture)
+        original_processes <- fixture$state$processes
+        document$set_content(2L, c("library(callr)", "processx::value$"))
+        enabled <- !initial_enabled
+        workspace_did_change_configuration(fixture$server,
+            list(settings = list(member_completion = enabled, s3_dispatch = enabled)))
+        expect_true(document$member_refresh)
+        package_reuse_parse(fixture, document)
+        expect_true(document$parse_data$parse_error)
+        expect_identical(document$requested_packages$packages, "callr")
+        expect_identical(document$requested_packages$namespace_packages, "processx")
+        expect_false(document$member_refresh)
+        expect_true(fixture$server$resolve_task_manager$has(document$uri))
+        expect_identical(fixture$server$member_task_manager$has(document$uri), enabled)
+        package_reuse_finish(fixture, original_processes)
+        expect_length(fixture$workspace$applied, 0L)
+        package_reuse_start(fixture)
+        expect_length(fixture$state$processes, 3L)
+        replacement <- Filter(function(process) !process$ready, fixture$state$processes)
+        expect_identical(vapply(replacement, function(process) process$args$prepare, logical(1L)),
+            if (enabled) c(FALSE, TRUE) else FALSE)
+        expect_identical(vapply(replacement, function(process) process$args$prepare_s3, logical(1L)),
+            if (enabled) c(TRUE, FALSE) else FALSE)
+        point <- list(row = 1L, col = nchar("processx::value$"))
+        expect_identical(member_metadata_waiting(fixture$server, document$uri, document, point), enabled)
+        expect_identical(s3_metadata_waiting(fixture$server, document$uri, document), enabled)
+
+        task <- fixture$server$resolve_task_manager$get_task(document$uri)
+        package_reuse_parse(fixture, document)
+        expect_identical(fixture$server$resolve_task_manager$get_task(document$uri), task)
+        document$set_content(3L, c("library(callr)", "processx::value$field"))
+        package_reuse_parse(fixture, document)
+        expect_false(document$parse_data$parse_error)
+        expect_false(document$member_refresh)
+        expect_identical(fixture$server$resolve_task_manager$get_task(document$uri), task)
+        package_reuse_start(fixture)
+        expect_length(fixture$state$processes, 3L)
+        package_reuse_finish(fixture, replacement)
+        expect_identical(document$loaded_packages, c(startup_packages, "R6", "callr"))
+        expect_identical(is.null(fixture$workspace$member_metadata$catalog("processx")), !enabled)
+        expect_identical(is.null(fixture$workspace$s3_metadata$catalog("processx")), !enabled)
+        expect_false(member_metadata_waiting(fixture$server, document$uri, document, point))
+        expect_false(s3_metadata_waiting(fixture$server, document$uri, document))
+        package_reuse_parse(fixture, document)
+        expect_false(fixture$server$resolve_task_manager$has(document$uri))
+        expect_false(fixture$server$member_task_manager$has(document$uri))
+        package_reuse_start(fixture)
+        expect_length(fixture$state$processes, 3L)
+    }
+})
