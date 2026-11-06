@@ -109,6 +109,12 @@ LanguageServer <- R6::R6Class("LanguageServer",
         },
         transfer_document = function(source, target, uri) {
             doc <- source$documents$get(uri)
+            parsed <- doc$parse_data
+            parsed_current <- !is.null(parsed) && identical(parsed$version, doc$version) &&
+                identical(doc$parsed_content, doc$content)
+            # Deferred resolution must be replaced in the new workspace even
+            # when recovery retains the last successful package request.
+            if (!parsed_current || isTRUE(parsed$parse_error)) doc$member_refresh <- TRUE
             source$documents$remove(uri)
             target$documents$set(uri, doc)
             if (!is.null(source$index) && isTRUE(source$index$enabled)) {
@@ -120,17 +126,21 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 workspace$type_hierarchy_cache$clear()
                 workspace$update_loaded_packages()
             }
-            parsed <- doc$parse_data
-            if (!is.null(parsed) && identical(parsed$version, doc$version) &&
-                    identical(doc$parsed_content, doc$content)) {
+            if (parsed_current) {
                 target$update_parse_data(uri, parsed)
                 if (!isTRUE(parsed$parse_error) && !is.null(self$resolve_task_manager)) {
                     doc$requested_packages <- member_package_request(parsed)
                     self$resolve_task_manager$add_task(uri,
                         resolve_task(self, uri, doc, normalize_package_request(parsed$packages),
                             namespace_packages = parsed$member_data$packages))
+                    doc$member_refresh <- FALSE
                 }
-                if (isTRUE(doc$is_open) && !is.null(self$diagnostics_task_manager)) {
+                if (isTRUE(parsed$parse_error) && !is.null(self$parse_task_manager)) {
+                    # Replay the current recovery index without a parse worker
+                    # so qualified receivers can prepare metadata immediately.
+                    self$text_sync(uri, doc, run_diagnostics = isTRUE(doc$is_open) &&
+                            !is.null(self$diagnostics_task_manager), parse = TRUE)
+                } else if (isTRUE(doc$is_open) && !is.null(self$diagnostics_task_manager)) {
                     self$text_sync(uri, doc, run_diagnostics = TRUE)
                 }
             } else if (!is.null(self$parse_task_manager)) {

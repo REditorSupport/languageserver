@@ -634,3 +634,194 @@ test_that("Namespace recovery hints consume deferred refresh with the current pr
         expect_length(fixture$state$processes, 3L)
     }
 })
+
+PackageResolutionTransferServer <- R6::R6Class("PackageResolutionTransferServer",
+    inherit = LanguageServer,
+    private = list(finalize = function() NULL),
+    public = list(
+        initialize = function(fixture) {
+            self$workspaces <- collections::dict()
+            self$workspace_cache <- collections::dict()
+            self$pending_replies <- fixture$server$pending_replies
+            self$request_callbacks <- collections::dict()
+            self$resolve_task_manager <- fixture$server$resolve_task_manager
+            self$member_task_manager <- fixture$server$member_task_manager
+            self$parse_task_manager <- TaskManager$new("reuse-transfer-parse", cpu_load = 1,
+                max_running_tasks = 1L)
+            self$rootUri <- character()
+            self$ClientCapabilities <- list()
+            self$add_workspace(character())
+        },
+        deliver = function(...) invisible(NULL)
+    )
+)
+
+package_reuse_transfer <- function(move, enabled, parse_state) {
+    previous_diagnostics <- lsp_settings$get("diagnostics")
+    withr::defer(lsp_settings$set("diagnostics", previous_diagnostics))
+    lsp_settings$set("diagnostics", FALSE)
+    fixture <- package_reuse_fixture(members = enabled, s3 = enabled)
+    temp_root <- fixture$root
+    # Keep workspace storage and parser scheduling deterministic while using
+    # the server's actual ownership, transfer and metadata-resolution paths.
+    testthat::local_mocked_bindings(Workspace = list(new = function(path) {
+        root <- if (is.null(path)) file.path(temp_root, "default") else path
+        workspace <- package_reuse_workspace(root)
+        workspace$root <- path
+        workspace$index <- NULL
+        workspace$parse_cache <- ByteLruCache$new(16 * 1024^2)
+        workspace
+    }), .package = "languageserver")
+    server <- PackageResolutionTransferServer$new(fixture)
+    withr::defer(server$parse_task_manager$stop())
+    fixture$server <- server
+    parent <- file.path(temp_root, "parent")
+    nested <- file.path(parent, "nested")
+    dir.create(nested, recursive = TRUE)
+    nested_uri <- path_to_uri(nested)
+    server$add_workspace(path_to_uri(parent))
+    if (move == "remove") server$add_workspace(nested_uri)
+    fixture$root <- nested
+    uri <- path_to_uri(file.path(nested, ".vdoc.transfer.r"))
+    fixture$workspace <- server$get_workspace(uri)
+    document <- package_reuse_document(fixture, "transfer")
+    source <- fixture$workspace
+    original_parsed <- document$parse_data
+    original_content <- document$content
+    package_reuse_start(fixture)
+    original_processes <- fixture$state$processes
+    expect_equal(length(original_processes), if (enabled) 2L else 1L)
+    if (parse_state %in% c("warm", "force")) {
+        package_reuse_finish(fixture, original_processes)
+        expect_identical(document$loaded_packages, c(startup_packages, "R6", "callr"))
+        if (parse_state == "force") document$member_refresh <- TRUE
+    }
+
+    if (parse_state == "pending") {
+        document$set_content(2L, c("library(callr)", "value <- 2L"))
+    } else if (parse_state == "error") {
+        document$set_content(2L, c("library(callr)", "value <- )"))
+        package_reuse_parse(fixture, document)
+        expect_true(document$parse_data$parse_error)
+    } else if (parse_state == "missing") {
+        document$parse_data <- NULL
+    } else if (parse_state == "namespace_error") {
+        document$set_content(2L, c("library(callr)", "processx::value$"))
+        package_reuse_parse(fixture, document)
+        expect_true(document$parse_data$parse_error)
+        expect_identical(document$requested_packages$namespace_packages, "processx")
+    }
+    source_applied <- source$applied
+
+    if (move == "add") server$add_workspace(nested_uri)
+    else server$remove_workspace(nested_uri)
+    destination <- server$get_workspace(uri)
+    fixture$workspace <- destination
+    expect_false(identical(source, destination))
+    expect_false(source$documents$has(uri))
+    expect_identical(destination$documents$get(uri), document)
+    expect_identical(document$requested_packages$packages, "callr")
+
+    deferred <- parse_state %in% c("pending", "error", "missing")
+    if (deferred) {
+        expect_true(document$member_refresh)
+        if (parse_state == "pending") {
+            expect_true(server$parse_task_manager$has(uri))
+            parse_callback(server, uri, 1L, original_parsed, original_content, cache = FALSE)
+        } else if (parse_state == "error") {
+            package_reuse_parse(fixture, document)
+            expect_true(document$parse_data$parse_error)
+        } else {
+            expect_true(server$parse_task_manager$has(uri))
+            parse_callback(server, uri, document$version, NULL, cache = FALSE)
+        }
+        expect_true(document$member_refresh)
+        package_reuse_finish(fixture, original_processes)
+        expect_length(source$applied, 0L)
+        expect_length(destination$applied, 0L)
+        expect_identical(document$loaded_packages, "callr")
+        if (parse_state == "error") {
+            document$set_content(3L, c("library(callr)", "value <- 3L"))
+        }
+        package_reuse_parse(fixture, document)
+        expect_false(document$member_refresh)
+    } else {
+        # Current successful parses and accepted namespace recovery hints
+        # resolve in the destination without waiting for another edit.
+        expect_false(document$member_refresh)
+        if (parse_state == "namespace_error") {
+            expect_true(document$parse_data$parse_error)
+            expect_false(server$parse_task_manager$has(uri))
+            package_reuse_finish(fixture, original_processes)
+            expect_length(destination$applied, 0L)
+        }
+    }
+    expect_identical(server$resolve_task_manager$has(uri), parse_state != "warm")
+    expect_identical(!is.null(server$member_task_manager) && server$member_task_manager$has(uri),
+        enabled && parse_state != "warm")
+    package_reuse_start(fixture)
+    count <- length(fixture$state$processes)
+    if (deferred || parse_state %in% c("namespace_error", "force")) {
+        expect_equal(count, if (enabled) 4L else 2L)
+    }
+    if (parse_state == "warm") expect_equal(count, if (enabled) 2L else 1L)
+    task <- server$resolve_task_manager$get_task(uri)
+    package_reuse_parse(fixture, document)
+    expect_identical(server$resolve_task_manager$get_task(uri), task)
+    package_reuse_start(fixture)
+    expect_length(fixture$state$processes, count)
+    replacement <- Filter(function(process) !process$ready, fixture$state$processes)
+    package_reuse_finish(fixture, replacement)
+    expect_identical(source$applied, source_applied)
+    expect_true(length(destination$applied) > 0L)
+    expect_identical(document$loaded_packages, c(startup_packages, "R6", "callr"))
+    expect_identical(is.null(destination$member_metadata$catalog("callr")), !enabled)
+    expect_identical(is.null(destination$s3_metadata$catalog("callr")), !enabled)
+    if (parse_state == "namespace_error") {
+        expect_false(is.null(destination$member_metadata$catalog("processx")))
+        expect_false(is.null(destination$s3_metadata$catalog("processx")))
+        point <- list(row = 1L, col = nchar("processx::value$"))
+        expect_false(member_metadata_waiting(server, uri, document, point))
+        expect_false(s3_metadata_waiting(server, uri, document))
+    }
+    package_reuse_parse(fixture, document)
+    expect_false(server$resolve_task_manager$has(uri))
+    expect_false(!is.null(server$member_task_manager) && server$member_task_manager$has(uri))
+    package_reuse_start(fixture)
+    expect_length(fixture$state$processes, count)
+}
+
+test_that("Workspace transfers retain package refresh for pending document versions", {
+    for (move in c("remove", "add")) {
+        for (enabled in c(FALSE, TRUE)) package_reuse_transfer(move, enabled, "pending")
+    }
+})
+
+test_that("Workspace transfers retain package refresh through parse error recovery", {
+    for (move in c("remove", "add")) {
+        for (enabled in c(FALSE, TRUE)) package_reuse_transfer(move, enabled, "error")
+    }
+})
+
+test_that("Workspace transfers retain package refresh until a missing parse arrives", {
+    for (move in c("remove", "add")) {
+        for (enabled in c(FALSE, TRUE)) package_reuse_transfer(move, enabled, "missing")
+    }
+})
+
+test_that("Workspace transfers resolve successful parses immediately without another refresh", {
+    for (move in c("remove", "add")) {
+        for (enabled in c(FALSE, TRUE)) package_reuse_transfer(move, enabled, "valid")
+    }
+})
+
+test_that("Workspace transfers prepare accepted namespace recovery hints without another edit", {
+    for (move in c("remove", "add")) package_reuse_transfer(move, TRUE, "namespace_error")
+})
+
+test_that("Workspace transfers reuse complete cached results and honor an earlier forced refresh", {
+    for (move in c("remove", "add")) {
+        for (enabled in c(FALSE, TRUE)) package_reuse_transfer(move, enabled, "warm")
+        package_reuse_transfer(move, TRUE, "force")
+    }
+})
