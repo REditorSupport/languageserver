@@ -55,14 +55,71 @@ local_symbol_binding_scopes <- function(data, cand_rows, cand_names, id_parent) 
 
     assign_rows <- which(
         data$token %in% c("LEFT_ASSIGN", "EQ_ASSIGN", "RIGHT_ASSIGN") &
+            data$text %in% c("<-", "=", "->") &
             data$parent > 0L
     )
+    max_id <- length(id_parent)
     assigned_idx <- integer()
     if (length(assign_rows)) {
         sole_idx <- which(!(data$parent[cand_rows] %in% multi_child_parents))
         if (length(sole_idx)) {
             sole_rows <- cand_rows[sole_idx]
-            grandparents <- id_parent[data$parent[sole_rows]]
+            target_exprs <- data$parent[sole_rows]
+
+            expr_rows <- which(data$token == "expr" & data$parent > 0L)
+            if (length(expr_rows)) {
+                expr_parents <- data$parent[expr_rows]
+                is_first <- !duplicated(expr_parents)
+                first_expr_id <- integer(max_id)
+                first_expr_id[expr_parents[is_first]] <- data$id[expr_rows[is_first]]
+
+                rem_rows <- expr_rows[!is_first]
+                second_expr_id <- integer(max_id)
+                if (length(rem_rows)) {
+                    rem_parents <- data$parent[rem_rows]
+                    is_second <- !duplicated(rem_parents)
+                    second_expr_id[rem_parents[is_second]] <- data$id[rem_rows[is_second]]
+                }
+
+                is_extract_parent <- logical(max_id)
+                extract_parents <- data$parent[
+                    data$token %in% c("'['", "LBB", "'$'", "'@'", "[", "[[", "$", "@", "PIPE") &
+                        data$parent > 0L
+                ]
+                if (length(extract_parents)) {
+                    is_extract_parent[extract_parents] <- TRUE
+                }
+
+                is_call_parent <- logical(max_id)
+                paren_parents <- data$parent[
+                    data$token %in% c("'('", "(") & data$parent > 0L
+                ]
+                if (length(paren_parents)) {
+                    non_call_parents <- data$parent[
+                        data$token %in% c("IF", "WHILE", "FOR", "FUNCTION", "\\", "'\\'", "'\\\\'") &
+                            data$parent > 0L
+                    ]
+                    is_call_parent[setdiff(paren_parents, non_call_parents)] <- TRUE
+                }
+
+                steps <- 0L
+                max_steps <- nrow(data)
+                repeat {
+                    p <- id_parent[target_exprs]
+                    has_p <- p > 0L
+                    if (!any(has_p) || steps > max_steps) break
+                    step_up <- logical(length(target_exprs))
+                    p_valid <- p[has_p]
+                    t_valid <- target_exprs[has_p]
+                    step_up[has_p] <- (is_extract_parent[p_valid] & first_expr_id[p_valid] == t_valid) |
+                        (is_call_parent[p_valid] & second_expr_id[p_valid] == t_valid)
+                    if (!any(step_up)) break
+                    target_exprs[step_up] <- p[step_up]
+                    steps <- steps + 1L
+                }
+            }
+
+            grandparents <- id_parent[target_exprs]
             m <- match(grandparents, data$parent[assign_rows], nomatch = 0L)
             has_m <- m > 0L
             if (any(has_m)) {
@@ -101,7 +158,6 @@ local_symbol_binding_scopes <- function(data, cand_rows, cand_names, id_parent) 
         data$token %in% c("FUNCTION", "\\", "'\\'", "'\\\\'") &
             data$parent > 0L
     ])
-    max_id <- length(id_parent)
     is_fn_scope <- logical(max_id)
     if (length(fn_parents)) {
         is_fn_scope[fn_parents] <- TRUE
@@ -149,14 +205,36 @@ local_symbol_binding_scopes <- function(data, cand_rows, cand_names, id_parent) 
     )
 }
 
-# Exclude member (x$a <- 1) and namespace (pkg::a <- 1) assignment targets
+# Match bare and replacement assignment receiver symbols (excluding <<- / ->> / := and member/ns RHS)
 xml_scope_local_symbols_xpath <- "
     (
-        .//LEFT_ASSIGN/preceding-sibling::expr
-        | .//EQ_ASSIGN/preceding-sibling::expr
-        | .//RIGHT_ASSIGN/following-sibling::expr
-    )/SYMBOL[
+        .//LEFT_ASSIGN[text() = '<-']/preceding-sibling::expr[1]
+        | .//EQ_ASSIGN/preceding-sibling::expr[1]
+        | .//RIGHT_ASSIGN[text() = '->']/following-sibling::expr[1]
+    )//SYMBOL[
         not(preceding-sibling::OP-DOLLAR or preceding-sibling::NS_GET or preceding-sibling::NS_GET_INT)
+        and parent::expr/ancestor-or-self::expr[
+            not(
+                (
+                    not(preceding-sibling::expr)
+                    and (
+                        following-sibling::OP-LEFT-BRACKET
+                        or following-sibling::LBB
+                        or following-sibling::OP-DOLLAR
+                        or following-sibling::OP-AT
+                        or following-sibling::PIPE
+                    )
+                )
+                or (
+                    preceding-sibling::OP-LEFT-PAREN
+                    and count(preceding-sibling::expr) = 1
+                )
+            )
+        ][1][
+            following-sibling::LEFT_ASSIGN[text() = '<-']
+            or following-sibling::EQ_ASSIGN
+            or preceding-sibling::RIGHT_ASSIGN[text() = '->']
+        ]
     ]
     | .//forcond/SYMBOL
 "

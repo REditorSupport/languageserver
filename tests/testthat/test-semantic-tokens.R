@@ -905,7 +905,12 @@ test_that("Named arguments and scoped parameter references emit parameter tokens
         "outer <- function(alpha) { inner <- function() { alpha <- 1L; alpha }; inner() }",
         "loop_outer <- function(alpha) { inner <- function() { for (alpha in 1:3) print(alpha) }; inner() }",
         "direct_loop <- function(alpha) { for (alpha in 1:3) print(alpha); alpha }",
-        "right_outer <- function(alpha) { inner <- function() { 1L -> alpha; alpha }; inner() }"
+        "right_outer <- function(alpha) { inner <- function() { 1L -> alpha; alpha }; inner() }",
+        "sub_outer <- function(alpha) { inner <- function() { alpha[1] <- 1L; alpha }; inner() }",
+        "mem_outer <- function(alpha) { inner <- function() { alpha$x <- 1L; alpha }; inner() }",
+        "call_outer <- function(alpha) { inner <- function() { names(alpha) <- \"x\"; alpha }; inner() }",
+        "sup_left <- function(alpha) { inner <- function() { alpha <<- 1L; alpha }; inner() }",
+        "sup_right <- function(alpha) { inner <- function() { 1L ->> alpha; alpha }; inner() }"
     )
     bt_parsed <- parse(text = bt_content, keep.source = TRUE)
     bt_semantic <- semantic_parse_data(
@@ -949,6 +954,18 @@ test_that("Named arguments and scoped parameter references emit parameter tokens
         # Line 6: rightward assignment shadowing
         expect_equal(token_type_at(6L, 61L, 5L), SemanticTokenTypes$variable)
         expect_equal(token_type_at(6L, 68L, 5L), SemanticTokenTypes$variable)
+        # Lines 7-9: replacement assignment shadowing ([<-, $<-, names<-)
+        expect_equal(token_type_at(7L, 53L, 5L), SemanticTokenTypes$variable)
+        expect_equal(token_type_at(7L, 69L, 5L), SemanticTokenTypes$variable)
+        expect_equal(token_type_at(8L, 53L, 5L), SemanticTokenTypes$variable)
+        expect_equal(token_type_at(8L, 68L, 5L), SemanticTokenTypes$variable)
+        expect_equal(token_type_at(9L, 60L, 5L), SemanticTokenTypes$variable)
+        expect_equal(token_type_at(9L, 75L, 5L), SemanticTokenTypes$variable)
+        # Lines 10-11: superassignment (<<-, ->>) does not create a local binding
+        expect_equal(token_type_at(10L, 52L, 5L), SemanticTokenTypes$parameter)
+        expect_equal(token_type_at(10L, 66L, 5L), SemanticTokenTypes$parameter)
+        expect_equal(token_type_at(11L, 60L, 5L), SemanticTokenTypes$parameter)
+        expect_equal(token_type_at(11L, 67L, 5L), SemanticTokenTypes$parameter)
     }
 
     unused_parsed <- parse(text = "noop <- function(unused_arg) 1L", keep.source = TRUE)
