@@ -128,11 +128,9 @@ local_symbol_binding_scopes <- function(data, cand_rows, cand_names, id_parent) 
                 op_rows <- assign_rows[m[has_m]]
                 is_right <- data$token[op_rows] == "RIGHT_ASSIGN"
                 before_op <- data$line1[hit_rows] < data$line1[op_rows] |
-                    (data$line1[hit_rows] == data$line1[op_rows] &
-                        data$col1[hit_rows] < data$col1[op_rows])
+                    (data$line1[hit_rows] == data$line1[op_rows] & data$col1[hit_rows] < data$col1[op_rows])
                 after_op <- data$line1[hit_rows] > data$line1[op_rows] |
-                    (data$line1[hit_rows] == data$line1[op_rows] &
-                        data$col1[hit_rows] > data$col1[op_rows])
+                    (data$line1[hit_rows] == data$line1[op_rows] & data$col1[hit_rows] > data$col1[op_rows])
                 assigned_idx <- hit_sole[ifelse(is_right, after_op, before_op)]
             }
         }
@@ -299,17 +297,21 @@ xml_symbol_binding_kind <- function(token_node, sym_name, include_top_level = FA
             }
         }
     }
-    if (include_top_level) {
-        root <- xml_root(token_node)
-        local_nodes <- xml_find_all(root, xml_scope_local_symbols_xpath)
-        if (length(local_nodes)) {
-            local_names <- reference_symbol_names(xml_text(local_nodes))
-            matching_nodes <- local_nodes[local_names == sym_name]
-            if (length(matching_nodes) &&
-                    any(xml_find_lgl(matching_nodes, "not(ancestor::expr[FUNCTION or OP-LAMBDA])"))) {
-                return("local")
-            }
-        }
+    if (!include_top_level) {
+        return("none")
+    }
+    root <- xml_root(token_node)
+    local_nodes <- xml_find_all(root, xml_scope_local_symbols_xpath)
+    if (!length(local_nodes)) {
+        return("none")
+    }
+    local_names <- reference_symbol_names(xml_text(local_nodes))
+    matching_nodes <- local_nodes[local_names == sym_name]
+    if (!length(matching_nodes)) {
+        return("none")
+    }
+    if (any(xml_find_lgl(matching_nodes, "not(ancestor::expr[FUNCTION or OP-LAMBDA])"))) {
+        return("local")
     }
     "none"
 }
