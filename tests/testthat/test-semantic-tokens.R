@@ -1032,7 +1032,10 @@ test_that("Builtin constants, ellipsis, and pipe placeholders emit readonly defa
     }
 
     top_uri <- "file:///top-shadow-constants.R"
-    top_content <- "for (T in 1:3) print(c(T, F))"
+    top_content <- c(
+        "for (T in 1:3) print(c(T, F))",
+        "T <- 10L"
+    )
     top_parsed <- parse(text = top_content, keep.source = TRUE)
     top_semantic <- semantic_parse_data(
         utils::getParseData(top_parsed, includeText = TRUE),
@@ -1231,6 +1234,13 @@ test_that("Roxygen2 comments and tags emit documentation semantic tokens", {
         get_help = function(...) NULL
     )
     # Inside roxygen comment line (row 2): hover and scope completion on `self` are excluded
+    expect_false(semantic_in_comment_or_string(NULL, 0L, 0L))
+    expect_false(semantic_in_comment_or_string(r6_data$semantic_data, 99L, 0L))
+    expect_true(semantic_in_comment_or_string(r6_data$semantic_data, 0L, 24L))
+    expect_false(semantic_in_comment_or_string(r6_data$semantic_data, 2L, 4L, strict_comment_start = TRUE))
+    expect_true(semantic_in_comment_or_string(r6_data$semantic_data, 2L, 4L, strict_comment_start = FALSE))
+    expect_true(semantic_in_comment_or_string(r6_data$semantic_data, 2L, 15L, strict_comment_start = TRUE))
+    expect_false(semantic_in_comment_or_string(r6_data$semantic_data, 3L, 5L))
     expect_null(member_symbol_location(r6_doc, list(row = 2L, col = 15L)))
     expect_identical(
         context_scope_completion(r6_uri, r6_ws, "se", list(row = 2L, col = 16L), TRUE, 50L, character()),
