@@ -1,6 +1,6 @@
 test_that("Unicode columns are converted once per line with scalar-equivalent positions", {
-    content <- c(paste0("\"", intToUtf8(0x1f600), "\"; ", intToUtf8(0x03b1), " <- 1; ",
-        intToUtf8(0x03b1), " + ", intToUtf8(0x03b1)), "plain <- plain", "é <- é")
+    alpha <- intToUtf8(0x03b1)
+    content <- c(paste0('"', intToUtf8(0x1f600), '"; ', alpha, " <- 1; ", alpha, " + ", alpha), "plain <- plain", "é <- é")
     lines <- c(1L, 1L, 2L, 1L, 3L, NA_integer_)
     starts <- c(0L, 5L, 0L, 12L, 0L, NA_integer_)
     ends <- c(3L, 6L, 5L, 13L, 1L, NA_integer_)

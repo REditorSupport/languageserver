@@ -110,8 +110,10 @@ xml_symbol_is_function_assignment <- function(node) {
             return(TRUE)
         }
         children <- xml_find_all(rhs, "*[not(self::COMMENT)]")
-        if (length(children) != 3L ||
-                !identical(xml_name(children[c(1L, 3L)]), c("OP-LEFT-PAREN", "OP-RIGHT-PAREN"))) {
+        if (length(children) != 3L) {
+            return(FALSE)
+        }
+        if (!identical(xml_name(children[c(1L, 3L)]), c("OP-LEFT-PAREN", "OP-RIGHT-PAREN"))) {
             return(FALSE)
         }
         rhs <- children[[2L]]
@@ -420,8 +422,7 @@ extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
             token_type <- SemanticTokenTypes[["function"]]
             modifiers <- semantic_declaration_modifier
         } else if (token_name == "SYMBOL_FUNCTION_CALL") {
-            if (identical(tok_text, "return") &&
-                    xml_find_lgl(token_node, xml_not_qualified_symbol_xpath)) {
+            if (identical(tok_text, "return") && xml_find_lgl(token_node, xml_not_qualified_symbol_xpath)) {
                 token_type <- SemanticTokenTypes$keyword
             }
         } else if (token_name == "SYMBOL_FORMALS") {
@@ -574,8 +575,10 @@ semantic_tokens_range_reply <- function(id, uri, workspace, document, range) {
 semantic_tokens_delta_reply <- function(id, uri, workspace, document,
     previous_result_id) {
     parse_data <- workspace$get_parse_data(uri)
-    if (is.null(parse_data) ||
-            (!is.null(parse_data$version) && parse_data$version != document$version)) {
+    if (is.null(parse_data)) {
+        return(NULL)
+    }
+    if (!is.null(parse_data$version) && parse_data$version != document$version) {
         return(NULL)
     }
 
@@ -585,8 +588,7 @@ semantic_tokens_delta_reply <- function(id, uri, workspace, document,
     }
 
     previous <- NULL
-    if (!is.null(previous_result_id) &&
-            workspace$parse_cache$has(previous_result_id)) {
+    if (!is.null(previous_result_id) && workspace$parse_cache$has(previous_result_id)) {
         cached <- workspace$parse_cache$get(previous_result_id)
         previous <- cached$semantic_data$encoded
     }
