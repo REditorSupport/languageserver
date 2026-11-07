@@ -717,11 +717,11 @@ test_that("Operators emit expected semantic tokens", {
         "  cmp = (x_val > 0L) & (x_val >= 1L) | (y_val < 10L) && (y_val <= 9L) || (x_val == y_val) != (!FALSE)",
         "  dt[, col := x_val %in% 1:10 |> identity(a = x_val)] -> out ->> out_global",
         "  out <<- ?mean",
-        "  x_val %🎉% y_val",
+        paste0("  x_val %", intToUtf8(0x1f389), "% y_val"),
         "  y_val ~ x_val",
         "}"
     )
-    parsed <- parse(text = content, keep.source = TRUE)
+    parsed <- parse(text = content, keep.source = TRUE, encoding = "UTF-8")
     pd <- utils::getParseData(parsed, includeText = TRUE)
     semantic <- semantic_parse_data(pd, content)
     xdoc <- xml2::read_xml(xmlparsedata::xml_parse_data(parsed))
@@ -738,6 +738,10 @@ test_that("Operators emit expected semantic tokens", {
     expect_true(all(op_tokens %in% pd$token[pd$terminal]))
 
     expected <- list(
+        # Line 0: <-, =, =
+        list(line = 0L, col = 11L, len = 2L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 0L, col = 29L, len = 1L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 0L, col = 41L, len = 1L, type = SemanticTokenTypes$operator, mod = 0L),
         # Line 1: ::, +, :::, -, @, *, $, /, ^, **
         list(line = 1L, col = 5L, len = 2L, type = SemanticTokenTypes$operator, mod = 0L),
         list(line = 1L, col = 11L, len = 1L, type = SemanticTokenTypes$operator, mod = 0L),
@@ -749,6 +753,19 @@ test_that("Operators emit expected semantic tokens", {
         list(line = 1L, col = 47L, len = 1L, type = SemanticTokenTypes$operator, mod = 0L),
         list(line = 1L, col = 55L, len = 1L, type = SemanticTokenTypes$operator, mod = 0L),
         list(line = 1L, col = 63L, len = 2L, type = SemanticTokenTypes$operator, mod = 0L),
+        # Line 2: =, >, &, >=, |, <, &&, <=, ||, ==, !=, !
+        list(line = 2L, col = 6L, len = 1L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 2L, col = 15L, len = 1L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 2L, col = 21L, len = 1L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 2L, col = 30L, len = 2L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 2L, col = 37L, len = 1L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 2L, col = 46L, len = 1L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 2L, col = 53L, len = 2L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 2L, col = 63L, len = 2L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 2L, col = 70L, len = 2L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 2L, col = 80L, len = 2L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 2L, col = 90L, len = 2L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 2L, col = 94L, len = 1L, type = SemanticTokenTypes$operator, mod = 0L),
         # Line 3: :=, %in%, :, |>, =, ->, ->>
         list(line = 3L, col = 11L, len = 2L, type = SemanticTokenTypes$operator, mod = 0L),
         list(line = 3L, col = 20L, len = 4L, type = SemanticTokenTypes$operator, mod = 0L),
