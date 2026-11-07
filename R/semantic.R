@@ -957,8 +957,7 @@ extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
                     )
                     if (identical(binding_kind, "formal")) {
                         token_type <- SemanticTokenTypes$parameter
-                    } else if (identical(binding_kind, "none") &&
-                            tok_text %in% semantic_boolean_symbols) {
+                    } else if (identical(binding_kind, "none") && tok_text %in% semantic_boolean_symbols) {
                         token_type <- SemanticTokenTypes$keyword
                         modifiers <- semantic_readonly_default_modifier
                     }
