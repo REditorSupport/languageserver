@@ -1142,11 +1142,14 @@ test_that("Roxygen2 comments and tags emit documentation semantic tokens", {
         "#' @param x,y Paired numeric vectors.",
         "#' @param ... Additional arguments.",
         "#' @param `x_backtick` Backticked param.",
-        "#' @param α A 🎉 emoji description.",
+        paste0("#' @param ", intToUtf8(0x03b1), " A ", intToUtf8(0x1f389), " emoji description."),
+        paste0("#' @param caf", intToUtf8(0x00e9), " Accented Latin param."),
+        paste0("#' @param ", intToUtf8(c(0x53c2, 0x6570)), " CJK param."),
+        "#' @param `x y` Backticked param with space.",
         "# Regular non-roxygen comment",
-        "f <- function(x, y, ..., x_backtick, α) NULL"
+        "f <- function(x, y, ..., x_backtick) NULL"
     )
-    edge_parsed <- parse(text = edge_content, keep.source = TRUE)
+    edge_parsed <- parse(text = edge_content, keep.source = TRUE, encoding = "UTF-8")
     edge_semantic <- semantic_parse_data(
         utils::getParseData(edge_parsed, includeText = TRUE),
         edge_content
@@ -1181,8 +1184,17 @@ test_that("Roxygen2 comments and tags emit documentation semantic tokens", {
         # Line 4: @param α A 🎉 emoji description. (🎉 is 2 UTF-16 units -> trailing comment len = 24)
         list(line = 4L, col = 10L, len = 1L, type = SemanticTokenTypes$parameter, mod = doc_mod),
         list(line = 4L, col = 11L, len = 24L, type = SemanticTokenTypes$comment, mod = doc_mod),
-        # Line 5: regular comment has mod = 0L
-        list(line = 5L, col = 0L, len = 29L, type = SemanticTokenTypes$comment, mod = 0L)
+        # Line 5: @param café Accented Latin param.
+        list(line = 5L, col = 10L, len = 4L, type = SemanticTokenTypes$parameter, mod = doc_mod),
+        list(line = 5L, col = 14L, len = 22L, type = SemanticTokenTypes$comment, mod = doc_mod),
+        # Line 6: @param 参数 CJK param.
+        list(line = 6L, col = 10L, len = 2L, type = SemanticTokenTypes$parameter, mod = doc_mod),
+        list(line = 6L, col = 12L, len = 11L, type = SemanticTokenTypes$comment, mod = doc_mod),
+        # Line 7: @param `x y` Backticked param with space.
+        list(line = 7L, col = 10L, len = 5L, type = SemanticTokenTypes$parameter, mod = doc_mod),
+        list(line = 7L, col = 15L, len = 29L, type = SemanticTokenTypes$comment, mod = doc_mod),
+        # Line 8: regular comment has mod = 0L
+        list(line = 8L, col = 0L, len = 29L, type = SemanticTokenTypes$comment, mod = 0L)
     )
     for (item in edge_expected) {
         matched <- Filter(function(token) {
@@ -1194,4 +1206,40 @@ test_that("Roxygen2 comments and tags emit documentation semantic tokens", {
         expect_equal(matched[[1L]]$tokenType, item$type)
         expect_equal(matched[[1L]]$tokenModifiers, item$mod)
     }
+
+    r6_uri <- "file:///roxygen-r6-provider.R"
+    r6_lines <- c(
+        "Widget <- R6::R6Class(\"Widget\", public = list(",
+        "  run = function() {",
+        "    #' @param self The receiver.",
+        "    self",
+        "  }",
+        "))"
+    )
+    r6_doc <- Document$new(r6_uri, language = "r", version = 1L, content = r6_lines)
+    r6_data <- parse_document(r6_uri, r6_lines, is_rmarkdown = FALSE)
+    r6_data$version <- 1L
+    r6_doc$update_parse_data(r6_data)
+    r6_docs <- collections::dict()
+    r6_docs$set(r6_uri, r6_doc)
+    r6_ws <- list(
+        documents = r6_docs,
+        member_metadata = collections::dict(),
+        get_parse_data = function(...) r6_data,
+        get_documentation = function(...) NULL,
+        get_signature = function(...) NULL,
+        get_help = function(...) NULL
+    )
+    # Inside roxygen comment line (row 2): hover and scope completion on `self` are excluded
+    expect_null(member_symbol_location(r6_doc, list(row = 2L, col = 15L)))
+    expect_identical(
+        context_scope_completion(r6_uri, r6_ws, "se", list(row = 2L, col = 16L), TRUE, 50L, character()),
+        list()
+    )
+    # In code body line (row 3): `self` resolves in R6 method context
+    expect_false(is.null(member_symbol_location(r6_doc, list(row = 3L, col = 5L))))
+    code_items <- context_scope_completion(
+        r6_uri, r6_ws, "se", list(row = 3L, col = 6L), TRUE, 50L, character()
+    )
+    expect_true("self" %in% vapply(code_items, `[[`, character(1L), "label"))
 })

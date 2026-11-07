@@ -492,6 +492,35 @@ roxygen_comment_spans <- function(comment_text, base_col0) {
     )
 }
 
+#' Check whether an LSP column on a line falls inside a semantic comment or string
+#' @noRd
+semantic_in_comment_or_string <- function(semantic, row, col, strict_comment_start = FALSE) {
+    if (is.null(semantic) || !length(semantic$lines)) return(FALSE)
+    on_line <- which(semantic$lines == row)
+    if (!length(on_line)) return(FALSE)
+    types <- semantic$types[on_line]
+    cols <- semantic$cols[on_line]
+    ends <- cols + semantic$lengths[on_line]
+    if (any(types == SemanticTokenTypes$string & cols <= col & ends > col)) {
+        return(TRUE)
+    }
+    mods <- if (!is.null(semantic$modifiers)) {
+        semantic$modifiers[on_line]
+    } else {
+        integer(length(on_line))
+    }
+    is_comment <- types == SemanticTokenTypes$comment |
+        bitwAnd(mods, semantic_documentation_modifier) != 0L
+    if (!any(is_comment)) return(FALSE)
+    comment_start <- min(cols[is_comment])
+    comment_end <- max(ends[is_comment])
+    if (strict_comment_start) {
+        comment_start < col && comment_end >= col
+    } else {
+        comment_start <= col && comment_end >= col
+    }
+}
+
 #' Get the semantic tokens legend
 #'
 #' Returns the legend that defines token types and modifiers
