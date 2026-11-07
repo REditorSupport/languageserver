@@ -349,6 +349,98 @@ formal_parameter_symbol_ids <- function(data, member_or_ns_parents = NULL) {
     as.integer(data$id[cand_rows[matched]])
 }
 
+#' Parse-data ids of `T`/`F` symbols shadowed by local or top-level bindings
+#' @noRd
+shadowed_builtin_symbol_ids <- function(data, member_or_ns_parents = NULL) {
+    if (is.null(member_or_ns_parents)) {
+        member_or_ns_parents <- data$parent[
+            data$token %in% c("'$'", "'@'", "$", "@", "NS_GET", "NS_GET_INT") &
+                data$parent > 0L
+        ]
+    }
+    sym_rows <- which(
+        data$token == "SYMBOL" &
+            data$parent > 0L &
+            !(data$parent %in% member_or_ns_parents)
+    )
+    if (!length(sym_rows)) return(integer())
+    sym_names <- reference_symbol_names(data$text[sym_rows])
+    in_targets <- sym_names %in% semantic_boolean_symbols
+    cand_rows <- sym_rows[in_targets]
+    if (!length(cand_rows)) return(integer())
+    cand_names <- sym_names[in_targets]
+
+    max_id <- max(data$id, data$parent, 0L)
+    id_parent <- integer(max_id)
+    valid_nodes <- data$id > 0L & data$parent > 0L
+    id_parent[data$id[valid_nodes]] <- data$parent[valid_nodes]
+
+    local_bindings <- local_symbol_binding_scopes(
+        data, cand_rows, cand_names, id_parent
+    )
+
+    formal_rows <- which(
+        data$token == "SYMBOL_FORMALS" &
+            data$parent > 0L
+    )
+    formal_parents <- integer()
+    formal_names <- character()
+    if (length(formal_rows)) {
+        f_names <- reference_symbol_names(data$text[formal_rows])
+        keep_f <- f_names %in% semantic_boolean_symbols
+        formal_parents <- data$parent[formal_rows[keep_f]]
+        formal_names <- f_names[keep_f]
+    }
+
+    matched <- cand_names %in% local_bindings$has_top_level
+    all_scope_ids <- c(local_bindings$scope_ids, formal_parents)
+    all_scope_names <- c(local_bindings$names, formal_names)
+    unique_scopes <- unique(all_scope_ids)
+    if (!length(unique_scopes) || all(matched)) {
+        return(as.integer(data$id[cand_rows[matched]]))
+    }
+
+    scope_idx <- integer(max_id)
+    scope_idx[unique_scopes] <- seq_along(unique_scopes)
+    n_names <- length(semantic_boolean_symbols)
+    n_scopes <- length(unique_scopes)
+    has_binding <- logical(n_names * n_scopes)
+    bind_name_idx <- match(all_scope_names, semantic_boolean_symbols)
+    has_binding[(scope_idx[all_scope_ids] - 1L) * n_names + bind_name_idx] <- TRUE
+
+    active <- which(!matched)
+    anc <- data$parent[cand_rows[active]]
+    cand_name_idx <- match(cand_names[active], semantic_boolean_symbols)
+    steps <- 0L
+    max_steps <- nrow(data)
+
+    while (length(active) && steps <= max_steps) {
+        s <- scope_idx[anc]
+        at_scope <- which(s > 0L)
+        if (length(at_scope)) {
+            hit <- has_binding[(s[at_scope] - 1L) * n_names + cand_name_idx[at_scope]]
+            if (any(hit)) {
+                hit_idx <- at_scope[hit]
+                matched[active[hit_idx]] <- TRUE
+                active <- active[-hit_idx]
+                anc <- anc[-hit_idx]
+                cand_name_idx <- cand_name_idx[-hit_idx]
+                if (!length(active)) break
+            }
+        }
+        anc <- id_parent[anc]
+        keep <- anc > 0L
+        if (!all(keep)) {
+            active <- active[keep]
+            anc <- anc[keep]
+            cand_name_idx <- cand_name_idx[keep]
+        }
+        steps <- steps + 1L
+    }
+
+    as.integer(data$id[cand_rows[matched]])
+}
+
 #' Get the semantic tokens legend
 #'
 #' Returns the legend that defines token types and modifiers
@@ -553,8 +645,10 @@ semantic_parse_data <- function(data, content, syntax = NULL) {
     types[is_ellipsis_sym] <- SemanticTokenTypes$variable
     modifiers[is_ellipsis_sym] <- semantic_readonly_default_modifier
 
+    shadowed_tf_ids <- shadowed_builtin_symbol_ids(data, member_or_ns_parents)
     is_tf_sym <- plain_sym &
         !(row_ids %in% param_sym_ids) &
+        !(row_ids %in% shadowed_tf_ids) &
         (txt %in% semantic_boolean_symbols)
     types[is_tf_sym] <- SemanticTokenTypes$keyword
     modifiers[is_tf_sym] <- semantic_readonly_default_modifier
@@ -852,9 +946,15 @@ extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
                     modifiers <- semantic_readonly_default_modifier
                 } else {
                     sym_name <- reference_symbol_names(tok_text)
-                    if (identical(xml_symbol_binding_kind(token_node, sym_name), "formal")) {
+                    binding_kind <- xml_symbol_binding_kind(
+                        token_node,
+                        sym_name,
+                        include_top_level = tok_text %in% semantic_boolean_symbols
+                    )
+                    if (identical(binding_kind, "formal")) {
                         token_type <- SemanticTokenTypes$parameter
-                    } else if (tok_text %in% semantic_boolean_symbols) {
+                    } else if (identical(binding_kind, "none") &&
+                            tok_text %in% semantic_boolean_symbols) {
                         token_type <- SemanticTokenTypes$keyword
                         modifiers <- semantic_readonly_default_modifier
                     }
