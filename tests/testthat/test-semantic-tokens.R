@@ -994,7 +994,8 @@ test_that("Builtin constants, ellipsis, and pipe placeholders emit readonly defa
         "forward <- function(...) list(..., ..1, ..2)",
         "shadow <- function(T, F) list(T, F, obj$T, pkg::F, obj$...)",
         "local_shadow <- function() { T <- 10L; F <- 20L; c(T, F) }",
-        "loop_shadow <- function() { for (T in 1:3) print(T); F }"
+        "loop_shadow <- function() { for (T in 1:3) print(T); F }",
+        "repl_shadow <- function() { T[1L] <- 0L; names(F) <- \"flag\"; c(T, F) }"
     )
     parsed <- parse(text = content, keep.source = TRUE)
     semantic <- semantic_parse_data(
@@ -1042,7 +1043,12 @@ test_that("Builtin constants, ellipsis, and pipe placeholders emit readonly defa
         # Line 5: loop-variable shadowing of T while F remains built-in
         list(line = 5L, col = 33L, text = "T", type = SemanticTokenTypes$variable, mod = 0L),
         list(line = 5L, col = 49L, text = "T", type = SemanticTokenTypes$variable, mod = 0L),
-        list(line = 5L, col = 53L, text = "F", type = SemanticTokenTypes$keyword, mod = ro_default_mod)
+        list(line = 5L, col = 53L, text = "F", type = SemanticTokenTypes$keyword, mod = ro_default_mod),
+        # Line 6: replacement assignment shadowing of T and F ([<-, names<-)
+        list(line = 6L, col = 28L, text = "T", type = SemanticTokenTypes$variable, mod = 0L),
+        list(line = 6L, col = 47L, text = "F", type = SemanticTokenTypes$variable, mod = 0L),
+        list(line = 6L, col = 63L, text = "T", type = SemanticTokenTypes$variable, mod = 0L),
+        list(line = 6L, col = 66L, text = "F", type = SemanticTokenTypes$variable, mod = 0L)
     )
 
     for (cached in c(TRUE, FALSE)) {
@@ -1088,6 +1094,37 @@ test_that("Builtin constants, ellipsis, and pipe placeholders emit readonly defa
         expect_equal(token_at_col(23L)$tokenModifiers, 0L)
         expect_equal(token_at_col(26L)$tokenType, SemanticTokenTypes$keyword)
         expect_equal(token_at_col(26L)$tokenModifiers, ro_default_mod)
+    }
+
+    top_repl_uri <- "file:///top-repl-shadow-constants.R"
+    top_repl_content <- c(
+        "T[1L] <- 0L; T",
+        "names(F) <- \"flag\"; F"
+    )
+    top_repl_parsed <- parse(text = top_repl_content, keep.source = TRUE)
+    top_repl_semantic <- semantic_parse_data(
+        utils::getParseData(top_repl_parsed, includeText = TRUE),
+        top_repl_content
+    )
+    top_repl_xdoc <- xml2::read_xml(xmlparsedata::xml_parse_data(top_repl_parsed))
+    top_repl_doc <- Document$new(top_repl_uri, version = 1L, content = top_repl_content)
+    for (cached in c(TRUE, FALSE)) {
+        top_repl_ws <- list(get_parse_data = function(...) {
+            list(xml_doc = top_repl_xdoc, semantic_data = if (cached) top_repl_semantic else NULL)
+        })
+        top_repl_tokens <- extract_semantic_tokens(top_repl_uri, top_repl_ws, top_repl_doc)
+        repl_token_at <- function(line, col) {
+            matched <- Filter(function(t) {
+                t$line == line && t$col == col && t$length == 1L
+            }, top_repl_tokens)
+            expect_length(matched, 1L)
+            matched[[1L]]
+        }
+        for (pos in list(c(0L, 0L), c(0L, 13L), c(1L, 6L), c(1L, 20L))) {
+            tok <- repl_token_at(pos[[1L]], pos[[2L]])
+            expect_equal(tok$tokenType, SemanticTokenTypes$variable)
+            expect_equal(tok$tokenModifiers, 0L)
+        }
     }
 
     if (getRversion() >= "4.2.0") {
