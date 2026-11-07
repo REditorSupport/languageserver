@@ -897,7 +897,11 @@ test_that("Named arguments and scoped parameter references emit parameter tokens
     bt_content <- c(
         "f <- function(`x` = 1, y = `x`, `...`) x + `y` + `...` + gamma",
         "outside <- function(delta) delta + alpha",
-        "noop <- function(unused_arg) 1L"
+        "noop <- function(unused_arg) 1L",
+        "outer <- function(alpha) { inner <- function() { alpha <- 1L; alpha }; inner() }",
+        "loop_outer <- function(alpha) { inner <- function() { for (alpha in 1:3) print(alpha) }; inner() }",
+        "direct_loop <- function(alpha) { for (alpha in 1:3) print(alpha); alpha }",
+        "right_outer <- function(alpha) { inner <- function() { 1L -> alpha; alpha }; inner() }"
     )
     bt_parsed <- parse(text = bt_content, keep.source = TRUE)
     bt_semantic <- semantic_parse_data(
@@ -925,6 +929,22 @@ test_that("Named arguments and scoped parameter references emit parameter tokens
         expect_equal(token_type_at(0L, 57L, 5L), SemanticTokenTypes$variable)
         expect_equal(token_type_at(1L, 27L, 5L), SemanticTokenTypes$parameter)
         expect_equal(token_type_at(1L, 35L, 5L), SemanticTokenTypes$variable)
+        # Line 3: outer formal alpha vs inner local assignment alpha <- 1L; alpha
+        expect_equal(token_type_at(3L, 18L, 5L), SemanticTokenTypes$parameter)
+        expect_equal(token_type_at(3L, 49L, 5L), SemanticTokenTypes$variable)
+        expect_equal(token_type_at(3L, 62L, 5L), SemanticTokenTypes$variable)
+        # Line 4: outer formal alpha vs inner loop variable for (alpha in 1:3) print(alpha)
+        expect_equal(token_type_at(4L, 23L, 5L), SemanticTokenTypes$parameter)
+        expect_equal(token_type_at(4L, 59L, 5L), SemanticTokenTypes$variable)
+        expect_equal(token_type_at(4L, 79L, 5L), SemanticTokenTypes$variable)
+        # Line 5: direct loop variable inside direct_loop vs trailing alpha parameter
+        expect_equal(token_type_at(5L, 24L, 5L), SemanticTokenTypes$parameter)
+        expect_equal(token_type_at(5L, 38L, 5L), SemanticTokenTypes$variable)
+        expect_equal(token_type_at(5L, 58L, 5L), SemanticTokenTypes$variable)
+        expect_equal(token_type_at(5L, 66L, 5L), SemanticTokenTypes$parameter)
+        # Line 6: rightward assignment shadowing
+        expect_equal(token_type_at(6L, 61L, 5L), SemanticTokenTypes$variable)
+        expect_equal(token_type_at(6L, 68L, 5L), SemanticTokenTypes$variable)
     }
 
     unused_parsed <- parse(text = "noop <- function(unused_arg) 1L", keep.source = TRUE)
