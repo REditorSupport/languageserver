@@ -641,8 +641,9 @@ test_that("Control-flow keywords and return() calls emit keyword semantic tokens
 
     edge_uri <- "file:///control-flow-edge-cases.R"
     edge_content <- c(
+        "obj <- list(return = function(x) x + 1L)",
         "fn <- \\(x, return = 1L) {",
-        "  obj$return(x)",
+        "  obj$return(1L)",
         "  pkg::return(x)",
         "  pkg:::return(x)",
         "  `return`(x)",
@@ -672,11 +673,12 @@ test_that("Control-flow keywords and return() calls emit keyword semantic tokens
             expect_length(matched, 1L)
             matched[[1L]]$tokenType
         }
-        expect_equal(token_type_at(0L, 6L, 1L), SemanticTokenTypes$keyword)
-        expect_equal(token_type_at(1L, 6L, 6L), SemanticTokenTypes[["function"]])
-        expect_equal(token_type_at(2L, 7L, 6L), SemanticTokenTypes[["function"]])
-        expect_equal(token_type_at(3L, 8L, 6L), SemanticTokenTypes[["function"]])
-        expect_equal(token_type_at(4L, 2L, 8L), SemanticTokenTypes[["function"]])
-        expect_equal(token_type_at(5L, 2L, 6L), SemanticTokenTypes$keyword)
+        expect_equal(token_type_at(0L, 21L, 8L), SemanticTokenTypes$keyword)
+        expect_equal(token_type_at(1L, 6L, 1L), SemanticTokenTypes$keyword)
+        expect_equal(token_type_at(2L, 6L, 6L), SemanticTokenTypes[["function"]])
+        expect_equal(token_type_at(3L, 7L, 6L), SemanticTokenTypes[["function"]])
+        expect_equal(token_type_at(4L, 8L, 6L), SemanticTokenTypes[["function"]])
+        expect_equal(token_type_at(5L, 2L, 8L), SemanticTokenTypes[["function"]])
+        expect_equal(token_type_at(6L, 2L, 6L), SemanticTokenTypes$keyword)
     }
 })
