@@ -415,6 +415,7 @@ test_that("Semantic token types cover every parser token category", {
         SYMBOL = SemanticTokenTypes$variable,
         SYMBOL_FUNCTION_CALL = SemanticTokenTypes[["function"]],
         SYMBOL_FORMALS = SemanticTokenTypes$parameter,
+        SYMBOL_SUB = SemanticTokenTypes$parameter,
         SYMBOL_PACKAGE = SemanticTokenTypes$namespace,
         FUNCTION = SemanticTokenTypes$keyword,
         KEYWORD = SemanticTokenTypes$keyword,
@@ -833,4 +834,120 @@ test_that("Operators emit expected semantic tokens", {
         expect_equal(matched[[1L]]$tokenType, SemanticTokenTypes$operator)
         expect_equal(matched[[1L]]$tokenModifiers, 0L)
     }
+})
+
+test_that("Named arguments and scoped parameter references emit parameter tokens", {
+    uri <- "file:///parameters-semantic.R"
+    content <- c(
+        "compute <- function(alpha, beta = alpha + 1L) {",
+        "  local_var <- alpha + beta",
+        "  inner <- \\(gamma) alpha + gamma + obj$alpha + pkg::beta",
+        "  inner(gamma = local_var)",
+        "}"
+    )
+    parsed <- parse(text = content, keep.source = TRUE)
+    semantic <- semantic_parse_data(
+        utils::getParseData(parsed, includeText = TRUE),
+        content
+    )
+    xdoc <- xml2::read_xml(xmlparsedata::xml_parse_data(parsed))
+    document <- Document$new(uri, version = 1L, content = content)
+    decl_mod <- bitwShiftL(1L, SemanticTokenModifiers$declaration)
+
+    expected <- list(
+        # Formal parameter declarations
+        list(line = 0L, col = 20L, name = "alpha", type = SemanticTokenTypes$parameter, mod = decl_mod),
+        list(line = 0L, col = 27L, name = "beta", type = SemanticTokenTypes$parameter, mod = decl_mod),
+        # Default expression referencing earlier formal parameter
+        list(line = 0L, col = 34L, name = "alpha", type = SemanticTokenTypes$parameter, mod = 0L),
+        # Body references vs local variable
+        list(line = 1L, col = 2L, name = "local_var", type = SemanticTokenTypes$variable, mod = 0L),
+        list(line = 1L, col = 15L, name = "alpha", type = SemanticTokenTypes$parameter, mod = 0L),
+        list(line = 1L, col = 23L, name = "beta", type = SemanticTokenTypes$parameter, mod = 0L),
+        # Nested lambda formal and outer/inner parameter references vs $ and :: members
+        list(line = 2L, col = 13L, name = "gamma", type = SemanticTokenTypes$parameter, mod = decl_mod),
+        list(line = 2L, col = 20L, name = "alpha", type = SemanticTokenTypes$parameter, mod = 0L),
+        list(line = 2L, col = 28L, name = "gamma", type = SemanticTokenTypes$parameter, mod = 0L),
+        list(line = 2L, col = 40L, name = "alpha", type = SemanticTokenTypes$variable, mod = 0L),
+        list(line = 2L, col = 53L, name = "beta", type = SemanticTokenTypes$variable, mod = 0L),
+        # Named call argument (SYMBOL_SUB)
+        list(line = 3L, col = 8L, name = "gamma", type = SemanticTokenTypes$parameter, mod = 0L),
+        list(line = 3L, col = 16L, name = "local_var", type = SemanticTokenTypes$variable, mod = 0L)
+    )
+
+    for (cached in c(TRUE, FALSE)) {
+        workspace <- list(get_parse_data = function(request_uri) {
+            expect_identical(request_uri, uri)
+            list(xml_doc = xdoc, semantic_data = if (cached) semantic else NULL)
+        })
+        tokens <- extract_semantic_tokens(uri, workspace, document)
+        for (item in expected) {
+            matched <- Filter(function(token) {
+                token$line == item$line &&
+                    token$col == item$col &&
+                    token$length == nchar(item$name)
+            }, tokens)
+            expect_length(matched, 1L)
+            expect_equal(matched[[1L]]$tokenType, item$type)
+            expect_equal(matched[[1L]]$tokenModifiers, item$mod)
+        }
+    }
+
+    bt_uri <- "file:///backtick-parameters.R"
+    bt_content <- c(
+        "f <- function(`x` = 1, y = `x`, `...`) x + `y` + `...` + gamma",
+        "outside <- function(delta) delta + alpha",
+        "noop <- function(unused_arg) 1L",
+        "outer <- function(alpha) { inner <- function() { alpha <- 1L; alpha }; inner() }",
+        "loop_outer <- function(alpha) { inner <- function() { for (alpha in 1:3) print(alpha) }; inner() }",
+        "direct_loop <- function(alpha) { for (alpha in 1:3) print(alpha); alpha }",
+        "right_outer <- function(alpha) { inner <- function() { 1L -> alpha; alpha }; inner() }"
+    )
+    bt_parsed <- parse(text = bt_content, keep.source = TRUE)
+    bt_semantic <- semantic_parse_data(
+        utils::getParseData(bt_parsed, includeText = TRUE),
+        bt_content
+    )
+    bt_xdoc <- xml2::read_xml(xmlparsedata::xml_parse_data(bt_parsed))
+    bt_doc <- Document$new(bt_uri, version = 1L, content = bt_content)
+    for (cached in c(TRUE, FALSE)) {
+        bt_ws <- list(get_parse_data = function(...) {
+            list(xml_doc = bt_xdoc, semantic_data = if (cached) bt_semantic else NULL)
+        })
+        bt_tokens <- extract_semantic_tokens(bt_uri, bt_ws, bt_doc)
+        token_type_at <- function(line, col, len) {
+            matched <- Filter(function(t) {
+                t$line == line && t$col == col && t$length == len
+            }, bt_tokens)
+            expect_length(matched, 1L)
+            matched[[1L]]$tokenType
+        }
+        expect_equal(token_type_at(0L, 27L, 3L), SemanticTokenTypes$parameter)
+        expect_equal(token_type_at(0L, 39L, 1L), SemanticTokenTypes$parameter)
+        expect_equal(token_type_at(0L, 43L, 3L), SemanticTokenTypes$parameter)
+        expect_equal(token_type_at(0L, 49L, 5L), SemanticTokenTypes$variable)
+        expect_equal(token_type_at(0L, 57L, 5L), SemanticTokenTypes$variable)
+        expect_equal(token_type_at(1L, 27L, 5L), SemanticTokenTypes$parameter)
+        expect_equal(token_type_at(1L, 35L, 5L), SemanticTokenTypes$variable)
+        # Line 3: outer formal alpha vs inner local assignment alpha <- 1L; alpha
+        expect_equal(token_type_at(3L, 18L, 5L), SemanticTokenTypes$parameter)
+        expect_equal(token_type_at(3L, 49L, 5L), SemanticTokenTypes$variable)
+        expect_equal(token_type_at(3L, 62L, 5L), SemanticTokenTypes$variable)
+        # Line 4: outer formal alpha vs inner loop variable for (alpha in 1:3) print(alpha)
+        expect_equal(token_type_at(4L, 23L, 5L), SemanticTokenTypes$parameter)
+        expect_equal(token_type_at(4L, 59L, 5L), SemanticTokenTypes$variable)
+        expect_equal(token_type_at(4L, 79L, 5L), SemanticTokenTypes$variable)
+        # Line 5: direct loop variable inside direct_loop vs trailing alpha parameter
+        expect_equal(token_type_at(5L, 24L, 5L), SemanticTokenTypes$parameter)
+        expect_equal(token_type_at(5L, 38L, 5L), SemanticTokenTypes$variable)
+        expect_equal(token_type_at(5L, 58L, 5L), SemanticTokenTypes$variable)
+        expect_equal(token_type_at(5L, 66L, 5L), SemanticTokenTypes$parameter)
+        # Line 6: rightward assignment shadowing
+        expect_equal(token_type_at(6L, 61L, 5L), SemanticTokenTypes$variable)
+        expect_equal(token_type_at(6L, 68L, 5L), SemanticTokenTypes$variable)
+    }
+
+    unused_parsed <- parse(text = "noop <- function(unused_arg) 1L", keep.source = TRUE)
+    unused_pd <- utils::getParseData(unused_parsed, includeText = TRUE)
+    expect_identical(formal_parameter_symbol_ids(unused_pd), integer())
 })
