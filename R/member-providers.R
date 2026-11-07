@@ -190,12 +190,10 @@ member_symbol_location <- function(document, point) {
     if (!check_scope(document$uri, document, point)) return(NULL)
     semantic <- document$parse_data$semantic_data
     col <- document$to_lsp_position(point$row, point$col)$character
-    in_comment <- semantic$types == SemanticTokenTypes$comment &
-        semantic$cols < col & semantic$cols + semantic$lengths >= col
-    in_string <- semantic$types == SemanticTokenTypes$string &
-        semantic$cols <= col & semantic$cols + semantic$lengths > col
-    excluded <- semantic$lines == point$row & (in_comment | in_string)
-    if (identical(document$version, document$parse_data$version) && any(excluded)) return(NULL)
+    if (identical(document$version, document$parse_data$version) &&
+            semantic_in_comment_or_string(semantic, point$row, col, strict_comment_start = TRUE)) {
+        return(NULL)
+    }
     token <- document$detect_token(point)
     if (!token$accessor %in% c("", "::") || !nzchar(token$token)) return(NULL)
     bounds <- token$range
