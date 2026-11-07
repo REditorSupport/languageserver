@@ -418,6 +418,14 @@ test_that("Semantic token types cover every parser token category", {
         SYMBOL_PACKAGE = SemanticTokenTypes$namespace,
         FUNCTION = SemanticTokenTypes$keyword,
         KEYWORD = SemanticTokenTypes$keyword,
+        IF = SemanticTokenTypes$keyword,
+        ELSE = SemanticTokenTypes$keyword,
+        FOR = SemanticTokenTypes$keyword,
+        IN = SemanticTokenTypes$keyword,
+        WHILE = SemanticTokenTypes$keyword,
+        REPEAT = SemanticTokenTypes$keyword,
+        NEXT = SemanticTokenTypes$keyword,
+        BREAK = SemanticTokenTypes$keyword,
         NUM_CONST = SemanticTokenTypes$number,
         INT_CONST = SemanticTokenTypes$number,
         FLOAT_CONST = SemanticTokenTypes$number,
@@ -559,4 +567,118 @@ test_that("Function assignments with comments around operators emit declaration 
         vapply(fn_declarations, `[[`, integer(1L), "line"),
         c(0L, 3L, 8L, 10L, 15L)
     )
+})
+
+test_that("Control-flow keywords and return() calls emit keyword semantic tokens", {
+    uri <- "file:///control-flow-semantic.R"
+    content <- c(
+        "fn <- function(x) {",
+        "  if (x > 0) {",
+        "    for (i in seq_len(x)) {",
+        "      while (i < 10) {",
+        "        repeat {",
+        "          if (i == 5) next else break",
+        "        }",
+        "      }",
+        "    }",
+        "    return(x)",
+        "  }",
+        "}"
+    )
+    parsed <- parse(text = content, keep.source = TRUE)
+    semantic <- semantic_parse_data(
+        utils::getParseData(parsed, includeText = TRUE),
+        content
+    )
+    xdoc <- xml2::read_xml(xmlparsedata::xml_parse_data(parsed))
+    document <- Document$new(uri, version = 1L, content = content)
+
+    expected_keywords <- list(
+        list(line = 1L, col = 2L, word = "if"),
+        list(line = 2L, col = 4L, word = "for"),
+        list(line = 2L, col = 11L, word = "in"),
+        list(line = 3L, col = 6L, word = "while"),
+        list(line = 4L, col = 8L, word = "repeat"),
+        list(line = 5L, col = 10L, word = "if"),
+        list(line = 5L, col = 22L, word = "next"),
+        list(line = 5L, col = 27L, word = "else"),
+        list(line = 5L, col = 32L, word = "break"),
+        list(line = 9L, col = 4L, word = "return")
+    )
+
+    for (cached in c(TRUE, FALSE)) {
+        workspace <- list(get_parse_data = function(request_uri) {
+            expect_identical(request_uri, uri)
+            list(
+                version = 1L,
+                xml_doc = xdoc,
+                semantic_data = if (cached) semantic else NULL
+            )
+        })
+        tokens <- extract_semantic_tokens(uri, workspace, document)
+        for (kw in expected_keywords) {
+            matched <- Filter(function(token) {
+                token$line == kw$line &&
+                    token$col == kw$col &&
+                    token$length == nchar(kw$word)
+            }, tokens)
+            expect_length(matched, 1L)
+            expect_equal(matched[[1L]]$tokenType, SemanticTokenTypes$keyword)
+            expect_equal(matched[[1L]]$tokenModifiers, 0L)
+        }
+        range_reply <- semantic_tokens_range_reply(
+            1L,
+            uri,
+            workspace,
+            document,
+            list(
+                start = list(line = 5L, character = 0L),
+                end = list(line = 5L, character = 40L)
+            )
+        )
+        expect_true(length(range_reply$result$data) > 0L)
+    }
+
+    edge_uri <- "file:///control-flow-edge-cases.R"
+    edge_content <- c(
+        "obj <- list(return = function(x) x + 1L)",
+        "fn <- \\(x, return = 1L) {",
+        "  obj$return(1L)",
+        "  pkg::return(x)",
+        "  pkg:::return(x)",
+        "  `return`(x)",
+        "  return(x)",
+        "}"
+    )
+    edge_parsed <- parse(text = edge_content, keep.source = TRUE)
+    edge_semantic <- semantic_parse_data(
+        utils::getParseData(edge_parsed, includeText = TRUE),
+        edge_content
+    )
+    edge_xdoc <- xml2::read_xml(xmlparsedata::xml_parse_data(edge_parsed))
+    edge_doc <- Document$new(edge_uri, version = 1L, content = edge_content)
+    for (cached in c(TRUE, FALSE)) {
+        edge_ws <- list(get_parse_data = function(...) {
+            list(
+                version = 1L,
+                xml_doc = edge_xdoc,
+                semantic_data = if (cached) edge_semantic else NULL
+            )
+        })
+        edge_tokens <- extract_semantic_tokens(edge_uri, edge_ws, edge_doc)
+        token_type_at <- function(line, col, len) {
+            matched <- Filter(function(t) {
+                t$line == line && t$col == col && t$length == len
+            }, edge_tokens)
+            expect_length(matched, 1L)
+            matched[[1L]]$tokenType
+        }
+        expect_equal(token_type_at(0L, 21L, 8L), SemanticTokenTypes$keyword)
+        expect_equal(token_type_at(1L, 6L, 1L), SemanticTokenTypes$keyword)
+        expect_equal(token_type_at(2L, 6L, 6L), SemanticTokenTypes[["function"]])
+        expect_equal(token_type_at(3L, 7L, 6L), SemanticTokenTypes[["function"]])
+        expect_equal(token_type_at(4L, 8L, 6L), SemanticTokenTypes[["function"]])
+        expect_equal(token_type_at(5L, 2L, 8L), SemanticTokenTypes[["function"]])
+        expect_equal(token_type_at(6L, 2L, 6L), SemanticTokenTypes$keyword)
+    }
 })

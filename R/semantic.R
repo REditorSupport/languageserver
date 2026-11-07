@@ -45,6 +45,8 @@ SemanticTokenModifiers <- list(
     defaultLibrary = 9L
 )
 
+semantic_declaration_modifier <- bitwShiftL(1L, SemanticTokenModifiers$declaration)
+
 #' Get the semantic tokens legend
 #'
 #' Returns the legend that defines token types and modifiers
@@ -78,29 +80,42 @@ function_assignment_symbol_ids <- function(data, syntax = NULL) {
     .Call("function_assignment_ids_c", data, syntax, PACKAGE = "languageserver")
 }
 
+# Exclude member accesses (x$return, x@slot) and namespace-qualified symbols (pkg::return, pkg:::x)
+xml_not_qualified_symbol_xpath <- "
+    not(
+        preceding-sibling::OP-DOLLAR
+        or preceding-sibling::OP-AT
+        or preceding-sibling::NS_GET
+        or preceding-sibling::NS_GET_INT
+    )
+"
+
+xml_function_assignment_rhs_xpath <- "
+    (
+        parent::expr[count(*) = 1]/following-sibling::LEFT_ASSIGN/following-sibling::expr
+        | parent::expr[count(*) = 1]/following-sibling::EQ_ASSIGN/following-sibling::expr
+        | parent::expr[count(*) = 1]/preceding-sibling::RIGHT_ASSIGN/preceding-sibling::expr
+    )[FUNCTION or OP-LAMBDA or (OP-LEFT-PAREN and not(OP-LEFT-PAREN/preceding-sibling::expr))]
+"
+
 #' Whether an XML SYMBOL is assigned `function()` or `\()`
 #' @noRd
 xml_symbol_is_function_assignment <- function(node) {
-    rhs <- xml_find_first(node, paste(
-        "./parent::expr[count(*)=1]/following-sibling::*[self::LEFT_ASSIGN or self::EQ_ASSIGN]/following-sibling::expr",
-        "./parent::expr[count(*)=1]/preceding-sibling::RIGHT_ASSIGN/preceding-sibling::expr",
-        sep = "|"
-    ))
-    if (inherits(rhs, "xml_missing")) {
+    if (!xml_find_lgl(node, paste0("boolean(", xml_function_assignment_rhs_xpath, ")"))) {
         return(FALSE)
     }
+    rhs <- xml_find_first(node, xml_function_assignment_rhs_xpath)
     repeat {
-        children <- xml_find_all(rhs, "./*[not(self::COMMENT)]")
+        if (xml_find_lgl(rhs, "boolean(FUNCTION or OP-LAMBDA)")) {
+            return(TRUE)
+        }
+        children <- xml_find_all(rhs, "*[not(self::COMMENT)]")
         if (length(children) != 3L ||
-                !identical(xml_text(children[c(1L, 3L)]), c("(", ")"))) {
-            break
+                !identical(xml_name(children[c(1L, 3L)]), c("OP-LEFT-PAREN", "OP-RIGHT-PAREN"))) {
+            return(FALSE)
         }
         rhs <- children[[2L]]
     }
-    !inherits(
-        xml_find_first(rhs, "./FUNCTION | ./OP-LAMBDA"),
-        "xml_missing"
-    )
 }
 
 #' Build a compact semantic token index from R parse data
@@ -120,6 +135,14 @@ semantic_parse_data <- function(data, content, syntax = NULL) {
         SYMBOL_PACKAGE = SemanticTokenTypes$namespace,
         FUNCTION = SemanticTokenTypes$keyword,
         KEYWORD = SemanticTokenTypes$keyword,
+        IF = SemanticTokenTypes$keyword,
+        ELSE = SemanticTokenTypes$keyword,
+        FOR = SemanticTokenTypes$keyword,
+        IN = SemanticTokenTypes$keyword,
+        WHILE = SemanticTokenTypes$keyword,
+        REPEAT = SemanticTokenTypes$keyword,
+        NEXT = SemanticTokenTypes$keyword,
+        BREAK = SemanticTokenTypes$keyword,
         NUM_CONST = SemanticTokenTypes$number,
         INT_CONST = SemanticTokenTypes$number,
         FLOAT_CONST = SemanticTokenTypes$number,
@@ -131,7 +154,9 @@ semantic_parse_data <- function(data, content, syntax = NULL) {
         EQ_ASSIGN = SemanticTokenTypes$operator,
         `$` = SemanticTokenTypes$operator,
         PIPE = SemanticTokenTypes$operator,
-        `\\` = SemanticTokenTypes$keyword
+        `\\` = SemanticTokenTypes$keyword,
+        `'\\'` = SemanticTokenTypes$keyword,
+        `'\\\\'` = SemanticTokenTypes$keyword
     )
 
     selected <- data$terminal & data$token %in% names(token_types)
@@ -144,25 +169,35 @@ semantic_parse_data <- function(data, content, syntax = NULL) {
     # operation. UTF-16 conversion is only needed on lines containing UTF-8
     # multibyte characters; ASCII positions are already LSP code units.
     single_rows <- rows[data$line1[rows] == data$line2[rows]]
+    tok <- data$token[single_rows]
+    txt <- data$text[single_rows]
+    row_ids <- data$id[single_rows]
+    row_parents <- data$parent[single_rows]
+
     lines <- as.integer(data$line1[single_rows] - 1L)
     cols <- as.integer(data$col1[single_rows] - 1L)
     lengths <- as.integer(data$col2[single_rows] - data$col1[single_rows] + 1L)
-    types <- as.integer(unname(token_types[data$token[single_rows]]))
-    modifiers <- ifelse(
-        data$token[single_rows] == "SYMBOL_FORMALS",
-        bitwShiftL(1L, SemanticTokenModifiers$declaration),
+    types <- as.integer(unname(token_types[tok]))
+    modifiers <- as.integer(ifelse(
+        tok == "SYMBOL_FORMALS",
+        semantic_declaration_modifier,
         0L
-    )
-    modifiers <- as.integer(modifiers)
+    ))
+
+    member_or_ns_parents <- data$parent[
+        data$token %in% c("'$'", "'@'", "$", "@", "NS_GET", "NS_GET_INT") &
+            data$parent > 0L
+    ]
+    is_return <- tok == "SYMBOL_FUNCTION_CALL" &
+        txt == "return" &
+        !(row_parents %in% member_or_ns_parents)
+    types[is_return] <- SemanticTokenTypes$keyword
 
     fun_lhs_ids <- function_assignment_symbol_ids(data, syntax)
     if (length(fun_lhs_ids)) {
-        fun_lhs <- data$id[single_rows] %in% fun_lhs_ids
+        fun_lhs <- row_ids %in% fun_lhs_ids
         types[fun_lhs] <- SemanticTokenTypes[["function"]]
-        modifiers[fun_lhs] <- bitwOr(
-            modifiers[fun_lhs],
-            bitwShiftL(1L, SemanticTokenModifiers$declaration)
-        )
+        modifiers[fun_lhs] <- semantic_declaration_modifier
     }
 
     non_ascii_lines <- nchar(content, type = "bytes") !=
@@ -178,7 +213,7 @@ semantic_parse_data <- function(data, content, syntax = NULL) {
     for (row_index in multiline_rows) {
         token_type <- unname(token_types[[data$token[[row_index]]]])
         modifier <- if (data$token[[row_index]] == "SYMBOL_FORMALS") {
-            bitwShiftL(1L, SemanticTokenModifiers$declaration)
+            semantic_declaration_modifier
         } else {
             0L
         }
@@ -268,6 +303,14 @@ get_token_type <- function(token_name) {
         "SYMBOL_PACKAGE" = SemanticTokenTypes$namespace,
         "FUNCTION" = SemanticTokenTypes$keyword,
         "KEYWORD" = SemanticTokenTypes$keyword,
+        "IF" = SemanticTokenTypes$keyword,
+        "ELSE" = SemanticTokenTypes$keyword,
+        "FOR" = SemanticTokenTypes$keyword,
+        "IN" = SemanticTokenTypes$keyword,
+        "WHILE" = SemanticTokenTypes$keyword,
+        "REPEAT" = SemanticTokenTypes$keyword,
+        "NEXT" = SemanticTokenTypes$keyword,
+        "BREAK" = SemanticTokenTypes$keyword,
         "NUM_CONST" = SemanticTokenTypes$number,
         "INT_CONST" = SemanticTokenTypes$number,
         "FLOAT_CONST" = SemanticTokenTypes$number,
@@ -319,6 +362,14 @@ extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
         self::SYMBOL_PACKAGE or
         self::FUNCTION or
         self::KEYWORD or
+        self::IF or
+        self::ELSE or
+        self::FOR or
+        self::IN or
+        self::WHILE or
+        self::REPEAT or
+        self::NEXT or
+        self::BREAK or
         self::NUM_CONST or
         self::INT_CONST or
         self::FLOAT_CONST or
@@ -349,6 +400,7 @@ extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
     # Process each token
     for (token_node in token_elements) {
         token_name <- xml_name(token_node)
+        tok_text <- xml_text(token_node)
 
         line1 <- as.integer(xml_attr(token_node, "line1"))
         col1 <- as.integer(xml_attr(token_node, "col1"))
@@ -361,17 +413,19 @@ extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
         }
 
         token_type <- get_token_type(token_name)
-        modifiers <- 0L  # Start with no modifiers
+        modifiers <- 0L
 
-        # Determine modifiers based on context
+        # Determine types and modifiers based on context
         if (token_name == "SYMBOL" && xml_symbol_is_function_assignment(token_node)) {
             token_type <- SemanticTokenTypes[["function"]]
-            modifiers <- bitwOr(modifiers, 2^SemanticTokenModifiers$declaration)
+            modifiers <- semantic_declaration_modifier
         } else if (token_name == "SYMBOL_FUNCTION_CALL") {
-            # Function calls might be declared elsewhere
+            if (identical(tok_text, "return") &&
+                    xml_find_lgl(token_node, xml_not_qualified_symbol_xpath)) {
+                token_type <- SemanticTokenTypes$keyword
+            }
         } else if (token_name == "SYMBOL_FORMALS") {
-            # Parameters are declarations
-            modifiers <- bitwOr(modifiers, 2^SemanticTokenModifiers$declaration)
+            modifiers <- semantic_declaration_modifier
         }
 
         # Convert positions to UTF-16 code units for LSP
