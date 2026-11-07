@@ -80,29 +80,42 @@ function_assignment_symbol_ids <- function(data, syntax = NULL) {
     .Call("function_assignment_ids_c", data, syntax, PACKAGE = "languageserver")
 }
 
+# Exclude member accesses (x$return, x@slot) and namespace-qualified symbols (pkg::return, pkg:::x)
+xml_not_qualified_symbol_xpath <- "
+    not(
+        preceding-sibling::OP-DOLLAR
+        or preceding-sibling::OP-AT
+        or preceding-sibling::NS_GET
+        or preceding-sibling::NS_GET_INT
+    )
+"
+
+xml_function_assignment_rhs_xpath <- "
+    (
+        parent::expr[count(*) = 1]/following-sibling::LEFT_ASSIGN/following-sibling::expr
+        | parent::expr[count(*) = 1]/following-sibling::EQ_ASSIGN/following-sibling::expr
+        | parent::expr[count(*) = 1]/preceding-sibling::RIGHT_ASSIGN/preceding-sibling::expr
+    )[FUNCTION or OP-LAMBDA or (OP-LEFT-PAREN and not(OP-LEFT-PAREN/preceding-sibling::expr))]
+"
+
 #' Whether an XML SYMBOL is assigned `function()` or `\()`
 #' @noRd
 xml_symbol_is_function_assignment <- function(node) {
-    rhs <- xml_find_first(node, paste(
-        "./parent::expr[count(*)=1]/following-sibling::*[self::LEFT_ASSIGN or self::EQ_ASSIGN]/following-sibling::expr",
-        "./parent::expr[count(*)=1]/preceding-sibling::RIGHT_ASSIGN/preceding-sibling::expr",
-        sep = "|"
-    ))
-    if (inherits(rhs, "xml_missing")) {
+    if (!xml_find_lgl(node, paste0("boolean(", xml_function_assignment_rhs_xpath, ")"))) {
         return(FALSE)
     }
+    rhs <- xml_find_first(node, xml_function_assignment_rhs_xpath)
     repeat {
-        children <- xml_find_all(rhs, "./*[not(self::COMMENT)]")
+        if (xml_find_lgl(rhs, "boolean(FUNCTION or OP-LAMBDA)")) {
+            return(TRUE)
+        }
+        children <- xml_find_all(rhs, "*[not(self::COMMENT)]")
         if (length(children) != 3L ||
-                !identical(xml_text(children[c(1L, 3L)]), c("(", ")"))) {
-            break
+                !identical(xml_name(children[c(1L, 3L)]), c("OP-LEFT-PAREN", "OP-RIGHT-PAREN"))) {
+            return(FALSE)
         }
         rhs <- children[[2L]]
     }
-    !inherits(
-        xml_find_first(rhs, "./FUNCTION | ./OP-LAMBDA"),
-        "xml_missing"
-    )
 }
 
 #' Build a compact semantic token index from R parse data
@@ -408,13 +421,7 @@ extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
             modifiers <- semantic_declaration_modifier
         } else if (token_name == "SYMBOL_FUNCTION_CALL") {
             if (identical(tok_text, "return") &&
-                    inherits(
-                        xml_find_first(
-                            token_node,
-                            "./preceding-sibling::*[self::OP-DOLLAR or self::OP-AT or self::NS_GET or self::NS_GET_INT]"
-                        ),
-                        "xml_missing"
-                    )) {
+                    xml_find_lgl(token_node, xml_not_qualified_symbol_xpath)) {
                 token_type <- SemanticTokenTypes$keyword
             }
         } else if (token_name == "SYMBOL_FORMALS") {
