@@ -637,7 +637,7 @@ semantic_parse_data <- function(data, content, syntax = NULL) {
                 data$col1[[row_index]] - 1L
             )
         })
-        span_counts <- vapply(span_list, \(s) length(s$starts), integer(1L))
+        span_counts <- vapply(span_list, function(s) length(s$starts), integer(1L))
         rx_starts <- unlist(lapply(span_list, `[[`, "starts"), use.names = FALSE)
         line1_vec <- c(
             line1_vec,
