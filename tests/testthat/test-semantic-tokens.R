@@ -1051,7 +1051,9 @@ test_that("Builtin constants, ellipsis, and pipe placeholders emit readonly defa
             expect_equal(matched[[1L]]$tokenModifiers, item$mod)
         }
     }
+})
 
+test_that("Top-level loop bindings keep T and F as variable tokens", {
     top_uri <- "file:///top-shadow-constants.R"
     top_content <- "for (T in 1:3) print(c(T, F))"
     top_parsed <- parse(text = top_content, keep.source = TRUE)
@@ -1078,28 +1080,33 @@ test_that("Builtin constants, ellipsis, and pipe placeholders emit readonly defa
         expect_equal(token_at_col(26L)$tokenType, SemanticTokenTypes$variable)
         expect_equal(token_at_col(26L)$tokenModifiers, 0L)
     }
+})
 
-    if (getRversion() >= "4.2.0") {
-        ph_uri <- "file:///placeholder-semantic.R"
-        ph_content <- "x |> subset(a = _)"
-        ph_parsed <- parse(text = ph_content, keep.source = TRUE)
-        ph_semantic <- semantic_parse_data(
-            utils::getParseData(ph_parsed, includeText = TRUE),
-            ph_content
-        )
-        ph_xdoc <- xml2::read_xml(xmlparsedata::xml_parse_data(ph_parsed))
-        ph_doc <- Document$new(ph_uri, version = 1L, content = ph_content)
-        for (cached in c(TRUE, FALSE)) {
-            ph_ws <- list(get_parse_data = function(...) {
-                list(xml_doc = ph_xdoc, semantic_data = if (cached) ph_semantic else NULL)
-            })
-            ph_tokens <- extract_semantic_tokens(ph_uri, ph_ws, ph_doc)
-            matched <- Filter(function(t) {
-                t$line == 0L && t$col == 16L && t$length == 1L
-            }, ph_tokens)
-            expect_length(matched, 1L)
-            expect_equal(matched[[1L]]$tokenType, SemanticTokenTypes$variable)
-            expect_equal(matched[[1L]]$tokenModifiers, ro_default_mod)
-        }
+test_that("Native pipe placeholder (_) emits readonly defaultLibrary variable token", {
+    skip_unless_r(">= 4.2.0")
+    ro_default_mod <- bitwOr(
+        bitwShiftL(1L, SemanticTokenModifiers$readonly),
+        bitwShiftL(1L, SemanticTokenModifiers$defaultLibrary)
+    )
+    ph_uri <- "file:///placeholder-semantic.R"
+    ph_content <- "x |> subset(a = _)"
+    ph_parsed <- parse(text = ph_content, keep.source = TRUE)
+    ph_semantic <- semantic_parse_data(
+        utils::getParseData(ph_parsed, includeText = TRUE),
+        ph_content
+    )
+    ph_xdoc <- xml2::read_xml(xmlparsedata::xml_parse_data(ph_parsed))
+    ph_doc <- Document$new(ph_uri, version = 1L, content = ph_content)
+    for (cached in c(TRUE, FALSE)) {
+        ph_ws <- list(get_parse_data = function(...) {
+            list(xml_doc = ph_xdoc, semantic_data = if (cached) ph_semantic else NULL)
+        })
+        ph_tokens <- extract_semantic_tokens(ph_uri, ph_ws, ph_doc)
+        matched <- Filter(function(t) {
+            t$line == 0L && t$col == 16L && t$length == 1L
+        }, ph_tokens)
+        expect_length(matched, 1L)
+        expect_equal(matched[[1L]]$tokenType, SemanticTokenTypes$variable)
+        expect_equal(matched[[1L]]$tokenModifiers, ro_default_mod)
     }
 })
