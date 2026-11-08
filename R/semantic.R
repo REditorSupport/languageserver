@@ -143,6 +143,7 @@ local_symbol_binding_scopes <- function(data, cand_rows, cand_names, id_parent) 
     )
 }
 
+# Exclude member accesses (x$return, x@slot) and namespace-qualified symbols (pkg::return, pkg:::x)
 xml_not_qualified_symbol_xpath <- "
     not(
         preceding-sibling::OP-DOLLAR
@@ -444,20 +445,9 @@ function_assignment_symbol_ids <- function(data, syntax = NULL) {
     .Call("function_assignment_ids_c", data, syntax, PACKAGE = "languageserver")
 }
 
-# Exclude member accesses (x$return, x@slot) and namespace-qualified symbols (pkg::return, pkg:::x)
-xml_not_qualified_symbol_xpath <- "
-    not(
-        preceding-sibling::OP-DOLLAR
-        or preceding-sibling::OP-AT
-        or preceding-sibling::NS_GET
-        or preceding-sibling::NS_GET_INT
-    )
-"
-
 xml_function_assignment_rhs_xpath <- "
     (
-        parent::expr[count(*) = 1]/following-sibling::LEFT_ASSIGN/following-sibling::expr
-        | parent::expr[count(*) = 1]/following-sibling::EQ_ASSIGN/following-sibling::expr
+        parent::expr[count(*) = 1 and (following-sibling::LEFT_ASSIGN or following-sibling::EQ_ASSIGN)]/following-sibling::expr
         | parent::expr[count(*) = 1]/preceding-sibling::RIGHT_ASSIGN/preceding-sibling::expr
     )[FUNCTION or OP-LAMBDA or (OP-LEFT-PAREN and not(OP-LEFT-PAREN/preceding-sibling::expr))]
 "
@@ -465,7 +455,7 @@ xml_function_assignment_rhs_xpath <- "
 #' Whether an XML SYMBOL is assigned `function()` or `\()`
 #' @noRd
 xml_symbol_is_function_assignment <- function(node) {
-    if (!xml_find_lgl(node, paste0("boolean(", xml_function_assignment_rhs_xpath, ")"))) {
+    if (xml_find_lgl(node, paste0("not(", xml_function_assignment_rhs_xpath, ")"))) {
         return(FALSE)
     }
     rhs <- xml_find_first(node, xml_function_assignment_rhs_xpath)
@@ -805,11 +795,7 @@ semantic_xml_token_types <- c(
     `OP-LAMBDA` = SemanticTokenTypes$keyword
 )
 
-semantic_tokens_xpath <- paste0(
-    "//*[",
-    paste0("self::", names(semantic_xml_token_types), collapse = " or "),
-    "]"
-)
+semantic_tokens_xpath <- paste0("//", names(semantic_xml_token_types), collapse = " | ")
 
 #' Get semantic token type for an XML token
 #'

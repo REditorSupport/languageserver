@@ -47,9 +47,8 @@ class_xml_arguments <- function(node) {
     if (native || isTRUE(magrittr)) {
         lhs <- class_xml_first(operator, "preceding-sibling::expr[1]")
         placeholder <- vapply(arguments, function(argument) {
-            leaf <- class_xml_first(argument, if (native) "self::expr[count(*) = 1]/PLACEHOLDER" else
-                    "self::expr[count(*) = 1]/SYMBOL[text() = '.']")
-            length(leaf) > 0L
+            isTRUE(xml_find_lgl(argument, if (native) "boolean(PLACEHOLDER[parent::expr[count(*) = 1]])" else
+                    "boolean(SYMBOL[text() = '.' and parent::expr[count(*) = 1]])"))
         }, logical(1L))
         if (any(placeholder)) arguments[placeholder] <- list(lhs)
         else arguments <- c(list(lhs), arguments)
@@ -88,7 +87,7 @@ class_xml_index <- function(xdoc) {
     }
     for (fun in functions) {
         calls <- class_xml_all(xdoc, paste0("//SYMBOL_FUNCTION_CALL[text() = '", fun,
-                "']/ancestor::expr[.//OP-LEFT-PAREN][1]"))
+                "']/ancestor::expr[OP-LEFT-PAREN][1]"))
         names <- parents <- vector("list", length(calls))
         for (i in seq_along(calls)) {
             call <- calls[[i]]
@@ -134,7 +133,7 @@ class_xml_calls <- function(xdoc, fun, name = NULL, parent = FALSE) {
     index <- attr(xdoc, "class_index", exact = TRUE)[[fun]]
     if (is.null(index)) {
         return(class_xml_all(xdoc, paste0("//SYMBOL_FUNCTION_CALL[text() = '", fun,
-                    "']/ancestor::expr[.//OP-LEFT-PAREN][1]")))
+                    "']/ancestor::expr[OP-LEFT-PAREN][1]")))
     }
     if (is.null(name)) return(index$calls)
     rows <- get0(name, envir = if (parent) index$parents else index$names,

@@ -1,8 +1,7 @@
 hover_xpath <- paste(
-    "(* | descendant-or-self::expr | descendant-or-self::expr_or_assign_or_help)[self::FUNCTION or self::OP-LAMBDA][following-sibling::SYMBOL_FORMALS[text() = '{token_quote}' and @line1 <= {row}]]/parent::expr",
-    "(* | descendant-or-self::expr | descendant-or-self::expr_or_assign_or_help)[LEFT_ASSIGN[preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}] and following-sibling::expr[@start > {start} or @end < {end}]]]",
+    "(FUNCTION | OP-LAMBDA)[following-sibling::SYMBOL_FORMALS[text() = '{token_quote}' and @line1 <= {row}]]/parent::expr",
+    "(* | descendant-or-self::expr | descendant-or-self::expr_or_assign_or_help)[(LEFT_ASSIGN | EQ_ASSIGN)[preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}] and following-sibling::expr[@start > {start} or @end < {end}]]]",
     "(* | descendant-or-self::expr | descendant-or-self::expr_or_assign_or_help)[RIGHT_ASSIGN[following-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}] and preceding-sibling::expr[@start > {start} or @end < {end}]]]",
-    "(* | descendant-or-self::expr | descendant-or-self::expr_or_assign_or_help)[EQ_ASSIGN[preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}] and following-sibling::expr[@start > {start} or @end < {end}]]]",
     "forcond/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]",
     sep = "|")
 
@@ -106,8 +105,7 @@ hover_reply <- function(id, uri, workspace, document, point) {
             logger$info(token_name, token_text)
             if (token_name %in% c("SYMBOL", "SYMBOL_FUNCTION_CALL")) {
                 # symbol
-                preceding_dollar <- xml_find_first(token, "preceding-sibling::OP-DOLLAR")
-                if (length(preceding_dollar) == 0) {
+                if (xml_find_lgl(token, "not(preceding-sibling::OP-DOLLAR)")) {
                     xpath <- glue(hover_xpath,
                         row = row, start = token_start, end = token_end,
                         token_quote = xml_single_quote(token_text))
@@ -115,7 +113,7 @@ hover_reply <- function(id, uri, workspace, document, point) {
                     if (length(all_defs)) {
                         last_def <- all_defs[[length(all_defs)]]
                         def_func <- xml_find_first(last_def,
-                            "self::*[LEFT_ASSIGN | RIGHT_ASSIGN | EQ_ASSIGN]/expr[FUNCTION | OP-LAMBDA]")
+                            "expr[(FUNCTION or OP-LAMBDA) and parent::*[LEFT_ASSIGN or RIGHT_ASSIGN or EQ_ASSIGN]]")
                         if (length(def_func)) {
                             func_line1 <- as.integer(xml_attr(def_func, "line1"))
                             def_text <- local_function_signature(document, def_func, token_text)
@@ -149,12 +147,10 @@ hover_reply <- function(id, uri, workspace, document, point) {
                 }
             } else if (token_name == "SYMBOL_SUB") {
                 # function parameter
-                funct <- xml_text(xml_find_first(token,
-                    "preceding-sibling::expr/SYMBOL_FUNCTION_CALL/text()"))
-                if (!is.na(funct)) {
-                    package <- xml_text(xml_find_first(token,
-                        "preceding-sibling::expr/SYMBOL_PACKAGE/text()"))
-                    if (is.na(package)) {
+                funct <- xml_find_chr(token, "string(preceding-sibling::expr/SYMBOL_FUNCTION_CALL)")
+                if (nzchar(funct)) {
+                    package <- xml_find_chr(token, "string(preceding-sibling::expr/SYMBOL_PACKAGE)")
+                    if (!nzchar(package)) {
                         package <- NULL
                         xpath <- glue(signature_xpath, row = row,
                             token_quote = xml_single_quote(funct))
@@ -191,7 +187,7 @@ hover_reply <- function(id, uri, workspace, document, point) {
                 }
             } else if (token_name == "SYMBOL_FORMALS") {
                 # function formals
-                funct <- xml_find_first(token, "preceding-sibling::*[self::FUNCTION or self::OP-LAMBDA]/parent::expr")
+                funct <- xml_find_first(token, "parent::expr[FUNCTION or OP-LAMBDA]")
                 func_line1 <- as.integer(xml_attr(funct, "line1"))
                 doc_line1 <- detect_comments(document$content, func_line1 - 1) + 1
 

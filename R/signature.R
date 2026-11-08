@@ -1,7 +1,4 @@
-signature_xpath <- paste(
-    "(* | descendant-or-self::expr | descendant-or-self::expr_or_assign_or_help)[LEFT_ASSIGN/preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]]/expr[FUNCTION|OP-LAMBDA]",
-    "(* | descendant-or-self::expr | descendant-or-self::expr_or_assign_or_help)[EQ_ASSIGN/preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]]/expr[FUNCTION|OP-LAMBDA]",
-    sep = "|")
+signature_xpath <- "(* | descendant-or-self::expr | descendant-or-self::expr_or_assign_or_help)[(LEFT_ASSIGN | EQ_ASSIGN)/preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]]/expr[FUNCTION or OP-LAMBDA]"
 
 #' Format local function arguments without reparsing the function body
 #' @noRd

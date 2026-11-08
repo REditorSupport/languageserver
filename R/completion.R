@@ -734,17 +734,15 @@ workspace_completion <- function(workspace, token,
 }
 
 scope_completion_symbols_xpath <- paste(
-    "(* | descendant-or-self::expr | descendant-or-self::expr_or_assign_or_help)[self::FUNCTION or self::OP-LAMBDA]/following-sibling::SYMBOL_FORMALS",
-    "(* | descendant-or-self::expr | descendant-or-self::expr_or_assign_or_help)/LEFT_ASSIGN[not(following-sibling::expr/*[self::FUNCTION or self::OP-LAMBDA])]/preceding-sibling::expr[count(*)=1]/SYMBOL",
-    "(* | descendant-or-self::expr | descendant-or-self::expr_or_assign_or_help)/RIGHT_ASSIGN[not(preceding-sibling::expr/*[self::FUNCTION or self::OP-LAMBDA])]/following-sibling::expr[count(*)=1]/SYMBOL",
-    "(* | descendant-or-self::expr | descendant-or-self::expr_or_assign_or_help)/EQ_ASSIGN[not(following-sibling::expr/*[self::FUNCTION or self::OP-LAMBDA])]/preceding-sibling::expr[count(*)=1]/SYMBOL",
+    "(FUNCTION | OP-LAMBDA)/following-sibling::SYMBOL_FORMALS",
+    "(* | descendant-or-self::expr | descendant-or-self::expr_or_assign_or_help)/(LEFT_ASSIGN | EQ_ASSIGN)[not(following-sibling::expr[FUNCTION or OP-LAMBDA])]/preceding-sibling::expr[count(*)=1]/SYMBOL",
+    "(* | descendant-or-self::expr | descendant-or-self::expr_or_assign_or_help)/RIGHT_ASSIGN[not(preceding-sibling::expr[FUNCTION or OP-LAMBDA])]/following-sibling::expr[count(*)=1]/SYMBOL",
     "forcond/SYMBOL",
     sep = "|")
 
 scope_completion_functs_xpath <- paste(
-    "(* | descendant-or-self::expr | descendant-or-self::expr_or_assign_or_help)/LEFT_ASSIGN[following-sibling::expr/*[self::FUNCTION or self::OP-LAMBDA]]/preceding-sibling::expr[count(*)=1]/SYMBOL",
-    "(* | descendant-or-self::expr | descendant-or-self::expr_or_assign_or_help)/RIGHT_ASSIGN[preceding-sibling::expr/*[self::FUNCTION or self::OP-LAMBDA]]/following-sibling::expr[count(*)=1]/SYMBOL",
-    "(* | descendant-or-self::expr | descendant-or-self::expr_or_assign_or_help)/EQ_ASSIGN[following-sibling::expr/*[self::FUNCTION or self::OP-LAMBDA]]/preceding-sibling::expr[count(*)=1]/SYMBOL",
+    "(* | descendant-or-self::expr | descendant-or-self::expr_or_assign_or_help)/(LEFT_ASSIGN | EQ_ASSIGN)[following-sibling::expr[FUNCTION or OP-LAMBDA]]/preceding-sibling::expr[count(*)=1]/SYMBOL",
+    "(* | descendant-or-self::expr | descendant-or-self::expr_or_assign_or_help)/RIGHT_ASSIGN[preceding-sibling::expr[FUNCTION or OP-LAMBDA]]/following-sibling::expr[count(*)=1]/SYMBOL",
     sep = "|")
 
 #' Complete bindings supplied by the enclosing execution context
@@ -1088,9 +1086,8 @@ token_completion <- function(uri, workspace, token, exclude = NULL, limit = Inf)
         symbols <- xml_text(xml_find_all(
             xdoc,
             glue(
-                "//*[
-                    (self::SYMBOL[preceding-sibling::OP-DOLLAR] or self::SYMBOL_SUB) and
-                    starts-with(text(),'{token_quote}')]",
+                "//SYMBOL[preceding-sibling::OP-DOLLAR and starts-with(text(),'{token_quote}')] |
+                //SYMBOL_SUB[starts-with(text(),'{token_quote}')]",
                 token_quote = token_quote
             )
         ))
@@ -1099,8 +1096,10 @@ token_completion <- function(uri, workspace, token, exclude = NULL, limit = Inf)
             symbols <- c(symbols, xml_text(xml_find_all(
                 xdoc,
                 glue(
-                    "//*[(self::SYMBOL or self::SYMBOL_SUB or self::SYMBOL_FORMALS or self::SYMBOL_FUNCTION_CALL) and
-                        starts-with(text(),'{token_quote}')]",
+                    "//SYMBOL[starts-with(text(),'{token_quote}')] |
+                    //SYMBOL_SUB[starts-with(text(),'{token_quote}')] |
+                    //SYMBOL_FORMALS[starts-with(text(),'{token_quote}')] |
+                    //SYMBOL_FUNCTION_CALL[starts-with(text(),'{token_quote}')]",
                     token_quote = token_quote
                 )
             )))

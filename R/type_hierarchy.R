@@ -156,7 +156,7 @@ detect_type_definition <- function(uri, workspace, document, point, token_text) 
         if (length(r6_expr)) {
             class_str <- class_xml_name(r6_expr)
             class_sym <- class_xml_first(r6_expr,
-                ".//LEFT_ASSIGN/preceding-sibling::expr[1]/SYMBOL | .//EQ_ASSIGN/preceding-sibling::expr[1]/SYMBOL")
+                "(.//LEFT_ASSIGN | .//EQ_ASSIGN)/preceding-sibling::expr[1]/SYMBOL")
             class_name_value <- NULL
             if (length(class_str)) {
                 class_name_value <- class_token_text(xml_text(class_str))
@@ -216,13 +216,10 @@ detect_r6class <- function(scopes, token_text, document, uri) {
 
     # Pattern: name <- R6::R6Class(...)
     xpath <- glue(
-        "//expr[LEFT_ASSIGN or EQ_ASSIGN][
-      preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}']
-    ][
-      following-sibling::expr[1]//SYMBOL_FUNCTION_CALL[
-        text() = 'R6Class'
-      ]
-    ]",
+        "(//LEFT_ASSIGN | //EQ_ASSIGN)[
+            preceding-sibling::expr[count(*) = 1]/SYMBOL[text() = '{token_quote}']
+            and following-sibling::expr[1]//SYMBOL_FUNCTION_CALL[text() = 'R6Class']
+        ]/parent::expr",
         token_quote = token_quote
     )
 
@@ -288,8 +285,9 @@ detect_s3class <- function(scopes, token_text, document, uri) {
         class_name <- parts[length(parts)]
 
         xpath <- glue(
-            "//expr[LEFT_ASSIGN or EQ_ASSIGN][
-        expr[1][count(*)=1]/SYMBOL[text() = '{token_quote}']]",
+            "(//LEFT_ASSIGN | //EQ_ASSIGN)[
+                preceding-sibling::expr[count(*) = 1]/SYMBOL[text() = '{token_quote}']
+            ]/parent::expr",
             token_quote = xml_single_quote(token_text)
         )
 
@@ -922,10 +920,8 @@ extract_r6_list_members <- function(document, list_node, access_modifier) {
 
     # Find SYMBOL_SUB elements that have EQ_SUB as immediate next sibling
     # This indicates name = value patterns
-    all_symbol_subs <- class_xml_all(list_node, paste(
-        ".//SYMBOL_SUB[following-sibling::*[not(self::COMMENT)][1][self::EQ_SUB]]",
-        ".//STR_CONST[following-sibling::*[not(self::COMMENT)][1][self::EQ_SUB]]",
-        sep = " | "))
+    all_symbol_subs <- class_xml_all(list_node,
+        ".//EQ_SUB/preceding-sibling::*[not(self::COMMENT)][1][self::SYMBOL_SUB or self::STR_CONST]")
 
     # Process all SYMBOL_SUB elements and try to find their values
     for (symbol_sub in all_symbol_subs) {
@@ -980,8 +976,7 @@ extract_r6_list_members <- function(document, list_node, access_modifier) {
         }
 
         # Check if this specific value expression contains a FUNCTION keyword
-        func_node <- class_xml_first(value_expr, ".//FUNCTION")
-        is_function <- length(func_node) > 0
+        is_function <- xml_find_lgl(value_expr, "boolean(.//FUNCTION)")
 
         member_kind <- if (is_function) SymbolKind$Method else SymbolKind$Field
         member_range <- get_element_range(document, symbol_sub)
@@ -1026,7 +1021,7 @@ extract_s4_members <- function(document, xdoc, def) {
         if (length(slots_node)) {
             # Find all named slots
             slot_names <- class_xml_all(slots_node,
-                ".//SYMBOL_SUB[following-sibling::*[not(self::COMMENT)][1][self::EQ_SUB]] | .//STR_CONST[following-sibling::*[not(self::COMMENT)][1][self::EQ_SUB]]")
+                ".//EQ_SUB/preceding-sibling::*[not(self::COMMENT)][1][self::SYMBOL_SUB or self::STR_CONST]")
             for (slot_name_node in slot_names) {
                 slot_name_text <- xml_text(slot_name_node)
                 slot_name <- class_token_text(slot_name_text)
@@ -1110,7 +1105,7 @@ extract_refclass_members <- function(document, xdoc, def) {
 
         if (length(fields_node)) {
             field_names <- class_xml_all(fields_node,
-                "./SYMBOL_SUB[following-sibling::*[not(self::COMMENT)][1][self::EQ_SUB]] | ./STR_CONST[following-sibling::*[not(self::COMMENT)][1][self::EQ_SUB]]")
+                "./EQ_SUB/preceding-sibling::*[not(self::COMMENT)][1][self::SYMBOL_SUB or self::STR_CONST]")
             for (field_name_node in field_names) {
                 field_name <- class_token_text(xml_text(field_name_node))
                 field_range <- get_element_range(document, field_name_node)
@@ -1135,7 +1130,7 @@ extract_refclass_members <- function(document, xdoc, def) {
 
         if (length(methods_node)) {
             method_names <- class_xml_all(methods_node,
-                "./SYMBOL_SUB[following-sibling::*[not(self::COMMENT)][1][self::EQ_SUB]] | ./STR_CONST[following-sibling::*[not(self::COMMENT)][1][self::EQ_SUB]]")
+                "./EQ_SUB/preceding-sibling::*[not(self::COMMENT)][1][self::SYMBOL_SUB or self::STR_CONST]")
             for (method_name_node in method_names) {
                 method_name <- class_token_text(xml_text(method_name_node))
                 method_range <- get_element_range(document, method_name_node)

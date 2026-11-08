@@ -47,13 +47,12 @@ call_has_implicit_argument <- function(call_node) {
     operator <- xml_find_first(call_node, "preceding-sibling::*[not(self::COMMENT)][1]")
     if (inherits(operator, "xml_missing")) return(FALSE)
     if (xml_name(operator) %in% c("PIPE", "OP-PIPE")) {
-        placeholder <- xml_find_first(call_node, "expr[count(*) = 1]/PLACEHOLDER")
-    } else if (xml_name(operator) == "SPECIAL" && xml_text(operator) %in% c("%>%", "%<>%", "%T>%")) {
-        placeholder <- xml_find_first(call_node, "expr[count(*) = 1]/SYMBOL[text() = '.']")
-    } else {
-        return(FALSE)
+        return(xml_find_lgl(call_node, "not(expr[count(*) = 1]/PLACEHOLDER)"))
     }
-    inherits(placeholder, "xml_missing")
+    if (xml_name(operator) == "SPECIAL" && xml_text(operator) %in% c("%>%", "%<>%", "%T>%")) {
+        return(xml_find_lgl(call_node, "not(expr[count(*) = 1]/SYMBOL[text() = '.'])"))
+    }
+    FALSE
 }
 
 #' Match an R named argument using exact and unique partial matching
@@ -218,17 +217,19 @@ inlay_hint_reply <- function(id, uri, workspace, document, request_range) {
     if (request_range$end$character == 0L && end_line > start_line) {
         end_line <- end_line - 1L
     }
-    calls <- xml_find_all(
+    fn_nodes <- xml_find_all(
         xdoc,
         paste0(
-            "//expr[@line2 >= ", start_line,
-            " and @line1 <= ", end_line,
-            " and expr[1][following-sibling::*[not(self::COMMENT)][1]",
-            "[self::OP-LEFT-PAREN]] and ",
-            "expr[1]/SYMBOL_FUNCTION_CALL]"
+            "//SYMBOL_FUNCTION_CALL[parent::expr[",
+            "not(preceding-sibling::expr or ./OP-DOLLAR or ./OP-AT)",
+            " and following-sibling::*[not(self::COMMENT)][1][self::OP-LEFT-PAREN]",
+            " and parent::expr[@line2 >= ", start_line, " and @line1 <= ", end_line, "]]]"
         )
     )
-    if (!length(calls)) return(Response$new(id, result = list()))
+    if (!length(fn_nodes)) return(Response$new(id, result = list()))
+    calls <- xml_parent(xml_parent(fn_nodes))
+    function_names <- xml_text(fn_nodes)
+    packages <- xml_find_chr(fn_nodes, "string(preceding-sibling::SYMBOL_PACKAGE[1])")
 
     minimum_arguments <- lsp_settings$get("inlay_hints_minimum_arguments")
     if (!is.numeric(minimum_arguments) || length(minimum_arguments) != 1L ||
@@ -246,20 +247,13 @@ inlay_hint_reply <- function(id, uri, workspace, document, request_range) {
 
     formals_cache <- new.env(parent = emptyenv())
     hints <- list()
-    for (call_node in calls) {
-        callee <- xml_find_first(call_node, "expr[1]")
-        member_operator <- xml_find_first(
-            callee,
-            "./*[self::OP-DOLLAR or self::OP-AT]"
-        )
-        if (!inherits(member_operator, "xml_missing")) next
+    for (i in seq_along(calls)) {
+        call_node <- calls[[i]]
+        function_name <- function_names[[i]]
+        if (!nzchar(function_name)) next
 
-        function_node <- xml_find_first(callee, "./SYMBOL_FUNCTION_CALL[1]")
-        if (inherits(function_node, "xml_missing")) next
-
-        function_name <- xml_text(function_node)
-        package_node <- xml_find_first(callee, "./SYMBOL_PACKAGE[1]")
-        package <- if (inherits(package_node, "xml_missing")) NULL else xml_text(package_node)
+        package <- packages[[i]]
+        if (!nzchar(package)) package <- NULL
         cache_key <- paste(if (is.null(package)) "" else package, function_name, sep = "::")
         if (exists(cache_key, envir = formals_cache, inherits = FALSE)) {
             function_formals <- get(cache_key, envir = formals_cache, inherits = FALSE)

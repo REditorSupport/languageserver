@@ -80,15 +80,13 @@ get_document_blocks <- function(xdoc, outline = NULL) {
     if (is.null(xdoc)) {
         return(NULL)
     }
-    blocks <- xml_find_all(xdoc, "//expr[@line1 < @line2 and
-        (OP-LEFT-PAREN | OP-LEFT-BRACKET | OP-LEFT-BRACE)/@line1 <
-        (OP-RIGHT-PAREN | OP-RIGHT-BRACKET | OP-RIGHT-BRACE)/@line1]")
-    if (!length(blocks)) { # prevent floating point comparision
+    block_start <- xml_find_all(xdoc, "(//OP-LEFT-PAREN | //OP-LEFT-BRACKET | //OP-LEFT-BRACE)[parent::expr and
+        @line1 < (following-sibling::OP-RIGHT-PAREN | following-sibling::OP-RIGHT-BRACKET | following-sibling::OP-RIGHT-BRACE)/@line1]")
+    if (!length(block_start)) { # prevent floating point comparision
         return(NULL)
     }
 
-    block_start <- xml_find_first(blocks, "OP-LEFT-PAREN | OP-LEFT-BRACKET | OP-LEFT-BRACE")
-    block_end <- xml_find_first(blocks, "OP-RIGHT-PAREN | OP-RIGHT-BRACKET | OP-RIGHT-BRACE")
+    block_end <- xml_find_first(block_start, "following-sibling::OP-RIGHT-PAREN | following-sibling::OP-RIGHT-BRACKET | following-sibling::OP-RIGHT-BRACE")
 
     block_start_line <- as.integer(xml_attr(block_start, "line1"))
     block_end_line <- as.integer(xml_attr(block_end, "line1"))

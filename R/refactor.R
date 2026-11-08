@@ -133,7 +133,7 @@ refactor_sequence_container <- function(node) {
     name <- xml_name(node)
     identical(name, "exprlist") ||
         identical(name, "expr") &&
-            length(xml_find_all(node, "OP-LEFT-BRACE")) > 0L
+            xml_find_lgl(node, "boolean(OP-LEFT-BRACE)")
 }
 
 #' Find the statement and sequential container enclosing an expression
@@ -193,11 +193,11 @@ refactor_expression_movable <- function(node, statement) {
             pipe <- pipes[[1L]]
             if (refactor_same_node(node, current) || xml_text(children[[pipe]]) == "%$%") return(FALSE)
             placeholder <- if (child_names[[pipe]] == "SPECIAL") {
-                ".//*[self::PLACEHOLDER or (self::SYMBOL or self::SYMBOL_FUNCTION_CALL) and (text() = '.' or text() = '`.`')]"
+                "boolean(.//PLACEHOLDER | .//SYMBOL[text() = '.' or text() = '`.`'] | .//SYMBOL_FUNCTION_CALL[text() = '.' or text() = '`.`'])"
             } else {
-                ".//PLACEHOLDER"
+                "boolean(.//PLACEHOLDER)"
             }
-            if (length(xml_find_all(node, placeholder))) return(FALSE)
+            if (xml_find_lgl(node, placeholder)) return(FALSE)
         }
 
         assignments <- which(child_names %in% c(
@@ -248,7 +248,7 @@ refactor_exact_expression <- function(xdoc, selected_range) {
 #' Find contiguous statement expressions matching a selected range
 #' @noRd
 refactor_statement_selection <- function(xdoc, selected_range) {
-    containers <- xml_find_all(xdoc, "/exprlist | //expr[OP-LEFT-BRACE]")
+    containers <- xml_find_all(xdoc, "/exprlist | //OP-LEFT-BRACE/parent::expr")
     result <- NULL
     for (container in containers) {
         children <- xml_children(container)
@@ -346,7 +346,7 @@ refactor_unsafe_syntax <- function(node, extracting_function = FALSE) {
     token_names <- refactor_token_names(node)
     token_text <- xml_text(xml_find_all(
         node,
-        ".//*[self::LEFT_ASSIGN or self::RIGHT_ASSIGN]"
+        ".//LEFT_ASSIGN | .//RIGHT_ASSIGN"
     ))
     calls <- refactor_call_names(node)
     unsafe_calls <- c(
@@ -516,8 +516,14 @@ refactor_multiline_quoted_ranges <- function(context) {
             )
         }))
     }
-    quoted <- xml_find_all(context$xdoc,
-        "//*[@line1 < @line2 and (self::STR_CONST or starts-with(name(), 'SYMBOL'))]")
+    quoted <- xml_find_all(context$xdoc, paste(
+        "//STR_CONST[@line1 < @line2]",
+        "//SYMBOL[@line1 < @line2]",
+        "//SYMBOL_FUNCTION_CALL[@line1 < @line2]",
+        "//SYMBOL_FORMALS[@line1 < @line2]",
+        "//SYMBOL_SUB[@line1 < @line2]",
+        "//SYMBOL_PACKAGE[@line1 < @line2]",
+        sep = " | "))
     lapply(quoted, refactor_node_range)
 }
 
@@ -841,10 +847,10 @@ refactor_extract_function_action <- function(uri, workspace, document,
         return(NULL)
     }
     uses_dots <- vapply(selection$nodes, function(node) {
-        "..." %in% xml_text(xml_find_all(
+        xml_find_lgl(
             node,
-            ".//*[self::SYMBOL or self::SYMBOL_FORMALS]"
-        ))
+            "boolean(.//SYMBOL[text() = '...'] | .//SYMBOL_FORMALS[text() = '...'])"
+        )
     }, logical(1L))
     if (any(uses_dots)) {
         return(NULL)

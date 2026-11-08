@@ -1,8 +1,7 @@
 definition_xpath <- paste(
-    "(* | descendant-or-self::expr | descendant-or-self::expr_or_assign_or_help)[self::FUNCTION or self::OP-LAMBDA]/following-sibling::SYMBOL_FORMALS[text() = '{token_quote}' and @line1 <= {row}]",
-    "(* | descendant-or-self::expr | descendant-or-self::expr_or_assign_or_help)[LEFT_ASSIGN[preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}] and following-sibling::expr[@start > {start} or @end < {end}]]]",
+    "(FUNCTION | OP-LAMBDA)/following-sibling::SYMBOL_FORMALS[text() = '{token_quote}' and @line1 <= {row}]",
+    "(* | descendant-or-self::expr | descendant-or-self::expr_or_assign_or_help)[(LEFT_ASSIGN | EQ_ASSIGN)[preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}] and following-sibling::expr[@start > {start} or @end < {end}]]]",
     "(* | descendant-or-self::expr | descendant-or-self::expr_or_assign_or_help)[RIGHT_ASSIGN[following-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}] and preceding-sibling::expr[@start > {start} or @end < {end}]]]",
-    "(* | descendant-or-self::expr | descendant-or-self::expr_or_assign_or_help)[EQ_ASSIGN[preceding-sibling::expr[count(*)=1]/SYMBOL[text() = '{token_quote}' and @line1 <= {row}] and following-sibling::expr[@start > {start} or @end < {end}]]]",
     "forcond/SYMBOL[text() = '{token_quote}' and @line1 <= {row}]",
     sep = "|")
 
@@ -73,8 +72,7 @@ definition_reply <- function(id, uri, workspace, document, point,
             logger$info("definition: ", token_name, token_text)
             if (token_name %in% c("SYMBOL", "SYMBOL_FUNCTION_CALL", "SYMBOL_FORMALS")) {
                 # symbol
-                preceding_dollar <- xml_find_first(token, "preceding-sibling::OP-DOLLAR")
-                if (length(preceding_dollar) == 0) {
+                if (xml_find_lgl(token, "not(preceding-sibling::OP-DOLLAR)")) {
                     xpath <- glue(definition_xpath,
                         row = row, start = token_start, end = token_end,
                         token_quote = xml_single_quote(token_text))
