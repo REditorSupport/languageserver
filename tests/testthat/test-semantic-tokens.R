@@ -1,6 +1,6 @@
 test_that("Unicode columns are converted once per line with scalar-equivalent positions", {
-    content <- c(paste0("\"", intToUtf8(0x1f600), "\"; ", intToUtf8(0x03b1), " <- 1; ",
-        intToUtf8(0x03b1), " + ", intToUtf8(0x03b1)), "plain <- plain", "é <- é")
+    alpha <- intToUtf8(0x03b1)
+    content <- c(paste0('"', intToUtf8(0x1f600), '"; ', alpha, " <- 1; ", alpha, " + ", alpha), "plain <- plain", "é <- é")
     lines <- c(1L, 1L, 2L, 1L, 3L, NA_integer_)
     starts <- c(0L, 5L, 0L, 12L, 0L, NA_integer_)
     ends <- c(3L, 6L, 5L, 13L, 1L, NA_integer_)
@@ -415,9 +415,20 @@ test_that("Semantic token types cover every parser token category", {
         SYMBOL = SemanticTokenTypes$variable,
         SYMBOL_FUNCTION_CALL = SemanticTokenTypes[["function"]],
         SYMBOL_FORMALS = SemanticTokenTypes$parameter,
+        SYMBOL_SUB = SemanticTokenTypes$parameter,
         SYMBOL_PACKAGE = SemanticTokenTypes$namespace,
         FUNCTION = SemanticTokenTypes$keyword,
         KEYWORD = SemanticTokenTypes$keyword,
+        IF = SemanticTokenTypes$keyword,
+        ELSE = SemanticTokenTypes$keyword,
+        FOR = SemanticTokenTypes$keyword,
+        IN = SemanticTokenTypes$keyword,
+        WHILE = SemanticTokenTypes$keyword,
+        REPEAT = SemanticTokenTypes$keyword,
+        NEXT = SemanticTokenTypes$keyword,
+        BREAK = SemanticTokenTypes$keyword,
+        NULL_CONST = SemanticTokenTypes$keyword,
+        PLACEHOLDER = SemanticTokenTypes$variable,
         NUM_CONST = SemanticTokenTypes$number,
         INT_CONST = SemanticTokenTypes$number,
         FLOAT_CONST = SemanticTokenTypes$number,
@@ -427,7 +438,33 @@ test_that("Semantic token types cover every parser token category", {
         LEFT_ASSIGN = SemanticTokenTypes$operator,
         RIGHT_ASSIGN = SemanticTokenTypes$operator,
         EQ_ASSIGN = SemanticTokenTypes$operator,
+        EQ_SUB = SemanticTokenTypes$operator,
+        EQ_FORMALS = SemanticTokenTypes$operator,
+        SPECIAL = SemanticTokenTypes$operator,
+        NS_GET = SemanticTokenTypes$operator,
+        NS_GET_INT = SemanticTokenTypes$operator,
+        GT = SemanticTokenTypes$operator,
+        GE = SemanticTokenTypes$operator,
+        LT = SemanticTokenTypes$operator,
+        LE = SemanticTokenTypes$operator,
+        EQ = SemanticTokenTypes$operator,
+        NE = SemanticTokenTypes$operator,
+        AND = SemanticTokenTypes$operator,
+        OR = SemanticTokenTypes$operator,
+        AND2 = SemanticTokenTypes$operator,
+        OR2 = SemanticTokenTypes$operator,
+        PIPE = SemanticTokenTypes$operator,
         `OP-DOLLAR` = SemanticTokenTypes$operator,
+        `OP-AT` = SemanticTokenTypes$operator,
+        `OP-TILDE` = SemanticTokenTypes$operator,
+        `OP-QUESTION` = SemanticTokenTypes$operator,
+        `OP-COLON` = SemanticTokenTypes$operator,
+        `OP-PLUS` = SemanticTokenTypes$operator,
+        `OP-MINUS` = SemanticTokenTypes$operator,
+        `OP-STAR` = SemanticTokenTypes$operator,
+        `OP-SLASH` = SemanticTokenTypes$operator,
+        `OP-CARET` = SemanticTokenTypes$operator,
+        `OP-EXCLAMATION` = SemanticTokenTypes$operator,
         `OP-PIPE` = SemanticTokenTypes$operator,
         OP = SemanticTokenTypes$operator,
         `OP-LAMBDA` = SemanticTokenTypes$keyword,
@@ -559,4 +596,659 @@ test_that("Function assignments with comments around operators emit declaration 
         vapply(fn_declarations, `[[`, integer(1L), "line"),
         c(0L, 3L, 8L, 10L, 15L)
     )
+})
+
+test_that("Control-flow keywords and return() calls emit keyword semantic tokens", {
+    uri <- "file:///control-flow-semantic.R"
+    content <- c(
+        "fn <- function(x) {",
+        "  if (x > 0) {",
+        "    for (i in seq_len(x)) {",
+        "      while (i < 10) {",
+        "        repeat {",
+        "          if (i == 5) next else break",
+        "        }",
+        "      }",
+        "    }",
+        "    return(x)",
+        "  }",
+        "}"
+    )
+    parsed <- parse(text = content, keep.source = TRUE)
+    semantic <- semantic_parse_data(
+        utils::getParseData(parsed, includeText = TRUE),
+        content
+    )
+    xdoc <- xml2::read_xml(xmlparsedata::xml_parse_data(parsed))
+    document <- Document$new(uri, version = 1L, content = content)
+
+    expected_keywords <- list(
+        list(line = 1L, col = 2L, word = "if"),
+        list(line = 2L, col = 4L, word = "for"),
+        list(line = 2L, col = 11L, word = "in"),
+        list(line = 3L, col = 6L, word = "while"),
+        list(line = 4L, col = 8L, word = "repeat"),
+        list(line = 5L, col = 10L, word = "if"),
+        list(line = 5L, col = 22L, word = "next"),
+        list(line = 5L, col = 27L, word = "else"),
+        list(line = 5L, col = 32L, word = "break"),
+        list(line = 9L, col = 4L, word = "return")
+    )
+
+    for (cached in c(TRUE, FALSE)) {
+        workspace <- list(get_parse_data = function(request_uri) {
+            expect_identical(request_uri, uri)
+            list(
+                version = 1L,
+                xml_doc = xdoc,
+                semantic_data = if (cached) semantic else NULL
+            )
+        })
+        tokens <- extract_semantic_tokens(uri, workspace, document)
+        for (kw in expected_keywords) {
+            matched <- Filter(function(token) {
+                token$line == kw$line &&
+                    token$col == kw$col &&
+                    token$length == nchar(kw$word)
+            }, tokens)
+            expect_length(matched, 1L)
+            expect_equal(matched[[1L]]$tokenType, SemanticTokenTypes$keyword)
+            expect_equal(matched[[1L]]$tokenModifiers, 0L)
+        }
+        range_reply <- semantic_tokens_range_reply(
+            1L,
+            uri,
+            workspace,
+            document,
+            list(
+                start = list(line = 5L, character = 0L),
+                end = list(line = 5L, character = 40L)
+            )
+        )
+        expect_true(length(range_reply$result$data) > 0L)
+    }
+})
+
+test_that("Lambda and qualified return() calls emit expected semantic tokens", {
+    edge_uri <- "file:///control-flow-edge-cases.R"
+    edge_content <- c(
+        "obj <- list(return = function(x) x + 1L)",
+        "fn <- \\(x, return = 1L) {",
+        "  obj$return(1L)",
+        "  pkg::return(x)",
+        "  pkg:::return(x)",
+        "  `return`(x)",
+        "  return(x)",
+        "}"
+    )
+    edge_parsed <- parse(text = edge_content, keep.source = TRUE)
+    edge_semantic <- semantic_parse_data(
+        utils::getParseData(edge_parsed, includeText = TRUE),
+        edge_content
+    )
+    edge_xdoc <- xml2::read_xml(xmlparsedata::xml_parse_data(edge_parsed))
+    edge_doc <- Document$new(edge_uri, version = 1L, content = edge_content)
+    for (cached in c(TRUE, FALSE)) {
+        edge_ws <- list(get_parse_data = function(...) {
+            list(
+                version = 1L,
+                xml_doc = edge_xdoc,
+                semantic_data = if (cached) edge_semantic else NULL
+            )
+        })
+        edge_tokens <- extract_semantic_tokens(edge_uri, edge_ws, edge_doc)
+        token_type_at <- function(line, col, len) {
+            matched <- Filter(function(t) {
+                t$line == line && t$col == col && t$length == len
+            }, edge_tokens)
+            expect_length(matched, 1L)
+            matched[[1L]]$tokenType
+        }
+        expect_equal(token_type_at(0L, 21L, 8L), SemanticTokenTypes$keyword)
+        expect_equal(token_type_at(1L, 6L, 1L), SemanticTokenTypes$keyword)
+        expect_equal(token_type_at(2L, 6L, 6L), SemanticTokenTypes[["function"]])
+        expect_equal(token_type_at(3L, 7L, 6L), SemanticTokenTypes[["function"]])
+        expect_equal(token_type_at(4L, 8L, 6L), SemanticTokenTypes[["function"]])
+        expect_equal(token_type_at(5L, 2L, 8L), SemanticTokenTypes[["function"]])
+        expect_equal(token_type_at(6L, 2L, 6L), SemanticTokenTypes$keyword)
+    }
+})
+
+test_that("Operators emit expected semantic tokens", {
+    uri <- "file:///operators-semantic.R"
+    content <- c(
+        "summary_fn <- function(x_val = 1L, y_val = 2L) {",
+        "  pkg::pub + pkg:::priv - obj@slot * obj$field / x_val ^ y_val ** 2L",
+        "  cmp = (x_val > 0L) & (x_val >= 1L) | (y_val < 10L) && (y_val <= 9L) || (x_val == y_val) != (!FALSE)",
+        "  dt[, col := x_val %in% 1:10 |> identity(a = x_val)] -> out ->> out_global",
+        "  out <<- ?mean",
+        paste0("  x_val %", intToUtf8(0x1f389), "% y_val"),
+        "  y_val ~ x_val",
+        "}"
+    )
+    parsed <- parse(text = content, keep.source = TRUE, encoding = "UTF-8")
+    pd <- utils::getParseData(parsed, includeText = TRUE)
+    semantic <- semantic_parse_data(pd, content)
+    xdoc <- xml2::read_xml(xmlparsedata::xml_parse_data(parsed))
+    document <- Document$new(uri, version = 1L, content = content)
+
+    op_tokens <- c(
+        "LEFT_ASSIGN", "RIGHT_ASSIGN", "EQ_ASSIGN", "EQ_SUB", "EQ_FORMALS",
+        "SPECIAL", "NS_GET", "NS_GET_INT",
+        "GT", "GE", "LT", "LE", "EQ", "NE",
+        "AND", "OR", "AND2", "OR2", "PIPE",
+        "'$'", "'@'", "'~'", "'?'", "':'",
+        "'+'", "'-'", "'*'", "'/'", "'^'", "'!'"
+    )
+    expect_true(all(op_tokens %in% pd$token[pd$terminal]))
+
+    expected <- list(
+        # Line 0: <-, =, =
+        list(line = 0L, col = 11L, len = 2L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 0L, col = 29L, len = 1L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 0L, col = 41L, len = 1L, type = SemanticTokenTypes$operator, mod = 0L),
+        # Line 1: ::, +, :::, -, @, *, $, /, ^, **
+        list(line = 1L, col = 5L, len = 2L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 1L, col = 11L, len = 1L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 1L, col = 16L, len = 3L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 1L, col = 24L, len = 1L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 1L, col = 29L, len = 1L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 1L, col = 35L, len = 1L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 1L, col = 40L, len = 1L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 1L, col = 47L, len = 1L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 1L, col = 55L, len = 1L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 1L, col = 63L, len = 2L, type = SemanticTokenTypes$operator, mod = 0L),
+        # Line 2: =, >, &, >=, |, <, &&, <=, ||, ==, !=, !
+        list(line = 2L, col = 6L, len = 1L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 2L, col = 15L, len = 1L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 2L, col = 21L, len = 1L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 2L, col = 30L, len = 2L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 2L, col = 37L, len = 1L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 2L, col = 46L, len = 1L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 2L, col = 53L, len = 2L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 2L, col = 63L, len = 2L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 2L, col = 70L, len = 2L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 2L, col = 80L, len = 2L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 2L, col = 90L, len = 2L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 2L, col = 94L, len = 1L, type = SemanticTokenTypes$operator, mod = 0L),
+        # Line 3: :=, %in%, :, |>, =, ->, ->>
+        list(line = 3L, col = 11L, len = 2L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 3L, col = 20L, len = 4L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 3L, col = 26L, len = 1L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 3L, col = 30L, len = 2L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 3L, col = 44L, len = 1L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 3L, col = 54L, len = 2L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 3L, col = 61L, len = 3L, type = SemanticTokenTypes$operator, mod = 0L),
+        # Line 4: <<-, ?
+        list(line = 4L, col = 6L, len = 3L, type = SemanticTokenTypes$operator, mod = 0L),
+        list(line = 4L, col = 10L, len = 1L, type = SemanticTokenTypes$operator, mod = 0L),
+        # Line 5: %🎉% (4 UTF-16 code units)
+        list(line = 5L, col = 8L, len = 4L, type = SemanticTokenTypes$operator, mod = 0L),
+        # Line 6: ~
+        list(line = 6L, col = 8L, len = 1L, type = SemanticTokenTypes$operator, mod = 0L)
+    )
+
+    for (cached in c(TRUE, FALSE)) {
+        workspace <- list(get_parse_data = function(request_uri) {
+            expect_identical(request_uri, uri)
+            list(
+                version = 1L,
+                xml_doc = xdoc,
+                semantic_data = if (cached) semantic else NULL
+            )
+        })
+        tokens <- extract_semantic_tokens(uri, workspace, document)
+        full <- semantic_tokens_full_reply(1L, uri, workspace, document)
+        expect_identical(full$result$data, semantic$encoded)
+        for (item in expected) {
+            matched <- Filter(function(token) {
+                token$line == item$line &&
+                    token$col == item$col &&
+                    token$length == item$len
+            }, tokens)
+            expect_length(matched, 1L)
+            expect_equal(matched[[1L]]$tokenType, item$type)
+            expect_equal(matched[[1L]]$tokenModifiers, item$mod)
+        }
+    }
+})
+
+test_that("Pipebind (=>) operator emits operator semantic token", {
+    withr::local_envvar(c("_R_USE_PIPEBIND_" = "true"))
+    pb_uri <- "file:///pipebind-semantic.R"
+    pb_content <- "x |> a => f(1, a)"
+    pb_parsed <- parse(text = pb_content, keep.source = TRUE)
+    pb_semantic <- semantic_parse_data(
+        utils::getParseData(pb_parsed, includeText = TRUE),
+        pb_content
+    )
+    pb_xdoc <- xml2::read_xml(xmlparsedata::xml_parse_data(pb_parsed))
+    pb_doc <- Document$new(pb_uri, version = 1L, content = pb_content)
+    for (cached in c(TRUE, FALSE)) {
+        pb_ws <- list(get_parse_data = function(...) {
+            list(
+                version = 1L,
+                xml_doc = pb_xdoc,
+                semantic_data = if (cached) pb_semantic else NULL
+            )
+        })
+        pb_tokens <- extract_semantic_tokens(pb_uri, pb_ws, pb_doc)
+        matched <- Filter(function(token) {
+            token$line == 0L && token$col == 7L && token$length == 2L
+        }, pb_tokens)
+        expect_length(matched, 1L)
+        expect_equal(matched[[1L]]$tokenType, SemanticTokenTypes$operator)
+        expect_equal(matched[[1L]]$tokenModifiers, 0L)
+    }
+})
+
+test_that("Named arguments and scoped parameter references emit parameter tokens", {
+    uri <- "file:///parameters-semantic.R"
+    content <- c(
+        "compute <- function(alpha, beta = alpha + 1L) {",
+        "  local_var <- alpha + beta",
+        "  inner <- \\(gamma) alpha + gamma + obj$alpha + pkg::beta",
+        "  inner(gamma = local_var)",
+        "}"
+    )
+    parsed <- parse(text = content, keep.source = TRUE)
+    semantic <- semantic_parse_data(
+        utils::getParseData(parsed, includeText = TRUE),
+        content
+    )
+    xdoc <- xml2::read_xml(xmlparsedata::xml_parse_data(parsed))
+    document <- Document$new(uri, version = 1L, content = content)
+    decl_mod <- bitwShiftL(1L, SemanticTokenModifiers$declaration)
+
+    expected <- list(
+        # Formal parameter declarations
+        list(line = 0L, col = 20L, name = "alpha", type = SemanticTokenTypes$parameter, mod = decl_mod),
+        list(line = 0L, col = 27L, name = "beta", type = SemanticTokenTypes$parameter, mod = decl_mod),
+        # Default expression referencing earlier formal parameter
+        list(line = 0L, col = 34L, name = "alpha", type = SemanticTokenTypes$parameter, mod = 0L),
+        # Body references vs local variable
+        list(line = 1L, col = 2L, name = "local_var", type = SemanticTokenTypes$variable, mod = 0L),
+        list(line = 1L, col = 15L, name = "alpha", type = SemanticTokenTypes$parameter, mod = 0L),
+        list(line = 1L, col = 23L, name = "beta", type = SemanticTokenTypes$parameter, mod = 0L),
+        # Nested lambda formal and outer/inner parameter references vs $ and :: members
+        list(line = 2L, col = 13L, name = "gamma", type = SemanticTokenTypes$parameter, mod = decl_mod),
+        list(line = 2L, col = 20L, name = "alpha", type = SemanticTokenTypes$parameter, mod = 0L),
+        list(line = 2L, col = 28L, name = "gamma", type = SemanticTokenTypes$parameter, mod = 0L),
+        list(line = 2L, col = 40L, name = "alpha", type = SemanticTokenTypes$variable, mod = 0L),
+        list(line = 2L, col = 53L, name = "beta", type = SemanticTokenTypes$variable, mod = 0L),
+        # Named call argument (SYMBOL_SUB)
+        list(line = 3L, col = 8L, name = "gamma", type = SemanticTokenTypes$parameter, mod = 0L),
+        list(line = 3L, col = 16L, name = "local_var", type = SemanticTokenTypes$variable, mod = 0L)
+    )
+
+    for (cached in c(TRUE, FALSE)) {
+        workspace <- list(get_parse_data = function(request_uri) {
+            expect_identical(request_uri, uri)
+            list(xml_doc = xdoc, semantic_data = if (cached) semantic else NULL)
+        })
+        tokens <- extract_semantic_tokens(uri, workspace, document)
+        for (item in expected) {
+            matched <- Filter(function(token) {
+                token$line == item$line &&
+                    token$col == item$col &&
+                    token$length == nchar(item$name)
+            }, tokens)
+            expect_length(matched, 1L)
+            expect_equal(matched[[1L]]$tokenType, item$type)
+            expect_equal(matched[[1L]]$tokenModifiers, item$mod)
+        }
+    }
+})
+
+test_that("Backticked formals, shadowed bindings, and superassignments resolve parameter tokens", {
+    bt_uri <- "file:///backtick-parameters.R"
+    bt_content <- c(
+        "f <- function(`x` = 1, y = `x`, `...`) x + `y` + `...` + gamma",
+        "outside <- function(delta) delta + alpha",
+        "noop <- function(unused_arg) 1L",
+        "outer <- function(alpha) { inner <- function() { alpha <- 1L; alpha }; inner() }",
+        "loop_outer <- function(alpha) { inner <- function() { for (alpha in 1:3) print(alpha) }; inner() }",
+        "direct_loop <- function(alpha) { for (alpha in 1:3) print(alpha); alpha }",
+        "right_outer <- function(alpha) { inner <- function() { 1L -> alpha; alpha }; inner() }",
+        "sub_outer <- function(alpha) { inner <- function() { alpha[1] <- 1L; alpha }; inner() }",
+        "mem_outer <- function(alpha) { inner <- function() { alpha$x <- 1L; alpha }; inner() }",
+        "call_outer <- function(alpha) { inner <- function() { names(alpha) <- \"x\"; alpha }; inner() }",
+        "sup_left <- function(alpha) { inner <- function() { alpha <<- 1L; alpha }; inner() }",
+        "sup_right <- function(alpha) { inner <- function() { 1L ->> alpha; alpha }; inner() }",
+        "sup_formal <- function(alpha) { inner <- function() { alpha <- 10L; alpha <<- 1L; 1L ->> alpha; alpha }; inner() }",
+        "sup_var <- function() { alpha <- 1L; inner <- function(alpha) { alpha <<- 2L; 2L ->> alpha; alpha }; inner(9L) }",
+        "alpha <<- 1L"
+    )
+    bt_parsed <- parse(text = bt_content, keep.source = TRUE)
+    bt_semantic <- semantic_parse_data(
+        utils::getParseData(bt_parsed, includeText = TRUE),
+        bt_content
+    )
+    bt_xdoc <- xml2::read_xml(xmlparsedata::xml_parse_data(bt_parsed))
+    bt_doc <- Document$new(bt_uri, version = 1L, content = bt_content)
+    for (cached in c(TRUE, FALSE)) {
+        bt_ws <- list(get_parse_data = function(...) {
+            list(xml_doc = bt_xdoc, semantic_data = if (cached) bt_semantic else NULL)
+        })
+        bt_tokens <- extract_semantic_tokens(bt_uri, bt_ws, bt_doc)
+        token_type_at <- function(line, col, len) {
+            matched <- Filter(function(t) {
+                t$line == line && t$col == col && t$length == len
+            }, bt_tokens)
+            expect_length(matched, 1L)
+            matched[[1L]]$tokenType
+        }
+        expect_equal(token_type_at(0L, 27L, 3L), SemanticTokenTypes$parameter)
+        expect_equal(token_type_at(0L, 39L, 1L), SemanticTokenTypes$parameter)
+        expect_equal(token_type_at(0L, 43L, 3L), SemanticTokenTypes$parameter)
+        expect_equal(token_type_at(0L, 49L, 5L), SemanticTokenTypes$variable)
+        expect_equal(token_type_at(0L, 57L, 5L), SemanticTokenTypes$variable)
+        expect_equal(token_type_at(1L, 27L, 5L), SemanticTokenTypes$parameter)
+        expect_equal(token_type_at(1L, 35L, 5L), SemanticTokenTypes$variable)
+        # Line 3: outer formal alpha vs inner local assignment alpha <- 1L; alpha
+        expect_equal(token_type_at(3L, 18L, 5L), SemanticTokenTypes$parameter)
+        expect_equal(token_type_at(3L, 49L, 5L), SemanticTokenTypes$variable)
+        expect_equal(token_type_at(3L, 62L, 5L), SemanticTokenTypes$variable)
+        # Line 4: outer formal alpha vs inner loop variable for (alpha in 1:3) print(alpha)
+        expect_equal(token_type_at(4L, 23L, 5L), SemanticTokenTypes$parameter)
+        expect_equal(token_type_at(4L, 59L, 5L), SemanticTokenTypes$variable)
+        expect_equal(token_type_at(4L, 79L, 5L), SemanticTokenTypes$variable)
+        # Line 5: direct loop variable inside direct_loop vs trailing alpha parameter
+        expect_equal(token_type_at(5L, 24L, 5L), SemanticTokenTypes$parameter)
+        expect_equal(token_type_at(5L, 38L, 5L), SemanticTokenTypes$variable)
+        expect_equal(token_type_at(5L, 58L, 5L), SemanticTokenTypes$variable)
+        expect_equal(token_type_at(5L, 66L, 5L), SemanticTokenTypes$parameter)
+        # Line 6: rightward assignment shadowing
+        expect_equal(token_type_at(6L, 61L, 5L), SemanticTokenTypes$variable)
+        expect_equal(token_type_at(6L, 68L, 5L), SemanticTokenTypes$variable)
+        # Lines 7-9: replacement assignment shadowing ([<-, $<-, names<-)
+        expect_equal(token_type_at(7L, 53L, 5L), SemanticTokenTypes$variable)
+        expect_equal(token_type_at(7L, 69L, 5L), SemanticTokenTypes$variable)
+        expect_equal(token_type_at(8L, 53L, 5L), SemanticTokenTypes$variable)
+        expect_equal(token_type_at(8L, 68L, 5L), SemanticTokenTypes$variable)
+        expect_equal(token_type_at(9L, 60L, 5L), SemanticTokenTypes$variable)
+        expect_equal(token_type_at(9L, 75L, 5L), SemanticTokenTypes$variable)
+        # Lines 10-14: superassignment (<<-, ->>) resolves targets from parent environment
+        expect_equal(token_type_at(10L, 52L, 5L), SemanticTokenTypes$parameter)
+        expect_equal(token_type_at(10L, 66L, 5L), SemanticTokenTypes$parameter)
+        expect_equal(token_type_at(11L, 60L, 5L), SemanticTokenTypes$parameter)
+        expect_equal(token_type_at(11L, 67L, 5L), SemanticTokenTypes$parameter)
+        expect_equal(token_type_at(12L, 54L, 5L), SemanticTokenTypes$variable)
+        expect_equal(token_type_at(12L, 68L, 5L), SemanticTokenTypes$parameter)
+        expect_equal(token_type_at(12L, 89L, 5L), SemanticTokenTypes$parameter)
+        expect_equal(token_type_at(12L, 96L, 5L), SemanticTokenTypes$variable)
+        expect_equal(token_type_at(13L, 24L, 5L), SemanticTokenTypes$variable)
+        expect_equal(token_type_at(13L, 55L, 5L), SemanticTokenTypes$parameter)
+        expect_equal(token_type_at(13L, 64L, 5L), SemanticTokenTypes$variable)
+        expect_equal(token_type_at(13L, 85L, 5L), SemanticTokenTypes$variable)
+        expect_equal(token_type_at(13L, 92L, 5L), SemanticTokenTypes$parameter)
+        expect_equal(token_type_at(14L, 0L, 5L), SemanticTokenTypes$variable)
+    }
+})
+
+test_that("Builtin constants, ellipsis, and pipe placeholders emit readonly defaultLibrary tokens", {
+    uri <- "file:///constants-semantic.R"
+    content <- c(
+        "flags <- list(NULL, TRUE, FALSE, T, F)",
+        "nums <- c(Inf, NaN, NA, NA_integer_, NA_real_, NA_complex_, NA_character_)",
+        "forward <- function(...) list(..., ..1, ..2)",
+        "shadow <- function(T, F) list(T, F, obj$T, pkg::F, obj$...)"
+    )
+    parsed <- parse(text = content, keep.source = TRUE)
+    semantic <- semantic_parse_data(
+        utils::getParseData(parsed, includeText = TRUE),
+        content
+    )
+    xdoc <- xml2::read_xml(xmlparsedata::xml_parse_data(parsed))
+    document <- Document$new(uri, version = 1L, content = content)
+
+    ro_default_mod <- bitwOr(
+        bitwShiftL(1L, SemanticTokenModifiers$readonly),
+        bitwShiftL(1L, SemanticTokenModifiers$defaultLibrary)
+    )
+    decl_mod <- bitwShiftL(1L, SemanticTokenModifiers$declaration)
+
+    expected <- list(
+        list(line = 0L, col = 14L, text = "NULL", type = SemanticTokenTypes$keyword, mod = ro_default_mod),
+        list(line = 0L, col = 20L, text = "TRUE", type = SemanticTokenTypes$keyword, mod = ro_default_mod),
+        list(line = 0L, col = 26L, text = "FALSE", type = SemanticTokenTypes$keyword, mod = ro_default_mod),
+        list(line = 0L, col = 33L, text = "T", type = SemanticTokenTypes$variable, mod = 0L),
+        list(line = 0L, col = 36L, text = "F", type = SemanticTokenTypes$variable, mod = 0L),
+        list(line = 1L, col = 10L, text = "Inf", type = SemanticTokenTypes$number, mod = ro_default_mod),
+        list(line = 1L, col = 15L, text = "NaN", type = SemanticTokenTypes$number, mod = ro_default_mod),
+        list(line = 1L, col = 20L, text = "NA", type = SemanticTokenTypes$number, mod = ro_default_mod),
+        list(line = 1L, col = 24L, text = "NA_integer_", type = SemanticTokenTypes$number, mod = ro_default_mod),
+        list(line = 1L, col = 37L, text = "NA_real_", type = SemanticTokenTypes$number, mod = ro_default_mod),
+        list(line = 1L, col = 47L, text = "NA_complex_", type = SemanticTokenTypes$number, mod = ro_default_mod),
+        list(line = 1L, col = 60L, text = "NA_character_", type = SemanticTokenTypes$number, mod = ro_default_mod),
+        list(line = 2L, col = 20L, text = "...", type = SemanticTokenTypes$parameter, mod = decl_mod),
+        list(line = 2L, col = 30L, text = "...", type = SemanticTokenTypes$variable, mod = ro_default_mod),
+        list(line = 2L, col = 35L, text = "..1", type = SemanticTokenTypes$variable, mod = ro_default_mod),
+        list(line = 2L, col = 40L, text = "..2", type = SemanticTokenTypes$variable, mod = ro_default_mod),
+        list(line = 3L, col = 19L, text = "T", type = SemanticTokenTypes$parameter, mod = decl_mod),
+        list(line = 3L, col = 22L, text = "F", type = SemanticTokenTypes$parameter, mod = decl_mod),
+        list(line = 3L, col = 30L, text = "T", type = SemanticTokenTypes$parameter, mod = 0L),
+        list(line = 3L, col = 33L, text = "F", type = SemanticTokenTypes$parameter, mod = 0L),
+        list(line = 3L, col = 40L, text = "T", type = SemanticTokenTypes$variable, mod = 0L),
+        list(line = 3L, col = 48L, text = "F", type = SemanticTokenTypes$variable, mod = 0L),
+        list(line = 3L, col = 55L, text = "...", type = SemanticTokenTypes$variable, mod = 0L)
+    )
+
+    for (cached in c(TRUE, FALSE)) {
+        workspace <- list(get_parse_data = function(request_uri) {
+            expect_identical(request_uri, uri)
+            list(xml_doc = xdoc, semantic_data = if (cached) semantic else NULL)
+        })
+        tokens <- extract_semantic_tokens(uri, workspace, document)
+        for (item in expected) {
+            matched <- Filter(function(token) {
+                token$line == item$line &&
+                    token$col == item$col &&
+                    token$length == nchar(item$text)
+            }, tokens)
+            expect_length(matched, 1L)
+            expect_equal(matched[[1L]]$tokenType, item$type)
+            expect_equal(matched[[1L]]$tokenModifiers, item$mod)
+        }
+    }
+})
+
+test_that("Top-level loop bindings keep T and F as variable tokens", {
+    top_uri <- "file:///top-shadow-constants.R"
+    top_content <- c(
+        "for (T in 1:3) print(c(T, F))",
+        "T <- 10L"
+    )
+    top_parsed <- parse(text = top_content, keep.source = TRUE)
+    top_semantic <- semantic_parse_data(
+        utils::getParseData(top_parsed, includeText = TRUE),
+        top_content
+    )
+    top_xdoc <- xml2::read_xml(xmlparsedata::xml_parse_data(top_parsed))
+    top_doc <- Document$new(top_uri, version = 1L, content = top_content)
+    for (cached in c(TRUE, FALSE)) {
+        top_ws <- list(get_parse_data = function(...) {
+            list(xml_doc = top_xdoc, semantic_data = if (cached) top_semantic else NULL)
+        })
+        top_tokens <- extract_semantic_tokens(top_uri, top_ws, top_doc)
+        token_at_col <- function(col) {
+            matched <- Filter(function(t) t$line == 0L && t$col == col && t$length == 1L, top_tokens)
+            expect_length(matched, 1L)
+            matched[[1L]]
+        }
+        expect_equal(token_at_col(5L)$tokenType, SemanticTokenTypes$variable)
+        expect_equal(token_at_col(5L)$tokenModifiers, 0L)
+        expect_equal(token_at_col(23L)$tokenType, SemanticTokenTypes$variable)
+        expect_equal(token_at_col(23L)$tokenModifiers, 0L)
+        expect_equal(token_at_col(26L)$tokenType, SemanticTokenTypes$variable)
+        expect_equal(token_at_col(26L)$tokenModifiers, 0L)
+    }
+})
+
+test_that("Native pipe placeholder (_) emits readonly defaultLibrary variable token", {
+    skip_unless_r(">= 4.2.0")
+    ro_default_mod <- bitwOr(
+        bitwShiftL(1L, SemanticTokenModifiers$readonly),
+        bitwShiftL(1L, SemanticTokenModifiers$defaultLibrary)
+    )
+    ph_uri <- "file:///placeholder-semantic.R"
+    ph_content <- "x |> subset(a = _)"
+    ph_parsed <- parse(text = ph_content, keep.source = TRUE)
+    ph_semantic <- semantic_parse_data(
+        utils::getParseData(ph_parsed, includeText = TRUE),
+        ph_content
+    )
+    ph_xdoc <- xml2::read_xml(xmlparsedata::xml_parse_data(ph_parsed))
+    ph_doc <- Document$new(ph_uri, version = 1L, content = ph_content)
+    for (cached in c(TRUE, FALSE)) {
+        ph_ws <- list(get_parse_data = function(...) {
+            list(xml_doc = ph_xdoc, semantic_data = if (cached) ph_semantic else NULL)
+        })
+        ph_tokens <- extract_semantic_tokens(ph_uri, ph_ws, ph_doc)
+        matched <- Filter(function(t) {
+            t$line == 0L && t$col == 16L && t$length == 1L
+        }, ph_tokens)
+        expect_length(matched, 1L)
+        expect_equal(matched[[1L]]$tokenType, SemanticTokenTypes$variable)
+        expect_equal(matched[[1L]]$tokenModifiers, ro_default_mod)
+    }
+})
+
+test_that("Roxygen2 comments and tags emit documentation semantic tokens", {
+    uri <- "file:///roxygen-semantic.R"
+    content <- c(
+        "#' Compute summary statistics",
+        "#' @param x_val Input numeric vector.",
+        "#' @importFrom stats median",
+        "#' @export",
+        "#' @param",
+        "#' @param x,y Paired numeric vectors.",
+        "#' @param ... Additional arguments.",
+        "#' @param `x_backtick` Backticked param.",
+        paste0("#' @param ", intToUtf8(0x03b1), " A ", intToUtf8(0x1f389), " emoji description."),
+        paste0("#' @param caf", intToUtf8(0x00e9), " Accented Latin param."),
+        paste0("#' @param ", intToUtf8(c(0x53c2, 0x6570)), " CJK param."),
+        "#' @param `x y` Backticked param with space.",
+        "# Regular non-roxygen comment",
+        "summary_fn <- function(x_val, x, y, ..., x_backtick) x_val"
+    )
+    parsed <- parse(text = content, keep.source = TRUE, encoding = "UTF-8")
+    semantic <- semantic_parse_data(
+        utils::getParseData(parsed, includeText = TRUE),
+        content
+    )
+    xdoc <- xml2::read_xml(xmlparsedata::xml_parse_data(parsed))
+    document <- Document$new(uri, version = 1L, content = content)
+    doc_mod <- bitwShiftL(1L, SemanticTokenModifiers$documentation)
+
+    expect_true(all(semantic$cols >= 0L))
+    expect_true(all(semantic$lengths > 0L))
+    expect_true(all(semantic$encoded >= 0L))
+
+    ws_cached <- list(get_parse_data = function(request_uri) {
+        expect_identical(request_uri, uri)
+        list(xml_doc = xdoc, semantic_data = semantic)
+    })
+    ws_xml <- list(get_parse_data = function(request_uri) {
+        expect_identical(request_uri, uri)
+        list(xml_doc = xdoc, semantic_data = NULL)
+    })
+    tok_cached <- extract_semantic_tokens(uri, ws_cached, document)
+    tok_xml <- extract_semantic_tokens(uri, ws_xml, document)
+    expect_identical(tok_cached, tok_xml)
+
+    expected <- list(
+        # Line 0: Roxygen2 plain doc line
+        list(line = 0L, col = 0L, len = nchar(content[[1L]]), type = SemanticTokenTypes$comment, mod = doc_mod),
+        # Line 1: Roxygen2 @param x_val line
+        list(line = 1L, col = 0L, len = 3L, type = SemanticTokenTypes$comment, mod = doc_mod),
+        list(line = 1L, col = 3L, len = 6L, type = SemanticTokenTypes$macro, mod = doc_mod),
+        list(line = 1L, col = 10L, len = 5L, type = SemanticTokenTypes$parameter, mod = doc_mod),
+        list(line = 1L, col = 15L, len = 22L, type = SemanticTokenTypes$comment, mod = doc_mod),
+        # Line 2: Roxygen2 @importFrom line
+        list(line = 2L, col = 0L, len = 3L, type = SemanticTokenTypes$comment, mod = doc_mod),
+        list(line = 2L, col = 3L, len = 11L, type = SemanticTokenTypes$macro, mod = doc_mod),
+        list(line = 2L, col = 14L, len = 13L, type = SemanticTokenTypes$comment, mod = doc_mod),
+        # Line 3: Roxygen2 @export line
+        list(line = 3L, col = 0L, len = 3L, type = SemanticTokenTypes$comment, mod = doc_mod),
+        list(line = 3L, col = 3L, len = 7L, type = SemanticTokenTypes$macro, mod = doc_mod),
+        # Line 4: bare #' @param (no parameter token)
+        list(line = 4L, col = 0L, len = 3L, type = SemanticTokenTypes$comment, mod = doc_mod),
+        list(line = 4L, col = 3L, len = 6L, type = SemanticTokenTypes$macro, mod = doc_mod),
+        # Line 5: @param x,y
+        list(line = 5L, col = 10L, len = 3L, type = SemanticTokenTypes$parameter, mod = doc_mod),
+        # Line 6: @param ...
+        list(line = 6L, col = 10L, len = 3L, type = SemanticTokenTypes$parameter, mod = doc_mod),
+        # Line 7: @param `x_backtick`
+        list(line = 7L, col = 10L, len = 12L, type = SemanticTokenTypes$parameter, mod = doc_mod),
+        # Line 8: @param α A 🎉 emoji description. (🎉 is 2 UTF-16 units -> trailing comment len = 24)
+        list(line = 8L, col = 10L, len = 1L, type = SemanticTokenTypes$parameter, mod = doc_mod),
+        list(line = 8L, col = 11L, len = 24L, type = SemanticTokenTypes$comment, mod = doc_mod),
+        # Line 9: @param café Accented Latin param.
+        list(line = 9L, col = 10L, len = 4L, type = SemanticTokenTypes$parameter, mod = doc_mod),
+        list(line = 9L, col = 14L, len = 22L, type = SemanticTokenTypes$comment, mod = doc_mod),
+        # Line 10: @param 参数 CJK param.
+        list(line = 10L, col = 10L, len = 2L, type = SemanticTokenTypes$parameter, mod = doc_mod),
+        list(line = 10L, col = 12L, len = 11L, type = SemanticTokenTypes$comment, mod = doc_mod),
+        # Line 11: @param `x y` Backticked param with space.
+        list(line = 11L, col = 10L, len = 5L, type = SemanticTokenTypes$parameter, mod = doc_mod),
+        list(line = 11L, col = 15L, len = 29L, type = SemanticTokenTypes$comment, mod = doc_mod),
+        # Line 12: regular comment has mod = 0L
+        list(line = 12L, col = 0L, len = 29L, type = SemanticTokenTypes$comment, mod = 0L)
+    )
+    for (item in expected) {
+        matched <- Filter(function(token) {
+            token$line == item$line &&
+                token$col == item$col &&
+                token$length == item$len
+        }, tok_cached)
+        expect_length(matched, 1L)
+        expect_equal(matched[[1L]]$tokenType, item$type)
+        expect_equal(matched[[1L]]$tokenModifiers, item$mod)
+    }
+})
+
+test_that("Roxygen2 comment spans exclude hover and scope completion on @param tags", {
+    r6_uri <- "file:///roxygen-r6-provider.R"
+    r6_lines <- c(
+        "Widget <- R6::R6Class(\"Widget\", public = list(",
+        "  run = function() {",
+        "    #' @param self The receiver.",
+        "    self",
+        "  }",
+        "))"
+    )
+    r6_doc <- Document$new(r6_uri, language = "r", version = 1L, content = r6_lines)
+    r6_data <- parse_document(r6_uri, r6_lines, is_rmarkdown = FALSE)
+    r6_data$version <- 1L
+    r6_doc$update_parse_data(r6_data)
+    r6_docs <- collections::dict()
+    r6_docs$set(r6_uri, r6_doc)
+    r6_ws <- list(
+        documents = r6_docs,
+        member_metadata = collections::dict(),
+        get_parse_data = function(...) r6_data,
+        get_documentation = function(...) NULL,
+        get_signature = function(...) NULL,
+        get_help = function(...) NULL
+    )
+    # Inside roxygen comment line (row 2): hover and scope completion on `self` are excluded
+    expect_false(semantic_in_comment_or_string(NULL, 0L, 0L))
+    expect_false(semantic_in_comment_or_string(r6_data$semantic_data, 99L, 0L))
+    expect_true(semantic_in_comment_or_string(r6_data$semantic_data, 0L, 24L))
+    expect_false(semantic_in_comment_or_string(r6_data$semantic_data, 2L, 4L, strict_comment_start = TRUE))
+    expect_true(semantic_in_comment_or_string(r6_data$semantic_data, 2L, 4L, strict_comment_start = FALSE))
+    expect_true(semantic_in_comment_or_string(r6_data$semantic_data, 2L, 15L, strict_comment_start = TRUE))
+    expect_false(semantic_in_comment_or_string(r6_data$semantic_data, 3L, 5L))
+    expect_null(member_symbol_location(r6_doc, list(row = 2L, col = 15L)))
+    expect_identical(
+        context_scope_completion(r6_uri, r6_ws, "se", list(row = 2L, col = 16L), TRUE, 50L, character()),
+        list()
+    )
+    # In code body line (row 3): `self` resolves in R6 method context
+    expect_false(is.null(member_symbol_location(r6_doc, list(row = 3L, col = 5L))))
+    code_items <- context_scope_completion(
+        r6_uri, r6_ws, "se", list(row = 3L, col = 6L), TRUE, 50L, character()
+    )
+    expect_true("self" %in% vapply(code_items, `[[`, character(1L), "label"))
 })

@@ -758,10 +758,7 @@ context_scope_completion <- function(uri, workspace, token, point,
     if (!is.null(member_cursor(document, point))) return(list())
     semantic <- document$parse_data$semantic_data
     col <- document$to_lsp_position(point$row, point$col)$character
-    excluded <- semantic$lines == point$row & semantic$cols <= col &
-        ((semantic$types == SemanticTokenTypes$comment & semantic$cols + semantic$lengths >= col) |
-                (semantic$types == SemanticTokenTypes$string & semantic$cols + semantic$lengths > col))
-    if (any(excluded)) return(list())
+    if (semantic_in_comment_or_string(semantic, point$row, col)) return(list())
     token_data <- completion_token(document, point)
     if (!is.null(token_data$package) || token_data$accessor %in% c("$", "@")) return(list())
     start <- token_data$range$start$col
