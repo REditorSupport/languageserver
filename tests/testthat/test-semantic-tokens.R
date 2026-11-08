@@ -896,7 +896,9 @@ test_that("Named arguments and scoped parameter references emit parameter tokens
             expect_equal(matched[[1L]]$tokenModifiers, item$mod)
         }
     }
+})
 
+test_that("Backticked formals, shadowed bindings, and superassignments resolve parameter tokens", {
     bt_uri <- "file:///backtick-parameters.R"
     bt_content <- c(
         "f <- function(`x` = 1, y = `x`, `...`) x + `y` + `...` + gamma",
