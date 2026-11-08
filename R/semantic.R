@@ -52,7 +52,6 @@ semantic_readonly_default_modifier <- bitwOr(
 )
 
 semantic_boolean_constants <- c("TRUE", "FALSE")
-semantic_boolean_symbols <- c("T", "F")
 semantic_numeric_builtin_constants <- c(
     "Inf", "NaN", "NA",
     "NA_integer_", "NA_real_", "NA_complex_", "NA_character_"
@@ -324,106 +323,10 @@ formal_parameter_symbol_ids <- function(data, member_or_ns_parents = NULL) {
         at_scope <- which(s > 0L)
         if (length(at_scope)) {
             lookup_idx <- (s[at_scope] - 1L) * n_names + cand_name_idx[at_scope]
-            hit_formal <- has_formal[lookup_idx]
-            hit_local <- !hit_formal & has_local[lookup_idx]
-            resolved <- hit_formal | hit_local
-            if (any(resolved)) {
-                if (any(hit_formal)) {
-                    matched[active[at_scope[hit_formal]]] <- TRUE
-                }
-                res_idx <- at_scope[resolved]
-                active <- active[-res_idx]
-                anc <- anc[-res_idx]
-                cand_name_idx <- cand_name_idx[-res_idx]
-                if (!length(active)) break
-            }
-        }
-        anc <- id_parent[anc]
-        keep <- anc > 0L
-        if (!all(keep)) {
-            active <- active[keep]
-            anc <- anc[keep]
-            cand_name_idx <- cand_name_idx[keep]
-        }
-        steps <- steps + 1L
-    }
-
-    as.integer(data$id[cand_rows[matched]])
-}
-
-#' Parse-data ids of `T`/`F` symbols shadowed by local or top-level bindings
-#' @noRd
-shadowed_builtin_symbol_ids <- function(data, member_or_ns_parents = NULL) {
-    if (is.null(member_or_ns_parents)) {
-        member_or_ns_parents <- data$parent[
-            data$token %in% c("'$'", "'@'", "$", "@", "NS_GET", "NS_GET_INT") &
-                data$parent > 0L
-        ]
-    }
-    sym_rows <- which(
-        data$token == "SYMBOL" &
-            data$parent > 0L &
-            !(data$parent %in% member_or_ns_parents)
-    )
-    if (!length(sym_rows)) return(integer())
-    sym_names <- reference_symbol_names(data$text[sym_rows])
-    in_targets <- sym_names %in% semantic_boolean_symbols
-    cand_rows <- sym_rows[in_targets]
-    if (!length(cand_rows)) return(integer())
-    cand_names <- sym_names[in_targets]
-
-    max_id <- max(data$id, data$parent, 0L)
-    id_parent <- integer(max_id)
-    valid_nodes <- data$id > 0L & data$parent > 0L
-    id_parent[data$id[valid_nodes]] <- data$parent[valid_nodes]
-
-    local_bindings <- local_symbol_binding_scopes(
-        data, cand_rows, cand_names, id_parent
-    )
-
-    formal_rows <- which(
-        data$token == "SYMBOL_FORMALS" &
-            data$parent > 0L
-    )
-    formal_parents <- integer()
-    formal_names <- character()
-    if (length(formal_rows)) {
-        f_names <- reference_symbol_names(data$text[formal_rows])
-        keep_f <- f_names %in% semantic_boolean_symbols
-        formal_parents <- data$parent[formal_rows[keep_f]]
-        formal_names <- f_names[keep_f]
-    }
-
-    matched <- cand_names %in% local_bindings$has_top_level
-    all_scope_ids <- c(local_bindings$scope_ids, formal_parents)
-    all_scope_names <- c(local_bindings$names, formal_names)
-    unique_scopes <- unique(all_scope_ids)
-    if (!length(unique_scopes) || all(matched)) {
-        return(as.integer(data$id[cand_rows[matched]]))
-    }
-
-    scope_idx <- integer(max_id)
-    scope_idx[unique_scopes] <- seq_along(unique_scopes)
-    n_names <- length(semantic_boolean_symbols)
-    n_scopes <- length(unique_scopes)
-    has_binding <- logical(n_names * n_scopes)
-    bind_name_idx <- match(all_scope_names, semantic_boolean_symbols)
-    has_binding[(scope_idx[all_scope_ids] - 1L) * n_names + bind_name_idx] <- TRUE
-
-    active <- which(!matched)
-    anc <- data$parent[cand_rows[active]]
-    cand_name_idx <- match(cand_names[active], semantic_boolean_symbols)
-    steps <- 0L
-    max_steps <- nrow(data)
-
-    while (length(active) && steps <= max_steps) {
-        s <- scope_idx[anc]
-        at_scope <- which(s > 0L)
-        if (length(at_scope)) {
-            hit <- has_binding[(s[at_scope] - 1L) * n_names + cand_name_idx[at_scope]]
+            hit <- (has_formal | has_local)[lookup_idx]
             if (any(hit)) {
                 hit_idx <- at_scope[hit]
-                matched[active[hit_idx]] <- TRUE
+                matched[active[at_scope[has_formal[lookup_idx]]]] <- TRUE
                 active <- active[-hit_idx]
                 anc <- anc[-hit_idx]
                 cand_name_idx <- cand_name_idx[-hit_idx]
@@ -639,6 +542,7 @@ semantic_parse_data <- function(data, content, syntax = NULL) {
 
     is_na_inf <- tok == "NUM_CONST" & txt %in% semantic_numeric_builtin_constants
     modifiers[is_na_inf] <- semantic_readonly_default_modifier
+
     plain_sym <- tok == "SYMBOL" & !(row_parents %in% member_or_ns_parents)
     param_sym_ids <- formal_parameter_symbol_ids(data, member_or_ns_parents)
     if (length(param_sym_ids)) {
@@ -648,14 +552,6 @@ semantic_parse_data <- function(data, content, syntax = NULL) {
     is_ellipsis_sym <- plain_sym & is_semantic_ellipsis_symbol(txt)
     types[is_ellipsis_sym] <- SemanticTokenTypes$variable
     modifiers[is_ellipsis_sym] <- semantic_readonly_default_modifier
-
-    shadowed_tf_ids <- shadowed_builtin_symbol_ids(data, member_or_ns_parents)
-    is_tf_sym <- plain_sym &
-        !(row_ids %in% param_sym_ids) &
-        !(row_ids %in% shadowed_tf_ids) &
-        (txt %in% semantic_boolean_symbols)
-    types[is_tf_sym] <- SemanticTokenTypes$keyword
-    modifiers[is_tf_sym] <- semantic_readonly_default_modifier
 
     fun_lhs_ids <- function_assignment_symbol_ids(data, syntax)
     if (length(fun_lhs_ids)) {
@@ -755,71 +651,79 @@ semantic_token_delta <- function(previous, current) {
     .Call("semantic_token_delta_c", previous, current, PACKAGE = "languageserver")
 }
 
+semantic_xml_token_types <- c(
+    SYMBOL = SemanticTokenTypes$variable,
+    SYMBOL_FUNCTION_CALL = SemanticTokenTypes[["function"]],
+    SYMBOL_FORMALS = SemanticTokenTypes$parameter,
+    SYMBOL_SUB = SemanticTokenTypes$parameter,
+    SYMBOL_PACKAGE = SemanticTokenTypes$namespace,
+    FUNCTION = SemanticTokenTypes$keyword,
+    KEYWORD = SemanticTokenTypes$keyword,
+    IF = SemanticTokenTypes$keyword,
+    ELSE = SemanticTokenTypes$keyword,
+    FOR = SemanticTokenTypes$keyword,
+    IN = SemanticTokenTypes$keyword,
+    WHILE = SemanticTokenTypes$keyword,
+    REPEAT = SemanticTokenTypes$keyword,
+    NEXT = SemanticTokenTypes$keyword,
+    BREAK = SemanticTokenTypes$keyword,
+    NULL_CONST = SemanticTokenTypes$keyword,
+    PLACEHOLDER = SemanticTokenTypes$variable,
+    NUM_CONST = SemanticTokenTypes$number,
+    INT_CONST = SemanticTokenTypes$number,
+    FLOAT_CONST = SemanticTokenTypes$number,
+    STRING = SemanticTokenTypes$string,
+    STR_CONST = SemanticTokenTypes$string,
+    COMMENT = SemanticTokenTypes$comment,
+    LEFT_ASSIGN = SemanticTokenTypes$operator,
+    RIGHT_ASSIGN = SemanticTokenTypes$operator,
+    EQ_ASSIGN = SemanticTokenTypes$operator,
+    EQ_SUB = SemanticTokenTypes$operator,
+    EQ_FORMALS = SemanticTokenTypes$operator,
+    SPECIAL = SemanticTokenTypes$operator,
+    NS_GET = SemanticTokenTypes$operator,
+    NS_GET_INT = SemanticTokenTypes$operator,
+    GT = SemanticTokenTypes$operator,
+    GE = SemanticTokenTypes$operator,
+    LT = SemanticTokenTypes$operator,
+    LE = SemanticTokenTypes$operator,
+    EQ = SemanticTokenTypes$operator,
+    NE = SemanticTokenTypes$operator,
+    AND = SemanticTokenTypes$operator,
+    OR = SemanticTokenTypes$operator,
+    AND2 = SemanticTokenTypes$operator,
+    OR2 = SemanticTokenTypes$operator,
+    PIPE = SemanticTokenTypes$operator,
+    PIPEBIND = SemanticTokenTypes$operator,
+    `OP-DOLLAR` = SemanticTokenTypes$operator,
+    `OP-AT` = SemanticTokenTypes$operator,
+    `OP-TILDE` = SemanticTokenTypes$operator,
+    `OP-QUESTION` = SemanticTokenTypes$operator,
+    `OP-COLON` = SemanticTokenTypes$operator,
+    `OP-PLUS` = SemanticTokenTypes$operator,
+    `OP-MINUS` = SemanticTokenTypes$operator,
+    `OP-STAR` = SemanticTokenTypes$operator,
+    `OP-SLASH` = SemanticTokenTypes$operator,
+    `OP-CARET` = SemanticTokenTypes$operator,
+    `OP-EXCLAMATION` = SemanticTokenTypes$operator,
+    `OP-PIPE` = SemanticTokenTypes$operator,
+    OP = SemanticTokenTypes$operator,
+    `OP-LAMBDA` = SemanticTokenTypes$keyword
+)
+
+semantic_tokens_xpath <- paste0(
+    "//*[",
+    paste0("self::", names(semantic_xml_token_types), collapse = " or "),
+    "]"
+)
+
 #' Get semantic token type for an XML token
 #'
 #' Maps R parser token names to LSP semantic token types
 #' @noRd
 get_token_type <- function(token_name) {
-    switch(token_name,
-        "SYMBOL" = SemanticTokenTypes$variable,
-        "SYMBOL_FUNCTION_CALL" = SemanticTokenTypes[["function"]],
-        "SYMBOL_FORMALS" = SemanticTokenTypes$parameter,
-        "SYMBOL_SUB" = SemanticTokenTypes$parameter,
-        "SYMBOL_PACKAGE" = SemanticTokenTypes$namespace,
-        "FUNCTION" = SemanticTokenTypes$keyword,
-        "KEYWORD" = SemanticTokenTypes$keyword,
-        "IF" = SemanticTokenTypes$keyword,
-        "ELSE" = SemanticTokenTypes$keyword,
-        "FOR" = SemanticTokenTypes$keyword,
-        "IN" = SemanticTokenTypes$keyword,
-        "WHILE" = SemanticTokenTypes$keyword,
-        "REPEAT" = SemanticTokenTypes$keyword,
-        "NEXT" = SemanticTokenTypes$keyword,
-        "BREAK" = SemanticTokenTypes$keyword,
-        "NULL_CONST" = SemanticTokenTypes$keyword,
-        "PLACEHOLDER" = SemanticTokenTypes$variable,
-        "NUM_CONST" = SemanticTokenTypes$number,
-        "INT_CONST" = SemanticTokenTypes$number,
-        "FLOAT_CONST" = SemanticTokenTypes$number,
-        "STRING" = SemanticTokenTypes$string,
-        "STR_CONST" = SemanticTokenTypes$string,
-        "COMMENT" = SemanticTokenTypes$comment,
-        "LEFT_ASSIGN" = SemanticTokenTypes$operator,
-        "RIGHT_ASSIGN" = SemanticTokenTypes$operator,
-        "EQ_ASSIGN" = SemanticTokenTypes$operator,
-        "EQ_SUB" = SemanticTokenTypes$operator,
-        "EQ_FORMALS" = SemanticTokenTypes$operator,
-        "SPECIAL" = SemanticTokenTypes$operator,
-        "NS_GET" = SemanticTokenTypes$operator,
-        "NS_GET_INT" = SemanticTokenTypes$operator,
-        "GT" = SemanticTokenTypes$operator,
-        "GE" = SemanticTokenTypes$operator,
-        "LT" = SemanticTokenTypes$operator,
-        "LE" = SemanticTokenTypes$operator,
-        "EQ" = SemanticTokenTypes$operator,
-        "NE" = SemanticTokenTypes$operator,
-        "AND" = SemanticTokenTypes$operator,
-        "OR" = SemanticTokenTypes$operator,
-        "AND2" = SemanticTokenTypes$operator,
-        "OR2" = SemanticTokenTypes$operator,
-        "PIPE" = SemanticTokenTypes$operator,
-        "PIPEBIND" = SemanticTokenTypes$operator,
-        "OP-DOLLAR" = SemanticTokenTypes$operator,
-        "OP-AT" = SemanticTokenTypes$operator,
-        "OP-TILDE" = SemanticTokenTypes$operator,
-        "OP-QUESTION" = SemanticTokenTypes$operator,
-        "OP-COLON" = SemanticTokenTypes$operator,
-        "OP-PLUS" = SemanticTokenTypes$operator,
-        "OP-MINUS" = SemanticTokenTypes$operator,
-        "OP-STAR" = SemanticTokenTypes$operator,
-        "OP-SLASH" = SemanticTokenTypes$operator,
-        "OP-CARET" = SemanticTokenTypes$operator,
-        "OP-EXCLAMATION" = SemanticTokenTypes$operator,
-        "OP-PIPE" = SemanticTokenTypes$operator,
-        "OP" = SemanticTokenTypes$operator,
-        "OP-LAMBDA" = SemanticTokenTypes$keyword,
-        SemanticTokenTypes$variable  # default
-    )
+    idx <- match(token_name, names(semantic_xml_token_types), nomatch = 0L)
+    if (idx > 0L) semantic_xml_token_types[[idx]] else SemanticTokenTypes$variable
 }
 
 #' Extract semantic tokens from a document
@@ -849,65 +753,7 @@ extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
     }
 
     # Get all token elements from the parse tree
-    token_elements <- xml_find_all(xdoc, "//*[
-        self::SYMBOL or
-        self::SYMBOL_FUNCTION_CALL or
-        self::SYMBOL_FORMALS or
-        self::SYMBOL_SUB or
-        self::SYMBOL_PACKAGE or
-        self::FUNCTION or
-        self::KEYWORD or
-        self::IF or
-        self::ELSE or
-        self::FOR or
-        self::IN or
-        self::WHILE or
-        self::REPEAT or
-        self::NEXT or
-        self::BREAK or
-        self::NULL_CONST or
-        self::PLACEHOLDER or
-        self::NUM_CONST or
-        self::INT_CONST or
-        self::FLOAT_CONST or
-        self::STRING or
-        self::STR_CONST or
-        self::COMMENT or
-        self::LEFT_ASSIGN or
-        self::RIGHT_ASSIGN or
-        self::EQ_ASSIGN or
-        self::EQ_SUB or
-        self::EQ_FORMALS or
-        self::SPECIAL or
-        self::NS_GET or
-        self::NS_GET_INT or
-        self::GT or
-        self::GE or
-        self::LT or
-        self::LE or
-        self::EQ or
-        self::NE or
-        self::AND or
-        self::OR or
-        self::AND2 or
-        self::OR2 or
-        self::PIPE or
-        self::PIPEBIND or
-        self::OP-DOLLAR or
-        self::OP-AT or
-        self::OP-TILDE or
-        self::OP-QUESTION or
-        self::OP-COLON or
-        self::OP-PLUS or
-        self::OP-MINUS or
-        self::OP-STAR or
-        self::OP-SLASH or
-        self::OP-CARET or
-        self::OP-EXCLAMATION or
-        self::OP-PIPE or
-        self::OP or
-        self::OP-LAMBDA
-    ]")
+    token_elements <- xml_find_all(xdoc, semantic_tokens_xpath)
 
     if (length(token_elements) == 0) {
         return(list())
@@ -950,16 +796,8 @@ extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
                     modifiers <- semantic_readonly_default_modifier
                 } else {
                     sym_name <- reference_symbol_names(tok_text)
-                    binding_kind <- xml_symbol_binding_kind(
-                        token_node,
-                        sym_name,
-                        include_top_level = tok_text %in% semantic_boolean_symbols
-                    )
-                    if (identical(binding_kind, "formal")) {
+                    if (identical(xml_symbol_binding_kind(token_node, sym_name), "formal")) {
                         token_type <- SemanticTokenTypes$parameter
-                    } else if (identical(binding_kind, "none") && tok_text %in% semantic_boolean_symbols) {
-                        token_type <- SemanticTokenTypes$keyword
-                        modifiers <- semantic_readonly_default_modifier
                     }
                 }
             }
