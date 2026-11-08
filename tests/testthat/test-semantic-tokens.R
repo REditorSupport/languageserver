@@ -638,7 +638,9 @@ test_that("Control-flow keywords and return() calls emit keyword semantic tokens
         )
         expect_true(length(range_reply$result$data) > 0L)
     }
+})
 
+test_that("Lambda and qualified return() calls emit expected semantic tokens", {
     edge_uri <- "file:///control-flow-edge-cases.R"
     edge_content <- c(
         "obj <- list(return = function(x) x + 1L)",
