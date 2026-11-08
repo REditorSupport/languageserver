@@ -1206,7 +1206,9 @@ test_that("Roxygen2 comments and tags emit documentation semantic tokens", {
         expect_equal(matched[[1L]]$tokenType, item$type)
         expect_equal(matched[[1L]]$tokenModifiers, item$mod)
     }
+})
 
+test_that("Roxygen2 comment spans exclude hover and scope completion on @param tags", {
     r6_uri <- "file:///roxygen-r6-provider.R"
     r6_lines <- c(
         "Widget <- R6::R6Class(\"Widget\", public = list(",
