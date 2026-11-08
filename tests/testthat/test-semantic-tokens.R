@@ -808,7 +808,9 @@ test_that("Operators emit expected semantic tokens", {
             expect_equal(matched[[1L]]$tokenModifiers, item$mod)
         }
     }
+})
 
+test_that("Pipebind (=>) operator emits operator semantic token", {
     withr::local_envvar(c("_R_USE_PIPEBIND_" = "true"))
     pb_uri <- "file:///pipebind-semantic.R"
     pb_content <- "x |> a => f(1, a)"
