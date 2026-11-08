@@ -360,8 +360,7 @@ roxygen_comment_spans <- function(comment_text, base_col0) {
         return(list(
             starts = as.integer(base_col0),
             ends = as.integer(base_col0 + total_len),
-            types = as.integer(SemanticTokenTypes$comment),
-            modifiers = as.integer(semantic_documentation_modifier)
+            types = as.integer(SemanticTokenTypes$comment)
         ))
     }
     match_lens <- attr(m, "match.length")
@@ -392,38 +391,24 @@ roxygen_comment_spans <- function(comment_text, base_col0) {
     list(
         starts = as.integer(starts),
         ends = as.integer(ends),
-        types = as.integer(types),
-        modifiers = rep.int(as.integer(semantic_documentation_modifier), length(starts))
+        types = as.integer(types)
     )
 }
 
 #' Check whether an LSP column on a line falls inside a semantic comment or string
 #' @noRd
 semantic_in_comment_or_string <- function(semantic, row, col, strict_comment_start = FALSE) {
-    if (is.null(semantic) || !length(semantic$lines)) return(FALSE)
     on_line <- which(semantic$lines == row)
     if (!length(on_line)) return(FALSE)
     types <- semantic$types[on_line]
     cols <- semantic$cols[on_line]
     ends <- cols + semantic$lengths[on_line]
-    if (any(types == SemanticTokenTypes$string & cols <= col & ends > col)) {
-        return(TRUE)
-    }
-    mods <- if (!is.null(semantic$modifiers)) {
-        semantic$modifiers[on_line]
-    } else {
-        integer(length(on_line))
-    }
+    if (any(types == SemanticTokenTypes$string & cols <= col & ends > col)) return(TRUE)
     is_comment <- types == SemanticTokenTypes$comment |
-        bitwAnd(mods, semantic_documentation_modifier) != 0L
-    if (!any(is_comment)) return(FALSE)
-    comment_start <- min(cols[is_comment])
-    comment_end <- max(ends[is_comment])
-    if (strict_comment_start) {
-        comment_start < col && comment_end >= col
-    } else {
-        comment_start <= col && comment_end >= col
-    }
+        bitwAnd(semantic$modifiers[on_line], semantic_documentation_modifier) != 0L
+    any(is_comment) &&
+        (if (strict_comment_start) min(cols[is_comment]) < col else min(cols[is_comment]) <= col) &&
+        max(ends[is_comment]) >= col
 }
 
 #' Get the semantic tokens legend
@@ -628,7 +613,6 @@ semantic_parse_data <- function(data, content, syntax = NULL) {
 
     is_na_inf <- tok == "NUM_CONST" & txt %in% semantic_numeric_builtin_constants
     modifiers[is_na_inf] <- semantic_readonly_default_modifier
-
     plain_sym <- tok == "SYMBOL" & !(row_parents %in% member_or_ns_parents)
     param_sym_ids <- formal_parameter_symbol_ids(data, member_or_ns_parents)
     if (length(param_sym_ids)) {
@@ -910,7 +894,7 @@ extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
                     col = as.integer(token_col),
                     length = as.integer(token_length),
                     tokenType = as.integer(spans$types[[k]]),
-                    tokenModifiers = as.integer(spans$modifiers[[k]])
+                    tokenModifiers = as.integer(semantic_documentation_modifier)
                 )
             }
             next
@@ -993,7 +977,7 @@ encode_semantic_tokens <- function(tokens) {
     lengths <- integer(n)
     types <- integer(n)
     mods <- integer(n)
-    
+
     # Single loop extraction instead of 5 vapply calls
     # Explicitly coerce to maintain integer type
     for (i in seq_along(tokens)) {

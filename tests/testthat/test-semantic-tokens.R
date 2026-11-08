@@ -1121,54 +1121,6 @@ test_that("Roxygen2 comments and tags emit documentation semantic tokens", {
         "#' @param x_val Input numeric vector.",
         "#' @importFrom stats median",
         "#' @export",
-        "summary_fn <- function(x_val) x_val"
-    )
-    parsed <- parse(text = content, keep.source = TRUE)
-    semantic <- semantic_parse_data(
-        utils::getParseData(parsed, includeText = TRUE),
-        content
-    )
-    xdoc <- xml2::read_xml(xmlparsedata::xml_parse_data(parsed))
-    document <- Document$new(uri, version = 1L, content = content)
-    doc_mod <- bitwShiftL(1L, SemanticTokenModifiers$documentation)
-
-    expected <- list(
-        # Roxygen2 plain doc line
-        list(line = 0L, col = 0L, len = nchar(content[[1L]]), type = SemanticTokenTypes$comment, mod = doc_mod),
-        # Roxygen2 @param x_val line
-        list(line = 1L, col = 0L, len = 3L, type = SemanticTokenTypes$comment, mod = doc_mod),
-        list(line = 1L, col = 3L, len = 6L, type = SemanticTokenTypes$macro, mod = doc_mod),
-        list(line = 1L, col = 10L, len = 5L, type = SemanticTokenTypes$parameter, mod = doc_mod),
-        list(line = 1L, col = 15L, len = 22L, type = SemanticTokenTypes$comment, mod = doc_mod),
-        # Roxygen2 @importFrom line
-        list(line = 2L, col = 0L, len = 3L, type = SemanticTokenTypes$comment, mod = doc_mod),
-        list(line = 2L, col = 3L, len = 11L, type = SemanticTokenTypes$macro, mod = doc_mod),
-        list(line = 2L, col = 14L, len = 13L, type = SemanticTokenTypes$comment, mod = doc_mod),
-        # Roxygen2 @export line
-        list(line = 3L, col = 0L, len = 3L, type = SemanticTokenTypes$comment, mod = doc_mod),
-        list(line = 3L, col = 3L, len = 7L, type = SemanticTokenTypes$macro, mod = doc_mod)
-    )
-
-    for (cached in c(TRUE, FALSE)) {
-        workspace <- list(get_parse_data = function(request_uri) {
-            expect_identical(request_uri, uri)
-            list(xml_doc = xdoc, semantic_data = if (cached) semantic else NULL)
-        })
-        tokens <- extract_semantic_tokens(uri, workspace, document)
-        for (item in expected) {
-            matched <- Filter(function(token) {
-                token$line == item$line &&
-                    token$col == item$col &&
-                    token$length == item$len
-            }, tokens)
-            expect_length(matched, 1L)
-            expect_equal(matched[[1L]]$tokenType, item$type)
-            expect_equal(matched[[1L]]$tokenModifiers, item$mod)
-        }
-    }
-
-    edge_uri <- "file:///roxygen-edge.R"
-    edge_content <- c(
         "#' @param",
         "#' @param x,y Paired numeric vectors.",
         "#' @param ... Additional arguments.",
@@ -1178,56 +1130,73 @@ test_that("Roxygen2 comments and tags emit documentation semantic tokens", {
         paste0("#' @param ", intToUtf8(c(0x53c2, 0x6570)), " CJK param."),
         "#' @param `x y` Backticked param with space.",
         "# Regular non-roxygen comment",
-        "f <- function(x, y, ..., x_backtick) NULL"
+        "summary_fn <- function(x_val, x, y, ..., x_backtick) x_val"
     )
-    edge_parsed <- parse(text = edge_content, keep.source = TRUE, encoding = "UTF-8")
-    edge_semantic <- semantic_parse_data(
-        utils::getParseData(edge_parsed, includeText = TRUE),
-        edge_content
+    parsed <- parse(text = content, keep.source = TRUE, encoding = "UTF-8")
+    semantic <- semantic_parse_data(
+        utils::getParseData(parsed, includeText = TRUE),
+        content
     )
-    edge_xdoc <- xml2::read_xml(xmlparsedata::xml_parse_data(edge_parsed))
-    edge_doc <- Document$new(edge_uri, version = 1L, content = edge_content)
+    xdoc <- xml2::read_xml(xmlparsedata::xml_parse_data(parsed))
+    document <- Document$new(uri, version = 1L, content = content)
+    doc_mod <- bitwShiftL(1L, SemanticTokenModifiers$documentation)
 
-    expect_true(all(edge_semantic$cols >= 0L))
-    expect_true(all(edge_semantic$lengths > 0L))
-    expect_true(all(edge_semantic$encoded >= 0L))
+    expect_true(all(semantic$cols >= 0L))
+    expect_true(all(semantic$lengths > 0L))
+    expect_true(all(semantic$encoded >= 0L))
 
-    ws_cached <- list(get_parse_data = function(...) {
-        list(xml_doc = edge_xdoc, semantic_data = edge_semantic)
+    ws_cached <- list(get_parse_data = function(request_uri) {
+        expect_identical(request_uri, uri)
+        list(xml_doc = xdoc, semantic_data = semantic)
     })
-    ws_xml <- list(get_parse_data = function(...) {
-        list(xml_doc = edge_xdoc, semantic_data = NULL)
+    ws_xml <- list(get_parse_data = function(request_uri) {
+        expect_identical(request_uri, uri)
+        list(xml_doc = xdoc, semantic_data = NULL)
     })
-    tok_cached <- extract_semantic_tokens(edge_uri, ws_cached, edge_doc)
-    tok_xml <- extract_semantic_tokens(edge_uri, ws_xml, edge_doc)
+    tok_cached <- extract_semantic_tokens(uri, ws_cached, document)
+    tok_xml <- extract_semantic_tokens(uri, ws_xml, document)
     expect_identical(tok_cached, tok_xml)
 
-    edge_expected <- list(
-        # Line 0: bare #' @param (no parameter token)
-        list(line = 0L, col = 0L, len = 3L, type = SemanticTokenTypes$comment, mod = doc_mod),
-        list(line = 0L, col = 3L, len = 6L, type = SemanticTokenTypes$macro, mod = doc_mod),
-        # Line 1: @param x,y
-        list(line = 1L, col = 10L, len = 3L, type = SemanticTokenTypes$parameter, mod = doc_mod),
-        # Line 2: @param ...
-        list(line = 2L, col = 10L, len = 3L, type = SemanticTokenTypes$parameter, mod = doc_mod),
-        # Line 3: @param `x_backtick`
-        list(line = 3L, col = 10L, len = 12L, type = SemanticTokenTypes$parameter, mod = doc_mod),
-        # Line 4: @param α A 🎉 emoji description. (🎉 is 2 UTF-16 units -> trailing comment len = 24)
-        list(line = 4L, col = 10L, len = 1L, type = SemanticTokenTypes$parameter, mod = doc_mod),
-        list(line = 4L, col = 11L, len = 24L, type = SemanticTokenTypes$comment, mod = doc_mod),
-        # Line 5: @param café Accented Latin param.
-        list(line = 5L, col = 10L, len = 4L, type = SemanticTokenTypes$parameter, mod = doc_mod),
-        list(line = 5L, col = 14L, len = 22L, type = SemanticTokenTypes$comment, mod = doc_mod),
-        # Line 6: @param 参数 CJK param.
-        list(line = 6L, col = 10L, len = 2L, type = SemanticTokenTypes$parameter, mod = doc_mod),
-        list(line = 6L, col = 12L, len = 11L, type = SemanticTokenTypes$comment, mod = doc_mod),
-        # Line 7: @param `x y` Backticked param with space.
-        list(line = 7L, col = 10L, len = 5L, type = SemanticTokenTypes$parameter, mod = doc_mod),
-        list(line = 7L, col = 15L, len = 29L, type = SemanticTokenTypes$comment, mod = doc_mod),
-        # Line 8: regular comment has mod = 0L
-        list(line = 8L, col = 0L, len = 29L, type = SemanticTokenTypes$comment, mod = 0L)
+    expected <- list(
+        # Line 0: Roxygen2 plain doc line
+        list(line = 0L, col = 0L, len = nchar(content[[1L]]), type = SemanticTokenTypes$comment, mod = doc_mod),
+        # Line 1: Roxygen2 @param x_val line
+        list(line = 1L, col = 0L, len = 3L, type = SemanticTokenTypes$comment, mod = doc_mod),
+        list(line = 1L, col = 3L, len = 6L, type = SemanticTokenTypes$macro, mod = doc_mod),
+        list(line = 1L, col = 10L, len = 5L, type = SemanticTokenTypes$parameter, mod = doc_mod),
+        list(line = 1L, col = 15L, len = 22L, type = SemanticTokenTypes$comment, mod = doc_mod),
+        # Line 2: Roxygen2 @importFrom line
+        list(line = 2L, col = 0L, len = 3L, type = SemanticTokenTypes$comment, mod = doc_mod),
+        list(line = 2L, col = 3L, len = 11L, type = SemanticTokenTypes$macro, mod = doc_mod),
+        list(line = 2L, col = 14L, len = 13L, type = SemanticTokenTypes$comment, mod = doc_mod),
+        # Line 3: Roxygen2 @export line
+        list(line = 3L, col = 0L, len = 3L, type = SemanticTokenTypes$comment, mod = doc_mod),
+        list(line = 3L, col = 3L, len = 7L, type = SemanticTokenTypes$macro, mod = doc_mod),
+        # Line 4: bare #' @param (no parameter token)
+        list(line = 4L, col = 0L, len = 3L, type = SemanticTokenTypes$comment, mod = doc_mod),
+        list(line = 4L, col = 3L, len = 6L, type = SemanticTokenTypes$macro, mod = doc_mod),
+        # Line 5: @param x,y
+        list(line = 5L, col = 10L, len = 3L, type = SemanticTokenTypes$parameter, mod = doc_mod),
+        # Line 6: @param ...
+        list(line = 6L, col = 10L, len = 3L, type = SemanticTokenTypes$parameter, mod = doc_mod),
+        # Line 7: @param `x_backtick`
+        list(line = 7L, col = 10L, len = 12L, type = SemanticTokenTypes$parameter, mod = doc_mod),
+        # Line 8: @param α A 🎉 emoji description. (🎉 is 2 UTF-16 units -> trailing comment len = 24)
+        list(line = 8L, col = 10L, len = 1L, type = SemanticTokenTypes$parameter, mod = doc_mod),
+        list(line = 8L, col = 11L, len = 24L, type = SemanticTokenTypes$comment, mod = doc_mod),
+        # Line 9: @param café Accented Latin param.
+        list(line = 9L, col = 10L, len = 4L, type = SemanticTokenTypes$parameter, mod = doc_mod),
+        list(line = 9L, col = 14L, len = 22L, type = SemanticTokenTypes$comment, mod = doc_mod),
+        # Line 10: @param 参数 CJK param.
+        list(line = 10L, col = 10L, len = 2L, type = SemanticTokenTypes$parameter, mod = doc_mod),
+        list(line = 10L, col = 12L, len = 11L, type = SemanticTokenTypes$comment, mod = doc_mod),
+        # Line 11: @param `x y` Backticked param with space.
+        list(line = 11L, col = 10L, len = 5L, type = SemanticTokenTypes$parameter, mod = doc_mod),
+        list(line = 11L, col = 15L, len = 29L, type = SemanticTokenTypes$comment, mod = doc_mod),
+        # Line 12: regular comment has mod = 0L
+        list(line = 12L, col = 0L, len = 29L, type = SemanticTokenTypes$comment, mod = 0L)
     )
-    for (item in edge_expected) {
+    for (item in expected) {
         matched <- Filter(function(token) {
             token$line == item$line &&
                 token$col == item$col &&
