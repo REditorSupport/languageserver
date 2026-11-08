@@ -50,9 +50,6 @@ semantic_declaration_modifier <- bitwShiftL(1L, SemanticTokenModifiers$declarati
 #' Local variable and loop-variable binding scopes for candidate symbols
 #' @noRd
 local_symbol_binding_scopes <- function(data, cand_rows, cand_names, id_parent) {
-    non_comment_parents <- data$parent[data$token != "COMMENT" & data$parent > 0L]
-    multi_child_parents <- unique(non_comment_parents[duplicated(non_comment_parents)])
-
     assign_rows <- which(
         data$token %in% c("LEFT_ASSIGN", "EQ_ASSIGN", "RIGHT_ASSIGN") &
             data$text %in% c("<-", "=", "->") &
@@ -61,79 +58,23 @@ local_symbol_binding_scopes <- function(data, cand_rows, cand_names, id_parent) 
     max_id <- length(id_parent)
     assigned_idx <- integer()
     if (length(assign_rows)) {
-        sole_idx <- which(!(data$parent[cand_rows] %in% multi_child_parents))
-        if (length(sole_idx)) {
-            sole_rows <- cand_rows[sole_idx]
-            target_exprs <- data$parent[sole_rows]
-
-            expr_rows <- which(data$token == "expr" & data$parent > 0L)
-            if (length(expr_rows)) {
-                expr_parents <- data$parent[expr_rows]
-                is_first <- !duplicated(expr_parents)
-                first_expr_id <- integer(max_id)
-                first_expr_id[expr_parents[is_first]] <- data$id[expr_rows[is_first]]
-
-                rem_rows <- expr_rows[!is_first]
-                second_expr_id <- integer(max_id)
-                if (length(rem_rows)) {
-                    rem_parents <- data$parent[rem_rows]
-                    is_second <- !duplicated(rem_parents)
-                    second_expr_id[rem_parents[is_second]] <- data$id[rem_rows[is_second]]
-                }
-
-                is_extract_parent <- logical(max_id)
-                extract_parents <- data$parent[
-                    data$token %in% c("'['", "LBB", "'$'", "'@'", "[", "[[", "$", "@", "PIPE") &
-                        data$parent > 0L
-                ]
-                if (length(extract_parents)) {
-                    is_extract_parent[extract_parents] <- TRUE
-                }
-
-                is_call_parent <- logical(max_id)
-                paren_parents <- data$parent[
-                    data$token %in% c("'('", "(") & data$parent > 0L
-                ]
-                if (length(paren_parents)) {
-                    non_call_parents <- data$parent[
-                        data$token %in% c("IF", "WHILE", "FOR", "FUNCTION", "\\", "'\\'", "'\\\\'") &
-                            data$parent > 0L
-                    ]
-                    is_call_parent[setdiff(paren_parents, non_call_parents)] <- TRUE
-                }
-
-                steps <- 0L
-                max_steps <- nrow(data)
-                repeat {
-                    p <- id_parent[target_exprs]
-                    has_p <- p > 0L
-                    if (!any(has_p) || steps > max_steps) break
-                    step_up <- logical(length(target_exprs))
-                    p_valid <- p[has_p]
-                    t_valid <- target_exprs[has_p]
-                    step_up[has_p] <- (is_extract_parent[p_valid] & first_expr_id[p_valid] == t_valid) |
-                        (is_call_parent[p_valid] & second_expr_id[p_valid] == t_valid)
-                    if (!any(step_up)) break
-                    target_exprs[step_up] <- p[step_up]
-                    steps <- steps + 1L
-                }
-            }
-
-            grandparents <- id_parent[target_exprs]
-            m <- match(grandparents, data$parent[assign_rows], nomatch = 0L)
-            has_m <- m > 0L
-            if (any(has_m)) {
-                hit_sole <- sole_idx[has_m]
-                hit_rows <- cand_rows[hit_sole]
-                op_rows <- assign_rows[m[has_m]]
-                is_right <- data$token[op_rows] == "RIGHT_ASSIGN"
-                before_op <- data$line1[hit_rows] < data$line1[op_rows] |
-                    (data$line1[hit_rows] == data$line1[op_rows] & data$col1[hit_rows] < data$col1[op_rows])
-                after_op <- data$line1[hit_rows] > data$line1[op_rows] |
-                    (data$line1[hit_rows] == data$line1[op_rows] & data$col1[hit_rows] > data$col1[op_rows])
-                assigned_idx <- hit_sole[ifelse(is_right, after_op, before_op)]
-            }
+        is_right <- data$token[assign_rows] == "RIGHT_ASSIGN"
+        expr_rows <- which(data$token == "expr" & data$parent %in% data$parent[assign_rows])
+        left_exprs <- expr_rows[data$parent[expr_rows] %in% data$parent[assign_rows[!is_right]]]
+        right_exprs <- expr_rows[data$parent[expr_rows] %in% data$parent[assign_rows[is_right]]]
+        target_ids <- data$id[c(
+            left_exprs[!duplicated(data$parent[left_exprs])],
+            right_exprs[!duplicated(data$parent[right_exprs], fromLast = TRUE)]
+        )]
+        sym_rows <- which(data$token == "SYMBOL" & data$parent > 0L)
+        p <- data$parent[sym_rows]
+        repeat {
+            move <- p > 0L & !(p %in% target_ids)
+            if (!any(move)) break
+            p[move] <- id_parent[p[move]]
         }
+        m <- match(target_ids, p, nomatch = 0L)
+        assigned_idx <- which(cand_rows %in% sym_rows[m[m > 0L]])
     }
 
     forcond_ids <- data$id[data$token == "forcond"]
@@ -145,11 +86,7 @@ local_symbol_binding_scopes <- function(data, cand_rows, cand_names, id_parent) 
 
     bind_idx <- unique(c(assigned_idx, for_idx))
     if (!length(bind_idx)) {
-        return(list(
-            scope_ids = integer(),
-            names = character(),
-            has_top_level = character()
-        ))
+        return(list(scope_ids = integer(), names = character()))
     }
 
     fn_parents <- unique(data$parent[
@@ -187,7 +124,6 @@ local_symbol_binding_scopes <- function(data, cand_rows, cand_names, id_parent) 
     in_fn <- fn_scope > 0L
     scope_ids <- fn_scope[in_fn]
     scope_names <- bind_names[in_fn]
-    top_names <- unique(bind_names[!in_fn])
 
     if (length(for_idx)) {
         for_expr_ids <- id_parent[data$parent[cand_rows[for_idx]]]
@@ -198,8 +134,7 @@ local_symbol_binding_scopes <- function(data, cand_rows, cand_names, id_parent) 
 
     list(
         scope_ids = as.integer(scope_ids),
-        names = scope_names,
-        has_top_level = top_names
+        names = scope_names
     )
 }
 
@@ -209,109 +144,72 @@ xml_scope_local_symbols_xpath <- "
         .//LEFT_ASSIGN[text() = '<-']/preceding-sibling::expr[1]
         | .//EQ_ASSIGN/preceding-sibling::expr[1]
         | .//RIGHT_ASSIGN[text() = '->']/following-sibling::expr[1]
-    )//SYMBOL[
-        not(preceding-sibling::OP-DOLLAR or preceding-sibling::NS_GET or preceding-sibling::NS_GET_INT)
-        and parent::expr/ancestor-or-self::expr[
-            not(
-                (
-                    not(preceding-sibling::expr)
-                    and (
-                        following-sibling::OP-LEFT-BRACKET
-                        or following-sibling::LBB
-                        or following-sibling::OP-DOLLAR
-                        or following-sibling::OP-AT
-                        or following-sibling::PIPE
-                    )
-                )
-                or (
-                    preceding-sibling::OP-LEFT-PAREN
-                    and count(preceding-sibling::expr) = 1
-                )
-            )
-        ][1][
-            following-sibling::LEFT_ASSIGN[text() = '<-']
-            or following-sibling::EQ_ASSIGN
-            or preceding-sibling::RIGHT_ASSIGN[text() = '->']
-        ]
-    ]
+    )/descendant::SYMBOL[
+        not(
+            preceding-sibling::OP-DOLLAR
+            or preceding-sibling::OP-AT
+            or preceding-sibling::NS_GET
+            or preceding-sibling::NS_GET_INT
+        )
+    ][1]
     | .//forcond/SYMBOL
 "
 
 #' Resolve the nearest lexical binding kind ("formal", "local", or "none") for an XML SYMBOL
 #' @noRd
-xml_symbol_binding_kind <- function(token_node, sym_name, include_top_level = FALSE) {
-    if (!include_top_level) {
-        ancestor_formals <- setdiff(
-            reference_symbol_names(
-                xml_text(xml_find_all(token_node, "ancestor::expr/SYMBOL_FORMALS"))
-            ),
-            "..."
-        )
-        if (!(sym_name %in% ancestor_formals)) {
-            return("none")
-        }
-        if (xml_find_lgl(
-            token_node,
-            "not(ancestor::expr[FUNCTION or OP-LAMBDA][2] or ancestor::expr/forcond)"
-        )) {
-            return("formal")
-        }
+xml_symbol_binding_kind <- function(token_node, sym_name) {
+    ancestor_formals <- setdiff(
+        reference_symbol_names(
+            xml_text(xml_find_all(token_node, "ancestor::expr/SYMBOL_FORMALS"))
+        ),
+        "..."
+    )
+    if (!(sym_name %in% ancestor_formals)) {
+        return("none")
+    }
+    if (xml_find_lgl(
+        token_node,
+        "not(ancestor::expr[FUNCTION or OP-LAMBDA][2] or ancestor::expr/forcond)"
+    )) {
+        return("formal")
     }
     scopes <- xml_find_all(
         token_node,
         "ancestor::expr[FUNCTION or OP-LAMBDA or forcond]"
     )
-    if (length(scopes)) {
-        loop_syms <- xml_find_chr(scopes, "string(forcond/SYMBOL)")
-        is_for <- nzchar(loop_syms)
-        fn_depths <- cumsum(!is_for)
-        for (i in rev(seq_along(scopes))) {
-            if (is_for[[i]]) {
-                if (reference_symbol_names(loop_syms[[i]]) == sym_name) {
-                    return("local")
-                }
-                next
+    loop_syms <- xml_find_chr(scopes, "string(forcond/SYMBOL)")
+    is_for <- nzchar(loop_syms)
+    fn_depths <- cumsum(!is_for)
+    for (i in rev(seq_along(scopes))) {
+        if (is_for[[i]]) {
+            if (reference_symbol_names(loop_syms[[i]]) == sym_name) {
+                return("local")
             }
-            scope_node <- scopes[[i]]
-            formal_names <- setdiff(
-                reference_symbol_names(
-                    xml_text(xml_find_all(scope_node, "SYMBOL_FORMALS"))
-                ),
-                "..."
-            )
-            if (sym_name %in% formal_names) return("formal")
+            next
+        }
+        scope_node <- scopes[[i]]
+        formal_names <- setdiff(
+            reference_symbol_names(
+                xml_text(xml_find_all(scope_node, "SYMBOL_FORMALS"))
+            ),
+            "..."
+        )
+        if (sym_name %in% formal_names) return("formal")
 
-            local_nodes <- xml_find_all(scope_node, xml_scope_local_symbols_xpath)
-            if (length(local_nodes)) {
-                local_names <- reference_symbol_names(xml_text(local_nodes))
-                matching_nodes <- local_nodes[local_names == sym_name]
-                if (length(matching_nodes)) {
-                    not_nested_xpath <- sprintf(
-                        "not(ancestor::expr[FUNCTION or OP-LAMBDA][%d])",
-                        fn_depths[[i]] + 1L
-                    )
-                    if (any(xml_find_lgl(matching_nodes, not_nested_xpath))) {
-                        return("local")
-                    }
+        local_nodes <- xml_find_all(scope_node, xml_scope_local_symbols_xpath)
+        if (length(local_nodes)) {
+            local_names <- reference_symbol_names(xml_text(local_nodes))
+            matching_nodes <- local_nodes[local_names == sym_name]
+            if (length(matching_nodes)) {
+                not_nested_xpath <- sprintf(
+                    "not(ancestor::expr[FUNCTION or OP-LAMBDA][%d])",
+                    fn_depths[[i]] + 1L
+                )
+                if (any(xml_find_lgl(matching_nodes, not_nested_xpath))) {
+                    return("local")
                 }
             }
         }
-    }
-    if (!include_top_level) {
-        return("none")
-    }
-    root <- xml_root(token_node)
-    local_nodes <- xml_find_all(root, xml_scope_local_symbols_xpath)
-    if (!length(local_nodes)) {
-        return("none")
-    }
-    local_names <- reference_symbol_names(xml_text(local_nodes))
-    matching_nodes <- local_nodes[local_names == sym_name]
-    if (!length(matching_nodes)) {
-        return("none")
-    }
-    if (any(xml_find_lgl(matching_nodes, "not(ancestor::expr[FUNCTION or OP-LAMBDA])"))) {
-        return("local")
     }
     "none"
 }
@@ -321,14 +219,11 @@ xml_symbol_binding_kind <- function(token_node, sym_name, include_top_level = FA
 formal_parameter_symbol_ids <- function(data, member_or_ns_parents = NULL) {
     formal_rows <- which(
         data$token == "SYMBOL_FORMALS" &
-            data$parent > 0L
+            data$parent > 0L &
+            !(data$text %in% c("...", "`...`"))
     )
     if (!length(formal_rows)) return(integer())
     formal_names <- reference_symbol_names(data$text[formal_rows])
-    keep_formals <- formal_names != "..."
-    formal_rows <- formal_rows[keep_formals]
-    formal_names <- formal_names[keep_formals]
-    if (!length(formal_rows)) return(integer())
 
     unique_names <- unique(formal_names)
     if (is.null(member_or_ns_parents)) {
@@ -342,7 +237,6 @@ formal_parameter_symbol_ids <- function(data, member_or_ns_parents = NULL) {
             data$parent > 0L &
             !(data$parent %in% member_or_ns_parents)
     )
-    if (!length(sym_rows)) return(integer())
     sym_names <- reference_symbol_names(data$text[sym_rows])
     in_formals <- sym_names %in% unique_names
     cand_rows <- sym_rows[in_formals]

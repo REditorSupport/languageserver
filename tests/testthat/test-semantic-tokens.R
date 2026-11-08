@@ -967,8 +967,4 @@ test_that("Named arguments and scoped parameter references emit parameter tokens
         expect_equal(token_type_at(11L, 60L, 5L), SemanticTokenTypes$parameter)
         expect_equal(token_type_at(11L, 67L, 5L), SemanticTokenTypes$parameter)
     }
-
-    unused_parsed <- parse(text = "noop <- function(unused_arg) 1L", keep.source = TRUE)
-    unused_pd <- utils::getParseData(unused_parsed, includeText = TRUE)
-    expect_identical(formal_parameter_symbol_ids(unused_pd), integer())
 })
