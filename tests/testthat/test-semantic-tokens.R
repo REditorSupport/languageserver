@@ -910,7 +910,10 @@ test_that("Named arguments and scoped parameter references emit parameter tokens
         "mem_outer <- function(alpha) { inner <- function() { alpha$x <- 1L; alpha }; inner() }",
         "call_outer <- function(alpha) { inner <- function() { names(alpha) <- \"x\"; alpha }; inner() }",
         "sup_left <- function(alpha) { inner <- function() { alpha <<- 1L; alpha }; inner() }",
-        "sup_right <- function(alpha) { inner <- function() { 1L ->> alpha; alpha }; inner() }"
+        "sup_right <- function(alpha) { inner <- function() { 1L ->> alpha; alpha }; inner() }",
+        "sup_formal <- function(alpha) { inner <- function() { alpha <- 10L; alpha <<- 1L; 1L ->> alpha; alpha }; inner() }",
+        "sup_var <- function() { alpha <- 1L; inner <- function(alpha) { alpha <<- 2L; 2L ->> alpha; alpha }; inner(9L) }",
+        "alpha <<- 1L"
     )
     bt_parsed <- parse(text = bt_content, keep.source = TRUE)
     bt_semantic <- semantic_parse_data(
@@ -961,10 +964,20 @@ test_that("Named arguments and scoped parameter references emit parameter tokens
         expect_equal(token_type_at(8L, 68L, 5L), SemanticTokenTypes$variable)
         expect_equal(token_type_at(9L, 60L, 5L), SemanticTokenTypes$variable)
         expect_equal(token_type_at(9L, 75L, 5L), SemanticTokenTypes$variable)
-        # Lines 10-11: superassignment (<<-, ->>) does not create a local binding
+        # Lines 10-14: superassignment (<<-, ->>) resolves targets from parent environment
         expect_equal(token_type_at(10L, 52L, 5L), SemanticTokenTypes$parameter)
         expect_equal(token_type_at(10L, 66L, 5L), SemanticTokenTypes$parameter)
         expect_equal(token_type_at(11L, 60L, 5L), SemanticTokenTypes$parameter)
         expect_equal(token_type_at(11L, 67L, 5L), SemanticTokenTypes$parameter)
+        expect_equal(token_type_at(12L, 54L, 5L), SemanticTokenTypes$variable)
+        expect_equal(token_type_at(12L, 68L, 5L), SemanticTokenTypes$parameter)
+        expect_equal(token_type_at(12L, 89L, 5L), SemanticTokenTypes$parameter)
+        expect_equal(token_type_at(12L, 96L, 5L), SemanticTokenTypes$variable)
+        expect_equal(token_type_at(13L, 24L, 5L), SemanticTokenTypes$variable)
+        expect_equal(token_type_at(13L, 55L, 5L), SemanticTokenTypes$parameter)
+        expect_equal(token_type_at(13L, 64L, 5L), SemanticTokenTypes$variable)
+        expect_equal(token_type_at(13L, 85L, 5L), SemanticTokenTypes$variable)
+        expect_equal(token_type_at(13L, 92L, 5L), SemanticTokenTypes$parameter)
+        expect_equal(token_type_at(14L, 0L, 5L), SemanticTokenTypes$variable)
     }
 })
