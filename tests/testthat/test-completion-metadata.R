@@ -649,8 +649,8 @@ test_that("Indexed and XML scope completions agree on local symbols", {
 
 test_that("Token completion supports indexed and XML parse data", {
     content <- c(
-        "fn <- function(mem_formal = 1) mem_call(mem_formal)",
-        "target(named = 1, mem_sub = 2)",
+        "fn <- function(member_formal = 1) member_call(member_formal)",
+        "target(named = 1, member_sub = 2)",
         "object$member",
         "member_other <- 2"
     )
@@ -674,7 +674,7 @@ test_that("Token completion supports indexed and XML parse data", {
         vapply(legacy, `[[`, character(1L), "label"),
         vapply(indexed_all, `[[`, character(1L), "label")
     )
-    expect_true(all(c("member", "mem_sub", "mem_formal", "mem_call") %in%
+    expect_true(all(c("member", "member_sub", "member_formal", "member_call") %in%
         vapply(legacy, `[[`, character(1L), "label")))
 
     legacy_empty <- token_completion(fixture$uri, legacy_workspace, "")
@@ -684,7 +684,7 @@ test_that("Token completion supports indexed and XML parse data", {
     )
     expect_setequal(
         vapply(legacy_empty, `[[`, character(1L), "label"),
-        c("member", "named", "mem_sub")
+        c("member", "named", "member_sub")
     )
 
     parse_data$xml_doc <- NULL

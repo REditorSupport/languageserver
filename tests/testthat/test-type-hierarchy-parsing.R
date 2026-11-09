@@ -225,7 +225,8 @@ test_that("Type detection and member extraction support = assignments, quoted na
         '  "quoted_method" = function() field',
         "))",
         'setRefClass("RefWithQuoted", fields = list("quoted_field" = "character", plain_field # comment',
-        '  = "numeric"), methods = list("quoted_method" = function() NULL))'
+        '  = "numeric"), methods = list("quoted_method" = function() NULL))',
+        "{ Unnamed = R6Class(public = list(x = 1)) }"
     )
     uri <- "file:///eq-and-quoted-types.R"
     document <- Document$new(uri, content = code)
@@ -233,8 +234,12 @@ test_that("Type detection and member extraction support = assignments, quoted na
     workspace <- list(get_parse_data = function(...) list(xml_doc = xdoc))
 
     detected <- detect_type_definition(uri, workspace, document, list(row = 0L, col = 1L), "Alias")
-    expect_equal(detected$name, "Parent")
+    expect_equal(detected$name, "Alias")
     expect_equal(detected$classType, "R6")
+
+    unnamed_detected <- detect_type_definition(uri, workspace, document, list(row = 7L, col = 3L), "Unnamed")
+    expect_equal(unnamed_detected$name, "Unnamed")
+    expect_equal(unnamed_detected$classType, "R6")
 
     r6_alias <- detect_r6class(xdoc, "Alias", document, uri)
     expect_equal(r6_alias$name, "Alias")
