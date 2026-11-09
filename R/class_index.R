@@ -2,8 +2,8 @@ class_index_key <- function(type, name) paste(type, name, sep = "\r")
 
 # Parser XML has no namespaces. xml2's default namespace discovery walks the
 # whole document for every local query, turning class extraction quadratic.
-class_xml_first <- function(node, xpath) xml_find_first(node, xpath, ns = character())
-class_xml_all <- function(node, xpath) xml_find_all(node, xpath, ns = character())
+class_xml_first <- function(node, xpath) xml_find_first_(node, xpath)
+class_xml_all <- function(node, xpath) xml_find_all_(node, xpath)
 
 #' Decode inert class names and member names using R literal syntax
 #' @noRd
@@ -47,7 +47,7 @@ class_xml_arguments <- function(node) {
     if (native || isTRUE(magrittr)) {
         lhs <- class_xml_first(operator, "preceding-sibling::expr[1]")
         placeholder <- vapply(arguments, function(argument) {
-            isTRUE(xml_find_lgl(argument, if (native) "boolean(PLACEHOLDER[parent::expr[count(*) = 1]])" else
+            isTRUE(xml_find_lgl_(argument, if (native) "boolean(PLACEHOLDER[parent::expr[count(*) = 1]])" else
                     "boolean(SYMBOL[text() = '.' and parent::expr[count(*) = 1]])"))
         }, logical(1L))
         if (any(placeholder)) arguments[placeholder] <- list(lhs)

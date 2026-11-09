@@ -91,15 +91,15 @@ document_highlight_reply <- function(id, uri, workspace, document, point) {
 
                 tokens <- NULL
                 if (token_name %in% c("SYMBOL", "SYMBOL_FUNCTION_CALL", "SYMBOL_FORMALS")) {
-                    if (xml_find_lgl(token, "not(preceding-sibling::OP-DOLLAR)")) {
+                    if (xml_find_lgl_(token, "not(preceding-sibling::OP-DOLLAR)")) {
                         xpath <- glue(document_highlight_xpath, token_quote = token_quote)
-                        tokens <- xml_find_all(xdoc, xpath)
+                        tokens <- xml_find_all_(xdoc, xpath)
                     }
                 } else if (token_name %in% c(
                     "SYMBOL_PACKAGE", "FUNCTION", "NUM_CONST", "STR_CONST")) {
                     # Compare text directly: XML entities do not escape quotes
                     # inside XPath string literals (for example, 'a string').
-                    tokens <- xml_find_all(xdoc, paste0("//", token_name))
+                    tokens <- xml_find_all_(xdoc, paste0("//", token_name))
                     tokens <- tokens[xml_text(tokens) == token_text]
                 }
 

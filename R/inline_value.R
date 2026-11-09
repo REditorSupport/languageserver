@@ -51,7 +51,7 @@ inline_value_reply <- function(id, uri, workspace, document, request_range) {
         end_line <- end_line - 1L
     }
     line_cond <- paste0("@line1 >= ", start_line, " and @line1 <= ", end_line)
-    nodes <- xml_find_all(
+    nodes <- xml_find_all_(
         xdoc,
         paste0("//SYMBOL[", line_cond, "] | //SYMBOL_FORMALS[", line_cond, "]")
     )

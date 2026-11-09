@@ -692,7 +692,7 @@ xdoc_top_level_index <- function(x, syntax = NULL, navigation = NULL) {
         # XML is needed by legacy providers, but syntax facts are already
         # built in the worker. Map preorder rows once instead of rediscovering
         # token attributes and assignment predicates on the main thread.
-        all_nodes <- xml_find_all(x, "descendant::*")
+        all_nodes <- xml_find_all_(x, "descendant::*")
         if (length(all_nodes) == length(syntax$id)) {
             rank <- syntax$order_rank
             roots <- syntax$roots[syntax$token[syntax$roots] == "expr"]
@@ -714,7 +714,7 @@ xdoc_top_level_index <- function(x, syntax = NULL, navigation = NULL) {
     nodes <- nodes[xml_name(nodes) == "expr"]
     # An explicit descendant axis avoids libxml2 repeatedly merging terminal
     # node sets for //*, which becomes quadratic in long, flat scripts.
-    tokens <- xml_find_all(x, "descendant-or-self::*[@line1 and not(*)]")
+    tokens <- xml_find_all_(x, "descendant-or-self::*[@line1 and not(*)]")
     token_line1 <- as.integer(xml_attr(tokens, "line1"))
     token_col1 <- as.integer(xml_attr(tokens, "col1"))
     token_line2 <- as.integer(xml_attr(tokens, "line2"))
@@ -727,7 +727,7 @@ xdoc_top_level_index <- function(x, syntax = NULL, navigation = NULL) {
         all(token_line2[previous] < token_line1[following] |
             token_line2[previous] == token_line1[following] &
                 token_col2[previous] < token_col1[following])
-    definition_symbols <- xml_find_all(x, paste(
+    definition_symbols <- xml_find_all_(x, paste(
         "(//LEFT_ASSIGN | //EQ_ASSIGN)/preceding-sibling::expr[count(*)=1]/SYMBOL",
         "//RIGHT_ASSIGN/following-sibling::expr[count(*)=1]/SYMBOL",
         sep = " | "
@@ -762,7 +762,7 @@ xdoc_find_enclosing_scopes <- function(x, line, col, top = FALSE) {
         rows <- .Call("syntax_enclosing_c", index$syntax, as.integer(c(line, col)), PACKAGE = "languageserver")
         scopes <- index$all_nodes[index$syntax$order_rank[rows]]
         if (top) {
-            root <- xml_find_all(x, "/exprlist")
+            root <- xml_find_all_(x, "/exprlist")
             return(structure(c(unclass(root), unclass(scopes)), class = "xml_nodeset"))
         }
         return(scopes)
@@ -778,19 +778,19 @@ xdoc_find_enclosing_scopes <- function(x, line, col, top = FALSE) {
             "/exprlist/expr[", condition,
             "]/descendant-or-self::expr[", condition, "]"
         )
-        scopes <- xml_find_all(x, xpath)
+        scopes <- xml_find_all_(x, xpath)
     } else {
         selected <-
             (index$line1 < line |
                 index$line1 == line & index$col1 <= col) &
             (index$line2 > line |
                 index$line2 == line & index$col2 >= col - 1L)
-        scopes <- xml_find_all(index$nodes[selected],
+        scopes <- xml_find_all_(index$nodes[selected],
             paste0("descendant-or-self::expr[", condition, "]"))
     }
 
     if (top) {
-        root <- xml_find_all(x, "/exprlist")
+        root <- xml_find_all_(x, "/exprlist")
         structure(c(unclass(root), unclass(scopes)), class = "xml_nodeset")
     } else {
         scopes
@@ -816,7 +816,7 @@ xdoc_find_definitions <- function(x, line, col, name, xpath) {
     }
     if (is.null(index$definitions_by_name)) {
         scopes <- xdoc_find_enclosing_scopes(x, line, col, top = TRUE)
-        return(xml_find_all(scopes, xpath))
+        return(xml_find_all_(scopes, xpath))
     }
     selected <- get0(name, envir = index$definitions_by_name,
         inherits = FALSE, ifnotfound = integer())
@@ -834,7 +834,7 @@ xdoc_find_definitions <- function(x, line, col, name, xpath) {
         "(* | self::expr | self::expr_or_assign_or_help)",
         xpath, fixed = TRUE
     )
-    xml_find_all(contexts, shallow_xpath)
+    xml_find_all_(contexts, shallow_xpath)
 }
 
 xdoc_find_token <- function(x, line, col) {
@@ -846,13 +846,13 @@ xdoc_find_token <- function(x, line, col) {
             index$is_string, as.integer(c(line, col))
         )
         if (selected > 0L) return(index$nodes[[selected]])
-        return(xml_find_first(x, "/*[false()]"))
+        return(xml_find_first_(x, "/*[false()]"))
     }
     xpath <- glue("//*[not(*)][(@line1 < {line} or (@line1 = {line} and @col1 <= {col})) and (@line2 > {line} or (@line2 = {line} and @col2 >= {col}-1))]",
         line = line, col = col)
-    tokens <- xml_find_all(x, xpath)
+    tokens <- xml_find_all_(x, xpath)
     if (!length(tokens)) {
-        return(xml_find_first(x, "/*[false()]"))
+        return(xml_find_first_(x, "/*[false()]"))
     }
 
     # A cursor at the boundary before a string literal can match both the
@@ -929,4 +929,34 @@ range_overlap <- function(range1, range2) {
         compare_position(range1$start, range2$end) > 0 ||
         compare_position(range2$end, range1$start) < 0 ||
         compare_position(range2$start, range1$end) > 0)
+}
+
+# TODO(r-lib/xml2#327): Remove this workaround if upstream bottleneck is resolved.
+# placeholder xml_ns() object to skip this call on xml2 invocations
+empty_ns <- character()
+names(empty_ns) <- character()
+class(empty_ns) <- "xml_namespace"
+
+xml_find_all_ <- function(x, xpath, ns = empty_ns, ...) {
+    xml_find_all(x, xpath, ns = ns, ...)
+}
+
+xml_find_first_ <- function(x, xpath, ns = empty_ns) {
+    xml_find_first(x, xpath, ns = ns)
+}
+
+xml_find_chr_ <- function(x, xpath, ns = empty_ns) {
+    xml_find_chr(x, xpath, ns = ns)
+}
+
+xml_find_num_ <- function(x, xpath, ns = empty_ns) {
+    xml_find_num(x, xpath, ns = ns)
+}
+
+xml_find_lgl_ <- function(x, xpath, ns = empty_ns) {
+    xml_find_lgl(x, xpath, ns = ns)
+}
+
+xml_child_ <- function(x, search = 1L, ns = empty_ns) {
+    xml_child(x, search = search, ns = ns)
 }

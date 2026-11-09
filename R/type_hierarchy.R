@@ -976,7 +976,7 @@ extract_r6_list_members <- function(document, list_node, access_modifier) {
         }
 
         # Check if this specific value expression contains a FUNCTION keyword
-        is_function <- xml_find_lgl(value_expr, "boolean(.//FUNCTION)")
+        is_function <- xml_find_lgl_(value_expr, "boolean(.//FUNCTION)")
 
         member_kind <- if (is_function) SymbolKind$Method else SymbolKind$Field
         member_range <- get_element_range(document, symbol_sub)

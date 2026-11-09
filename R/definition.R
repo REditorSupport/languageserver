@@ -72,7 +72,7 @@ definition_reply <- function(id, uri, workspace, document, point,
             logger$info("definition: ", token_name, token_text)
             if (token_name %in% c("SYMBOL", "SYMBOL_FUNCTION_CALL", "SYMBOL_FORMALS")) {
                 # symbol
-                if (xml_find_lgl(token, "not(preceding-sibling::OP-DOLLAR)")) {
+                if (xml_find_lgl_(token, "not(preceding-sibling::OP-DOLLAR)")) {
                     xpath <- glue(definition_xpath,
                         row = row, start = token_start, end = token_end,
                         token_quote = xml_single_quote(token_text))

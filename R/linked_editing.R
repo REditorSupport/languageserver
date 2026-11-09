@@ -152,10 +152,10 @@ linked_editing_range_reply <- function(id, uri, workspace, document, point) {
             scopes <- xdoc_find_enclosing_scopes(xdoc, definition_row + 1L,
                 definition$range$start$character + 1L)
             context <- if (length(scopes)) scopes[[1L]] else xdoc
-            function_nodes <- xml_find_all(context, xpath)
+            function_nodes <- xml_find_all_(context, xpath)
             if (!length(function_nodes)) next
             function_node <- function_nodes[[length(function_nodes)]]
-            formal_nodes <- xml_find_all(function_node, "SYMBOL_FORMALS")
+            formal_nodes <- xml_find_all_(function_node, "SYMBOL_FORMALS")
             if (!length(formal_nodes)) next
         }
 

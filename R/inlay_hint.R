@@ -44,13 +44,13 @@ call_argument_groups <- function(call_node) {
 #' Whether a pipe supplies an implicit positional argument to this call
 #' @noRd
 call_has_implicit_argument <- function(call_node) {
-    operator <- xml_find_first(call_node, "preceding-sibling::*[not(self::COMMENT)][1]")
+    operator <- xml_find_first_(call_node, "preceding-sibling::*[not(self::COMMENT)][1]")
     if (inherits(operator, "xml_missing")) return(FALSE)
     if (xml_name(operator) %in% c("PIPE", "OP-PIPE")) {
-        return(xml_find_lgl(call_node, "not(expr[count(*) = 1]/PLACEHOLDER)"))
+        return(xml_find_lgl_(call_node, "not(expr[count(*) = 1]/PLACEHOLDER)"))
     }
     if (xml_name(operator) == "SPECIAL" && xml_text(operator) %in% c("%>%", "%<>%", "%T>%")) {
-        return(xml_find_lgl(call_node, "not(expr[count(*) = 1]/SYMBOL[text() = '.'])"))
+        return(xml_find_lgl_(call_node, "not(expr[count(*) = 1]/SYMBOL[text() = '.'])"))
     }
     FALSE
 }
@@ -217,7 +217,7 @@ inlay_hint_reply <- function(id, uri, workspace, document, request_range) {
     if (request_range$end$character == 0L && end_line > start_line) {
         end_line <- end_line - 1L
     }
-    fn_nodes <- xml_find_all(
+    fn_nodes <- xml_find_all_(
         xdoc,
         paste0(
             "//SYMBOL_FUNCTION_CALL[parent::expr[",
@@ -229,7 +229,7 @@ inlay_hint_reply <- function(id, uri, workspace, document, request_range) {
     if (!length(fn_nodes)) return(Response$new(id, result = list()))
     calls <- xml_parent(xml_parent(fn_nodes))
     function_names <- xml_text(fn_nodes)
-    packages <- xml_find_chr(fn_nodes, "string(preceding-sibling::SYMBOL_PACKAGE[1])")
+    packages <- xml_find_chr_(fn_nodes, "string(preceding-sibling::SYMBOL_PACKAGE[1])")
 
     minimum_arguments <- lsp_settings$get("inlay_hints_minimum_arguments")
     if (!is.numeric(minimum_arguments) || length(minimum_arguments) != 1L ||

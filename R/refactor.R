@@ -133,7 +133,7 @@ refactor_sequence_container <- function(node) {
     name <- xml_name(node)
     identical(name, "exprlist") ||
         identical(name, "expr") &&
-            xml_find_lgl(node, "boolean(OP-LEFT-BRACE)")
+            xml_find_lgl_(node, "boolean(OP-LEFT-BRACE)")
 }
 
 #' Find the statement and sequential container enclosing an expression
@@ -197,7 +197,7 @@ refactor_expression_movable <- function(node, statement) {
             } else {
                 "boolean(.//PLACEHOLDER)"
             }
-            if (xml_find_lgl(node, placeholder)) return(FALSE)
+            if (xml_find_lgl_(node, placeholder)) return(FALSE)
         }
 
         assignments <- which(child_names %in% c(
@@ -234,7 +234,7 @@ refactor_expression_movable <- function(node, statement) {
 #' Find an expression exactly matching a selected range
 #' @noRd
 refactor_exact_expression <- function(xdoc, selected_range) {
-    nodes <- xml_find_all(xdoc, "//expr[@line1]")
+    nodes <- xml_find_all_(xdoc, "//expr[@line1]")
     matches <- vapply(nodes, function(node) {
         refactor_range_equal(refactor_node_range(node), selected_range)
     }, logical(1L))
@@ -248,7 +248,7 @@ refactor_exact_expression <- function(xdoc, selected_range) {
 #' Find contiguous statement expressions matching a selected range
 #' @noRd
 refactor_statement_selection <- function(xdoc, selected_range) {
-    containers <- xml_find_all(xdoc, "/exprlist | //OP-LEFT-BRACE/parent::expr")
+    containers <- xml_find_all_(xdoc, "/exprlist | //OP-LEFT-BRACE/parent::expr")
     result <- NULL
     for (container in containers) {
         children <- xml_children(container)
@@ -331,20 +331,20 @@ refactor_selection_context <- function(uri, workspace, document, item_range) {
 #' Return direct token names contained by a parse node
 #' @noRd
 refactor_token_names <- function(node) {
-    xml_name(xml_find_all(node, ".//*[not(*)]"))
+    xml_name(xml_find_all_(node, ".//*[not(*)]"))
 }
 
 #' Return function-call names contained by a parse node
 #' @noRd
 refactor_call_names <- function(node) {
-    xml_text(xml_find_all(node, ".//SYMBOL_FUNCTION_CALL"))
+    xml_text(xml_find_all_(node, ".//SYMBOL_FUNCTION_CALL"))
 }
 
 #' Detect syntax whose evaluation context cannot safely move
 #' @noRd
 refactor_unsafe_syntax <- function(node, extracting_function = FALSE) {
     token_names <- refactor_token_names(node)
-    token_text <- xml_text(xml_find_all(
+    token_text <- xml_text(xml_find_all_(
         node,
         ".//LEFT_ASSIGN | .//RIGHT_ASSIGN"
     ))
@@ -516,7 +516,7 @@ refactor_multiline_quoted_ranges <- function(context) {
             )
         }))
     }
-    quoted <- xml_find_all(context$xdoc, paste(
+    quoted <- xml_find_all_(context$xdoc, paste(
         "//STR_CONST[@line1 < @line2]",
         "//SYMBOL[@line1 < @line2]",
         "//SYMBOL_FUNCTION_CALL[@line1 < @line2]",
@@ -614,7 +614,7 @@ refactor_insertion_context <- function(document, statement) {
 #' Test whether an expression is only a single atomic token
 #' @noRd
 refactor_atomic_expression <- function(node) {
-    terminals <- xml_find_all(node, ".//*[not(*)]")
+    terminals <- xml_find_all_(node, ".//*[not(*)]")
     length(terminals) == 1L && xml_name(terminals[[1L]]) %in% c(
         "SYMBOL", "NUM_CONST", "STR_CONST", "NULL_CONST"
     )
@@ -847,7 +847,7 @@ refactor_extract_function_action <- function(uri, workspace, document,
         return(NULL)
     }
     uses_dots <- vapply(selection$nodes, function(node) {
-        xml_find_lgl(
+        xml_find_lgl_(
             node,
             "boolean(.//SYMBOL[text() = '...'] | .//SYMBOL_FORMALS[text() = '...'])"
         )
