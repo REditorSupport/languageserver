@@ -735,14 +735,16 @@ workspace_completion <- function(workspace, token,
 
 scope_completion_symbols_xpath <- paste(
     "(FUNCTION | OP-LAMBDA)/following-sibling::SYMBOL_FORMALS",
-    "(* | descendant-or-self::expr | descendant-or-self::expr_or_assign_or_help)/(LEFT_ASSIGN | EQ_ASSIGN)[not(following-sibling::expr[FUNCTION or OP-LAMBDA])]/preceding-sibling::expr[count(*)=1]/SYMBOL",
+    "(* | descendant-or-self::expr | descendant-or-self::expr_or_assign_or_help)/LEFT_ASSIGN[not(following-sibling::expr[FUNCTION or OP-LAMBDA])]/preceding-sibling::expr[count(*)=1]/SYMBOL",
     "(* | descendant-or-self::expr | descendant-or-self::expr_or_assign_or_help)/RIGHT_ASSIGN[not(preceding-sibling::expr[FUNCTION or OP-LAMBDA])]/following-sibling::expr[count(*)=1]/SYMBOL",
+    "(* | descendant-or-self::expr | descendant-or-self::expr_or_assign_or_help)/EQ_ASSIGN[not(following-sibling::expr[FUNCTION or OP-LAMBDA])]/preceding-sibling::expr[count(*)=1]/SYMBOL",
     "forcond/SYMBOL",
     sep = "|")
 
 scope_completion_functs_xpath <- paste(
-    "(* | descendant-or-self::expr | descendant-or-self::expr_or_assign_or_help)/(LEFT_ASSIGN | EQ_ASSIGN)[following-sibling::expr[FUNCTION or OP-LAMBDA]]/preceding-sibling::expr[count(*)=1]/SYMBOL",
+    "(* | descendant-or-self::expr | descendant-or-self::expr_or_assign_or_help)/LEFT_ASSIGN[following-sibling::expr[FUNCTION or OP-LAMBDA]]/preceding-sibling::expr[count(*)=1]/SYMBOL",
     "(* | descendant-or-self::expr | descendant-or-self::expr_or_assign_or_help)/RIGHT_ASSIGN[preceding-sibling::expr[FUNCTION or OP-LAMBDA]]/following-sibling::expr[count(*)=1]/SYMBOL",
+    "(* | descendant-or-self::expr | descendant-or-self::expr_or_assign_or_help)/EQ_ASSIGN[following-sibling::expr[FUNCTION or OP-LAMBDA]]/preceding-sibling::expr[count(*)=1]/SYMBOL",
     sep = "|")
 
 #' Complete bindings supplied by the enclosing execution context

@@ -21,6 +21,9 @@ test_that("xdoc_find_token retains document order for other boundaries", {
 
     token <- xdoc_find_token(xdoc, line = 1, col = 3)
     expect_equal(xml2::xml_name(token), "OP-LEFT-PAREN")
+
+    missing_token <- xdoc_find_token(xdoc, line = 1, col = 99)
+    expect_s3_class(missing_token, "xml_missing")
 })
 
 test_that("indexed enclosing scope lookup preserves results", {

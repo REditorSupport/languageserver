@@ -40,16 +40,24 @@ test_that("reference indexing uses syntax for spaced member and namespace operat
 })
 
 test_that("references honor includeDeclaration while rename includes definitions", {
-    fixture <- provider_fixture(c("value <- 1", "value"))
-    point <- list(row = 1L, col = 2L)
-    for (indexed in c(TRUE, FALSE)) {
-        if (!indexed) fixture$document$parse_data$reference_index <- NULL
-        reply <- references_reply(1L, fixture$uri, fixture$workspace, fixture$document,
-            point, include_declaration = FALSE)
-        expect_length(reply$result, 1L)
-        expect_equal(reply$result[[1L]]$range$start$line, 1L)
-        renamed <- rename_reply(1L, fixture$uri, fixture$workspace, fixture$document, point, "renamed")
-        expect_length(renamed$result$changes[[fixture$uri]], 2L)
+    cases <- list(
+        list(content = c("value <- 1", "value"), point = list(row = 1L, col = 2L), use_line = 1L),
+        list(content = c("eq_val = 1", "eq_val"), point = list(row = 1L, col = 2L), use_line = 1L),
+        list(content = c("1 -> right_val", "right_val"), point = list(row = 1L, col = 2L), use_line = 1L),
+        list(content = c("f <- function(formal_val) {", "  formal_val", "}"), point = list(row = 1L, col = 4L), use_line = 1L),
+        list(content = c("for (loop_val in 1:2) {", "  loop_val", "}"), point = list(row = 1L, col = 4L), use_line = 1L)
+    )
+    for (case in cases) {
+        fixture <- provider_fixture(case$content)
+        for (indexed in c(TRUE, FALSE)) {
+            if (!indexed) fixture$document$parse_data$reference_index <- NULL
+            reply <- references_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+                case$point, include_declaration = FALSE)
+            expect_length(reply$result, 1L)
+            expect_equal(reply$result[[1L]]$range$start$line, case$use_line)
+            renamed <- rename_reply(1L, fixture$uri, fixture$workspace, fixture$document, case$point, "renamed")
+            expect_length(renamed$result$changes[[fixture$uri]], 2L)
+        }
     }
 })
 

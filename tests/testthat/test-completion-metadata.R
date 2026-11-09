@@ -593,18 +593,26 @@ test_that("Indexed and XML scope completions agree on local symbols", {
     content <- c(
         "outer <- function(argument) {",
         "  local_value <- 1",
+        "  local_eq = 2",
+        "  3 -> local_right",
         "  local_fun <- function() local_value",
-        "  local_value",
+        "  local_eq_fun = function() local_value",
+        "  function() local_value -> local_right_fun",
+        "  local_lambda <- \\(local_lambda_arg) {",
+        "    for (local_loop in 1:2) {",
+        "      local_value",
+        "    }",
+        "  }",
         "}"
     )
     fixture <- provider_fixture(content)
-    point <- list(row = 3L, col = 8L)
+    point <- list(row = 9L, col = 12L)
 
     indexed <- scope_completion(
         fixture$uri, fixture$workspace, "local_", point,
         snippet_support = TRUE
     )
-    expect_length(indexed, 2L)
+    expect_length(indexed, 8L)
 
     limited <- scope_completion(
         fixture$uri, fixture$workspace, "local_", point,
@@ -640,7 +648,12 @@ test_that("Indexed and XML scope completions agree on local symbols", {
 })
 
 test_that("Token completion supports indexed and XML parse data", {
-    content <- c("object$member", "target(named = 1)", "member_other <- 2")
+    content <- c(
+        "fn <- function(mem_formal = 1) mem_call(mem_formal)",
+        "target(named = 1, mem_sub = 2)",
+        "object$member",
+        "member_other <- 2"
+    )
     fixture <- provider_fixture(content)
 
     indexed <- token_completion(
@@ -650,11 +663,29 @@ test_that("Token completion supports indexed and XML parse data", {
     expect_length(indexed, 1L)
     expect_equal(indexed[[1L]]$label, "member")
 
+    indexed_all <- token_completion(fixture$uri, fixture$workspace, "mem")
+    indexed_empty <- token_completion(fixture$uri, fixture$workspace, "")
+
     parse_data <- fixture$document$parse_data
     parse_data$completion_data <- NULL
     legacy_workspace <- list(get_parse_data = function(...) parse_data)
     legacy <- token_completion(fixture$uri, legacy_workspace, "mem")
-    expect_true("member" %in% vapply(legacy, `[[`, character(1L), "label"))
+    expect_setequal(
+        vapply(legacy, `[[`, character(1L), "label"),
+        vapply(indexed_all, `[[`, character(1L), "label")
+    )
+    expect_true(all(c("member", "mem_sub", "mem_formal", "mem_call") %in%
+        vapply(legacy, `[[`, character(1L), "label")))
+
+    legacy_empty <- token_completion(fixture$uri, legacy_workspace, "")
+    expect_setequal(
+        vapply(legacy_empty, `[[`, character(1L), "label"),
+        vapply(indexed_empty, `[[`, character(1L), "label")
+    )
+    expect_setequal(
+        vapply(legacy_empty, `[[`, character(1L), "label"),
+        c("member", "named", "mem_sub")
+    )
 
     parse_data$xml_doc <- NULL
     restored <- token_completion(fixture$uri, legacy_workspace, "mem")

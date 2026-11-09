@@ -9,6 +9,8 @@ test_that("indexed viewport providers agree with XML for nested and Unicode call
         "  inner(two, three))",
         "pkg::target(one, two)",
         "object$target(one, two)",
+        "object@target(one, two)",
+        "factory(target)(one, two)",
         "target(alpha, beta)",
         'target("alpha" = one, two)',
         "target((alpha), beta)",
@@ -121,12 +123,14 @@ test_that("folding caches use original literate content", {
 test_that("outline facts preserve nested delimiter and section ordering without XML", {
     content <- c("# Main ----", "f <- function(x) {g <- function() {",
         "  # Inner ----", "  # first", "  # second", "  x", "}",
+        "  for (", "    item in c(1,", "      2)", "  ) {", "    item", "  }",
         "  values <- list(", "    x = c(1,", "      2))", "}",
         "# Last ----", "array[", "  1", "]", "array[[", "  2", "]]")
     fixture <- provider_fixture(content)
     parsed <- fixture$document$parse_data
     xdoc <- parsed$xml_doc
     expect_equal(parsed$outline_data$blocks, extract_document_block_lines(xdoc))
+    expect_equal(get_document_blocks(NULL, parsed$outline_data), get_document_blocks(xdoc))
     expect_equal(get_comment_folding_ranges(NULL, parsed$outline_data), get_comment_folding_ranges(xdoc))
     for (symbol in c(TRUE, FALSE)) {
         expected <- get_r_document_ranges_rec(content, 1L, length(content),

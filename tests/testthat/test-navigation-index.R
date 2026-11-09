@@ -353,7 +353,12 @@ test_that("indexed local providers preserve fallback responses without XML", {
         "local(argument = value)",
         "value",
         "function(argument) argument -> right_function",
-        "right_function(argument = value)"
+        "right_function(argument = value)",
+        "eq_fn = function(argument = 1) argument",
+        "lam_fn <- \\(argument = 1) argument",
+        "eq_fn(argument = value)",
+        "lam_fn(argument = value)",
+        "stats::median(x = value, na.rm = TRUE)"
     )
     uri <- "file:///indexed-local-providers.R"
     document <- Document$new(uri, version = 1L, content = content)
@@ -366,8 +371,22 @@ test_that("indexed local providers preserve fallback responses without XML", {
     legacy$syntax_data <- legacy$navigation_data <- NULL
     legacy$xml_doc <- xml2::read_xml(parsed$xml_data)
     attr(legacy$xml_doc, "top_level_index") <- xdoc_top_level_index(legacy$xml_doc)
-    points <- list(list(row = 5L, col = 2L), list(row = 4L, col = 2L), list(row = 4L, col = 9L),
-        list(row = 7L, col = 3L), list(row = 7L, col = 17L))
+    points <- list(
+        list(row = 2L, col = 20L),
+        list(row = 5L, col = 2L),
+        list(row = 4L, col = 2L),
+        list(row = 4L, col = 9L),
+        list(row = 7L, col = 3L),
+        list(row = 7L, col = 17L),
+        list(row = 8L, col = 20L),
+        list(row = 9L, col = 15L),
+        list(row = 10L, col = 2L),
+        list(row = 10L, col = 9L),
+        list(row = 11L, col = 2L),
+        list(row = 11L, col = 10L),
+        list(row = 12L, col = 14L),
+        list(row = 12L, col = 27L)
+    )
     replies <- function(parse_data) {
         document$parse_data <- parse_data
         lapply(points, function(point) list(

@@ -219,7 +219,7 @@ detect_r6class <- function(scopes, token_text, document, uri) {
         "(//LEFT_ASSIGN | //EQ_ASSIGN)[
             preceding-sibling::expr[count(*) = 1]/SYMBOL[text() = '{token_quote}']
             and following-sibling::expr[1]//SYMBOL_FUNCTION_CALL[text() = 'R6Class']
-        ]/parent::expr",
+        ]/parent::*",
         token_quote = token_quote
     )
 
@@ -287,7 +287,7 @@ detect_s3class <- function(scopes, token_text, document, uri) {
         xpath <- glue(
             "(//LEFT_ASSIGN | //EQ_ASSIGN)[
                 preceding-sibling::expr[count(*) = 1]/SYMBOL[text() = '{token_quote}']
-            ]/parent::expr",
+            ]/parent::*",
             token_quote = xml_single_quote(token_text)
         )
 
