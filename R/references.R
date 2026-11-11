@@ -1,4 +1,4 @@
-references_xpath <- "//*[(self::SYMBOL or self::SYMBOL_FUNCTION_CALL or self::SYMBOL_FORMALS) and text() = '{token_quote}']"
+references_xpath <- "//SYMBOL[text() = '{token_quote}'] | //SYMBOL_FUNCTION_CALL[text() = '{token_quote}'] | //SYMBOL_FORMALS[text() = '{token_quote}']"
 
 #' Decode quoted symbol spellings without evaluating document code
 #' @noRd
@@ -349,12 +349,11 @@ references_reply <- function(id, uri, workspace, document, point,
             idx <- 0L
             for (i in seq_along(symbols)) {
                 if (!isTRUE(include_declaration)) {
-                    declaration <- xml_find_all(symbols[[i]], paste(
-                        "self::SYMBOL_FORMALS",
-                        "self::SYMBOL[parent::forcond]",
-                        "self::SYMBOL[parent::expr[count(*)=1][following-sibling::LEFT_ASSIGN or following-sibling::EQ_ASSIGN or preceding-sibling::RIGHT_ASSIGN]]",
-                        sep = " | "))
-                    if (length(declaration)) next
+                    is_declaration <- xml_name(symbols[[i]]) == "SYMBOL_FORMALS" || (
+                        xml_name(symbols[[i]]) == "SYMBOL" && xml_find_lgl(symbols[[i]],
+                            "boolean(parent::forcond or parent::expr[count(*)=1 and (following-sibling::LEFT_ASSIGN or following-sibling::EQ_ASSIGN or preceding-sibling::RIGHT_ASSIGN)])")
+                    )
+                    if (is_declaration) next
                 }
                 symbol_point <- list(row = line1[[i]] - 1, col = col1[[i]])
                 symbol_defn <- definition_reply(

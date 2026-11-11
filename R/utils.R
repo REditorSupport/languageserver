@@ -727,13 +727,13 @@ xdoc_top_level_index <- function(x, syntax = NULL, navigation = NULL) {
         all(token_line2[previous] < token_line1[following] |
             token_line2[previous] == token_line1[following] &
                 token_col2[previous] < token_col1[following])
-    assignment_symbol <- paste(
-        "(LEFT_ASSIGN | EQ_ASSIGN)/preceding-sibling::expr[count(*)=1]/SYMBOL",
-        "RIGHT_ASSIGN/following-sibling::expr[count(*)=1]/SYMBOL",
+    definition_symbols <- xml_find_all(x, paste(
+        "(//LEFT_ASSIGN | //EQ_ASSIGN)/preceding-sibling::expr[count(*)=1]/SYMBOL",
+        "//RIGHT_ASSIGN/following-sibling::expr[count(*)=1]/SYMBOL",
         sep = " | "
-    )
-    definitions <- xml_find_all(x, paste0("//*[", assignment_symbol, "]"))
-    definition_names <- xml_text(xml_find_first(definitions, assignment_symbol))
+    ))
+    definitions <- xml_parent(xml_parent(definition_symbols))
+    definition_names <- xml_text(definition_symbols)
     list(
         nodes = nodes,
         line1 = as.integer(xml_attr(nodes, "line1")),
@@ -800,7 +800,7 @@ xdoc_find_enclosing_scopes <- function(x, line, col, top = FALSE) {
 xdoc_find_definitions <- function(x, line, col, name, xpath) {
     index <- attr(x, "top_level_index", exact = TRUE)
     if (!is.null(index$syntax)) {
-        signature <- grepl("/expr[FUNCTION|OP-LAMBDA]", xpath, fixed = TRUE)
+        signature <- grepl("/expr[FUNCTION", xpath, fixed = TRUE)
         mode <- if (signature) "signature" else if (grepl("/parent::expr", xpath, fixed = TRUE)) "hover" else "definition"
         token <- if (signature) 0L else navigation_token(list(syntax_data = index$syntax), line, col)
         template <- get(paste0(mode, "_xpath"))
@@ -852,7 +852,7 @@ xdoc_find_token <- function(x, line, col) {
         line = line, col = col)
     tokens <- xml_find_all(x, xpath)
     if (!length(tokens)) {
-        return(xml_find_first(x, xpath))
+        return(xml_find_first(x, "/*[false()]"))
     }
 
     # A cursor at the boundary before a string literal can match both the

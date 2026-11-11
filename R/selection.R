@@ -37,7 +37,7 @@ selection_range_reply <- function(id, uri, workspace, document, points) {
             row <- point$row + 1
             col <- point$col + 1
             token <- xdoc_find_token(xdoc, row, col)
-            nodes <- xml_find_all(token, "self::*[@line1] | ancestor::*[@line1]")
+            nodes <- xml_find_all(token, "ancestor-or-self::*[@line1]")
             ranges <- lapply(nodes, function(token) {
                 range(
                     start = document$to_lsp_position(

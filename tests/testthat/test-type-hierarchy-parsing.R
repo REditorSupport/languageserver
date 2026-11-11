@@ -184,6 +184,7 @@ test_that("R6 hierarchy parsing finds inheritance and real members", {
 test_that("S3 and setMethod definitions are detected without false positives", {
     code <- c(
         "print.widget <- function(x, ...) x",
+        "format.widget = function(x, ...) x",
         'setMethod("show", "Special", function(object) object)',
         "plain_name <- 1"
     )
@@ -195,7 +196,12 @@ test_that("S3 and setMethod definitions are detected without false positives", {
     expect_equal(s3$name, "widget")
     expect_equal(s3$classType, "S3")
 
-    method_scopes <- xdoc_find_enclosing_scopes(xdoc, 2L, 20L, top = TRUE)
+    eq_s3_scopes <- xdoc_find_enclosing_scopes(xdoc, 2L, 2L, top = TRUE)
+    eq_s3 <- detect_s3class(eq_s3_scopes, "format.widget", document, document$uri)
+    expect_equal(eq_s3$name, "widget")
+    expect_equal(eq_s3$classType, "S3")
+
+    method_scopes <- xdoc_find_enclosing_scopes(xdoc, 3L, 20L, top = TRUE)
     s4 <- detect_s3class(method_scopes, "Special", document, document$uri)
     expect_equal(s4$name, "Special")
     expect_equal(s4$classType, "S4")
@@ -209,6 +215,41 @@ test_that("S3 and setMethod definitions are detected without false positives", {
         find_s3_subtypes_child(document, xdoc, "widget", document$uri),
         list()
     )
+})
+
+test_that("Type detection and member extraction support = assignments, quoted names, and comments", {
+    code <- c(
+        'Alias = R6Class("Parent", public = list(',
+        "  field # comment before equals",
+        "    = 1,",
+        '  "quoted_method" = function() field',
+        "))",
+        'setRefClass("RefWithQuoted", fields = list("quoted_field" = "character", plain_field # comment',
+        '  = "numeric"), methods = list("quoted_method" = function() NULL))',
+        "{ Unnamed = R6Class(public = list(x = 1)) }"
+    )
+    uri <- "file:///eq-and-quoted-types.R"
+    document <- Document$new(uri, content = code)
+    xdoc <- parse_type_hierarchy_xdoc(code)
+    workspace <- list(get_parse_data = function(...) list(xml_doc = xdoc))
+
+    detected <- detect_type_definition(uri, workspace, document, list(row = 0L, col = 1L), "Alias")
+    expect_equal(detected$name, "Alias")
+    expect_equal(detected$classType, "R6")
+
+    unnamed_detected <- detect_type_definition(uri, workspace, document, list(row = 7L, col = 3L), "Unnamed")
+    expect_equal(unnamed_detected$name, "Unnamed")
+    expect_equal(unnamed_detected$classType, "R6")
+
+    r6_alias <- detect_r6class(xdoc, "Alias", document, uri)
+    expect_equal(r6_alias$name, "Alias")
+    expect_equal(r6_alias$classType, "R6")
+
+    r6_members <- extract_r6_members(document, xdoc, list(name = "Parent", type = "R6"))
+    expect_setequal(map_chr(r6_members, "name"), c("field", "quoted_method"))
+
+    ref_members <- extract_refclass_members(document, xdoc, list(name = "RefWithQuoted", type = "RefClass"))
+    expect_setequal(map_chr(ref_members, "name"), c("quoted_field", "plain_field", "quoted_method"))
 })
 
 test_that("Type detection uses the token under the cursor", {

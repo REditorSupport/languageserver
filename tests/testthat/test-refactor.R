@@ -362,11 +362,16 @@ test_that("extraction preserves multiline quoted identifiers and argument names"
         list(content = c("outer <- function(argument) {", "  result <- list(`value",
                 "    key` = argument$value + 1)", "}"), argument = list(value = 2)),
         list(content = c("outer <- function(argument) {", '  result <- list("value',
-                '    key" = argument$value + 1)', "}"), argument = list(value = 2))
+                '    key" = argument$value + 1)', "}"), argument = list(value = 2)),
+        list(content = c("`multi", "    fun` <- function(x) x + 1", "outer <- function(argument) {",
+                "  result <- `multi", "    fun`(argument$value)", "}"),
+            start_row = 3L, end_row = 4L, argument = list(value = 2))
     )
     for (case in cases) {
-        end <- if (is.null(case$end)) nchar(case$content[[3L]]) else case$end
-        selected <- list(start = list(row = 1L, col = 12L), end = list(row = 2L, col = end))
+        start_row <- if (is.null(case[["start_row"]])) 1L else case[["start_row"]]
+        end_row <- if (is.null(case[["end_row"]])) 2L else case[["end_row"]]
+        end <- if (is.null(case[["end"]])) nchar(case$content[[end_row + 1L]]) else case[["end"]]
+        selected <- list(start = list(row = start_row, col = 12L), end = list(row = end_row, col = end))
         original <- new.env(parent = baseenv())
         eval(parse(text = case$content), original)
         for (native in c(TRUE, FALSE)) {
@@ -391,6 +396,27 @@ test_that("extraction preserves multiline quoted identifiers and argument names"
             }
         }
     }
+
+    multiline_tokens <- c(
+        "f <- function(`formal",
+        "  name` = 1) {",
+        '  s <- "str',
+        '    val"',
+        "  `sym",
+        "    name` <- `call",
+        "    name`(`sub",
+        "    name` = 1)",
+        "}"
+    )
+    fixture <- provider_fixture(multiline_tokens)
+    ctx <- list(
+        parse_data = fixture$document$parse_data,
+        xdoc = fixture$document$parse_data$xml_doc
+    )
+    indexed_ranges <- refactor_multiline_quoted_ranges(ctx)
+    expect_length(indexed_ranges, 5L)
+    ctx$parse_data$syntax_data <- NULL
+    expect_equal(refactor_multiline_quoted_ranges(ctx), indexed_ranges)
 })
 
 test_that("extraction reindents surrounding code without changing a selected literal tail", {
@@ -805,6 +831,30 @@ test_that("extract refactorings reject unsafe evaluation contexts", {
     expect_identical(refactor_code_actions(
         fixture$uri, fixture$workspace, fixture$document,
         selected, list("refactor.extract")), list())
+
+    dots_symbol <- c(
+        "outer <- function(...) {",
+        "  result <- list(...)",
+        "}"
+    )
+    fixture <- provider_fixture(dots_symbol)
+    selected <- refactor_test_range(dots_symbol, 1L, "list(...)")
+    context <- refactor_selection_context(
+        fixture$uri, fixture$workspace, fixture$document, selected)
+    expect_null(refactor_extract_function_action(
+        fixture$uri, fixture$workspace, fixture$document, context))
+
+    dots_formal <- c(
+        "outer <- function(x) {",
+        "  result <- (function(...) x + 1)()",
+        "}"
+    )
+    fixture <- provider_fixture(dots_formal)
+    selected <- refactor_test_range(dots_formal, 1L, "(function(...) x + 1)()")
+    context <- refactor_selection_context(
+        fixture$uri, fixture$workspace, fixture$document, selected)
+    expect_null(refactor_extract_function_action(
+        fixture$uri, fixture$workspace, fixture$document, context))
 })
 
 test_that("refactor actions honor requested kinds and current parse versions", {

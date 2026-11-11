@@ -4,7 +4,11 @@ DocumentHighlightKind <- list(
     Write = 3
 )
 
-document_highlight_xpath <- "//*[(self::SYMBOL or self::SYMBOL_FUNCTION_CALL or self::SYMBOL_FORMALS) and not(preceding-sibling::OP-DOLLAR) and text() = '{token_quote}']"
+document_highlight_xpath <- paste(
+    "//SYMBOL[not(preceding-sibling::OP-DOLLAR) and text() = '{token_quote}']",
+    "//SYMBOL_FUNCTION_CALL[not(preceding-sibling::OP-DOLLAR) and text() = '{token_quote}']",
+    "//SYMBOL_FORMALS[not(preceding-sibling::OP-DOLLAR) and text() = '{token_quote}']",
+    sep = " | ")
 
 #' The response to a textDocument/documentHighlight Request
 #'
@@ -87,8 +91,7 @@ document_highlight_reply <- function(id, uri, workspace, document, point) {
 
                 tokens <- NULL
                 if (token_name %in% c("SYMBOL", "SYMBOL_FUNCTION_CALL", "SYMBOL_FORMALS")) {
-                    preceding_dollar <- xml_find_first(token, "preceding-sibling::OP-DOLLAR")
-                    if (length(preceding_dollar) == 0) {
+                    if (xml_find_lgl(token, "not(preceding-sibling::OP-DOLLAR)")) {
                         xpath <- glue(document_highlight_xpath, token_quote = token_quote)
                         tokens <- xml_find_all(xdoc, xpath)
                     }
