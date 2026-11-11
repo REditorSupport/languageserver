@@ -38,7 +38,7 @@ function_call_locations <- function(workspace, symbol, context_uri = NULL,
         xdoc <- parse_data_xml(parse_data)
         if (is.null(xdoc)) next
 
-        nodes <- xml_find_all(
+        nodes <- xml_find_all_(
             xdoc,
             glue(paste0(
                 "//SYMBOL_FUNCTION_CALL[text() = '{token_quote}' and ",

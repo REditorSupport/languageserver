@@ -301,7 +301,7 @@ call_hierarchy_incoming_calls_reply <- function(id, workspace, item) {
             line2 <- end_point$row + 1
             col2 <- end_point$col
 
-            symbols <- xml_find_all(xdoc,
+            symbols <- xml_find_all_(xdoc,
                 glue("//SYMBOL_FUNCTION_CALL[
           ((@line1 = {line1} and @col1 >= {col1}) or @line1 > {line1}) and
           ((@line2 = {line2} and @col2 <= {col2}) or @line2 < {line2}) and
@@ -375,7 +375,7 @@ call_hierarchy_incoming_calls_reply <- function(id, workspace, item) {
             }
         }
 
-        symbols <- xml_find_all(xdoc,
+        symbols <- xml_find_all_(xdoc,
             glue("//SYMBOL_FUNCTION_CALL[text() = '{token_quote}']",
                 token_quote = token_quote))
         if (!length(symbols)) next
@@ -460,7 +460,7 @@ call_hierarchy_outgoing_calls_reply <- function(id, workspace, item) {
     line2 <- end_point$row + 1
     col2 <- end_point$col
 
-    symbols <- xml_find_all(xdoc,
+    symbols <- xml_find_all_(xdoc,
         glue("//SYMBOL_FUNCTION_CALL[
         ((@line1 = {line1} and @col1 >= {col1}) or @line1 > {line1}) and
         ((@line2 = {line2} and @col2 <= {col2}) or @line2 < {line2})]",

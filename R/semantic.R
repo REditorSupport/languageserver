@@ -175,39 +175,39 @@ xml_superassign_target_expr_xpath <- "
 #' Resolve the nearest lexical binding kind ("formal", "local", or "none") for an XML SYMBOL
 #' @noRd
 xml_symbol_binding_kind <- function(token_node, sym_name) {
-    if (xml_find_lgl(token_node, paste0("boolean(", xml_superassign_target_expr_xpath, ")"))) {
-        target_expr <- xml_find_first(token_node, xml_superassign_target_expr_xpath)
-        first_sym <- xml_find_first(
+    if (xml_find_lgl_(token_node, paste0("boolean(", xml_superassign_target_expr_xpath, ")"))) {
+        target_expr <- xml_find_first_(token_node, xml_superassign_target_expr_xpath)
+        first_sym <- xml_find_first_(
             target_expr,
             paste0("descendant::SYMBOL[", xml_not_qualified_symbol_xpath, "][1]")
         )
         if (identical(first_sym, token_node)) {
-            if (xml_find_lgl(target_expr, "not(ancestor::expr[FUNCTION or OP-LAMBDA])")) {
+            if (xml_find_lgl_(target_expr, "not(ancestor::expr[FUNCTION or OP-LAMBDA])")) {
                 return("none")
             }
-            token_node <- xml_find_first(target_expr, "ancestor::expr[FUNCTION or OP-LAMBDA][1]")
+            token_node <- xml_find_first_(target_expr, "ancestor::expr[FUNCTION or OP-LAMBDA][1]")
         }
     }
     ancestor_formals <- setdiff(
         reference_symbol_names(
-            xml_text(xml_find_all(token_node, "ancestor::expr/SYMBOL_FORMALS"))
+            xml_text(xml_find_all_(token_node, "ancestor::expr/SYMBOL_FORMALS"))
         ),
         "..."
     )
     if (!(sym_name %in% ancestor_formals)) {
         return("none")
     }
-    if (xml_find_lgl(
+    if (xml_find_lgl_(
         token_node,
         "not(ancestor::expr[FUNCTION or OP-LAMBDA][2] or ancestor::expr/forcond)"
     )) {
         return("formal")
     }
-    scopes <- xml_find_all(
+    scopes <- xml_find_all_(
         token_node,
         "ancestor::expr[FUNCTION or OP-LAMBDA or forcond]"
     )
-    loop_syms <- xml_find_chr(scopes, "string(forcond/SYMBOL)")
+    loop_syms <- xml_find_chr_(scopes, "string(forcond/SYMBOL)")
     is_for <- nzchar(loop_syms)
     fn_depths <- cumsum(!is_for)
     for (i in rev(seq_along(scopes))) {
@@ -220,13 +220,13 @@ xml_symbol_binding_kind <- function(token_node, sym_name) {
         scope_node <- scopes[[i]]
         formal_names <- setdiff(
             reference_symbol_names(
-                xml_text(xml_find_all(scope_node, "SYMBOL_FORMALS"))
+                xml_text(xml_find_all_(scope_node, "SYMBOL_FORMALS"))
             ),
             "..."
         )
         if (sym_name %in% formal_names) return("formal")
 
-        local_nodes <- xml_find_all(scope_node, xml_scope_local_symbols_xpath)
+        local_nodes <- xml_find_all_(scope_node, xml_scope_local_symbols_xpath)
         if (length(local_nodes)) {
             local_names <- reference_symbol_names(xml_text(local_nodes))
             matching_nodes <- local_nodes[local_names == sym_name]
@@ -235,7 +235,7 @@ xml_symbol_binding_kind <- function(token_node, sym_name) {
                     "not(ancestor::expr[FUNCTION or OP-LAMBDA][%d])",
                     fn_depths[[i]] + 1L
                 )
-                if (any(xml_find_lgl(matching_nodes, not_nested_xpath))) {
+                if (any(xml_find_lgl_(matching_nodes, not_nested_xpath))) {
                     return("local")
                 }
             }
@@ -455,15 +455,15 @@ xml_function_assignment_rhs_xpath <- "
 #' Whether an XML SYMBOL is assigned `function()` or `\()`
 #' @noRd
 xml_symbol_is_function_assignment <- function(node) {
-    if (xml_find_lgl(node, paste0("not(", xml_function_assignment_rhs_xpath, ")"))) {
+    if (xml_find_lgl_(node, paste0("not(", xml_function_assignment_rhs_xpath, ")"))) {
         return(FALSE)
     }
-    rhs <- xml_find_first(node, xml_function_assignment_rhs_xpath)
+    rhs <- xml_find_first_(node, xml_function_assignment_rhs_xpath)
     repeat {
-        if (xml_find_lgl(rhs, "boolean(FUNCTION or OP-LAMBDA)")) {
+        if (xml_find_lgl_(rhs, "boolean(FUNCTION or OP-LAMBDA)")) {
             return(TRUE)
         }
-        children <- xml_find_all(rhs, "*[not(self::COMMENT)]")
+        children <- xml_find_all_(rhs, "*[not(self::COMMENT)]")
         if (length(children) != 3L) {
             return(FALSE)
         }
@@ -833,7 +833,7 @@ extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
     }
 
     # Get all token elements from the parse tree
-    token_elements <- xml_find_all(xdoc, semantic_tokens_xpath)
+    token_elements <- xml_find_all_(xdoc, semantic_tokens_xpath)
 
     if (length(token_elements) == 0) {
         return(list())
@@ -894,7 +894,7 @@ extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
             if (xml_symbol_is_function_assignment(token_node)) {
                 token_type <- SemanticTokenTypes[["function"]]
                 modifiers <- semantic_declaration_modifier
-            } else if (xml_find_lgl(token_node, xml_not_qualified_symbol_xpath)) {
+            } else if (xml_find_lgl_(token_node, xml_not_qualified_symbol_xpath)) {
                 if (is_semantic_ellipsis_symbol(tok_text)) {
                     token_type <- SemanticTokenTypes$variable
                     modifiers <- semantic_readonly_default_modifier
@@ -906,7 +906,7 @@ extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
                 }
             }
         } else if (token_name == "SYMBOL_FUNCTION_CALL") {
-            if (identical(tok_text, "return") && xml_find_lgl(token_node, xml_not_qualified_symbol_xpath)) {
+            if (identical(tok_text, "return") && xml_find_lgl_(token_node, xml_not_qualified_symbol_xpath)) {
                 token_type <- SemanticTokenTypes$keyword
             }
         } else if (token_name == "SYMBOL_FORMALS") {

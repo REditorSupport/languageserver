@@ -105,14 +105,14 @@ hover_reply <- function(id, uri, workspace, document, point) {
             logger$info(token_name, token_text)
             if (token_name %in% c("SYMBOL", "SYMBOL_FUNCTION_CALL")) {
                 # symbol
-                if (xml_find_lgl(token, "not(preceding-sibling::OP-DOLLAR)")) {
+                if (xml_find_lgl_(token, "not(preceding-sibling::OP-DOLLAR)")) {
                     xpath <- glue(hover_xpath,
                         row = row, start = token_start, end = token_end,
                         token_quote = xml_single_quote(token_text))
                     all_defs <- xdoc_find_definitions(xdoc, row, col, token_text, xpath)
                     if (length(all_defs)) {
                         last_def <- all_defs[[length(all_defs)]]
-                        def_func <- xml_find_first(last_def,
+                        def_func <- xml_find_first_(last_def,
                             "expr[(FUNCTION or OP-LAMBDA) and parent::*[LEFT_ASSIGN or RIGHT_ASSIGN or EQ_ASSIGN]]")
                         if (length(def_func)) {
                             func_line1 <- as.integer(xml_attr(def_func, "line1"))
@@ -147,9 +147,9 @@ hover_reply <- function(id, uri, workspace, document, point) {
                 }
             } else if (token_name == "SYMBOL_SUB") {
                 # function parameter
-                funct <- xml_find_chr(token, "string(preceding-sibling::expr/SYMBOL_FUNCTION_CALL)")
+                funct <- xml_find_chr_(token, "string(preceding-sibling::expr/SYMBOL_FUNCTION_CALL)")
                 if (nzchar(funct)) {
-                    package <- xml_find_chr(token, "string(preceding-sibling::expr/SYMBOL_PACKAGE)")
+                    package <- xml_find_chr_(token, "string(preceding-sibling::expr/SYMBOL_PACKAGE)")
                     if (!nzchar(package)) {
                         package <- NULL
                         xpath <- glue(signature_xpath, row = row,
@@ -187,7 +187,7 @@ hover_reply <- function(id, uri, workspace, document, point) {
                 }
             } else if (token_name == "SYMBOL_FORMALS") {
                 # function formals
-                funct <- xml_find_first(token, "parent::expr[FUNCTION or OP-LAMBDA]")
+                funct <- xml_find_first_(token, "parent::expr[FUNCTION or OP-LAMBDA]")
                 func_line1 <- as.integer(xml_attr(funct, "line1"))
                 doc_line1 <- detect_comments(document$content, func_line1 - 1) + 1
 

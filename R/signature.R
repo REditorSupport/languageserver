@@ -3,7 +3,7 @@ signature_xpath <- "(* | descendant-or-self::expr | descendant-or-self::expr_or_
 #' Format local function arguments without reparsing the function body
 #' @noRd
 local_function_signature <- function(document, node, symbol) {
-    closing <- xml_find_first(node, "OP-RIGHT-PAREN")
+    closing <- xml_find_first_(node, "OP-RIGHT-PAREN")
     text <- get_range_text(document$content,
         line1 = as.integer(xml_attr(node, "line1")),
         col1 = as.integer(xml_attr(node, "col1")),

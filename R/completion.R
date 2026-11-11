@@ -366,7 +366,7 @@ arg_completion <- function(uri, workspace, point, token, funct, package = NULL, 
             if (length(all_defs)) {
                 last_def <- all_defs[[length(all_defs)]]
                 func_line1 <- as.integer(xml_attr(last_def, "line1"))
-                args <- xml_text(xml_find_all(last_def, "SYMBOL_FORMALS"))
+                args <- xml_text(xml_find_all_(last_def, "SYMBOL_FORMALS"))
                 token_args <- args[match_with(args, token)]
                 token_data <- list(
                     type = "parameter",
@@ -875,7 +875,7 @@ scope_completion <- function(uri, workspace, token, point,
 
         in_lexical_scope <- function(nodes) {
             vapply(nodes, function(node) {
-                scope <- xml_find_first(node, "ancestor::expr[FUNCTION or OP-LAMBDA][1]")
+                scope <- xml_find_first_(node, "ancestor::expr[FUNCTION or OP-LAMBDA][1]")
                 if (inherits(scope, "xml_missing")) return(TRUE)
                 contains_point(list(
                     line1 = as.integer(xml_attr(scope, "line1")),
@@ -885,13 +885,13 @@ scope_completion <- function(uri, workspace, token, point,
                 ))
             }, logical(1L))
         }
-        scope_symbol_nodes <- xml_find_all(enclosing_scopes,
+        scope_symbol_nodes <- xml_find_all_(enclosing_scopes,
             scope_completion_symbols_xpath)
         scope_symbol_nodes <- scope_symbol_nodes[in_lexical_scope(scope_symbol_nodes)]
         scope_symbol_names <- xml_text(scope_symbol_nodes)
         scope_symbol_lines <- as.integer(xml_attr(scope_symbol_nodes, "line1"))
 
-        scope_funct_nodes <- xml_find_all(enclosing_scopes,
+        scope_funct_nodes <- xml_find_all_(enclosing_scopes,
             scope_completion_functs_xpath)
         scope_funct_nodes <- scope_funct_nodes[in_lexical_scope(scope_funct_nodes)]
         scope_funct_names <- xml_text(scope_funct_nodes)
@@ -1085,7 +1085,7 @@ token_completion <- function(uri, workspace, token, exclude = NULL, limit = Inf)
 
         token_quote <- xml_single_quote(token)
 
-        symbols <- xml_text(xml_find_all(
+        symbols <- xml_text(xml_find_all_(
             xdoc,
             glue(
                 "//SYMBOL[preceding-sibling::OP-DOLLAR and starts-with(text(),'{token_quote}')] |
@@ -1095,7 +1095,7 @@ token_completion <- function(uri, workspace, token, exclude = NULL, limit = Inf)
         ))
 
         if (nzchar(token)) {
-            symbols <- c(symbols, xml_text(xml_find_all(
+            symbols <- c(symbols, xml_text(xml_find_all_(
                 xdoc,
                 glue(
                     "//SYMBOL[starts-with(text(),'{token_quote}')] |

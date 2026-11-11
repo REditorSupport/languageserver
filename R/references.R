@@ -334,7 +334,7 @@ references_reply <- function(id, uri, workspace, document, point,
                 return(list())
             }
 
-            symbols <- xml_find_all(xdoc, "//SYMBOL | //SYMBOL_FUNCTION_CALL | //SYMBOL_FORMALS")
+            symbols <- xml_find_all_(xdoc, "//SYMBOL | //SYMBOL_FUNCTION_CALL | //SYMBOL_FORMALS")
             symbols <- symbols[reference_symbol_names(xml_text(symbols)) == token$token]
             if (length(symbols) == 0) {
                 return(list())
@@ -350,7 +350,7 @@ references_reply <- function(id, uri, workspace, document, point,
             for (i in seq_along(symbols)) {
                 if (!isTRUE(include_declaration)) {
                     is_declaration <- xml_name(symbols[[i]]) == "SYMBOL_FORMALS" || (
-                        xml_name(symbols[[i]]) == "SYMBOL" && xml_find_lgl(symbols[[i]],
+                        xml_name(symbols[[i]]) == "SYMBOL" && xml_find_lgl_(symbols[[i]],
                             "boolean(parent::forcond or parent::expr[count(*)=1 and (following-sibling::LEFT_ASSIGN or following-sibling::EQ_ASSIGN or preceding-sibling::RIGHT_ASSIGN)])")
                     )
                     if (is_declaration) next

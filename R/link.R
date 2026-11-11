@@ -21,7 +21,7 @@ document_link_reply <- function(id, uri, workspace, document, rootPath) {
             # Limit string length to 255 to avoid potential PATH_MAX error on Windows
             # On macOS and Linux, PATH_MAX is much larger but we ignore the long strings at the moment.
             if (is.null(indexed)) {
-                str_tokens <- xml_find_all(xdoc, "//STR_CONST[@line1=@line2 and @col2>@col1+1 and @col2<=@col1+256]")
+                str_tokens <- xml_find_all_(xdoc, "//STR_CONST[@line1=@line2 and @col2>@col1+1 and @col2<=@col1+256]")
                 indexed <- list(
                     line = as.integer(xml_attr(str_tokens, "line1")),
                     col1 = as.integer(xml_attr(str_tokens, "col1")),

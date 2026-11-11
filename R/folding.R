@@ -6,7 +6,7 @@ FoldingRangeKind <- list(
 
 get_comment_folding_ranges <- function(xdoc, outline = NULL) {
     if (is.null(outline)) {
-        comments <- xml_find_all(xdoc, "//COMMENT")
+        comments <- xml_find_all_(xdoc, "//COMMENT")
         text <- xml_text(comments, trim = FALSE)
         lines <- as.integer(xml_attr(comments, "line1"))
         cols <- as.integer(xml_attr(comments, "col1"))
@@ -80,13 +80,13 @@ get_document_blocks <- function(xdoc, outline = NULL) {
     if (is.null(xdoc)) {
         return(NULL)
     }
-    block_start <- xml_find_all(xdoc, "(//OP-LEFT-PAREN | //OP-LEFT-BRACKET | //OP-LEFT-BRACE)[parent::expr and
+    block_start <- xml_find_all_(xdoc, "(//OP-LEFT-PAREN | //OP-LEFT-BRACKET | //OP-LEFT-BRACE)[parent::expr and
         @line1 < (following-sibling::OP-RIGHT-PAREN | following-sibling::OP-RIGHT-BRACKET | following-sibling::OP-RIGHT-BRACE)/@line1]")
     if (!length(block_start)) { # prevent floating point comparision
         return(NULL)
     }
 
-    block_end <- xml_find_first(block_start, "following-sibling::OP-RIGHT-PAREN | following-sibling::OP-RIGHT-BRACKET | following-sibling::OP-RIGHT-BRACE")
+    block_end <- xml_find_first_(block_start, "following-sibling::OP-RIGHT-PAREN | following-sibling::OP-RIGHT-BRACKET | following-sibling::OP-RIGHT-BRACE")
 
     block_start_line <- as.integer(xml_attr(block_start, "line1"))
     block_end_line <- as.integer(xml_attr(block_end, "line1"))
