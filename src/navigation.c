@@ -226,7 +226,7 @@ static SEXP named_integer_columns(const char **names, int count, int n) {
     for (int i = 0; i < count; ++i) {
         SET_STRING_ELT(labels, i, Rf_mkChar(names[i]));
         SET_VECTOR_ELT(result, i, Rf_allocVector(INTSXP, n));
-        memset(INTEGER(VECTOR_ELT(result, i)), 0, (size_t) n * sizeof(int));
+        if (n) memset(INTEGER(VECTOR_ELT(result, i)), 0, (size_t) n * sizeof(int));
     }
     Rf_setAttrib(result, R_NamesSymbol, labels);
     UNPROTECT(2);
@@ -271,11 +271,11 @@ SEXP syntax_index_c(SEXP data, SEXP order) {
     int *closing = INTEGER(VECTOR_ELT(result, 6));
     int *stack = (int *) R_alloc((size_t) n + 1, sizeof(int));
     int *last = (int *) R_alloc((size_t) n + 1, sizeof(int));
-    int *roots = (int *) R_alloc((size_t) n, sizeof(int));
-    int *terminals = (int *) R_alloc((size_t) n, sizeof(int));
-    int *function = (int *) R_alloc((size_t) n, sizeof(int));
+    int *roots = n ? (int *) R_alloc((size_t) n, sizeof(int)) : NULL;
+    int *terminals = n ? (int *) R_alloc((size_t) n, sizeof(int)) : NULL;
+    int *function = n ? (int *) R_alloc((size_t) n, sizeof(int)) : NULL;
     memset(last, 0, ((size_t) n + 1) * sizeof(int));
-    memset(function, 0, (size_t) n * sizeof(int));
+    if (n) memset(function, 0, (size_t) n * sizeof(int));
     int depth = 0, root_n = 0, terminal_n = 0, max_depth = 0;
     for (int at = 0; at < n; ++at) {
         if ((at & 16383) == 0) R_CheckUserInterrupt();
