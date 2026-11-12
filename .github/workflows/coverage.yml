@@ -61,6 +61,7 @@ jobs:
           cov <- covr::package_coverage(
             quiet = FALSE,
             clean = FALSE,
+            code = 'source(".github/merge-covr-traces.R")',
             install_path = file.path(normalizePath(Sys.getenv("RUNNER_TEMP"), winslash = "/"), "package")
           )
           print(cov)

@@ -57,5 +57,10 @@ NeedsCompilation: yes
 Roxygen: list(markdown = TRUE, r6 = FALSE)
 Config/testthat/edition: 3
 Config/testthat/parallel: true
+Config/testthat/start-first:
+    hover, completion-arguments, formatting, signature, folding,
+    definition, completion-resolve, lintr, completion-packages,
+    rename, symbol, type-hierarchy, completion-scope, completion,
+    references, link, workspace, s3-dispatch, selection
 Config/Needs/development: testthat, magrittr, mockery, purrr, withr, rmarkdown
 Config/roxygen2/version: 8.1.0
