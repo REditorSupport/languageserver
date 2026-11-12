@@ -419,6 +419,20 @@ test_that("shared syntax builders preserve native completion semantic and range 
     expect_identical(completion_parse_data(data, syntax), completion_parse_data(data))
     expect_identical(semantic_parse_data(data, content, syntax), semantic_parse_data(data, content))
     expect_identical(range_provider_parse_data(data, content, syntax), range_provider_parse_data(data, content))
+    empty_data <- utils::getParseData(parse(text = "", keep.source = TRUE))
+    empty_syntax <- syntax_parse_data(empty_data)
+    expect_length(empty_syntax$id, 0L)
+    expect_length(empty_syntax$roots, 0L)
+    expect_length(empty_syntax$terminals, 0L)
+    expect_identical(.Call("syntax_enclosing_c", empty_syntax, c(1L, 1L), PACKAGE = "languageserver"), integer())
+    empty_parsed <- parse_document("file:///empty.R", "")
+    expect_length(empty_parsed$syntax_data$id, 0L)
+    expect_length(empty_parsed$navigation_data$node, 0L)
+    expect_identical(
+        .Call("navigation_select_c", empty_parsed$syntax_data, empty_parsed$navigation_data,
+            integer(), c(1L, 1L, 0L), 1L, FALSE, PACKAGE = "languageserver"),
+        integer()
+    )
     malformed <- syntax
     malformed$id_next <- integer()
     expect_error(completion_parse_data(data, malformed), "invalid shared completion column")
