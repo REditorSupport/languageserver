@@ -48,13 +48,17 @@ jobs:
           install.packages('remotes')
           saveRDS(remotes::dev_package_deps(dependencies = TRUE), ".github/depends.Rds", version = 2)
           writeLines(sprintf("R-%i.%i", getRversion()$major, getRversion()$minor), ".github/R-version")
+          # Key the package cache on the runner image so binaries built on one
+          # image (e.g. ubuntu-24.04) are never restored onto another.
+          image <- gsub("[^A-Za-z0-9._]+", "_", paste(Sys.getenv("ImageOS"), utils::osVersion))
+          cat(sprintf("R_CACHE_IMAGE=%s\n", image), file = Sys.getenv("GITHUB_ENV"), append = TRUE)
         shell: Rscript {0}
       - name: Restore R package cache
         uses: actions/cache@v6
         with:
           path: ${{ env.R_LIBS_USER }}
-          key: ${{ runner.os }}-${{ env.ImageOS }}-${{ hashFiles('.github/R-version') }}-1-${{ hashFiles('.github/depends.Rds') }}
-          restore-keys: ${{ runner.os }}-${{ env.ImageOS }}-${{ hashFiles('.github/R-version') }}-1-
+          key: ${{ runner.os }}-${{ env.R_CACHE_IMAGE }}-${{ hashFiles('.github/R-version') }}-1-${{ hashFiles('.github/depends.Rds') }}
+          restore-keys: ${{ runner.os }}-${{ env.R_CACHE_IMAGE }}-${{ hashFiles('.github/R-version') }}-1-
       - name: Install system dependencies
         if: runner.os == 'Linux'
         run: |
