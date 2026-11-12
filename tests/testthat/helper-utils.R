@@ -25,7 +25,7 @@ flatten_document_symbols <- function(symbols) {
     }), recursive = FALSE, use.names = FALSE)
 }
 
-language_client <- function(working_dir = getwd(), workspace_folders = NULL, diagnostics = FALSE, capabilities = NULL, lib_paths = NULL) {
+language_client <- function(working_dir = withr::local_tempdir(.local_envir = parent.frame()), workspace_folders = NULL, diagnostics = FALSE, capabilities = NULL, lib_paths = NULL) {
 
     if (nzchar(Sys.getenv("R_LANGSVR_LOG"))) {
         script <- sprintf(
