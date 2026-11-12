@@ -18,10 +18,45 @@ trace_has_recorded_tests <- function(obj, keys) {
     FALSE
 }
 
-merge_covr_traces <- function(trace_dir = default_covr_trace_dir()) {
-    if (isTRUE(getOption("covr.record_tests", FALSE))) {
-        return(invisible(character()))
+read_covr_trace <- function(path, retries = 3L, delay = 0.2) {
+    retries <- max(0L, as.integer(retries))
+    last_err <- NULL
+    for (attempt in seq.int(0L, retries)) {
+        if (attempt > 0L) {
+            Sys.sleep(delay)
+        }
+        if (!file.exists(path)) {
+            return(NULL)
+        }
+        err <- NULL
+        obj <- tryCatch(
+            suppressWarnings(readRDS(path)),
+            error = function(e) {
+                err <<- e
+                NULL
+            }
+        )
+        if (is.null(err)) {
+            if (!is.environment(obj) && !is.list(obj)) {
+                stop("Unexpected covr trace object in ", path, call. = FALSE)
+            }
+            return(obj)
+        }
+        last_err <- err
     }
+    if (!file.exists(path)) {
+        return(NULL)
+    }
+    message(
+        "Skipping unreadable covr trace ", basename(path), ": ",
+        conditionMessage(last_err)
+    )
+    unlink(path)
+    NULL
+}
+
+merge_covr_traces <- function(trace_dir = default_covr_trace_dir(),
+    retries = 3L, delay = 0.2) {
     if (!is.character(trace_dir) || length(trace_dir) != 1L ||
             is.na(trace_dir) || !nzchar(trace_dir) || !dir.exists(trace_dir)) {
         return(invisible(character()))
@@ -32,59 +67,65 @@ merge_covr_traces <- function(trace_dir = default_covr_trace_dir()) {
         pattern = "^covr_trace_[^/]+$",
         full.names = TRUE
     )
-    if (length(trace_files) <= 1L) {
-        return(invisible(trace_files))
+    if (length(trace_files) == 0L) {
+        return(invisible(character()))
     }
 
-    first <- suppressWarnings(readRDS(trace_files[[1L]]))
-    if (is.environment(first)) {
-        first_keys <- ls(first, all.names = TRUE)
-        if (trace_has_recorded_tests(first, first_keys)) {
-            return(invisible(trace_files))
+    if (isTRUE(getOption("covr.record_tests", FALSE))) {
+        for (path in trace_files) {
+            read_covr_trace(path, retries = retries, delay = delay)
         }
-        acc <- if (is.null(env.profile(first))) {
-            list2env(as.list(first, all.names = TRUE), hash = TRUE, parent = emptyenv())
-        } else {
-            first
-        }
-    } else if (is.list(first)) {
-        first_keys <- names(first)
-        if (trace_has_recorded_tests(first, first_keys)) {
-            return(invisible(trace_files))
-        }
-        acc <- list2env(first, hash = TRUE, parent = emptyenv())
-    } else {
-        stop("Unexpected covr trace object in ", trace_files[[1L]], call. = FALSE)
+        return(invisible(character()))
     }
 
-    for (path in trace_files[-1L]) {
-        env <- suppressWarnings(readRDS(path))
-        if (is.environment(env)) {
-            if (exists("tests", envir = env, inherits = FALSE)) {
-                return(invisible(trace_files))
-            }
-            keys <- ls(env, all.names = TRUE)
-        } else if (is.list(env)) {
-            if ("tests" %in% names(env)) {
-                return(invisible(trace_files))
-            }
-            keys <- names(env)
-        } else {
-            stop("Unexpected covr trace object in ", path, call. = FALSE)
+    valid_mask <- logical(length(trace_files))
+    has_recorded_tests <- FALSE
+    acc <- NULL
+
+    for (i in seq_along(trace_files)) {
+        path <- trace_files[[i]]
+        obj <- read_covr_trace(path, retries = retries, delay = delay)
+        if (is.null(obj)) {
+            next
         }
-        for (key in keys) {
-            item <- env[[key]]
-            if (!is.null(item$tests)) {
-                return(invisible(trace_files))
-            }
-            cur <- acc[[key]]
-            if (is.null(cur)) {
-                acc[[key]] <- item
+        valid_mask[[i]] <- TRUE
+        if (has_recorded_tests) {
+            next
+        }
+        keys <- if (is.environment(obj)) ls(obj, all.names = TRUE) else names(obj)
+        if (trace_has_recorded_tests(obj, keys)) {
+            has_recorded_tests <- TRUE
+            acc <- NULL
+            next
+        }
+        if (is.null(acc)) {
+            if (is.environment(obj) && !is.null(env.profile(obj))) {
+                acc <- obj
             } else {
-                cur$value <- cur$value + item$value
-                acc[[key]] <- cur
+                entries <- if (is.environment(obj)) {
+                    as.list(obj, all.names = TRUE)
+                } else {
+                    obj
+                }
+                acc <- list2env(entries, hash = TRUE, parent = emptyenv())
+            }
+        } else {
+            for (key in keys) {
+                item <- obj[[key]]
+                cur <- acc[[key]]
+                if (is.null(cur)) {
+                    acc[[key]] <- item
+                } else {
+                    cur$value <- cur$value + item$value
+                    acc[[key]] <- cur
+                }
             }
         }
+    }
+
+    valid_paths <- trace_files[valid_mask]
+    if (has_recorded_tests || length(valid_paths) <= 1L) {
+        return(invisible(valid_paths))
     }
 
     tmp_file <- tempfile(pattern = ".merge_covr_trace_", tmpdir = trace_dir, fileext = ".rds")
@@ -94,7 +135,7 @@ merge_covr_traces <- function(trace_dir = default_covr_trace_dir()) {
     if (!isTRUE(file.rename(tmp_file, out_file))) {
         stop("Failed to atomically rename merged covr trace in ", trace_dir, call. = FALSE)
     }
-    unlink(trace_files)
+    unlink(valid_paths)
     invisible(out_file)
 }
 
