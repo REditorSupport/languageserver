@@ -1,68 +1,124 @@
-# languageserver (development)
+# languageserver 0.3.22
+
+- Speed up XML-backed providers (inlay hints, semantic tokens, folding ranges,
+  document symbols, type hierarchy, and code actions) by rewriting XPath queries
+  to avoid broad node-set scans and using namespace-free `xml2` lookup wrappers
+  (#847, #846).
+
+- Expand semantic token coverage across both parse-data and XML paths while
+  retaining R 4.0 compatibility (#845): emit `keyword` tokens for control-flow
+  keywords, `\` lambdas, and unqualified `return()` calls (#839); broaden
+  `operator` coverage including `=>`, `=`, `::`/`:::`, `@`, `~`, `?`, `:`,
+  infix `%...%`, comparison, logical, and arithmetic operators (#840); emit
+  `parameter` tokens for named call arguments and scoped formal parameter
+  references while respecting local shadowing (#842); attach `readonly` and
+  `defaultLibrary` modifiers to built-in constants (`NULL`, `TRUE`, `FALSE`,
+  unshadowed `T`/`F`, `Inf`, `NaN`, `NA*`), ellipsis symbols, and the `_` pipe
+  placeholder (#843); and split `{roxygen2}` `#'` comments into documentation
+  comment, `@tag` macro, and `@param` parameter tokens (#844).
 
 - Share equivalent ordered package-resolution and member-metadata requests
   across documents, reuse recent successful results, and stop abandoned workers
   when temporary documents close. Retain isolated workers and invalidate reuse
-  after package, library, or resolution-setting changes (#834).
+  after package, library, or resolution-setting changes (#836, #834).
 
 - Skip temporary diagnostics through symlink aliases, including macOS `/var`
-  and `/private/var`, even after temporary files or directories are deleted (#833).
+  and `/private/var`, even after temporary files or directories are deleted
+  (#835, #833).
 
 - Resolve relative file definitions and document links against the owning
-  workspace folder, including nested folders added or removed during a session.
+  workspace folder, including nested folders added or removed during a session
+  (#829).
 
 - Keep quoted local names and parameters in capped completion results by
   comparing decoded symbol names with the typed prefix. Preserve quoting,
-  escaped names and completion edits when many packages are installed (#827).
+  escaped names and completion edits when many packages are installed (#828, #827).
 - Retry failed or incomplete startup S3 metadata preparation with a cooldown,
   and recover missing startup catalogs asynchronously for open source documents.
   Isolate provider tests from installed packages and startup worker timing while
-  retaining real workspace/index coverage and conservative S3 precedence (#827).
+  retaining real workspace/index coverage and conservative S3 precedence (#828, #827).
 
 - Prepare member metadata with indexed namespace function matching and direct
   eviction of unprotected cache entries, preserving exact identities, LRU order
-  and memory limits.
+  and memory limits (#826).
 - Coalesce repeated member refreshes: queued work is promoted and running work
   finishes before one fresh validation, instead of restarting on every save.
-  Changed document, workspace and package contexts still replace obsolete work.
+  Changed document, workspace and package contexts still replace obsolete work (#826).
 - Split debug task timings into total, queued and running time using the elapsed
-  clock. Redact common credential variables from the debug session header.
+  clock. Redact common credential variables from the debug session header (#826).
 
 - Preserve manual line breaks, delimiters, literal tokens and blank lines when
   formatting on Enter. Indent incomplete control-flow and function headers
   without adding unmatched braces, respect tab indentation, and reject custom
-  style edits that would change source tokens or line positions (#771, #697).
+  style edits that would change source tokens or line positions (#832, #771, #697).
 
 - Keep numeric and string request IDs distinct during cancellation, background
   formatting and response dispatch. Normalize equivalent numeric IDs across
-  their integer and double representations.
+  their integer and double representations (#826).
 - Discover sourced files inside computed callees, including immediately invoked
   anonymous functions, without evaluating project expressions. Refresh older
-  workspace-index caches so unchanged files recover these dependencies.
+  workspace-index caches so unchanged files recover these dependencies (#826).
 
 - Keep argument-value completion working with namespace-qualified default
   helpers and missing arguments. Escape suggested string literals so quotes,
-  backslashes and newlines retain their original values.
+  backslashes and newlines retain their original values (#826).
 - Preserve quoted symbol identity and complete ranges in definitions,
   references, highlights and rename, including multiline names with Unicode.
   Quote nonsyntactic replacement names and exclude shadowed local calls from
-  workspace function CodeLens counts.
+  workspace function CodeLens counts (#826).
 - Rename explicit roxygen `@param` names together with their function parameters,
-  preserving descriptions and documentation attached to other functions (#806).
+  preserving descriptions and documentation attached to other functions (#831, #806).
 - Decode raw strings and escaped class, slot and member names in type hierarchy
-  and class member symbols without evaluating declarations.
+  and class member symbols without evaluating declarations (#826).
 - Restart pending parses and refresh diagnostics when documents move between
   workspace folders. Restore saved package content after closing an unsaved
-  buffer with workspace indexing disabled.
+  buffer with workspace indexing disabled (#826).
 - Reduce repeated copying during default extraction and rename edit creation,
   invalidate pending disk snapshots once per edit, and share one UTF-8 byte
-  index across each CLI diagnostic batch.
+  index across each CLI diagnostic batch (#826).
 
 - Lint client-only and new file buffers through temporary text sources when
   their paths do not exist on the server. Preserve accessible local or owning
   workspace configuration, inline exclusions and terminal-newline checks
-  without caching temporary filenames (#688). Refresh diagnostics when a local
+  without caching temporary filenames (#830, #688). Refresh diagnostics when a local
   source path appears or disappears, even when the open buffer text is unchanged.
+
+- Improve test suite robustness across older `callr` versions and R builds that
+  reject `NA` file timestamps (#838, #837).
+
+**Closed issues:**
+
+- New documents always start a fresh R process for package resolution (follow-up to #754) (#834)
+- Temp-directory guard in schedule_diagnostics() never matches on macOS (/var vs /private/var) (#833)
+- CRAN check failures in 0.3.21 on Fedora and macOS arm64 (#827)
+- Rename roxygen `@param` tags at same time as argument names (#806)
+- Inappropriate format on type for `if ()` blocks (#771)
+- Issue with newline within function (#697)
+- lintr diagstic support in Docker / remote servers (just by file content) (#688)
+- Outline view disappears after adding new section headers in R scripts (#685)
+- custom style guide in README (#664)
+- Daignostics failed on all .R files (#448)
+
+**Merged pull requests:**
+
+- Use empty_ns() wrappers for xml2 XPath and child lookups (#847)
+- Apply xpath-style findings for efficiency, robustness (#846)
+- Keep semantic token parsing compatible with R 4.0 (#845)
+- Split {roxygen2} #' comments into documentation, macro, and parameter semantic tokens (#844)
+- Emit readonly defaultLibrary semantic tokens for built-in constants and placeholders (#843)
+- Emit parameter semantic tokens for named arguments and scoped formal references (#842)
+- Expand operator semantic token coverage across parse data and XML paths (#840)
+- Emit keyword semantic tokens for control-flow keywords and return() (#839)
+- Skip setting an NA stamp on certain R builds (#838)
+- Make test more robust to old callr (#837)
+- Reuse package resolution across short-lived documents (#836)
+- Fix temporary diagnostic filtering through symlink aliases (#835)
+- Preserve line breaks and delimiters when formatting on Enter (#832)
+- Rename roxygen parameter tags with function arguments (#831)
+- Fix lintr diagnostics for files unavailable on the server (#830)
+- Fix relative file paths in multi-root workspaces (#829)
+- Fix quoted completion ranking and startup S3 recovery (#828)
+- Fix language-feature edge cases and speed up member preparation (#826)
 
 # languageserver 0.3.21
 
