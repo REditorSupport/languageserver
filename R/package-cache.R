@@ -1392,6 +1392,7 @@ package_metadata_startup_bundle_key <- local({
         identity <- list(
             package = "startup",
             requested_packages = as.character(packages),
+            lib_paths = lib_paths,
             packages = resolved$manifest
         )
         path <- package_metadata_cache_path(type, identity)
