@@ -2,11 +2,15 @@ startup_packages <- c("base", "methods", "datasets", "utils", "grDevices", "grap
 
 workspace_startup_packages <- local({
     cached <- NULL
+    # Build the closure programmatically without parser srcref/srcfile metadata
+    # so --with-keep.source installs (e.g. covr) do not serialize a lazy-load
+    # srcfile reference that loads languageserver in the child process.
+    probe <- as.function(list(call("rev", call(".packages"))), envir = baseenv())
     function() {
         if (!is.null(cached)) return(cached)
         cached <<- tryCatch(
             callr::r(
-                resolve_attached_packages,
+                probe,
                 system_profile = TRUE,
                 user_profile = TRUE,
                 timeout = if (identical(Sys.getenv("R_COVR"), "true")) 30 else 3
@@ -1135,17 +1139,26 @@ extract_namespace_imports <- function(namespace_file) {
     )
 }
 
+workspace_startup_s3_prepare <- function(requested) {
+    callr::r(package_call(s3_prepare_packages),
+        args = list(
+            packages = requested$packages,
+            cache_dir = requested$cache_dir,
+            lib_paths = requested$lib_paths
+        ),
+        libpath = requested$lib_paths, system_profile = FALSE, user_profile = FALSE,
+        timeout = if (identical(Sys.getenv("R_COVR"), "true")) 60 else 8)
+}
+
 # Share complete startup catalogs for matching worker inputs. Failed attempts
 # retain partial catalogs and allow a later workspace to retry after a cooldown;
 # active documents can also recover through asynchronous package resolution.
+# Custom prepare hooks inject fault/cooldown fixtures in unit tests unless
+# persist = TRUE explicitly opts into the shared disk bundle cache.
 workspace_startup_s3_cache <- function(
-    prepare = function(requested) {
-        callr::r(package_call(s3_prepare_packages),
-            args = list(packages = requested$packages, cache_dir = requested$cache_dir),
-            libpath = requested$lib_paths, system_profile = FALSE, user_profile = FALSE,
-            timeout = if (identical(Sys.getenv("R_COVR"), "true")) 60 else 8)
-    },
-    clock = function() proc.time()[[3L]]) {
+    prepare = NULL,
+    clock = function() proc.time()[[3L]],
+    persist = is.null(prepare)) {
     cached <- list()
     previous <- NULL
     complete <- FALSE
@@ -1153,6 +1166,7 @@ workspace_startup_s3_cache <- function(
     failures <- 0L
     force(prepare)
     force(clock)
+    force(persist)
     function() {
         requested <- list(packages = workspace_startup_packages(), lib_paths = .libPaths(),
             cache_dir = package_metadata_cache_root())
@@ -1164,19 +1178,30 @@ workspace_startup_s3_cache <- function(
             previous <<- requested
         }
         if (complete || clock() < retry_at) return(cached)
-        result <- tryCatch(prepare(requested),
+        bundle_key <- if (isTRUE(persist)) {
+            package_metadata_startup_bundle_key("startup-s3",
+                requested$packages, requested$lib_paths)
+        }
+        if (!is.null(bundle_key)) {
+            hit <- package_metadata_startup_s3_read(bundle_key, requested$packages)
+            if (!is.null(hit)) {
+                cached <<- hit
+                complete <<- TRUE
+                return(cached)
+            }
+        }
+        runner <- if (is.null(prepare)) workspace_startup_s3_prepare else prepare
+        result <- tryCatch(runner(requested),
             error = function(e) {
                 logger$info("S3 startup metadata:", e)
                 NULL
             })
         if (is.list(result)) {
             cached <<- result
-            valid <- vapply(result, function(catalog) {
-                is.list(catalog) && identical(catalog$schema, 1L) && is.null(catalog$error)
-            }, logical(1L))
-            dependencies <- unlist(lapply(result[valid], `[[`, "dependencies"), use.names = FALSE)
-            required <- unique(c(startup_packages, requested$packages, dependencies))
-            complete <<- all(valid) && all(required %in% names(result))
+            complete <<- package_metadata_startup_s3_complete(result, requested$packages)
+            if (complete && !is.null(bundle_key)) {
+                package_metadata_startup_s3_write(bundle_key, requested$packages, result)
+            }
         }
         if (!complete) {
             failures <<- min(failures + 1L, 2L)
@@ -1189,27 +1214,66 @@ workspace_startup_s3_cache <- function(
 
 workspace_startup_s3 <- workspace_startup_s3_cache()
 
+workspace_startup_members_prepare <- function(requested) {
+    callr::r(package_call(member_prepare_startup_data),
+        args = c(requested, list(include_status = TRUE)),
+        libpath = requested$lib_paths, system_profile = FALSE, user_profile = FALSE,
+        timeout = if (identical(Sys.getenv("R_COVR"), "true")) 60 else 8)
+}
+
 # Startup datasets have no library() or namespace expression in the document.
 # Prepare their bounded member models once in an isolated worker, then share
 # only snapshots across workspaces. Failed workers can retry on a later setup.
-workspace_startup_members <- local({
-    cached <- NULL
+workspace_startup_members_cache <- function(
+    prepare = NULL,
+    persist = is.null(prepare)) {
+    cached <- list()
     previous <- NULL
+    complete <- FALSE
+    force(prepare)
+    force(persist)
     function() {
         requested <- list(packages = workspace_startup_packages(), lib_paths = .libPaths(),
             cache_dir = package_metadata_cache_root())
-        if (!is.null(cached) && identical(requested, previous)) return(cached)
-        if (!length(requested$packages)) return(list())
-        result <- tryCatch(callr::r(package_call(member_prepare_startup_data), args = requested,
-                system_profile = FALSE, user_profile = FALSE,
-                timeout = if (identical(Sys.getenv("R_COVR"), "true")) 60 else 8),
+        if (!identical(requested, previous)) {
+            cached <<- list()
+            complete <<- FALSE
+            previous <<- requested
+        }
+        if (complete) return(cached)
+        if (!length(requested$packages)) {
+            cached <<- list()
+            complete <<- TRUE
+            return(cached)
+        }
+        bundle_key <- if (isTRUE(persist)) {
+            package_metadata_startup_bundle_key("startup-members-bundle",
+                requested$packages, requested$lib_paths)
+        }
+        if (!is.null(bundle_key)) {
+            hit <- package_metadata_startup_members_read(bundle_key, requested$packages)
+            if (!is.null(hit)) {
+                cached <<- hit
+                complete <<- TRUE
+                return(cached)
+            }
+        }
+        runner <- if (is.null(prepare)) workspace_startup_members_prepare else prepare
+        result <- tryCatch(runner(requested),
             error = function(e) {
                 logger$info("startup member metadata:", e)
                 NULL
             })
-        if (is.null(result)) return(list())
-        cached <<- result
-        previous <<- requested
-        result
+        if (is.null(result)) return(cached)
+        unpacked <- package_metadata_startup_members_unpack(result, requested$packages)
+        if (!isTRUE(unpacked$valid)) return(cached)
+        cached <<- unpacked$snapshots
+        complete <<- isTRUE(unpacked$complete)
+        if (complete && !is.null(bundle_key)) {
+            package_metadata_startup_members_write(bundle_key, requested$packages, unpacked)
+        }
+        cached
     }
-})
+}
+
+workspace_startup_members <- workspace_startup_members_cache()
