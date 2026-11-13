@@ -420,6 +420,35 @@ startup_bundle_shared_state <- local({
     }
 })
 
+# Unload every loaded namespace that was loaded from one of `libraries`, so no
+# namespace outlives the temporary library it came from: a namespace whose
+# package directory is gone breaks later code that walks loadedNamespaces()
+# (e.g. utils::packageVersion()). Returns the namespaces that could not be
+# unloaded.
+startup_bundle_unload_library_namespaces <- function(libraries) {
+    normalize <- function(path) normalizePath(path, winslash = "/", mustWork = FALSE)
+    roots <- unique(normalize(libraries))
+    from_libraries <- function() {
+        Filter(function(pkg) {
+            path <- tryCatch(getNamespaceInfo(pkg, "path"), error = function(e) NULL)
+            if (!is.character(path) || length(path) != 1L || is.na(path)) return(FALSE)
+            # Compare the containing library: unlike the package directory
+            # itself, it still exists when a test removed the package.
+            normalize(dirname(path)) %in% roots
+        }, loadedNamespaces())
+    }
+    # unloadNamespace() refuses to unload a namespace that is still imported by
+    # a loaded one, so keep sweeping (dependents go first) until nothing is
+    # left or a sweep makes no progress.
+    repeat {
+        remaining <- from_libraries()
+        if (!length(remaining)) break
+        for (pkg in remaining) try(unloadNamespace(pkg), silent = TRUE)
+        if (identical(from_libraries(), remaining)) break
+    }
+    from_libraries()
+}
+
 startup_bundle_install_fixtures <- function(
     pkgs = c("transdepfixture", "startupbundlefixture"),
     .local_envir = parent.frame()
@@ -431,11 +460,13 @@ startup_bundle_install_fixtures <- function(
     for (pkg in pkgs) {
         expect_true(file.copy(file.path(shared$library, pkg), library, recursive = TRUE))
     }
-    withr::defer({
-        for (pkg in rev(pkgs)) {
-            if (pkg %in% loadedNamespaces()) try(unloadNamespace(pkg), silent = TRUE)
-        }
-    }, envir = .local_envir)
+    # Registered after local_tempdir(), so it runs before the library is deleted.
+    # Tests add further packages to this library (clones, imports of clones), so
+    # unload whatever was loaded from it rather than only `pkgs`.
+    withr::defer(
+        expect_identical(startup_bundle_unload_library_namespaces(library), character()),
+        envir = .local_envir
+    )
     list(
         root = root,
         library = library,
@@ -1381,11 +1412,9 @@ test_that("Transitive dependency manifests traverse >64 packages, invalidate dee
         imports = "chain01",
         exports = "derived_fn"
     )
-    withr::defer({
-        for (pkg in c(derived_pkg, chain_names)) {
-            if (pkg %in% loadedNamespaces()) try(unloadNamespace(pkg), silent = TRUE)
-        }
-    })
+    # Runs before local_tempdir() removes `library`; covers the chain and any
+    # other namespace loaded from it.
+    withr::defer(expect_identical(startup_bundle_unload_library_namespaces(library), character()))
 
     libs <- c(library, .libPaths())
     traversal <- package_metadata_transitive_packages(c(startup_packages, "chain01"), libs)
@@ -2204,6 +2233,14 @@ test_that("Worker package identities are validated before persisting or reading 
         imports = "racedep2fixture",
         exports = "stable_fn"
     )
+    # Preparing `zerodatafixture` below loads it and its import `racedep2fixture`
+    # into this process. Unload the importer first, then its import, before the
+    # fixture library is removed (the helper's sweep then finds nothing left).
+    withr::defer({
+        for (pkg in c("zerodatafixture", "racedep2fixture")) {
+            if (pkg %in% loadedNamespaces()) try(unloadNamespace(pkg), silent = TRUE)
+        }
+    })
     zero_targets <- c("base", "zerodatafixture")
     zero_prep <- member_prepare_startup_data(zero_targets, libs, cache_dir, include_status = TRUE)
     expect_length(zero_prep$snapshots, 0L)
@@ -2225,21 +2262,28 @@ test_that("Worker package identities are validated before persisting or reading 
     expect_identical(id_after_rds$version, "0.0.9")
     expect_false(identical(id_before_rds$files, id_after_rds$files))
 
-    # 8. Locale-independent sorting and non-shadowing library paths preserve bundle keys.
+    # 8. Bundle keys are locale-independent but specific to the library path list.
     extra_lib <- withr::local_tempdir()
     key_base_only <- package_metadata_startup_bundle_key("startup-s3", target_packages, libs)
     key_with_extra <- package_metadata_startup_bundle_key("startup-s3", target_packages, c(extra_lib, libs))
-    expect_identical(key_base_only$path, key_with_extra$path)
+    expect_false(identical(key_base_only$path, key_with_extra$path))
     collate_c <- withr::with_collate("C", {
         environment(package_metadata_file_fingerprint)$cache$clear()
         environment(package_metadata_manifest)$cache$clear()
         environment(package_metadata_startup_bundle_key)$cache$clear()
         package_metadata_startup_bundle_key("startup-s3", target_packages, libs)$path
     })
-    utf8_loc <- tryCatch(Sys.setlocale("LC_COLLATE", "en_US.UTF-8"), warning = function(w) "", error = function(e) "")
+    # Probe whether a non-C collation is available without leaving it set: the
+    # process collation must be the same after this test as before it.
+    collate_before <- Sys.getlocale("LC_COLLATE")
+    utf8_loc <- withr::with_collate(
+        collate_before,
+        tryCatch(Sys.setlocale("LC_COLLATE", "en_US.UTF-8"), warning = function(w) "", error = function(e) "")
+    )
+    expect_identical(Sys.getlocale("LC_COLLATE"), collate_before)
     if (nzchar(utf8_loc)) {
-        withr::local_collate("C")
         collate_utf8 <- withr::with_collate("en_US.UTF-8", {
+            expect_identical(Sys.getlocale("LC_COLLATE"), utf8_loc)
             environment(package_metadata_file_fingerprint)$cache$clear()
             environment(package_metadata_manifest)$cache$clear()
             environment(package_metadata_startup_bundle_key)$cache$clear()
@@ -2247,4 +2291,5 @@ test_that("Worker package identities are validated before persisting or reading 
         })
         expect_identical(collate_c, collate_utf8)
     }
+    expect_identical(Sys.getlocale("LC_COLLATE"), collate_before)
 })
