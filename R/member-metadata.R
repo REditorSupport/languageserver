@@ -243,7 +243,7 @@ member_snapshot <- function(env, max_depth = 4L, max_bindings = 5000L, s7_modes 
             } else if (identical(record[[1L]], "value")) {
                 receiver <- if (typeof(value) == "closure" ||
                         (is.environment(value) && name %in% c(".__enclos_env__", "private", "super"))) r6_receiver
-                describe(value, depth + 1L, receiver)
+                describe(value, depth + 1L, receiver, name)
             } else {
                 list(kind = "unknown", reason = "promise_not_forced")
             }
@@ -256,7 +256,7 @@ member_snapshot <- function(env, max_depth = 4L, max_bindings = 5000L, s7_modes 
             r6_locked = if (!is.null(r6_receiver)) environmentIsLocked(current) else NULL
         )
     }
-    describe <- function(value, depth, r6_receiver = NULL) {
+    describe <- function(value, depth, r6_receiver = NULL, binding_name = NULL) {
         if (missing(value) || identical(value, quote(expr = ))) return(list(kind = "unknown", reason = "missing_value"))
         descriptor <- member_s7_instance_descriptor(value, s7_modes)
         if (!is.null(descriptor)) {
@@ -284,23 +284,27 @@ member_snapshot <- function(env, max_depth = 4L, max_bindings = 5000L, s7_modes 
             })
         if (!is.null(snapshot)) return(snapshot)
         if (typeof(value) == "closure") {
-            syntax <- function_syntax(value)
             scope <- environment(value)
             self <- if (!is.null(r6_receiver) && is.environment(scope)) member_binding(scope, "self")
             bound <- identical(self[[1L]], "value") && identical(self[[2L]], r6_receiver) &&
                 any(vapply(r6_method_scopes(r6_receiver), identical, logical(1L), scope))
+            stub_clone <- ((bound && identical(binding_name, "clone")) ||
+                    (is.environment(scope) && "R6ClassGenerator" %in% attr(scope, "class", exact = TRUE))) &&
+                member_r6_generated_clone(value)
+            syntax <- function_syntax(if (stub_clone) member_r6_clone_stub() else value)
             contexts <- list()
             if (bound) {
                 for (name in intersect(c("private", "super"), member_syntax_names(member_function_syntax(value)))) {
                     record <- member_binding(scope, name)
                     if (identical(record[[1L]], "value")) {
-                        contexts[name] <- list(describe(record[[2L]], depth + 1L, r6_receiver))
+                        contexts[name] <- list(describe(record[[2L]], depth + 1L, r6_receiver, name))
                     }
                 }
             }
             list(kind = "function", syntax = syntax, captures = captures(value),
                 r6_bound = bound, r6_contexts = contexts,
-                r6_classes = if (bound) attr(r6_receiver, "class", exact = TRUE))
+                r6_classes = if (bound) attr(r6_receiver, "class", exact = TRUE),
+                r6_receiver = if (bound) which(vapply(seen, identical, logical(1L), r6_receiver))[[1L]])
         } else if (is.environment(value)) {
             # Namespace registries can refer back to whole package namespaces.
             # Apply the root exclusion recursively rather than copying those
@@ -341,12 +345,53 @@ member_snapshot_shape <- function(snapshot, package = "") {
         }
     }
     collect(snapshot)
-    describe_shape <- function(record, trail = integer()) {
+    # A bound R6 method refers to the private and super environments of its
+    # instance. Decoding a copy into every method (or every trail subset) is
+    # quadratic in width and geometric in inheritance depth, so each distinct
+    # context environment is decoded once per instance (`r6_contexts`) with a
+    # local canonical key, while intra-instance context cycles are cut lazily
+    # along the active context trail in member_access().
+    register_context <- function(state, stored, name, class) {
+        raw <- paste(name, stored$id, if (is.null(class$name)) "" else class$name, sep = ":")
+        key <- member_lookup(state$keys, raw)
+        if (is.null(key)) {
+            count <- if (is.null(state$counts[[name]])) 0L else state$counts[[name]]
+            count <- count + 1L
+            state$counts[[name]] <- count
+            key <- paste0(name, ":", count)
+            state$keys[[raw]] <- key
+            state$requests[[length(state$requests) + 1L]] <- list(
+                key = key, stored = stored, name = name, class = class
+            )
+        }
+        key
+    }
+    decode_context <- function(stored, name, class, trail, receiver = NULL) {
+        context <- decode(stored, trail, receiver)
+        if (identical(stored$kind, "reference")) stored <- records[[as.character(stored$id)]]
+        context$r6_class <- class
+        context$r6_role <- name
+        context$r6_locked <- isTRUE(stored$r6_locked)
+        fields <- stored$fields
+        context$r6_bindings <- stats::setNames(vapply(fields, function(field) {
+            if (identical(field$kind, "active")) {
+                "active"
+            } else if (isTRUE(field$locked)) {
+                if (isTRUE(field$r6_bound)) "method" else "locked"
+            } else {
+                "data"
+            }
+        }, character(1L)), names(fields))
+        context
+    }
+    # `receiver` holds per-instance context-decoding state for the enclosing
+    # R6 instance, passed down through its bound methods and R6 scopes.
+    describe_shape <- function(record, trail = integer(), receiver = NULL) {
         if (identical(record$kind, "reference")) {
             if (record$id %in% trail) {
                 return(member_value(reason = "cycle"))
             }
-            return(decode(records[[as.character(record$id)]], trail))
+            return(decode(records[[as.character(record$id)]], trail, receiver))
         }
         if (identical(record$kind, "function")) {
             value <- member_value(
@@ -362,24 +407,14 @@ member_snapshot_shape <- function(snapshot, package = "") {
                     value$r6_private_self <- TRUE
                 }
                 value$closure$self <- NULL
+                shared <- !is.null(receiver) && identical(record$r6_receiver, receiver$id)
                 for (name in names(record$r6_contexts)) {
                     stored <- record$r6_contexts[[name]]
-                    context <- decode(stored, trail)
-                    if (identical(stored$kind, "reference")) stored <- records[[as.character(stored$id)]]
-                    context$r6_class <- class
-                    context$r6_role <- name
-                    context$r6_locked <- isTRUE(stored$r6_locked)
-                    fields <- stored$fields
-                    context$r6_bindings <- stats::setNames(vapply(fields, function(field) {
-                        if (identical(field$kind, "active")) {
-                            "active"
-                        } else if (isTRUE(field$locked)) {
-                            if (isTRUE(field$r6_bound)) "method" else "locked"
-                        } else {
-                            "data"
-                        }
-                    }, character(1L)), names(fields))
-                    value$closure[name] <- list(context)
+                    if (shared && stored$kind %in% c("reference", "environment", "r6_instance")) {
+                        value$r6_context_ids[name] <- register_context(receiver, stored, name, class)
+                    } else {
+                        value$closure[name] <- list(decode_context(stored, name, class, trail))
+                    }
                 }
             }
             return(value)
@@ -391,12 +426,40 @@ member_snapshot_shape <- function(snapshot, package = "") {
             if (record$id %in% trail || !isTRUE(record$complete)) {
                 return(member_value(reason = "cycle_or_budget"))
             }
+            instance <- identical(record$kind, "r6_instance")
+            if (instance) {
+                state <- new.env(parent = emptyenv())
+                state$id <- record$id
+                state$trail <- c(trail, record$id)
+                state$keys <- character()
+                state$counts <- list()
+                state$requests <- list()
+                receiver <- state
+            }
+            fields <- record$fields
+            for (i in seq_along(fields)) {
+                field <- fields[[i]]
+                bound <- identical(field$kind, "function") ||
+                    (names(fields)[[i]] %in% c(".__enclos_env__", "private", "super") &&
+                            field$kind %in% c("reference", "environment"))
+                fields[i] <- list(decode(field, c(trail, record$id), if (bound) receiver))
+            }
             value <- member_value(
                 type = "environment", classes = record$classes,
-                fields = lapply(record$fields, decode, c(trail, record$id)),
+                fields = fields,
                 default_dollar = record$default_dollar
             )
-            return(if (identical(record$kind, "r6_instance")) member_r6_instance_shape(value, record, package) else value)
+            if (!instance) return(value)
+            value <- member_r6_instance_shape(value, record, package)
+            # Decoding a context can register further ones; each is decoded once.
+            next_request <- 1L
+            while (next_request <= length(receiver$requests)) {
+                request <- receiver$requests[[next_request]]
+                next_request <- next_request + 1L
+                value$r6_contexts[request$key] <- list(decode_context(
+                    request$stored, request$name, request$class, receiver$trail, receiver))
+            }
+            return(value)
         }
         if (identical(record$kind, "s4_instance")) return(member_s4_snapshot_shape(record, decode, trail))
         if (identical(record$kind, "s7_instance")) {
@@ -422,8 +485,8 @@ member_snapshot_shape <- function(snapshot, package = "") {
         }
         member_value(reason = if (identical(record$kind, "active")) "getter_not_invoked" else record$reason)
     }
-    decode <- function(record, trail = integer()) {
-        value <- describe_shape(record, trail)
+    decode <- function(record, trail = integer(), receiver = NULL) {
+        value <- describe_shape(record, trail, receiver)
         if (nzchar(package)) {
             if (!is.null(value$function_expr)) value$metadata <- package
             if (!is.null(value$fields) || !is.null(value$slot_types)) value$member_package <- package
@@ -647,10 +710,15 @@ member_namespace_input <- function(
             if (is.null(function_match)) function_match <- member_function_identity_index(functions)
             key <- function_match(fn)
             if (is.null(key)) key <- paste(name, field, sep = "$")
-            definitions[key] <- list(member_function_syntax(fn))
+            stub_fn <- (is.environment(value) && "R6ClassGenerator" %in% attr(value, "class", exact = TRUE) &&
+                    member_r6_generated_clone(fn, value)) ||
+                (identical(snapshots[[name]]$kind, "r6_instance") && identical(field, "clone") &&
+                        isTRUE(fields[[field]]$r6_bound) && member_r6_generated_clone(fn))
+            fn_syntax <- member_function_syntax(if (stub_fn) member_r6_clone_stub() else fn)
+            definitions[key] <- list(fn_syntax)
             # A static factory may also be addressed by its environment path.
             definitions[paste(name, field, sep = "$")] <- list(as.name(key))
-            if (identical(key, paste(name, field, sep = "$"))) definitions[key] <- list(member_function_syntax(fn))
+            if (identical(key, paste(name, field, sep = "$"))) definitions[key] <- list(fn_syntax)
             methods[field] <- key
         }
         registries[name] <- list(methods)
@@ -750,6 +818,165 @@ member_index_thaw <- function(snapshot) {
     index
 }
 
+member_prunable_r6_generators <- function(index, input, generators) {
+    generators <- unique(as.character(generators))
+    if (!length(generators)) {
+        return(character())
+    }
+    gen_env <- new.env(hash = TRUE, parent = emptyenv())
+    for (g in generators) if (!is.na(g) && nzchar(g)) gen_env[[g]] <- TRUE
+    kept_gen_env <- new.env(hash = TRUE, parent = emptyenv())
+    gen_queue <- character()
+    mark_gen <- function(types) {
+        if (!is.character(types) || !length(types)) return(invisible(NULL))
+        for (g in types) {
+            if (!is.na(g) && nzchar(g) && !is.null(gen_env[[g]]) && is.null(kept_gen_env[[g]])) {
+                kept_gen_env[[g]] <- TRUE
+                gen_queue[[length(gen_queue) + 1L]] <<- g
+            }
+        }
+    }
+    scan_s7 <- function(desc, depth = 0L) {
+        if (!is.list(desc) || depth > 32L) return(invisible(NULL))
+        if (is.character(desc$name) && identical(desc$kind, "base")) mark_gen(desc$name)
+        if (is.list(desc$parent)) scan_s7(desc$parent, depth + 1L)
+        for (cls in desc$classes) scan_s7(cls, depth + 1L)
+        for (prop in desc$properties) {
+            if (is.list(prop)) scan_s7(prop$class, depth + 1L)
+        }
+    }
+    scan_shape <- function(x, depth = 0L) {
+        if (!is.list(x) || is.object(x) || depth > 32L) return(invisible(NULL))
+        if (is.character(x$type)) mark_gen(x$type)
+        if (is.list(x$s7_descriptor)) scan_s7(x$s7_descriptor, depth + 1L)
+        if (is.list(x$s7_generator)) scan_s7(x$s7_generator, depth + 1L)
+        if (is.list(x$s7_property)) scan_s7(x$s7_property$class, depth + 1L)
+        for (child in x$fields) scan_shape(child, depth + 1L)
+        for (child in x$slots) scan_shape(child, depth + 1L)
+        for (child in x$elements) scan_shape(child, depth + 1L)
+        for (child in x$possible_returns) scan_shape(child, depth + 1L)
+        for (child in x$closure) scan_shape(child, depth + 1L)
+        for (child in x$binding_env) scan_shape(child, depth + 1L)
+        for (child in x$r6_contexts) scan_shape(child, depth + 1L)
+        for (layer in x$r6_layers) {
+            if (is.list(layer)) {
+                for (child in layer$public) scan_shape(child, depth + 1L)
+                for (child in layer$private) scan_shape(child, depth + 1L)
+            }
+        }
+        for (single in c("receiver", "receiver_value", "element_shape", "result_shape",
+                "r6_private", "r6_super", "r6_self", "r6_initialize")) {
+            child <- x[[single]]
+            if (is.list(child)) scan_shape(child, depth + 1L)
+        }
+    }
+    scan_property <- function(prop) {
+        if (is.character(prop)) mark_gen(prop) else scan_shape(prop)
+    }
+    non_g_links <- setdiff(names(input$links), generators)
+    mark_gen(unlist(input$links[non_g_links], use.names = FALSE))
+    s3_keys <- c(as.character(names(index$definitions)), as.character(names(index$subset_registry)))
+    for (g in generators) {
+        if (any(paste0(c("$.", "[[.", "[."), g) %in% s3_keys)) mark_gen(g)
+    }
+    mark_gen(c(names(index$classes), unlist(index$classes, use.names = FALSE)))
+    mark_gen(c(names(index$namespace_owners), unlist(index$namespace_owners, use.names = FALSE)))
+    mark_gen(c(names(index$raw_fields), unlist(index$raw_fields, use.names = FALSE)))
+    mark_gen(names(index$s4_classes))
+    for (s4_desc in index$s4_classes) {
+        mark_gen(c(s4_desc$name, unlist(s4_desc$slots, use.names = FALSE), unlist(s4_desc$union, use.names = FALSE)))
+    }
+    for (ctor in index$constructors) mark_gen(c(ctor$type, ctor$classes))
+    mark_gen(unlist(index$constructor_types, use.names = FALSE))
+    for (ci in index$constructor_inputs) for (v in ci) scan_shape(v)
+    for (rule in index$registration_rules) mark_gen(rule$owners)
+    for (owner in setdiff(names(index$properties), generators)) {
+        for (prop in index$properties[[owner]]) scan_property(prop)
+    }
+    for (owner in setdiff(names(index$package_roots), generators)) scan_shape(index$package_roots[[owner]])
+    for (root in input$lazydata_roots) scan_shape(root)
+    for (res in index$method_results) scan_shape(res)
+    for (glist in index$generic_returns) for (res in glist) scan_shape(res)
+    gen_idx <- 1L
+    while (gen_idx <= length(gen_queue)) {
+        g <- gen_queue[[gen_idx]]
+        gen_idx <- gen_idx + 1L
+        mark_gen(input$links[[g]])
+        for (prop in index$properties[[g]]) scan_property(prop)
+    }
+    generators[vapply(generators, function(g) is.null(kept_gen_env[[g]]), logical(1L))]
+}
+
+member_prepare_r6_roots <- function(index, input, ns) {
+    generator_envs <- list()
+    for (name in names(index$package_roots)) {
+        record <- member_binding(ns, name)
+        value <- record[[2L]]
+        if (identical(record[[1L]], "value") && is.environment(value) &&
+                "R6ClassGenerator" %in% attr(value, "class", exact = TRUE)) {
+            index$package_roots[name] <- list(member_r6_runtime_shape(value, index))
+            generator_envs[name] <- list(value)
+        }
+    }
+    generators <- names(generator_envs)
+    if (!length(generators)) return(invisible(index))
+    prunable_gens <- member_prunable_r6_generators(index, input, generators)
+    for (name in prunable_gens) {
+        index$properties[[name]] <- NULL
+        index$registries[[name]] <- NULL
+        if (name %in% names(index$members)) index$members[name] <- list(character())
+    }
+    if (length(prunable_gens)) {
+        mres_names <- as.character(names(index$method_results))
+        mrec_names <- as.character(names(index$method_receivers))
+        del_orig <- vapply(index$delegation, function(d) as.character(d$original), character(1L))
+        protected <- unique(c(
+            ls(ns, all.names = TRUE),
+            as.character(index$exports),
+            as.character(index$native_factories),
+            as.character(names(index$constructors)),
+            as.character(names(index$constructor_types)),
+            as.character(names(index$registration_rules)),
+            mres_names,
+            sub("^[^|]*\\|", "", mres_names),
+            sub("^[^|]*\\|", "", mrec_names),
+            unname(del_orig)
+        ))
+        candidates <- setdiff(as.character(names(index$definitions)), protected)
+        snap_names <- as.character(names(input$snapshots))
+        canonical <- new.env(hash = TRUE, parent = emptyenv())
+        changed <- FALSE
+        for (g in prunable_gens) {
+            gen <- generator_envs[[g]]
+            if (!is.environment(gen)) next
+            prefix <- paste0(g, "$")
+            keys <- candidates[startsWith(candidates, prefix)]
+            if (!length(keys)) next
+            longer <- snap_names[startsWith(snap_names, prefix) & nchar(snap_names) > nchar(g)]
+            for (other in longer) keys <- keys[!startsWith(keys, paste0(other, "$"))]
+            for (def_key in keys) {
+                fn_expr <- index$definitions[[def_key]]
+                if (is.null(fn_expr) || is.symbol(fn_expr)) next
+                field <- substring(def_key, nchar(prefix) + 1L)
+                bnd <- member_binding(gen, field)
+                if (!identical(bnd[[1L]], "value") || !member_r6_standard_generator_fn(bnd[[2L]], field, gen)) next
+                sig <- digest::digest(fn_expr, algo = "xxhash64")
+                target <- canonical[[sig]]
+                if (is.null(target)) {
+                    canonical[[sig]] <- def_key
+                } else if (identical(fn_expr, index$definitions[[target]])) {
+                    index$definitions[def_key] <- list(as.name(target))
+                    changed <- TRUE
+                }
+            }
+        }
+        if (changed && !is.null(index$return_definitions)) {
+            index$return_definitions <- digest::digest(index$definitions, algo = "xxhash64")
+        }
+    }
+    invisible(index)
+}
+
 member_prepare_package <- function(package, lib_paths = .libPaths(), context = NULL, identity = NULL) {
     .libPaths(lib_paths)
     ns <- asNamespace(package)
@@ -761,14 +988,7 @@ member_prepare_package <- function(package, lib_paths = .libPaths(), context = N
     if (!is.null(cached)) return(cached)
     prepare <- function(input, preparation_error = NULL) {
         index <- member_package_index(input)
-        for (name in names(index$package_roots)) {
-            record <- member_binding(ns, name)
-            value <- record[[2L]]
-            if (identical(record[[1L]], "value") && is.environment(value) &&
-                    "R6ClassGenerator" %in% attr(value, "class", exact = TRUE)) {
-                index$package_roots[name] <- list(member_r6_runtime_shape(value, index))
-            }
-        }
+        member_prepare_r6_roots(index, input, ns)
         index$roots <- member_public_roots(index, input)
         index$r6_attached <- identical(package, "R6")
         for (name in names(index$roots)) index$namespace_roots[paste(package, name, sep = "::")] <- list(index$roots[[name]])

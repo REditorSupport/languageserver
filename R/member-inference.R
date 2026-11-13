@@ -178,6 +178,13 @@ member_join <- function(a, b) {
                 identical(a[!vapply(a, is.null, logical(1L))], b[!vapply(b, is.null, logical(1L))]))) {
         return(a)
     }
+    r6_cmp <- NULL
+    if (any(c(a$r6_role, b$r6_role) %in% c("instance", "private", "super"))) {
+        r6_cmp <- member_r6_comparator(a, b, 0L)
+        if (member_r6_value_equiv(a, b, 0L, r6_cmp)) return(a)
+    } else if (member_r6_value_equiv(a, b, 0L)) {
+        return(a)
+    }
     if (!length(a$type) || !length(b$type)) {
         return(member_value(reason = "unknown_branch"))
     }
@@ -233,6 +240,7 @@ member_join <- function(a, b) {
         value$r6_bindings <- bindings[!duplicated(names(bindings))]
     }
     if (identical(a$r6_identity, b$r6_identity)) value$r6_identity <- a$r6_identity
+    if (!is.null(r6_cmp)) value <- member_r6_join(value, a, b, r6_cmp)
     value
 }
 
@@ -327,7 +335,7 @@ member_possible_receiver <- function(value, index, bindings = list(), accessor =
                 if (identical(accessor, "@")) member_slot(candidate, name, index, bindings) else
                     member_access(candidate, name, index, bindings)
             })
-            return(!all(vapply(fields, identical, logical(1L), fields[[1L]])))
+            return(!all(vapply(fields, member_r6_value_equiv, logical(1L), fields[[1L]])))
         }
         FALSE
     }, logical(1L))]
@@ -375,7 +383,16 @@ member_shape_key <- function(value, depth = 0L) {
         s4_generator = value$s4_generator,
         s7 = value$s7, s7_descriptor = value$s7_descriptor,
         r6_private = member_shape_key(value$r6_private, depth + 1L),
-        r6_super = member_shape_key(value$r6_super, depth + 1L),
+        # Class-shape instances omit `r6_super` and build it on demand; key the
+        # same surface `r6_super` held before so fixed-point checks match.
+        r6_super = member_shape_key(
+            if (!is.null(value$r6_super)) {
+                value$r6_super
+            } else if (identical(value$r6_role, "instance") && !is.null(value$r6_level)) {
+                member_r6_super(value$r6_layers, value$r6_level)
+            },
+            depth + 1L
+        ),
         r6_self = member_shape_key(value$r6_self, depth + 1L),
         r6_locked = value$r6_locked, r6_bindings = value$r6_bindings,
         r6_identity = value$r6_identity, r6_class = value$r6_class,
@@ -478,16 +495,60 @@ member_access <- function(lhs, name, index, bindings) {
     if (!is.null(value)) {
         value <- member_r6_member_info(value, lhs)
         if (!is.null(value$receiver_name)) {
-            value$receiver_value <- if (is.null(lhs$r6_self)) lhs else lhs$r6_self
+            receiver <- if (is.null(lhs$r6_self)) lhs else lhs$r6_self
+            layers <- member_r6_levels(lhs)
+            if (is.null(layers)) layers <- member_r6_levels(receiver)
+            value$receiver_value <- receiver
             if (isTRUE(value$r6_private_self)) {
                 value$closure$private <- lhs
-            } else if (!isTRUE(value$r6_static_bound) && !is.null(value$receiver_value$r6_private)) {
-                value$closure$private <- value$receiver_value$r6_private
+            } else if (!isTRUE(value$r6_static_bound) && !is.null(receiver$r6_private)) {
+                value$closure$private <- receiver$r6_private
+                if (is.null(value$closure$private$r6_layers)) {
+                    value$closure$private <- member_r6_private_layers(
+                        value$closure$private, member_r6_levels(receiver))
+                }
+            } else if (!is.null(value$r6_owner_level) &&
+                    !identical(lhs$r6_declared_level, value$r6_owner_level)) {
+                # No single instance: the table of the declaring class. Its
+                # own private methods were recorded before they had one.
+                source <- if (!is.null(lhs$r6_layers) || identical(lhs$r6_role, "instance")) lhs else receiver
+                value$closure$private <- member_r6_declared_private(source, value$r6_owner_level)
+            }
+            # Contexts of a stored instance's methods are kept once, on it, and
+            # carried on bound contexts so container-held methods still find
+            # them. Intra-instance context cycles are cut dynamically here.
+            contexts <- if (!is.null(lhs$r6_contexts)) lhs$r6_contexts else receiver$r6_contexts
+            visited <- lhs$r6_visited
+            for (role in names(value$r6_context_ids)) {
+                if (!is.null(value$closure[[role]])) next
+                key <- value$r6_context_ids[[role]]
+                context <- member_lookup(contexts, key)
+                if (is.null(context)) next
+                if (key %in% visited) {
+                    cut <- member_value(reason = "cycle")
+                    cut[c("r6_class", "r6_role", "r6_locked", "r6_bindings")] <-
+                        context[c("r6_class", "r6_role", "r6_locked", "r6_bindings")]
+                    context <- cut[!vapply(cut, is.null, logical(1L))]
+                } else if (!identical(context$reason, "cycle")) {
+                    context <- member_r6_attach_stored_contexts(context, contexts, c(visited, key))
+                }
+                value$closure[role] <- list(context)
+            }
+            if (!is.null(contexts) && !is.null(value$closure$private) &&
+                    !identical(value$closure$private$reason, "cycle") &&
+                    is.null(value$closure$private$r6_contexts)) {
+                value$closure$private <- member_r6_attach_stored_contexts(
+                    value$closure$private, contexts, visited)
             }
             if (!is.null(value$closure$private)) {
-                value$closure$private$r6_self <- value$receiver_value
+                value$closure$private$r6_self <- receiver
             }
-            if (!is.null(value$closure$super)) value$closure$super$r6_self <- value$receiver_value
+            if (isTRUE(value$r6_uses_super) || (!is.null(value$r6_owner_level) && value$r6_owner_level > 1L)) {
+                value$closure$super <- member_r6_super(layers, value$r6_owner_level)
+            }
+            if (!is.null(value$closure$super)) value$closure$super$r6_self <- receiver
+            # A bound method keeps these contexts wherever it is stored next.
+            value$r6_owner_level <- value$r6_uses_super <- value$r6_context_ids <- NULL
         }
         if (!is.null(value$function_key)) value$receiver_value <- lhs
         if (length(value$type) || !is.null(value$function_expr) || !is.null(value$function_key) ||
