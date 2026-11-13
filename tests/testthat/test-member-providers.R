@@ -553,6 +553,102 @@ test_that("Installed processx members preserve method parameters across provider
     }
 })
 
+test_that("Installed processx prepares well inside the snapshot budget with every method", {
+    skip_if_not_installed("processx")
+    cache_dir <- withr::local_tempdir()
+    withr::local_envvar(
+        R_USER_CACHE_DIR = cache_dir,
+        R_USER_DATA_DIR = cache_dir,
+        R_USER_CONFIG_DIR = cache_dir,
+        XDG_CACHE_HOME = cache_dir,
+        R_LANGSVR_PACKAGE_CACHE_DIR = cache_dir
+    )
+    withr::local_options(languageserver.package_cache_dir = cache_dir)
+    snapshot <- member_prepare_package("processx")
+    # The budget is 32 MB. R6 method contexts are stored once per class
+    # level, so a class with many methods stays far below it.
+    expect_lt(as.numeric(utils::object.size(snapshot)), 16 * 1024^2)
+    instance <- snapshot$package_roots$process$fields$new$result_shape
+    for (method in instance$fields) {
+        expect_null(method$closure$private)
+        expect_null(method$closure$super)
+    }
+    fixture <- member_provider_fixture(c(
+        'proc <- processx::process$new("must-not-launch")', "proc$"
+    ), list(processx = snapshot))
+    items <- member_completion(fixture$uri, fixture$workspace, fixture$document,
+        list(row = 1L, col = 5L), TRUE, 200L)
+    labels <- vapply(items, `[[`, character(1L), "label")
+    expect_setequal(labels, names(processx::process$public_methods))
+    clone <- items[[match("clone", labels)]]
+    expect_identical(clone$detail, "clone(deep = FALSE)")
+})
+
+test_that("testthat reporter generators can be snapshotted together", {
+    reporters <- c("Reporter", "SilentReporter", "ListReporter", "StopReporter", "CheckReporter")
+    ns <- new.env(parent = baseenv())
+    for (name in reporters) assign(name, get(name, asNamespace("testthat")), ns)
+    input <- member_namespace_input(ns, package = "reporterfixture", exports = reporters)
+    index <- member_package_index(input)
+    for (name in reporters) index$package_roots[name] <- list(member_r6_runtime_shape(ns[[name]], index))
+    index$roots <- member_public_roots(index, input)
+    for (name in names(index$roots)) {
+        index$namespace_roots[paste("reporterfixture", name, sep = "::")] <- list(index$roots[[name]])
+    }
+    snapshot <- NULL
+    expect_no_error(snapshot <- member_index_freeze(index))
+    fixture <- member_provider_fixture(c("r <- reporterfixture::SilentReporter$new()", "r$"),
+        list(reporterfixture = snapshot))
+    items <- member_completion(fixture$uri, fixture$workspace, fixture$document,
+        list(row = 1L, col = 2L), TRUE, 200L)
+    labels <- vapply(items, `[[`, character(1L), "label")
+    expect_true(all(c("add_result", "end_reporter", "start_test") %in% labels))
+})
+
+test_that("Installed testthat prepares within the snapshot budget and resolves reporter methods", {
+    skip_if_not_installed("testthat")
+    # Prepare in a clean worker, as production does, so serial testthat runs do
+    # not inflate `asNamespace("testthat")$the` with active reporter state.
+    pkg_path <- getNamespaceInfo(asNamespace("languageserver"), "path")
+    cache_dir <- withr::local_tempdir()
+    worker_env <- c(
+        callr::rcmd_safe_env(),
+        R_USER_CACHE_DIR = cache_dir,
+        R_USER_DATA_DIR = cache_dir,
+        R_USER_CONFIG_DIR = cache_dir,
+        XDG_CACHE_HOME = cache_dir,
+        R_LANGSVR_PACKAGE_CACHE_DIR = cache_dir
+    )
+    snapshot <- callr::r(
+        function(pkg_path, cache_dir, libs) {
+            .libPaths(libs)
+            options(languageserver.package_cache_dir = cache_dir)
+            if (file.exists(file.path(pkg_path, "Meta", "package.rds"))) {
+                loadNamespace("languageserver", lib.loc = dirname(pkg_path))
+            } else {
+                getExportedValue("pkgload", "load_all")(
+                    pkg_path, quiet = TRUE, export_all = FALSE, helpers = FALSE
+                )
+            }
+            get("member_prepare_package", envir = asNamespace("languageserver"))("testthat")
+        },
+        args = list(pkg_path = pkg_path, cache_dir = cache_dir, libs = .libPaths()),
+        env = worker_env,
+        system_profile = FALSE,
+        user_profile = FALSE
+    )
+    expect_lt(as.numeric(utils::object.size(snapshot)), 30 * 1024^2)
+    fixture <- member_provider_fixture(c(
+        "reporter <- testthat::ProgressReporter$new()", "reporter$"
+    ), list(testthat = snapshot))
+    items <- member_completion(fixture$uri, fixture$workspace, fixture$document,
+        list(row = 1L, col = 9L), TRUE, 200L)
+    labels <- vapply(items, `[[`, character(1L), "label")
+    expect_true(all(c("add_result", "end_reporter", "start_test") %in% labels))
+    item <- items[[match("start_test", labels)]]
+    expect_identical(item$kind, CompletionItemKind$Method)
+})
+
 test_that("callr and processx members work through LSP without library calls or execution", {
     skip_on_cran()
     skip_if_not_installed("processx")
