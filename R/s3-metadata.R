@@ -108,11 +108,22 @@ s3_summary_names <- list(
     rpart = "rpart", nlme = "lme"
 )
 
-s3_function_record <- function(fn, name, package) {
+s3_function_record <- function(
+    fn,
+    name,
+    package,
+    require_dispatch_or_summary = FALSE,
+    summary_cache = NULL) {
     if (!is.function(fn) || is.object(fn)) {
         return(NULL)
     }
-    owner <- if (is.primitive(fn)) "base" else if (isNamespace(environment(fn))) unname(getNamespaceName(environment(fn))) else package
+    owner <- if (is.primitive(fn)) {
+        "base"
+    } else if (isNamespace(environment(fn))) {
+        unname(getNamespaceName(environment(fn)))
+    } else {
+        package
+    }
     syntax <- if (typeof(fn) == "closure") member_function_syntax(fn) else NULL
     arguments <- if (is.null(syntax)) args(fn) else NULL
     formals <- if (!is.null(syntax)) syntax[[2L]] else if (is.function(arguments)) formals(arguments) else NULL
@@ -120,12 +131,36 @@ s3_function_record <- function(fn, name, package) {
         !identical(environment(fn), baseenv())
     generic <- if (!foreign_environment) s3_generic_descriptor(syntax)
     summary <- NULL
-    for (candidate in s3_summary_names[[owner]]) {
-        original <- member_binding(asNamespace(owner), candidate, materialize = TRUE)
-        if (identical(original[[1L]], "value") && identical(original[[2L]], fn)) {
-            summary <- paste(owner, candidate, sep = "::")
-            break
+    candidates <- s3_summary_names[[owner]]
+    if (length(candidates)) {
+        if (is.environment(summary_cache)) {
+            owner_summaries <- summary_cache[[owner]]
+            if (is.null(owner_summaries)) {
+                owner_ns <- asNamespace(owner)
+                owner_summaries <- stats::setNames(lapply(candidates, function(candidate) {
+                    member_binding(owner_ns, candidate, materialize = TRUE)
+                }), candidates)
+                summary_cache[[owner]] <- owner_summaries
+            }
+            for (candidate in candidates) {
+                original <- owner_summaries[[candidate]]
+                if (identical(original[[1L]], "value") && identical(original[[2L]], fn)) {
+                    summary <- paste(owner, candidate, sep = "::")
+                    break
+                }
+            }
+        } else {
+            for (candidate in candidates) {
+                original <- member_binding(asNamespace(owner), candidate, materialize = TRUE)
+                if (identical(original[[1L]], "value") && identical(original[[2L]], fn)) {
+                    summary <- paste(owner, candidate, sep = "::")
+                    break
+                }
+            }
         }
+    }
+    if (isTRUE(require_dispatch_or_summary) && is.null(generic) && is.null(summary)) {
+        return(NULL)
     }
     list(
         name = name, package = package, owner = owner, formals = formals,
@@ -150,23 +185,29 @@ s3_runtime_shape <- function(object, depth = 0L) {
         explicit_class = !is.null(attr(object, "class", exact = TRUE)))
 }
 
-s3_prepare_namespace <- function(package) {
+s3_prepare_namespace <- function(package, identity = NULL) {
     ns <- asNamespace(package)
     exports <- getNamespaceExports(ns)
     if (length(exports) > 10000L) stop("Namespace exceeds S3 metadata budget")
     functions <- objects <- methods <- list()
     callables <- character()
+    summary_cache <- new.env(hash = TRUE, parent = emptyenv())
     for (name in exports) {
         binding <- s3_namespace_binding(ns, name)
         if (!identical(binding[[1L]], "value")) next
         if (is.function(binding[[2L]])) {
             callables <- c(callables, name)
-            record <- s3_function_record(binding[[2L]], name, package)
-            if (!is.null(record) && (!is.null(record$generic) || !is.null(record$summary))) functions[[name]] <- record
+            record <- s3_function_record(
+                binding[[2L]], name, package,
+                require_dispatch_or_summary = TRUE,
+                summary_cache = summary_cache
+            )
+            if (!is.null(record)) functions[[name]] <- record
         }
     }
     # Namespace re-exports and registrations can contain actual closures rather
     # than names. Read cells with [[, and preserve the implementation's owner.
+    registered_export_names <- character()
     registrations <- tryCatch(getNamespaceInfo(ns, "S3methods"), error = function(e) NULL)
     if (is.matrix(registrations)) {
         for (i in seq_len(nrow(registrations))) {
@@ -193,9 +234,15 @@ s3_prepare_namespace <- function(package) {
                     if (identical(binding[[1L]], "value")) binding[[2L]]
                 }
             }
-            record <- s3_function_record(fn, if (is.character(method)) method else key, package)
+            record <- s3_function_record(
+                fn, if (is.character(method)) method else key, package,
+                summary_cache = summary_cache
+            )
             if (!is.null(record)) {
-                if (record$name %in% exports) functions[[record$name]] <- record
+                if (record$name %in% exports) {
+                    functions[[record$name]] <- record
+                    registered_export_names <- c(registered_export_names, record$name)
+                }
                 record$generic <- generic
                 record$generic_package <- owner
                 record$class <- class
@@ -209,7 +256,7 @@ s3_prepare_namespace <- function(package) {
     table <- get0(".__S3MethodsTable__.", ns, inherits = FALSE)
     generics <- Filter(function(record) !is.null(record$generic) && identical(record$owner, package), functions)
     if (is.environment(table)) {
-        registered_names <- ls(table, all.names = TRUE)
+        registered_names <- package_metadata_sort(ls(table, all.names = TRUE, sorted = FALSE))
         for (generic_record in generics) {
             generic <- generic_record$generic$name
             prefix <- paste0(generic, ".")
@@ -224,7 +271,7 @@ s3_prepare_namespace <- function(package) {
                 } else {
                     package
                 }
-                record <- s3_function_record(fn, key, method_package)
+                record <- s3_function_record(fn, key, method_package, summary_cache = summary_cache)
                 if (is.null(record)) next
                 record$generic <- generic
                 record$generic_package <- package
@@ -236,12 +283,17 @@ s3_prepare_namespace <- function(package) {
     # Only functions visible from the ordinary calling environment may be
     # considered unregistered methods. Private generic.class bindings do not
     # become applicable just because their namespace is loaded.
-    visible <- if (package == "base") ls(ns, all.names = TRUE) else exports
+    visible <- if (package == "base") {
+        package_metadata_sort(ls(ns, all.names = TRUE, sorted = FALSE))
+    } else {
+        exports
+    }
     for (name in visible) {
         if (!grepl(".", name, fixed = TRUE)) next
+        if (!is.null(functions[[name]]) && !(name %in% registered_export_names)) next
         binding <- s3_namespace_binding(ns, name)
         if (!identical(binding[[1L]], "value") || !is.function(binding[[2L]])) next
-        record <- s3_function_record(binding[[2L]], name, package)
+        record <- s3_function_record(binding[[2L]], name, package, summary_cache = summary_cache)
         if (!is.null(record)) functions[[name]] <- record
     }
     lazy <- tryCatch(names(getNamespaceInfo(ns, "lazydata")), error = function(e) character())
@@ -261,7 +313,7 @@ s3_prepare_namespace <- function(package) {
     result <- list(
         schema = 1L, package = package, functions = functions, callables = callables, objects = objects,
         methods = methods, dependencies = dependencies,
-        identity = package_metadata_identity(package)
+        identity = if (is.null(identity)) package_metadata_identity(package) else identity
     )
     size <- as.numeric(utils::object.size(result))
     if (size > 8 * 1024^2) stop(sprintf("Namespace %s exceeds S3 metadata budget (%d bytes)", package, size))
@@ -269,7 +321,12 @@ s3_prepare_namespace <- function(package) {
     result
 }
 
-s3_prepare_packages <- function(packages, cache_dir = package_metadata_cache_root()) {
+s3_prepare_packages <- function(
+    packages,
+    cache_dir = package_metadata_cache_root(),
+    lib_paths = .libPaths()) {
+    .libPaths(lib_paths)
+    lib_paths <- package_metadata_startup_lib_paths(lib_paths)
     previous <- options(languageserver.package_cache_dir = cache_dir)
     on.exit(options(previous), add = TRUE)
     namespaces <- list()
@@ -287,10 +344,10 @@ s3_prepare_packages <- function(packages, cache_dir = package_metadata_cache_roo
         pending <- unique(c(pending, setdiff(namespaces[[package]]$dependencies, names(namespaces))))
     }
     result <- list()
-    context <- package_metadata_context(names(namespaces))
+    context <- package_metadata_context(names(namespaces), lib_paths = lib_paths)
     for (package in names(namespaces)) {
         result[[package]] <- tryCatch({
-            identity <- package_metadata_identity(package, context = context)
+            identity <- package_metadata_identity(package, lib_paths = lib_paths, context = context)
             path <- package_metadata_cache_path("s3", identity)
             cached <- package_metadata_cache_read(path, identity, function(value) {
                 identical(value$schema, 1L) && identical(value$identity, identity)
@@ -298,10 +355,7 @@ s3_prepare_packages <- function(packages, cache_dir = package_metadata_cache_roo
             if (!is.null(cached)) {
                 cached
             } else {
-                value <- s3_prepare_namespace(package)
-                value$identity <- identity
-                value$generation <- NULL
-                value$generation <- digest::digest(value, algo = "xxhash64")
+                value <- s3_prepare_namespace(package, identity = identity)
                 package_metadata_cache_write(path, identity, value)
                 value
             }
@@ -318,40 +372,50 @@ s3_prepare_packages <- function(packages, cache_dir = package_metadata_cache_roo
 # Registries and exported functions may be replaced by load hooks or tracing
 # without changing package files. Include their current inert syntax in S3 keys.
 s3_metadata_context <- function(packages) {
-    records <- lapply(packages, function(package) tryCatch({
-        ns <- asNamespace(package)
-        describe <- function(scope, names, exported = FALSE) stats::setNames(lapply(names, function(name) {
-            record <- if (exported) s3_namespace_binding(scope, name) else member_binding(scope, name, materialize = TRUE)
-            value <- record[[2L]]
-            owner <- if (typeof(value) == "closure" && isNamespace(environment(value))) {
-                unname(getNamespaceName(environment(value)))
+    records <- lapply(packages, function(package) {
+        tryCatch({
+            ns <- asNamespace(package)
+            describe <- function(scope, names, exported = FALSE) {
+                stats::setNames(lapply(names, function(name) {
+                    record <- if (exported) {
+                        s3_namespace_binding(scope, name)
+                    } else {
+                        member_binding(scope, name, materialize = TRUE)
+                    }
+                    value <- record[[2L]]
+                    owner <- if (typeof(value) == "closure" && isNamespace(environment(value))) {
+                        unname(getNamespaceName(environment(value)))
+                    }
+                    list(kind = record[[1L]], owner = owner,
+                        foreign_environment = typeof(value) == "closure" && !isNamespace(environment(value)) &&
+                            !identical(environment(value), baseenv()),
+                        syntax = if (typeof(value) == "closure") value,
+                        primitive = if (is.primitive(value)) name)
+                }), names)
             }
-            list(kind = record[[1L]], owner = owner,
-                foreign_environment = typeof(value) == "closure" && !isNamespace(environment(value)) &&
-                    !identical(environment(value), baseenv()),
-                syntax = if (typeof(value) == "closure") value,
-                primitive = if (is.primitive(value)) name)
-        }), names)
-        table <- member_binding(ns, ".__S3MethodsTable__.")[[2L]]
-        lazy <- tryCatch(getNamespaceInfo(ns, "lazydata"), error = function(e) NULL)
-        objects <- unique(c(if (package == "datasets") getNamespaceExports(ns), names(lazy)))
-        shapes <- stats::setNames(lapply(objects, function(name) {
-            record <- s3_namespace_binding(ns, name)
-            if (!identical(record[[1L]], "value") && is.environment(lazy) && name %in% names(lazy)) {
-                record <- member_binding(lazy, name, materialize = TRUE)
-            }
-            if (identical(record[[1L]], "value")) s3_runtime_shape(record[[2L]])
-        }), objects)
-        tokens <- list(exports = describe(ns, getNamespaceExports(ns), exported = TRUE), objects = shapes,
-            methods = if (is.environment(table) && length(table)) describe(table, ls(table, all.names = TRUE)))
-        # Section-qualified names keep exported and registered aliases apart.
-        # Canonical function syntax is reused only while the current binding
-        # token and owning namespace are unchanged.
-        stats::setNames(lapply(names(tokens), function(section) {
-            package_metadata_validation_records(paste(package, "s3", section, sep = ":"), tokens[[section]],
-                list(namespace = ns, metadata = s3_metadata_context, shapes = s3_runtime_shape))
-        }), names(tokens))
-    }, error = function(e) list(error = conditionMessage(e))))
+            table <- member_binding(ns, ".__S3MethodsTable__.")[[2L]]
+            lazy <- tryCatch(getNamespaceInfo(ns, "lazydata"), error = function(e) NULL)
+            objects <- unique(c(if (package == "datasets") getNamespaceExports(ns), names(lazy)))
+            shapes <- stats::setNames(lapply(objects, function(name) {
+                record <- s3_namespace_binding(ns, name)
+                if (!identical(record[[1L]], "value") && is.environment(lazy) && name %in% names(lazy)) {
+                    record <- member_binding(lazy, name, materialize = TRUE)
+                }
+                if (identical(record[[1L]], "value")) s3_runtime_shape(record[[2L]])
+            }), objects)
+            tokens <- list(exports = describe(ns, getNamespaceExports(ns), exported = TRUE), objects = shapes,
+                methods = if (is.environment(table) && length(table)) {
+                    describe(table, package_metadata_sort(ls(table, all.names = TRUE, sorted = FALSE)))
+                })
+            # Section-qualified names keep exported and registered aliases apart.
+            # Canonical function syntax is reused only while the current binding
+            # token and owning namespace are unchanged.
+            stats::setNames(lapply(names(tokens), function(section) {
+                package_metadata_validation_records(paste(package, "s3", section, sep = ":"), tokens[[section]],
+                    list(namespace = ns, metadata = s3_metadata_context, shapes = s3_runtime_shape))
+            }), names(tokens))
+        }, error = function(e) list(error = conditionMessage(e)))
+    })
     if (any(vapply(records, function(record) !is.null(record$error), logical(1L)))) return(NULL)
     digest::digest(records, algo = "xxhash64")
 }
