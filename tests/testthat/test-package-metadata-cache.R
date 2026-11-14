@@ -350,11 +350,15 @@ test_that("S3 catalogs reuse cached metadata and detect registry changes", {
     withr::local_options(languageserver.package_cache_dir = withr::local_tempdir())
     prepared <- character()
     prepare <- s3_prepare_namespace
-    testthat::local_mocked_bindings(s3_prepare_namespace = function(package) {
+    testthat::local_mocked_bindings(s3_prepare_namespace = function(package, identity = NULL) {
         prepared <<- c(prepared, package)
-        prepare(package)
+        prepare(package, identity = identity)
     }, .package = "languageserver")
     first <- s3_prepare_packages("datasets")
+    # s3_prepare_packages() turns any error raised while preparing a namespace
+    # into an `error` record, so check that nothing was swallowed.
+    expect_true("datasets" %in% names(first))
+    for (record in first) expect_null(record$error)
     initial_preparations <- length(prepared)
     prepared <- character()
     second <- s3_prepare_packages("datasets")
@@ -366,6 +370,7 @@ test_that("S3 catalogs reuse cached metadata and detect registry changes", {
     withr::defer(rm(list = method, envir = table))
     assign(method, function(x, ...) NULL, table)
     changed <- s3_prepare_packages("datasets")
+    for (record in changed) expect_null(record$error)
     expect_true(length(prepared) > 0L)
     expect_false(identical(changed$base$generation, first$base$generation))
     expect_true(paste0("base::", method) %in% names(changed$base$methods))

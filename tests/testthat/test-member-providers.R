@@ -655,9 +655,10 @@ test_that("callr and processx members work through LSP without library calls or 
     root <- withr::local_tempdir()
     marker <- file.path(root, "executed")
     client <- language_client(working_dir = root)
-    # Coverage loads the instrumented namespace in both parse and metadata
-    # workers, alongside the other parallel tests in this shard.
-    timeout <- if (identical(Sys.getenv("R_COVR"), "true")) 60 else 15
+    # The first completion is held until the cold resolve and member workers
+    # finish. Coverage loads the instrumented namespace in both workers while
+    # the other parallel test process competes for the same runner CPUs.
+    timeout <- if (identical(Sys.getenv("R_COVR"), "true")) 150 else 15
     cases <- list(
         list(package = "callr", receiver = "job", method = "get_result", signature = "get_result()",
             code = sprintf('job <- callr::r_bg(function() {writeLines("ran", %s); stop("input")})',
@@ -672,7 +673,9 @@ test_that("callr and processx members work through LSP without library calls or 
         did_open(client, path, text = paste(case$code, call, sep = "\n"))
         deadline <- Sys.time() + timeout
         repeat {
-            result <- respond_completion(client, path, c(1L, nchar(case$receiver) + 1L), retry = FALSE)
+            remaining <- max(1, as.numeric(difftime(deadline, Sys.time(), units = "secs")))
+            result <- respond_completion(client, path, c(1L, nchar(case$receiver) + 1L),
+                retry = FALSE, timeout = remaining)
             labels <- vapply(result$items, `[[`, character(1L), "label")
             if (case$method %in% labels || Sys.time() > deadline) break
             Sys.sleep(0.1)

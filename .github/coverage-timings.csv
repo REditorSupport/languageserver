@@ -112,6 +112,7 @@
 "test-signature-pipes.R",67.426
 "test-signature.R",745.953
 "test-source-readiness.R",5.525
+"test-startup-bundle-cache.R",444.643
 "test-stdio.R",94.609
 "test-symbol-blocks.R",67.939
 "test-symbol-edits.R",66.47
