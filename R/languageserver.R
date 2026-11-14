@@ -215,7 +215,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$diagnostics_task_manager <- TaskManager$new(
                 "diagnostics",
                 use_session = TRUE, process_recent_first = TRUE,
-                cpu_load = 0.25, max_running_tasks = 2
+                cpu_load = 0.25, max_running_tasks = 2, min_idle_sessions = 0
             )
 
             # Share equivalent package requests; each cache miss still runs in
