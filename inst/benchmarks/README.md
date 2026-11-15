@@ -5,6 +5,11 @@ latency of interactive requests. The baseline is commit `9618b5b`. Measurements
 below were taken locally with R 4.6.1 on macOS arm64; they are reproducible
 workloads, not timing assertions in the test suite.
 
+## Completion label details
+
+See the [completion label-details benchmark](completion-label-details.md) for
+200-candidate signature lookup and rapid-edit completion workloads.
+
 ## Usage review workloads
 
 The usage review adds four workloads that check their results before timing
