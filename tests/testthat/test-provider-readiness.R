@@ -244,6 +244,33 @@ test_that("basic function completion responds before and during document parsing
     }
 })
 
+test_that("Inline completion responds to rapid edits without waiting for full parsing", {
+    previous <- lsp_settings$get("completion_label_details")
+    withr::defer(lsp_settings$set("completion_label_details", previous))
+    lsp_settings$set("completion_label_details", TRUE)
+    fixture <- readiness_fixture(c("current <- function(argument = 1) NULL", "cur"))
+    fixture$server$ClientCapabilities <- list(textDocument = list(completion =
+                list(completionItem = list(labelDetailsSupport = TRUE))))
+    fixture$server$parse_task_manager$promote <- function(...) stop("Waited for full parsing")
+    testthat::local_mocked_bindings(completion_reply = function(...) stop("Used full completion"),
+        member_resolve_cursor = function(...) stop("Inferred source while typing"), .package = "languageserver")
+    for (size in c(0L, 10000L)) {
+        prefix <- sprintf("unused_%05d <- 1", seq_len(size))
+        for (version in seq_len(3L)) {
+            fixture$document$set_content(version + size + 1L,
+                c(prefix, sprintf("current <- function(argument = %d) NULL", version), c("c", "cu", "cur")[[version]]))
+            row <- length(fixture$document$content) - 1L
+            text_document_completion(fixture$server, version, readiness_params(fixture, row,
+                    nchar(fixture$document$line0(row))))
+            reply <- tail(fixture$server$replies, 1L)[[1L]]$result
+            item <- Filter(function(item) identical(item$label, "current"), reply$items)[[1L]]
+            expect_identical(item$labelDetails$detail, sprintf("(argument = %d)", version))
+            expect_identical(item$data$completion_version, fixture$document$version)
+            expect_equal(fixture$server$pending_replies$get(fixture$uri)$`textDocument/completion`$size(), 0L)
+        }
+    }
+})
+
 test_that("the first preparse response includes current local declarations", {
     fixture <- readiness_fixture(c("hello <- function(value) value", "hel"))
     fixture$document$parse_data <- NULL

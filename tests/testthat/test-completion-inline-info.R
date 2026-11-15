@@ -171,17 +171,60 @@ test_that("Enabling inline info preserves pruning, ranking and inserted text", {
     expect_identical(unchanged_fields(enabled$items), unchanged_fields(hidden$items))
 })
 
-test_that("Hidden info skips ordinary enrichment and keeps the outline fast path", {
+test_that("The outline fast path follows the inline display setting", {
     inline_info_setting(FALSE)
     fixture <- inline_info_fixture("value <- 3\nval")
-    testthat::local_mocked_bindings(completion_symbol_info = function(...) stop("Unnecessary inline enrichment"),
-        .package = "languageserver")
-    expect_no_error(inline_info_reply(fixture))
     capabilities <- list(completionItem = list(labelDetailsSupport = TRUE))
-    ready <- basic_name_completion_reply(1L, fixture$workspace, fixture$document, fixture$point, capabilities)
+    ready <- testthat::with_mocked_bindings({
+        expect_no_error(inline_info_reply(fixture))
+        basic_name_completion_reply(1L, fixture$workspace, fixture$document, fixture$point, capabilities)
+    }, completion_symbol_info = function(...) stop("Unnecessary inline enrichment"), .package = "languageserver")
     expect_true(all(vapply(ready$result$items, function(item) is.null(item$labelDetails), logical(1L))))
     inline_info_setting(TRUE)
-    expect_null(basic_name_completion_reply(1L, fixture$workspace, fixture$document, fixture$point, capabilities))
+    ready <- basic_name_completion_reply(1L, fixture$workspace, fixture$document, fixture$point, capabilities)
+    expect_identical(inline_info_item(ready$result, "value")$labelDetails,
+        list(detail = " = 3", description = "known value"))
+})
+
+test_that("Outline inline facts agree with accepted source facts when already known", {
+    inline_info_setting(TRUE)
+    capabilities <- list(completionItem = list(labelDetailsSupport = TRUE))
+    codes <- c("value <- 3\nval", "run <- function(argument = 1) NULL\nru",
+        "`run unusual` <- function(argument = 1) NULL\nru")
+    for (code in codes) {
+        fixture <- inline_info_fixture(code)
+        expected <- inline_info_reply(fixture)$items
+        fixture$document$parse_data <- NULL
+        actual <- basic_name_completion_reply(1L, fixture$workspace, fixture$document,
+            fixture$point, capabilities)$result$items
+        name <- if (startsWith(code, "value")) "value" else if (startsWith(code, "`")) "run unusual" else "run"
+        matching <- function(item) identical(completion_source_name(item$label), name)
+        item <- Filter(matching, actual)[[1L]]
+        full <- Filter(matching, expected)[[1L]]
+        expect_identical(item$labelDetails, full$labelDetails, info = code)
+    }
+})
+
+test_that("Outline tips do not guess conditional, future or masked values", {
+    inline_info_setting(TRUE)
+    capabilities <- list(completionItem = list(labelDetailsSupport = TRUE))
+    cases <- list(
+        list(code = "value <- 1\nif (flag) value <- 2\nval", point = NULL),
+        list(code = "value <- 1\nval\nvalue <- 2", point = list(row = 1L, col = 3L)),
+        list(code = "run <- function(old = 1) NULL\nouter <- function(run) {\nru\n}",
+            point = list(row = 2L, col = 2L)),
+        list(code = "run <- function(old = 1) NULL\nrun <- opaque()\nru", point = NULL),
+        list(code = "run <- function(old = 1) NULL\nif (flag) run <- function(new = 2) NULL\nru", point = NULL),
+        list(code = "outer <- function() {\nrun <- function(old = 1) NULL\nif (flag) run <- function(new = 2) NULL\nru\n}",
+            point = list(row = 3L, col = 2L))
+    )
+    for (case in cases) {
+        fixture <- inline_info_fixture(case$code, point = case$point)
+        fixture$document$parse_data <- NULL
+        items <- basic_name_completion_reply(1L, fixture$workspace, fixture$document,
+            fixture$point, capabilities)$result$items
+        expect_true(all(vapply(items, function(item) is.null(item$labelDetails), logical(1L))), info = case$code)
+    }
 })
 
 test_that("Inline enrichment does not load an uncached package namespace", {
@@ -213,4 +256,28 @@ test_that("Resolve does not guess a signature for a masked source function", {
         list(completionItem = list(labelDetailsSupport = TRUE)))$result
     expect_null(resolved$labelDetails)
     expect_identical(resolved$detail, "[workspace]")
+})
+
+test_that("Resolve preserves labels unless the client explicitly supports resolving them", {
+    inline_info_setting(TRUE)
+    expect_true(CompletionOptions$completionItem$labelDetailsSupport)
+    fixture <- inline_info_fixture("value <- 3\nval")
+    item <- inline_info_item(inline_info_reply(fixture), "value")
+    capabilities <- list(completionItem = list(labelDetailsSupport = TRUE,
+            resolveSupport = list(properties = c("documentation", "detail", "additionalTextEdits"))))
+    late_labels <- list(detail = " = 999", description = "late")
+    testthat::local_mocked_bindings(completion_symbol_info = function(uri, workspace, document, point, token, items, ...) {
+        items[[1L]]$labelDetails <- late_labels
+        items[[1L]]$detail <- "Selected-item details"
+        items
+    }, .package = "languageserver")
+    resolved <- completion_item_resolve_reply(2L, fixture$workspace, item, capabilities)$result
+    expect_identical(resolved$labelDetails, item$labelDetails)
+    expect_identical(resolved$detail, "Selected-item details")
+    plain <- item
+    plain$labelDetails <- NULL
+    expect_null(completion_item_resolve_reply(2L, fixture$workspace, plain, capabilities)$result$labelDetails)
+    capabilities$completionItem$resolveSupport$properties <- "labelDetails"
+    expect_identical(completion_item_resolve_reply(2L, fixture$workspace, item,
+            capabilities)$result$labelDetails, late_labels)
 })

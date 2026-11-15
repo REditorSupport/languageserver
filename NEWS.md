@@ -3,6 +3,9 @@
 - Show short value, type and shape previews in member completion. The
   `completion_label_details` setting enables inline signatures and tips for
   both members and ordinary symbols; completion lists stay compact by default.
+- Keep inline completion responsive before full parsing, inspect package
+  signatures without invoking active or unforced bindings, and preserve initial
+  label annotations during resolution unless the client supports changing them.
 
 - Share equivalent ordered package-resolution and member-metadata requests
   across documents, reuse recent successful results, and stop abandoned workers

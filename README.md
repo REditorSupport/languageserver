@@ -299,6 +299,14 @@ options(languageserver.snippet_support = FALSE)
 
 will turn off snippet support globally. LSP configuration settings are always overriden by `options()`.
 
+Inline completion annotations are intentionally off by default for both members
+and ordinary symbols. Previously, the server supplied signature annotations only
+during completion-item resolution. VS Code does not support changing labels at
+that stage, so that server output did not ensure visible inline signatures.
+Selected-item details and signature help remain available. Set
+`options(languageserver.completion_label_details = TRUE)` to show signatures and
+value/type tips in the initial completion list when supported by the editor.
+
 Package member models, startup datasets, S3 catalogs, documentation summaries and
 rendered help share a persistent cache under `tools::R_user_dir("languageserver", "cache")`.
 It keeps up to 512 entries and 256 MiB, removing older entries as needed. Package

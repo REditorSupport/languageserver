@@ -727,7 +727,8 @@ test_that("LSP completion returns member identity and preserves calls", {
     expect_match(item$data$signature, "arg")
     resolved <- completion_item_resolve_reply(
         2L, fixture$workspace, item,
-        list(completionItem = list(labelDetailsSupport = TRUE))
+        list(completionItem = list(labelDetailsSupport = TRUE,
+                resolveSupport = list(properties = "labelDetails")))
     )
     expect_match(resolved$result$labelDetails$detail, "arg")
     expect_true("$" %in% unlist(CompletionOptions$triggerCharacters))
