@@ -1093,13 +1093,6 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
         # accessed value from the first candidate's underlying storage.
         tip <- if (!is_function && !label %in% ambiguous && !member_dataframe_columns(value) &&
                 !identical(value$reason, "unresolved_dollar_dispatch")) member_completion_tip(shape)
-        label_details <- if (isTRUE(label_details_support)) {
-            list(
-                detail = if (!is.null(signature)) substring(signature, nchar(inserted) + 1L) else tip$suffix,
-                description = if (possible) "possible receiver" else if (!is.null(tip)) tip$certainty else "static"
-            )
-        }
-        if (is.null(label_details$detail)) label_details$detail <- NULL
         item <- list(
             label = label, kind = if (is_function) CompletionItemKind$Method else CompletionItemKind$Field,
             detail = if (!is.null(signature)) {
@@ -1119,7 +1112,9 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
                 signature = signature, context_uri = uri, generation = index$generation
             )
         )
-        if (!is.null(label_details)) item$labelDetails <- label_details
+        if (isTRUE(label_details_support) && (!is.null(signature) || !is.null(tip) || possible)) item <-
+            completion_item_label_details(item, signature, tip,
+                if (possible) "possible receiver" else if (!is.null(tip)) tip$certainty else "static")
         item
     })
     if (length(matches) > limit || budget$exhausted) attr(items, "truncated") <- TRUE

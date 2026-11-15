@@ -236,7 +236,10 @@ test_that("basic function completion responds before and during document parsing
         expect_length(items, 1L)
         expect_identical(items[[1L]]$kind, CompletionItemKind$Function)
         expect_identical(items[[1L]]$insertText, "print($0)")
-        expect_identical(items[[1L]]$data, list(type = "function", package = "base"))
+        expect_identical(items[[1L]]$data, list(type = "function", package = "base",
+                context_uri = fixture$uri,
+                completion_position = list(row = 0L, col = nchar(fixture$document$line0(0L))),
+                completion_version = fixture$document$version))
         expect_identical(fixture$server$pending_replies$get(fixture$uri)$`textDocument/completion`$size(), 0L)
     }
 })

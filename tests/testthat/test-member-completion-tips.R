@@ -64,6 +64,9 @@ test_that("Member previews remain short for long strings and collections", {
 })
 
 test_that("Completion label details are immediate and survive resolution", {
+    previous <- lsp_settings$get("completion_label_details")
+    withr::defer(lsp_settings$set("completion_label_details", previous))
+    lsp_settings$set("completion_label_details", TRUE)
     fixture <- member_tip_fixture("list(value = 3)$")
     capabilities <- list(completionItem = list(labelDetailsSupport = TRUE))
     item <- completion_reply(1L, fixture$uri, fixture$workspace, fixture$document,

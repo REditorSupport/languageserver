@@ -1,7 +1,8 @@
 # languageserver (development)
 
-- Show short value, type and shape previews in member completion, with compact
-  inference hints.
+- Show short value, type and shape previews in member completion. The
+  `completion_label_details` setting enables inline signatures and tips for
+  both members and ordinary symbols; completion lists stay compact by default.
 
 - Share equivalent ordered package-resolution and member-metadata requests
   across documents, reuse recent successful results, and stop abandoned workers
