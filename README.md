@@ -271,6 +271,7 @@ settings | default | description
 `r.lsp.inlay_hints_minimum_argument_length` | `2` | minimum argument-name length for an inlay hint, excluding an initial `.`
 `r.lsp.rich_documentation` | `true` | rich documentation with enhanced markdown features
 `r.lsp.snippet_support` | `true` | enable snippets in auto completion
+`r.lsp.completion_label_details` | `false` | show inline function signatures and value/type tips for members and ordinary symbols when supported by the editor; selected-item details remain available
 `r.lsp.max_completions` | 200 | maximum number of completion items
 `r.lsp.s3_dispatch` | `true` | use static S3 dispatch for argument completion, hover and signature help, independently of member completion
 `r.lsp.member_completion` | `true` | infer `$` members and S4 `@` slots for completion, signature help and hover from document syntax and cached package metadata without executing document code
@@ -297,6 +298,14 @@ options(languageserver.snippet_support = FALSE)
 ```
 
 will turn off snippet support globally. LSP configuration settings are always overriden by `options()`.
+
+Inline completion annotations are intentionally off by default for both members
+and ordinary symbols. Previously, the server supplied signature annotations only
+during completion-item resolution. VS Code does not support changing labels at
+that stage, so that server output did not ensure visible inline signatures.
+Selected-item details and signature help remain available. Set
+`options(languageserver.completion_label_details = TRUE)` to show signatures and
+value/type tips in the initial completion list when supported by the editor.
 
 Package member models, startup datasets, S3 catalogs, documentation summaries and
 rendered help share a persistent cache under `tools::R_user_dir("languageserver", "cache")`.

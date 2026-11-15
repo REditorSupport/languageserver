@@ -58,6 +58,46 @@ completion_matching_names <- function(items) {
     }, character(1L))
 }
 
+completion_label_details_enabled <- function(capabilities) {
+    isTRUE(lsp_settings$get("completion_label_details")) &&
+        isTRUE(capabilities$completionItem$labelDetailsSupport)
+}
+
+completion_label_details_resolve_enabled <- function(capabilities) {
+    completion_label_details_enabled(capabilities) &&
+        "labelDetails" %in% capabilities$completionItem$resolveSupport$properties
+}
+
+completion_item_label_details <- function(item, signature = NULL, tip = NULL, description = NULL) {
+    suffix <- tip$suffix
+    if (!is.null(signature)) {
+        signature <- trimws(signature, which = "right")
+        name <- if (startsWith(signature, paste0(item$label, "("))) {
+            item$label
+        } else {
+            name <- if (is.null(item$data$matching_name)) item$label else item$data$matching_name
+            if (!is.null(item$data$uri)) name <- completion_source_name(name)
+            quote_completion_name(name)
+        }
+        suffix <- substring(signature, nchar(name) + 1L)
+    }
+    if (is.null(description)) description <- if (!is.null(signature)) "static" else tip$certainty
+    item$labelDetails <- list(detail = suffix, description = description)
+    if (is.null(suffix)) item$labelDetails$detail <- NULL
+    if (is.null(description)) item$labelDetails$description <- NULL
+    item
+}
+
+completion_context_data <- function(items, uri, document, point) {
+    for (i in seq_along(items)) {
+        if (!isTRUE(items[[i]]$data$type %in% c("function", "nonfunction", "scope"))) next
+        items[[i]]$data$context_uri <- uri
+        items[[i]]$data$completion_position <- point
+        items[[i]]$data$completion_version <- document$version
+    }
+    items
+}
+
 escape_completion_snippet <- function(text) {
     text <- gsub("\\", "\\\\", text, fixed = TRUE)
     text <- gsub("$", "\\$", text, fixed = TRUE)
@@ -1166,23 +1206,30 @@ completion_has_call_parens <- function(document, token_result) {
 
 #' Collect ordinary global declarations without evaluating source or function bodies
 #' @noRd
-completion_global_outline <- function(parsed) {
+completion_global_outline <- function(parsed, previews = FALSE) {
     bindings <- new.env(hash = TRUE, parent = emptyenv())
     controls <- c("{", "(", "if", "for", "while", "repeat", "system.time", "try", "tryCatch",
         "withCallingHandlers", "withRestarts", "allowInterrupts", "suspendInterrupts",
         "suppressPackageStartupMessages", "suppressMessages", "suppressWarnings")
-    walk <- function(expr, ref = NULL) {
+    walk <- function(expr, ref = NULL, uncertain = FALSE) {
         if (is.expression(expr) || is.list(expr)) {
             refs <- attr(expr, "srcref")
-            for (i in seq_along(expr)) walk(expr[[i]], if (length(refs) >= i) refs[[i]] else ref)
+            for (i in seq_along(expr)) walk(expr[[i]], if (length(refs) >= i) refs[[i]] else ref, uncertain)
         } else if (is_simple_call(expr)) {
             head <- if (is.symbol(expr[[1L]])) as.character(expr[[1L]]) else fun_string(expr[[1L]])
             if (head %in% c("<-", "=")) {
                 if (length(expr) == 3L && is.symbol(expr[[2L]])) {
                     name <- as.character(expr[[2L]])
-                    assign(name, list(name = name, function_kind = member_head(expr[[3L]], "function"),
-                            line = if (is.null(ref)) 1L else ref[[1L]]), envir = bindings)
-                    walk(expr[[3L]], ref)
+                    binding <- list(name = name, function_kind = member_head(expr[[3L]], "function"),
+                        line = if (is.null(ref)) 1L else ref[[1L]])
+                    if (previews) {
+                        binding$column <- if (is.null(ref)) 1L else ref[[5L]]
+                        binding$uncertain <- uncertain
+                        if (!uncertain && !is.call(expr[[3L]]) && !is.symbol(expr[[3L]]) &&
+                                !is.object(expr[[3L]])) binding$value <- member_literal(expr[[3L]])
+                    }
+                    assign(name, binding, envir = bindings)
+                    walk(expr[[3L]], ref, uncertain)
                 }
             } else if (head %in% controls) {
                 if (head == "for" && is.symbol(expr[[2L]])) {
@@ -1194,7 +1241,8 @@ completion_global_outline <- function(parsed) {
                 refs <- attr(expr, "srcref")
                 for (i in seq_along(children)) {
                     if (!identical(children[[i]], quote(expr = ))) {
-                        walk(children[[i]], if (length(refs) >= i + 1L) refs[[i + 1L]] else ref)
+                        walk(children[[i]], if (length(refs) >= i + 1L) refs[[i + 1L]] else ref,
+                            uncertain || !head %in% c("{", "("))
                     }
                 }
             }
@@ -1207,9 +1255,10 @@ completion_global_outline <- function(parsed) {
 
 #' Build only lexical completion facts from the current buffer
 #' @noRd
-completion_outline <- function(document) {
+completion_outline <- function(document, label_details = FALSE) {
     cached <- document$completion_outline
-    if (!is.null(cached) && identical(cached$version, document$version)) return(cached$data)
+    if (!is.null(cached) && identical(cached$version, document$version) &&
+            identical(cached$label_details, label_details)) return(cached$data)
     # Bound synchronous work to the open buffer, independently of workspace
     # size. Larger or incomplete buffers retain the queued current-parse path.
     result <- NULL
@@ -1223,12 +1272,22 @@ completion_outline <- function(document) {
             contexts <- c("R6Class", member_s7_intrinsics, "with", "within", "local", "evalq",
                 "assign", "delayedAssign", "makeActiveBinding")
             if (!any(data$token == "SYMBOL_FUNCTION_CALL" & data$text %in% contexts)) {
-                result <- tryCatch(list(completion_data = completion_parse_data(data, syntax_parse_data(data)),
-                        globals = completion_global_outline(parsed), sources = index_source_specs(parsed)), error = function(e) NULL)
+                result <- tryCatch({
+                    syntax <- syntax_parse_data(data)
+                    outline <- list(completion_data = completion_parse_data(data, syntax),
+                        globals = completion_global_outline(parsed, label_details), sources = index_source_specs(parsed))
+                    if (label_details) {
+                        outline$version <- document$version
+                        outline$inline_outline <- TRUE
+                        outline$syntax_data <- syntax
+                        outline$navigation_data <- navigation_parse_data(syntax)
+                    }
+                    outline
+                }, error = function(e) NULL)
             }
         }
     }
-    document$completion_outline <- list(version = document$version, data = result)
+    document$completion_outline <- list(version = document$version, label_details = label_details, data = result)
     result
 }
 
@@ -1243,7 +1302,8 @@ basic_name_completion_reply <- function(id, workspace, document, point, capabili
     if (!is.null(member_cursor(document, point)) ||
             !is.null(member_call_location(document, point, symbols = TRUE))) return(NULL)
     if (is.null(workspace$namespaces)) return(NULL)
-    outline <- completion_outline(document)
+    inline <- completion_label_details_enabled(capabilities)
+    outline <- completion_outline(document, inline)
     if (is.null(outline)) return(NULL)
     if (isTRUE(workspace$index$enabled) && length(outline$sources)) return(NULL)
     # The first response must contain current local declarations: clients do
@@ -1251,6 +1311,7 @@ basic_name_completion_reply <- function(id, workspace, document, point, capabili
     loaded <- loadedNamespaces()
     ready <- list(loaded_packages = intersect(workspace$startup_packages, loaded),
         imported_objects = collections::dict(),
+        namespaces = workspace$namespaces, member_metadata = workspace$member_metadata,
         get_namespace = function(package) workspace$namespaces$get(package, NULL),
         get_parse_data = function(...) outline)
     snippets <- isTRUE(capabilities$completionItem$snippetSupport) && lsp_settings$get("snippet_support")
@@ -1289,6 +1350,41 @@ basic_name_completion_reply <- function(id, workspace, document, point, capabili
     matching_names <- completion_matching_names(items)
     sort_text <- vapply(items, `[[`, "", "sortText")
     items <- items[completion_select_indices(matching_names, sort_text, token$token, limit)]
+    if (inline) {
+        names <- completion_matching_names(items)
+        syntax <- outline$syntax_data
+        for (i in seq_along(items)) {
+            if (!identical(items[[i]]$data$uri, document$uri)) next
+            name <- completion_source_name(names[[i]])
+            row <- navigation_definitions(outline, point$row + 1L, point$col + 1L, name, last = TRUE)
+            if (!length(row) || !row || syntax$token[[row]] == "SYMBOL_FORMALS") next
+            record <- match(row, outline$navigation_data$node, nomatch = 0L)
+            name_row <- if (record) outline$navigation_data$name[[record]] else row
+            assignment <- if (record) row else syntax$parent_row[[syntax$parent_row[[row]]]]
+            binding <- outline$globals[[name]]
+            uncertain <- isTRUE(binding$uncertain) && binding$line == syntax$line1[[name_row]]
+            parent <- syntax$parent_row[[assignment]]
+            while (parent && !uncertain) {
+                tokens <- syntax$token[syntax_children(syntax, parent)]
+                if (any(tokens %in% c("FUNCTION", "OP-LAMBDA"))) break
+                uncertain <- any(tokens %in% c("IF", "FOR", "WHILE", "REPEAT"))
+                parent <- syntax$parent_row[[parent]]
+            }
+            if (uncertain) next
+            function_row <- navigation_definitions(outline, point$row + 1L, point$col + 1L,
+                name, mode = "signature", last = TRUE)
+            if (length(function_row) && function_row && syntax$parent_row[[function_row]] == assignment) {
+                items[[i]]$data$signature <- navigation_signature(document, outline, function_row, quote_completion_name(name))
+            } else {
+                if (!is.null(binding$value) && binding$line == syntax$line1[[name_row]] &&
+                        binding$column == syntax$col1[[name_row]]) {
+                    items[[i]]$data$tip <- member_completion_tip(binding$value)
+                }
+            }
+        }
+        items <- completion_symbol_info(document$uri, ready, document, point, token, items, parse_data = outline)
+    }
+    items <- completion_context_data(items, document$uri, document, point)
     Response$new(id, result = list(isIncomplete = TRUE, items = unname(items)))
 }
 
@@ -1312,7 +1408,7 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
     nmax <- lsp_settings$get("max_completions")
     if (isTRUE(lsp_settings$get("member_completion"))) {
         members <- tryCatch(member_completion(uri, workspace, document, point,
-            snippet_support, nmax), error = function(e) {
+                snippet_support, nmax, completion_label_details_enabled(capabilities)), error = function(e) {
                 logger$info("static member completion:", e)
                 NULL
             })
@@ -1431,6 +1527,12 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
         })
     }
 
+    completions <- completion_context_data(completions, uri, document, point)
+    if (completion_label_details_enabled(capabilities)) {
+        completions <- completion_symbol_info(uri, workspace, document, point, token_result, completions,
+            resolved = member_context)
+    }
+
     t1 <- Sys.time()
 
     logger$info("completions: ", list(
@@ -1453,15 +1555,29 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
 #' @noRd
 completion_item_resolve_reply <- function(id, workspace, params, capabilities) {
     resolved <- FALSE
+    initial_label_details <- params$labelDetails
+    if (isTRUE(params$data$type %in% c("function", "nonfunction", "scope")) &&
+            !is.null(params$data$completion_position) && !is.null(workspace$documents)) {
+        document <- workspace$documents$get(params$data$context_uri, NULL)
+        package <- params$data$package
+        package_symbol <- !is.null(package) && !package %in% c("", WORKSPACE)
+        if (!is.null(document) && identical(document$version, params$data$completion_version) &&
+                (package_symbol || identical(document$version, document$parse_data$version))) {
+            point <- params$data$completion_position
+            params <- completion_symbol_info(params$data$context_uri, workspace, document, point,
+                completion_token(document, point), list(params))[[1L]]
+        }
+    }
     if (is.null(params$data) || is.null(params$data$type)) {
     } else {
         if (params$data$type == "s3_parameter") {
             params <- s3_resolve_parameter(workspace, params)
             resolved <- TRUE
         } else if (params$data$type == "member") {
-            if (isTRUE(capabilities$completionItem$labelDetailsSupport) &&
-                    !is.null(params$data$signature) && is.null(params$data$parameter)) params$labelDetails <- list(
-                detail = substring(params$data$signature, nchar(params$label) + 1L))
+            if (completion_label_details_resolve_enabled(capabilities) &&
+                    !is.null(params$data$signature) && is.null(params$data$parameter) &&
+                    is.null(params$labelDetails$detail)) params$labelDetails$detail <-
+                substring(params$data$signature, nchar(quote_completion_name(params$label)) + 1L)
             if (!is.null(params$data$package) && is.character(params$data$function_id) &&
                     length(params$data$function_id) == 1L && !is.na(params$data$function_id)) {
                 doc <- workspace$get_documentation(params$data$function_id,
@@ -1505,16 +1621,15 @@ completion_item_resolve_reply <- function(id, workspace, params, capabilities) {
                 }
             }
         } else if (params$data$type %in% c("constant", "function", "nonfunction", "lazydata")) {
-            if (isTRUE(capabilities$completionItem$labelDetailsSupport)) {
+            if (completion_label_details_resolve_enabled(capabilities) && is.null(params$labelDetails$detail) &&
+                    is.null(params$data$completion_position)) {
                 if (params$data$type == "function") {
                     sig <- call_with_optional_uri(
                         workspace$get_signature,
                         params$label, params$data$package,
                         uri = params$data$context_uri)
                     if (!is.null(sig)) {
-                        params$labelDetails <- list(
-                            detail = substr(sig, nchar(params$label) + 1, nchar(sig))
-                        )
+                        params <- completion_item_label_details(params, signature = sig)
                     }
                 }
             }
@@ -1551,6 +1666,7 @@ completion_item_resolve_reply <- function(id, workspace, params, capabilities) {
         }
     }
 
+    if (!completion_label_details_resolve_enabled(capabilities)) params$labelDetails <- initial_label_details
     params$data <- NULL
     Response$new(
         id,

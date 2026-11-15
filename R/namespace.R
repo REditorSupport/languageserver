@@ -23,11 +23,13 @@ PackageNamespace <- R6::R6Class("PackageNamespace",
             }
         },
 
-        function_info = function(funct, exported_only) {
-            if (!self$exists_funct(funct, exported_only = exported_only)) {
-                return(NULL)
+        function_info = function(funct, exported_only, fn = NULL) {
+            if (is.null(fn)) {
+                if (!self$exists_funct(funct, exported_only = exported_only)) {
+                    return(NULL)
+                }
+                fn <- get(funct, envir = private$namespace)
             }
-            fn <- get(funct, envir = private$namespace)
             if (!is.function(fn)) return(NULL)
             cached <- private$function_metadata$get(funct, NULL)
             context <- lapply(c("width", "digits", "scipen", "deparse.cutoff"), getOption)
@@ -145,6 +147,18 @@ PackageNamespace <- R6::R6Class("PackageNamespace",
 
         get_signature = function(funct, exported_only = TRUE) {
             private$function_info(funct, exported_only)$signature
+        },
+
+        # Completion lists inspect only stored bindings. Selected-item lookup
+        # can still materialize functions through get_signature().
+        get_completion_signature = function(funct, exported_only = TRUE) {
+            if (!is.character(funct) || length(funct) != 1L || is.na(funct) ||
+                    !nzchar(funct) || !self$package_name %in% loadedNamespaces()) return(NULL)
+            flag <- get0(funct, private$membership, inherits = FALSE, ifnotfound = 0L)
+            if (if (exported_only) flag != 4L else !flag %in% c(2L, 4L)) return(NULL)
+            record <- member_binding(private$namespace, funct)
+            if (!identical(record[[1L]], "value") || !is.function(record[[2L]])) return(NULL)
+            private$function_info(funct, exported_only, fn = record[[2L]])$signature
         },
 
         get_formals = function(funct, exported_only = TRUE) {

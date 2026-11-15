@@ -711,6 +711,9 @@ test_that("Reassigned collected Polars queries retain their current DataFrame me
 })
 
 test_that("LSP completion returns member identity and preserves calls", {
+    previous <- lsp_settings$get("completion_label_details")
+    withr::defer(lsp_settings$set("completion_label_details", previous))
+    lsp_settings$set("completion_label_details", TRUE)
     fixture <- member_fixture("factory <- function() list(run=function(arg=1) list(done=1))\nfactory()$ru()")
     fixture$point <- list(row = 1L, col = 12L)
     reply <- completion_reply(
@@ -724,7 +727,8 @@ test_that("LSP completion returns member identity and preserves calls", {
     expect_match(item$data$signature, "arg")
     resolved <- completion_item_resolve_reply(
         2L, fixture$workspace, item,
-        list(completionItem = list(labelDetailsSupport = TRUE))
+        list(completionItem = list(labelDetailsSupport = TRUE,
+                resolveSupport = list(properties = "labelDetails")))
     )
     expect_match(resolved$result$labelDetails$detail, "arg")
     expect_true("$" %in% unlist(CompletionOptions$triggerCharacters))
