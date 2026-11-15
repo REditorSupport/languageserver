@@ -31,7 +31,8 @@ completion_symbol_info <- function(uri, workspace, document, point, token, items
         if (is.null(signature) && is.null(tip)) {
             value <- NULL
             if (is.null(package) || package %in% c("", WORKSPACE)) {
-                own_source <- (is.null(item$data$uri) || identical(item$data$uri, uri)) &&
+                own_source <- !isTRUE(parse_data$inline_outline) &&
+                    (is.null(item$data$uri) || identical(item$data$uri, uri)) &&
                     (is.null(parse_data$version) || identical(parse_data$version, document$version))
                 if (own_source) {
                     lexical <- source_context()
@@ -55,7 +56,8 @@ completion_symbol_info <- function(uri, workspace, document, point, token, items
                         if (length(row) && row > 0L) signature <- navigation_signature(document, parse_data, row, label)
                     }
                 }
-                if (is.null(signature) && is.null(value) && identical(package, WORKSPACE)) {
+                if (is.null(signature) && is.null(value) && identical(package, WORKSPACE) &&
+                        !isTRUE(parse_data$inline_outline)) {
                     ns <- if (is.function(workspace$get_namespace)) {
                         call_with_optional_uri(workspace$get_namespace, WORKSPACE, uri = uri)
                     } else {
@@ -66,8 +68,9 @@ completion_symbol_info <- function(uri, workspace, document, point, token, items
             } else {
                 if (identical(type, "function") && package %in% loaded && !is.null(workspace$namespaces)) {
                     ns <- workspace$namespaces$get(package, NULL)
-                    if (!is.null(ns)) signature <- tryCatch(ns$get_signature(label, exported_only = FALSE),
-                        error = function(e) NULL)
+                    if (!is.null(ns) && is.function(ns$get_completion_signature)) signature <-
+                        tryCatch(ns$get_completion_signature(label, exported_only = FALSE),
+                            error = function(e) NULL)
                 }
                 metadata <- workspace$member_metadata
                 if (is.function(metadata$catalog)) value <- metadata$catalog(package)$roots[[label]]
