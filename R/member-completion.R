@@ -991,7 +991,44 @@ member_budget_expired <- function(budget, clock) {
     FALSE
 }
 
-member_completion <- function(uri, workspace, document, point, snippet_support, limit) {
+# Format only the existing shape, without resolving children or calling object
+# methods. Bound the input as well as the output of literal previews.
+member_completion_tip <- function(value) {
+    shorten <- function(text, max_chars = 80L) {
+        if (nchar(text) > max_chars) paste0(substr(text, 1L, max_chars - 3L), "...") else text
+    }
+    literal <- value$literal
+    if (isTRUE(value$known_literal) && !length(value$classes) &&
+            !is.object(literal) && (is.null(literal) || is.atomic(literal))) {
+        size <- length(literal)
+        preview <- literal[seq_len(min(size, 6L))]
+        attributes(preview) <- NULL
+        if (is.character(preview)) preview <- substr(preview, 1L, 80L)
+        summary <- deparse1(preview)
+        if (size > 6L) summary <- paste0(summary, " ...")
+        summary <- shorten(summary)
+        return(list(summary = summary, certainty = "known value", suffix = paste0(" = ", summary)))
+    }
+    types <- if (!is.null(value$r6_class$name)) value$r6_class$name else
+        if (length(value$classes)) value$classes else value$type
+    if (!length(types) || all(types %in% c("function", ".never", ".missing"))) return(NULL)
+    summary <- paste(substr(head(types, 3L), 1L, 81L), collapse = " | ")
+    if (length(types) > 3L) summary <- paste0(summary, " | ...")
+    if (length(types) == 1L && types %in% c("list", "pairlist", "environment")) {
+        fields <- names(value$fields)
+        if (length(fields)) {
+            field_names <- vapply(substr(head(fields, 3L), 1L, 25L), shorten, character(1L), max_chars = 24L)
+            field_names <- vapply(field_names, quote_completion_name, character(1L))
+            if (length(fields) > 3L || isTRUE(value$open)) field_names <- c(field_names, "...")
+            summary <- paste0(summary, "(", paste(field_names, collapse = ", "), ")")
+        }
+    }
+    summary <- shorten(summary)
+    list(summary = summary, certainty = "inferred", suffix = paste0(": ", summary))
+}
+
+member_completion <- function(uri, workspace, document, point, snippet_support, limit,
+    label_details_support = FALSE) {
     cursor <- member_cursor(document, point)
     resolved <- member_resolve_cursor(uri, workspace, document, point, cursor)
     if (is.null(resolved)) {
@@ -1052,10 +1089,23 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
         text <- if (snippet) paste0(escape_completion_snippet(inserted), "($0)") else inserted
         signature <- symbol$signature
         documentation_id <- symbol$function_id
-        list(
+        # Conflicting candidates and data-frame columns do not establish the
+        # accessed value from the first candidate's underlying storage.
+        tip <- if (!is_function && !label %in% ambiguous && !member_dataframe_columns(value) &&
+                !identical(value$reason, "unresolved_dollar_dispatch")) member_completion_tip(shape)
+        label_details <- if (isTRUE(label_details_support)) {
+            list(
+                detail = if (!is.null(signature)) substring(signature, nchar(inserted) + 1L) else tip$suffix,
+                description = if (possible) "possible receiver" else if (!is.null(tip)) tip$certainty else "static"
+            )
+        }
+        if (is.null(label_details$detail)) label_details$detail <- NULL
+        item <- list(
             label = label, kind = if (is_function) CompletionItemKind$Method else CompletionItemKind$Field,
             detail = if (!is.null(signature)) {
                 if (possible) paste0(signature, " [possible receiver]") else signature
+            } else if (!is.null(tip) && (identical(tip$certainty, "known value") || cursor$accessor != "@")) {
+                paste0(tip$summary, " [", if (possible) "possible receiver" else tip$certainty, "]")
             } else if (identical(cursor$accessor, "@")) {
                 paste0(label, ": ", paste(value$slot_types[[label]], collapse = " | "))
             } else {
@@ -1069,6 +1119,8 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
                 signature = signature, context_uri = uri, generation = index$generation
             )
         )
+        if (!is.null(label_details)) item$labelDetails <- label_details
+        item
     })
     if (length(matches) > limit || budget$exhausted) attr(items, "truncated") <- TRUE
     if (possible) attr(items, "truncated") <- TRUE

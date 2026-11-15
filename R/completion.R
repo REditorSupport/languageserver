@@ -1312,7 +1312,7 @@ completion_reply <- function(id, uri, workspace, document, point, capabilities) 
     nmax <- lsp_settings$get("max_completions")
     if (isTRUE(lsp_settings$get("member_completion"))) {
         members <- tryCatch(member_completion(uri, workspace, document, point,
-            snippet_support, nmax), error = function(e) {
+                snippet_support, nmax, isTRUE(capabilities$completionItem$labelDetailsSupport)), error = function(e) {
                 logger$info("static member completion:", e)
                 NULL
             })
@@ -1460,8 +1460,9 @@ completion_item_resolve_reply <- function(id, workspace, params, capabilities) {
             resolved <- TRUE
         } else if (params$data$type == "member") {
             if (isTRUE(capabilities$completionItem$labelDetailsSupport) &&
-                    !is.null(params$data$signature) && is.null(params$data$parameter)) params$labelDetails <- list(
-                detail = substring(params$data$signature, nchar(params$label) + 1L))
+                    !is.null(params$data$signature) && is.null(params$data$parameter) &&
+                    is.null(params$labelDetails$detail)) params$labelDetails$detail <-
+                substring(params$data$signature, nchar(quote_completion_name(params$label)) + 1L)
             if (!is.null(params$data$package) && is.character(params$data$function_id) &&
                     length(params$data$function_id) == 1L && !is.na(params$data$function_id)) {
                 doc <- workspace$get_documentation(params$data$function_id,

@@ -1,5 +1,8 @@
 # languageserver (development)
 
+- Show short value, type and shape previews in member completion, with compact
+  inference hints.
+
 - Share equivalent ordered package-resolution and member-metadata requests
   across documents, reuse recent successful results, and stop abandoned workers
   when temporary documents close. Retain isolated workers and invalidate reuse
