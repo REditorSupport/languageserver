@@ -1012,12 +1012,12 @@ member_completion_tip <- function(value) {
     types <- if (!is.null(value$r6_class$name)) value$r6_class$name else
         if (length(value$classes)) value$classes else value$type
     if (!length(types) || all(types %in% c("function", ".never", ".missing"))) return(NULL)
-    summary <- paste(substr(head(types, 3L), 1L, 81L), collapse = " | ")
+    summary <- paste(substr(utils::head(types, 3L), 1L, 81L), collapse = " | ")
     if (length(types) > 3L) summary <- paste0(summary, " | ...")
     if (length(types) == 1L && types %in% c("list", "pairlist", "environment")) {
         fields <- names(value$fields)
         if (length(fields)) {
-            field_names <- vapply(substr(head(fields, 3L), 1L, 25L), shorten, character(1L), max_chars = 24L)
+            field_names <- vapply(substr(utils::head(fields, 3L), 1L, 25L), shorten, character(1L), max_chars = 24L)
             field_names <- vapply(field_names, quote_completion_name, character(1L))
             if (length(fields) > 3L || isTRUE(value$open)) field_names <- c(field_names, "...")
             summary <- paste0(summary, "(", paste(field_names, collapse = ", "), ")")

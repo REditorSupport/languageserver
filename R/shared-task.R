@@ -64,7 +64,7 @@ SharedTaskManager <- R6::R6Class("SharedTaskManager",
             live <- Filter(private$valid, aliases)
             refreshed <- Filter(function(alias) isTRUE(alias$task$sharing$refresh), live)
             candidates <- if (length(refreshed)) refreshed else live
-            if (length(candidates)) successor$worker <- tail(candidates, 1L)[[1L]]$task
+            if (length(candidates)) successor$worker <- utils::tail(candidates, 1L)[[1L]]$task
             # The latest live refresh captures the worker inputs. An install or
             # library change while it waited requires regenerated descriptors.
             if (!length(candidates) || !private$current(successor$worker)) {
