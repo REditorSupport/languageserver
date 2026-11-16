@@ -270,3 +270,19 @@ test_that("get_diagnostics_globals handles failed namespace loads and retries ne
     expect_true(exists("file_ext", envir = globals_unindexed_after, mode = "function", inherits = FALSE))
     expect_equal(formals(globals_unindexed_after$file_ext), formals(tools::file_ext))
 })
+
+test_that("worker timeouts scale with R_LANGSVR_TIMEOUT_SCALE and ignore invalid values", {
+    withr::local_envvar(R_COVR = NA, R_LANGSVR_TIMEOUT_SCALE = NA)
+    expect_identical(worker_timeout(8, covr = 60), 8)
+    withr::local_envvar(R_COVR = "true")
+    expect_identical(worker_timeout(8, covr = 60), 60)
+    expect_identical(worker_timeout(8), 8)
+    withr::local_envvar(R_COVR = NA, R_LANGSVR_TIMEOUT_SCALE = "3")
+    expect_identical(worker_timeout(8, covr = 60), 24)
+    withr::local_envvar(R_COVR = "true", R_LANGSVR_TIMEOUT_SCALE = "1.5")
+    expect_identical(worker_timeout(8, covr = 60), 90)
+    for (invalid in c("", "abc", "0", "-2", "Inf", "NaN")) {
+        withr::local_envvar(R_COVR = NA, R_LANGSVR_TIMEOUT_SCALE = invalid)
+        expect_identical(worker_timeout(8, covr = 60), 8, info = invalid)
+    }
+})
