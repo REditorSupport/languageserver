@@ -605,6 +605,25 @@ test_that("testthat reporter generators can be snapshotted together", {
     expect_true(all(c("add_result", "end_reporter", "start_test") %in% labels))
 })
 
+test_that("Function syntax drops source references kept by keep.source installs", {
+    code <- c(
+        "function(x, y = function(z) { z + 1 }, ..., n) {",
+        "    g <- function(a, b) {",
+        "        a[1, ] <- b[, 2, drop = FALSE]",
+        "        lapply(a, function(e) { e$k })",
+        "    }",
+        "    switch(x, a = , b = 1, 2)",
+        "}"
+    )
+    with_source <- eval(parse(text = code, keep.source = TRUE)[[1L]], baseenv())
+    without_source <- eval(parse(text = code, keep.source = FALSE)[[1L]], baseenv())
+    expect_false(is.null(attr(with_source, "srcref")))
+    stripped <- member_function_syntax(with_source)
+    expect_identical(stripped, member_function_syntax(without_source))
+    expect_identical(serialize(stripped, NULL), serialize(member_function_syntax(without_source), NULL))
+    expect_identical(typeof(stripped[[2L]]), "pairlist")
+})
+
 test_that("Installed testthat prepares within the snapshot budget and resolves reporter methods", {
     skip_if_not_installed("testthat")
     # Prepare in a clean worker, as production does, so serial testthat runs do

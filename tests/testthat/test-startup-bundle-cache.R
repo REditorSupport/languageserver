@@ -1712,6 +1712,9 @@ test_that("Startup bundles preserve runtime load-hook validation across direct, 
 })
 
 test_that("Serialized promises, delayed S3 registrations, and loader metadata guard startup bundles", {
+    # Fixtures built with R_KEEP_PKG_SOURCE=yes (as on R-hub) carry source
+    # references, which send the header scan to its worker fallback.
+    skip_on_cran()
     fixtures <- startup_bundle_install_fixtures(c(
         "delayedpromisefixture",
         "nestedpromisefixture",
