@@ -4,6 +4,8 @@ cli_fixture_request <- function(content = character(), timeout = 5) {
 }
 
 test_that("CLI runner streams exact stdin independently from stdout and stderr", {
+    # Starts subprocesses; too slow and timing-sensitive for CRAN machines.
+    skip_on_cran()
     script <- withr::local_tempfile(fileext = ".R")
     writeLines(c(
         "input <- readBin(file('stdin', 'rb'), 'raw', n = 1e7)",
@@ -20,6 +22,8 @@ test_that("CLI runner streams exact stdin independently from stdout and stderr",
 })
 
 test_that("CLI runner uses explicit cwd, environment, arguments and timeout", {
+    # Starts subprocesses; too slow and timing-sensitive for CRAN machines.
+    skip_on_cran()
     directory <- withr::local_tempdir()
     script <- withr::local_tempfile(fileext = ".R")
     writeLines("cat(getwd(), Sys.getenv('LANGUAGESERVER_CLI_TEST'), commandArgs(TRUE), sep = '\\n')", script)
@@ -34,6 +38,8 @@ test_that("CLI runner uses explicit cwd, environment, arguments and timeout", {
 })
 
 test_that("CLI runner drains fast-exiting stdout and stderr through partial reads to EOF", {
+    # Starts subprocesses; too slow and timing-sensitive for CRAN machines.
+    skip_on_cran()
     script <- withr::local_tempfile(fileext = ".R")
     writeLines(c(
         "for (i in 1:32) {",

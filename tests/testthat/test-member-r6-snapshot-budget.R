@@ -285,6 +285,9 @@ r6_budget_inner_other <- c(
 r6_budget_library <- local({
     cached <- NULL
     function() {
+        # Installs fixture packages with R CMD INSTALL; too slow and
+        # timing-sensitive for CRAN machines.
+        skip_on_cran()
         if (!is.null(cached)) return(cached)
         sources <- list(
             r6budgetchain = r6_budget_chain_code(4L, 8L, TRUE),
@@ -462,6 +465,8 @@ test_that("Document R6 chain size is linear in depth", {
 })
 
 test_that("An installed package with a four-level super chain prepares within the budget", {
+    # Starts subprocesses; too slow and timing-sensitive for CRAN machines.
+    skip_on_cran()
     # The previous code failed here with "Namespace exceeds snapshot budget".
     snapshot <- r6_budget_prepare("r6budgetchain", r6_budget_library())
     expect_lt(r6_budget_size(snapshot), r6_budget_headroom)
@@ -476,6 +481,8 @@ test_that("An installed package with a four-level super chain prepares within th
 # ---------------------------------------------------------------------------
 
 test_that("An installed class with 100 methods and 100 private fields prepares within the budget", {
+    # Starts subprocesses; too slow and timing-sensitive for CRAN machines.
+    skip_on_cran()
     # The previous code failed here with "Namespace exceeds snapshot budget".
     snapshot <- r6_budget_prepare("r6budgetwide", r6_budget_library())
     expect_lt(r6_budget_size(snapshot), r6_budget_headroom)

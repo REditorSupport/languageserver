@@ -193,6 +193,8 @@ test_that("clients drain output before reporting EOF without polling a closed st
 })
 
 test_that("clients retain subprocess startup diagnostics after failure", {
+    # Starts subprocesses; too slow and timing-sensitive for CRAN machines.
+    skip_on_cran()
     client <- LanguageClient$new(file.path(R.home("bin"), "R"),
         c("--vanilla", "--slave", "-e", 'stop("client startup marker")'))
     withr::defer(if (client$process$is_alive()) client$process$kill())

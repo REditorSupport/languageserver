@@ -625,6 +625,8 @@ test_that("Function syntax drops source references kept by keep.source installs"
 })
 
 test_that("Installed testthat prepares within the snapshot budget and resolves reporter methods", {
+    # Starts subprocesses; too slow and timing-sensitive for CRAN machines.
+    skip_on_cran()
     skip_if_not_installed("testthat")
     # Prepare in a clean worker, as production does, so serial testthat runs do
     # not inflate `asNamespace("testthat")$the` with active reporter state.

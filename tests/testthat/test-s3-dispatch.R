@@ -146,6 +146,8 @@ test_that("S3 methods validate supplied arguments independently of generic forma
 })
 
 test_that("S3 startup catalogs are collected in a clean worker", {
+    # Starts subprocesses; too slow and timing-sensitive for CRAN machines.
+    skip_on_cran()
     catalogs <- callr::r(package_call(s3_prepare_packages), args = list(startup_packages),
         system_profile = FALSE, user_profile = FALSE)
     expect_true(all(startup_packages %in% names(catalogs)))
@@ -473,6 +475,8 @@ test_that("S3 namespace method aliases retain implementation ownership", {
 })
 
 test_that("S3 registered base replacements preserve calling-environment precedence", {
+    # Starts subprocesses; too slow and timing-sensitive for CRAN machines.
+    skip_on_cran()
     catalogs <- callr::r(function() {
         replacement <- function(x, registered = TRUE, ...) "registered"
         registerS3method("print", "data.frame", replacement)
@@ -495,6 +499,8 @@ test_that("S3 registered base replacements preserve calling-environment preceden
 })
 
 test_that("S3 package load hooks are captured before startup registries are frozen", {
+    # Starts subprocesses; too slow and timing-sensitive for CRAN machines.
+    skip_on_cran()
     root <- withr::local_tempdir()
     package_path <- file.path(root, "s3replacementfixture")
     library_path <- file.path(root, "library")

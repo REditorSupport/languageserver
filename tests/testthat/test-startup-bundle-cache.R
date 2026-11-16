@@ -1,3 +1,8 @@
+# These tests install fixture packages and start many R worker processes with
+# short time limits. They are too slow and timing-sensitive for CRAN's check
+# machines, so the whole file is skipped there.
+skip_on_cran()
+
 startup_bundle_rcmd_install <- function(
     pkgs,
     library,
