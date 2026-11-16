@@ -18,8 +18,41 @@ member_binding <- function(env, name, materialize = FALSE) {
     .Call("member_binding_c", env, name, materialize, PACKAGE = "languageserver")
 }
 
+# Packages installed with keep.source carry source references on every `{`
+# and nested function expression, each pointing at an environment holding the
+# whole source file. They would inflate snapshots and make function identities
+# depend on how a package was installed.
+member_strip_srcref <- function(part) {
+    if (is.name(part)) return(part)
+    if (inherits(part, "srcref")) return(NULL)
+    if (!is.null(attributes(part))) {
+        attr(part, "srcref") <- NULL
+        attr(part, "wholeSrcref") <- NULL
+        attr(part, "srcfile") <- NULL
+    }
+    if (is.pairlist(part)) {
+        # Subassignment turns a pairlist into a list; formals must stay one.
+        items <- as.list(part)
+        for (i in seq_along(items)) {
+            items[i] <- list(member_strip_srcref(items[[i]]))
+        }
+        return(as.pairlist(items))
+    }
+    if (is.call(part) || is.expression(part)) {
+        for (i in seq_along(part)) {
+            part[i] <- list(member_strip_srcref(part[[i]]))
+        }
+    }
+    part
+}
+
 member_function_syntax <- function(fn) {
-    as.call(list(as.name("function"), formals(fn), body(fn)))
+    code <- body(fn)
+    syntax <- as.call(list(as.name("function"), formals(fn), code))
+    if (is.null(attr(fn, "srcref", exact = TRUE)) && is.null(attr(code, "srcref", exact = TRUE))) {
+        return(syntax)
+    }
+    member_strip_srcref(syntax)
 }
 
 # Registry closures often already have a namespace name. Partition them by
