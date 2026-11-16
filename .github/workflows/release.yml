@@ -6,10 +6,15 @@
 # 2. Verifies that `<version>` from `release/<version>` matches `Version:` in `DESCRIPTION`.
 # 3. Extracts the release notes under `# languageserver <version>` from `NEWS.md`.
 # 4. Creates and pushes the `v<version>` git tag and publishes the GitHub release.
+#
+# This uses `pull_request`, not `pull_request_target`: GitHub blocks
+# `pull_request_target` in public repositories by default. Release branches
+# live in this repository, so the job's token can still be granted write
+# access; pull requests from forks are skipped.
 name: Release
 
 on:
-  pull_request_target:
+  pull_request:
     types: [closed]
     branches: [main, master]
 
@@ -18,7 +23,10 @@ permissions:
 
 jobs:
   release:
-    if: github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'release/')
+    if: >-
+      github.event.pull_request.merged == true &&
+      startsWith(github.event.pull_request.head.ref, 'release/') &&
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - name: Checkout merged commit
