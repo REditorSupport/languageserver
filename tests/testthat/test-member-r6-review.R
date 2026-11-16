@@ -1048,6 +1048,8 @@ make <- function(cond) {
 })
 
 test_that("member_prepare_package preserves referenced R6 generator definitions and class dispatch while pruning dead tables", {
+    # Starts subprocesses; too slow and timing-sensitive for CRAN machines.
+    skip_on_cran()
     root <- withr::local_tempdir()
     cache_dir <- file.path(root, "cache")
     dir.create(cache_dir, recursive = TRUE)

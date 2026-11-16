@@ -134,6 +134,8 @@ test_that("Installed startup datasets supply mtcars columns", {
 })
 
 test_that("Installed lazy dataset subclasses supply columns without invoking getters", {
+    # Starts subprocesses; too slow and timing-sensitive for CRAN machines.
+    skip_on_cran()
     fixture <- lazydata_test_package()
     withr::local_libpaths(c(fixture$library, .libPaths()))
     ns <- asNamespace(fixture$package)

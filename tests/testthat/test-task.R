@@ -6,6 +6,8 @@ for (covr in c("false", "true")) {
         })
 
         test_that(paste("TaskManager runs task without session", covr), {
+            # Starts subprocesses; too slow and timing-sensitive for CRAN machines.
+            skip_on_cran()
             tm <- TaskManager$new("test1", use_session = FALSE)
 
             result <- NULL
@@ -30,6 +32,8 @@ for (covr in c("false", "true")) {
         })
 
         test_that(paste("TaskManager runs task with session", covr), {
+            # Starts subprocesses; too slow and timing-sensitive for CRAN machines.
+            skip_on_cran()
             tm <- TaskManager$new("test2", use_session = TRUE)
 
             result <- NULL
@@ -53,6 +57,8 @@ for (covr in c("false", "true")) {
         })
 
         test_that(paste("Task handles errors with session", covr), {
+            # Starts subprocesses; too slow and timing-sensitive for CRAN machines.
+            skip_on_cran()
             tm <- TaskManager$new("test3", use_session = TRUE)
 
             err_res <- NULL
@@ -76,6 +82,8 @@ for (covr in c("false", "true")) {
         })
 
         test_that(paste("Task handles errors without session", covr), {
+            # Starts subprocesses; too slow and timing-sensitive for CRAN machines.
+            skip_on_cran()
             tm <- TaskManager$new("test4", use_session = FALSE)
 
             err_res <- NULL

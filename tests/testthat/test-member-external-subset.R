@@ -105,6 +105,8 @@ test_that("Standard data-frame subset methods retain known column structure", {
 })
 
 test_that("A fresh isolated worker recognizes standard dataframe subset methods", {
+    # Starts subprocesses; too slow and timing-sensitive for CRAN machines.
+    skip_on_cran()
     registry <- callr::r(function(prepare) {
         environment(prepare) <- asNamespace("languageserver")
         ns <- new.env(parent = baseenv())

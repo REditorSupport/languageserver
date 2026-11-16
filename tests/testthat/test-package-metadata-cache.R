@@ -1,4 +1,6 @@
 test_that("Persistent package models survive reads and recover from corrupt cache files", {
+    # Starts subprocesses; too slow and timing-sensitive for CRAN machines.
+    skip_on_cran()
     directory <- withr::local_tempdir()
     withr::local_options(languageserver.package_cache_dir = directory)
     package_metadata_cache_server()
@@ -235,6 +237,8 @@ test_that("Function syntax validation reuses closures and refreshes replacements
 })
 
 test_that("Loaded namespace changes cannot poison models for another library", {
+    # Starts subprocesses; too slow and timing-sensitive for CRAN machines.
+    skip_on_cran()
     root <- withr::local_tempdir()
     withr::local_options(languageserver.package_cache_dir = file.path(root, "cache"))
     original <- .libPaths()

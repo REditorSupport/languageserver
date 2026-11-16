@@ -16,6 +16,8 @@ test_that("direct formatting snapshots preserve package defaults and explicit ov
 })
 
 test_that("first namespace loading through a library alias preserves formatting identity", {
+    # Starts subprocesses; too slow and timing-sensitive for CRAN machines.
+    skip_on_cran()
     stable <- callr::r(function() {
         namespace <- asNamespace("languageserver")
         alias <- tempfile("library-alias-")
