@@ -2,14 +2,24 @@
 # (`release/<version>`) pull request is merged into `main` or `master`.
 #
 # Steps performed on merge:
-# 1. Checks out the merged commit on the target branch.
+# 1. Checks out the last commit of the release branch (the pull request head).
 # 2. Verifies that `<version>` from `release/<version>` matches `Version:` in `DESCRIPTION`.
 # 3. Extracts the release notes under `# languageserver <version>` from `NEWS.md`.
 # 4. Creates and pushes the `v<version>` git tag and publishes the GitHub release.
+#
+# The tag goes on the release branch's last commit, not on the merge commit.
+# That commit is what was submitted to CRAN; the merge commit also contains
+# anything merged into the target branch while the submission was pending.
+# Do not change the release branch after submitting unless you resubmit.
+#
+# This uses `pull_request`, not `pull_request_target`: GitHub blocks
+# `pull_request_target` in public repositories by default. Release branches
+# live in this repository, so the job's token can still be granted write
+# access; pull requests from forks are skipped.
 name: Release
 
 on:
-  pull_request_target:
+  pull_request:
     types: [closed]
     branches: [main, master]
 
@@ -18,19 +28,22 @@ permissions:
 
 jobs:
   release:
-    if: github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'release/')
+    if: >-
+      github.event.pull_request.merged == true &&
+      startsWith(github.event.pull_request.head.ref, 'release/') &&
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout merged commit
+      - name: Checkout release branch head
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Tag and create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
-          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          RELEASE_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
 
@@ -64,12 +77,12 @@ jobs:
 
           EXISTING_TAG_SHA="$(git ls-remote --tags origin "refs/tags/$TAG" "refs/tags/${TAG}^{}" | tail -n 1 | awk '{print $1}')"
           if [[ -n "$EXISTING_TAG_SHA" ]]; then
-            if [[ "$EXISTING_TAG_SHA" != "$MERGE_SHA" ]]; then
-              echo "::error::Tag '$TAG' already exists at '$EXISTING_TAG_SHA', expected '$MERGE_SHA'"
+            if [[ "$EXISTING_TAG_SHA" != "$RELEASE_SHA" ]]; then
+              echo "::error::Tag '$TAG' already exists at '$EXISTING_TAG_SHA', expected '$RELEASE_SHA'"
               exit 1
             fi
           else
-            git tag "$TAG" "$MERGE_SHA"
+            git tag "$TAG" "$RELEASE_SHA"
             git push origin "refs/tags/$TAG"
           fi
 
