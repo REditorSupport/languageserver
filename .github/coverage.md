@@ -32,12 +32,12 @@ test file once. New files receive the median duration of existing files until
 they are measured; removed files are ignored. Assignment is deterministic,
 including when durations tie.
 
-`coverage-timings.csv` initially retains the pre-upgrade local coverage
-measurements using R 4.6.1 and two workers. The metadata suite uses a
-measurement without optional Polars, matching the reference CI run. These
-durations remain scheduling weights, not predictions of covr 4.0.0 or GitHub
-runner wall time; refresh them from a successful upgraded CI run rather than
-scaling them by an assumed speedup. Each CI shard uploads a
+`coverage-timings.csv` uses measured file durations from successful
+[covr 4.0.0 run 44010485204](https://github.com/REditorSupport/languageserver/actions/runs/44010485204),
+with R 4.6.2, four-core Ubuntu runners, and two test workers per runner.
+These durations are scheduling weights, not predictions of runner wall time.
+Refresh them from successful CI runs rather than scaling by an assumed
+speedup. Each CI shard uploads a
 `coverage-timings-shard-N` artifact containing
 file durations measured during instrumented execution, including teardown,
 the Cobertura report, a version/time/coverage summary, and GNU time resource
