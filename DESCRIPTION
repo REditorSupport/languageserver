@@ -37,7 +37,7 @@ Imports:
     xml2 (>= 1.2.2),
     xmlparsedata (>= 1.0.3)
 Suggests:
-    covr (>= 3.4.0),
+    covr (>= 4.0.0),
     lintr (>= 3.3.0-1),
     magrittr (>= 1.5),
     methods,

@@ -69,6 +69,7 @@ jobs:
       - name: Install dependencies
         run: |
           Rscript -e "remotes::install_deps(dependencies = TRUE)"
+          Rscript .github/ensure-covr.R
           Rscript -e "remotes::install_cran('rcmdcheck')"
       - name: Install a sperate copy on Windows
         if: runner.os == 'Windows'
