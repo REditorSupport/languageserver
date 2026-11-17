@@ -17,6 +17,7 @@ cov <- covr::package_coverage(
 )
 elapsed <- proc.time()[[3L]] - started
 print(cov)
+saveRDS(cov, file.path(output_dir, "coverage.rds"))
 covr::cobertura(cov, file = file.path(output_dir, "cobertura.xml"))
 
 summary <- c(

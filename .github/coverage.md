@@ -1,4 +1,4 @@
-Coverage uses covr >= 4.0.0 on four standard Ubuntu runners, with two test
+Coverage tests use covr >= 4.0.0 on four standard Ubuntu runners, with two test
 workers per runner. Each test starts a language server with its own worker
 pools, so testthat does not occupy all four runner cores. Four shards reduce
 repeated package setup while retaining parallelism; the timing and resource
@@ -12,6 +12,15 @@ native trace merger replaces our previous trace pre-merge workaround.
 languageserver's unusually expensive coverage runs. The release's 1 second /
 144 MB result measures trace merging, not the full test suite; it does not
 establish that one unsharded runner is sufficient.
+
+Each shard saves its coverage object as `coverage.rds`. A final job merges the
+expression counts with covr's public `c()` method before exporting one
+Cobertura report and uploading it to Codecov. This matters because 4.0.0 only
+marks a line covered when all its expressions ran: if two shards exercise
+different branches on the same line, both individual XML reports can show
+zero hits even though their combined coverage covers the line. The merge job
+only installs covr and xml2, and checks this case with
+`Rscript .github/check-coverage-merge.R`.
 
 Coverage requires R >= 4.1.0 because of covr's new requirement. covr remains an
 optional dependency; languageserver's runtime R requirement stays >= 4.0.0.
@@ -40,10 +49,13 @@ Refresh them from successful CI runs rather than scaling by an assumed
 speedup. Each CI shard uploads a
 `coverage-timings-shard-N` artifact containing
 file durations measured during instrumented execution, including teardown,
-the Cobertura report, a version/time/coverage summary, and GNU time resource
+the coverage object and diagnostic Cobertura report, a version/time/coverage
+summary, and GNU time resource
 measurements. The maximum RSS is a peak-process measurement, not the sum of
 all concurrently running worker processes. The summary also appears in the
 GitHub Actions job summary.
+The `combined-coverage` artifact holds the final report and its coverage
+summary after all shards succeed.
 The reporter streams parallel events so timings measure execution rather than
 the buffered replay used by the default check reporter. Completed-file timings
 are retained even when tests fail.
