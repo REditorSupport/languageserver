@@ -170,7 +170,7 @@ test_that("S7 constructor and property providers work on first requests after ed
     # Cold metadata workers share the CI runner with other test servers. This
     # barrier prepares the fixture; subsequent edits retain the ordinary
     # request timeout and still check their first response without retries.
-    timeout <- if (identical(Sys.getenv("R_COVR"), "true")) 60 else 30
+    timeout <- if (identical(Sys.getenv("R_COVR"), "true")) 120 else 60
     expected <- "Dog(name = character(0), age = integer(0))"
     ready <- respond_signature(client, path, c(2L, 12L), timeout = timeout,
         retry_when = function(result) !identical(result$signatures[[1L]]$label, expected))

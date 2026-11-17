@@ -332,7 +332,10 @@ completion and provider information remain available on derived objects.
 Set `options(languageserver.package_cache_dir = "/path/to/cache")` or the
 `R_LANGSVR_PACKAGE_CACHE_DIR` environment variable to choose another cache root;
 set `options(languageserver.package_cache_dir = FALSE)` to disable disk caching.
-These options are also passed to metadata workers. Cold member analysis starts
+These options are also passed to metadata workers. Workers that prepare package
+metadata are abandoned after a few seconds and retried later; on a slow or heavily
+loaded machine, set the `R_LANGSVR_TIMEOUT_SCALE` environment variable to a
+multiplier greater than one (for example `3`) to give them more time. Cold member analysis starts
 with a 250 ms allowance and extends the same traversal as needed, up to two
 seconds of CPU time and five seconds elapsed. This allows for CPU contention
 without restarting analysis. Node and depth bounds remain in place. Completed

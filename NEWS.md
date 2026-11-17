@@ -1,3 +1,9 @@
+# languageserver (development)
+
+- Metadata worker time limits can be raised on slow or heavily loaded machines
+  by setting the `R_LANGSVR_TIMEOUT_SCALE` environment variable to a multiplier
+  greater than one. The defaults are unchanged.
+
 # languageserver 0.3.22
 
 - Speed up server startup by caching the startup S3 and member metadata bundles

@@ -1070,7 +1070,7 @@ package_metadata_promises_absent <- local({
             uncached_keys <- keys[rep_idx]
             scanned <- tryCatch(callr::r(scan_worker, args = list(files = uncached_files),
                     libpath = lib_paths, system_profile = FALSE, user_profile = FALSE,
-                    timeout = if (identical(Sys.getenv("R_COVR"), "true")) 60 else 20),
+                    timeout = worker_timeout(20, covr = 60)),
                 error = function(e) {
                     logger$info("startup bundle lazy-load scan:", e)
                     NULL

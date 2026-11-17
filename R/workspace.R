@@ -1,5 +1,16 @@
 startup_packages <- c("base", "methods", "datasets", "utils", "grDevices", "graphics", "stats")
 
+# Time limit, in seconds, for an isolated metadata worker. Workers that exceed
+# it are abandoned and their metadata is prepared again later. Slow or heavily
+# loaded machines, such as shared CI runners, can raise every limit at once by
+# setting R_LANGSVR_TIMEOUT_SCALE to a multiplier greater than one.
+worker_timeout <- function(seconds, covr = seconds) {
+    limit <- if (identical(Sys.getenv("R_COVR"), "true")) covr else seconds
+    scale <- suppressWarnings(as.numeric(Sys.getenv("R_LANGSVR_TIMEOUT_SCALE", "1")))
+    if (length(scale) != 1L || is.na(scale) || !is.finite(scale) || scale <= 0) scale <- 1
+    limit * scale
+}
+
 workspace_startup_packages <- local({
     cached <- NULL
     # Build the closure programmatically without parser srcref/srcfile metadata
@@ -13,7 +24,7 @@ workspace_startup_packages <- local({
                 probe,
                 system_profile = TRUE,
                 user_profile = TRUE,
-                timeout = if (identical(Sys.getenv("R_COVR"), "true")) 30 else 3
+                timeout = worker_timeout(3, covr = 30)
             ),
             error = function(e) {
                 logger$info("workspace initialize error: ", e)
@@ -1147,7 +1158,7 @@ workspace_startup_s3_prepare <- function(requested) {
             lib_paths = requested$lib_paths
         ),
         libpath = requested$lib_paths, system_profile = FALSE, user_profile = FALSE,
-        timeout = if (identical(Sys.getenv("R_COVR"), "true")) 60 else 8)
+        timeout = worker_timeout(8, covr = 60))
 }
 
 # Share complete startup catalogs for matching worker inputs. Failed attempts
@@ -1218,7 +1229,7 @@ workspace_startup_members_prepare <- function(requested) {
     callr::r(package_call(member_prepare_startup_data),
         args = c(requested, list(include_status = TRUE)),
         libpath = requested$lib_paths, system_profile = FALSE, user_profile = FALSE,
-        timeout = if (identical(Sys.getenv("R_COVR"), "true")) 60 else 8)
+        timeout = worker_timeout(8, covr = 60))
 }
 
 # Startup datasets have no library() or namespace expression in the document.

@@ -138,12 +138,13 @@ did_save <- function(client, path, uri = path_to_uri(path), text = NULL) {
 respond <- function(client, method, params, timeout, allow_error = FALSE,
     retry = TRUE, retry_when = function(result) length(result) == 0) {
     if (missing(timeout)) {
+        # A first request can wait for cold metadata workers. Shared CI
+        # runners vary in speed by 30% or more between runs, so these limits
+        # leave room; a healthy server answers long before they expire.
         if (Sys.getenv("R_COVR", "") == "true") {
-            # Instrumented parse and metadata workers can exceed 30 seconds
-            # when several test processes start them on a shared runner.
-            timeout <- 60
+            timeout <- 120
         } else {
-            timeout <- 10
+            timeout <- 30
         }
     }
     deadline <- Sys.time() + timeout
