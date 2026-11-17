@@ -69,6 +69,9 @@ jobs:
       - name: Install dependencies
         run: |
           Rscript -e "remotes::install_deps(dependencies = TRUE)"
+          # Binary mirrors can lag a new covr release even when dependency
+          # metadata requires it. Fall back to current CRAN source if needed.
+          Rscript -e "v <- tryCatch(packageVersion('covr'), error = function(e) NULL); if (is.null(v) || v < '4.0.0') install.packages('covr', repos = 'https://cloud.r-project.org', type = 'source'); stopifnot(packageVersion('covr') >= '4.0.0')"
           Rscript -e "remotes::install_cran('rcmdcheck')"
       - name: Install a sperate copy on Windows
         if: runner.os == 'Windows'
