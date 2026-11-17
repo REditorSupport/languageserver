@@ -22,7 +22,9 @@ check_coverage_merge <- function() {
             covr::percent_coverage(coverage) == 0)
     }
 
-    paths <- file.path(fixture_dir, c("true.rds", "false.rds"))
+    shard_dirs <- file.path(fixture_dir, c("shard-true", "shard-false"))
+    for (dir in shard_dirs) dir.create(dir)
+    paths <- file.path(shard_dirs, "coverage.rds")
     saveRDS(cov_true, paths[[1L]])
     saveRDS(cov_false, paths[[2L]])
     xml_file <- file.path(fixture_dir, "cobertura.xml")
@@ -37,6 +39,24 @@ check_coverage_merge <- function() {
     stopifnot(length(xml_lines) == 1L,
         xml2::xml_attr(xml_lines, "number") == "1",
         xml2::xml_attr(xml_lines, "hits") == "1")
+
+    # The aggregation job starts a fresh process without covr already loaded.
+    cli_dir <- file.path(fixture_dir, "cli-output")
+    dir.create(cli_dir)
+    cli_output <- system2(file.path(R.home("bin"), "Rscript"),
+        args = c("--vanilla", shQuote(normalizePath(".github/merge-coverage.R")),
+            shQuote(fixture_dir), "2"),
+        stdout = TRUE, stderr = TRUE,
+        env = c(paste0("RUNNER_TEMP=", shQuote(cli_dir)), "GITHUB_STEP_SUMMARY="))
+    cli_status <- attr(cli_output, "status")
+    if (!is.null(cli_status) && cli_status != 0L) {
+        stop(paste(cli_output, collapse = "\n"), call. = FALSE)
+    }
+    cli_xml <- xml2::read_xml(file.path(cli_dir, "cobertura.xml"))
+    cli_lines <- xml2::xml_find_all(cli_xml, "//class/lines/line")
+    stopifnot(length(cli_lines) == 1L,
+        xml2::xml_attr(cli_lines, "number") == "1",
+        xml2::xml_attr(cli_lines, "hits") == "1")
     cat("Coverage objects merge before Cobertura export without losing split-line hits.\n")
 }
 

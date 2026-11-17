@@ -1,5 +1,7 @@
 merge_coverage_shards <- function(paths, file) {
     stopifnot(length(paths) > 0L, !anyDuplicated(paths), all(file.exists(paths)))
+    # Register c.coverage even when this process has not measured coverage.
+    loadNamespace("covr")
     coverages <- lapply(paths, readRDS)
     stopifnot(all(vapply(coverages, inherits, logical(1), "coverage")))
     # Merge expression counts before calculating line coverage. Separate XML
