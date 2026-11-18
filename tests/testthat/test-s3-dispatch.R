@@ -295,7 +295,10 @@ test_that("S3 parameter docs and values use the selected method", {
     item <- s3_arguments(s3_result(s3_fixture(c("g <- function(x, ...) UseMethod('g')", "g.numeric <- function(x, mode='short', ...) NULL", "g(1, )"))), "m")[[1L]]
     expect_identical(item$data$type, "s3_parameter")
     hover <- hover_reply(1L, fixture$uri, fixture$workspace, fixture$document, list(row = 3L, col = 7L))$result
-    expect_match(paste(hover$contents, collapse = " "), "Rendering mode", fixed = TRUE)
+    expect_match(paste(hover$contents, collapse = " "), "S3 method `g.numeric`", fixed = TRUE)
+    if (!is.null(roxygen2_namespace())) {
+        expect_match(paste(hover$contents, collapse = " "), "Rendering mode", fixed = TRUE)
+    }
 })
 
 test_that("S3 catalog replacement and document changes invalidate selection", {
