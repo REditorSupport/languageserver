@@ -401,7 +401,12 @@ test_that("S3 dispatch resolves cross-file source definitions and namespace alia
     result <- resolve_s3_call(uri, workspace, doc, list(row = 0L, col = 5L))
     expect_identical(result$method$name, "numeric_impl", info = s3_workspace_status(workspace))
     expect_match(result$signature, "digits", fixed = TRUE)
-    expect_match(s3_documentation(workspace, result)$arguments$digits, "Digits", fixed = TRUE)
+    documentation <- s3_documentation(workspace, result)
+    if (is.null(roxygen2_namespace())) {
+        expect_identical(documentation, "@param digits Digits to retain.")
+    } else {
+        expect_match(documentation$arguments$digits, "Digits", fixed = TRUE)
+    }
     writeLines("S3method(g, numeric, replacement_impl)", file.path(root, "NAMESPACE"))
     result <- resolve_s3_call(uri, workspace, doc, list(row = 0L, col = 5L))
     expect_identical(result$method$name, "replacement_impl")

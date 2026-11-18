@@ -56,7 +56,7 @@ test_that("Parser collectors preserve replacement values and first-seen order", 
     expect_identical(parsed$definitions$first$type, "double")
     expect_equal(parsed$definitions$first$range$start$line, 6L)
     expect_identical(names(parsed$documentation), "first")
-    expect_match(parsed$documentation$first$markdown, "Replacement function", fixed = TRUE)
+    expect_match(paste(unlist(parsed$documentation$first), collapse = "\n"), "Replacement function", fixed = TRUE)
     expect_false(any(grepl("_store$|_names$|_seen$", ls(parsed))))
 })
 

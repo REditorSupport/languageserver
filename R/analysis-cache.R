@@ -66,7 +66,7 @@ analysis_documentation_owner <- new.env(parent = emptyenv())
 
 analysis_documentation <- function(document, comments) {
     owner <- if (is.null(document)) analysis_documentation_owner else document
-    cache <- analysis_cache(owner, "source-documentation", context = asNamespace("roxygen2"))
+    cache <- analysis_cache(owner, "source-documentation", context = roxygen2_namespace())
     key <- digest::digest(comments, algo = "xxhash64")
     found <- analysis_cache_get(cache, key)
     if (found$hit) return(found$value)

@@ -522,8 +522,9 @@ test_that("Hover on user function with function argument works", {
     expect_equal(result$range$end, list(line = 2, character = 6))
 })
 
-test_that("Hover works with local function", {
+test_that("Hover uses roxygen documentation for local function parameters", {
     skip_on_cran()
+    skip_if_not_installed("roxygen2", "7.0.0")
     client <- language_client()
 
     temp_file <- withr::local_tempfile(fileext = ".R")

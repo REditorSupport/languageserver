@@ -215,7 +215,8 @@ test_that("small text helpers cover boundaries and throttling", {
     expect_true(is.na(str_trunc(NA_character_, 6L)))
 })
 
-test_that("documentation helpers render roxygen and Rd structures", {
+test_that("documentation helpers render roxygen structures", {
+    skip_if_not_installed("roxygen2", "7.0.0")
     documentation <- convert_comment_to_documentation(c(
         "#' Add two values",
         "#'",
@@ -228,7 +229,9 @@ test_that("documentation helpers render roxygen and Rd structures", {
     expect_match(documentation$description, "longer description")
     expect_setequal(names(documentation$arguments), c("x", "y"))
     expect_match(documentation$markdown, "```r", fixed = TRUE)
+})
 
+test_that("documentation helpers render ordinary comments and Rd structures", {
     fallback <- convert_comment_to_documentation("# ordinary comment")
     expect_identical(fallback, "ordinary comment")
 

@@ -85,8 +85,9 @@ test_that("Completion item resolve extracts symbol documentation", {
         "comment")
 })
 
-test_that("Completion item resolve extracts function documentation", {
+test_that("Completion item resolve extracts roxygen function and parameter documentation", {
     skip_on_cran()
+    skip_if_not_installed("roxygen2", "7.0.0")
     client <- language_client()
 
     temp_file <- withr::local_tempfile(fileext = ".R")
@@ -127,8 +128,9 @@ test_that("Completion item resolve extracts function documentation", {
         "a number")
 })
 
-test_that("Completion item resolve extracts local function documentation", {
+test_that("Completion item resolve extracts roxygen local function and parameter documentation", {
     skip_on_cran()
+    skip_if_not_installed("roxygen2", "7.0.0")
     client <- language_client()
 
     temp_file <- withr::local_tempfile(fileext = ".R")

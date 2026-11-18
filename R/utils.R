@@ -521,12 +521,19 @@ str_trunc <- function(string, width, ellipsis = "...") {
 
 uncomment <- function(x) gsub("^\\s*#+'?\\s*", "", x)
 
+roxygen2_namespace <- function() {
+    if (!requireNamespace("roxygen2", quietly = TRUE)) return(NULL)
+    namespace <- asNamespace("roxygen2")
+    if (getNamespaceVersion(namespace) < "7.0.0") NULL else namespace
+}
+
 convert_comment_to_documentation <- function(comment) {
     result <- NULL
-    roxy <- tryCatch(roxygen2::parse_text(c(
-        comment,
-        "NULL"
-    ), env = NULL), error = function(e) NULL)
+    namespace <- roxygen2_namespace()
+    roxy <- if (!is.null(namespace)) {
+        tryCatch(namespace$parse_text(c(comment, "NULL"), env = NULL),
+            error = function(e) NULL)
+    }
     if (length(roxy)) {
         result <- list(
             title = NULL,
