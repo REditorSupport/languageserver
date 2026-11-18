@@ -1,5 +1,9 @@
 # languageserver (development)
 
+- Make `roxygen2` optional, using plain source-comment text for documentation
+  when it is unavailable. Function signatures and installed-package help remain
+  available without the package-documentation dependency chain (#125).
+
 - Metadata worker time limits can be raised on slow or heavily loaded machines
   by setting the `R_LANGSVR_TIMEOUT_SCALE` environment variable to a multiplier
   greater than one. The defaults are unchanged.

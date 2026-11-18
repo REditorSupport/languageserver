@@ -25,6 +25,10 @@ jobs:
         with:
           use-public-rspm: true
       - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          packages: deps::.
+          dependencies: '"hard"'
+          install-pandoc: false
       - name: Install server
         shell: bash
         run: R CMD INSTALL .

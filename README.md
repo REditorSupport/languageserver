@@ -51,6 +51,14 @@ the CLI backends below, or disable diagnostics. Completion, navigation and other
 language features work without lintr or styler. Selecting an unavailable backend
 reports an actionable error; the server does not choose a different backend.
 
+For structured documentation from local `#'` comments, optionally install
+`roxygen2` (>= 7.0.0). Without it, source comments are shown as plain text;
+function signatures and installed-package documentation remain available.
+
+```r
+install.packages("roxygen2")
+```
+
 To try the latest features, install the daily development build from our [r-universe](https://reditorsupport.r-universe.dev) repository:
 
 ```r

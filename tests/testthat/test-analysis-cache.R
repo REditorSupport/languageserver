@@ -119,7 +119,7 @@ test_that("Parse workers reuse unchanged documentation across function and call 
     content <- c("#' Worker cache documentation fixture.", "#' @param value The input.",
         "target <- function(value, extra = 1) value", "target(1)")
     first <- parse_document("file:///worker-documentation.R", content)
-    expect_match(first$documentation$target$description, "Worker cache", fixed = TRUE)
+    expect_match(paste(unlist(first$documentation$target), collapse = "\n"), "Worker cache", fixed = TRUE)
     content[[3L]] <- "target <- function(value, extra = 2) value"
     content[[4L]] <- "target(2)"
     testthat::local_mocked_bindings(convert_comment_to_documentation = function(...) {

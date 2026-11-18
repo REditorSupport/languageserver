@@ -13,9 +13,19 @@ minimal_install_dependencies <- function(installed, package = "languageserver") 
 }
 
 check_minimal_install <- function(source_path = ".") {
+    stopifnot(!"languageserver" %in% loadedNamespaces())
     source_path <- normalizePath(source_path, mustWork = TRUE)
     installed <- installed.packages()
+    # Use this checkout's requirements even when the installed server predates
+    # a dependency change. Dependencies themselves are copied from that library.
+    fields <- c("Depends", "Imports", "LinkingTo")
+    description <- read.dcf(file.path(source_path, "DESCRIPTION"), fields = fields)
+    for (field in intersect(fields, colnames(installed))) {
+        installed["languageserver", field] <- description[[1L, field]]
+    }
     dependencies <- minimal_install_dependencies(installed)
+    optional <- c("lintr", "styler", "roxygen2", "pkgload")
+    stopifnot(!any(optional %in% dependencies))
     library <- tempfile("languageserver-minimal-")
     dir.create(library)
     on.exit(unlink(library, recursive = TRUE), add = TRUE)
@@ -29,11 +39,12 @@ check_minimal_install <- function(source_path = ".") {
             stopifnot(file.symlink(source, target))
         }
     }
-    stopifnot(!any(c("lintr", "styler") %in% dependencies))
     old_library <- .libPaths()
     on.exit(.libPaths(old_library), add = TRUE)
     .libPaths(c(library, .Library), include.site = FALSE)
-    stopifnot(!requireNamespace("lintr", quietly = TRUE), !requireNamespace("styler", quietly = TRUE))
+    stopifnot(all(vapply(optional, function(package) {
+        !length(find.package(package, quiet = TRUE)) && !requireNamespace(package, quietly = TRUE)
+    }, logical(1L))))
     variables <- c("R_LIBS", "R_LIBS_USER", "R_LIBS_SITE", "R_PROFILE", "R_PROFILE_USER",
         "R_ENVIRON", "R_ENVIRON_USER")
     previous_environment <- Sys.getenv(variables, unset = NA_character_)
@@ -53,8 +64,20 @@ check_minimal_install <- function(source_path = ".") {
         stdout = "|", stderr = "|", error_on_status = TRUE)
     namespace <- loadNamespace("languageserver")
     stopifnot(identical(normalizePath(dirname(getNamespaceInfo(namespace, "path"))), normalizePath(library)))
+    stopifnot(is.null(namespace$roxygen2_namespace()))
+    comments <- c("#' Local documentation marker", "#' @param x The input marker")
+    fallback <- "Local documentation marker  \n@param x The input marker"
+    owner <- new.env(parent = emptyenv())
+    stopifnot(identical(namespace$analysis_documentation(owner, comments), fallback))
+    cache <- owner$analysis_caches[["source-documentation"]]$values
+    cached <- namespace$analysis_cache_get(cache, digest::digest(comments, algo = "xxhash64"))
+    stopifnot(cached$hit, identical(cached$value, fallback),
+        identical(namespace$analysis_documentation(owner, comments), fallback),
+        is.null(namespace$analysis_documentation(owner, character())))
+    server <- paste0("stopifnot(!requireNamespace('roxygen2', quietly = TRUE), ",
+        "!requireNamespace('pkgload', quietly = TRUE)); languageserver::run()")
     client <- namespace$LanguageClient$new(file.path(R.home("bin"), "R"),
-        c("--no-echo", "--vanilla", "-e", "languageserver::run()"))
+        c("--no-echo", "--vanilla", "-e", server))
     on.exit({
         if (client$process$is_alive()) client$process$kill_tree()
     }, add = TRUE)
@@ -80,13 +103,55 @@ check_minimal_install <- function(source_path = ".") {
     client$deliver(namespace$Notification$new("workspace/didChangeConfiguration",
             list(settings = list(diagnostics = FALSE))))
     uri <- namespace$path_to_uri(file.path(tempdir(), "minimal-buffer.R"))
+    content <- c(comments, "hello <- function(x, y = 2) x + y",
+        "plain <- function(value = 1) value", "hello(x = 1)", "plain()",
+        "fs::path_abs('.')", "hel", "pla")
     client$deliver(namespace$Notification$new("textDocument/didOpen", list(textDocument = list(
         uri = uri, languageId = "r", version = 1L,
-        text = "hello <- function(x) x\nhel"))))
-    completion <- request("textDocument/completion", list(textDocument = list(uri = uri),
-            position = list(line = 1L, character = 3L)))
-    stopifnot(is.null(completion$error), any(vapply(completion$result$items,
-                function(item) identical(item$label, "hello"), logical(1L))))
+        text = paste(content, collapse = "\n")))))
+    symbols <- request("textDocument/documentSymbol", list(textDocument = list(uri = uri)))
+    stopifnot(is.null(symbols$error), any(vapply(symbols$result,
+                function(item) identical(item$name, "hello"), logical(1L))))
+    text_request <- function(method, line, character) {
+        result <- request(method, list(textDocument = list(uri = uri),
+                position = list(line = line, character = character)))
+        stopifnot(is.null(result$error))
+        result$result
+    }
+    for (case in list(list(name = "hello", line = 7L, call = 4L, character = 6L,
+                signature = "hello(x, y = 2)"),
+            list(name = "plain", line = 8L, call = 5L, character = 6L,
+                signature = "plain(value = 1)"))) {
+        completion <- text_request("textDocument/completion", case$line, 3L)
+        items <- Filter(function(item) identical(item$label, case$name), completion$items)
+        stopifnot(length(items) == 1L)
+        resolved <- request("completionItem/resolve", items[[1L]])
+        stopifnot(is.null(resolved$error))
+        hover <- text_request("textDocument/hover", case$call, 2L)
+        stopifnot(grepl(case$signature, paste(unlist(hover$contents), collapse = "\n"), fixed = TRUE))
+        signature <- text_request("textDocument/signatureHelp", case$call, case$character)
+        stopifnot(length(signature$signatures) == 1L,
+            identical(signature$signatures[[1L]]$label, case$signature))
+        documentation <- list(resolved$result$documentation, hover$contents,
+            signature$signatures[[1L]]$documentation)
+        if (case$name == "hello") {
+            # The existing plain-comment fallback retains source text and tags.
+            stopifnot(all(vapply(documentation, function(value) {
+                grepl(fallback, paste(unlist(value), collapse = "\n"), fixed = TRUE)
+            }, logical(1L))))
+        } else {
+            stopifnot(!grepl("documentation marker|input marker",
+                    paste(unlist(documentation), collapse = "\n")))
+        }
+    }
+    package_signature <- text_request("textDocument/signatureHelp", 6L, 13L)
+    stopifnot(length(package_signature$signatures) == 1L,
+        grepl("path_abs(", package_signature$signatures[[1L]]$label, fixed = TRUE),
+        identical(package_signature$signatures[[1L]]$documentation$kind, "markdown"),
+        nzchar(package_signature$signatures[[1L]]$documentation$value))
+    package_hover <- text_request("textDocument/hover", 6L, 7L)
+    stopifnot(length(package_hover$contents) > 0L,
+        any(grepl("path_abs", unlist(package_hover$contents), fixed = TRUE)))
     formatting <- request("textDocument/formatting", list(textDocument = list(uri = uri),
             options = list(tabSize = 2L, insertSpaces = TRUE)))
     stopifnot(!is.null(formatting$error), grepl("styler", formatting$error$message))
@@ -101,7 +166,8 @@ check_minimal_install <- function(source_path = ".") {
     stopifnot(grepl("lintr", state$messages[[1L]]))
     stopifnot(is.null(request("shutdown", NULL)$error))
     client$process$wait(5000)
-    cat("Minimal installation: fresh install, namespace, LSP startup, completion and missing-backend errors passed.\n")
+    cat(paste0("Minimal installation: fresh install without roxygen2/pkgload, documentation cache fallback, ",
+            "local completion/hover/signatures, installed-package help and missing-backend errors passed.\n"))
 }
 
 check_minimal_install()
