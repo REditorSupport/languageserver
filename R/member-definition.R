@@ -2,15 +2,12 @@
 # write. Join just those declarations to their parser tokens. The resulting
 # attributes contain no srcfile or parse tree and can travel with an inferred
 # field through document, workspace and worker caches.
-member_source_origins <- function(parsed, data, uri, row_offset = 0L, col_offset = 0L,
-    syntax = NULL, edit = NULL) {
-    if (is.null(uri) || !length(parsed)) return(parsed)
-    if (is.null(data)) data <- utils::getParseData(parsed)
+member_origin_tree <- function(data, syntax = NULL) {
     token <- data$token
     callees <- which(token == "SYMBOL_FUNCTION_CALL")
     lists <- callees[reference_symbol_names(data$text[callees]) %in% c("list", "list2", "data.frame")]
     dollars <- which(token == "'$'")
-    if (!length(lists) && !length(dollars)) return(parsed)
+    if (!length(lists) && !length(dollars)) return(list())
     if (is.null(syntax)) syntax <- syntax_parse_data(data)
     parent <- syntax$parent_row
     calls <- intersect(parent[parent[lists]], parent[token == "EQ_SUB"])
@@ -20,7 +17,7 @@ member_source_origins <- function(parsed, data, uri, row_offset = 0L, col_offset
     accesses <- parent[dollars]
     writes <- accesses[parent[accesses] %in% assignments]
     targets <- unique(c(calls, writes))
-    if (!length(targets)) return(parsed)
+    if (!length(targets)) return(list())
     needed <- logical(length(token))
     current <- targets
     while (length(current)) {
@@ -29,16 +26,29 @@ member_source_origins <- function(parsed, data, uri, row_offset = 0L, col_offset
         current <- current[current > 0L]
         current <- current[!needed[current]]
     }
-    named <- logical(length(token))
+    named <- dollar <- logical(length(token))
     named[calls] <- TRUE
-    dollar <- logical(length(token))
     dollar[writes] <- TRUE
+    list(syntax = syntax, needed = needed, named = named, dollar = dollar,
+        placeholders = parent[token == "PLACEHOLDER"],
+        roots = syntax$roots[token[syntax$roots] %in% c("expr", "expr_or_assign_or_help")])
+}
+
+member_source_origins <- function(parsed, data, uri, row_offset = 0L, col_offset = 0L,
+    tree = NULL, item = NULL, edit = NULL) {
+    if (is.null(tree)) tree <- member_origin_tree(if (is.null(data)) utils::getParseData(parsed) else data)
+    if (!length(tree)) return(parsed)
+    syntax <- tree$syntax
+    token <- syntax$token
+    needed <- tree$needed
+    roots <- if (is.null(item)) tree$roots else tree$roots[item]
+    if (anyNA(roots) || length(roots) != length(parsed) || !any(needed[roots])) return(parsed)
     origin <- function(i) {
-        if (data$line1[[i]] != data$line2[[i]]) return(NULL)
-        row <- row_offset + data$line1[[i]] - 1L
-        offset <- if (data$line1[[i]] == 1L) col_offset else 0L
-        start <- data$col1[[i]] - 1L + offset
-        end <- data$col2[[i]] + offset
+        if (syntax$line1[[i]] != syntax$line2[[i]]) return(NULL)
+        row <- row_offset + syntax$line1[[i]] - 1L
+        offset <- if (syntax$line1[[i]] == 1L) col_offset else 0L
+        start <- syntax$col1[[i]] - 1L + offset
+        end <- syntax$col2[[i]] + offset
         if (!is.null(edit) && row == edit$row && end > edit$start) {
             if (start < edit$start + edit$inserted) return(NULL)
             shift <- edit$inserted - (edit$end - edit$start)
@@ -48,20 +58,19 @@ member_source_origins <- function(parsed, data, uri, row_offset = 0L, col_offset
         list(uri = uri, range = c(row, start, end))
     }
     expr_tokens <- c("expr", "expr_or_assign_or_help")
-    placeholders <- parent[token == "PLACEHOLDER"]
     walk <- function(node, row, inserted = 0L) {
         if (!needed[[row]] || !is.call(node)) return(node)
         children <- syntax_children(syntax, row)
         children <- children[token[children] != "COMMENT"]
         kinds <- token[children]
-        if (named[[row]] && !is.null(names(node))) {
+        if (tree$named[[row]] && !is.null(names(node))) {
             equals <- which(kinds == "EQ_SUB")
             argument <- cumsum(kinds == "','") + 1L + inserted
             tags <- lapply(children[equals - 1L], origin)
             names(tags) <- as.character(argument[equals])
             attr(node, "member_origins") <- tags
         }
-        if (dollar[[row]] && member_head(node, "$")) {
+        if (tree$dollar[[row]] && member_head(node, "$")) {
             attr(node, "member_origin") <- origin(utils::tail(children, 1L))
         }
         positions <- which(kinds %in% expr_tokens)
@@ -95,7 +104,7 @@ member_source_origins <- function(parsed, data, uri, row_offset = 0L, col_offset
             right <- syntax_children(syntax, rows[[2L]])
             right <- right[token[right] != "COMMENT"]
             if (length(right) < 2L || token[right[[2L]]] != "'('") return(node)
-            place <- which(right %in% placeholders)
+            place <- which(right %in% tree$placeholders)
             added <- as.integer(!length(place))
             argument <- if (added) 2L else 2L + sum(token[right[seq_len(place[[1L]])]] == "','")
             if (argument > length(node)) return(node)
@@ -116,16 +125,63 @@ member_source_origins <- function(parsed, data, uri, row_offset = 0L, col_offset
         for (i in which(needed[rows])) node[[indices[[i]]]] <- walk(node[[indices[[i]]]], rows[[i]])
         node
     }
-    roots <- syntax$roots[token[syntax$roots] %in% expr_tokens]
-    if (length(roots) != length(parsed)) return(parsed)
     for (i in which(needed[roots])) parsed[[i]] <- walk(parsed[[i]], roots[[i]])
     parsed
+}
+
+# Only the originating statement needs coordinates. Reuse its accepted syntax
+# tree or reparse the known-good statement from an otherwise incomplete file.
+# Keep this memo on the definition request, bounded by the inference budget.
+member_declaration_expr <- function(document, i, budget) {
+    item <- document$parse_data$member_data$items[[i]]
+    node <- item$expr
+    if (is.null(budget$origin_name) || !is.call(node)) return(node)
+    memo <- budget$declarations[[document$uri]]
+    if (is.null(memo)) {
+        memo <- new.env(parent = emptyenv())
+        syntax <- document$parse_data$syntax_data
+        if (!isTRUE(document$parse_data$parse_error) && length(syntax$roots)) {
+            memo$tree <- member_origin_tree(syntax, syntax)
+        }
+        budget$declarations[[document$uri]] <- memo
+    }
+    key <- as.character(i)
+    if (exists(key, memo, inherits = FALSE)) return(memo[[key]])
+    if (!is.null(memo$tree)) {
+        expr <- member_source_origins(as.expression(list(node)), NULL, document$uri, tree = memo$tree, item = i)
+    } else {
+        start <- item$start
+        end <- item$end
+        if (start[[1L]] < 0L || end[[1L]] >= document$nline) return(node)
+        lines <- get_range_text(document$content, start[[1L]] + 1L, start[[2L]] + 1L, end[[1L]] + 1L, end[[2L]])
+        parsed <- tryCatch(parse(text = normalize_parse_content(lines), keep.source = TRUE), error = function(e) NULL)
+        if (length(parsed) != 1L) return(node)
+        expr <- member_source_origins(as.expression(list(node)), utils::getParseData(parsed), document$uri,
+            start[[1L]], start[[2L]])
+    }
+    memo[[key]] <- expr[[1L]]
+    expr[[1L]]
+}
+
+member_binding_declaration <- function(entry, budget) {
+    if (is.null(budget$origin_name) || (is.null(entry$field) && !is.call(entry$expr))) return(entry)
+    source <- entry$declaration
+    document <- if (is.null(source)) budget$document else budget$documents$get(source$uri, NULL)
+    if (is.null(document)) return(entry)
+    i <- if (is.null(source)) member_history_position(document$parse_data$member_data$items, entry$end) else source$item
+    if (!i) return(entry)
+    expr <- member_declaration_expr(document, i, budget)
+    if (member_head(expr, "<-") || member_head(expr, "=")) {
+        entry$expr <- expr[[3L]]
+        if (!is.null(entry$field)) entry$origin <- attr(expr[[2L]], "member_origin", exact = TRUE)
+    }
+    entry
 }
 
 # Recovery normally needs only an AST. Collect member token ranges when that
 # fragment contains a potential declaration; its first line may start mid-line.
 member_parse_recovered <- function(lines, uri, row, col = 0L, edit = NULL) {
-    if (!any(grepl("=|<-|->", lines))) return(str2expression(lines))
+    if (is.null(uri) || !any(grepl("=|<-|->", lines))) return(str2expression(lines))
     parsed <- parse(text = normalize_parse_content(lines), keep.source = TRUE)
     parsed <- member_source_origins(parsed, NULL, uri, row, col, edit = edit)
     member_strip_srcref(parsed)

@@ -94,3 +94,24 @@ test_that("member definitions are available in unsaved untitled documents", {
     expect_equal(definition_reply(1L, uri, workspace, document, list(row = 1L, col = 6L))$result,
         list(uri = uri, range = range(position(0, 12), position(0, 15))))
 })
+
+test_that("member source lookup annotates only the statements followed by F12", {
+    annotate <- member_source_origins
+    visits <- list()
+    testthat::local_mocked_bindings(member_source_origins = function(parsed, ...) {
+        visits[[length(visits) + 1L]] <<- length(parsed)
+        annotate(parsed, ...)
+    }, .package = "languageserver")
+    declarations <- sprintf("box%d <- list(fun = function(x) x)", seq_len(150L))
+    for (call in c("box75$fun()", "box75$fun(")) {
+        fixture <- provider_fixture(c(declarations, call))
+        point <- list(row = length(declarations), col = 6L)
+        member_completion(fixture$uri, fixture$workspace, fixture$document, point, FALSE, 100L)
+        expect_length(visits, 0L)
+        expect_equal(member_definition_test(fixture, length(declarations), "fun")$range,
+            range(position(74L, 14L), position(74L, 17L)))
+        expect_lte(length(visits), 2L)
+        expect_true(all(unlist(visits) == 1L))
+        visits <- list()
+    }
+})

@@ -36,6 +36,43 @@ member_function_descriptor <- function(node, ref, parts) {
     if (length(ranges) == length(defaults) + 1L) list(defaults = defaults, refs = ranges) else NULL
 }
 
+# A direct write on a fresh local container can be sliced by receiver.
+# Inherited receivers and explicit aliases keep the full effect path, including
+# aliases established in enclosing blocks whose bindings are not indexed here.
+member_scope_field_writes <- function(children, assigned, writes) {
+    fields <- rep("", length(children))
+    candidates <- !nzchar(assigned) & lengths(writes) == 1L
+    if (!any(candidates)) return(fields)
+
+    aliases <- lapply(which(nzchar(assigned)), function(i) {
+        rhs <- children[[i]][[3L]]
+        if (is.symbol(rhs)) c(assigned[[i]], as.character(rhs))
+    })
+    aliases <- unique(unlist(aliases, use.names = FALSE))
+    fresh <- new.env(hash = TRUE, parent = emptyenv())
+    for (i in seq_along(children)) {
+        name <- assigned[[i]]
+        child <- children[[i]]
+        if (nzchar(name)) {
+            rhs <- child[[3L]]
+            head <- if (is.call(rhs)) rhs[[1L]]
+            if (member_head(head, "::") && identical(head[[2L]], as.name("base"))) head <- head[[3L]]
+            fresh[[name]] <- !name %in% aliases && is.symbol(head) &&
+                as.character(head) %in% c("list", "new.env")
+        } else if (candidates[[i]] && isTRUE(fresh[[writes[[i]]]]) &&
+                (member_head(child, "<-") || member_head(child, "=")) &&
+                !is.null(member_write_field(child[[2L]])) &&
+                identical(member_name(child[[2L]][[2L]]), writes[[i]])) {
+            fields[[i]] <- writes[[i]]
+        } else {
+            # A branch, dynamic replacement, or additional write can change
+            # the receiver independently of its local constructor.
+            for (name in writes[[i]]) fresh[[name]] <- FALSE
+        }
+    }
+    fields
+}
+
 member_scope_index <- function(node) {
     children <- as.list(node)[-1L]
     assigned <- vapply(children, function(child) {
@@ -51,10 +88,12 @@ member_scope_index <- function(node) {
     writes <- lapply(seq_along(children), function(i) {
         if (nzchar(assigned[[i]])) assigned[[i]] else member_assigned_names(children[[i]])
     })
-    mandatory <- which(!nzchar(assigned) | assigned == "$<-" | startsWith(assigned, "$.") | startsWith(assigned, "[[.") | vapply(reads, function(names) {
+    fields <- member_scope_field_writes(children, assigned, writes)
+    tracked <- ifelse(nzchar(assigned), assigned, fields)
+    mandatory <- which(!nzchar(tracked) | assigned == "$<-" | startsWith(assigned, "$.") | startsWith(assigned, "[[.") | vapply(reads, function(names) {
         any(names %in% c("setClass", "setClassUnion"))
     }, logical(1L)))
-    histories <- split(which(nzchar(assigned)), assigned[nzchar(assigned)])
+    histories <- split(which(nzchar(tracked)), tracked[nzchar(tracked)])
     refs <- attr(node, "srcref")
     list(assigned = assigned, reads = reads, writes = writes, mandatory = mandatory,
         histories = list2env(histories, hash = TRUE, parent = emptyenv()),

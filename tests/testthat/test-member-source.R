@@ -158,3 +158,29 @@ test_that("Parse cache accounts for retained scope index environments", {
     expect_true(cache$has("parse"))
     expect_equal(cache$bytes(), as.numeric(object.size(value)) + source$bytes)
 })
+
+test_that("Fresh unrelated member writes stay out of cursor inference", {
+    for (call in c("target$fun()", "target$fun(")) {
+        fixture <- provider_fixture(c("probe <- function() {", "scratch <- list()",
+                sprintf("scratch$m%d <- list(inner = list(value = 1))", seq_len(60L)),
+                "target <- list(fun = function(x, y) x + y)", call, "}"))
+        point <- list(row = fixture$document$nline - 2L, col = 10L)
+        result <- member_resolve_cursor(fixture$uri, fixture$workspace, fixture$document, point,
+            member_cursor(fixture$document, point), "fun")
+        expect_identical(names(result$value$function_expr[[2L]]), c("x", "y"))
+        expect_lt(20000L - result$budget$remaining, 20L)
+    }
+})
+
+test_that("Scope slicing preserves direct writes through local and inherited aliases", {
+    for (prefix in list(c("box <- new.env()", "alias <- box", "{"),
+            c("{", "box <- new.env()", "alias <- box"))) {
+        lines <- c("probe <- function() {", prefix, "alias$fun <- function(from_alias) NULL",
+            "box$fun()", "}", "}")
+        fixture <- provider_fixture(lines)
+        point <- list(row = match("box$fun()", lines) - 1L, col = 7L)
+        resolved <- member_resolve_cursor(fixture$uri, fixture$workspace, fixture$document,
+            point, member_cursor(fixture$document, point), "fun")
+        expect_identical(names(resolved$value$function_expr[[2L]]), "from_alias")
+    }
+})

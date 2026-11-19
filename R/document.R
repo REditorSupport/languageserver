@@ -720,7 +720,7 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
         env$syntax_data <- syntax_parse_data(data)
         env$outline_data <- outline_parse_data(env$syntax_data)
         env$navigation_data <- navigation_parse_data(env$syntax_data)
-        env$member_data <- member_document_index(content, expr, data, uri, env$syntax_data)
+        env$member_data <- member_document_index(content, expr, data)
         env$completion_data <- completion_parse_data(data, env$syntax_data)
         env$semantic_data <- semantic_parse_data(data, content, env$syntax_data)
         env$range_data <- range_provider_parse_data(data, content, env$syntax_data)
@@ -745,7 +745,7 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
         # Keep the parse version current even while the user is typing an
         # incomplete expression. Providers can now return an empty result
         # instead of leaving requests queued until some later valid version.
-        env$member_data <- member_document_index(content, uri = uri)
+        env$member_data <- member_document_index(content)
         env$source_specs <- index_source_specs(as.expression(lapply(env$member_data$items, `[[`, "expr")))
         env$parse_error <- TRUE
         env$xml_data <- paste0(

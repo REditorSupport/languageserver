@@ -25,6 +25,7 @@ member_workspace_view <- function(workspace, document) {
             item <- data$items[[i]]
             end <- item$end
             if (!is.null(anchor)) {
+                item$declaration <- list(uri = doc$uri, item = i)
                 step <- 2L * items$size()
                 item$start <- c(anchor, step)
                 item$end <- c(anchor, step + 1L)
