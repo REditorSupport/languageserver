@@ -21,7 +21,8 @@ member_symbol_info <- function(label, value, key, index) {
             collapse = "\n\n")
     }
     list(
-        label = label, signature = signature, function_id = key,
+        label = label, signature = signature, formals = if (!is.null(signature)) fn[[2L]],
+        function_id = key,
         package = index$package, value = value,
         description = description
     )
@@ -216,13 +217,25 @@ member_constructor_symbol <- function(uri, workspace, document, location) {
     symbol
 }
 
-member_constructor_arguments <- function(uri, workspace, document, point, token, call = document$detect_call(point)) {
+member_call_symbol <- function(uri, workspace, document, location) {
+    if (is.null(location)) return(NULL)
+    symbol <- member_symbol(uri, workspace, document, location)
+    if (!is.null(location$cursor$accessor)) {
+        # Keep unresolved member calls out of bare-name and S3 lookup.
+        return(if (is.null(symbol)) list() else symbol)
+    }
+    if (!is.null(symbol$value$s7_generator) || identical(symbol$value$r6_role, "constructor") ||
+            !is.null(symbol$value$r6_owner)) return(symbol)
+    NULL
+}
+
+member_call_arguments <- function(uri, workspace, document, point, token, call = document$detect_call(point)) {
     location <- member_call_location(document, point, call,
         symbols = member_symbol_required(workspace, document))
-    symbol <- member_constructor_symbol(uri, workspace, document, location)
+    symbol <- member_call_symbol(uri, workspace, document, location)
     if (is.null(symbol)) return(NULL)
-    args <- names(symbol$value$function_expr[[2L]])
-    args <- setdiff(args, "...")
+    args <- setdiff(names(symbol$formals), "...")
+    if (!length(args)) return(list())
     args <- args[match_with(args, token)]
     lapply(seq_along(args), function(i) {
         list(label = args[[i]], kind = CompletionItemKind$Variable,
