@@ -160,6 +160,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
         inputcon = NULL,
         outputcon = NULL,
         exit_flag = NULL,
+        shutdown_requested = FALSE,
         documents = NULL,
         workspaces = NULL,
         workspace_cache = NULL,
@@ -243,6 +244,32 @@ LanguageServer <- R6::R6Class("LanguageServer",
             self$workspaces$set(DEFAULT_WORKSPACE, Workspace$new(NULL))
 
             super$initialize()
+        },
+        handle_request = function(request) {
+            if (isTRUE(self$shutdown_requested)) {
+                self$deliver(ResponseErrorMessage$new(request$id,
+                        "InvalidRequest", "Server has shut down"))
+                return(invisible(NULL))
+            }
+            super$handle_request(request)
+        },
+        handle_notification = function(notification) {
+            if (isTRUE(self$shutdown_requested) && !identical(notification$method, "exit")) {
+                return(invisible(NULL))
+            }
+            super$handle_notification(notification)
+        },
+        handle_response = function(response) {
+            if (isTRUE(self$shutdown_requested)) return(invisible(NULL))
+            super$handle_response(response)
+        },
+        stop_task_managers = function() {
+            for (manager in list(self$parse_task_manager, self$diagnostics_task_manager,
+                    self$resolve_task_manager, self$member_task_manager,
+                    self$formatting_task_manager, self$index_task_manager)) {
+                if (is.function(manager$stop)) manager$stop()
+            }
+            invisible(NULL)
         },
         process_events = function() {
             self$parse_task_manager$check_tasks()
@@ -867,6 +894,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             invisible(NULL)
         },
         input_wait_timeout = function(max_timeout = 0.01) {
+            if (isTRUE(self$shutdown_requested)) return(max_timeout)
             if (!is.null(private$ready_reply_uris) && private$ready_reply_uris$size()) return(0)
             timeout <- max_timeout
             for (manager in list(self$parse_task_manager, self$diagnostics_task_manager,
@@ -1054,17 +1082,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             processed
         },
         run = function() {
-            on.exit(
-                {
-                    if (!is.null(self$parse_task_manager)) self$parse_task_manager$stop()
-                    if (!is.null(self$diagnostics_task_manager)) self$diagnostics_task_manager$stop()
-                    if (!is.null(self$resolve_task_manager)) self$resolve_task_manager$stop()
-                    if (!is.null(self$member_task_manager)) self$member_task_manager$stop()
-                    if (!is.null(self$formatting_task_manager)) self$formatting_task_manager$stop()
-                    if (!is.null(self$index_task_manager)) self$index_task_manager$stop()
-                },
-                add = TRUE
-            )
+            on.exit(self$stop_task_managers(), add = TRUE)
             while (TRUE) {
                 ret <- tryCatchStack(
                     {
@@ -1075,7 +1093,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
 
                         processed <- self$process_input()
                         if (isTRUE(self$exit_flag)) next
-                        self$process_events()
+                        if (!isTRUE(self$shutdown_requested)) self$process_events()
                         if (!processed && !(is.function(self$input_read_pending) && self$input_read_pending())) {
                             timeout <- self$input_wait_timeout()
                             if (timeout > 0) self$wait_input(timeout)

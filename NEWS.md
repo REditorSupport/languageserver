@@ -1,5 +1,10 @@
 # languageserver (development)
 
+- Keep the server connection open after responding to `shutdown` until the
+  client sends `exit`, preventing broken-pipe errors when clients stop the
+  server. Stop background workers and reject further requests while waiting
+  for `exit` (#862).
+
 - Make `roxygen2` optional, using plain source-comment text for documentation
   when it is unavailable. Function signatures and installed-package help remain
   available without the package-documentation dependency chain (#125).

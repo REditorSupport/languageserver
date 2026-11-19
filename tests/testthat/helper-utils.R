@@ -65,13 +65,14 @@ language_client <- function(working_dir = withr::local_tempdir(.local_envir = pa
     client %>% notify(
         "workspace/didChangeConfiguration", list(settings = list(diagnostics = diagnostics)))
     withr::defer_parent({
-        client %>% respond("shutdown", NULL, retry = FALSE)
         if (client$process$is_alive()) {
+            client %>% respond("shutdown", NULL, retry = FALSE)
+            client %>% notify("exit")
             if (identical(Sys.getenv("R_COVR"), "true")) {
                 client$process$wait()
             } else {
                 client$process$wait(1000)
-                client$process$kill()
+                if (client$process$is_alive()) client$process$kill()
             }
         }
     })
@@ -137,6 +138,8 @@ did_save <- function(client, path, uri = path_to_uri(path), text = NULL) {
 
 respond <- function(client, method, params, timeout, allow_error = FALSE,
     retry = TRUE, retry_when = function(result) length(result) == 0) {
+    # Shutdown has a null response, but must complete before sending exit.
+    if (method == "shutdown") retry <- FALSE
     if (missing(timeout)) {
         # A first request can wait for cold metadata workers. Shared CI
         # runners vary in speed by 30% or more between runs, so these limits
@@ -173,10 +176,6 @@ respond <- function(client, method, params, timeout, allow_error = FALSE,
         request <- client$request(method, params)
         id <- request_id_key(request$id)
         client$deliver(request, callback = cb)
-        if (method == "shutdown") {
-            # do not expect the server returns anything
-            return(NULL)
-        }
         while (!isTRUE(storage$done)) {
             remaining <- as.numeric(difftime(deadline, Sys.time(), units = "secs"))
             if (remaining < 0) {

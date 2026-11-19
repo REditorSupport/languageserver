@@ -267,7 +267,8 @@ test_that("a running formatter leaves input responsive and can be cancelled", {
         c("--no-echo", "-e", script))
     withr::defer({
         if (client$process$is_alive()) {
-            client$deliver(client$request("shutdown", NULL))
+            respond(client, "shutdown", NULL, timeout = 10, retry = FALSE)
+            notify(client, "exit")
             client$process$wait(1000)
             if (client$process$is_alive()) client$process$kill()
         }
