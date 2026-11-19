@@ -1191,9 +1191,21 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             previous <- self$summaries$get(uri, NULL)
             if (private$awaiting_parses$has(uri)) summary$cacheable <- private$awaiting_parses$get(uri)
             if (isTRUE(summary$parse_error) && !is.null(previous)) {
-                for (field in c("definitions", "functions", "s3", "sources",
-                        "source_candidates", "source_candidate_exists")) {
+                for (field in c("definitions", "functions", "s3")) {
                     summary[[field]] <- previous[[field]]
+                }
+                # Recovery can prove new source() calls while hiding others in
+                # an unfinished expression. Retain edges from the last valid
+                # parse, never the cumulative edges from earlier broken edits.
+                baseline <- if (isTRUE(previous$parse_error)) previous$last_good_sources else
+                    previous[c("sources", "source_candidates", "source_candidate_exists")]
+                if (!is.null(baseline)) {
+                    summary$last_good_sources <- baseline
+                    summary$sources <- unique(c(summary$sources, baseline$sources))
+                    extra <- !baseline$source_candidates %in% summary$source_candidates
+                    summary$source_candidates <- c(summary$source_candidates, baseline$source_candidates[extra])
+                    summary$source_candidate_exists <- c(summary$source_candidate_exists,
+                        baseline$source_candidate_exists[extra])
                 }
             }
             old_sources <- self$source_edges$get(uri, character())
@@ -1271,17 +1283,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             uri <- index_canonical_uri(uri)
             summary$uri <- uri
             summary$cacheable <- isTRUE(cacheable)
-            if (isTRUE(summary$parse_error) && self$summaries$has(uri)) {
-                previous <- self$summaries$get(uri)
-                summary$definitions <- previous$definitions
-                summary$functions <- previous$functions
-                summary$s3 <- previous$s3
-                summary$sources <- previous$sources
-                summary$source_candidates <- previous$source_candidates
-                summary$source_candidate_exists <-
-                    previous$source_candidate_exists
-            }
-            self$set_summary(summary)
+            summary <- self$set_summary(summary)
             if (!self$processing_batch) {
                 self$pending <- setdiff(self$pending, uri)
             }

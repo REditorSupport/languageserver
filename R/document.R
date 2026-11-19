@@ -746,7 +746,7 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
         # incomplete expression. Providers can now return an empty result
         # instead of leaving requests queued until some later valid version.
         env$member_data <- member_document_index(content, uri = uri)
-        env$source_specs <- lapply(env$member_data$sources, `[[`, "spec")
+        env$source_specs <- index_source_specs(as.expression(lapply(env$member_data$items, `[[`, "expr")))
         env$parse_error <- TRUE
         env$xml_data <- paste0(
             "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\" ?>\n",
