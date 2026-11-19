@@ -526,6 +526,13 @@ parse_expr <- function(content, expr, env, srcref = attr(expr, "srcref")) {
                     if (!nzchar(symbol)) return(NULL)
 
                     env$objects$push(symbol)
+                    if (!is.null(env$nested_by_position)) {
+                        # An explicit type (e.g. makeActiveBinding) overrides the value.
+                        rows <- if (missing(type)) outline_function_rows(value, env$nested_by_position)
+                        if (length(rows) || !is.null(env$outline_store[[symbol]])) {
+                            env$outline_store[[symbol]] <- rows
+                        }
+                    }
 
                     expr_range <- expr_range(srcref)
                     if (!exists(
@@ -677,11 +684,16 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
         env$definitions_store <- new.env(hash = TRUE, parent = emptyenv())
         env$documentation_store <- new.env(hash = TRUE, parent = emptyenv())
         env$functions_store <- new.env(hash = TRUE, parent = emptyenv())
+        env$outline_store <- new.env(hash = TRUE, parent = emptyenv())
         env$signatures_store <- new.env(hash = TRUE, parent = emptyenv())
         env$definition_names <- collections::queue()
         env$documentation_names <- collections::queue()
         env$function_names <- collections::queue()
 
+        data <- utils::getParseData(expr)
+        env$syntax_data <- syntax_parse_data(data)
+        assignments <- function_assignment_rows(data, env$syntax_data)
+        env$nested_by_position <- outline_nested_functions(env$syntax_data, assignments)
         parse_expr(content, expr, env)
         names_vector <- function(queue) {
             if (queue$size()) unlist(queue$as_list(), use.names = FALSE)
@@ -704,21 +716,21 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
             env$functions_store, env$function_names)
         env$signatures <- materialize(
             env$signatures_store, env$function_names)
+        env$outline_data <- outline_parse_data(env$syntax_data)
+        env$outline_data$nested_functions <- as.list(env$outline_store, all.names = TRUE)
         rm(list = c(
             "nonfuncts_seen",
+            "nested_by_position", "outline_store",
             "definitions_store", "documentation_store",
             "functions_store", "signatures_store",
             "definition_names", "documentation_names", "function_names"
         ), envir = env)
 
         env$packages <- basename(find.package(env$packages, quiet = TRUE))
-        data <- utils::getParseData(expr)
-        env$syntax_data <- syntax_parse_data(data)
-        env$outline_data <- outline_parse_data(env$syntax_data)
         env$navigation_data <- navigation_parse_data(env$syntax_data)
         env$member_data <- member_document_index(content, expr, data)
         env$completion_data <- completion_parse_data(data, env$syntax_data)
-        env$semantic_data <- semantic_parse_data(data, content, env$syntax_data)
+        env$semantic_data <- semantic_parse_data(data, content, env$syntax_data, assignments)
         env$range_data <- range_provider_parse_data(data, content, env$syntax_data)
         env$source_specs <- index_source_specs(expr)
         env$reference_index <- reference_parse_data(

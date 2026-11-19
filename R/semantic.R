@@ -436,13 +436,15 @@ empty_semantic_data <- function() {
     )
 }
 
-#' Parse-data ids of symbols assigned `function()` or `\()`
+#' Parse rows for each name, function literal, and assignment operator
 #'
 #' Parentheses around function expressions are ignored.
 #' @noRd
-function_assignment_symbol_ids <- function(data, syntax = NULL) {
-    if (is.null(data) || !nrow(data)) return(integer())
-    .Call("function_assignment_ids_c", data, syntax, PACKAGE = "languageserver")
+function_assignment_rows <- function(data, syntax = NULL) {
+    if (is.null(data) || !nrow(data)) {
+        return(list(name = integer(), value = integer(), operator = integer()))
+    }
+    .Call("function_assignment_rows_c", data, syntax, PACKAGE = "languageserver")
 }
 
 xml_function_assignment_rhs_xpath <- "
@@ -479,7 +481,8 @@ xml_symbol_is_function_assignment <- function(node) {
 #' This runs in the parse worker. Keeping ordinary integer vectors here avoids
 #' repeatedly walking the XML document on the main language-server thread.
 #' @noRd
-semantic_parse_data <- function(data, content, syntax = NULL) {
+semantic_parse_data <- function(data, content, syntax = NULL,
+    assignments = function_assignment_rows(data, syntax)) {
     if (is.null(data) || !nrow(data)) {
         return(empty_semantic_data())
     }
@@ -613,9 +616,8 @@ semantic_parse_data <- function(data, content, syntax = NULL) {
     types[is_ellipsis_sym] <- SemanticTokenTypes$variable
     modifiers[is_ellipsis_sym] <- semantic_readonly_default_modifier
 
-    fun_lhs_ids <- function_assignment_symbol_ids(data, syntax)
-    if (length(fun_lhs_ids)) {
-        fun_lhs <- row_ids %in% fun_lhs_ids
+    if (length(assignments$name)) {
+        fun_lhs <- std_rows %in% assignments$name
         types[fun_lhs] <- SemanticTokenTypes[["function"]]
         modifiers[fun_lhs] <- semantic_declaration_modifier
     }

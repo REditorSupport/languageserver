@@ -13,6 +13,99 @@ symbol_tree_reply <- function(fixture, hierarchical = TRUE) {
         list(hierarchicalDocumentSymbolSupport = hierarchical))$result
 }
 
+test_that("the document outline nests named functions under each enclosing function", {
+    fixture <- symbol_tree_fixture(c(
+        "foo <- function() {",
+        "  bar <- function() {",
+        "    baz <- function() 1",
+        "  }",
+        "  value <- 1",
+        "  if (value) {",
+        "    sibling = function() 2",
+        "  }",
+        "  lapply(value, function(x) x)",
+        "}",
+        "other <- function() { bar <- function() 3 }"
+    ))
+    tree <- symbol_tree_reply(fixture)
+    expect_equal(map_chr(tree, "name"), c("foo", "other"))
+    expect_equal(map_chr(tree[[1L]]$children, "name"), c("bar", "sibling"))
+    bar <- tree[[1L]]$children[[1L]]
+    expect_equal(bar$kind, SymbolKind$Function)
+    expect_equal(bar$range, range(position(1L, 2L), position(3L, 3L)))
+    expect_equal(bar$selectionRange, range(position(1L, 2L), position(1L, 5L)))
+    expect_equal(map_chr(bar$children, "name"), "baz")
+    expect_equal(map_chr(tree[[2L]]$children, "name"), "bar")
+
+    flat <- symbol_tree_reply(fixture, hierarchical = FALSE)
+    expect_setequal(map_chr(flat, "name"), c("foo", "other"))
+    expect_length(workspace_symbol_reply(2L, list(fixture$workspace), "bar")$result, 0L)
+})
+
+test_that("sections inside nested functions contain the helpers they introduce", {
+    fixture <- symbol_tree_fixture(c(
+        "outer <- function() {",
+        "  inner <- function() {",
+        "    # Helpers ----",
+        "    leaf <- function() 1",
+        "  }",
+        "}"
+    ))
+    tree <- symbol_tree_reply(fixture)
+    inner <- tree[[1L]]$children[[1L]]
+    expect_equal(inner$name, "inner")
+    expect_equal(map_chr(inner$children, "name"), "Helpers")
+    expect_equal(map_chr(inner$children[[1L]]$children, "name"), "leaf")
+})
+
+test_that("functions in unbraced if and else branches own their respective helpers", {
+    fixture <- symbol_tree_fixture(c(
+        "if (flag) left <- function() {",
+        "  left_helper <- function() 1",
+        "} else right <- function() {",
+        "  right_helper <- function() 2",
+        "}"
+    ))
+    tree <- symbol_tree_reply(fixture)
+    expect_equal(map_chr(tree, "name"), c("left", "right"))
+    expect_equal(map_chr(tree[[1L]]$children, "name"), "left_helper")
+    expect_equal(map_chr(tree[[2L]]$children, "name"), "right_helper")
+})
+
+test_that("superseded functions and anonymous callbacks keep their helpers out of the outline", {
+    fixture <- symbol_tree_fixture(c(
+        "f <- function() { retired <- function() 1 }",
+        "f <- function() {",
+        "  lapply(1, function(x) { hidden <- function() x })",
+        "  '\U0001f600'; (function() 1) -> `local fun`",
+        "}"
+    ))
+    tree <- symbol_tree_reply(fixture)
+    expect_equal(map_chr(tree, "name"), "f")
+    expect_equal(map_chr(tree[[1L]]$children, "name"), "local fun")
+    helper <- detect(tree[[1L]]$children, ~ .x$name == "local fun")
+    expect_equal(helper$range, range(position(3L, 8L), position(3L, 37L)))
+    expect_equal(helper$selectionRange, range(position(3L, 26L), position(3L, 37L)))
+})
+
+test_that("R Markdown chunks contain functions assigned with parentheses and right arrows", {
+    fixture <- symbol_tree_fixture(c(
+        "## Example",
+        "```{r helpers}",
+        "(function() {",
+        "  helper <- function() 1",
+        "  global <<- function() 2",
+        "}) -> outer",
+        "```"
+    ), uri = "file:///nested.Rmd")
+    chunk <- symbol_tree_reply(fixture)[[1L]]$children[[1L]]
+    expect_equal(chunk$name, "helpers")
+    expect_equal(map_chr(chunk$children, "name"), "outer")
+    outer <- chunk$children[[1L]]
+    expect_equal(outer$kind, SymbolKind$Function)
+    expect_equal(map_chr(outer$children, "name"), "helper")
+})
+
 test_that("R sections and definitions form the outline tree from issue 814", {
     fixture <- symbol_tree_fixture(c(
         "# First section ----",

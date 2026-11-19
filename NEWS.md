@@ -1,5 +1,8 @@
 # languageserver (development)
 
+- Show nested named functions under their enclosing functions in the document
+  outline (#559).
+
 - Keep the server connection open after responding to `shutdown` until the
   client sends `exit`, preventing broken-pipe errors when clients stop the
   server. Stop background workers and reject further requests while waiting

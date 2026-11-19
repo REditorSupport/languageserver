@@ -139,14 +139,19 @@ static SEXP provider_rows(const int *rows, int n, int offset) {
     return result;
 }
 
-SEXP function_assignment_ids_c(SEXP data, SEXP syntax) {
+SEXP function_assignment_rows_c(SEXP data, SEXP syntax) {
     provider_tree tree = provider_tree_init(data, syntax);
     int *function_expr = (int *) R_alloc((size_t) tree.max_id + 1, sizeof(int));
     memset(function_expr, 0, ((size_t) tree.max_id + 1) * sizeof(int));
+    int capacity = 0;
     for (int i = 0; i < tree.n; i++) {
         if (tree.kind[i] == P_FUNCTION && tree.parent[i] > 0) function_expr[tree.parent[i]] = 1;
+        if (tree.kind[i] == P_LEFT_ASSIGN || tree.kind[i] == P_RIGHT_ASSIGN ||
+                tree.kind[i] == P_EQ_ASSIGN) capacity++;
     }
-    int *result = (int *) R_alloc((size_t) tree.n, sizeof(int));
+    int *names = (int *) R_alloc((size_t) capacity, sizeof(int));
+    int *values = (int *) R_alloc((size_t) capacity, sizeof(int));
+    int *operators = (int *) R_alloc((size_t) capacity, sizeof(int));
     int count = 0;
     for (int i = 0; i < tree.n; i++) {
         if ((i & 16383) == 0) R_CheckUserInterrupt();
@@ -182,9 +187,19 @@ SEXP function_assignment_ids_c(SEXP data, SEXP syntax) {
             rhs = children[1];
             if (++depth > tree.n) Rf_error("Cyclic parse data");
         }
-        if (function_expr[tree.id[rhs]]) result[count++] = tree.id[symbol];
+        if (function_expr[tree.id[rhs]]) {
+            names[count] = symbol;
+            values[count] = rhs;
+            operators[count++] = i;
+        }
     }
-    return provider_rows(result, count, 0);
+    const char *fields[] = {"name", "value", "operator", ""};
+    SEXP result = PROTECT(Rf_mkNamed(VECSXP, fields));
+    SET_VECTOR_ELT(result, 0, provider_rows(names, count, 1));
+    SET_VECTOR_ELT(result, 1, provider_rows(values, count, 1));
+    SET_VECTOR_ELT(result, 2, provider_rows(operators, count, 1));
+    UNPROTECT(1);
+    return result;
 }
 
 SEXP range_provider_index_c(SEXP data, SEXP syntax) {
