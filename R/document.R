@@ -23,6 +23,7 @@ Document <- R6::R6Class(
         member_refresh = FALSE,
         member_receivers = NULL,
         member_binding_cache = NULL,
+        member_workspace_view = NULL,
         analysis_caches = NULL,
         s3_calls = NULL,
         s3_identity = NULL,
@@ -55,6 +56,7 @@ Document <- R6::R6Class(
 
         set_content = function(version, content, change = NULL) {
             self$completion_outline <- NULL
+            self$member_workspace_view <- NULL
             self$member_receivers$clear()
             self$s3_calls$clear()
             current <- identical(self$version, self$parse_data$version) || isTRUE(self$member_ordinary_edit)
@@ -144,6 +146,7 @@ Document <- R6::R6Class(
 
         update_parse_data = function(parse_data) {
             self$completion_outline <- NULL
+            self$member_workspace_view <- NULL
             self$member_receivers$clear()
             self$s3_calls$clear()
             self$member_ordinary_edit <- FALSE
@@ -743,6 +746,7 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
         # incomplete expression. Providers can now return an empty result
         # instead of leaving requests queued until some later valid version.
         env$member_data <- member_document_index(content, uri = uri)
+        env$source_specs <- lapply(env$member_data$sources, `[[`, "spec")
         env$parse_error <- TRUE
         env$xml_data <- paste0(
             "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\" ?>\n",

@@ -187,6 +187,7 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL, uri = N
     }
     s4 <- list()
     imports <- list()
+    sources <- list()
     effects <- list()
     packages <- recovered_packages
     class_scope <- FALSE
@@ -227,13 +228,20 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL, uri = N
             }
         }
         if (member_head(expr, "library") || member_head(expr, "require")) imports[[length(imports) + 1L]] <- item
+        if (is.call(expr) && length(expr) == 2L && is.character(expr[[2L]]) &&
+                (member_head(expr, "source") || identical(expr[[1L]], quote(base::source))) &&
+                (is.null(names(expr)) || names(expr)[[2L]] %in% c("", "file"))) {
+            spec <- index_static_path(expr[[2L]])
+            if (!is.null(spec)) sources[[length(sources) + 1L]] <- list(
+                item = i, spec = spec, bare = member_head(expr, "source"))
+        }
         if (is.call(expr) && !member_head(expr, "<-") && !member_head(expr, "=") &&
                 !member_head(expr, "->") && !member_head(expr, ":=")) {
             effects[[length(effects) + 1L]] <- item
         }
     }
     source_bytes <- if (complete) member_compact_source(parsed, parts) else 0
-    list(items = items, bindings = member_index_bindings(items), imports = imports, effects = effects, s4 = s4,
+    list(items = items, bindings = member_index_bindings(items), imports = imports, sources = sources, effects = effects, s4 = s4,
         content_key = digest::digest(content, algo = "xxhash64"),
         source_bytes = source_bytes,
         packages = packages, class_scope = class_scope, symbol_scope = symbol_scope,
@@ -260,8 +268,11 @@ member_scope_required <- function(workspace, document, point = NULL) {
 }
 
 member_before <- function(a, b) {
-    a[[1L]] < b[[1L]] ||
-        (a[[1L]] == b[[1L]] && a[[2L]] <= b[[2L]])
+    if (a[[1L]] != b[[1L]]) return(a[[1L]] < b[[1L]])
+    if (a[[2L]] != b[[2L]]) return(a[[2L]] < b[[2L]])
+    # The third coordinate orders statements inserted at a source() call.
+    # A normal buffer position at its end sees every statement in the file.
+    length(b) == 2L || (length(a) > 2L && a[[3L]] <= b[[3L]])
 }
 
 member_cursor <- function(document, point) {
@@ -444,7 +455,9 @@ member_recover_context <- function(document, content, point, cursor, start, colu
 member_context_index <- function(workspace, uri, document, at, parsed = NULL,
     referenced = member_syntax_names(parsed)) {
     metadata <- if (!is.null(workspace$member_metadata)) workspace$member_metadata else NULL
-    revision <- member_document_cache_revision(document, metadata)
+    view <- member_workspace_view(workspace, document)
+    revision <- member_document_cache_revision(document, metadata, view$key)
+    bindings <- if (is.null(view$bindings)) document$parse_data$member_data$bindings else view$bindings
     # Choose the extractor associated with roots actually referenced here. The
     # core does not recognize package names, class names, or wrapper conventions.
     # Follow a bounded set of referenced assignments (q may have a package
@@ -455,7 +468,7 @@ member_context_index <- function(workspace, uri, document, at, parsed = NULL,
         if (!length(pending) || length(seen) > 256L) break
         seen <- c(seen, pending)
         for (name in pending) {
-            history <- member_history_at(document$parse_data$member_data$bindings[[name]], at)
+            history <- member_history_at(bindings[[name]], at)
             # A dangling $ can make the following assignment parse as a
             # member write. Later bindings must not hide the receiver's package.
             position <- member_history_position(history, at)
@@ -491,7 +504,7 @@ member_context_index <- function(workspace, uri, document, at, parsed = NULL,
             index <- list2env(as.list(selected), parent = emptyenv())
         }
     }
-    index$document_bindings <- document$parse_data$member_data$bindings
+    index$document_bindings <- bindings
     index$document_cache <- new.env(parent = emptyenv())
     index$document_binding_cache <- if (!is.null(revision)) document$member_binding_cache else NULL
     index$methods_attached <- TRUE
@@ -541,7 +554,7 @@ member_context_index <- function(workspace, uri, document, at, parsed = NULL,
         }
     }
     imports <- character()
-    for (item in data$imports) {
+    for (item in if (is.null(view$bindings)) data$imports else view$imports) {
         if (!member_before(item$end, at)) next
         imports <- c(imports, if (is.null(item$cache_prefix)) paste(item$start, item$end, collapse = ":") else item$cache_prefix)
         expr <- item$expr
@@ -1017,7 +1030,8 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
     if (origins) budget$origin_name <- name
     metadata <- workspace$member_metadata
     cache <- document$member_receivers
-    revision <- member_document_cache_revision(document, metadata)
+    view <- member_workspace_view(workspace, document)
+    revision <- member_document_cache_revision(document, metadata, view$key)
     # The receiver does not depend on the member prefix or the call arguments
     # after it. Edits and accepted parses clear this document-local cache.
     key <- paste(point$row, cursor$start, cursor$end, cursor$operator_row,

@@ -102,10 +102,10 @@ member_source_prefix <- function(content, start, end, prefix) {
     digest::digest(list(prefix, start, end, lines), algo = "xxhash64")
 }
 
-member_document_cache_revision <- function(document, metadata) {
+member_document_cache_revision <- function(document, metadata, source_revision = NULL) {
     revision <- if (is.null(metadata)) 0L else if (is.function(metadata$revision)) metadata$revision() else NULL
     identity <- list(metadata = if (is.function(metadata$identity)) metadata$identity() else metadata,
-        revision = revision)
+        revision = revision, sources = source_revision)
     document$member_binding_cache <- analysis_cache(document, "member-bindings", identity, max_bytes = 4 * 1024^2)
     if (!identical(document$member_revision, identity)) {
         document$member_receivers$clear()
