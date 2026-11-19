@@ -277,6 +277,55 @@ member_elements <- function(value) {
     NULL
 }
 
+# Only a literal $ selector on a directly named receiver is a precise write.
+member_write_field <- function(lhs) {
+    if (!member_head(lhs, "$") || length(lhs) != 3L || !is.symbol(lhs[[2L]])) return(NULL)
+    field <- member_name(lhs[[3L]])
+    if (length(field) && !is.na(field) && nzchar(field)) field
+}
+
+member_plain_container <- function(object) {
+    length(object$type) == 1L && object$type %in% c("list", "environment") &&
+        !is.null(object$fields) && !length(object$classes) && is.null(object$r6_role) &&
+        is.null(object$member_package) && is.null(object$reason) && !isTRUE(object$default_dollar)
+}
+
+member_write_value <- function(value, name) {
+    if (!is.null(value$function_expr) && name %in% names(value$closure)) {
+        value$closure[name] <- NULL
+        value$receiver_name <- name
+    }
+    value
+}
+
+member_write_container <- function(object, field, value, name, index, bindings) {
+    if (!member_plain_container(object) || "$<-" %in% names(bindings)) return(NULL)
+    setter <- member_lookup(index$document_bindings, "$<-")
+    at <- bindings$.__member_position__
+    if ((length(setter) && (is.null(at) || member_history_position(setter, at))) ||
+            (!identical(index$package, "base") && !is.null(member_lookup(index$definitions, "$<-")))) return(NULL)
+    value <- member_write_value(value, name)
+    if (identical(object$type, "environment")) {
+        object$fields[field] <- list(value)
+        return(object)
+    }
+    # A NULL RHS deletes a list element. An opaque RHS might do the same:
+    # keep the certain siblings without promising a field or positional order.
+    if ((!length(value$type) && is.null(value$function_expr) && is.null(value$function_key)) ||
+            (length(value$type) > 1L && "NULL" %in% value$type)) {
+        object$fields <- object$fields[names(object$fields) != field]
+        object$elements <- object$named_elements <- NULL
+        object$open <- TRUE
+    } else if (identical(value$type, "NULL")) {
+        object$fields[[field]] <- NULL
+        if (!is.null(object$elements)) object$elements[[field]] <- NULL
+    } else {
+        object$fields[field] <- list(value)
+        if (!is.null(object$elements)) object$elements[field] <- list(value)
+    }
+    object
+}
+
 member_dataframe_columns <- function(value) {
     "data.frame" %in% value$classes && !is.null(value$fields)
 }
@@ -440,7 +489,8 @@ member_assigned_names <- function(node) {
 # defaults), rather than copying an entire instance into every generated method.
 member_function_closure <- function(expr, bindings) {
     if (!length(bindings)) return(list())
-    internal <- intersect(names(bindings), c(".__member_position__", ".__member_properties__",
+    # A dollar replacement implicitly invokes the lexical `$<-` binding.
+    internal <- intersect(names(bindings), c("$<-", ".__member_position__", ".__member_properties__",
             ".__s4_classes__", ".__s7_package__", ".__s7_constructing__"))
     if (length(internal) == length(bindings)) return(bindings)
     referenced <- setdiff(member_syntax_names(expr), names(expr[[2L]]))
@@ -621,7 +671,13 @@ member_infer <- function(
         if (isTRUE(ctx$r6_initialize)) ctx$r6_initialize <- FALSE
         member_infer(x, index, env, receiver, depth + 1L, trail, budget, ctx)
     }
+    qualified <- NULL
+    if (is.call(expr) && member_head(expr[[1L]], "::") && identical(expr[[1L]][[2L]], as.name("base"))) {
+        target <- member_name(expr[[1L]][[3L]])
+        if (length(target) && target %in% c("list", "data.frame", "new.env")) qualified <- target
+    }
     intrinsic <- function(name) {
+        if (identical(name, qualified)) return(TRUE)
         at <- bindings$.__member_position__
         history <- member_lookup(index$document_bindings, name)
         shadowed <- length(history) && (is.null(at) || member_history_position(history, at) > 0L)
@@ -786,21 +842,28 @@ member_infer <- function(
             lhs <- node[[2L]]
             value <- infer(node[[3L]], env)
             if (is.symbol(lhs)) {
-                env[as.character(lhs)] <- list(value)
+                name <- as.character(lhs)
+                attr(env, "member_aliases") <- member_alias_assignment(attr(env, "member_aliases"), name, node[[3L]])
+                env[name] <- list(value)
             } else if (member_head(lhs, "$") || member_head(lhs, "[[") || member_head(lhs, "@")) {
                 name <- member_name(lhs[[2L]])
                 field <- member_name(lhs[[3L]])
                 object <- member_lookup(env, name)
                 surface <- if (member_head(lhs, "@")) "slots" else "fields"
-                if (!is.null(object[[surface]]) && !is.null(field)) {
+                direct <- member_write_field(lhs)
+                if (!is.null(direct) && member_plain_container(object)) {
+                    reference <- identical(object$type, "environment")
+                    object <- member_write_container(object, direct, value, name, index, env)
+                    if (is.null(object)) object <- unknown
+                    env[name] <- list(object)
+                    if (reference) {
+                        for (alias in member_aliases(attr(env, "member_aliases"), name)) env[alias] <- list(object)
+                    }
+                } else if (!is.null(object[[surface]]) && !is.null(field)) {
                     if (!member_r6_writable(object, field)) {
                         return(list(value = value, env = env, returns = member_value(type = ".never"), falls = TRUE))
                     }
-                    if (!is.null(value$function_expr) && name %in% names(value$closure)) {
-                        value$closure[name] <- NULL
-                        value$receiver_name <- name
-                    }
-                    object[[surface]][field] <- list(value)
+                    object[[surface]][field] <- list(member_write_value(value, name))
                     env <- update_object(env, name, object)
                 } else if (!is.null(name)) {
                     env[name] <- list(unknown)
@@ -1068,7 +1131,7 @@ member_infer <- function(
     if (!is.call(expr)) {
         return(member_literal(expr))
     }
-    head <- member_name(expr[[1L]])
+    head <- if (is.null(qualified)) member_name(expr[[1L]]) else qualified
     if (is.null(head)) head <- ""
     if (member_head(expr, "(")) {
         return(infer(expr[[2L]]))

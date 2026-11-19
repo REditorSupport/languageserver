@@ -83,3 +83,16 @@ test_that("incomplete recovery retains preceding functions aliases and effects",
         list(row = 153L, col = 6L), TRUE, 200L)
     expect_true("alpha" %in% vapply(result, `[[`, character(1L), "label"))
 })
+
+test_that("a dangling member call can be followed by independent declarations", {
+    lines <- c("env$fun(", "", "lst <- list()", "lst$fun <- function(x, y) {",
+        "  x + y", "}", "lst$fun(")
+    items <- member_document_index(lines)$items
+    expect_equal(lapply(items, `[[`, "start"), list(c(2L, 0L), c(3L, 0L)))
+    expect_equal(lapply(items, `[[`, "end"), list(c(2L, 13L), c(5L, 1L)))
+
+    # A valid multiline call may contain assignment expressions as arguments.
+    index <- member_document_index(c("env$fun(", "  lst <- list(),", "  1)", "env$"))
+    expect_length(index$items, 1L)
+    expect_identical(index$items[[1L]]$expr[[1L]], quote(env$fun))
+})

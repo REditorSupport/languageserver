@@ -22,6 +22,83 @@ member_incomplete_packages <- function(content) {
     packages
 }
 
+# Ordered bindings can be built for a document or a workspace source sequence.
+member_index_bindings <- function(items) {
+    bindings <- new.env(hash = TRUE, parent = emptyenv())
+    aliases <- new.env(hash = TRUE, parent = emptyenv())
+    record <- function(name, rhs, item, write = FALSE, field = NULL) {
+        history <- bindings[[name]]
+        last <- length(history)
+        entry <- list(expr = rhs, start = item$start, end = item$end, cache_prefix = item$cache_prefix)
+        if (write) {
+            entry$writer <- name
+            entry$field <- field
+            entry$first_write <- if (last && !is.null(history[[last]]$first_write)) {
+                history[[last]]$first_write
+            } else {
+                last + 1L
+            }
+            # Store a shared write only once, even when the receiver has
+            # many aliases. Each name retains the point where it joined.
+            group <- aliases[[name]]
+            if (!is.null(group)) {
+                group$items[[length(group$items) + 1L]] <- entry
+                entry$aliases <- history[[last]]$aliases
+            }
+        } else {
+            source <- if (is.symbol(rhs)) as.character(rhs)
+            group <- if (length(source) && nzchar(source)) aliases[[source]]
+            if (is.null(group) && length(source) && nzchar(source) && !identical(name, source)) {
+                previous <- bindings[[source]]
+                anchor <- length(previous)
+                if (anchor) {
+                    group <- new.env(parent = emptyenv())
+                    previous[[anchor]]$aliases <- list(group = group, anchor = anchor, skip = 0L)
+                    attr(previous, "member_aliases") <- TRUE
+                    bindings[[source]] <- previous
+                    aliases[[source]] <- group
+                }
+            }
+            if (!is.null(group)) {
+                entry$aliases <- list(group = group, anchor = last + 1L, skip = length(group$items))
+                aliases[[name]] <- group
+            } else if (!is.null(aliases[[name]])) {
+                rm(list = name, envir = aliases)
+            }
+        }
+        history[[last + 1L]] <- entry
+        if (!is.null(entry$aliases)) attr(history, "member_aliases") <- TRUE
+        bindings[[name]] <- history
+    }
+    for (item in items) {
+        expr <- item$expr
+        if (member_head(expr, "<-") || member_head(expr, "=") || member_head(expr, "->") || member_head(expr, ":=")) {
+            lhs <- if (member_head(expr, "->")) expr[[3L]] else expr[[2L]]
+            rhs <- if (member_head(expr, "->")) expr[[2L]] else expr[[3L]]
+            if (member_head(expr, ":=")) rhs <- expr
+            name <- member_name(lhs)
+            if (!is.null(name) && nzchar(name)) {
+                record(name, rhs, item)
+            } else if (is.call(lhs)) {
+                root <- lhs
+                while (is.call(root) && length(root) >= 2L) root <- root[[2L]]
+                name <- member_name(root)
+                if (!is.null(name) && nzchar(name)) {
+                    field <- if (!member_head(expr, ":=")) member_write_field(lhs)
+                    record(name, if (is.null(field)) quote(.__unknown_mutation__) else rhs, item,
+                        write = TRUE, field = field)
+                }
+            }
+        } else if (is.call(expr)) {
+            for (name in member_assigned_names(expr)) {
+                record(name, quote(.__unknown_branch_write__), item, write = TRUE)
+                if (!is.null(aliases[[name]])) rm(list = name, envir = aliases)
+            }
+        }
+    }
+    as.list(bindings)
+}
+
 member_document_index <- function(content, parsed = NULL, syntax = NULL) {
     complete <- !is.null(parsed)
     recovered_packages <- character()
@@ -84,8 +161,19 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL) {
                 if (grepl("unexpected end of input", message)) {
                     recovered_packages <- union(recovered_packages, member_incomplete_packages(text))
                 }
-                # Discard an invalid single line but retain incomplete calls.
-                if (!grepl("unexpected end of input|INCOMPLETE_STRING", message)) start <- end + 1L
+                if (!grepl("unexpected end of input|INCOMPLETE_STRING", message)) {
+                    # An unfinished member call can absorb the next assignment
+                    # as its first argument. Once the following statement makes
+                    # that parse impossible, retry after the dangling opener.
+                    if (end > start && endsWith(trimws(text[[1L]]), "(")) {
+                        call <- tryCatch(str2lang(paste0(text[[1L]], ")")), error = function(e) NULL)
+                        if (is.call(call) && length(call) == 1L && member_head(call[[1L]], "$")) {
+                            start <- end <- start + 1L
+                            next
+                        }
+                    }
+                    start <- end + 1L
+                }
                 end <- end + 1L
                 next
             }
@@ -94,7 +182,6 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL) {
             end <- end + 1L
         }
     }
-    bindings <- new.env(hash = TRUE, parent = emptyenv())
     s4 <- list()
     imports <- list()
     effects <- list()
@@ -136,38 +223,14 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL) {
                 s4[[class]] <- c(s4[[class]], list(item))
             }
         }
-        if (member_head(expr, "<-") || member_head(expr, "=") || member_head(expr, "->") || member_head(expr, ":=")) {
-            lhs <- if (member_head(expr, "->")) expr[[3L]] else expr[[2L]]
-            rhs <- if (member_head(expr, "->")) expr[[2L]] else expr[[3L]]
-            if (member_head(expr, ":=")) rhs <- expr
-            name <- member_name(lhs)
-            if (is.null(name) && is.call(lhs)) {
-                name <- member_name(lhs[[2L]])
-                rhs <- quote(.__unknown_mutation__)
-            }
-            if (!is.null(name) && nzchar(name)) {
-                history <- get0(name, bindings, inherits = FALSE, ifnotfound = list())
-                history[[length(history) + 1L]] <- list(expr = rhs, start = item$start, end = item$end,
-                    cache_prefix = prefix)
-                assign(name, history, bindings)
-            }
-        }
         if (member_head(expr, "library") || member_head(expr, "require")) imports[[length(imports) + 1L]] <- item
         if (is.call(expr) && !member_head(expr, "<-") && !member_head(expr, "=") &&
                 !member_head(expr, "->") && !member_head(expr, ":=")) {
-            for (name in member_assigned_names(expr)) {
-                history <- get0(name, bindings, inherits = FALSE, ifnotfound = list())
-                history[[length(history) + 1L]] <- list(
-                    expr = quote(.__unknown_branch_write__),
-                    start = item$start, end = item$end, cache_prefix = prefix
-                )
-                assign(name, history, bindings)
-            }
             effects[[length(effects) + 1L]] <- item
         }
     }
     source_bytes <- if (complete) member_compact_source(parsed, parts) else 0
-    list(items = items, bindings = as.list(bindings), imports = imports, effects = effects, s4 = s4,
+    list(items = items, bindings = member_index_bindings(items), imports = imports, effects = effects, s4 = s4,
         content_key = digest::digest(content, algo = "xxhash64"),
         source_bytes = source_bytes,
         packages = packages, class_scope = class_scope, symbol_scope = symbol_scope,
@@ -374,16 +437,21 @@ member_context_index <- function(workspace, uri, document, at, parsed = NULL,
     # Follow a bounded set of referenced assignments (q may have a package
     # receiver several aliases back). Do this before choosing an extractor.
     seen <- character()
-    for (pass in seq_len(16L)) {
+    if (!is.null(metadata)) for (pass in seq_len(16L)) {
         pending <- setdiff(unique(referenced), seen)
         if (!length(pending) || length(seen) > 256L) break
         seen <- c(seen, pending)
         for (name in pending) {
-            history <- document$parse_data$member_data$bindings[[name]]
+            history <- member_history_at(document$parse_data$member_data$bindings[[name]], at)
             # A dangling $ can make the following assignment parse as a
             # member write. Later bindings must not hide the receiver's package.
             position <- member_history_position(history, at)
-            if (position) referenced <- union(referenced, member_syntax_names(history[[position]]$expr))
+            if (position) {
+                first <- history[[position]]$first_write
+                relevant <- if (is.null(first)) position else unique(c(max(1L, first - 1L),
+                        seq.int(first, min(position, first + 255L)), position))
+                for (i in relevant) referenced <- union(referenced, member_syntax_names(history[[i]]$expr))
+            }
         }
     }
     index <- member_generic_index("")
@@ -501,6 +569,7 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
     history <- index$document_bindings[[name]]
     at <- bindings$.__member_position__
     if (is.null(at)) at <- c(Inf, Inf)
+    history <- member_history_at(history, at)
     position <- member_history_position(history, at)
     if (!position) {
         return(if (is.null(index$attached_roots[[name]])) {
@@ -510,7 +579,7 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
         })
     }
     item <- history[[position]]
-    id <- paste0("binding:", name, ":", position)
+    id <- paste(c("binding", name, item$end), collapse = ":")
     if (id %in% trail) {
         return(member_value(reason = "binding_cycle"))
     }
@@ -538,10 +607,28 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
         if (is.null(bound)) return(member_resolve_document(name, index, env, budget, depth + 1L, c(trail, id)))
         expr <- bound[[3L]]
     }
-    value <- member_infer(expr, index, env,
-        depth = depth + 1L,
-        trail = c(trail, id), budget = budget
-    )
+    if (is.null(item$first_write)) {
+        value <- member_infer(expr, index, env, depth = depth + 1L, trail = c(trail, id), budget = budget)
+    } else {
+        first <- item$first_write
+        env$.__member_position__ <- history[[first]]$start
+        value <- member_resolve_document(name, index, env, budget, depth + 1L, c(trail, id))
+        for (i in seq.int(first, position)) {
+            write <- history[[i]]
+            if (!identical(name, write$writer) && identical(value$type, "list")) next
+            if (is.null(write$field) || !member_plain_container(value)) {
+                value <- member_value(reason = "unknown_mutation")
+                break
+            }
+            env$.__member_position__ <- write$start
+            env[write$writer] <- list(value)
+            rhs <- member_infer(write$expr, index, env, depth = depth + 1L, trail = c(trail, id), budget = budget)
+            if (isTRUE(budget$exhausted)) return(member_value(reason = "budget"))
+            value <- member_write_container(value, write$field, rhs, write$writer, index, env)
+            if (is.null(value)) return(member_value(reason = "unknown_mutation"))
+            env[write$writer] <- NULL
+        }
+    }
     cached <- if (memo) member_receiver_cache_value(value, index, budget) else NULL
     if (!is.null(cached)) {
         index$document_cache[[memo_key]] <- cached
@@ -653,7 +740,7 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
                     if ((member_head(child, "<-") || member_head(child, "=")) && is.symbol(child[[2L]])) {
                         assigned <- as.character(child[[2L]])
                         declaration <- any(member_syntax_names(child[[3L]]) %in% c("setClass", "setClassUnion"))
-                        dispatch <- startsWith(assigned, "$.") || startsWith(assigned, "[[.")
+                        dispatch <- identical(assigned, "$<-") || startsWith(assigned, "$.") || startsWith(assigned, "[[.")
                         if (!assigned %in% needed && !declaration && !dispatch) {
                             keep[[i]] <- FALSE
                         } else {
@@ -684,6 +771,7 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
                 preserved <- character()
                 if ((member_head(child, "<-") || member_head(child, "=")) && is.symbol(child[[2L]])) {
                     assigned <- as.character(child[[2L]])
+                    attr(env, "member_aliases") <- member_alias_assignment(attr(env, "member_aliases"), assigned, child[[3L]])
                     env[assigned] <- list(if (member_head(child[[3L]], "function")) {
                         member_infer(child[[3L]], index, env, budget = budget)
                     } else {
@@ -692,8 +780,27 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
                     })
                 } else {
                     assigned <- if (!is.null(summary)) summary$writes[[i]] else member_assigned_names(child)
+                    lhs <- if (member_head(child, "<-") || member_head(child, "=")) child[[2L]]
+                    field <- member_write_field(lhs)
                     for (name in assigned) {
-                        value <- member_r6_local_write(child, name, member_lookup(env, name), index, budget)
+                        value <- NULL
+                        old <- member_lookup(env, name)
+                        aliases <- member_aliases(attr(env, "member_aliases"), name)
+                        direct <- !is.null(field) && identical(name, member_name(lhs[[2L]]))
+                        if (direct || length(aliases)) {
+                            object <- member_infer(as.name(name), index, env, budget = budget)
+                            if (direct) {
+                                value <- member_write_container(object, field,
+                                    member_infer(child[[3L]], index, env, budget = budget), name, index, env)
+                            }
+                            if (identical(object$type, "environment") && member_plain_container(object)) {
+                                for (alias in aliases) {
+                                    env[alias] <- list(if (is.null(value)) member_value(reason = "unknown_local_write") else value)
+                                    lookup[[alias]] <- env[[alias]]
+                                }
+                            }
+                        }
+                        if (is.null(value)) value <- member_r6_local_write(child, name, old, index, budget)
                         env[name] <- list(if (is.null(value)) member_value(reason = "unknown_local_write") else value)
                         if (!is.null(value)) preserved <- c(preserved, name)
                     }
