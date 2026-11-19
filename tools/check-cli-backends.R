@@ -77,7 +77,9 @@ check_cli_backends <- function() {
     writeLines(c("[lint]", 'ignore = ["any_is_na"]'), file.path(nested, "jarl.toml"))
     wait(function() state$publications >= 3L && length(state$diagnostics) == 0L)
     request("shutdown", NULL)
+    client$deliver(namespace$Notification$new("exit"))
     client$process$wait(5000)
+    stopifnot(!client$process$is_alive(), identical(client$process$get_exit_status(), 0L))
     cat("Pinned CLI contracts: stdin, configuration, Unicode, formatting and idle LSP refresh passed.\n")
 }
 
