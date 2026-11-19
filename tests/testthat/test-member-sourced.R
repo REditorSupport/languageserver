@@ -95,7 +95,7 @@ test_that("first member definition loads the current closed source after incompl
     uri <- path_to_uri(main)
     client <- language_client(root)
     notify(client, "textDocument/didOpen", list(textDocument = list(uri = uri,
-            languageId = "r", version = 1L, text = paste(lines, collapse = "\n"))))
+                languageId = "r", version = 1L, text = paste(lines, collapse = "\n"))))
     first_definition <- function() respond_definition(client, main, c(1L, 5L), retry = FALSE)
     expect_identical(first_definition()$uri, path_to_uri(api))
     edit <- function(line, version) {

@@ -91,6 +91,16 @@ test_that("a dangling member call can be followed by independent declarations", 
     expect_equal(lapply(items, `[[`, "start"), list(c(2L, 0L), c(3L, 0L)))
     expect_equal(lapply(items, `[[`, "end"), list(c(2L, 13L), c(5L, 1L)))
 
+    fixture <- provider_fixture(c("env <- new.env()", "env$fun <- function(a, b) a + b", lines))
+    for (row in c(2L, 8L)) {
+        point <- list(row = row, col = 8L)
+        signature <- signature_reply(1L, fixture$uri, fixture$workspace, fixture$document, point)$result
+        expect_identical(signature$signatures[[1L]]$label, if (row == 2L) "fun(a, b)" else "fun(x, y)")
+        point$col <- 5L
+        target <- definition_reply(1L, fixture$uri, fixture$workspace, fixture$document, point)$result
+        expect_identical(target$range$start$line, if (row == 2L) 1L else 5L)
+    }
+
     # A valid multiline call may contain assignment expressions as arguments.
     index <- member_document_index(c("env$fun(", "  lst <- list(),", "  1)", "env$"))
     expect_length(index$items, 1L)
