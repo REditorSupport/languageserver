@@ -613,8 +613,9 @@ normalize_parse_content <- function(content, is_rmarkdown = FALSE,
     if (length(content) == 0) {
         content <- ""
     }
-    # replace tab with a space since the width of a tab is 1 in LSP but 8 in getParseData().
-    gsub("\t", " ", content, fixed = TRUE)
+    # Parser columns must count Unicode code points and tabs at their physical
+    # width. R can report byte columns for unmarked native-encoding strings.
+    enc2utf8(gsub("\t", " ", content, fixed = TRUE))
 }
 
 get_content_hash <- function(content) {
@@ -716,7 +717,7 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
         env$syntax_data <- syntax_parse_data(data)
         env$outline_data <- outline_parse_data(env$syntax_data)
         env$navigation_data <- navigation_parse_data(env$syntax_data)
-        env$member_data <- member_document_index(content, expr, data)
+        env$member_data <- member_document_index(content, expr, data, uri, env$syntax_data)
         env$completion_data <- completion_parse_data(data, env$syntax_data)
         env$semantic_data <- semantic_parse_data(data, content, env$syntax_data)
         env$range_data <- range_provider_parse_data(data, content, env$syntax_data)
@@ -741,7 +742,7 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
         # Keep the parse version current even while the user is typing an
         # incomplete expression. Providers can now return an empty result
         # instead of leaving requests queued until some later valid version.
-        env$member_data <- member_document_index(content)
+        env$member_data <- member_document_index(content, uri = uri)
         env$parse_error <- TRUE
         env$xml_data <- paste0(
             "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\" ?>\n",
@@ -893,6 +894,13 @@ drain_pending_replies <- function(self, uri, version, max_replies = Inf, first =
         if (!queue$size()) return(FALSE)
         item <- queue$peek()
         if (!is.null(version) && !is.null(item$version) && item$version > version) return(FALSE)
+        if (identical(method, "textDocument/definition") && !is.null(document) &&
+                identical(item$version, document$version)) {
+            point <- document$from_lsp_position(item$params$position)
+            return(identical(document$version, document$parse_data$version) &&
+                    !index_context_waiting(self, self$get_workspace(uri), document, point, hover = TRUE) &&
+                    !member_metadata_waiting(self, uri, document, point))
+        }
         if (!is.null(document) && identical(item$version, document$version) &&
                 method %in% c("textDocument/completion", "textDocument/hover", "textDocument/signatureHelp")) {
             point <- document$from_lsp_position(item$params$position)

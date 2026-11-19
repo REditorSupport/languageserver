@@ -26,13 +26,14 @@ member_incomplete_packages <- function(content) {
 member_index_bindings <- function(items) {
     bindings <- new.env(hash = TRUE, parent = emptyenv())
     aliases <- new.env(hash = TRUE, parent = emptyenv())
-    record <- function(name, rhs, item, write = FALSE, field = NULL) {
+    record <- function(name, rhs, item, write = FALSE, field = NULL, origin = NULL) {
         history <- bindings[[name]]
         last <- length(history)
         entry <- list(expr = rhs, start = item$start, end = item$end, cache_prefix = item$cache_prefix)
         if (write) {
             entry$writer <- name
             entry$field <- field
+            entry$origin <- origin
             entry$first_write <- if (last && !is.null(history[[last]]$first_write)) {
                 history[[last]]$first_write
             } else {
@@ -86,7 +87,7 @@ member_index_bindings <- function(items) {
                 if (!is.null(name) && nzchar(name)) {
                     field <- if (!member_head(expr, ":=")) member_write_field(lhs)
                     record(name, if (is.null(field)) quote(.__unknown_mutation__) else rhs, item,
-                        write = TRUE, field = field)
+                        write = TRUE, field = field, origin = attr(lhs, "member_origin", exact = TRUE))
                 }
             }
         } else if (is.call(expr)) {
@@ -99,7 +100,7 @@ member_index_bindings <- function(items) {
     as.list(bindings)
 }
 
-member_document_index <- function(content, parsed = NULL, syntax = NULL) {
+member_document_index <- function(content, parsed = NULL, syntax = NULL, uri = NULL, tree = NULL) {
     complete <- !is.null(parsed)
     recovered_packages <- character()
     items <- list()
@@ -107,6 +108,7 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL) {
         items[[length(items) + 1L]] <<- list(expr = expr, start = start, end = end)
     }
     if (!is.null(parsed)) {
+        parsed <- member_source_origins(parsed, syntax, uri, syntax = tree)
         refs <- attr(parsed, "srcref")
         for (i in seq_along(parsed)) {
             ref <- refs[[i]]
@@ -119,6 +121,7 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL) {
         end <- 1L
         batch_end <- 0L
         append_parsed <- function(parsed, start) {
+            parsed <- member_source_origins(parsed, NULL, uri, row_offset = start - 1L)
             refs <- attr(parsed, "srcref")
             for (i in seq_along(parsed)) {
                 ref <- refs[[i]]
@@ -343,6 +346,7 @@ member_recover <- function(document, point, cursor, data) {
             )
         }
     }
+    skipped_columns <- nchar(content[[start + 1L]]) - nchar(lines[[1L]])
     if (sum(nchar(lines, type = "bytes")) > 65536L || any(grepl(sentinel, lines, fixed = TRUE))) {
         return(NULL)
     }
@@ -350,13 +354,15 @@ member_recover <- function(document, point, cursor, data) {
         local <- lines[seq.int(skip, length(lines))]
         local[[length(local)]] <- paste0(local[[length(local)]], sentinel)
         closers <- missing_closing_delimiters(local)
-        parsed <- tryCatch(str2expression(paste0(paste(local, collapse = "\n"), closers)), error = function(e) NULL)
+        parsed <- tryCatch(member_parse_recovered(paste0(paste(local, collapse = "\n"), closers),
+                document$uri, start + skip - 1L, if (skip == 1L) skipped_columns else 0L), error = function(e) NULL)
         if (is.null(parsed) && !is.null(cursor$accessor) && any(grepl("|>", local, fixed = TRUE))) {
             # Native pipes require a call on the RHS. The cursor sentinel is
             # a callee here; its synthetic arguments are never evaluated.
             local[[length(local)]] <- paste0(local[[length(local)]], "()")
             closers <- missing_closing_delimiters(local)
-            parsed <- tryCatch(str2expression(paste0(paste(local, collapse = "\n"), closers)), error = function(e) NULL)
+            parsed <- tryCatch(member_parse_recovered(paste0(paste(local, collapse = "\n"), closers),
+                    document$uri, start + skip - 1L, if (skip == 1L) skipped_columns else 0L), error = function(e) NULL)
         }
         if (is.null(parsed)) next
         found <- FALSE
@@ -418,11 +424,18 @@ member_recover_context <- function(document, content, point, cursor, start, colu
     full <- content[seq.int(start + 1L, last + 1L)]
     offset <- point$row - start + 1L
     full[[offset]] <- paste0(cursor$before, sentinel, substring(document$line0(point$row), cursor$end + 1L))
-    if (column > 0L) full[[1L]] <- sub("^[ \\t]*;[ \\t]*", "", substring(full[[1L]], column + 1L))
+    skipped_columns <- 0L
+    if (column > 0L) {
+        original <- full[[1L]]
+        full[[1L]] <- sub("^[ \\t]*;[ \\t]*", "", substring(original, column + 1L))
+        skipped_columns <- nchar(original) - nchar(full[[1L]])
+    }
+    edit <- list(row = point$row, start = cursor$start, end = cursor$end, inserted = nchar(sentinel))
     for (end in seq.int(offset, length(full))) {
         lines <- full[seq_len(end)]
         if (sum(nchar(lines, type = "bytes")) > 65536L) break
-        context <- tryCatch(str2expression(lines), error = function(e) NULL)
+        context <- tryCatch(member_parse_recovered(lines, document$uri, start, skipped_columns, edit),
+            error = function(e) NULL)
         if (!is.null(context)) return(context)
     }
     NULL
@@ -588,7 +601,7 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
     memo <- !is.null(index$document_cache) && !length(setdiff(names(bindings), ".__member_position__"))
     memo_key <- paste(index$package, index$document_context_key, id, paste(at, collapse = ":"), sep = ":")
     if (memo && exists(memo_key, index$document_cache, inherits = FALSE)) return(index$document_cache[[memo_key]])
-    cache <- index$document_binding_cache
+    cache <- if (is.null(budget$origin_name)) index$document_binding_cache
     persistent_key <- if (memo && !is.null(cache) && !is.null(item$cache_prefix) &&
             !member_head(item$expr, "function")) {
         paste(index$package, index$document_context_key, id, item$cache_prefix, sep = ":")
@@ -624,7 +637,8 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
             env[write$writer] <- list(value)
             rhs <- member_infer(write$expr, index, env, depth = depth + 1L, trail = c(trail, id), budget = budget)
             if (isTRUE(budget$exhausted)) return(member_value(reason = "budget"))
-            value <- member_write_container(value, write$field, rhs, write$writer, index, env)
+            value <- member_write_container(value, write$field, rhs, write$writer,
+                if (identical(budget$origin_name, write$field)) write$origin, index, env)
             if (is.null(value)) return(member_value(reason = "unknown_mutation"))
             env[write$writer] <- NULL
         }
@@ -791,7 +805,8 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
                             object <- member_infer(as.name(name), index, env, budget = budget)
                             if (direct) {
                                 value <- member_write_container(object, field,
-                                    member_infer(child[[3L]], index, env, budget = budget), name, index, env)
+                                    member_infer(child[[3L]], index, env, budget = budget), name,
+                                    if (identical(budget$origin_name, field)) attr(lhs, "member_origin", exact = TRUE), index, env)
                             }
                             if (identical(object$type, "environment") && member_plain_container(object)) {
                                 for (alias in aliases) {
@@ -860,7 +875,9 @@ member_recover_scope <- function(document, point, cursor, data) {
             if (point$row == ref[[3L]] - 1L) end <- end + nchar(sentinel) - (cursor$end - cursor$start)
             lines[[length(lines)]] <- substr(lines[[length(lines)]], 1L, end)
             lines[[1L]] <- substring(lines[[1L]], ref[[5L]])
-            parsed <- tryCatch(str2expression(lines), error = function(e) NULL)
+            edit <- list(row = point$row, start = cursor$start, end = cursor$end, inserted = nchar(sentinel))
+            parsed <- tryCatch(member_parse_recovered(lines, document$uri, ref[[1L]] - 1L, ref[[5L]] - 1L, edit),
+                error = function(e) NULL)
             if (length(parsed) == 1L) {
                 local_path <- member_cursor_path(parsed[[1L]], sentinel, cursor$accessor)
                 if (!is.null(local_path)) {
@@ -982,7 +999,7 @@ member_recover_scope <- function(document, point, cursor, data) {
     member_recover(document, point, cursor, data)
 }
 
-member_resolve_cursor <- function(uri, workspace, document, point, cursor, name = NULL) {
+member_resolve_cursor <- function(uri, workspace, document, point, cursor, name = NULL, origins = FALSE) {
     if (!identical(document$version, document$parse_data$version) &&
             !is.null(document$parse_data$version)) {
         return(NULL)
@@ -995,6 +1012,9 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
         return(NULL)
     }
     budget <- member_request_budget()
+    # Provenance is relevant only to this member definition request. Other
+    # fields can have identical shapes even when declared on different lines.
+    if (origins) budget$origin_name <- name
     metadata <- workspace$member_metadata
     cache <- document$member_receivers
     revision <- member_document_cache_revision(document, metadata)
@@ -1002,6 +1022,7 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
     # after it. Edits and accepted parses clear this document-local cache.
     key <- paste(point$row, cursor$start, cursor$end, cursor$operator_row,
         cursor$operator, cursor$accessor, if (is.null(cursor$accessor)) name, sep = ":")
+    if (origins) key <- paste("definition", name, key, sep = ":")
     cached <- if (!is.null(revision)) cache$get(key) else NULL
     if (!is.null(cached)) {
         cached <- unserialize(cached)

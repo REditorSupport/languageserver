@@ -282,7 +282,7 @@ settings | default | description
 `r.lsp.completion_label_details` | `false` | show inline function signatures and value/type tips for members and ordinary symbols when supported by the editor; selected-item details remain available
 `r.lsp.max_completions` | 200 | maximum number of completion items
 `r.lsp.s3_dispatch` | `true` | use static S3 dispatch for argument completion, hover and signature help, independently of member completion
-`r.lsp.member_completion` | `true` | infer `$` members and S4 `@` slots for completion, signature help and hover from document syntax and cached package metadata without executing document code
+`r.lsp.member_completion` | `true` | infer `$` members and S4 `@` slots for completion, signature help and hover, suggest named arguments for member calls, and go to member definitions with a known source location
 `r.lsp.lint_cache` | `false` | toggle caching of lint results
 `r.lsp.parse_delay` | `0.15` | seconds to debounce parsing after an edit
 `r.lsp.diagnostics_delay` | `0.75` | seconds to debounce diagnostics after the current parse

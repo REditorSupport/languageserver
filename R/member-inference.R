@@ -173,6 +173,9 @@ member_join <- function(a, b) {
     if (identical(b$type, ".never")) {
         return(a)
     }
+    # Two branches can establish the same value at different declarations.
+    # Preserve an agreed signature or shape without selecting either source.
+    if (!identical(a$origin, b$origin)) a$origin <- b$origin <- NULL
     # Compacted snapshots and source values can omit different optional NULLs.
     if (identical(a, b) || (isTRUE(a$known_literal) && isTRUE(b$known_literal) &&
                 identical(a[!vapply(a, is.null, logical(1L))], b[!vapply(b, is.null, logical(1L))]))) {
@@ -290,7 +293,8 @@ member_plain_container <- function(object) {
         is.null(object$member_package) && is.null(object$reason) && !isTRUE(object$default_dollar)
 }
 
-member_write_value <- function(value, name) {
+member_write_value <- function(value, name, origin) {
+    if (!is.null(origin)) value$origin <- origin
     if (!is.null(value$function_expr) && name %in% names(value$closure)) {
         value$closure[name] <- NULL
         value$receiver_name <- name
@@ -298,13 +302,13 @@ member_write_value <- function(value, name) {
     value
 }
 
-member_write_container <- function(object, field, value, name, index, bindings) {
+member_write_container <- function(object, field, value, name, origin, index, bindings) {
     if (!member_plain_container(object) || "$<-" %in% names(bindings)) return(NULL)
     setter <- member_lookup(index$document_bindings, "$<-")
     at <- bindings$.__member_position__
     if ((length(setter) && (is.null(at) || member_history_position(setter, at))) ||
             (!identical(index$package, "base") && !is.null(member_lookup(index$definitions, "$<-")))) return(NULL)
-    value <- member_write_value(value, name)
+    value <- member_write_value(value, name, origin)
     if (identical(object$type, "environment")) {
         object$fields[field] <- list(value)
         return(object)
@@ -379,6 +383,11 @@ member_possible_receiver <- function(value, index, bindings = list(), accessor =
         if (length(unique(owners)) > 1L || !all(vapply(sets, function(set) identical(set[[name]], sets[[1L]][[name]]), logical(1L)))) {
             return(TRUE)
         }
+        origins <- lapply(candidates, function(candidate) {
+            fields <- if (identical(accessor, "@")) candidate$slots else candidate$fields
+            member_lookup(fields, name)$origin
+        })
+        if (!all(vapply(origins, identical, logical(1L), origins[[1L]]))) return(TRUE)
         if (all(vapply(sets, function(set) is.na(set[[name]]), logical(1L)))) {
             fields <- lapply(candidates, function(candidate) {
                 if (identical(accessor, "@")) member_slot(candidate, name, index, bindings) else
@@ -458,8 +467,8 @@ member_cacheable <- function(value, depth = 0L) {
     if (is.null(value)) {
         return(TRUE)
     }
-    if (depth > 4L || isTRUE(value$open) || length(value$possible_returns) || !is.null(value$function_expr) || !is.null(value$closure) ||
-        !is.null(value$binding_expr)) {
+    if (depth > 4L || !is.null(value$origin) || isTRUE(value$open) || length(value$possible_returns) || !is.null(value$function_expr) || !is.null(value$closure) ||
+            !is.null(value$binding_expr)) {
         return(FALSE)
     }
     if (value$known_literal && length(value$literal) > 8L) {
@@ -602,7 +611,7 @@ member_access <- function(lhs, name, index, bindings) {
         }
         if (!is.null(value$function_key)) value$receiver_value <- lhs
         if (length(value$type) || !is.null(value$function_expr) || !is.null(value$function_key) ||
-                !is.null(value$r6_owner)) {
+                !is.null(value$r6_owner) || !is.null(value$origin)) {
             return(value)
         }
     }
@@ -853,7 +862,8 @@ member_infer <- function(
                 direct <- member_write_field(lhs)
                 if (!is.null(direct) && member_plain_container(object)) {
                     reference <- identical(object$type, "environment")
-                    object <- member_write_container(object, direct, value, name, index, env)
+                    object <- member_write_container(object, direct, value, name,
+                        if (identical(budget$origin_name, direct)) attr(lhs, "member_origin", exact = TRUE), index, env)
                     if (is.null(object)) object <- unknown
                     env[name] <- list(object)
                     if (reference) {
@@ -863,7 +873,7 @@ member_infer <- function(
                     if (!member_r6_writable(object, field)) {
                         return(list(value = value, env = env, returns = member_value(type = ".never"), falls = TRUE))
                     }
-                    object[[surface]][field] <- list(member_write_value(value, name))
+                    object[[surface]][field] <- list(member_write_value(value, name, NULL))
                     env <- update_object(env, name, object)
                 } else if (!is.null(name)) {
                     env[name] <- list(unknown)
@@ -992,7 +1002,7 @@ member_infer <- function(
         # Package syntax and captures are immutable. A cached invocation has
         # already passed matching; look it up before defaults and delegation.
         cache_values <- c(list(self), actuals)
-        cache_key <- if (!is.null(key) && !isTRUE(attr(actuals, "member_open_dots")) &&
+        cache_key <- if (is.null(budget$origin_name) && !is.null(key) && !isTRUE(attr(actuals, "member_open_dots")) &&
                 all(vapply(cache_values, member_cacheable, logical(1L)))) {
             digest::digest(list(key, lapply(cache_values, member_shape_key), dispatch), algo = "xxhash64")
         } else {
@@ -1331,6 +1341,13 @@ member_infer <- function(
     for (i in seq_along(args)) {
         actuals[[i]] <- if (identical(unname(args[i]), list(quote(expr = )))) member_value(type = ".missing") else infer(args[[i]])
         if (isTRUE(budget$exhausted)) return(member_value(reason = "budget"))
+    }
+    origins <- if (!is.null(budget$origin_name)) attr(expr, "member_origins", exact = TRUE)
+    if (length(origins) && head %in% c("list", "list2", "data.frame") && intrinsic(head)) {
+        for (i in which(names(args) == budget$origin_name)) {
+            source <- origins[[as.character(i)]]
+            if (!is.null(source)) actuals[[i]]$origin <- source
+        }
     }
     # Expand syntactic dots from a known argument list without evaluating it.
     open_dots <- FALSE

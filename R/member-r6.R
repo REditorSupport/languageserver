@@ -54,6 +54,10 @@ member_r6_shape <- function(expr, index, bindings, budget, depth = 0L, trail = c
         values <- as.list(node)[-1L]
         for (name in names(values)) {
             value <- infer(values[[name]])
+            if (identical(budget$origin_name, name)) {
+                origin <- attr(node, "member_origins", exact = TRUE)[[as.character(match(name, names(values)))]]
+                if (!is.null(origin)) value$origin <- origin
+            }
             value$r6_owner <- class
             value$r6_member_kind <- paste(section,
                 if (!is.null(value$function_expr) || "function" %in% value$type) "method" else "field")
@@ -79,6 +83,9 @@ member_r6_shape <- function(expr, index, bindings, budget, depth = 0L, trail = c
     if (member_head(active, "list")) {
         for (name in names(as.list(active)[-1L])) {
             value <- member_value(reason = "active_property")
+            if (identical(budget$origin_name, name)) {
+                value$origin <- attr(active, "member_origins", exact = TRUE)[[as.character(match(name, names(active)[-1L]))]]
+            }
             value$r6_owner <- class
             value$r6_member_kind <- "active binding"
             fields[name] <- list(value)

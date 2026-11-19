@@ -288,7 +288,7 @@ references_reply <- function(id, uri, workspace, document, point,
     if (!nzchar(token$token) || !check_scope(uri, document, point)) {
         return(Response$new(id, result = list()))
     }
-    defn <- definition_reply(NULL, uri, workspace, document, point)
+    defn <- symbol_definition_reply(NULL, uri, workspace, document, point)
 
     logger$info("references_reply: ", list(
         uri = uri,
@@ -356,7 +356,7 @@ references_reply <- function(id, uri, workspace, document, point,
                     if (is_declaration) next
                 }
                 symbol_point <- list(row = line1[[i]] - 1, col = col1[[i]])
-                symbol_defn <- definition_reply(
+                symbol_defn <- symbol_definition_reply(
                     NULL, doc_uri, workspace, doc, symbol_point,
                     context_uri = uri)
                 if (identical(symbol_defn$result, defn$result)) {
