@@ -84,11 +84,12 @@ on_initialized <- function(self, params) {
 #' Handler to the `shutdown` [Request].
 #' @noRd
 on_shutdown <- function(self, id, params) {
+    self$shutdown_requested <- TRUE
     if (is.function(self$end_workspace_progress)) {
         for (workspace in self$workspaces$values()) self$end_workspace_progress(workspace, "Server stopped")
     }
     if (!is.null(self$text_document_content)) self$text_document_content$clear()
-    self$exit_flag <- TRUE
+    if (is.function(self$stop_task_managers)) self$stop_task_managers()
     self$deliver(Response$new(id = id, result = NULL))
 }
 

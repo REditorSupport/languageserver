@@ -36,7 +36,8 @@ response_retry_fixture <- function(ready_after = 1L, response_delay = 0) {
         }
         state$now <- state$now + response_delay
         list(id = state$request$id, error = state$error,
-            result = list(label = if (state$attempts >= ready_after) "ready" else "fallback"))
+            result = if (state$request$method == "shutdown") NULL else
+                list(label = if (state$attempts >= ready_after) "ready" else "fallback"))
     }
     client$handle_raw <- function(response) {
         callback <- client$request_callbacks$get(request_id_key(response$id))
@@ -108,14 +109,21 @@ test_that("Timeouts and polling errors remove only the active request callback",
     expect_identical(unlist(failed$client$request_callbacks$keys(), use.names = FALSE), request_id_key("1"))
 })
 
-test_that("Non-retrying requests and shutdown retain their original behavior", {
+test_that("Non-retrying requests return their first response", {
     fixture <- response_retry_fixture(ready_after = Inf)
     expect_identical(fixture$respond(fixture$client, "signatureHelp", params = NULL, timeout = 1,
             retry = FALSE), list(label = "fallback"))
     expect_identical(fixture$state$attempts, 1L)
     expect_length(fixture$state$failures, 0L)
-    shutdown <- response_retry_fixture()
-    expect_null(shutdown$respond(shutdown$client, "shutdown", params = NULL, timeout = 1))
-    expect_length(shutdown$state$timeouts, 0L)
+})
+
+test_that("Shutdown waits for its null response without retrying", {
+    shutdown <- response_retry_fixture(response_delay = 0.25)
+    expect_null(shutdown$respond(shutdown$client, "shutdown", params = NULL, timeout = 1,
+            retry_when = function(result) TRUE))
+    expect_identical(shutdown$state$attempts, 1L)
+    expect_identical(shutdown$state$timeouts, 1)
+    expect_equal(as.numeric(difftime(shutdown$state$now, shutdown$state$started, units = "secs")), 0.25)
+    expect_length(shutdown$state$failures, 0L)
     expect_identical(unlist(shutdown$client$request_callbacks$keys(), use.names = FALSE), request_id_key("1"))
 })

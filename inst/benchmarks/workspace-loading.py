@@ -149,6 +149,7 @@ try:
         cached=args.cached, package=args.package, first_ms=round(timings[0], 3),
         median_ms=round(statistics.median(timings), 3), max_ms=round(max(timings), 3))), flush=True)
     receive(send('shutdown'))
+    send('exit', notification=True)
     process.wait(timeout=10)
     if process.returncode:
         raise RuntimeError(f'Server exited with status {process.returncode}')

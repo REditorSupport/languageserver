@@ -165,7 +165,9 @@ check_minimal_install <- function(source_path = ".") {
     wait(function() length(state$messages) > 0)
     stopifnot(grepl("lintr", state$messages[[1L]]))
     stopifnot(is.null(request("shutdown", NULL)$error))
+    client$deliver(namespace$Notification$new("exit"))
     client$process$wait(5000)
+    stopifnot(!client$process$is_alive(), identical(client$process$get_exit_status(), 0L))
     cat(paste0("Minimal installation: fresh install without roxygen2/pkgload, documentation cache fallback, ",
             "local completion/hover/signatures, installed-package help and missing-backend errors passed.\n"))
 }

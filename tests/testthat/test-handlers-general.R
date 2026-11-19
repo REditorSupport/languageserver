@@ -8,7 +8,7 @@ test_that("session headers redact credential variables while retaining useful se
     expect_identical(environment[["GITHUB_PAT"]], "sample-pat")
 })
 
-test_that("shutdown responds with a null result", {
+test_that("shutdown responds with a null result without requesting exit", {
     self <- new.env(parent = baseenv())
     self$exit_flag <- FALSE
     self$deliveries <- list()
@@ -18,7 +18,8 @@ test_that("shutdown responds with a null result", {
 
     on_shutdown(self, id = 1L, params = NULL)
 
-    expect_true(self$exit_flag)
+    expect_true(self$shutdown_requested)
+    expect_false(self$exit_flag)
     expect_length(self$deliveries, 1L)
     response <- self$deliveries[[1L]]
     expect_null(response$result)

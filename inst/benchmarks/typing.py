@@ -208,6 +208,7 @@ try:
                 "items": len(result.get("items", []))}), flush=True)
             previous = token
     receive(send("shutdown", {}))
+    send("exit", {}, False)
     exit_code = process.wait(timeout=10)
     reader.join(timeout=10)
     if reader.is_alive():

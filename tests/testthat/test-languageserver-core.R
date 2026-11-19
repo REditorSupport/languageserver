@@ -398,7 +398,7 @@ test_that("LanguageServer stops managers after an event loop error", {
 test_that("LanguageServer drains queued input before background callbacks", {
     events <- character()
     messages <- collections::queue()
-    for (message in c("edit", "completion", "shutdown")) messages$push(message)
+    for (message in c("edit", "completion", "exit")) messages$push(message)
     server_class <- R6::R6Class(
         inherit = BareLanguageServer,
         public = list(
@@ -407,7 +407,7 @@ test_that("LanguageServer drains queued input before background callbacks", {
             },
             handle_raw = function(data) {
                 events <<- c(events, data)
-                if (data == "shutdown") self$exit_flag <- TRUE
+                if (data == "exit") self$exit_flag <- TRUE
             },
             process_events = function() events <<- c(events, "background")
         )
@@ -415,7 +415,7 @@ test_that("LanguageServer drains queued input before background callbacks", {
     server <- server_class$new()
     withr::defer(server$close_connections())
     server$run()
-    expect_identical(events, c("edit", "completion", "shutdown"))
+    expect_identical(events, c("edit", "completion", "exit"))
 
     # A busy client cannot starve workers indefinitely.
     server$exit_flag <- FALSE

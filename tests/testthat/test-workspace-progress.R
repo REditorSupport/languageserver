@@ -237,7 +237,8 @@ test_that("shutdown ends progress and parse retries keep it active until settled
     progress_accept(server)
     on_shutdown(server, 10L, list())
     expect_identical(tail(progress_values(server), 1L)[[1L]]$message, "Server stopped")
-    expect_true(server$exit_flag)
+    expect_true(server$shutdown_requested)
+    expect_false(isTRUE(server$exit_flag))
 
     fixture <- progress_fixture()
     server <- fixture$server
