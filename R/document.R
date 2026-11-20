@@ -10,6 +10,7 @@ Document <- R6::R6Class(
         call_scan_cache = NULL,
         signature_call_cache = NULL,
         parse_data = NULL,
+        superseded_parse_data = NULL,
         completion_outline = NULL,
         parse_generation = 0L,
         parse_failure = NULL,
@@ -96,6 +97,14 @@ Document <- R6::R6Class(
             }
             if (!identical(self$content, content)) {
                 self$inlay_hint_data <- inlay_hint_apply_change(self$inlay_hint_data, change, self$content)
+                if (!is.null(self$parse_data) && identical(version, self$parse_data$version)) {
+                    # didSave can replace text at the accepted version. Hide
+                    # its old positions from providers until the worker replies.
+                    self$superseded_parse_data <- self$parse_data
+                    self$parse_data <- NULL
+                    self$semantic_edit_line <- NULL
+                    self$member_ordinary_edit <- FALSE
+                }
             }
             self$version <- version
             self$nline <- length(content)
@@ -161,6 +170,12 @@ Document <- R6::R6Class(
 
         update_parse_data = function(parse_data) {
             self$semantic_edit_line <- NULL
+            pending <- self$pending_semantic_result$result
+            if (!is.null(pending) && identical(pending$resultId, parse_data$content_hash) &&
+                    identical(pending$data, parse_data$semantic_data$encoded)) {
+                # The accepted snapshot can now serve as the delta base.
+                self$pending_semantic_result <- NULL
+            }
             self$completion_outline <- NULL
             self$member_workspace_view <- NULL
             self$member_source_cache <- NULL
@@ -168,6 +183,7 @@ Document <- R6::R6Class(
             self$s3_calls$clear()
             self$member_ordinary_edit <- FALSE
             self$parse_data <- parse_data
+            self$superseded_parse_data <- NULL
             self$parsed_content <- self$content
             if (!isTRUE(parse_data$parse_error) && !isTRUE(parse_data$inlay_hint_incomplete)) {
                 self$inlay_hint_data <- parse_data$range_data[c(
@@ -651,18 +667,35 @@ get_content_hash <- function(content) {
     digest::digest(content, algo = "xxhash64")
 }
 
+# Keep the whitespace-only cache hit for unquoted code. A tab in a string,
+# quoted name or special operator can affect a binding or a source() path.
+parse_cache_content <- function(content, normalized = normalize_parse_content(content)) {
+    if (identical(content, normalized) || !any(grepl("\t", content, fixed = TRUE))) return(normalized)
+    noncomment <- !grepl("^[[:blank:]]*#", content)
+    if (any(grepl("[`'\"%]", content[noncomment]))) enc2utf8(content) else normalized
+}
+
 parse_document <- function(uri, content, is_rmarkdown = FALSE,
     content_hash = NULL, include_xml = TRUE) {
+    # Provider indexes need R's token table even if the worker's startup
+    # profile disabled parse data for ordinary user code.
+    if (!isTRUE(getOption("keep.parse.data"))) {
+        saved <- options(keep.parse.data = TRUE)
+        on.exit(options(saved), add = TRUE)
+    }
     if (is_rmarkdown) {
         regions <- parse_literate_regions(content)
         literate <- literate_provider_content(content, regions)
+        original <- literate$original_content
         content <- literate$content
         incomplete_lines <- literate$incomplete_lines
         if (is.null(content_hash)) content_hash <- literate_parse_hash(literate$original_content, regions)
     } else {
-        content <- normalize_parse_content(content)
+        normalized <- normalize_parse_content(content)
+        original <- parse_cache_content(content, normalized)
+        content <- normalized
         incomplete_lines <- integer()
-        if (is.null(content_hash)) content_hash <- get_content_hash(content)
+        if (is.null(content_hash)) content_hash <- get_content_hash(original)
     }
 
     env <- new.env(parent = .GlobalEnv)
@@ -670,16 +703,22 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
     env$xml_data <- NULL
     env$xml_doc <- NULL
     env$content_hash <- content_hash
-    # Recovery neutralizes #line directives to keep physical source ranges.
+    # A source directive can remap every following srcref to a virtual file.
     env$has_line_directive <- !is_rmarkdown && any(startsWith(content, "#line"))
     env$parse_error <- FALSE
     env$inlay_hint_incomplete <- length(incomplete_lines) > 0L
-    env$inlay_hint_incomplete_lines <- incomplete_lines
+    env$inlay_hint_incomplete_lines <- if (is_rmarkdown) literate$inlay_fallback_lines else integer()
 
     logger$info("parse_document: parsing", uri)
     # R stores partial parse data here even when parse() cannot return an expression.
     srcfile <- srcfilecopy("<text>", content)
     expr <- tryCatch(parse(text = content, srcfile = srcfile, keep.source = TRUE), error = identity)
+    if (inherits(expr, "repeatedFormal") && !identical(original, content)) {
+        template <- parse_tab_template(content, original, srcfile, expr)
+        content <- template$content
+        srcfile <- template$srcfile
+        expr <- template$expr
+    }
     recovery <- NULL
     if (inherits(expr, "error")) {
         recovery <- recover_partial_content(content, srcfile, expr)
@@ -687,7 +726,9 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
         incomplete_lines <- sort(unique(c(incomplete_lines, recovery$incomplete_lines)))
         env$parse_error <- TRUE
         env$inlay_hint_incomplete <- TRUE
-        env$inlay_hint_incomplete_lines <- incomplete_lines
+        env$inlay_hint_incomplete_lines <- sort(unique(c(env$inlay_hint_incomplete_lines, recovery$inlay_fallback_lines)))
+    } else if (env$has_line_directive) {
+        expr <- parse_provider_projection(content, expr)
     }
 
     # Native queues append in constant time. Updating vectors bound to an
@@ -706,6 +747,20 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
     env$function_names <- collections::queue()
 
     data <- if (is.null(recovery)) utils::getParseData(expr) else recovery$syntax
+    value_source <- NULL
+    projected <- if (is.null(recovery)) content else recovery$content
+    if (!identical(original, content) && any(grepl("\t", original, fixed = TRUE))) {
+        value_source <- original
+        restored <- restore_tabbed_parse(expr, data, projected, original)
+        expr <- restored$expr
+        data <- restored$data
+        if (length(restored$incomplete_lines)) {
+            projected <- restored$content
+            incomplete_lines <- sort(unique(c(incomplete_lines, restored$incomplete_lines)))
+            env$inlay_hint_incomplete <- TRUE
+            if (!is_rmarkdown) env$parse_error <- TRUE
+        }
+    }
     env$syntax_data <- syntax_parse_data(data)
     assignments <- symbol_assignment_rows(data, env$syntax_data)
     env$nested_by_position <- outline_nested_functions(env$syntax_data, assignments)
@@ -746,13 +801,22 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
     # Cursor recovery also tracks unfinished member accesses and their package
     # hints. Keep its original source and bounded recovery on a syntax error.
     env$member_data <- member_document_index(content, expr, data, recovery$incomplete_lines,
-        defer_small_scopes = is_rmarkdown && length(incomplete_lines) > 0L)
+        defer_small_scopes = is_rmarkdown && length(incomplete_lines) > 0L, value_source = value_source)
+    if (is_rmarkdown && length(literate$member_packages)) {
+        env$member_data$packages <- union(env$member_data$packages, literate$member_packages)
+    }
     env$completion_data <- completion_parse_data(data, env$syntax_data)
     overlay <- !is.null(recovery) || (is_rmarkdown && length(literate$incomplete_lines) > 0L)
     env$semantic_data <- semantic_parse_data(data, content, env$syntax_data, assignments, encode = !overlay)
     env$range_data <- range_provider_parse_data(data, content, env$syntax_data)
     if (length(incomplete_lines) || env$parse_error) {
         env$partial_incomplete_lines <- incomplete_lines
+        if (is_rmarkdown) {
+            rows <- incomplete_lines + 1L
+            originals <- original[rows]
+            env$literate_replacements <- restore_parse_tabs(projected[rows], originals,
+                which(grepl("\t", originals, fixed = TRUE)))
+        }
         roots <- env$syntax_data$roots
         roots <- roots[env$syntax_data$token[roots] %in% c("expr", "expr_or_assign_or_help")]
         # findInterval counts uncertain lines through each boundary.
@@ -823,6 +887,7 @@ parse_callback <- function(self, uri, version, parse_data, source_content = NULL
     parse_data$version <- version
     doc$parse_failure <- NULL
     old_parse_data <- doc$parse_data
+    if (is.null(old_parse_data)) old_parse_data <- doc$superseded_parse_data
     previous_packages <- doc$requested_packages
     if (is.null(previous_packages) && !is.null(old_parse_data) &&
             !isTRUE(old_parse_data$parse_error)) {
@@ -1005,11 +1070,11 @@ parse_task <- function(self, uri, document, delay = 0, retry = TRUE) {
     }
     if (document$is_rmarkdown) {
         content <- document$content
-        source <- normalize_parse_content(literate_r_content(content, document$regions))
+        source <- parse_cache_content(literate_r_content(content, document$regions))
         content_hash <- literate_parse_hash(source, document$regions)
     } else {
-        content <- normalize_parse_content(document$content)
-        content_hash <- get_content_hash(content)
+        content <- document$content
+        content_hash <- get_content_hash(parse_cache_content(content))
     }
 
     # Check cache in the main process before spawning a child task

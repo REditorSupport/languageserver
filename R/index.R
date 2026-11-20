@@ -242,6 +242,37 @@ index_resolve_source <- function(spec, from_path, workspace_root) {
     if (length(candidates)) candidates[[1L]] else NULL
 }
 
+# R source references include physical lines but expand tabs to stops eight
+# columns apart. Convert boundary positions in batches without reparsing
+# source whose literal tabs must survive in paths and function defaults.
+index_physical_srcrefs <- function(expr, srcfile, text, tabbed) {
+    refs <- attr(expr, "srcref")
+    if (!length(refs)) return(expr)
+    positions <- vapply(refs, as.integer, integer(8L))
+    positions[c(1L, 3L), ] <- positions[c(7L, 8L), ]
+    lines <- c(positions[1L, ], positions[3L, ])
+    columns <- c(positions[5L, ] - 1L, positions[6L, ])
+    affected <- which(tabbed[lines])
+    for (indices in split(affected, lines[affected])) {
+        line <- lines[[indices[[1L]]]]
+        tabs <- as.integer(gregexpr("\t", text[[line]], fixed = TRUE)[[1L]])
+        between <- diff(c(0L, tabs)) - 1L
+        stops <- cumsum((between %/% 8L + 1L) * 8L)
+        extra <- c(0L, stops - tabs)
+        columns[indices] <- columns[indices] - extra[findInterval(columns[indices], stops) + 1L]
+    }
+    first <- seq_along(refs)
+    positions[5L, ] <- columns[first] + 1L
+    positions[6L, ] <- columns[first + length(refs)]
+    attr(expr, "srcref") <- lapply(first, function(i) {
+        ref <- refs[[i]]
+        ref[] <- positions[, i]
+        attr(ref, "srcfile") <- srcfile
+        ref
+    })
+    expr
+}
+
 #' Extract top-level definitions and source edges without building semantic XML
 #' @noRd
 index_shallow_summary <- function(path, content, workspace_root, metadata = NULL,
@@ -253,18 +284,31 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
     incomplete_lines <- NULL
     parse_error <- isTRUE(parse_data$parse_error)
     if (is.null(parse_data)) {
+        if (!isTRUE(getOption("keep.parse.data"))) {
+            saved <- options(keep.parse.data = TRUE)
+            on.exit(options(saved), add = TRUE)
+        }
         # Keep tabs inside literals on the normal shallow-index path.
         text <- enc2utf8(content)
         srcfile <- srcfilecopy("<text>", text)
         expressions <- tryCatch(parse(text = text, srcfile = srcfile, keep.source = TRUE), error = identity)
         parse_error <- inherits(expressions, "error")
+        tabbed <- grepl("\t", text, fixed = TRUE)
         if (parse_error) {
             # Recovery indexes physical columns, whereas R expands raw tabs.
-            tab_lines <- which(grepl("\t", text, fixed = TRUE))
+            tab_lines <- which(tabbed)
             if (length(tab_lines)) {
                 text <- normalize_parse_content(text)
                 srcfile <- srcfilecopy("<text>", text)
                 expressions <- tryCatch(parse(text = text, srcfile = srcfile, keep.source = TRUE), error = identity)
+                if (inherits(expressions, "repeatedFormal")) {
+                    template <- parse_tab_template(text, content, srcfile, expressions)
+                    text <- template$content
+                    srcfile <- template$srcfile
+                    expressions <- template$expr
+                } else if (!inherits(expressions, "error") && any(startsWith(text, "#line"))) {
+                    expressions <- parse_provider_projection(text, expressions)
+                }
             }
             if (inherits(expressions, "error")) {
                 recovered <- recover_partial_content(text, srcfile, expressions, include_tokens = FALSE)
@@ -273,18 +317,12 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
                 incomplete_lines <- recovered$incomplete_lines
             }
             if (length(expressions) && length(tab_lines)) {
-                # Keep physical ranges from the recovered parse, and literal
-                # values (e.g. source paths and argument defaults) from disk.
-                for (i in tab_lines) {
-                    chars <- utf8ToInt(text[[i]])
-                    tabs <- which(utf8ToInt(enc2utf8(content[[i]])) == 9L)
-                    chars[tabs[tabs <= length(chars)]] <- 9L
-                    text[[i]] <- intToUtf8(chars)
-                }
-                refs <- attr(expressions, "srcref")
-                expressions <- tryCatch(parse(text = text, keep.source = FALSE), error = function(e) expression())
-                attr(expressions, "srcref") <- refs
+                restored <- restore_tabbed_parse(expressions, utils::getParseData(expressions), text, content)
+                expressions <- restored$expr
+                incomplete_lines <- sort(unique(c(incomplete_lines, restored$incomplete_lines)))
             }
+        } else if (any(tabbed) || any(startsWith(text, "#line"))) {
+            expressions <- index_physical_srcrefs(expressions, srcfile, text, tabbed)
         }
     }
     definitions <- list()

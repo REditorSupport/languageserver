@@ -584,6 +584,43 @@ test_that("partial inlay hints respect whitespace-separated callee changes", {
     }
 })
 
+test_that("changing a raw delimiter removes cached hints inside the unfinished string", {
+    script <- c("target(1, 2)", 's <- r"-(ok)-"', "target(3, 4)")
+    broken <- replace(script, 2L, 's <- r"--(ok)-"')
+    source <- srcfilecopy("<text>", broken)
+    tryCatch(parse(text = broken, srcfile = source, keep.source = TRUE), error = function(e) NULL)
+    french <- simpleError("<text>:2:6: INCOMPLETE_STRING inattendu(e)")
+    expect_length(recover_partial_content(broken, source, french)$inlay_fallback_lines, 0L)
+    for (literate in c(FALSE, TRUE)) {
+        code <- if (literate) c("```{r}", script, "```", "```{r}", "target(5, 6)", "```") else script
+        uri <- if (literate) "file:///raw.qmd" else "file:///raw.R"
+        doc <- Document$new(uri, version = 1L, content = code)
+        fixture <- list(uri = uri, document = doc, workspace = list(
+            get_parse_data = function(...) doc$parse_data,
+            get_formals = function(...) formals(function(first, second) NULL)
+        ))
+        parsed <- parse_document(uri, code, is_rmarkdown = literate)
+        parsed$version <- doc$version
+        doc$update_parse_data(parsed)
+        request <- range(position(0L, 0L), position(length(code), 0L))
+        rows <- function() {
+            hints <- inlay_hint_reply(1L, uri, fixture$workspace, doc, request)$result
+            vapply(hints, function(hint) hint$position$line, integer(1))
+        }
+        before <- rows()
+        string_row <- match(script[[2L]], code) - 1L
+        expect_true((string_row + 1L) %in% before)
+        inlay_hint_edit(fixture, 2L, list(list(
+            range = range(position(string_row, 8L), position(string_row, 8L)), text = "-"
+        )))
+        expect_identical(rows(), before[before != string_row + 1L])
+        inlay_hint_edit(fixture, 3L, list(list(
+            range = range(position(string_row, 8L), position(string_row, 9L)), text = ""
+        )))
+        expect_identical(rows(), before)
+    }
+})
+
 test_that("inlay fallback preserves a call after intervening tokens on the edited line", {
     fixture <- provider_fixture(
         c("x <- one; target(two, three)", "", "target(four, five)"),

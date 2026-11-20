@@ -1,5 +1,7 @@
 member_item_spans <- function(items) {
     positions <- vapply(items, function(item) c(item$start, item$end), numeric(4L))
+    # A legacy double -0 denotes the same physical offset as integer 0.
+    positions <- positions + 0
     sprintf("%.17g %.17g %.17g %.17g", positions[1L, ], positions[2L, ], positions[3L, ], positions[4L, ])
 }
 

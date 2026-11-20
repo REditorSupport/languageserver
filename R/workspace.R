@@ -911,17 +911,18 @@ Workspace <- R6::R6Class("Workspace",
 
         update_parse_data = function(uri, parse_data) {
             self$invalidate_s3_context()
-            previous_parse <- self$documents$get(uri)$parse_data
+            doc <- self$documents$get(uri)
+            previous_parse <- doc$parse_data
+            if (is.null(previous_parse)) previous_parse <- doc$superseded_parse_data
             diagnostics_changed <- !identical(previous_parse$nonfuncts, parse_data$nonfuncts) ||
                 !identical(previous_parse$functions, parse_data$functions)
             self$diagnostics_globals_cache <- NULL
             self$type_hierarchy_cache$clear()
             # Indexed providers can publish immediately. Legacy providers
             # materialize main-process XML through parse_data_xml on demand.
-            self$documents$get(uri)$update_parse_data(parse_data)
+            doc$update_parse_data(parse_data)
             if (!is.null(self$index)) self$index$finish_document(uri)
             if (!is.null(self$index) && isTRUE(self$index$enabled)) {
-                doc <- self$documents$get(uri)
                 index_uri <- index_canonical_uri(uri)
                 previous <- self$index$summaries$get(index_uri, NULL)
                 cacheable <- if (is.null(previous)) {

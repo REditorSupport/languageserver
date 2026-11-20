@@ -1039,6 +1039,7 @@ semantic_tokens_full_reply <- function(id, uri, workspace, document) {
     if (!is.null(parse_data$content_hash)) {
         result$resultId <- parse_data$content_hash
     }
+    if (!is.null(document$pending_semantic_result)) document$pending_semantic_result <- NULL
 
     Response$new(
         id,
@@ -1067,6 +1068,10 @@ semantic_tokens_after_tail_edit <- function(parsed, document, request_range = NU
         return(semantic_data_for_range(parsed$semantic_data, request_range)$encoded)
     }
 
+    if (!isTRUE(getOption("keep.parse.data"))) {
+        saved <- options(keep.parse.data = TRUE)
+        on.exit(options(saved), add = TRUE)
+    }
     text <- normalize_parse_content(text)
     src <- srcfilecopy("<text>", text)
     expr <- tryCatch(parse(text = text, srcfile = src, keep.source = TRUE), error = identity)
@@ -1098,7 +1103,7 @@ semantic_pending_full <- function(parsed, document) {
     if (!is.null(pending) && identical(pending$version, document$version)) return(pending$result)
     encoded <- semantic_tokens_after_tail_edit(parsed, document)
     if (is.null(encoded)) return(NULL)
-    result <- list(data = encoded, resultId = get_content_hash(normalize_parse_content(document$content)))
+    result <- list(data = encoded, resultId = get_content_hash(parse_cache_content(document$content)))
     document$pending_semantic_result <- list(version = document$version, result = result)
     result
 }
@@ -1149,11 +1154,14 @@ semantic_tokens_delta_reply <- function(id, uri, workspace, document,
         return(semantic_tokens_full_reply(id, uri, workspace, document))
     } else {
         current <- list(resultId = parse_data$content_hash, data = parse_data$semantic_data$encoded)
+        if (!is.null(pending)) document$pending_semantic_result <- NULL
     }
 
     previous <- NULL
     if (!is.null(previous_result_id) && identical(pending$resultId, previous_result_id)) {
         previous <- pending$data
+    } else if (!is.null(previous_result_id) && identical(parse_data$content_hash, previous_result_id)) {
+        previous <- parse_data$semantic_data$encoded
     } else if (!is.null(previous_result_id) && workspace$parse_cache$has(previous_result_id)) {
         cached <- workspace$parse_cache$get(previous_result_id)
         previous <- cached$semantic_data$encoded

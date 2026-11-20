@@ -9,6 +9,107 @@ test_that("partial structure preserves physical ranges across an isolated syntax
     expect_identical(parsed$syntax_data$line1[parsed$partial_complete_roots], c(2L, 4L))
 })
 
+test_that("line directives keep definitions in physical coordinates on edit and repair", {
+    source <- c('#line 1000 "elsewhere.R"', "first <- function(x) x", "second <- first(1)")
+    for (edit in c("", "pkg::", "pkg::median")) {
+        parsed <- parse_document("file:///physical.R", c(source, edit))
+        expect_identical(names(parsed$definitions), c("first", "second"), info = edit)
+        expect_equal(parsed$definitions$first$range$start, position(1L, 0L))
+        expect_equal(parsed$definitions$second$range$start, position(2L, 0L))
+    }
+})
+
+test_that("ordinary #line-prefixed comments preserve physical lexer-error recovery", {
+    text <- c("#lineage from the query", "first <- 1", "x <- \"\\q\"")
+    srcfile <- srcfilecopy("<text>", text)
+    error <- tryCatch(parse(text = text, srcfile = srcfile, keep.source = TRUE), error = identity)
+    skip_if(is.null(error$lineno), "This R version does not supply structured lexer positions")
+    parsed <- parse_document("file:///lineage.R", text)
+    expect_true(parsed$parse_error)
+    expect_identical(names(parsed$definitions), "first")
+})
+
+test_that("literal tabs survive open-buffer source, signature and member recovery", {
+    body <- c('source("a\tb.R")', 'f <- function(arg = "x\ty", missing_arg) {',
+        '\tinner <- function() "z\tw"', "  inner()", "}")
+    for (literate in c(FALSE, TRUE)) for (gap in c("", "pkg::", "pkg::median")) {
+        content <- c(gap, body)
+        if (literate) content <- c("```{r}", content, "```")
+        uri <- if (literate) "file:///values.qmd" else "file:///values.R"
+        parsed <- parse_document(uri, content, is_rmarkdown = literate)
+        expect_identical(parsed$source_specs[[1L]]$path, "a\tb.R")
+        expect_identical(parsed$member_data$sources[[1L]]$spec$path, "a\tb.R")
+        expect_identical(formals(parsed$functions$f)$arg, "x\ty")
+        expect_match(parsed$signatures$f, 'arg = "x\\ty"', fixed = TRUE)
+        space <- parse_document(uri, gsub("\t", " ", content, fixed = TRUE), is_rmarkdown = literate)
+        expect_false(identical(space$content_hash, parsed$content_hash))
+        expect_false(identical(space$member_data$content_key, parsed$member_data$content_key))
+        # Inspect the worker AST as well as the materialized top-level formals.
+        item <- parsed$member_data$items[[length(parsed$member_data$items)]]
+        inner <- item$expr[[3L]][[3L]][[2L]][[3L]]
+        expect_identical(inner[[3L]], "z\tw")
+        expect_true(inherits(inner[[4L]], "srcref"))
+        expect_identical(as.integer(inner[[4L]][5L]), 11L)
+    }
+
+    long <- paste0(strrep("a", 5000L), "\t", strrep("b", 5000L))
+    parsed <- parse_document("file:///long.R", c(sprintf('f <- function(x = "%s") 1', long), "pkg::"))
+    expect_identical(formals(parsed$functions$f)$x, long)
+})
+
+test_that("physical tab columns do not merge or split equal quoted formal names", {
+    for (literate in c(FALSE, TRUE)) for (gap in c("", "pkg::")) {
+        for (first in c("a b", "a\\tb")) {
+            args <- paste0("f <- function(`", first, "`, `a\tb`) 1")
+            content <- c("before <- 1", args, "after <- 2", gap)
+            if (literate) content <- c("```{r}", content, "```")
+            parsed <- parse_document("file:///formals.R", content, is_rmarkdown = literate)
+            expect_true(all(c("before", "after") %in% names(parsed$definitions)))
+            if (first == "a b") {
+                expect_identical(names(formals(parsed$functions$f)), c("a b", "a\tb"))
+            } else {
+                expect_false("f" %in% names(parsed$functions))
+                expect_true((1L + as.integer(literate)) %in% parsed$partial_incomplete_lines)
+            }
+        }
+    }
+    duplicate <- "f <- function(`a\\tb`, `a\tb`) 1"
+    content <- c("first <- 1", paste("g <- 2", duplicate, "last <- 3", sep = "; "), "after <- 4")
+    parsed <- parse_document("file:///separate.R", content)
+    expect_identical(names(parsed$definitions), c("first", "g", "last", "after"))
+})
+
+test_that("switching a literal space to a tab invalidates the worker and semantic result IDs", {
+    uri <- "file:///value-cache.R"
+    space <- c('source("a b.R")', "pkg")
+    tab <- sub("a b", "a\tb", space, fixed = TRUE)
+    workspace <- Workspace$new(NULL)
+    doc <- Document$new(uri, version = 1L, content = space)
+    workspace$documents$set(uri, doc)
+    self <- list(get_workspace = function(...) workspace,
+        resolve_task_manager = list(add_task = function(...) NULL),
+        pending_replies = collections::dict(), request_handlers = list())
+    first <- parse_document(uri, space)
+    parse_callback(self, uri, 1L, first, space)
+    testthat::local_mocked_bindings(create_task = function(args, callback, ...) {
+        callback(do.call(parse_document, args))
+    }, .package = "languageserver")
+    doc$set_content(2L, tab)
+    parse_task(self, uri, doc)
+    expect_identical(doc$parse_data$source_specs[[1L]]$path, "a\tb.R")
+    expect_false(identical(doc$parse_data$content_hash, first$content_hash))
+
+    doc$apply_content_changes(3L, list(list(
+        range = range(position(1L, 3L), position(1L, 3L)), text = "::")))
+    early <- semantic_tokens_full_reply(1L, uri, workspace, doc)$result
+    parse_task(self, uri, doc)
+    expect_identical(early$resultId, doc$parse_data$content_hash)
+    expect_identical(early$data, doc$parse_data$semantic_data$encoded)
+    doc$set_content(4L, space)
+    parse_task(self, uri, doc)
+    expect_identical(doc$parse_data$source_specs[[1L]]$path, "a b.R")
+})
+
 test_that("discarding partial syntax preserves ownership of the following statement", {
     # Removing only pkg:: would parse the next assignment as stray's value.
     joined <- parse_document("file:///partial.R", c("known <- 1", "stray <-", "pkg::", "other <- 2"))

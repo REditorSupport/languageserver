@@ -52,13 +52,22 @@ test_that("batched incomplete recovery preserves statements ranges and limits", 
 })
 
 test_that("line directives do not shift recovered binding positions into virtual files", {
-    content <- c('#line 1000 "virtual.R"', "value <- list(alpha = 1)", rep("", 130), "value$")
-    index <- member_document_index(content)
-    expect_identical(index$items[[1L]]$start, c(1L, 0L))
-    fixture <- provider_fixture(content)
-    result <- member_completion(fixture$uri, fixture$workspace, fixture$document,
-        list(row = 132L, col = 6L), TRUE, 200L)
-    expect_true("alpha" %in% vapply(result, `[[`, character(1L), "label"))
+    for (directive in c('#line 1000 "virtual.R"', '#line1000 "virtual.R"')) {
+        content <- c(directive, "value <- list(alpha = 1)", rep("", 130), "value$")
+        index <- member_document_index(content)
+        expect_identical(index$items[[1L]]$start, c(1L, 0L))
+        fixture <- provider_fixture(content)
+        expect_identical(member_complete_item_ids(fixture$document$parse_data), 1L)
+        result <- member_completion(fixture$uri, fixture$workspace, fixture$document,
+            list(row = 132L, col = 6L), TRUE, 200L)
+        expect_true("alpha" %in% vapply(result, `[[`, character(1L), "label"))
+
+        body <- c("f <- function(x) {", directive, "  x", "}", "stats::")
+        index <- member_document_index(body)
+        expect_identical(index$items[[1L]]$end, c(3L, 1L))
+        parsed <- parse_document("file:///directive.R", body)
+        expect_identical(member_complete_item_ids(parsed), 1L)
+    }
 })
 
 test_that("complete recovery sections do not parse once per line", {

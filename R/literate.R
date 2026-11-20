@@ -341,9 +341,12 @@ literate_parse_hash <- function(source, regions) {
 # Recover each R cell independently so an unmatched delimiter or quote cannot
 # consume code from a later cell. Keep physical document lines for LSP ranges.
 literate_provider_content <- function(content, regions = parse_literate_regions(content)) {
-    source <- normalize_parse_content(literate_r_content(content, regions))
+    original <- literate_r_content(content, regions)
+    source <- normalize_parse_content(original)
     result <- source
     incomplete_lines <- integer()
+    inlay_lines <- integer()
+    member_packages <- character()
     partial_tokens <- partial_strings <- list()
     for (cell in regions$cells) {
         if (!cell$executable || !identical(tolower(cell$engine), "r")) next
@@ -356,10 +359,18 @@ literate_provider_content <- function(content, regions = parse_literate_regions(
                 !is.null(tryCatch(parse(text = text, keep.source = FALSE), error = function(e) NULL))) next
         srcfile <- srcfilecopy("<text>", text)
         expr <- tryCatch(parse(text = text, srcfile = srcfile, keep.source = TRUE), error = identity)
+        if (inherits(expr, "repeatedFormal")) {
+            template <- parse_tab_template(text, original[rows], srcfile, expr)
+            result[rows] <- text <- template$content
+            srcfile <- template$srcfile
+            expr <- template$expr
+        }
         if (inherits(expr, "error")) {
-            recovered <- recover_partial_content(text, srcfile, expr)
+            recovered <- recover_partial_content(text, srcfile, expr, member_hints = TRUE)
+            member_packages <- union(member_packages, recovered$member_packages)
             result[rows] <- recovered$content
             incomplete_lines <- c(incomplete_lines, rows[recovered$incomplete_lines + 1L] - 1L)
+            inlay_lines <- c(inlay_lines, rows[recovered$inlay_fallback_lines + 1L] - 1L)
             tokens <- semantic_parse_data(recovered$token_data, text,
                 only_lines = recovered$incomplete_lines, encode = FALSE)
             tokens$encoded <- NULL
@@ -381,8 +392,27 @@ literate_provider_content <- function(content, regions = parse_literate_regions(
         }
         result
     }
-    list(content = result, original_content = source, incomplete_lines = incomplete_lines,
+    list(content = result, original_content = parse_cache_content(original, source), incomplete_lines = incomplete_lines,
+        inlay_fallback_lines = inlay_lines, member_packages = member_packages,
         partial_tokens = stack_fields(partial_tokens), partial_strings = stack_fields(partial_strings))
+}
+
+# Read just the lines needed by a cursor provider. Keep the original cursor
+# line for its token replacement and recover other lines as the worker did.
+document_cursor_lines <- function(document, rows, cursor_row) {
+    lines <- document$content[rows]
+    if (document$is_rmarkdown) {
+        lines[document$regions$line_type[rows] != "r"] <- ""
+        parsed <- document$parse_data
+        if (length(parsed$literate_replacements) && identical(document$version, parsed$version) &&
+                identical(document$content, document$parsed_content)) {
+            from <- range_line_indices(parsed$partial_incomplete_lines, rows[[1L]] - 1L, rows[[length(rows)]] - 1L)
+            from <- from[parsed$partial_incomplete_lines[from] != cursor_row]
+            at <- parsed$partial_incomplete_lines[from] + 2L - rows[[1L]]
+            lines[at] <- parsed$literate_replacements[from]
+        }
+    }
+    enc2utf8(lines)
 }
 
 #' Get Markdown headings and executable cells from a literate document

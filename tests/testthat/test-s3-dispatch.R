@@ -23,6 +23,54 @@ s3_result <- function(fixture, row = fixture$document$nline - 1L, col = nchar(fi
     resolve_s3_call(fixture$uri, fixture$workspace, fixture$document, list(row = row, col = col))
 }
 
+test_that("S3 signatures retain recovered calls in their own literate R cell", {
+    prefix <- c("```{r}", "render <- function(x, ...) UseMethod('render')",
+        "render.widget <- function(x, columns = NULL, ...) NULL")
+    code <- c(prefix, "obj <- structure(1, class = 'widget')", "pkg::", "render(", "  obj, )", "```")
+    nested <- c(prefix, "f <- function() {", "  obj <- structure(1, class = 'widget')",
+        "  pkg::", "  render(", "  obj, )", "}", "```")
+    split <- c(prefix, "obj <- structure(1, class = 'widget')", "render(", "```", "```{r}", "obj)", "```")
+    for (ext in c("Rmd", "qmd")) {
+        uri <- paste0("file:///scope.", ext)
+        workspace <- Workspace$new(NULL)
+        for (lines in list(code, nested, split)) {
+            document <- Document$new(uri, version = 1L, content = lines)
+            workspace$documents$set(uri, document)
+            parsed <- parse_document(uri, lines, is_rmarkdown = TRUE)
+            parsed$version <- document$version
+            workspace$update_parse_data(uri, parsed)
+            cross_cell <- identical(lines, split)
+            row <- match(if (cross_cell) "render(" else "  obj, )", lines) - 1L
+            point <- list(row = row, col = nchar(document$line0(row)) - as.integer(!cross_cell))
+            signature <- signature_reply(1L, uri, workspace, document, point)$result$signatures
+            expect_identical(signature[[1L]]$label,
+                if (cross_cell) "render(x, ...)" else "render(x, columns = NULL, ...)")
+        }
+    }
+})
+
+test_that("S3 dispatch reads the original class literal while recovering a call", {
+    methods <- c("pick <- function(x, ...) UseMethod('pick')",
+        "`pick.a b` <- function(x, space, ...) NULL", "`pick.a\tb` <- function(x, tab, ...) NULL")
+    for (literate in c(FALSE, TRUE)) {
+        uri <- if (literate) "file:///tabs.qmd" else "file:///tabs.R"
+        workspace <- Workspace$new(NULL)
+        for (gap in c("", "pkg::")) {
+            lines <- c(methods, gap, "pick(", "  structure(1, class = 'a\tb'), )")
+            if (literate) lines <- c("```{r}", lines, "```")
+            document <- Document$new(uri, version = 1L, content = lines)
+            workspace$documents$set(uri, document)
+            parsed <- parse_document(uri, lines, is_rmarkdown = literate)
+            parsed$version <- document$version
+            workspace$update_parse_data(uri, parsed)
+            row <- grep("structure", lines, fixed = TRUE) - 1L
+            point <- list(row = row, col = nchar(document$line0(row)) - 1L)
+            signature <- signature_reply(1L, uri, workspace, document, point)$result$signatures
+            expect_identical(signature[[1L]]$label, "pick(x, tab, ...)")
+        }
+    }
+})
+
 test_that("S3 source methods share completion, signatures and hover", {
     fixture <- s3_fixture(c(
         "render <- function(x, ...) UseMethod('render')",

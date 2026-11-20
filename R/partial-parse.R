@@ -4,11 +4,123 @@ parse_prefix_data <- function(content, error) {
     line <- error$lineno
     if (!identical(error$filename, "<text>") || length(line) != 1L ||
             is.na(line) || line < 2L || line > length(content) ||
-            any(startsWith(content, "#line"))) return(NULL)
+            any(grepl("^#line[[:space:]]*[0-9]", content))) return(NULL)
     prefix <- content[seq_len(line - 1L)]
     srcfile <- srcfilecopy("<text>", prefix)
     tryCatch(parse(text = prefix, srcfile = srcfile, keep.source = TRUE), error = function(e) NULL)
     utils::getParseData(srcfile)
+}
+
+# A normalized parser column counts each tab once. Restore the original tab
+# characters at surviving physical positions, including in multiline strings.
+restore_parse_tabs <- function(projected, original, rows) {
+    for (i in rows) {
+        chars <- utf8ToInt(projected[[i]])
+        tabs <- which(utf8ToInt(enc2utf8(original[[i]])) == 9L)
+        chars[tabs[tabs <= length(chars)]] <- 9L
+        projected[[i]] <- intToUtf8(chars)
+    }
+    projected
+}
+
+# Tabs and spaces can be distinct parts of two quoted parameter names. If
+# replacing tabs by spaces creates a duplicate, try form feed (one R
+# whitespace column) for positions. Values still come from the original R.
+parse_tab_template <- function(content, original, srcfile, expr) {
+    if (inherits(expr, "repeatedFormal") && !identical(content, original)) {
+        rows <- which(grepl("\t", original, fixed = TRUE))
+        if (length(rows)) {
+            raw <- restore_parse_tabs(content, original, rows)
+            actual <- tryCatch(parse(text = raw, keep.source = FALSE), error = identity)
+            if (!inherits(actual, "repeatedFormal")) {
+                alternate <- chartr("\t", "\f", raw)
+                file <- srcfilecopy("<text>", alternate)
+                parsed <- tryCatch(parse(text = alternate, srcfile = file, keep.source = TRUE), error = identity)
+                if (!inherits(parsed, "repeatedFormal")) {
+                    return(list(content = alternate, srcfile = file, expr = parsed))
+                }
+            }
+        }
+    }
+    list(content = content, srcfile = srcfile, expr = expr)
+}
+
+# Keep every source reference (including nested function and block refs)
+# from the position-preserving tree while taking literal values and argument
+# names from a source-free parse of the corresponding original statement.
+physical_expr_values <- function(physical, original) {
+    if (identical(physical, original)) return(physical)
+    if (!is.call(physical) && !is.pairlist(physical)) return(original)
+    for (i in seq_along(original)) {
+        if (identical(original[[i]], quote(expr = )) || inherits(physical[[i]], "srcref")) next
+        if (!identical(physical[[i]], original[[i]])) {
+            physical[[i]] <- Recall(physical[[i]], original[[i]])
+        }
+    }
+    if (length(physical) == length(original)) names(physical) <- names(original)
+    physical
+}
+
+restore_tabbed_parse <- function(expr, data, projected, original) {
+    rows <- which(grepl("\t", original, fixed = TRUE))
+    if (!length(rows) || !length(expr) || !length(data$id)) return(list(expr = expr, data = data))
+    literal <- data$token %in% c("STR_CONST", "SPECIAL") | startsWith(data$text, "`")
+    literal <- which(data$terminal & literal &
+            findInterval(data$line2, rows) > findInterval(data$line1 - 1L, rows))
+    if (!length(literal)) return(list(expr = expr, data = data))
+    source <- restore_parse_tabs(projected, original, rows)
+    spellings <- vapply(literal, function(i) {
+        spelling <- get_range_text(source, data$line1[[i]], data$col1[[i]], data$line2[[i]], data$col2[[i]])
+        paste(spelling, collapse = "\n")
+    }, character(1L))
+    changed <- grepl("\t", spellings, fixed = TRUE)
+    if (!any(changed)) return(list(expr = expr, data = data))
+    affected <- unique(data$line1[literal[changed]])
+    # R abbreviates unusually long literal text in the token table.
+    # Keep that representation; the AST retains the complete value.
+    spelled <- changed & (data$token[literal] != "STR_CONST" | grepl("^[rR]?['\"]", data$text[literal]))
+    data$text[literal[spelled]] <- spellings[spelled]
+    refs <- attr(expr, "srcref")
+    bounds <- vapply(refs, function(ref) as.integer(ref[c(1L, 3L)]), integer(2L))
+    selected <- which(findInterval(bounds[2L, ], affected) > findInterval(bounds[1L, ] - 1L, affected))
+    statements <- vapply(selected, function(i) {
+        ref <- refs[[i]]
+        paste(get_range_text(source, ref[[1L]], ref[[5L]], ref[[3L]], ref[[6L]]), collapse = "\n")
+    }, character(1L))
+    values <- tryCatch(parse(text = statements, keep.source = FALSE), error = function(e) NULL)
+    rejected <- integer()
+    for (j in seq_along(selected)) {
+        i <- selected[[j]]
+        ref <- refs[[i]]
+        value <- if (length(values) == length(selected)) values[j] else
+            tryCatch(parse(text = statements[[j]], keep.source = FALSE), error = function(e) NULL)
+        if (length(value) == 1L) {
+            expr[i] <- list(physical_expr_values(expr[[i]], value[[1L]]))
+        } else {
+            # Normalization can also disguise a duplicate (an escaped \t and
+            # a literal tab). Omit the unverified root, even if its normalized
+            # spelling parses, and retain the surrounding original statements.
+            lines <- seq.int(ref[[1L]], ref[[3L]])
+            last_col <- ref[[6L]]
+            after <- substring(projected[[ref[[3L]]]], last_col + 1L)
+            separator <- regexpr("^[[:blank:]]*;", after)
+            if (separator > 0L) last_col <- last_col + attr(separator, "match.length")
+            for (line in lines) {
+                start <- if (line == ref[[1L]]) ref[[5L]] else 1L
+                end <- if (line == ref[[3L]]) last_col else nchar(projected[[line]])
+                if (end >= start) substr(projected[[line]], start, end) <- strrep(" ", end - start + 1L)
+            }
+            rejected <- union(rejected, lines - 1L)
+        }
+    }
+    if (length(rejected)) {
+        expr <- parse_provider_projection(projected)
+        restored <- restore_tabbed_parse(expr, utils::getParseData(expr), projected, original)
+        restored$incomplete_lines <- sort(unique(c(rejected, restored$incomplete_lines)))
+        restored$content <- projected
+        return(restored)
+    }
+    list(expr = expr, data = data)
 }
 
 # Identify the damaged token once for the structural and highlighting paths.
@@ -80,11 +192,11 @@ physical_parse_content <- function(content, expr) {
 
 # Parse a line-preserving projection of the current buffer for structural
 # providers, keeping source references on physical lines.
-parse_provider_projection <- function(content) {
+parse_provider_projection <- function(content, expr = NULL) {
     parse_source <- function(text) {
         tryCatch(parse(text = text, keep.source = TRUE), error = function(e) NULL)
     }
-    expr <- parse_source(content)
+    if (is.null(expr)) expr <- parse_source(content)
     if (!is.null(expr)) {
         physical <- physical_parse_content(content, expr)
         if (!identical(physical, content)) expr <- parse_source(physical)
@@ -158,7 +270,7 @@ partial_token_context <- function(data, incomplete_lines) {
     data
 }
 
-recover_partial_content <- function(content, srcfile, error, include_tokens = TRUE) {
+recover_partial_content <- function(content, srcfile, error, include_tokens = TRUE, member_hints = FALSE) {
     data <- utils::getParseData(srcfile)
     prefix_only <- is.null(data)
     if (prefix_only) data <- parse_prefix_data(content, error)
@@ -168,6 +280,7 @@ recover_partial_content <- function(content, srcfile, error, include_tokens = TR
         data$parent[missing_parent] <- 0L
     }
     terminals <- which(data$terminal & !data$token %in% c("COMMENT", "LINE_DIRECTIVE"))
+    member_packages <- if (member_hints && !prefix_only) member_cell_packages(content, data, terminals)
     token <- if (!prefix_only) partial_failure_token(data, content, terminals)
     gap_data <- NULL
     projected <- rep("", length(content))
@@ -251,8 +364,17 @@ recover_partial_content <- function(content, srcfile, error, include_tokens = TR
     if (!is.null(attr(expr, "srcfile"))) projected <- attr(expr, "srcfile")$lines
     tokens <- if (include_tokens) partial_semantic_data(data, content, token, terminals, gap_data)
     syntax <- if (!is.null(gap_data)) gap_data else if (include_tokens) utils::getParseData(expr)
+    inlay_lines <- incomplete
+    if (length(inlay_lines) && (inherits(error, c("invalidRawLiteral", "unrecognizedEscape")) ||
+                grepl("^[^\n]*\\bINCOMPLETE_STRING\\b", conditionMessage(error), perl = TRUE))) {
+        # Editing a raw delimiter can turn unchanged calls into string text.
+        # Only rebase old hints on complete lines reached by the lexer.
+        through <- max(c(0L, data$line2[data$terminal])) - 1L
+        inlay_lines <- inlay_lines[inlay_lines < through]
+    }
     list(content = projected, expr = expr, syntax = syntax,
-        token_data = partial_token_context(tokens, incomplete), incomplete_lines = incomplete)
+        token_data = partial_token_context(tokens, incomplete), incomplete_lines = incomplete,
+        inlay_fallback_lines = inlay_lines, member_packages = member_packages)
 }
 
 # Keep scoped classifications and suffix positions from the structural tree,

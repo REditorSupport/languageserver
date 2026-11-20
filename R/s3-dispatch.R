@@ -702,14 +702,19 @@ s3_index_summary <- function(content, uri, expressions = NULL, parse_data = NULL
 }
 
 s3_recover_call <- function(document, location, recovered) {
-    source <- normalize_parse_content(document$content, document$is_rmarkdown)
     start <- recovered$start
-    last <- min(length(source), location$point$row + 129L)
-    lines <- source[seq.int(start[[1L]] + 1L, last)]
+    last <- min(document$nline, location$point$row + 129L)
+    if (document$is_rmarkdown) {
+        cell <- literate_r_cell_at(document$regions, location$point$row)
+        if (is.null(cell)) return(NULL)
+        if (start[[1L]] < cell$body_start - 1L) start <- c(cell$body_start - 1L, 0L)
+        last <- min(last, cell$body_end)
+    }
+    lines <- document_cursor_lines(document, seq.int(start[[1L]] + 1L, last), location$point$row)
     offset <- location$point$row - start[[1L]] + 1L
     lines[[offset]] <- paste0(
         location$cursor$before, recovered$sentinel,
-        substring(source[[location$point$row + 1L]], location$cursor$end + 1L)
+        substring(lines[[offset]], location$cursor$end + 1L)
     )
     lines[[1L]] <- sub("^[ \t]*;[ \t]*", "", substring(lines[[1L]], start[[2L]] + 1L))
     for (end in seq.int(offset, length(lines))) {

@@ -156,6 +156,8 @@ test_that("verified member IDs preserve exact ranges, duplicates and source orde
     expect_identical(fallback(items, rev(roots)), eligible)
     items[[1L]]$start <- as.double(items[[1L]]$start)
     expect_identical(fallback(items, roots), eligible)
+    items[[1L]]$start[[1L]] <- -0.0
+    expect_identical(fallback(items, roots), eligible)
     items[[1L]]$start[[2L]] <- items[[1L]]$start[[2L]] + 0.5
     expect_identical(fallback(items, roots), 2L)
 })

@@ -32,6 +32,34 @@ test_that("Recovered namespace requests do not create source bindings", {
     expect_length(index$imports, 0L)
 })
 
+test_that("incomplete R cells request metadata for their own verified receivers", {
+    content <- c(
+        "prosepkg::object$", "```{python}", "otherpkg::object$", "```",
+        "```{r}", rep("# padding", 150L), "f(unusedpkg::object, modelpkg::make(", "  1L", ")$ # tail", "```",
+        "```{r}", "g(privatepkg:::value@, next_arg)", "```",
+        "```{r}", 'quoted <- "unfinished', "fakepkg::object$", "```",
+        "```{r}", '"stringpkg::object$"$', "```"
+    )
+    for (ext in c("Rmd", "qmd")) {
+        uri <- paste0("file:///recovery.", ext)
+        parsed <- parse_document(uri, content, is_rmarkdown = TRUE)
+        expect_setequal(member_package_request(parsed)$namespace_packages, c("modelpkg", "privatepkg"))
+        expect_length(parsed$definitions, 0L)
+    }
+})
+
+test_that("a cold Quarto member request prepares its namespace before replying", {
+    skip_on_cran()
+    root <- withr::local_tempdir()
+    client <- language_client(working_dir = root)
+    path <- file.path(root, "cold.qmd")
+    line <- 'processx::process$new("unused")$'
+    did_open(client, path, text = c("```{r}", line, "```"), languageId = "quarto")
+    reply <- respond_completion(client, path, c(1L, nchar(line)), retry = FALSE)
+    labels <- vapply(reply$items, `[[`, character(1L), "label")
+    expect_true("is_alive" %in% labels)
+})
+
 test_that("Parse recovery schedules namespace metadata without changing valid imports", {
     uri <- "file:///package-recovery-routing.R"
     doc <- Document$new(uri, language = "r", version = 1L, content = "recoveryfixture::frame$")

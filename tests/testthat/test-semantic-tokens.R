@@ -150,6 +150,39 @@ test_that("viewport tokens during a final-line edit equal the accepted worker re
     expect_null(semantic_tokens_full_reply(1L, fixture$uri, fixture$workspace, doc))
 })
 
+test_that("accepted snapshots release provisional tokens and still supply deltas after cache eviction", {
+    fixture <- provider_fixture(c("x <- 1", "pkg"))
+    doc <- fixture$document
+    ws <- fixture$workspace
+    ws$parse_cache <- collections::dict()
+    edit <- function(text) {
+        doc$apply_content_changes(doc$version + 1L, list(list(
+            range = range(position(1L, 0L), position(1L, nchar(doc$line0(1L)))), text = text)))
+    }
+    accept <- function() {
+        current <- parse_document(fixture$uri, doc$content)
+        current$version <- doc$version
+        doc$update_parse_data(current)
+    }
+    edit("pkg::")
+    first <- semantic_tokens_full_reply(1L, fixture$uri, ws, doc)$result
+    expect_identical(doc$pending_semantic_result$result, first)
+    accept()
+    expect_null(doc$pending_semantic_result)
+    edit("pkg::median")
+    second <- semantic_tokens_delta_reply(2L, fixture$uri, ws, doc, first$resultId)$result
+    expect_true("edits" %in% names(second))
+    previous <- apply_semantic_delta(first$data, second$edits)
+
+    # The client may still hold an intermediate version that the worker skipped.
+    doc$set_content(doc$version + 1L, c("x <- 22", "f()"))
+    accept()
+    third <- semantic_tokens_delta_reply(3L, fixture$uri, ws, doc, second$resultId)$result
+    expect_true("edits" %in% names(third))
+    expect_identical(apply_semantic_delta(previous, third$edits), doc$parse_data$semantic_data$encoded)
+    expect_null(doc$pending_semantic_result)
+})
+
 test_that("Trailing operators retain their positions and completed function roles", {
     uri <- "file:///trailing-operator.R"
     for (line in c("pkg::", "+")) {
@@ -166,6 +199,75 @@ test_that("Trailing operators retain their positions and completed function role
     lhs_and_body <- range(position(0L, 0L), position(0L, nchar(fn)))
     expect_identical(semantic_data_for_range(parsed$semantic_data, lhs_and_body)$encoded,
         parse_document(uri, fn)$semantic_data$encoded)
+})
+
+test_that("worker and provisional tokens are independent of the session's keep.parse.data option", {
+    withr::local_options(keep.parse.data = TRUE)
+    uri <- "file:///parse-data-option.R"
+    lines <- c("fn <- function(arg) arg", "stats::")
+    expected <- parse_document(uri, lines)
+    fixture <- provider_fixture(c(lines[[1L]], "stats"))
+    doc <- fixture$document
+    doc$apply_content_changes(2L, list(list(range = range(position(1L, 5L), position(1L, 5L)), text = "::")))
+
+    # The foreground server and its callr workers can load different profiles.
+    options(keep.parse.data = FALSE)
+    early <- semantic_tokens_full_reply(1L, fixture$uri, fixture$workspace, doc)$result
+    expect_identical(early$data, expected$semantic_data$encoded)
+    expect_identical(early$resultId, expected$content_hash)
+    expect_false(getOption("keep.parse.data"))
+
+    parsed <- parse_document(uri, lines)
+    expect_identical(parsed$semantic_data, expected$semantic_data)
+    expect_identical(names(parsed$definitions), "fn")
+    expect_false(getOption("keep.parse.data"))
+    index_root <- withr::local_tempdir()
+    summary <- index_shallow_summary(file.path(index_root, "partial.R"), lines, index_root)
+    expect_identical(names(summary$definitions), "fn")
+    expect_false(getOption("keep.parse.data"))
+})
+
+test_that("same-version saves withdraw outdated symbols and semantic tokens until the new parse arrives", {
+    fixture <- provider_fixture(c("fn <- function(arg) arg", "pkg"))
+    doc <- fixture$document
+    ws <- fixture$workspace
+    uri <- fixture$uri
+    ws$parse_cache <- collections::dict()
+    ws$parse_cache$set(doc$parse_data$content_hash, doc$parse_data)
+    ws$get_definitions_for_uri <- function(...) doc$parse_data$definitions
+    previous <- semantic_tokens_full_reply(1L, uri, ws, doc)$result
+    viewport <- range(position(0L, 0L), position(2L, 0L))
+
+    # didSave may replace text on disk without a preceding didChange.
+    server <- list(get_workspace = function(...) ws, text_sync = function(...) NULL)
+    saved <- function(content) {
+        text_document_did_save(server, list(
+            textDocument = list(uri = uri), text = paste(content, collapse = "\n")))
+    }
+    saved(doc$content)
+    expect_identical(doc$parse_data$content_hash, previous$resultId)
+    saved(c("a <- 1", "pkg"))
+    expect_identical(doc$superseded_parse_data$content_hash, previous$resultId)
+    waiting <- function() {
+        expect_null(document_symbol_reply(4L, uri, ws, doc, list()))
+        expect_null(semantic_tokens_full_reply(1L, uri, ws, doc))
+        expect_null(semantic_tokens_range_reply(2L, uri, ws, doc, viewport))
+        expect_null(semantic_tokens_delta_reply(3L, uri, ws, doc, previous$resultId))
+    }
+    waiting()
+    doc$apply_content_changes(2L, list(list(range = range(position(1L, 3L), position(1L, 3L)), text = "::")))
+    waiting()
+
+    parsed <- parse_document(uri, doc$content)
+    parsed$version <- doc$version
+    doc$update_parse_data(parsed)
+    expect_null(doc$superseded_parse_data)
+    symbols <- document_symbol_reply(4L, uri, ws, doc, list())$result
+    expect_identical(vapply(symbols, `[[`, character(1L), "name"), "a")
+    expect_identical(semantic_tokens_full_reply(1L, uri, ws, doc)$result$data, parsed$semantic_data$encoded)
+    expect_identical(semantic_tokens_range_reply(2L, uri, ws, doc, viewport)$result$data, parsed$semantic_data$encoded)
+    delta <- semantic_tokens_delta_reply(3L, uri, ws, doc, previous$resultId)$result
+    expect_identical(apply_semantic_delta(previous$data, delta$edits), parsed$semantic_data$encoded)
 })
 
 test_that("An incomplete namespace call preserves surrounding scopes and UTF-16 positions", {
