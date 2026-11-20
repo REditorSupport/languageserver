@@ -634,202 +634,140 @@ get_content_hash <- function(content) {
     digest::digest(content, algo = "xxhash64")
 }
 
-# Some lexical and pipe errors discard the entire parse table. On R versions
-# that supply a physical error location, retain tokens strictly before its line.
-parse_prefix_data <- function(content, error) {
-    line <- error$lineno
-    if (!identical(error$filename, "<text>") || length(line) != 1L ||
-            is.na(line) || line < 2L || line > length(content) ||
-            any(startsWith(content, "#line"))) return(NULL)
-    prefix <- content[seq_len(line - 1L)]
-    srcfile <- srcfilecopy("<text>", prefix)
-    tryCatch(parse(text = prefix, srcfile = srcfile, keep.source = TRUE), error = function(e) NULL)
-    utils::getParseData(srcfile)
-}
-
-# Recover source tokens without publishing a repaired AST as a valid document.
-recover_token_parse_data <- function(data, content, error) {
-    prefix_only <- is.null(data)
-    if (prefix_only) data <- parse_prefix_data(content, error)
-    if (!length(data$id)) return(data)
-    # A partial tree may reference parents the parser never finished reducing.
-    # Keep its real tokens and complete subtrees, treating orphan rows as roots.
-    missing_parent <- data$parent > 0L & !(data$parent %in% data$id)
-    data$parent[missing_parent] <- 0L
-    if (prefix_only) return(data)
-
-    terminals <- which(data$terminal & data$token != "COMMENT")
-    if (!length(terminals)) return(data)
-    last <- length(terminals)
-    row <- terminals[[last]]
-    closer <- data$text[[row]] %in% c(")", "]", "}")
-    if (closer) {
-        if (last == 1L) return(data)
-        row <- terminals[[last - 1L]]
-    }
-    token <- data$text[[row]]
-    if (data$parent[[row]] != 0L ||
-            !(data$token[[row]] == "SPECIAL" || grepl("^[+*/^:?!$@~&|=<>-]+$", token))) return(data)
-
-    # A dangling operator can stop the parser before the rest of the file, or
-    # prevent the enclosing function's parameter and declaration roles resolving.
-    # Try once with just that operator blanked, preserving every source column.
-    line <- data$line1[[row]]
-    start <- data$col1[[row]]
-    end <- data$col2[[row]]
-    if (data$line2[[row]] != line || line > length(content) ||
-            substr(content[[line]], start, end) != token) return(data)
-    if (!closer) {
-        if (!grepl("^[[:space:]]*(#|$)", substring(content[[line]], end + 1L))) return(data)
-        if (line == length(content) || !any(grepl("[^[:space:]]", content[seq.int(line + 1L, length(content))]))) {
-            # A standalone trailing operator or pkg:: leaves the preceding
-            # statements fully reduced. Keep even the actual operator token.
-            detached <- terminals[data$parent[terminals] == 0L]
-            if (all(detached == row | data$token[detached] %in% c("SYMBOL", "STR_CONST", "';'"))) return(data)
-        }
-    }
-    substr(content[[line]], start, end) <- strrep(" ", end - start + 1L)
-    repaired <- tryCatch(parse(text = content, keep.source = TRUE), error = function(e) NULL)
-    if (is.null(repaired)) data else utils::getParseData(repaired)
-}
-
 parse_document <- function(uri, content, is_rmarkdown = FALSE,
     content_hash = NULL, include_xml = TRUE) {
-    parse_content <- normalize_parse_content(content, is_rmarkdown)
-    inlay_hint_incomplete_lines <- if (is_rmarkdown) {
-        which(parse_content != normalize_parse_content(
-            content, is_rmarkdown, parseable_only = FALSE)) - 1L
+    if (is_rmarkdown) {
+        regions <- parse_literate_regions(content)
+        literate <- literate_provider_content(content, regions)
+        content <- literate$content
+        incomplete_lines <- literate$incomplete_lines
+        if (is.null(content_hash)) content_hash <- literate_parse_hash(literate$original_content, regions)
     } else {
-        integer()
+        content <- normalize_parse_content(content)
+        incomplete_lines <- integer()
+        if (is.null(content_hash)) content_hash <- get_content_hash(content)
     }
-    content <- parse_content
-    if (is.null(content_hash)) content_hash <- get_content_hash(content)
 
-    parse_env <- function() {
-        env <- new.env(parent = .GlobalEnv)
-        env$packages <- character()
-        env$objects <- character()
-        env$nonfuncts <- character()
-        env$functs <- character()
-        env$functions <- list()
-        env$signatures <- list()
-        env$definitions <- list()
-        env$documentation <- list()
-        env$xml_data <- NULL
-        env$xml_doc <- NULL
-        env$xml_deferred <- FALSE
-        env$syntax_data <- syntax_parse_data(NULL)
-        env$outline_data <- outline_parse_data(env$syntax_data)
-        env$class_data <- NULL
-        env$navigation_data <- navigation_parse_data(env$syntax_data)
-        env$completion_data <- completion_parse_data(NULL)
-        env$member_data <- NULL
-        env$semantic_data <- empty_semantic_data()
-        env$range_data <- range_provider_parse_data(NULL, content)
-        env$source_specs <- list()
-        env$reference_index <- reference_parse_data(
-            NULL, content, env$completion_data, uri, env$definitions)
-        env$content_hash <- content_hash
-        env$parse_error <- FALSE
-        env$inlay_hint_incomplete <- length(inlay_hint_incomplete_lines) > 0L
-        env$inlay_hint_incomplete_lines <- inlay_hint_incomplete_lines
-        env
-    }
-    env <- parse_env()
+    env <- new.env(parent = .GlobalEnv)
+    env$packages <- character()
+    env$xml_data <- NULL
+    env$xml_doc <- NULL
+    env$content_hash <- content_hash
+    env$parse_error <- FALSE
+    env$inlay_hint_incomplete <- length(incomplete_lines) > 0L
+    env$inlay_hint_incomplete_lines <- incomplete_lines
 
     logger$info("parse_document: parsing", uri)
     # R stores partial parse data here even when parse() cannot return an expression.
     srcfile <- srcfilecopy("<text>", content)
     expr <- tryCatch(parse(text = content, srcfile = srcfile, keep.source = TRUE), error = identity)
-    if (!inherits(expr, "error")) {
-        # Native queues append in constant time. Updating vectors bound to an
-        # environment copies their whole capacity on every assignment.
-        env$objects <- collections::queue()
-        env$functs <- collections::queue()
-        env$nonfuncts <- collections::queue()
-        env$nonfuncts_seen <- new.env(hash = TRUE, parent = emptyenv())
-        env$definitions_store <- new.env(hash = TRUE, parent = emptyenv())
-        env$documentation_store <- new.env(hash = TRUE, parent = emptyenv())
-        env$functions_store <- new.env(hash = TRUE, parent = emptyenv())
-        env$outline_store <- new.env(hash = TRUE, parent = emptyenv())
-        env$signatures_store <- new.env(hash = TRUE, parent = emptyenv())
-        env$definition_names <- collections::queue()
-        env$documentation_names <- collections::queue()
-        env$function_names <- collections::queue()
-
-        data <- utils::getParseData(expr)
-        env$syntax_data <- syntax_parse_data(data)
-        assignments <- symbol_assignment_rows(data, env$syntax_data)
-        env$nested_by_position <- outline_nested_functions(env$syntax_data, assignments)
-        parse_expr(content, expr, env)
-        names_vector <- function(queue) {
-            if (queue$size()) unlist(queue$as_list(), use.names = FALSE)
-            else character()
-        }
-        materialize <- function(store, names) {
-            if (!names$size()) return(list())
-            mget(names_vector(names), envir = store, inherits = FALSE)
-        }
-        env$objects <- names_vector(env$objects)
-        env$functs <- names_vector(env$functs)
-        env$nonfuncts <- names_vector(env$nonfuncts)
-        env$definitions <- materialize(
-            env$definitions_store, env$definition_names)
-        env$documentation <- materialize(
-            env$documentation_store,
-            env$documentation_names
-        )
-        env$functions <- materialize(
-            env$functions_store, env$function_names)
-        env$signatures <- materialize(
-            env$signatures_store, env$function_names)
-        env$outline_data <- outline_parse_data(env$syntax_data)
-        env$outline_data$nested_functions <- as.list(env$outline_store, all.names = TRUE)
-        rm(list = c(
-            "nonfuncts_seen",
-            "nested_by_position", "outline_store",
-            "definitions_store", "documentation_store",
-            "functions_store", "signatures_store",
-            "definition_names", "documentation_names", "function_names"
-        ), envir = env)
-
-        env$packages <- basename(find.package(env$packages, quiet = TRUE))
-        env$navigation_data <- navigation_parse_data(env$syntax_data)
-        env$member_data <- member_document_index(content, expr, data)
-        env$completion_data <- completion_parse_data(data, env$syntax_data)
-        env$semantic_data <- semantic_parse_data(data, content, env$syntax_data, assignments)
-        env$range_data <- range_provider_parse_data(data, content, env$syntax_data)
-        env$source_specs <- index_source_specs(expr)
-        env$reference_index <- reference_parse_data(
-            data, content, env$completion_data, uri, env$definitions, env$syntax_data)
-        # Indexed providers need no XML. Keep it out of worker snapshots and
-        # materialize it from syntax only for class extraction or a legacy provider.
-        env$xml_deferred <- !include_xml
-        if (include_xml) env$xml_data <- syntax_xml(env$syntax_data)
-        xml <- function() if (is.null(env$xml_data)) syntax_xml(env$syntax_data) else env$xml_data
-        env$class_data <- tryCatch(class_parse_data(uri, content, xml(),
-                env$syntax_data, env$definitions), error = function(e) NULL)
-        # These original-id lookup tables are used only while constructing
-        # worker indexes. Providers use the compact physical syntax tree.
-        env$syntax_data[c("id_row", "id_first", "id_next", "id_function_scope", "scope_row",
-                "parent", "first_child", "next_sibling", "function_scope", "top", "order")] <- NULL
-        # IMPORTANT: Do NOT create xml_doc here - this function runs in a child process
-        # and xml2 external pointers cannot be serialized across process boundaries.
-        # Legacy providers materialize it lazily in the main process.
-    } else {
-        # Token-based providers can use source positions from the current buffer
-        # even when we have no complete document AST for the other indexes.
-        data <- recover_token_parse_data(utils::getParseData(srcfile), content, expr)
-        env$semantic_data <- semantic_parse_data(data, content)
-        env$range_data$strings <- range_provider_strings(data)
-        env$member_data <- member_document_index(content)
-        env$source_specs <- index_source_specs(as.expression(lapply(env$member_data$items, `[[`, "expr")))
+    recovery <- NULL
+    if (inherits(expr, "error")) {
+        recovery <- recover_partial_content(content, srcfile, expr)
+        expr <- recovery$expr
+        incomplete_lines <- sort(unique(c(incomplete_lines, recovery$incomplete_lines)))
         env$parse_error <- TRUE
-        env$xml_data <- paste0(
-            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\" ?>\n",
-            "<exprlist>\n</exprlist>\n"
-        )
+        env$inlay_hint_incomplete <- TRUE
+        env$inlay_hint_incomplete_lines <- incomplete_lines
     }
+
+    # Native queues append in constant time. Updating vectors bound to an
+    # environment copies their whole capacity on every assignment.
+    env$objects <- collections::queue()
+    env$functs <- collections::queue()
+    env$nonfuncts <- collections::queue()
+    env$nonfuncts_seen <- new.env(hash = TRUE, parent = emptyenv())
+    env$definitions_store <- new.env(hash = TRUE, parent = emptyenv())
+    env$documentation_store <- new.env(hash = TRUE, parent = emptyenv())
+    env$functions_store <- new.env(hash = TRUE, parent = emptyenv())
+    env$outline_store <- new.env(hash = TRUE, parent = emptyenv())
+    env$signatures_store <- new.env(hash = TRUE, parent = emptyenv())
+    env$definition_names <- collections::queue()
+    env$documentation_names <- collections::queue()
+    env$function_names <- collections::queue()
+
+    data <- utils::getParseData(expr)
+    env$syntax_data <- syntax_parse_data(data)
+    assignments <- symbol_assignment_rows(data, env$syntax_data)
+    env$nested_by_position <- outline_nested_functions(env$syntax_data, assignments)
+    parse_expr(content, expr, env)
+    names_vector <- function(queue) {
+        if (queue$size()) unlist(queue$as_list(), use.names = FALSE)
+        else character()
+    }
+    materialize <- function(store, names) {
+        if (!names$size()) return(list())
+        mget(names_vector(names), envir = store, inherits = FALSE)
+    }
+    env$objects <- names_vector(env$objects)
+    env$functs <- names_vector(env$functs)
+    env$nonfuncts <- names_vector(env$nonfuncts)
+    env$definitions <- materialize(
+        env$definitions_store, env$definition_names)
+    env$documentation <- materialize(
+        env$documentation_store,
+        env$documentation_names
+    )
+    env$functions <- materialize(
+        env$functions_store, env$function_names)
+    env$signatures <- materialize(
+        env$signatures_store, env$function_names)
+    env$outline_data <- outline_parse_data(env$syntax_data)
+    env$outline_data$nested_functions <- as.list(env$outline_store, all.names = TRUE)
+    rm(list = c(
+        "nonfuncts_seen",
+        "nested_by_position", "outline_store",
+        "definitions_store", "documentation_store",
+        "functions_store", "signatures_store",
+        "definition_names", "documentation_names", "function_names"
+    ), envir = env)
+
+    env$packages <- basename(find.package(env$packages, quiet = TRUE))
+    env$navigation_data <- navigation_parse_data(env$syntax_data)
+    # Cursor recovery also tracks unfinished member accesses and their package
+    # hints. Keep its original source and bounded recovery on a syntax error.
+    env$member_data <- if (is.null(recovery)) member_document_index(content, expr, data) else
+        member_document_index(content)
+    env$completion_data <- completion_parse_data(data, env$syntax_data)
+    env$semantic_data <- semantic_parse_data(data, content, env$syntax_data, assignments)
+    env$range_data <- range_provider_parse_data(data, content, env$syntax_data)
+    if (length(incomplete_lines) || env$parse_error) {
+        env$partial_incomplete_lines <- incomplete_lines
+        roots <- env$syntax_data$roots
+        roots <- roots[env$syntax_data$token[roots] %in% c("expr", "expr_or_assign_or_help")]
+        # findInterval counts uncertain lines through each boundary.
+        env$partial_complete_roots <- roots[
+            findInterval(env$syntax_data$line1[roots] - 2L, incomplete_lines) ==
+                findInterval(env$syntax_data$line2[roots] - 1L, incomplete_lines)]
+    }
+    if (!is.null(recovery)) {
+        partial_semantic <- semantic_parse_data(recovery$token_data, content)
+        env$semantic_data <- merge_partial_tokens(env$semantic_data, partial_semantic, recovery$incomplete_lines)
+        partial_strings <- range_provider_strings(recovery$token_data)
+        env$range_data$strings <- merge_partial_strings(env$range_data$strings, partial_strings, recovery$incomplete_lines)
+    }
+    if (is_rmarkdown && length(literate$incomplete_lines)) {
+        env$semantic_data <- merge_partial_tokens(env$semantic_data, literate$partial_tokens, literate$incomplete_lines)
+        env$range_data$strings <- merge_partial_strings(env$range_data$strings, literate$partial_strings, literate$incomplete_lines)
+    }
+    env$source_specs <- index_source_specs(expr)
+    env$reference_index <- reference_parse_data(
+        data, content, env$completion_data, uri, env$definitions, env$syntax_data)
+    # Indexed providers need no XML. Keep it out of worker snapshots and
+    # materialize it from syntax only for class extraction or a legacy provider.
+    env$xml_deferred <- !include_xml
+    if (include_xml) env$xml_data <- syntax_xml(env$syntax_data)
+    xml <- function() if (is.null(env$xml_data)) syntax_xml(env$syntax_data) else env$xml_data
+    env$class_data <- tryCatch(class_parse_data(uri, content, xml(),
+            env$syntax_data, env$definitions), error = function(e) NULL)
+    # These original-id lookup tables are used only while constructing
+    # worker indexes. Providers use the compact physical syntax tree.
+    env$syntax_data[c("id_row", "id_first", "id_next", "id_function_scope", "scope_row",
+            "parent", "first_child", "next_sibling", "function_scope", "top", "order")] <- NULL
+    # IMPORTANT: Do NOT create xml_doc here - this function runs in a child process
+    # and xml2 external pointers cannot be serialized across process boundaries.
+    # Legacy providers materialize it lazily in the main process.
+
     env
 }
 
@@ -938,13 +876,15 @@ parse_callback <- function(self, uri, version, parse_data, source_content = NULL
         } else if (is.null(doc$requested_packages)) {
             doc$requested_packages <- requested_packages
         }
-    } else if (length(parse_data$member_data$packages)) {
-        # A newly pasted namespace receiver can end at $ or @ before any
-        # valid parse has requested its metadata. Retain the last valid imports
-        # while resolving only syntax-confirmed namespace hints from recovery.
+    } else if (length(parse_data$member_data$packages) ||
+            length(setdiff(parse_data$packages, previous_packages$packages))) {
+        # A partial tree can confirm new imports and namespace receivers, but
+        # cannot prove that a previously requested package is no longer used.
         requested_packages <- previous_packages
         if (is.null(requested_packages)) requested_packages <- list(
             packages = normalize_package_request(doc$loaded_packages), namespace_packages = character())
+        requested_packages$packages <- normalize_package_request(union(
+            requested_packages$packages, parse_data$packages))
         requested_packages$namespace_packages <- normalize_package_request(union(
             requested_packages$namespace_packages, parse_data$member_data$packages))
         if (!identical(doc$requested_packages, requested_packages) || isTRUE(doc$member_refresh)) {
@@ -1044,13 +984,12 @@ parse_task <- function(self, uri, document, delay = 0, retry = TRUE) {
     }
     if (document$is_rmarkdown) {
         content <- document$content
-        cache_content <- normalize_parse_content(
-            content, is_rmarkdown = TRUE, parseable_only = FALSE)
+        source <- normalize_parse_content(literate_r_content(content, document$regions))
+        content_hash <- literate_parse_hash(source, document$regions)
     } else {
         content <- normalize_parse_content(document$content)
-        cache_content <- content
+        content_hash <- get_content_hash(content)
     }
-    content_hash <- get_content_hash(cache_content)
 
     # Check cache in the main process before spawning a child task
     workspace <- self$get_workspace(uri)

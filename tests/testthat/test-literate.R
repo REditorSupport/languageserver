@@ -100,7 +100,7 @@ test_that("R cells are validated independently with original line positions", {
         "file:///independent.qmd", content, is_rmarkdown = TRUE)
     expect_false(parsed$parse_error)
     expect_setequal(names(parsed$definitions), c("first", "last"))
-    expect_true(all(parsed$semantic_data$lines %in% c(2L, 15L)))
+    expect_setequal(parsed$semantic_data$lines, c(2L, 7L, 15L))
 
     sections <- get_rmd_document_sections(content)
     expect_setequal(
@@ -137,6 +137,28 @@ test_that("structural ranges include nested divs and ignore headings in cells", 
     divs <- Filter(function(region) region$type == "div", regions)
     expect_equal(vapply(divs, `[[`, integer(1L), "start_line"), c(5L, 6L))
     expect_equal(vapply(divs, `[[`, integer(1L), "end_line"), c(12L, 11L))
+})
+
+test_that("incomplete R cells preserve complete statements at their original positions", {
+    content <- c(
+        "prose <- 1",
+        "```{r}", "#| label: first", "first <- function(x) x", "stats::", "```",
+        "```{python}", "python <- 2", "```",
+        "```{r}", "second <- first(2)", 'raw <- r"(unfinished', "hidden <- 3", "```",
+        "```{r}", "last <- second", "```",
+        "```{r}", 'palette("#ff0000", "target.R",', "```"
+    )
+    for (ext in c("Rmd", "qmd")) {
+        parsed <- parse_document(paste0("file:///cells.", ext), content, is_rmarkdown = TRUE)
+        expect_setequal(names(parsed$definitions), c("first", "second", "last"))
+        token_lines <- unique(parsed$semantic_data$lines)
+        expect_true(all(c(3L, 10L, 15L) %in% token_lines))
+        expect_false(any(c(0L, 2L, 7L, 12L) %in% token_lines))
+        expect_true(parsed$inlay_hint_incomplete)
+        strings <- parsed$range_data$strings
+        expect_identical(substr(content[strings$line], strings$col1, strings$col2),
+            c('"#ff0000"', '"target.R"'))
+    }
 })
 
 test_that("point providers do not leak from R cells into Markdown", {
@@ -240,5 +262,15 @@ test_that("Quarto documents work end to end with isolated cells", {
     encoded <- matrix(tokens$data, ncol = 5L, byrow = TRUE)
     token_lines <- cumsum(encoded[, 1L])
     expect_true(length(token_lines) > 0L)
-    expect_true(all(token_lines %in% c(15L, 16L)))
+    expect_setequal(token_lines, c(11L, 15L, 16L))
+})
+
+test_that("line directives stay inside their R cell and preserve physical definition positions", {
+    content <- c("```{r}", '#line 1000 "generated.R"', 'header <- "start',
+        '#line 50 inside a string"', "```", "```{r}", "before <- 2", "pkg::", "after <- 3", "```")
+    parsed <- parse_document("file:///physical.qmd", content, is_rmarkdown = TRUE)
+    expect_identical(names(parsed$definitions), c("header", "before", "after"))
+    expect_equal(parsed$definitions$header$range$start, position(2L, 0L))
+    expect_equal(parsed$definitions$after$range$start, position(8L, 0L))
+    expect_identical(parsed$member_data$items[[1L]]$expr[[3L]], "start\n#line 50 inside a string")
 })

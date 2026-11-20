@@ -36,6 +36,14 @@ test_that("member lookup follows visible literal source calls and the current ta
     expect_identical(signature(3L), "fun(updated)")
     expect_equal(definition(3L), list(uri = api$uri, range = range(position(1L, 12L), position(1L, 15L))))
 
+    api$set_content(3L, c("stats::", "", "obj <- list(fun = function(partial) NULL)"))
+    updated <- parse_document(api$uri, api$content)
+    updated$version <- api$version
+    workspace$update_parse_data(api$uri, updated)
+    expect_true(updated$parse_error)
+    expect_identical(signature(3L), "fun(partial)")
+    expect_equal(definition(3L), list(uri = api$uri, range = range(position(2L, 12L), position(2L, 15L))))
+
     main <- open("shadow.R", c("source <- function(...) NULL", 'source("api.R")', "obj$fun("))
     expect_null(signature(2L))
     main <- open("isolated.R", c('source("api.R", local = new.env())', "obj$fun("))
@@ -43,7 +51,7 @@ test_that("member lookup follows visible literal source calls and the current ta
 
     open("mid.R", 'source("api.R")')
     main <- open("transitive.R", c('source("mid.R")', "obj$fun("))
-    expect_identical(signature(1L), "fun(updated)")
+    expect_identical(signature(1L), "fun(partial)")
     extension <- open("extend.R", 'obj[["fun"]] <- function(extra) NULL')
     main <- open("extend-main.R", c("obj <- new.env()", 'source("extend.R")', "obj$fun("))
     expect_identical(signature(2L), "fun(extra)")

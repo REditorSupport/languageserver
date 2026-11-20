@@ -180,6 +180,14 @@ test_that("inlay hints work through the language server", {
         range = range(position(0L, 0L), position(2L, 0L))
     ), retry = FALSE)
     expect_equal(preserved, hints)
+
+    cold_path <- withr::local_tempfile(fileext = ".R")
+    did_open(client, cold_path, text = c("draw <- function(shape, size) NULL", "stats::", "draw(1, 2)"))
+    cold <- respond(client, "textDocument/inlayHint", list(
+        textDocument = list(uri = path_to_uri(cold_path)),
+        range = range(position(2L, 0L), position(3L, 0L))
+    ), retry = FALSE)
+    expect_identical(vapply(cold, `[[`, character(1L), "label"), c("shape =", "size ="))
 })
 
 test_that("inlay hint helpers handle malformed and empty calls", {
@@ -299,6 +307,22 @@ test_that("inlay hint resolution tolerates missing metadata and documentation", 
         resolved$tooltip$value,
         "Parameter `parameter` of `pkg::target()`."
     )
+})
+
+test_that("cold-open incomplete buffers supply inlay hints for current complete calls", {
+    fixture <- provider_fixture(c("target(one, two)", "pkg::", "target(three, four)"),
+        function(...) formals(function(first, second) NULL))
+    hints <- function() {
+        inlay_hint_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+            range(position(0L, 0L), position(3L, 0L)))$result
+    }
+    expect_null(fixture$document$inlay_hint_data)
+    expect_equal(vapply(hints(), function(hint) hint$position$line, integer(1L)), c(0L, 0L, 2L, 2L))
+    inlay_hint_edit(fixture, 2L, list(list(
+        range = range(position(2L, 0L), position(2L, 6L)), text = "new_target"
+    )))
+    expect_identical(vapply(hints(), function(hint) hint$data$functionName, character(1L)),
+        rep(c("target", "new_target"), each = 2L))
 })
 
 test_that("inlay hints survive unrelated incomplete edits and refresh after parsing", {
@@ -440,7 +464,7 @@ test_that("inlay hints discard changed outer calls while retaining untouched nes
     expect_length(hints(), 0L)
 })
 
-test_that("inlay fallback drops calls when prefix replacements change their callee", {
+test_that("partial inlay hints resolve the current callee after prefix replacements", {
     for (prefix in c("obj$", "obj@", "pkg::", "renamed", "obj$\n")) {
         fixture <- provider_fixture(
             c("x <- target(one, two)", "", "target(three, four)"),
@@ -462,10 +486,14 @@ test_that("inlay fallback drops calls when prefix replacements change their call
             text = "other("
         )))
         expect_true(parsed$parse_error)
-        expected <- original[3:4]
-        for (i in seq_along(expected)) {
-            expected[[i]]$position$line <- expected[[i]]$position$line + added_lines
-        }
+        # Compare with the same edit in a fully parsed document. Namespace and
+        # renamed calls resolve new hints, while member callees supply none.
+        edited <- fixture$document$content
+        edited[[2L + added_lines]] <- ""
+        control <- provider_fixture(edited, fixture$workspace$get_formals)
+        expect_false(control$document$parse_data$parse_error)
+        expected <- inlay_hint_reply(1L, control$uri, control$workspace, control$document, request)$result
+        expect_length(expected, if (prefix %in% c("pkg::", "renamed")) 4L else 2L)
         expect_equal(inlay_hint_reply(
             1L, fixture$uri, fixture$workspace, fixture$document, request
         )$result, expected, info = prefix)
@@ -513,7 +541,7 @@ test_that("inlay fallback treats deletions and whitespace at callee boundaries c
     )$result, original)
 })
 
-test_that("inlay fallback drops callees after whitespace-separated prefix edits", {
+test_that("partial inlay hints respect whitespace-separated callee changes", {
     cases <- expand.grid(
         prefix = c("obj$", "obj@", "pkg::"),
         separator = c(" ", "  ", "\t"),
@@ -544,9 +572,15 @@ test_that("inlay fallback drops callees after whitespace-separated prefix edits"
             range = range(position(1L, 0L), position(1L, 0L)), text = "other("
         )))
         expect_true(parsed$parse_error)
-        expect_equal(inlay_hint_reply(
+        edited <- inlay_hint_reply(
             1L, fixture$uri, fixture$workspace, fixture$document, request
-        )$result, original[3:4], info = paste(case, collapse = "; "))
+        )$result
+        if (case$prefix == "pkg::") {
+            expect_identical(vapply(edited[1:2], function(hint) hint$data$package, character(1L)),
+                c("pkg", "pkg"))
+            edited <- edited[-(1:2)]
+        }
+        expect_equal(edited, original[3:4], info = paste(case, collapse = "; "))
     }
 })
 
@@ -618,6 +652,24 @@ test_that("inlay fallback clears on full replacement and waits for current parsi
     )$result, 0L)
 })
 
+test_that("a recovered parameterless function clears previously resolved hints", {
+    declaration <- "target <- function(first, second) NULL"
+    fixture <- provider_fixture(c(declaration, "target(one, two)", ""),
+        function(...) formals(function(first, second) NULL))
+    hints <- function() {
+        inlay_hint_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+            range(position(0L, 0L), position(3L, 0L)))$result
+    }
+    expect_length(hints(), 2L)
+    inlay_hint_edit(fixture, 2L, list(
+        list(range = range(position(0L, 0L), position(0L, nchar(declaration))),
+            text = "target <- function() NULL"),
+        list(range = range(position(2L, 0L), position(2L, 0L)), text = "pkg::")
+    ))
+    fixture$workspace$get_formals <- function(...) NULL
+    expect_length(hints(), 0L)
+})
+
 test_that("inlay fallback drops calls affected by comments and strings", {
     for (text in c("#", "\"", "'", "`")) {
         fixture <- provider_fixture(
@@ -661,7 +713,7 @@ test_that("inlay fallback preserves hints in an incomplete literate R cell", {
         original)
 
     fixture$workspace$get_formals <- function(...) formals(function(first) NULL)
-    expect_equal(hints(), c(list(original[[3L]]), original[1:2]))
+    expect_equal(hints(), original[c(1L, 3L)])
     fixture$workspace$get_formals <- function(...) formals(function(first, second) NULL)
 
     # Changing the engine must not leave R hints in a Python cell.

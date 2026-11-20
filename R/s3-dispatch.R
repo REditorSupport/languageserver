@@ -60,12 +60,28 @@ s3_source_index <- function(items) {
     )
 }
 
-s3_source_view <- function(document) {
-    data <- document$parse_data$member_data
+s3_source_view <- function(document, peer = FALSE) {
+    parsed <- document$parse_data
+    data <- parsed$member_data
     if (is.null(data)) {
         return(NULL)
     }
-    list(index = data$s3 %s3_or% s3_source_index(data$items), items = data$items,
+    items <- data$items
+    index <- data$s3
+    if (peer && (isTRUE(parsed$parse_error) || !is.null(parsed$partial_complete_roots))) {
+        ids <- member_complete_item_ids(parsed)
+        if (length(ids) < length(items)) {
+            items <- items[ids]
+            # Histories, imports and registrations all refer to this compact
+            # list by position. Build and cache their index together.
+            index <- parsed$complete_s3_index
+            if (is.null(index)) {
+                index <- s3_source_index(items)
+                if (is.environment(parsed)) parsed$complete_s3_index <- index
+            }
+        }
+    }
+    list(index = index %s3_or% s3_source_index(items), items = items,
         uri = document$uri, content_key = data$content_key)
 }
 
@@ -292,7 +308,7 @@ s3_context <- function(uri, workspace, document, at) {
     for (other in setdiff(others, uri)) {
         candidate <- workspace$documents$get(other, NULL)
         if (!is.null(candidate) && identical(candidate$version, candidate$parse_data$version)) {
-            context$sources <- c(context$sources, list(s3_source_view(candidate)))
+            context$sources <- c(context$sources, list(s3_source_view(candidate, peer = TRUE)))
         }
     }
     if (!is.null(workspace$index) && isTRUE(workspace$index$enabled)) {
@@ -629,12 +645,21 @@ resolve_s3_call <- function(uri, workspace, document, point, hover = FALSE, call
     result
 }
 
-s3_index_summary <- function(content, uri, expressions = NULL, parse_data = NULL) {
+s3_index_summary <- function(content, uri, expressions = NULL, parse_data = NULL, incomplete_lines = integer()) {
     if (!is.null(parse_data$member_data)) {
         items <- parse_data$member_data$items
+        if (isTRUE(parse_data$parse_error) || !is.null(parse_data$partial_complete_roots)) {
+            items <- items[member_complete_item_ids(parse_data)]
+        }
     } else if (!is.null(expressions)) {
         refs <- attr(expressions, "srcref")
-        items <- lapply(seq_along(expressions), function(i) {
+        ids <- seq_along(expressions)
+        if (length(incomplete_lines)) {
+            ids <- ids[vapply(refs, function(ref) {
+                findInterval(ref[[1L]] - 2L, incomplete_lines) == findInterval(ref[[3L]] - 1L, incomplete_lines)
+            }, logical(1L))]
+        }
+        items <- lapply(ids, function(i) {
             ref <- refs[[i]]
             list(
                 expr = expressions[[i]], start = c(ref[[1L]] - 1L, ref[[5L]] - 1L),
@@ -750,7 +775,7 @@ s3_peer_packages <- function(workspace, document) {
     for (uri in setdiff(others, document$uri)) {
         candidate <- workspace$documents$get(uri, NULL)
         if (!is.null(candidate) && identical(candidate$version, candidate$parse_data$version)) {
-            packages <- add_source(s3_source_view(candidate), packages)
+            packages <- add_source(s3_source_view(candidate, peer = TRUE), packages)
         }
     }
     index <- workspace$index

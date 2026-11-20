@@ -318,25 +318,66 @@ literate_r_run_at <- function(regions, row) {
 literate_r_content <- function(content, regions = NULL, parseable_only = FALSE) {
     if (is.null(regions)) regions <- parse_literate_regions(content)
     result <- rep("", length(content))
+    r_lines <- regions$line_type == "r"
+    result[r_lines] <- content[r_lines]
+    if (!isTRUE(parseable_only)) return(result)
 
     for (cell in regions$cells) {
         if (!cell$executable || !identical(tolower(cell$engine), "r")) next
         body_lines <- seq_safe(cell$body_start, cell$body_end)
-        r_lines <- body_lines[regions$line_type[body_lines] == "r"]
-        if (!length(r_lines)) next
-
-        if (isTRUE(parseable_only)) {
-            cell_content <- rep("", length(body_lines))
-            cell_content[match(r_lines, body_lines)] <- content[r_lines]
-            parsed <- tryCatch(
-                parse(text = cell_content, keep.source = TRUE),
-                error = function(e) NULL
-            )
-            if (is.null(parsed)) next
-        }
-        result[r_lines] <- content[r_lines]
+        parsed <- tryCatch(parse(text = result[body_lines], keep.source = TRUE), error = function(e) NULL)
+        if (is.null(parsed)) result[body_lines] <- ""
     }
     result
+}
+
+# Identical R text can parse differently when a fence splits an expression.
+literate_parse_hash <- function(source, regions) {
+    cells <- Filter(function(cell) cell$executable && identical(tolower(cell$engine), "r"), regions$cells)
+    bounds <- lapply(cells, function(cell) c(cell$body_start, cell$body_end))
+    get_content_hash(list(source = source, cells = bounds))
+}
+
+# Recover each R cell independently so an unmatched delimiter or quote cannot
+# consume code from a later cell. Keep physical document lines for LSP ranges.
+literate_provider_content <- function(content, regions = parse_literate_regions(content)) {
+    source <- normalize_parse_content(literate_r_content(content, regions))
+    result <- source
+    incomplete_lines <- integer()
+    partial_tokens <- partial_strings <- list()
+    for (cell in regions$cells) {
+        if (!cell$executable || !identical(tolower(cell$engine), "r")) next
+        rows <- as.integer(seq_safe(cell$body_start, cell$body_end))
+        if (!length(rows)) next
+        text <- source[rows]
+        srcfile <- srcfilecopy("<text>", text)
+        expr <- tryCatch(parse(text = text, srcfile = srcfile, keep.source = TRUE), error = identity)
+        if (inherits(expr, "error")) {
+            recovered <- recover_partial_content(text, srcfile, expr)
+            result[rows] <- recovered$content
+            incomplete_lines <- c(incomplete_lines, rows[recovered$incomplete_lines + 1L] - 1L)
+            tokens <- semantic_parse_data(recovered$token_data, text)
+            tokens$encoded <- NULL
+            tokens$lines <- tokens$lines + (rows[[1L]] - 1L)
+            partial_tokens[[length(partial_tokens) + 1L]] <- tokens
+            strings <- range_provider_strings(recovered$token_data)
+            strings$line <- strings$line + (rows[[1L]] - 1L)
+            partial_strings[[length(partial_strings) + 1L]] <- strings
+        } else {
+            result[rows] <- physical_parse_content(text, expr)
+        }
+    }
+    # Parser ids are local to a cell. Combine only the classified positions.
+    stack_fields <- function(parts) {
+        if (!length(parts)) return(NULL)
+        result <- parts[[1L]]
+        for (name in names(result)) {
+            result[[name]] <- unlist(lapply(parts, `[[`, name), use.names = FALSE)
+        }
+        result
+    }
+    list(content = result, original_content = source, incomplete_lines = incomplete_lines,
+        partial_tokens = stack_fields(partial_tokens), partial_strings = stack_fields(partial_strings))
 }
 
 #' Get Markdown headings and executable cells from a literate document

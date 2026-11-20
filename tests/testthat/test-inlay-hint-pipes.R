@@ -78,7 +78,7 @@ test_that("Piped inlay hints retain viewport positions and stop at ellipsis", {
     }
 })
 
-test_that("Cached piped hints survive unrelated edits and invalidate changed pipes", {
+test_that("Recovered calls retain hints and refresh matching after a pipe is removed", {
     fixture <- provider_fixture(c("x %>%", "  fun1(1, 2)", "", "fun1(3, 4)"),
         function(...) formals(function(arg1, arg2, arg3) NULL))
     original <- inlay_pipe_hints(fixture)
@@ -92,10 +92,12 @@ test_that("Cached piped hints survive unrelated edits and invalidate changed pip
         range = range(position(0L, 2L), position(0L, 5L)), text = "+"
     )))
     expect_true(parsed$parse_error)
-    expect_equal(inlay_pipe_hints(fixture), original[3:4])
+    changed <- inlay_pipe_hints(fixture)
+    expect_equal(inlay_pipe_labels(changed), rep(c("arg1 =", "arg2 ="), 2L))
+    expect_identical(changed[3:4], original[3:4])
 })
 
-test_that("Cached hints invalidate when a multiline call becomes piped", {
+test_that("Recovered multiline calls use their current pipe", {
     for (pipe in c("%>%", "%T>%")) {
         fixture <- provider_fixture(c("x +", "  fun1(1, 2)", "", "fun1(3, 4)"),
             function(...) formals(function(arg1, arg2, arg3) NULL))
@@ -106,7 +108,9 @@ test_that("Cached hints invalidate when a multiline call becomes piped", {
             list(range = range(position(2L, 0L), position(2L, 0L)), text = "other(")
         ))
         expect_true(parsed$parse_error)
-        expect_equal(inlay_pipe_hints(fixture), original[3:4])
+        changed <- inlay_pipe_hints(fixture)
+        expect_equal(inlay_pipe_labels(changed), c("arg2 =", "arg3 =", "arg1 =", "arg2 ="))
+        expect_identical(changed[3:4], original[3:4])
         inlay_hint_edit(fixture, 3L, list(list(
             range = range(position(2L, 0L), position(2L, 6L)), text = ""
         )))

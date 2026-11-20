@@ -875,6 +875,37 @@ test_that("refactor actions honor requested kinds and current parse versions", {
         selected, list("refactor")), list())
 })
 
+test_that("refactorings use complete local scopes on either side of damaged code", {
+    content <- c("first <- function(a) {", "  out <- a + 1", "  out", "}", "stats::",
+        "second <- function(b) {", "  out <- b + 2", "  out", "}")
+    fixture <- provider_fixture(content)
+    for (i in c(1L, 6L)) {
+        selected <- refactor_test_range(content, i, if (i == 1L) "a + 1" else "b + 2")
+        actions <- refactor_code_actions(fixture$uri, fixture$workspace, fixture$document,
+            selected, list("refactor.extract"))
+        expect_true("Extract expression to variable" %in% vapply(actions, `[[`, "", "title"))
+        selected <- refactor_test_range(content, i + 1L, "out")
+        actions <- refactor_code_actions(fixture$uri, fixture$workspace, fixture$document,
+            selected, list("refactor.inline"))
+        expect_length(actions, 1L)
+    }
+    content[[3L]] <- "  stats::"
+    content[[5L]] <- ""
+    fixture <- provider_fixture(content)
+    selected <- refactor_test_range(content, 1L, "a + 1")
+    expect_length(refactor_code_actions(fixture$uri, fixture$workspace, fixture$document,
+            selected, list("refactor")), 0L)
+
+    content <- c("value <- 2 * (3 + 4)", "extracted_value +")
+    fixture <- provider_fixture(content)
+    selected <- refactor_test_range(content, 0L, "3 + 4")
+    actions <- refactor_code_actions(fixture$uri, fixture$workspace, fixture$document,
+        selected, list("refactor.extract"))
+    action <- refactor_action_with_title(actions, "Extract expression to variable")
+    expect_match(refactor_apply_edits(content, action$edit$changes[[fixture$uri]]),
+        "extracted_value_2 <- 3 + 4", fixed = TRUE)
+})
+
 test_that("refactor selections cannot cross literate R cells", {
     uri <- "file:///refactor.qmd"
     content <- c(

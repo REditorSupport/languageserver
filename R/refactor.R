@@ -299,15 +299,15 @@ refactor_selection_context <- function(uri, workspace, document, item_range) {
         return(NULL)
     }
     parse_data <- current_parse_data(uri, workspace, document)
-    if (is.null(parse_data) || isTRUE(parse_data$parse_error) ||
-            is.null(parse_data_xml(parse_data))) {
+    if (is.null(parse_data) || is.null(parse_data_xml(parse_data))) {
         return(NULL)
     }
     selected_range <- refactor_trim_range(document, item_range)
     if (refactor_compare_point(
         selected_range$start, selected_range$end
     ) >= 0L ||
-        !refactor_range_in_r_region(document, selected_range)) {
+        !refactor_range_in_r_region(document, selected_range) ||
+        !partial_root_contains(parse_data, selected_range$start, selected_range$end)) {
         return(NULL)
     }
     expression <- refactor_exact_expression(
@@ -437,11 +437,25 @@ refactor_definition_assignment <- function(token_node) {
 
 #' Collect names visible to generated refactoring bindings
 #' @noRd
-refactor_bound_names <- function(workspace, uri) {
+refactor_bound_names <- function(workspace, uri, global = TRUE) {
     result <- character()
-    for (document_uri in workspace_document_uris(workspace, uri)) {
+    uris <- workspace_document_uris(workspace, uri)
+    if (global) uris <- union(uris, workspace_reference_document_uris(workspace, uri))
+    for (document_uri in uris) {
         parse_data <- workspace$get_parse_data(document_uri)
         if (is.null(parse_data)) next
+        if (global) {
+            # Generated names are ASCII identifiers. Reserve even potential
+            # names in unparsed code. Escaped spellings cannot be ruled out.
+            missing <- parse_data$partial_incomplete_lines
+            if (isTRUE(parse_data$parse_error) && is.null(missing)) return(NULL)
+            if (length(missing)) {
+                text <- workspace$documents$get(document_uri)$content[missing + 1L]
+                if (any(grepl("\\", text, fixed = TRUE))) return(NULL)
+                words <- regmatches(text, gregexpr("[A-Za-z0-9._]+", text))
+                result <- c(result, unlist(words, use.names = FALSE))
+            }
+        }
         result <- c(
             result,
             names(parse_data$definitions),
@@ -453,8 +467,9 @@ refactor_bound_names <- function(workspace, uri) {
 
 #' Generate a deterministic collision-free binding name
 #' @noRd
-refactor_unique_name <- function(base, workspace, uri) {
-    existing <- refactor_bound_names(workspace, uri)
+refactor_unique_name <- function(base, workspace, uri, global = TRUE) {
+    existing <- refactor_bound_names(workspace, uri, global)
+    if (is.null(existing)) return(NULL)
     if (!base %in% existing) {
         return(base)
     }
@@ -651,7 +666,9 @@ refactor_extract_variable_action <- function(uri, workspace, document,
         return(NULL)
     }
 
-    name <- refactor_unique_name("extracted_value", workspace, uri)
+    global <- !xml_find_lgl_(statement_context$statement, "boolean(ancestor::expr[FUNCTION or OP-LAMBDA])")
+    name <- refactor_unique_name("extracted_value", workspace, uri, global)
+    if (is.null(name)) return(NULL)
     selected_text <- refactor_range_text(document, context$range)
     continuation <- paste0(
         insertion$indent,
@@ -864,8 +881,10 @@ refactor_extract_function_action <- function(uri, workspace, document,
             !refactor_index_ready(workspace)) {
         return(NULL)
     }
-    if (identical(xml_name(selection$container), "exprlist") &&
-            refactor_selection_defines_binding(context)) return(NULL)
+    global <- !xml_find_lgl_(statement, "boolean(ancestor::expr[FUNCTION or OP-LAMBDA])")
+    external_uses <- identical(xml_name(selection$container), "exprlist") ||
+        (global && length(context$parse_data$partial_incomplete_lines))
+    if (external_uses && refactor_selection_defines_binding(context)) return(NULL)
 
     bindings <- refactor_function_bindings(context)
     if (length(bindings$outputs) > 1L) {
@@ -881,8 +900,8 @@ refactor_extract_function_action <- function(uri, workspace, document,
         }
     }
 
-    name <- refactor_unique_name("extracted_function", workspace, uri)
-    if (name %in% bindings$free) {
+    name <- refactor_unique_name("extracted_function", workspace, uri, global)
+    if (is.null(name) || name %in% bindings$free) {
         return(NULL)
     }
     arguments <- paste(bindings$free, collapse = ", ")
@@ -987,7 +1006,7 @@ refactor_inline_variable_action <- function(uri, workspace, document,
         return(NULL)
     }
     parse_data <- current_parse_data(uri, workspace, document)
-    if (is.null(parse_data) || isTRUE(parse_data$parse_error) ||
+    if (is.null(parse_data) || !partial_root_contains(parse_data, item_range$start, item_range$end) ||
             is.null(parse_data_xml(parse_data))) {
         return(NULL)
     }

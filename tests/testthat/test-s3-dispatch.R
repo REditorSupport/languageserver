@@ -819,3 +819,24 @@ test_that("S3 placeholders and fallback indexes agree across providers", {
         expect_identical(s3_result(fixture)$method$name, "g.data.frame", info = call)
     }
 })
+
+test_that("cross-file S3 sources include only complete top-level statements", {
+    path <- file.path(withr::local_tempdir(), "methods.R")
+    good <- c("good <- function(x) UseMethod('good')", "good.real <- function(x) x")
+    cases <- list(c(good, "outer <- function() {", "  bad <- )",
+            "  wrong <- function(x) UseMethod('wrong')", "  wrong.ghost <- function(x) 7"),
+        c("outer <- function(x))", "  hidden <- function(x) 1", good))
+    uri <- path_to_uri(path)
+    for (content in cases) {
+        writeLines(content, path)
+        doc <- Document$new(uri, version = 1L, content = content)
+        doc$parse_data <- parse_document(uri, content)
+        for (source in list(s3_source_view(doc, peer = TRUE),
+                index_shallow_summary(path, content, dirname(path), parse_data = doc$parse_data)$s3,
+                index_shallow_summary(path, content, dirname(path))$s3)) {
+            expect_setequal(names(source$index$functions), c("good", "good.real"))
+            record <- source$index$histories$good.real[[1L]]
+            expect_identical(source$items[[record$item]]$start, c(match(good[[2L]], content) - 1L, 0L))
+        }
+    }
+})

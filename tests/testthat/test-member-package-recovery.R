@@ -69,6 +69,14 @@ test_that("Parse recovery schedules namespace metadata without changing valid im
     expect_identical(tasks[[2L]]$packages, "priorfixture")
     expect_identical(tasks[[2L]]$namespace_packages, c("oldnamespace", "nextfixture"))
     expect_identical(doc$loaded_packages, "priorfixture")
+
+    doc$set_content(3L, c("library(stats)", "pkg::"))
+    parsed <- parse_document(uri, doc$content)
+    parse_callback(server, uri, 3L, parsed, cache = FALSE)
+    expect_length(tasks, 3L)
+    expect_identical(tasks[[3L]]$packages, c("priorfixture", "stats"))
+    parse_callback(server, uri, 3L, parsed, cache = FALSE)
+    expect_length(tasks, 3L)
 })
 
 package_recovery_wait_fixture <- function(code) {

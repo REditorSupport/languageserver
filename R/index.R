@@ -1,5 +1,5 @@
-# Older summaries can contain spurious bindings from calls to functions named after arrows.
-index_cache_version <- 4L
+# Older summaries can contain stale definitions copied from an earlier valid file.
+index_cache_version <- 5L
 
 #' Recognize a package without recursively searching a workspace
 #' @noRd
@@ -249,10 +249,44 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
     path <- index_normalize_path(path)
     workspace_root <- index_normalize_path(workspace_root)
     if (is.null(metadata)) metadata <- file.info(path)
-    expressions <- if (is.null(parse_data)) tryCatch(
-        parse(text = content, keep.source = TRUE),
-        error = function(e) NULL
-    ) else NULL
+    expressions <- NULL
+    incomplete_lines <- NULL
+    parse_error <- isTRUE(parse_data$parse_error)
+    if (is.null(parse_data)) {
+        # Keep tabs inside literals on the normal shallow-index path.
+        text <- enc2utf8(content)
+        srcfile <- srcfilecopy("<text>", text)
+        expressions <- tryCatch(parse(text = text, srcfile = srcfile, keep.source = TRUE), error = identity)
+        parse_error <- inherits(expressions, "error")
+        if (parse_error) {
+            # Recovery indexes physical columns, whereas R expands raw tabs.
+            tab_lines <- which(grepl("\t", text, fixed = TRUE))
+            if (length(tab_lines)) {
+                text <- normalize_parse_content(text)
+                srcfile <- srcfilecopy("<text>", text)
+                expressions <- tryCatch(parse(text = text, srcfile = srcfile, keep.source = TRUE), error = identity)
+            }
+            if (inherits(expressions, "error")) {
+                recovered <- recover_partial_content(text, srcfile, expressions, include_tokens = FALSE)
+                expressions <- recovered$expr
+                text <- recovered$content
+                incomplete_lines <- recovered$incomplete_lines
+            }
+            if (length(expressions) && length(tab_lines)) {
+                # Keep physical ranges from the recovered parse, and literal
+                # values (e.g. source paths and argument defaults) from disk.
+                for (i in tab_lines) {
+                    chars <- utf8ToInt(text[[i]])
+                    tabs <- which(utf8ToInt(enc2utf8(content[[i]])) == 9L)
+                    chars[tabs[tabs <= length(chars)]] <- 9L
+                    text[[i]] <- intToUtf8(chars)
+                }
+                refs <- attr(expressions, "srcref")
+                expressions <- tryCatch(parse(text = text, keep.source = FALSE), error = function(e) expression())
+                attr(expressions, "srcref") <- refs
+            }
+        }
+    }
     definitions <- list()
     functions <- list()
     source_specs <- list()
@@ -328,12 +362,11 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
         content_hash = get_content_hash(content),
         definitions = definitions,
         functions = functions,
-        s3 = s3_index_summary(content, path_to_uri(path), expressions, parse_data),
+        s3 = s3_index_summary(content, path_to_uri(path), expressions, parse_data, incomplete_lines = incomplete_lines),
         sources = sources,
         source_candidates = source_candidates,
         source_candidate_exists = source_candidate_exists,
-        parse_error = if (is.null(parse_data)) is.null(expressions) else
-            isTRUE(parse_data$parse_error),
+        parse_error = parse_error,
         package_root = index_package_root(path, workspace_root)
     )
 }
@@ -1183,9 +1216,6 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             previous <- self$summaries$get(uri, NULL)
             if (private$awaiting_parses$has(uri)) summary$cacheable <- private$awaiting_parses$get(uri)
             if (isTRUE(summary$parse_error) && !is.null(previous)) {
-                for (field in c("definitions", "functions", "s3")) {
-                    summary[[field]] <- previous[[field]]
-                }
                 # Recovery can prove new source() calls while hiding others in
                 # an unfinished expression. Retain edges from the last valid
                 # parse, never the cumulative edges from earlier broken edits.
