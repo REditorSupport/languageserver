@@ -118,3 +118,44 @@ test_that("first member definition loads the current closed source after incompl
     edit('source("api.R")', 4L)
     expect_identical(first_definition()$uri, path_to_uri(api))
 })
+
+test_that("verified member IDs preserve exact ranges, duplicates and source order", {
+    parsed <- parse_document("file:///ranges.R", c(
+        "`first name` <- 1L; ok <- function(β) β",
+        "outer <- function() {", "  bad <- )", "  hidden <- function(x) x"
+    ))
+    syntax <- parsed$syntax_data
+    items <- parsed$member_data$items
+    roots <- parsed$partial_complete_roots
+    expect_equal(length(roots), 2L)
+    expect_gt(length(items), length(roots))
+    native <- function(x, rows) .Call("member_complete_items_c", x, syntax, rows, PACKAGE = "languageserver")
+    eligible <- c(1L, 2L)
+    expect_identical(native(items, roots), eligible)
+    expect_identical(native(items, integer()), integer())
+    expect_identical(native(list(), roots), integer())
+    expect_error(native(items, length(syntax$line1) + 1L), "invalid navigation row")
+
+    # Exact duplicates on either side are a membership test, not a Cartesian join.
+    duplicated_items <- c(items[1L], items)
+    duplicated_roots <- c(roots[[1L]], roots)
+    expect_identical(native(duplicated_items, duplicated_roots), c(1L, 2L, 3L))
+    # Changed end coordinates must not match a root with the same start.
+    shortened <- items[1L]
+    shortened[[1L]]$end[[2L]] <- shortened[[1L]]$end[[2L]] - 1L
+    expect_identical(native(c(shortened, items), roots), c(2L, 3L))
+
+    fallback <- function(x, rows) {
+        parsed$complete_member_items <- NULL
+        parsed$member_data$items <- x
+        parsed$partial_complete_roots <- rows
+        expect_null(native(x, rows))
+        member_complete_item_ids(parsed)
+    }
+    expect_identical(fallback(rev(items), roots), rev(length(items) + 1L - eligible))
+    expect_identical(fallback(items, rev(roots)), eligible)
+    items[[1L]]$start <- as.double(items[[1L]]$start)
+    expect_identical(fallback(items, roots), eligible)
+    items[[1L]]$start[[2L]] <- items[[1L]]$start[[2L]] + 0.5
+    expect_identical(fallback(items, roots), 2L)
+})

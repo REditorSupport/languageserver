@@ -1,3 +1,8 @@
+member_item_spans <- function(items) {
+    positions <- vapply(items, function(item) c(item$start, item$end), numeric(4L))
+    sprintf("%.17g %.17g %.17g %.17g", positions[1L, ], positions[2L, ], positions[3L, ], positions[4L, ])
+}
+
 # Cursor recovery may collect local statements from an unfinished scope.
 # Other files can only replay items that match a verified top-level source
 # range. Preserve their original IDs for cross-file Go to Definition.
@@ -10,12 +15,12 @@ member_complete_item_ids <- function(parsed) {
     }
     if (!is.null(parsed$complete_member_items)) return(parsed$complete_member_items)
     syntax <- parsed$syntax_data
-    spans <- paste(syntax$line1[roots] - 1L, syntax$col1[roots] - 1L,
-        syntax$line2[roots] - 1L, syntax$col2[roots])
-    item_spans <- vapply(items, function(item) {
-        paste(item$start[[1L]], item$start[[2L]], item$end[[1L]], item$end[[2L]])
-    }, character(1L))
-    ids <- which(item_spans %in% spans)
+    ids <- .Call("member_complete_items_c", items, syntax, roots, PACKAGE = "languageserver")
+    if (is.null(ids)) {
+        spans <- paste(syntax$line1[roots] - 1L, syntax$col1[roots] - 1L,
+            syntax$line2[roots] - 1L, syntax$col2[roots])
+        ids <- which(member_item_spans(items) %in% spans)
+    }
     if (is.environment(parsed)) parsed$complete_member_items <- ids
     ids
 }
@@ -51,7 +56,10 @@ member_workspace_view <- function(workspace, document) {
             sources <- sources[keep]
             source_items <- source_items[keep]
             if (length(source_bindings) && length(item_ids) != length(data$items)) {
-                source_bindings <- member_index_bindings(data$items[item_ids])$source
+                # Only complete statements can shadow a later source(). These
+                # records already carry their owner's exact physical range.
+                verified <- member_item_spans(data$items[item_ids])
+                source_bindings <- source_bindings[member_item_spans(source_bindings) %in% verified]
             }
         }
         next_source <- 1L

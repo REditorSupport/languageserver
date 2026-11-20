@@ -239,6 +239,63 @@ static SEXP navigation_rows(const int *rows, int n) {
     return result;
 }
 
+typedef struct {
+    uint64_t start, end;
+} member_span;
+
+static int member_span_order(member_span a, member_span b) {
+    if (a.start != b.start) return a.start < b.start ? -1 : 1;
+    if (a.end != b.end) return a.end < b.end ? -1 : 1;
+    return 0;
+}
+
+/* Join exact physical ranges in source order. Keep the cursor at a match so
+ * duplicate items all retain their original IDs. NULL requests the R fallback
+ * for nonmonotone source references or older member-record layouts. */
+SEXP member_complete_items_c(SEXP items, SEXP syntax, SEXP roots) {
+    if (TYPEOF(items) != VECSXP || TYPEOF(roots) != INTSXP) Rf_error("invalid member scope index");
+    R_xlen_t ni = XLENGTH(items), nr = XLENGTH(roots);
+    if (ni > INT_MAX || nr > INT_MAX) Rf_error("member scope index is too large");
+    if (!ni || !nr) return Rf_allocVector(INTSXP, 0);
+
+    SEXP first = navigation_column(syntax, "line1", INTSXP);
+    R_xlen_t n = XLENGTH(first);
+    if (n > INT_MAX) Rf_error("syntax index is too large");
+    const int *line1 = INTEGER(first), *col1 = navigation_integer_rows(syntax, "col1", n);
+    const int *line2 = navigation_integer_rows(syntax, "line2", n);
+    const int *col2 = navigation_integer_rows(syntax, "col2", n);
+    member_span *ranges = (member_span *) R_alloc((size_t) nr, sizeof(member_span));
+    for (int i = 0; i < nr; ++i) {
+        if ((i & 16383) == 0) R_CheckUserInterrupt();
+        int row = navigation_row(INTEGER(roots)[i], (int) n);
+        if (line1[row] < 1 || col1[row] < 1 || line2[row] < 1 || col2[row] < 0) return R_NilValue;
+        ranges[i].start = source_position(line1[row] - 1, col1[row] - 1);
+        ranges[i].end = source_position(line2[row] - 1, col2[row]);
+        if (i && member_span_order(ranges[i - 1], ranges[i]) > 0) return R_NilValue;
+    }
+    int *matches = (int *) R_alloc((size_t) ni, sizeof(int));
+    int count = 0, cursor = 0;
+    member_span previous = {0, 0};
+    for (int i = 0; i < ni; ++i) {
+        if ((i & 16383) == 0) R_CheckUserInterrupt();
+        SEXP item = VECTOR_ELT(items, i), names = Rf_getAttrib(item, R_NamesSymbol);
+        if (TYPEOF(item) != VECSXP || XLENGTH(item) < 3 || TYPEOF(names) != STRSXP ||
+                XLENGTH(names) != XLENGTH(item) || strcmp(CHAR(STRING_ELT(names, 1)), "start") ||
+                strcmp(CHAR(STRING_ELT(names, 2)), "end")) return R_NilValue;
+        SEXP start = VECTOR_ELT(item, 1), end = VECTOR_ELT(item, 2);
+        if (TYPEOF(start) != INTSXP || XLENGTH(start) != 2 ||
+                TYPEOF(end) != INTSXP || XLENGTH(end) != 2) return R_NilValue;
+        const int *s = INTEGER(start), *e = INTEGER(end);
+        if (s[0] < 0 || s[1] < 0 || e[0] < 0 || e[1] < 0) return R_NilValue;
+        member_span current = {source_position(s[0], s[1]), source_position(e[0], e[1])};
+        if (i && member_span_order(previous, current) > 0) return R_NilValue;
+        while (cursor < nr && member_span_order(ranges[cursor], current) < 0) ++cursor;
+        if (cursor < nr && member_span_order(ranges[cursor], current) == 0) matches[count++] = i + 1;
+        previous = current;
+    }
+    return navigation_rows(matches, count);
+}
+
 SEXP syntax_index_c(SEXP data, SEXP order) {
     SEXP tokens = navigation_column(data, "token", STRSXP);
     SEXP terminal = navigation_column(data, "terminal", LGLSXP);
