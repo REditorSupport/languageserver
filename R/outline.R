@@ -32,9 +32,19 @@ outline_parse_data <- function(syntax) {
 outline_nested_functions <- function(syntax, assignments) {
     local <- which(syntax$function_scope[assignments$name] > 0L &
             syntax$text[assignments$operator] %in% c("<-", "=", "->"))
-    if (!length(local)) return(NULL)
+    if (!any(assignments$function_row[local] > 0L)) return(NULL)
+
+    # Resolve reassignments in source order within each lexical function,
+    # before linking children to the surviving function literals.
+    expressions <- syntax$parent_row[assignments$operator[local]]
+    local <- local[order(syntax$order_rank[expressions])]
     rows <- assignments$name[local]
-    values <- assignments$value[local]
+    values <- assignments$function_row[local]
+    bindings <- paste(syntax$function_scope[rows], reference_symbol_names(syntax$text[rows]), sep = "\r")
+    keep <- !duplicated(bindings, fromLast = TRUE) & values > 0L
+    if (!any(keep)) return(NULL)
+    rows <- rows[keep]
+    values <- values[keep]
 
     # Visit enclosing declarations first, so each named function inherits
     # its parent's outline owner. An anonymous scope ends the chain.

@@ -692,7 +692,7 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
 
         data <- utils::getParseData(expr)
         env$syntax_data <- syntax_parse_data(data)
-        assignments <- function_assignment_rows(data, env$syntax_data)
+        assignments <- symbol_assignment_rows(data, env$syntax_data)
         env$nested_by_position <- outline_nested_functions(env$syntax_data, assignments)
         parse_expr(content, expr, env)
         names_vector <- function(queue) {

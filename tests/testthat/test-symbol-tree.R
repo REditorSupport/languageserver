@@ -88,6 +88,38 @@ test_that("superseded functions and anonymous callbacks keep their helpers out o
     expect_equal(helper$selectionRange, range(position(3L, 26L), position(3L, 37L)))
 })
 
+test_that("assigning a non-function to the only local helper clears it from the outline", {
+    fixture <- symbol_tree_fixture(c(
+        "outer <- function() {",
+        "  helper <- function() 1",
+        "  helper <- 42",
+        "}"
+    ))
+    tree <- symbol_tree_reply(fixture)
+    expect_equal(map_chr(tree, "name"), "outer")
+    expect_null(tree[[1L]]$children)
+})
+
+test_that("the outline keeps the latest assignment to each name within its function", {
+    fixture <- symbol_tree_fixture(c(
+        "outer <- function() {",
+        "  helper <- function() { old <- function() { stale <- function() 1 } }",
+        "  removed = function() { gone <- function() 1 }",
+        "  0 -> removed",
+        "  (function() {",
+        "    removed <- function() 2",
+        "    removed <<- 3",
+        "  }) -> `helper`",
+        "}"
+    ))
+    tree <- symbol_tree_reply(fixture)
+    expect_equal(map_chr(flatten_document_symbols(tree), "name"), c("outer", "helper", "removed"))
+    helper <- tree[[1L]]$children[[1L]]
+    expect_equal(map_chr(helper$children, "name"), "removed")
+    expect_equal(helper$range, range(position(4L, 2L), position(7L, 16L)))
+    expect_equal(helper$selectionRange, range(position(7L, 8L), position(7L, 16L)))
+})
+
 test_that("R Markdown chunks contain functions assigned with parentheses and right arrows", {
     fixture <- symbol_tree_fixture(c(
         "## Example",

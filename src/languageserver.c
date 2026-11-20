@@ -80,7 +80,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"semantic_token_delta_c", (DL_FUNC) &semantic_token_delta_c, 2},
     {"semantic_token_range_c", (DL_FUNC) &semantic_token_range_c, 3},
     {"range_line_bounds_c", (DL_FUNC) &range_line_bounds_c, 3},
-    {"function_assignment_rows_c", (DL_FUNC) &function_assignment_rows_c, 2},
+    {"symbol_assignment_rows_c", (DL_FUNC) &symbol_assignment_rows_c, 2},
     {"range_provider_index_c", (DL_FUNC) &range_provider_index_c, 2},
     {"call_hierarchy_containers_c", (DL_FUNC) &call_hierarchy_containers_c, 2},
 #if !defined(_WIN32)

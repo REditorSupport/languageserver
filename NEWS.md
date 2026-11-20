@@ -1,7 +1,9 @@
 # languageserver (development)
 
 - Show nested named functions under their enclosing functions in the document
-  outline (#559).
+  outline. For repeated local assignments to the same name, the outline uses
+  the last assignment in source order and shows it if it defines a function
+  (#559).
 
 - Keep the server connection open after responding to `shutdown` until the
   client sends `exit`, preventing broken-pipe errors when clients stop the

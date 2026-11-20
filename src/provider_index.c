@@ -139,7 +139,7 @@ static SEXP provider_rows(const int *rows, int n, int offset) {
     return result;
 }
 
-SEXP function_assignment_rows_c(SEXP data, SEXP syntax) {
+SEXP symbol_assignment_rows_c(SEXP data, SEXP syntax) {
     provider_tree tree = provider_tree_init(data, syntax);
     int *function_expr = (int *) R_alloc((size_t) tree.max_id + 1, sizeof(int));
     memset(function_expr, 0, ((size_t) tree.max_id + 1) * sizeof(int));
@@ -150,7 +150,7 @@ SEXP function_assignment_rows_c(SEXP data, SEXP syntax) {
                 tree.kind[i] == P_EQ_ASSIGN) capacity++;
     }
     int *names = (int *) R_alloc((size_t) capacity, sizeof(int));
-    int *values = (int *) R_alloc((size_t) capacity, sizeof(int));
+    int *functions = (int *) R_alloc((size_t) capacity, sizeof(int));
     int *operators = (int *) R_alloc((size_t) capacity, sizeof(int));
     int count = 0;
     for (int i = 0; i < tree.n; i++) {
@@ -187,16 +187,14 @@ SEXP function_assignment_rows_c(SEXP data, SEXP syntax) {
             rhs = children[1];
             if (++depth > tree.n) Rf_error("Cyclic parse data");
         }
-        if (function_expr[tree.id[rhs]]) {
-            names[count] = symbol;
-            values[count] = rhs;
-            operators[count++] = i;
-        }
+        names[count] = symbol;
+        functions[count] = function_expr[tree.id[rhs]] ? rhs : -1;
+        operators[count++] = i;
     }
-    const char *fields[] = {"name", "value", "operator", ""};
+    const char *fields[] = {"name", "function_row", "operator", ""};
     SEXP result = PROTECT(Rf_mkNamed(VECSXP, fields));
     SET_VECTOR_ELT(result, 0, provider_rows(names, count, 1));
-    SET_VECTOR_ELT(result, 1, provider_rows(values, count, 1));
+    SET_VECTOR_ELT(result, 1, provider_rows(functions, count, 1));
     SET_VECTOR_ELT(result, 2, provider_rows(operators, count, 1));
     UNPROTECT(1);
     return result;
