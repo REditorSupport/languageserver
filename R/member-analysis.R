@@ -33,6 +33,29 @@ member_package_scope_required <- function(workspace, data, capability) {
     FALSE
 }
 
+# A simple name-to-name assignment can share an environment. Keep these
+# groups syntactic and only propagate a write when inference proves that
+# the receiver is an environment. Lists retain their value at assignment.
+member_alias_assignment <- function(groups, name, expr) {
+    source <- if (is.symbol(expr)) as.character(expr)
+    if (identical(source, name)) return(groups)
+    if (name %in% names(groups)) {
+        previous <- groups[[name]]
+        groups <- groups[names(groups) != name]
+        if (sum(groups == previous) == 1L) groups <- groups[groups != previous]
+    }
+    if (length(source) && nzchar(source)) {
+        if (!source %in% names(groups)) groups[source] <- max(0L, groups) + 1L
+        groups[name] <- groups[[source]]
+    }
+    groups
+}
+
+member_aliases <- function(groups, name) {
+    if (!name %in% names(groups)) return(character())
+    names(groups)[groups == groups[[name]] & names(groups) != name]
+}
+
 # Histories are ordered by their end position. Earlier assignments are looked
 # up repeatedly while following aliases and resolving shadowed intrinsics.
 member_history_position <- function(history, at) {
@@ -43,6 +66,25 @@ member_history_position <- function(history, at) {
         if (member_before(history[[middle]]$end, at)) lo <- middle + 1L else hi <- middle - 1L
     }
     hi
+}
+
+# Reconstruct one visible receiver history from its own base binding and the
+# writes since it joined a possible environment alias group. An ordinary list
+# will ignore the indirect writes when its value is resolved.
+member_history_at <- function(history, at) {
+    if (!isTRUE(attr(history, "member_aliases", exact = TRUE))) return(history)
+    position <- member_history_position(history, at)
+    group <- if (position) history[[position]]$aliases
+    if (is.null(group)) return(history)
+    updates <- group$group$items
+    last <- member_history_position(updates, at)
+    if (last <= group$skip) return(history)
+    anchor <- group$anchor
+    first <- history[[anchor]]$first_write
+    if (is.null(first)) first <- anchor + 1L
+    history <- c(history[seq_len(anchor)], updates[seq.int(group$skip + 1L, last)])
+    history[[length(history)]]$first_write <- first
+    history
 }
 
 # Incremental source fingerprints are prepared with the parse, not rebuilt by
@@ -60,10 +102,10 @@ member_source_prefix <- function(content, start, end, prefix) {
     digest::digest(list(prefix, start, end, lines), algo = "xxhash64")
 }
 
-member_document_cache_revision <- function(document, metadata) {
+member_document_cache_revision <- function(document, metadata, source_revision = NULL) {
     revision <- if (is.null(metadata)) 0L else if (is.function(metadata$revision)) metadata$revision() else NULL
     identity <- list(metadata = if (is.function(metadata$identity)) metadata$identity() else metadata,
-        revision = revision)
+        revision = revision, sources = source_revision)
     document$member_binding_cache <- analysis_cache(document, "member-bindings", identity, max_bytes = 4 * 1024^2)
     if (!identical(document$member_revision, identity)) {
         document$member_receivers$clear()
@@ -77,7 +119,7 @@ member_document_cache_revision <- function(document, metadata) {
 # revision; uncertain candidates have the exact same source/context key.
 member_binding_cacheable <- function(value, depth = 0L) {
     if (is.null(value)) return(TRUE)
-    if (depth > 8L || !is.null(value$function_expr) || !is.null(value$closure) ||
+    if (depth > 8L || !is.null(value$origin) || !is.null(value$function_expr) || !is.null(value$closure) ||
             !is.null(value$binding_expr) || !is.null(value$binding_env) ||
             !is.null(value$r6_class) || !is.null(value$r6_identity) || !is.null(value$r6_role) ||
             !is.null(value$s7_descriptor) || !is.null(value$s7_generator) || !is.null(value$s4_generator) ||
@@ -93,7 +135,7 @@ member_binding_cacheable <- function(value, depth = 0L) {
 member_local_binding <- function(expr, bindings, referenced = member_syntax_names(expr), lookup = NULL) {
     # Keep only lexical dependencies. Copying every earlier local into every
     # deferred binding makes a flat method quadratic in retained state.
-    internal <- c(".__member_position__", ".__member_properties__", ".__s4_classes__",
+    internal <- c("$<-", "[[<-", ".__member_position__", ".__member_properties__", ".__s4_classes__",
         ".__s7_package__", ".__s7_constructing__")
     captured <- if (is.null(lookup)) {
         bindings[intersect(names(bindings), c(referenced, internal))]

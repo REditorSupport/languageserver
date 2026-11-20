@@ -173,6 +173,9 @@ member_join <- function(a, b) {
     if (identical(b$type, ".never")) {
         return(a)
     }
+    # Two branches can establish the same value at different declarations.
+    # Preserve an agreed signature or shape without selecting either source.
+    if (!identical(a$origin, b$origin)) a$origin <- b$origin <- NULL
     # Compacted snapshots and source values can omit different optional NULLs.
     if (identical(a, b) || (isTRUE(a$known_literal) && isTRUE(b$known_literal) &&
                 identical(a[!vapply(a, is.null, logical(1L))], b[!vapply(b, is.null, logical(1L))]))) {
@@ -277,6 +280,67 @@ member_elements <- function(value) {
     NULL
 }
 
+# Dollar names are literal; a double-bracket name must be a string literal.
+member_write_field <- function(lhs) {
+    if (!is.call(lhs) || length(lhs) != 3L || !is.symbol(lhs[[2L]])) return(NULL)
+    if (!member_head(lhs, "$") && !(member_head(lhs, "[[") && is.character(lhs[[3L]]))) return(NULL)
+    field <- member_name(lhs[[3L]])
+    if (length(field) && !is.na(field) && nzchar(field)) field
+}
+
+member_write_root <- function(lhs) {
+    while (is.call(lhs) && length(lhs) >= 2L) lhs <- lhs[[2L]]
+    member_name(lhs)
+}
+
+member_plain_container <- function(object) {
+    length(object$type) == 1L && object$type %in% c("list", "environment") &&
+        !is.null(object$fields) && !length(object$classes) && is.null(object$r6_role) &&
+        is.null(object$member_package) && is.null(object$reason) && !isTRUE(object$default_dollar)
+}
+
+member_write_value <- function(value, name, origin) {
+    if (!is.null(origin)) value$origin <- origin
+    if (!is.null(value$function_expr) && name %in% names(value$closure)) {
+        value$closure[name] <- NULL
+        value$receiver_name <- name
+    }
+    value
+}
+
+member_operator_masked <- function(operator, index, bindings) {
+    if (operator %in% names(bindings)) return(TRUE)
+    history <- member_lookup(index$document_bindings, operator)
+    at <- bindings$.__member_position__
+    (length(history) && (is.null(at) || member_history_position(history, at))) ||
+        (!identical(index$package, "base") && !is.null(member_lookup(index$definitions, operator)))
+}
+
+member_write_container <- function(object, field, value, name, origin, index, bindings, subset = FALSE) {
+    setter <- if (subset) "[[<-" else "$<-"
+    if (!member_plain_container(object) || member_operator_masked(setter, index, bindings)) return(NULL)
+    value <- member_write_value(value, name, origin)
+    if (identical(object$type, "environment")) {
+        object$fields[field] <- list(value)
+        return(object)
+    }
+    # A NULL RHS deletes a list element. An opaque RHS might do the same:
+    # keep the certain siblings without promising a field or positional order.
+    if ((!length(value$type) && is.null(value$function_expr) && is.null(value$function_key)) ||
+            (length(value$type) > 1L && "NULL" %in% value$type)) {
+        object$fields <- object$fields[names(object$fields) != field]
+        object$elements <- object$named_elements <- NULL
+        object$open <- TRUE
+    } else if (identical(value$type, "NULL")) {
+        object$fields[[field]] <- NULL
+        if (!is.null(object$elements)) object$elements[[field]] <- NULL
+    } else {
+        object$fields[field] <- list(value)
+        if (!is.null(object$elements)) object$elements[field] <- list(value)
+    }
+    object
+}
+
 member_dataframe_columns <- function(value) {
     "data.frame" %in% value$classes && !is.null(value$fields)
 }
@@ -288,6 +352,10 @@ member_members <- function(value, index, bindings = list(), accessor = "$") {
     if (identical(accessor, "@")) {
         slots <- names(value$slot_types)
         return(stats::setNames(rep(NA_character_, length(slots)), slots))
+    }
+    if (identical(accessor, "[[")) {
+        fields <- unique(names(value$fields))
+        return(stats::setNames(rep(NA_character_, length(fields)), fields))
     }
     index <- member_package_context(index, value$member_package)
     if (is.null(index)) return(character())
@@ -330,6 +398,11 @@ member_possible_receiver <- function(value, index, bindings = list(), accessor =
         if (length(unique(owners)) > 1L || !all(vapply(sets, function(set) identical(set[[name]], sets[[1L]][[name]]), logical(1L)))) {
             return(TRUE)
         }
+        origins <- lapply(candidates, function(candidate) {
+            fields <- if (identical(accessor, "@")) candidate$slots else candidate$fields
+            member_lookup(fields, name)$origin
+        })
+        if (!all(vapply(origins, identical, logical(1L), origins[[1L]]))) return(TRUE)
         if (all(vapply(sets, function(set) is.na(set[[name]]), logical(1L)))) {
             fields <- lapply(candidates, function(candidate) {
                 if (identical(accessor, "@")) member_slot(candidate, name, index, bindings) else
@@ -409,8 +482,8 @@ member_cacheable <- function(value, depth = 0L) {
     if (is.null(value)) {
         return(TRUE)
     }
-    if (depth > 4L || isTRUE(value$open) || length(value$possible_returns) || !is.null(value$function_expr) || !is.null(value$closure) ||
-        !is.null(value$binding_expr)) {
+    if (depth > 4L || !is.null(value$origin) || isTRUE(value$open) || length(value$possible_returns) || !is.null(value$function_expr) || !is.null(value$closure) ||
+            !is.null(value$binding_expr)) {
         return(FALSE)
     }
     if (value$known_literal && length(value$literal) > 8L) {
@@ -427,9 +500,7 @@ member_assigned_names <- function(node) {
     out <- character()
     member_walk(node, function(x) {
         if (member_head(x, "<-") || member_head(x, "=") || member_head(x, ":=")) {
-            target <- x[[2L]]
-            while (is.call(target) && length(target) > 1L) target <- target[[2L]]
-            name <- member_name(target)
+            name <- member_write_root(x[[2L]])
             if (!is.null(name)) out <<- c(out, name)
         }
     }, descend_functions = FALSE)
@@ -440,7 +511,8 @@ member_assigned_names <- function(node) {
 # defaults), rather than copying an entire instance into every generated method.
 member_function_closure <- function(expr, bindings) {
     if (!length(bindings)) return(list())
-    internal <- intersect(names(bindings), c(".__member_position__", ".__member_properties__",
+    # Replacement syntax implicitly invokes a lexical setter.
+    internal <- intersect(names(bindings), c("$<-", "[[<-", ".__member_position__", ".__member_properties__",
             ".__s4_classes__", ".__s7_package__", ".__s7_constructing__"))
     if (length(internal) == length(bindings)) return(bindings)
     referenced <- setdiff(member_syntax_names(expr), names(expr[[2L]]))
@@ -452,6 +524,69 @@ member_function_closure <- function(expr, bindings) {
 member_slot <- function(value, name, index, bindings, budget = NULL) {
     if (isTRUE(value$s7)) member_s7_slot(value, name, index, bindings, budget) else
         member_s4_slot(value, name, index, bindings, budget)
+}
+
+# Closures retain their receiver when selected from the object's stored fields.
+member_stored_field <- function(lhs, value) {
+    value <- member_r6_member_info(value, lhs)
+    if (!is.null(value$receiver_name)) {
+        receiver <- if (is.null(lhs$r6_self)) lhs else lhs$r6_self
+        layers <- member_r6_levels(lhs)
+        if (is.null(layers)) layers <- member_r6_levels(receiver)
+        value$receiver_value <- receiver
+        if (isTRUE(value$r6_private_self)) {
+            value$closure$private <- lhs
+        } else if (!isTRUE(value$r6_static_bound) && !is.null(receiver$r6_private)) {
+            value$closure$private <- receiver$r6_private
+            if (is.null(value$closure$private$r6_layers)) {
+                value$closure$private <- member_r6_private_layers(
+                    value$closure$private, member_r6_levels(receiver))
+            }
+        } else if (!is.null(value$r6_owner_level) &&
+                !identical(lhs$r6_declared_level, value$r6_owner_level)) {
+            # No single instance: the table of the declaring class. Its
+            # own private methods were recorded before they had one.
+            source <- if (!is.null(lhs$r6_layers) || identical(lhs$r6_role, "instance")) lhs else receiver
+            value$closure$private <- member_r6_declared_private(source, value$r6_owner_level)
+        }
+        # Contexts of a stored instance's methods are kept once, on it, and
+        # carried on bound contexts so container-held methods still find
+        # them. Intra-instance context cycles are cut dynamically here.
+        contexts <- if (!is.null(lhs$r6_contexts)) lhs$r6_contexts else receiver$r6_contexts
+        visited <- lhs$r6_visited
+        for (role in names(value$r6_context_ids)) {
+            if (!is.null(value$closure[[role]])) next
+            key <- value$r6_context_ids[[role]]
+            context <- member_lookup(contexts, key)
+            if (is.null(context)) next
+            if (key %in% visited) {
+                cut <- member_value(reason = "cycle")
+                cut[c("r6_class", "r6_role", "r6_locked", "r6_bindings")] <-
+                    context[c("r6_class", "r6_role", "r6_locked", "r6_bindings")]
+                context <- cut[!vapply(cut, is.null, logical(1L))]
+            } else if (!identical(context$reason, "cycle")) {
+                context <- member_r6_attach_stored_contexts(context, contexts, c(visited, key))
+            }
+            value$closure[role] <- list(context)
+        }
+        if (!is.null(contexts) && !is.null(value$closure$private) &&
+                !identical(value$closure$private$reason, "cycle") &&
+                is.null(value$closure$private$r6_contexts)) {
+            value$closure$private <- member_r6_attach_stored_contexts(
+                value$closure$private, contexts, visited)
+        }
+        if (!is.null(value$closure$private)) {
+            value$closure$private$r6_self <- receiver
+        }
+        if (isTRUE(value$r6_uses_super) || (!is.null(value$r6_owner_level) && value$r6_owner_level > 1L)) {
+            value$closure$super <- member_r6_super(layers, value$r6_owner_level)
+        }
+        if (!is.null(value$closure$super)) value$closure$super$r6_self <- receiver
+        # A bound method keeps these contexts wherever it is stored next.
+        value$r6_owner_level <- value$r6_uses_super <- value$r6_context_ids <- NULL
+    }
+    if (!is.null(value$function_key)) value$receiver_value <- lhs
+    value
 }
 
 member_access <- function(lhs, name, index, bindings) {
@@ -493,66 +628,9 @@ member_access <- function(lhs, name, index, bindings) {
     }
     value <- member_lookup(lhs$fields, name)
     if (!is.null(value)) {
-        value <- member_r6_member_info(value, lhs)
-        if (!is.null(value$receiver_name)) {
-            receiver <- if (is.null(lhs$r6_self)) lhs else lhs$r6_self
-            layers <- member_r6_levels(lhs)
-            if (is.null(layers)) layers <- member_r6_levels(receiver)
-            value$receiver_value <- receiver
-            if (isTRUE(value$r6_private_self)) {
-                value$closure$private <- lhs
-            } else if (!isTRUE(value$r6_static_bound) && !is.null(receiver$r6_private)) {
-                value$closure$private <- receiver$r6_private
-                if (is.null(value$closure$private$r6_layers)) {
-                    value$closure$private <- member_r6_private_layers(
-                        value$closure$private, member_r6_levels(receiver))
-                }
-            } else if (!is.null(value$r6_owner_level) &&
-                    !identical(lhs$r6_declared_level, value$r6_owner_level)) {
-                # No single instance: the table of the declaring class. Its
-                # own private methods were recorded before they had one.
-                source <- if (!is.null(lhs$r6_layers) || identical(lhs$r6_role, "instance")) lhs else receiver
-                value$closure$private <- member_r6_declared_private(source, value$r6_owner_level)
-            }
-            # Contexts of a stored instance's methods are kept once, on it, and
-            # carried on bound contexts so container-held methods still find
-            # them. Intra-instance context cycles are cut dynamically here.
-            contexts <- if (!is.null(lhs$r6_contexts)) lhs$r6_contexts else receiver$r6_contexts
-            visited <- lhs$r6_visited
-            for (role in names(value$r6_context_ids)) {
-                if (!is.null(value$closure[[role]])) next
-                key <- value$r6_context_ids[[role]]
-                context <- member_lookup(contexts, key)
-                if (is.null(context)) next
-                if (key %in% visited) {
-                    cut <- member_value(reason = "cycle")
-                    cut[c("r6_class", "r6_role", "r6_locked", "r6_bindings")] <-
-                        context[c("r6_class", "r6_role", "r6_locked", "r6_bindings")]
-                    context <- cut[!vapply(cut, is.null, logical(1L))]
-                } else if (!identical(context$reason, "cycle")) {
-                    context <- member_r6_attach_stored_contexts(context, contexts, c(visited, key))
-                }
-                value$closure[role] <- list(context)
-            }
-            if (!is.null(contexts) && !is.null(value$closure$private) &&
-                    !identical(value$closure$private$reason, "cycle") &&
-                    is.null(value$closure$private$r6_contexts)) {
-                value$closure$private <- member_r6_attach_stored_contexts(
-                    value$closure$private, contexts, visited)
-            }
-            if (!is.null(value$closure$private)) {
-                value$closure$private$r6_self <- receiver
-            }
-            if (isTRUE(value$r6_uses_super) || (!is.null(value$r6_owner_level) && value$r6_owner_level > 1L)) {
-                value$closure$super <- member_r6_super(layers, value$r6_owner_level)
-            }
-            if (!is.null(value$closure$super)) value$closure$super$r6_self <- receiver
-            # A bound method keeps these contexts wherever it is stored next.
-            value$r6_owner_level <- value$r6_uses_super <- value$r6_context_ids <- NULL
-        }
-        if (!is.null(value$function_key)) value$receiver_value <- lhs
+        value <- member_stored_field(lhs, value)
         if (length(value$type) || !is.null(value$function_expr) || !is.null(value$function_key) ||
-                !is.null(value$r6_owner)) {
+                !is.null(value$r6_owner) || !is.null(value$origin)) {
             return(value)
         }
     }
@@ -621,7 +699,13 @@ member_infer <- function(
         if (isTRUE(ctx$r6_initialize)) ctx$r6_initialize <- FALSE
         member_infer(x, index, env, receiver, depth + 1L, trail, budget, ctx)
     }
+    qualified <- NULL
+    if (is.call(expr) && member_head(expr[[1L]], "::") && identical(expr[[1L]][[2L]], as.name("base"))) {
+        target <- member_name(expr[[1L]][[3L]])
+        if (length(target) && target %in% c("list", "data.frame", "new.env")) qualified <- target
+    }
     intrinsic <- function(name) {
+        if (identical(name, qualified)) return(TRUE)
         at <- bindings$.__member_position__
         history <- member_lookup(index$document_bindings, name)
         shadowed <- length(history) && (is.null(at) || member_history_position(history, at) > 0L)
@@ -786,21 +870,36 @@ member_infer <- function(
             lhs <- node[[2L]]
             value <- infer(node[[3L]], env)
             if (is.symbol(lhs)) {
-                env[as.character(lhs)] <- list(value)
+                name <- as.character(lhs)
+                attr(env, "member_aliases") <- member_alias_assignment(attr(env, "member_aliases"), name, node[[3L]])
+                env[name] <- list(value)
             } else if (member_head(lhs, "$") || member_head(lhs, "[[") || member_head(lhs, "@")) {
                 name <- member_name(lhs[[2L]])
-                field <- member_name(lhs[[3L]])
+                if (is.null(name)) {
+                    # A nested replacement can change the root but cannot be
+                    # treated as a direct write to its outermost field name.
+                    root <- member_write_root(lhs)
+                    if (member_plain_container(member_lookup(env, root))) name <- root
+                }
+                subset <- member_head(lhs, "[[")
+                direct <- member_write_field(lhs)
+                field <- if (subset) direct else member_name(lhs[[3L]])
                 object <- member_lookup(env, name)
                 surface <- if (member_head(lhs, "@")) "slots" else "fields"
-                if (!is.null(object[[surface]]) && !is.null(field)) {
+                if (surface == "fields" && member_plain_container(object)) {
+                    reference <- identical(object$type, "environment")
+                    object <- if (!is.null(direct)) member_write_container(object, direct, value, name,
+                        if (identical(budget$origin_name, direct)) attr(lhs, "member_origin", exact = TRUE), index, env, subset)
+                    if (is.null(object)) object <- unknown
+                    env[name] <- list(object)
+                    if (reference) {
+                        for (alias in member_aliases(attr(env, "member_aliases"), name)) env[alias] <- list(object)
+                    }
+                } else if (!is.null(object[[surface]]) && !is.null(field)) {
                     if (!member_r6_writable(object, field)) {
                         return(list(value = value, env = env, returns = member_value(type = ".never"), falls = TRUE))
                     }
-                    if (!is.null(value$function_expr) && name %in% names(value$closure)) {
-                        value$closure[name] <- NULL
-                        value$receiver_name <- name
-                    }
-                    object[[surface]][field] <- list(value)
+                    object[[surface]][field] <- list(member_write_value(value, name, NULL))
                     env <- update_object(env, name, object)
                 } else if (!is.null(name)) {
                     env[name] <- list(unknown)
@@ -929,7 +1028,7 @@ member_infer <- function(
         # Package syntax and captures are immutable. A cached invocation has
         # already passed matching; look it up before defaults and delegation.
         cache_values <- c(list(self), actuals)
-        cache_key <- if (!is.null(key) && !isTRUE(attr(actuals, "member_open_dots")) &&
+        cache_key <- if (is.null(budget$origin_name) && !is.null(key) && !isTRUE(attr(actuals, "member_open_dots")) &&
                 all(vapply(cache_values, member_cacheable, logical(1L)))) {
             digest::digest(list(key, lapply(cache_values, member_shape_key), dispatch), algo = "xxhash64")
         } else {
@@ -1068,7 +1167,7 @@ member_infer <- function(
     if (!is.call(expr)) {
         return(member_literal(expr))
     }
-    head <- member_name(expr[[1L]])
+    head <- if (is.null(qualified)) member_name(expr[[1L]]) else qualified
     if (is.null(head)) head <- ""
     if (member_head(expr, "(")) {
         return(infer(expr[[2L]]))
@@ -1152,6 +1251,7 @@ member_infer <- function(
         return(member_slot(infer(expr[[2L]]), member_name(expr[[3L]]), index, bindings, budget))
     }
     if (head %in% c("[[", "[")) {
+        if (head == "[[" && is.null(qualified) && member_operator_masked(head, index, bindings)) return(unknown)
         lhs <- infer(expr[[2L]])
         elements <- member_elements(lhs)
         selector <- if (length(expr) >= 3L && !identical(expr[[3L]], quote(expr = ))) infer(expr[[3L]]) else unknown
@@ -1168,6 +1268,12 @@ member_infer <- function(
         if (isTRUE(selector$known_literal) && length(selector$literal) == 1L) {
             name <- selector$literal
             if (is.character(name)) {
+                if (head == "[[") {
+                    # Default [[ selects exact storage. Special $ methods can
+                    # expose additional names that do not exist in that storage.
+                    field <- member_lookup(lhs$fields, name)
+                    return(if (is.null(field)) unknown else member_stored_field(lhs, field))
+                }
                 return(member_access(lhs, name, index, bindings))
             }
             if (head == "[[" && !is.null(elements) && is.numeric(name) &&
@@ -1268,6 +1374,13 @@ member_infer <- function(
     for (i in seq_along(args)) {
         actuals[[i]] <- if (identical(unname(args[i]), list(quote(expr = )))) member_value(type = ".missing") else infer(args[[i]])
         if (isTRUE(budget$exhausted)) return(member_value(reason = "budget"))
+    }
+    origins <- if (!is.null(budget$origin_name)) attr(expr, "member_origins", exact = TRUE)
+    if (length(origins) && head %in% c("list", "list2", "data.frame") && intrinsic(head)) {
+        for (i in which(names(args) == budget$origin_name)) {
+            source <- origins[[as.character(i)]]
+            if (!is.null(source)) actuals[[i]]$origin <- source
+        }
     }
     # Expand syntactic dots from a known argument list without evaluating it.
     open_dots <- FALSE

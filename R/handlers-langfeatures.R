@@ -122,6 +122,12 @@ text_document_completion  <- function(self, id, params) {
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     if (reply_parse_failure(self, id, document)) return(invisible(NULL))
     point <- document$from_lsp_position(params$position)
+    if (isTRUE(params$context$triggerCharacter %in% c("'", "\""))) {
+        key <- if (isTRUE(lsp_settings$get("member_completion"))) member_bracket_cursor(document, point)
+        if (is.null(key) || point$col != key$start + 1L) {
+            return(self$deliver(Response$new(id, result = list(isIncomplete = FALSE, items = list()))))
+        }
+    }
     if ((isTRUE(lsp_settings$get("member_completion")) || isTRUE(lsp_settings$get("s3_dispatch"))) &&
             !identical(document$version, document$parse_data$version) &&
             !member_ordinary_request(workspace, document)) {
@@ -248,6 +254,14 @@ text_document_definition  <- function(self, id, params) {
     document <- workspace$documents$get(uri, NULL)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     point <- document$from_lsp_position(params$position)
+    if (isTRUE(lsp_settings$get("member_completion")) && !is.null(member_hover_location(document, point)) &&
+            (!identical(document$version, document$parse_data$version) ||
+                    index_context_waiting(self, workspace, document, point, hover = TRUE) ||
+                    member_metadata_waiting(self, uri, document, point))) {
+        enqueue_latest_reply(self, uri, "textDocument/definition", list(id = id, version = document$version, params = params))
+        if (is.function(self$member_task_manager$promote)) self$member_task_manager$promote(uri)
+        return(invisible(NULL))
+    }
     rootPath <- get_root_path_for_uri(uri, workspace$root)
     self$deliver(definition_reply(id, uri, workspace, document, point, rootPath,
             text_document_content = self$text_document_content))

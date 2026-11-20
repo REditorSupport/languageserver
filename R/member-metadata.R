@@ -630,7 +630,7 @@ member_namespace_input <- function(
         character()
     }
     if (length(nms) + length(lazy_names) > 10000L) stop("Namespace exceeds metadata budget")
-    definitions <- snapshots <- registries <- links <- descriptors <- s4_classes <- s4_roots <- s4_objects <- list()
+    definitions <- locations <- snapshots <- registries <- links <- descriptors <- s4_classes <- s4_roots <- s4_objects <- list()
     generic_external <- character()
     s7_roots <- list()
     s7_modes <- member_s7_capabilities()
@@ -690,6 +690,7 @@ member_namespace_input <- function(
                 }
             }
             definitions[name] <- list(member_function_syntax(value))
+            locations[[name]] <- member_function_origin(value)
             functions[name] <- list(value)
         } else if (is.environment(value) || typeof(value) %in% c("list", "pairlist") || isS4(value)) {
             values[name] <- list(value)
@@ -753,6 +754,7 @@ member_namespace_input <- function(
                         isTRUE(fields[[field]]$r6_bound) && member_r6_generated_clone(fn))
             fn_syntax <- member_function_syntax(if (stub_fn) member_r6_clone_stub() else fn)
             definitions[key] <- list(fn_syntax)
+            if (!stub_fn && is.null(locations[[key]])) locations[[key]] <- member_function_origin(fn)
             # A static factory may also be addressed by its environment path.
             definitions[paste(name, field, sep = "$")] <- list(as.name(key))
             if (identical(key, paste(name, field, sep = "$"))) definitions[key] <- list(fn_syntax)
@@ -809,7 +811,7 @@ member_namespace_input <- function(
         }
     }
     list(
-        definitions = definitions, locations = list(), expressions = list(),
+        definitions = definitions, locations = locations, expressions = list(),
         exports = union(namespace_exports, union(lazy_names, names(targets)[targets %in% names(lazy_roots)])),
         namespace_exports = namespace_exports, namespace_export_targets = targets,
         namespace_lazydata_blocked = blocked,

@@ -43,7 +43,7 @@ test_that("S7 properties and constructor signatures follow the user's declaratio
     fixture <- s7_fixture(c(code, "Dog(age = "), list(S7 = snapshot))
     expect_identical(s7_signature(fixture)$signatures[[1L]]$label, expected)
     expect_identical(s7_signature(fixture)$activeParameter, 1L)
-    args <- member_constructor_arguments(fixture$uri, fixture$workspace, fixture$document, fixture$point, "")
+    args <- member_call_arguments(fixture$uri, fixture$workspace, fixture$document, fixture$point, "")
     expect_identical(vapply(args, `[[`, character(1L), "label"), c("name", "age"))
     expect_identical(args[[2L]]$insertText, "age = ")
     fixture <- s7_fixture(c(code, "Dog"), list(S7 = snapshot))
@@ -242,7 +242,7 @@ test_that("S7 generated constructor signatures and matching follow installed rul
     expect_identical(s7_signature(fixture)$signatures[[1L]]$label, expected)
     expect_identical(s7_hover(s7_fixture(c(code, "Child"), metadata))$contents,
         sprintf("```r\n%s\n```", expected))
-    args <- member_constructor_arguments(fixture$uri, fixture$workspace, fixture$document, fixture$point, "")
+    args <- member_call_arguments(fixture$uri, fixture$workspace, fixture$document, fixture$point, "")
     expect_false("..." %in% vapply(args, `[[`, character(1L), "label"))
     expect_identical(s7_labels(c(code, "Child(3L, label=\"child\")@payload$"), metadata), "seed")
     if (isTRUE(snapshot$s7_capabilities$forward)) {

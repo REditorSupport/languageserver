@@ -21,7 +21,8 @@ member_symbol_info <- function(label, value, key, index) {
             collapse = "\n\n")
     }
     list(
-        label = label, signature = signature, function_id = key,
+        label = label, signature = signature, formals = if (!is.null(signature)) fn[[2L]],
+        function_id = key,
         package = index$package, value = value,
         description = description
     )
@@ -95,6 +96,9 @@ member_hover_location <- function(document, point) {
     if (is.null(cursor) || point$col < cursor$start || cursor$end <= cursor$start) {
         return(NULL)
     }
+    if (identical(cursor$accessor, "[[") && !member_bracket_key_closed(document, point$row, cursor$end)) {
+        return(NULL)
+    }
     token <- substr(document$line0(point$row), cursor$start + 1L, cursor$end)
     name <- tryCatch(member_name(str2lang(token)), error = function(e) NULL)
     if (is.null(name) || !nzchar(name)) {
@@ -143,6 +147,20 @@ document_uncomment_lines <- function(document, start_row, end_row = start_row,
     )
 }
 
+# A hover on a string denotes one named element only when the key fills the
+# entire subscript. Inspect continuations within the same R cell.
+member_bracket_key_closed <- function(document, row, end) {
+    rest <- substring(document$line0(row), end + 1L)
+    closes <- "^\\s*\\]\\s*\\]"
+    if (grepl(closes, rest, perl = TRUE)) return(TRUE)
+    if (!grepl("^[ \t]*\\]?[ \t]*(#.*)?$", rest)) return(FALSE)
+    bounds <- document_r_bounds(document, row)
+    if (row >= bounds[[2L]]) return(FALSE)
+    lines <- document_uncomment_lines(document, row, min(row + 128L, bounds[[2L]]), bounds)
+    lines[[1L]] <- substring(lines[[1L]], end + 1L)
+    grepl(closes, paste(lines, collapse = "\n"), perl = TRUE)
+}
+
 document_call_callee <- function(document, opening) {
     row <- opening$row
     bounds <- document_r_bounds(document, row)
@@ -177,6 +195,18 @@ member_call_location <- function(document, point, call = document$detect_call(po
     }
     callee <- if ("callee" %in% names(call)) call$callee else document_call_callee(document, opening)
     if (is.null(callee)) {
+        return(NULL)
+    }
+    if (substr(document$line0(callee$row), callee$col, callee$col) == "]") {
+        # The call scanner points just after the final ]. Walk past the two
+        # delimiters to the literal, allowing comments and line breaks.
+        for (i in seq_len(2L)) {
+            if (is.null(callee) || substr(document$line0(callee$row), callee$col, callee$col) != "]") return(NULL)
+            callee <- document_call_callee(document, list(row = callee$row, col = callee$col - 1L))
+        }
+        if (is.null(callee)) return(NULL)
+        location <- member_hover_location(document, callee)
+        if (identical(location$cursor$accessor, "[[") && location$cursor$end == callee$col) return(location)
         return(NULL)
     }
     location <- member_hover_location(document, callee)
@@ -216,13 +246,25 @@ member_constructor_symbol <- function(uri, workspace, document, location) {
     symbol
 }
 
-member_constructor_arguments <- function(uri, workspace, document, point, token, call = document$detect_call(point)) {
+member_call_symbol <- function(uri, workspace, document, location) {
+    if (is.null(location)) return(NULL)
+    symbol <- member_symbol(uri, workspace, document, location)
+    if (!is.null(location$cursor$accessor)) {
+        # Keep unresolved member calls out of bare-name and S3 lookup.
+        return(if (is.null(symbol)) list() else symbol)
+    }
+    if (!is.null(symbol$value$s7_generator) || identical(symbol$value$r6_role, "constructor") ||
+            !is.null(symbol$value$r6_owner)) return(symbol)
+    NULL
+}
+
+member_call_arguments <- function(uri, workspace, document, point, token, call = document$detect_call(point)) {
     location <- member_call_location(document, point, call,
         symbols = member_symbol_required(workspace, document))
-    symbol <- member_constructor_symbol(uri, workspace, document, location)
+    symbol <- member_call_symbol(uri, workspace, document, location)
     if (is.null(symbol)) return(NULL)
-    args <- names(symbol$value$function_expr[[2L]])
-    args <- setdiff(args, "...")
+    args <- setdiff(names(symbol$formals), "...")
+    if (!length(args)) return(list())
     args <- args[match_with(args, token)]
     lapply(seq_along(args), function(i) {
         list(label = args[[i]], kind = CompletionItemKind$Variable,

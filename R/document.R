@@ -23,6 +23,7 @@ Document <- R6::R6Class(
         member_refresh = FALSE,
         member_receivers = NULL,
         member_binding_cache = NULL,
+        member_workspace_view = NULL,
         analysis_caches = NULL,
         s3_calls = NULL,
         s3_identity = NULL,
@@ -55,6 +56,7 @@ Document <- R6::R6Class(
 
         set_content = function(version, content, change = NULL) {
             self$completion_outline <- NULL
+            self$member_workspace_view <- NULL
             self$member_receivers$clear()
             self$s3_calls$clear()
             current <- identical(self$version, self$parse_data$version) || isTRUE(self$member_ordinary_edit)
@@ -144,6 +146,7 @@ Document <- R6::R6Class(
 
         update_parse_data = function(parse_data) {
             self$completion_outline <- NULL
+            self$member_workspace_view <- NULL
             self$member_receivers$clear()
             self$s3_calls$clear()
             self$member_ordinary_edit <- FALSE
@@ -188,13 +191,7 @@ Document <- R6::R6Class(
             if (signature) {
                 bounds <- document_r_bounds(self, row)
                 if (is.null(bounds)) return(list(token = ""))
-                if (is.null(self$signature_call_cache)) {
-                    self$signature_call_cache <- .Call("new_signature_call_cache_c",
-                        PACKAGE = "languageserver")
-                }
-                fub_result <- .Call("signature_call_bracket_c",
-                    self$content, row, col, bounds[[1L]], self$signature_call_cache,
-                    PACKAGE = "languageserver")
+                fub_result <- document_open_bracket(self, point, bounds)
                 loc <- fub_result[[1L]]
                 bracket <- fub_result[[2L]]
             } else if (col > 0) {
@@ -286,6 +283,14 @@ find_unbalanced_bracket <- function(content, row, column, skip_empty_line = FALS
         PACKAGE = "languageserver",
         content, row, column, skip_empty_line
     )
+}
+
+document_open_bracket <- function(document, point, bounds) {
+    if (is.null(document$signature_call_cache)) {
+        document$signature_call_cache <- .Call("new_signature_call_cache_c", PACKAGE = "languageserver")
+    }
+    .Call("signature_call_bracket_c", document$content, point$row, point$col, bounds[[1L]],
+        document$signature_call_cache, PACKAGE = "languageserver")
 }
 
 #' check if a position is inside quotes
@@ -613,8 +618,9 @@ normalize_parse_content <- function(content, is_rmarkdown = FALSE,
     if (length(content) == 0) {
         content <- ""
     }
-    # replace tab with a space since the width of a tab is 1 in LSP but 8 in getParseData().
-    gsub("\t", " ", content, fixed = TRUE)
+    # Parser columns must count Unicode code points and tabs at their physical
+    # width. R can report byte columns for unmarked native-encoding strings.
+    enc2utf8(gsub("\t", " ", content, fixed = TRUE))
 }
 
 get_content_hash <- function(content) {
@@ -742,6 +748,7 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
         # incomplete expression. Providers can now return an empty result
         # instead of leaving requests queued until some later valid version.
         env$member_data <- member_document_index(content)
+        env$source_specs <- index_source_specs(as.expression(lapply(env$member_data$items, `[[`, "expr")))
         env$parse_error <- TRUE
         env$xml_data <- paste0(
             "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\" ?>\n",
@@ -893,6 +900,13 @@ drain_pending_replies <- function(self, uri, version, max_replies = Inf, first =
         if (!queue$size()) return(FALSE)
         item <- queue$peek()
         if (!is.null(version) && !is.null(item$version) && item$version > version) return(FALSE)
+        if (identical(method, "textDocument/definition") && !is.null(document) &&
+                identical(item$version, document$version)) {
+            point <- document$from_lsp_position(item$params$position)
+            return(identical(document$version, document$parse_data$version) &&
+                    !index_context_waiting(self, self$get_workspace(uri), document, point, hover = TRUE) &&
+                    !member_metadata_waiting(self, uri, document, point))
+        }
         if (!is.null(document) && identical(item$version, document$version) &&
                 method %in% c("textDocument/completion", "textDocument/hover", "textDocument/signatureHelp")) {
             point <- document$from_lsp_position(item$params$position)

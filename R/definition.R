@@ -19,6 +19,20 @@ definition_reply <- function(id, uri, workspace, document, point,
         return(Response$new(id))
     }
 
+    if (isTRUE(lsp_settings$get("member_completion"))) {
+        member <- member_definition_location(uri, workspace, document, point)
+        if (!is.null(member)) return(Response$new(id, result = member$result))
+    }
+
+    symbol_definition_reply(id, uri, workspace, document, point, rootPath, context_uri, text_document_content)
+}
+
+# Reference, rename and call-hierarchy indexes track lexical symbols separately
+# from member declarations. Keep their existing identity resolution.
+symbol_definition_reply <- function(id, uri, workspace, document, point,
+    rootPath = get_root_path_for_uri(uri, workspace$root),
+    context_uri = uri, text_document_content = NULL) {
+    if (!check_r_region(document, point)) return(Response$new(id))
     parse_data <- workspace$get_parse_data(uri)
     token_result <- reference_token_at(document, parse_data, point)
     resolved <- FALSE

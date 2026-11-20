@@ -187,7 +187,7 @@ indexed_outgoing_calls <- function(workspace, item) {
             row = index$line[[i]],
             col = index$code_point_col[[i]]
         )
-        symbol_definition <- definition_reply(
+        symbol_definition <- symbol_definition_reply(
             NULL, item$uri, workspace, doc, point,
             context_uri = context_uri)$result
         if (is.null(symbol_definition) ||
@@ -224,7 +224,7 @@ prepare_call_hierarchy_reply <- function(id, uri, workspace, document, point) {
     }
 
     token <- document$detect_token(point)
-    defn <- definition_reply(NULL, uri, workspace, document, point)$result
+    defn <- symbol_definition_reply(NULL, uri, workspace, document, point)$result
     token_quote <- xml_single_quote(token$token)
 
     logger$info("prepare_call_hierarchy_reply: ", list(
@@ -326,7 +326,7 @@ call_hierarchy_incoming_calls_reply <- function(id, workspace, item) {
 
             for (i in seq_along(symbols)) {
                 symbol_point <- list(row = symbol_line1[[i]] - 1, col = symbol_col1[[i]])
-                symbol_defn <- definition_reply(
+                symbol_defn <- symbol_definition_reply(
                     NULL, doc_uri, workspace, doc, symbol_point,
                     context_uri = context_uri)$result
 
@@ -410,7 +410,7 @@ call_hierarchy_incoming_calls_reply <- function(id, workspace, item) {
                 row = symbol_line1[[i]] - 1L,
                 col = symbol_col1[[i]]
             )
-            symbol_defn <- definition_reply(
+            symbol_defn <- symbol_definition_reply(
                 NULL, doc_uri, workspace, doc, symbol_point,
                 context_uri = context_uri)$result
             if (!equal_definition(symbol_defn, item$data$definition)) next
@@ -479,7 +479,7 @@ call_hierarchy_outgoing_calls_reply <- function(id, workspace, item) {
 
     for (i in seq_along(symbols)) {
         symbol_point <- list(row = symbol_line1[[i]] - 1, col = symbol_col1[[i]])
-        symbol_defn <- definition_reply(
+        symbol_defn <- symbol_definition_reply(
             NULL, item$uri, workspace, doc, symbol_point,
             context_uri = context_uri)$result
 
