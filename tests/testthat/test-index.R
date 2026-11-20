@@ -68,6 +68,29 @@ test_that("shallow summaries extract definitions and static source calls", {
     expect_false(any(grepl("dynamic", summary$sources, fixed = TRUE)))
 })
 
+test_that("member, S3 and shallow indexes distinguish right assignment from a quoted call", {
+    root <- withr::local_tempdir()
+    path <- file.path(root, "operators.R")
+    content <- c(
+        "`->` <- function(...) NULL",
+        "list(keep = TRUE) -> target",
+        "`->`()",
+        "`->`(target)",
+        "`->`(function(fake) NULL, target)"
+    )
+    writeLines(content, path)
+    parsed <- parse_document(path_to_uri(path), content)
+    expect_false(parsed$parse_error)
+    expect_length(parsed$member_data$bindings$target, 1L)
+    history <- parsed$member_data$s3$histories$target
+    bindings <- Filter(function(item) identical(item$kind, "binding"), history)
+    expect_identical(vapply(bindings, `[[`, integer(1L), "item"), 2L)
+    shallow <- index_shallow_summary(path, content, root)
+    expect_identical(shallow$definitions$target, parsed$definitions$target)
+    expect_identical(shallow$definitions$target$type, "list")
+    expect_equal(shallow$definitions$target$range$start$line, 1L)
+})
+
 test_that("shallow collectors preserve declaration order and last replacement", {
     root <- withr::local_tempdir()
     path <- file.path(root, "collectors.R")

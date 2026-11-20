@@ -9,9 +9,9 @@ s3_source_index <- function(items) {
         expr <- item$expr
         names <- character()
         kind <- "effect"
-        if (member_head(expr, "<-") || member_head(expr, "=") || member_head(expr, "->")) {
-            lhs <- if (member_head(expr, "->")) expr[[3L]] else expr[[2L]]
-            rhs <- if (member_head(expr, "->")) expr[[2L]] else expr[[3L]]
+        if (member_head(expr, "<-") || member_head(expr, "=")) {
+            lhs <- expr[[2L]]
+            rhs <- expr[[3L]]
             if (is.symbol(lhs)) {
                 names <- member_name(lhs)
                 kind <- "binding"
@@ -108,8 +108,7 @@ s3_source_value <- function(name, context) {
         context$source_uri <- source$uri
         expr <- item$expr
         if (identical(record$kind, "binding")) {
-            rhs <- if (member_head(expr, "->")) expr[[2L]] else expr[[3L]]
-            result <- context$infer(rhs, context$root)
+            result <- context$infer(expr[[3L]], context$root)
             if (!is.null(result$fn)) {
                 result$source <- list(
                     uri = source$uri, line = item$start[[1L]] + 1L,
@@ -834,16 +833,7 @@ s3_may_dispatch <- function(workspace, document, location, packages = NULL) {
         if (position) {
             record <- history[[position]]
             expr <- data$items[[record$item]]$expr
-            rhs <- if (member_head(expr, "->")) {
-                expr[[2L]]
-            } else if (member_head(expr, "<-") || member_head(
-                expr,
-                "="
-            )) {
-                expr[[3L]]
-            } else {
-                expr
-            }
+            rhs <- if (member_head(expr, "<-") || member_head(expr, "=")) expr[[3L]] else expr
             return(!member_head(rhs, "function") || !is.null(s3_generic_descriptor(rhs)))
         }
     }

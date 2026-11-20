@@ -74,10 +74,9 @@ member_index_bindings <- function(items) {
     }
     for (item in items) {
         expr <- item$expr
-        if (member_head(expr, "<-") || member_head(expr, "=") || member_head(expr, "->") || member_head(expr, ":=")) {
-            lhs <- if (member_head(expr, "->")) expr[[3L]] else expr[[2L]]
-            rhs <- if (member_head(expr, "->")) expr[[2L]] else expr[[3L]]
-            if (member_head(expr, ":=")) rhs <- expr
+        if (member_head(expr, "<-") || member_head(expr, "=") || member_head(expr, ":=")) {
+            lhs <- expr[[2L]]
+            rhs <- if (member_head(expr, ":=")) expr else expr[[3L]]
             name <- member_name(lhs)
             if (!is.null(name) && nzchar(name)) {
                 record(name, rhs, item)
@@ -233,8 +232,7 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL) {
             if (!is.null(spec)) sources[[length(sources) + 1L]] <- list(
                 item = i, spec = spec, bare = member_head(expr, "source"))
         }
-        if (is.call(expr) && !member_head(expr, "<-") && !member_head(expr, "=") &&
-                !member_head(expr, "->") && !member_head(expr, ":=")) {
+        if (is.call(expr) && !member_head(expr, "<-") && !member_head(expr, "=") && !member_head(expr, ":=")) {
             effects[[length(effects) + 1L]] <- item
         }
     }

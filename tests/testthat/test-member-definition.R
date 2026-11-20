@@ -129,6 +129,32 @@ test_that("both member access spellings jump to the literal string that supplied
     }
 })
 
+test_that("rightward member assignments retain the written source ranges", {
+    fixture <- provider_fixture(c("box <- list()",
+            "function(x) x -> box$fun", "box$fun(1)",
+            "(function(x) x) -> box$fun", "box$fun(1)",
+            'list(inner = box$fun) -> box[["group"]]', "box$group$inner(1)"))
+    # In the first function the assignment belongs to its uncalled body.
+    expect_null(member_definition_test(fixture, 2L, "fun"))
+    fun <- range(position(3, 23), position(3, 26))
+    expect_equal(member_definition_test(fixture, 4L, "fun")$range, fun)
+    expect_equal(member_definition_test(fixture, 5L, "fun")$range, fun)
+    expect_equal(member_definition_test(fixture, 6L, "group")$range, range(position(5, 30), position(5, 37)))
+    expect_equal(member_definition_test(fixture, 6L, "inner")$range, range(position(5, 5), position(5, 10)))
+})
+
+test_that("calls to a user function named -> do not create or replace members", {
+    fixture <- provider_fixture(c("box <- list(fun = function(original) NULL)",
+            "`->` <- function(value, target) NULL",
+            "`->`(function(changed) NULL, box$fun)", "`->`(function(added) NULL, box[['extra']])",
+            "box$fun(1)"))
+    items <- member_completion(fixture$uri, fixture$workspace, fixture$document, list(row = 4L, col = 4L), FALSE, 10L)
+    labels <- vapply(items, `[[`, character(1L), "label")
+    expect_identical(labels, "fun")
+    expect_identical(items[[match("fun", labels)]]$detail, "fun(original)")
+    expect_equal(member_definition_test(fixture, 4L, "fun")$range, range(position(0, 12), position(0, 15)))
+})
+
 test_that("recovering literal bracket declarations preserves their spelling and UTF-16 position", {
     for (closing in list(c("  box$fun2()", "}"), "  box$fun2(")) {
         fixture <- provider_fixture(c("f <- function() {", "  box <- list()",

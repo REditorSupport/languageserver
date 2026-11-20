@@ -129,6 +129,8 @@ member_source_origins <- function(parsed, data, uri, row_offset = 0L, col_offset
             indices <- 2L
         } else {
             indices <- seq_along(node)[-1L]
+            # R parses value -> target as target <- value. The token rows
+            # still follow the source spelling, so visit the operands in reverse.
             if ("RIGHT_ASSIGN" %in% kinds) indices <- rev(indices)
         }
         if (length(rows) != length(indices) || any(indices > length(node))) return(node)
