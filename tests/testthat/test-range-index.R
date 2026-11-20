@@ -194,6 +194,26 @@ test_that("linked editing caches ranges without losing cursor boundaries", {
     expect_identical(as.list(restored$ranges), as.list(cached$ranges))
 })
 
+test_that("document colors and links retain complete literals during incomplete edits", {
+    root <- withr::local_tempdir()
+    file.create(file.path(root, "target.R"))
+    results <- function(content) {
+        fixture <- provider_fixture(content)
+        list(
+            colors = document_color_reply(1L, fixture$uri, fixture$workspace, fixture$document)$result,
+            links = document_link_reply(2L, fixture$uri, fixture$workspace, fixture$document, root)$result
+        )
+    }
+    color <- 'label <- "\U0001f600"; paint <- "#ff0000"'
+    link <- 'source("target.R")'
+    expected <- results(c(color, "", link))
+    expect_length(expected$colors, 1L)
+    expect_length(expected$links, 1L)
+    expect_identical(results(c(color, "", link, "+")), expected)
+    expect_identical(results(c(color, "stats::", link)), expected)
+    expect_identical(results(c(color, "", link, 'x <- r"(unfinished', color, link)), expected)
+})
+
 test_that("document links observe files appearing and disappearing without edits", {
     root <- withr::local_tempdir()
     path <- file.path(root, "target.R")

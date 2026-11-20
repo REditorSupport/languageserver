@@ -19,7 +19,7 @@ range_provider_parse_data <- function(data, content, syntax = NULL) {
         ),
         argument_order = integer(),
         argument_lines = integer(),
-        strings = list(line = integer(), col1 = integer(), col2 = integer())
+        strings = range_provider_strings(data)
     )
     if (is.null(data) || !nrow(data)) return(empty)
 
@@ -87,12 +87,17 @@ range_provider_parse_data <- function(data, content, syntax = NULL) {
     argument_order <- argument_order[order(line[argument_order], col[argument_order])]
     empty$argument_order <- argument_order
     empty$argument_lines <- line[argument_order]
+    empty
+}
+
+# Document links and colors need only complete single-line string literals.
+range_provider_strings <- function(data) {
     strings <- which(data$token == "STR_CONST" & data$line1 == data$line2 &
             data$col2 > data$col1 + 1L & data$col2 <= data$col1 + 256L)
-    empty$strings <- list(
-        line = data$line1[strings], col1 = data$col1[strings], col2 = data$col2[strings]
+    list(
+        line = as.integer(data$line1[strings]), col1 = as.integer(data$col1[strings]),
+        col2 = as.integer(data$col2[strings])
     )
-    empty
 }
 
 #' Select an inclusive interval of a sorted line index without a full scan

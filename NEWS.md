@@ -1,5 +1,8 @@
 # languageserver (development)
 
+- Preserve semantic highlighting, document colors, and file links in unaffected
+  R code while typing incomplete expressions such as `pkg::` (#869).
+
 - Show nested named functions under their enclosing functions in the document
   outline. For repeated local assignments to the same name, the outline uses
   the last assignment in source order and shows it if it defines a function

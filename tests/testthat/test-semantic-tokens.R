@@ -91,58 +91,140 @@ test_that("Semantic token range honors both range boundaries", {
     expect_true(all(decoded_lines >= 5L & decoded_lines < 7L))
 })
 
+apply_semantic_delta <- function(data, edits) {
+    for (edit in rev(edits)) {
+        remaining <- length(data) - edit$start - edit$deleteCount
+        data <- c(head(data, edit$start), as.integer(edit$data), tail(data, remaining))
+    }
+    data
+}
+
 test_that("Semantic token deltas reconstruct the current result", {
     previous <- as.integer(c(0, 0, 1, 8, 0, 1, 0, 1, 8, 0))
     current <- as.integer(c(0, 0, 1, 8, 0, 1, 2, 1, 8, 0))
     edits <- semantic_token_delta(previous, current)
 
     expect_length(edits, 1L)
-    edit <- edits[[1L]]
-    before <- if (edit$start) previous[seq_len(edit$start)] else integer()
-    after_start <- edit$start + edit$deleteCount + 1L
-    after <- if (after_start <= length(previous)) {
-        previous[seq.int(after_start, length(previous))]
-    } else {
-        integer()
+    expect_identical(apply_semantic_delta(previous, edits), current)
+})
+
+test_that("Trailing operators retain their positions and completed function roles", {
+    uri <- "file:///trailing-operator.R"
+    for (line in c("pkg::", "+")) {
+        data <- parse_document(uri, c("first <- 1", line, ""))$semantic_data
+        rows <- which(data$lines == 1L & data$types == SemanticTokenTypes$operator)
+        expect_length(rows, 1L)
+        operator <- if (line == "pkg::") "::" else "+"
+        expect_identical(data$cols[rows], nchar(line) - nchar(operator))
+        expect_identical(data$lengths[rows], nchar(operator))
     }
-    expect_identical(c(before, edit$data, after), current)
+
+    fn <- "f <- function(x) x"
+    parsed <- parse_document(uri, paste0(fn, " +"))
+    lhs_and_body <- range(position(0L, 0L), position(0L, nchar(fn)))
+    expect_identical(semantic_data_for_range(parsed$semantic_data, lhs_and_body)$encoded,
+        parse_document(uri, fn)$semantic_data$encoded)
 })
 
-test_that("Incomplete documents produce current empty parse data", {
-    parsed <- parse_document("file:///incomplete.R", "x <- function(")
+test_that("An incomplete namespace call preserves surrounding scopes and UTF-16 positions", {
+    uri <- "file:///incomplete.R"
+    content <- c("lookup <- function(value) {", "  stats::median(value)",
+        paste0('  "', intToUtf8(0x1f600), '";\tvalue'), "}", "result <- lookup(1L)")
+    complete <- parse_document(uri, content)$semantic_data
+    content[[2L]] <- "  stats::"
+    parsed <- parse_document(uri, content)
     expect_true(parsed$parse_error)
-    expect_length(parsed$semantic_data$encoded, 0L)
-    expect_false(is.null(parsed$xml_data))
+    suffix <- range(position(2L, 0L), position(5L, 0L))
+    for (area in list(range(position(0L, 0L), position(1L, 0L)), suffix)) {
+        expected <- semantic_data_for_range(complete, area)$encoded
+        expect_gt(length(expected), 0L)
+        expect_identical(semantic_data_for_range(parsed$semantic_data, area)$encoded, expected)
+    }
+    shifted <- parse_document(uri, c("", content))$semantic_data
+    shifted_suffix <- range(position(3L, 0L), position(6L, 0L))
+    expected <- semantic_data_for_range(complete, suffix)$encoded
+    expected[[1L]] <- expected[[1L]] + 1L
+    expect_identical(semantic_data_for_range(shifted, shifted_suffix)$encoded, expected)
 })
 
-test_that("Semantic token delta requests work through the language server", {
+test_that("An unterminated string preserves preceding tokens and does not expose its contents as code", {
+    uri <- "file:///unclosed-string.R"
+    prefix <- "first <- function(x) x"
+    parsed <- parse_document(uri, c(prefix, 'value <- "incomplete', "looks_like_code <- first(5)"))
+    expect_true(parsed$parse_error)
+    expect_false(is.null(parsed$xml_data))
+    prefix_range <- range(position(0L, 0L), position(1L, 0L))
+    expect_identical(semantic_data_for_range(parsed$semantic_data, prefix_range)$encoded,
+        parse_document(uri, prefix)$semantic_data$encoded)
+    last_line <- parsed$semantic_data$lines == 2L
+    expect_true(all(parsed$semantic_data$types[last_line] == SemanticTokenTypes$string))
+})
+
+test_that("A lexer error with physical coordinates recovers only the completed prefix", {
+    uri <- "file:///invalid-escape.R"
+    prefix <- "first <- function(x) x"
+    content <- c(prefix, 'value <- "\\p"', "later <- first(5)")
+    src <- srcfilecopy("<text>", content)
+    error <- tryCatch(parse(text = content, srcfile = src, keep.source = TRUE), error = identity)
+    skip_if(is.null(error$lineno) || !identical(error$filename, "<text>"),
+        "This R parser does not supply source coordinates for lexer errors")
+    skip_if(!is.null(utils::getParseData(src)), "This R parser supplied partial token data")
+
+    parsed <- parse_document(uri, content)
+    expect_true(parsed$parse_error)
+    expect_identical(parsed$semantic_data$encoded, parse_document(uri, prefix)$semantic_data$encoded)
+
+    # #line can make an error refer to a different line of the same named file.
+    for (directive in c("#line 2", "#line2")) {
+        remapped <- append(content, c(directive, "other <- 2"), after = 1L)
+        parsed <- parse_document(uri, remapped)
+        expect_length(parsed$semantic_data$encoded, 0L)
+    }
+})
+
+test_that("Semantic token requests preserve unaffected lines through incomplete edits", {
     skip_on_cran()
     client <- language_client()
     path <- withr::local_tempfile(fileext = ".R")
-    writeLines("value <- 1", path)
-    client %>% did_open(path)
     uri <- path_to_uri(path)
+    prefix <- c("fn <- function(x) x + 1L", "value <- fn(2L)")
+    expected <- parse_document(uri, prefix)$semantic_data$encoded
+    expect_gt(length(expected), 0L)
 
+    # Open the incomplete buffer before the server has seen a valid version.
+    last_line <- "pkg::"
+    did_open(client, path, text = c(prefix, last_line))
     previous <- respond_semantic_tokens_full(client, path)
-    expect_true(nzchar(previous$resultId))
-    notify(client, "textDocument/didChange", list(
-        textDocument = list(uri = uri, version = 2L),
-        contentChanges = list(list(
-            range = list(
-                start = list(line = 0L, character = 9L),
-                end = list(line = 0L, character = 10L)
-            ),
-            text = "2"
-        ))
-    ))
+    expect_identical(head(as.integer(previous$data), length(expected)), expected)
 
-    delta <- respond_semantic_tokens_delta(
-        client, path, previous$resultId,
-        retry_when = function(result) is.null(result$resultId)
-    )
-    expect_true(nzchar(delta$resultId))
-    expect_false(identical(delta$resultId, previous$resultId))
-    expect_false(is.null(delta$edits) && is.null(delta$data))
+    replacements <- c("pkg", "pkg:", "pkg::", "pkg::median", "+", "+1")
+    for (i in seq_along(replacements)) {
+        replacement <- replacements[[i]]
+        notify(client, "textDocument/didChange", list(
+            textDocument = list(uri = uri, version = i + 1L),
+            contentChanges = list(list(
+                range = range(position(2L, 0L), position(2L, nchar(last_line))),
+                text = replacement
+            ))
+        ))
+        delta <- respond_semantic_tokens_delta(client, path, previous$resultId)
+        current <- respond_semantic_tokens_full(client, path)
+        ranged <- respond_semantic_tokens_range(client, path, c(0L, 0L), c(2L, 0L))
+
+        expect_false(identical(previous$resultId, current$resultId))
+        expect_identical(delta$resultId, current$resultId)
+        expect_true("edits" %in% names(delta))
+        expect_identical(apply_semantic_delta(as.integer(previous$data), delta$edits),
+            as.integer(current$data), info = replacement)
+        expect_identical(head(as.integer(current$data), length(expected)), expected, info = replacement)
+        expect_identical(as.integer(ranged$data), expected, info = replacement)
+        if (replacement %in% c("pkg::median", "+1")) {
+            complete <- parse_document(uri, c(prefix, replacement))$semantic_data$encoded
+            expect_identical(as.integer(current$data), complete, info = replacement)
+        }
+        last_line <- replacement
+        previous <- current
+    }
 })
 
 test_that("Semantic tokens contain expected types", {

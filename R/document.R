@@ -634,6 +634,65 @@ get_content_hash <- function(content) {
     digest::digest(content, algo = "xxhash64")
 }
 
+# Some lexical and pipe errors discard the entire parse table. On R versions
+# that supply a physical error location, retain tokens strictly before its line.
+parse_prefix_data <- function(content, error) {
+    line <- error$lineno
+    if (!identical(error$filename, "<text>") || length(line) != 1L ||
+            is.na(line) || line < 2L || line > length(content) ||
+            any(startsWith(content, "#line"))) return(NULL)
+    prefix <- content[seq_len(line - 1L)]
+    srcfile <- srcfilecopy("<text>", prefix)
+    tryCatch(parse(text = prefix, srcfile = srcfile, keep.source = TRUE), error = function(e) NULL)
+    utils::getParseData(srcfile)
+}
+
+# Recover source tokens without publishing a repaired AST as a valid document.
+recover_token_parse_data <- function(data, content, error) {
+    prefix_only <- is.null(data)
+    if (prefix_only) data <- parse_prefix_data(content, error)
+    if (!length(data$id)) return(data)
+    # A partial tree may reference parents the parser never finished reducing.
+    # Keep its real tokens and complete subtrees, treating orphan rows as roots.
+    missing_parent <- data$parent > 0L & !(data$parent %in% data$id)
+    data$parent[missing_parent] <- 0L
+    if (prefix_only) return(data)
+
+    terminals <- which(data$terminal & data$token != "COMMENT")
+    if (!length(terminals)) return(data)
+    last <- length(terminals)
+    row <- terminals[[last]]
+    closer <- data$text[[row]] %in% c(")", "]", "}")
+    if (closer) {
+        if (last == 1L) return(data)
+        row <- terminals[[last - 1L]]
+    }
+    token <- data$text[[row]]
+    if (data$parent[[row]] != 0L ||
+            !(data$token[[row]] == "SPECIAL" || grepl("^[+*/^:?!$@~&|=<>-]+$", token))) return(data)
+
+    # A dangling operator can stop the parser before the rest of the file, or
+    # prevent the enclosing function's parameter and declaration roles resolving.
+    # Try once with just that operator blanked, preserving every source column.
+    line <- data$line1[[row]]
+    start <- data$col1[[row]]
+    end <- data$col2[[row]]
+    if (data$line2[[row]] != line || line > length(content) ||
+            substr(content[[line]], start, end) != token) return(data)
+    if (!closer) {
+        if (!grepl("^[[:space:]]*(#|$)", substring(content[[line]], end + 1L))) return(data)
+        if (line == length(content) || !any(grepl("[^[:space:]]", content[seq.int(line + 1L, length(content))]))) {
+            # A standalone trailing operator or pkg:: leaves the preceding
+            # statements fully reduced. Keep even the actual operator token.
+            detached <- terminals[data$parent[terminals] == 0L]
+            if (all(detached == row | data$token[detached] %in% c("SYMBOL", "STR_CONST", "';'"))) return(data)
+        }
+    }
+    substr(content[[line]], start, end) <- strrep(" ", end - start + 1L)
+    repaired <- tryCatch(parse(text = content, keep.source = TRUE), error = function(e) NULL)
+    if (is.null(repaired)) data else utils::getParseData(repaired)
+}
+
 parse_document <- function(uri, content, is_rmarkdown = FALSE,
     content_hash = NULL, include_xml = TRUE) {
     parse_content <- normalize_parse_content(content, is_rmarkdown)
@@ -679,8 +738,10 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
     env <- parse_env()
 
     logger$info("parse_document: parsing", uri)
-    expr <- tryCatch(parse(text = content, keep.source = TRUE), error = function(e) NULL)
-    if (!is.null(expr)) {
+    # R stores partial parse data here even when parse() cannot return an expression.
+    srcfile <- srcfilecopy("<text>", content)
+    expr <- tryCatch(parse(text = content, srcfile = srcfile, keep.source = TRUE), error = identity)
+    if (!inherits(expr, "error")) {
         # Native queues append in constant time. Updating vectors bound to an
         # environment copies their whole capacity on every assignment.
         env$objects <- collections::queue()
@@ -756,9 +817,11 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
         # and xml2 external pointers cannot be serialized across process boundaries.
         # Legacy providers materialize it lazily in the main process.
     } else {
-        # Keep the parse version current even while the user is typing an
-        # incomplete expression. Providers can now return an empty result
-        # instead of leaving requests queued until some later valid version.
+        # Token-based providers can use source positions from the current buffer
+        # even when we have no complete document AST for the other indexes.
+        data <- recover_token_parse_data(utils::getParseData(srcfile), content, expr)
+        env$semantic_data <- semantic_parse_data(data, content)
+        env$range_data$strings <- range_provider_strings(data)
         env$member_data <- member_document_index(content)
         env$source_specs <- index_source_specs(as.expression(lapply(env$member_data$items, `[[`, "expr")))
         env$parse_error <- TRUE
