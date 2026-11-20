@@ -1,5 +1,10 @@
 # languageserver (development)
 
+- Show nested named functions under their enclosing functions in the document
+  outline. For repeated local assignments to the same name, the outline uses
+  the last assignment in source order and shows it if it defines a function
+  (#559).
+
 - Track functions added to lists and environments with `$` or literal `[[` assignment. Member
   completion, argument suggestions, hover and signature help use the visible
   declaration. Go to Definition opens its source when available (#524).

@@ -63,6 +63,18 @@ get_document_symbols <- function(document, xdoc, outline = NULL) {
     }
 }
 
+#' Make document symbols for the named functions within one definition
+#' @noRd
+nested_function_symbols <- function(document, syntax, rows) {
+    names <- reference_symbol_names(syntax$text[rows])
+    assignments <- syntax$parent_row[syntax$parent_row[rows]]
+    lapply(seq_along(rows), function(i) {
+        document_symbol(names[[i]], SymbolKind$Function,
+            range = navigation_range(document, syntax, assignments[[i]]),
+            selectionRange = navigation_range(document, syntax, rows[[i]]))
+    })
+}
+
 #' Sort enclosing symbols before their descendants
 #' @noRd
 document_symbol_order <- function(symbols) {
@@ -152,13 +164,17 @@ document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
     
     if (isTRUE(capabilities$hierarchicalDocumentSymbolSupport)) {
         # Use hierarchical DocumentSymbol format
+        nested <- parse_data$outline_data$nested_functions[names(defns)]
         definition_symbols <- lapply(seq_along(defns), function(i) {
             def <- defns[[i]]
             name <- names(defns)[[i]]
             
-            # Check if this is a class definition and extract members
             children <- NULL
-            if (!is.null(def$type) && def$type %in% c("R6", "S4", "RefClass")) {
+            kind <- get_document_symbol_kind(def$type)
+            if (length(nested[[i]])) {
+                kind <- SymbolKind$Function
+                children <- nested_function_symbols(document, parse_data$syntax_data, nested[[i]])
+            } else if (!is.null(def$type) && def$type %in% c("R6", "S4", "RefClass")) {
                 tryCatch({
                     children <- class_member_symbols(document, parse_data, def)
                 }, error = function(e) {
@@ -168,7 +184,7 @@ document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
             
             document_symbol(
                 name = name,
-                kind = get_document_symbol_kind(def$type),
+                kind = kind,
                 range = def$range,
                 selectionRange = def$range,
                 children = children

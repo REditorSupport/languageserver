@@ -45,7 +45,7 @@ evalq({
         )
         cat(sprintf("%-38s %10.4f ms\n", operation, median(times)))
     }
-    measure("semantic_assignment_index", function() function_assignment_symbol_ids(parsed), 2L, 3L)
+    measure("semantic_assignment_index", function() symbol_assignment_rows(parsed), 2L, 3L)
     semantic <- source$document$parse_data$semantic_data
     measure("semantic_40_line_viewport", function() semantic_data_for_range(semantic, viewport), 500L)
     previous <- rep(c(1L, 0L, 1L, 8L, 0L), 50000L)

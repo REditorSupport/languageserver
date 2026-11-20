@@ -27,6 +27,47 @@ outline_parse_data <- function(syntax) {
     )
 }
 
+#' Group local function declarations by the visible function that contains them
+#' @noRd
+outline_nested_functions <- function(syntax, assignments) {
+    local <- which(syntax$function_scope[assignments$name] > 0L &
+            syntax$text[assignments$operator] %in% c("<-", "=", "->"))
+    if (!any(assignments$function_row[local] > 0L)) return(NULL)
+
+    # Resolve reassignments in source order within each lexical function,
+    # before linking children to the surviving function literals.
+    expressions <- syntax$parent_row[assignments$operator[local]]
+    local <- local[order(syntax$order_rank[expressions])]
+    rows <- assignments$name[local]
+    values <- assignments$function_row[local]
+    bindings <- paste(syntax$function_scope[rows], reference_symbol_names(syntax$text[rows]), sep = "\r")
+    keep <- !duplicated(bindings, fromLast = TRUE) & values > 0L
+    if (!any(keep)) return(NULL)
+    rows <- rows[keep]
+    values <- values[keep]
+
+    # Visit enclosing declarations first, so each named function inherits
+    # its parent's outline owner. An anonymous scope ends the chain.
+    scopes <- syntax$function_scope[rows]
+    parents <- match(scopes, values, nomatch = 0L)
+    for (i in order(syntax$order_rank[values])) {
+        if (parents[[i]]) scopes[[i]] <- scopes[[parents[[i]]]]
+    }
+    keys <- paste(syntax$line1[scopes], syntax$col1[scopes], sep = ":")
+    list2env(split(rows, keys), parent = emptyenv(), hash = TRUE)
+}
+
+#' Look up a function literal by its own source reference, including inside an unbraced if
+#' @noRd
+outline_function_rows <- function(value, by_position) {
+    while (is.call(value) && length(value) == 2L && identical(value[[1L]], as.name("("))) {
+        value <- value[[2L]]
+    }
+    if (!is.call(value) || length(value) != 4L || !identical(value[[1L]], as.name("function"))) return(NULL)
+    ref <- value[[4L]]
+    if (inherits(ref, "srcref")) by_position[[paste(ref[[1L]], ref[[5L]], sep = ":")]]
+}
+
 #' Build interval containment once instead of comparing every pair of blocks
 #' @noRd
 outline_block_index <- function(blocks) {
