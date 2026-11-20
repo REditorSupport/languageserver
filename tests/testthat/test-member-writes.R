@@ -96,3 +96,67 @@ test_that("Qualified base constructors and masked replacement functions follow l
         }
     }
 })
+
+test_that("Literal double-bracket writes share the exact field with dollar lookup", {
+    for (ctor in c("list()", "new.env()")) {
+        for (local in c(FALSE, TRUE)) {
+            lines <- c(paste("box <-", ctor), "box$keep <- 42", "alias <- box",
+                "box[['fun']] <- FALSE", 'box[["fu\\u006e"]] <- function(x, y) x + y',
+                'box[["other name"]] <- function(z) z')
+            for (broken in c(FALSE, TRUE)) {
+                value <- member_write_receiver(lines, local = local, incomplete = broken)
+                expect_identical(names(value$fields$fun$function_expr[[2L]]), c("x", "y"))
+                expect_identical(names(value$fields[["other name"]]$function_expr[[2L]]), "z")
+                expect_identical(value$fields$keep$literal, 42)
+            }
+            alias <- member_write_receiver(lines, receiver = "alias", local = local)
+            expect_identical("fun" %in% names(alias$fields), ctor == "new.env()")
+            cleared <- member_write_receiver(c(lines, 'box[["fun"]] <- NULL'), local = local)
+            if (ctor == "list()") expect_false("fun" %in% names(cleared$fields)) else
+                expect_identical(cleared$fields$fun$type, "NULL")
+        }
+    }
+})
+
+test_that("Static field writes respect their own replacement operator", {
+    mask <- function(op) sprintf("`%s` <- function(x, i, value) list()", op)
+    dollar <- "box$fun <- function(from_dollar) NULL"
+    bracket <- 'box[["fun"]] <- function(from_bracket) NULL'
+    for (local in c(FALSE, TRUE)) {
+        for (setter in c("$<-", "[[<-")) {
+            own <- if (setter == "$<-") dollar else bracket
+            other <- if (setter == "$<-") bracket else dollar
+            expected <- if (setter == "$<-") "from_bracket" else "from_dollar"
+            lines <- c("box <- list()", mask(setter))
+            expect_null(member_write_receiver(c(lines, own), local = local)$fields$fun)
+            expect_identical(names(member_write_receiver(c(lines, other), local = local)$fields$fun$function_expr[[2L]]),
+                expected)
+        }
+    }
+})
+
+test_that("Factory analysis tracks literal subsets and invalidates ambiguous writes", {
+    factory <- function(ctor, write, ...) {
+        lines <- c(..., "make <- function() {", paste("  obj <-", ctor), "  alias <- obj",
+            "  obj$fun <- function(old) old", paste0("  ", write), "  obj", "}", "box <- make()")
+        member_write_receiver(lines)
+    }
+    for (ctor in c("list()", "new.env()")) {
+        value <- factory(ctor, 'obj[["fun"]] <- function(x, y) x + y')
+        expect_identical(names(value$fields$fun$function_expr[[2L]]), c("x", "y"))
+        value <- factory(ctor, 'alias[["fun"]] <- function(new) new')
+        expected <- if (ctor == "list()") "old" else "new"
+        expect_identical(names(value$fields$fun$function_expr[[2L]]), expected)
+        expect_null(factory(ctor, 'obj[["fun"]] <- function(fake) fake',
+                "`[[<-` <- function(...) NULL")$fields$fun)
+    }
+    expect_null(factory("list()", 'obj[[key]][["fun"]] <- function(fake) fake')$fields$fun)
+    expect_null(factory("new.env()", "alias[[key]]$fun <- function(fake) fake")$fields$fun)
+    for (index in c("key", 'c("fun", "other")', '"fun", exact = TRUE', "1L", "NA_character_", '""')) {
+        write <- sprintf("obj[[%s]] <- function(fake) fake", index)
+        expect_null(factory("list()", write)$fields$fun)
+        expect_null(factory("new.env()", write)$fields$fun)
+        lines <- c("obj <- list(fun = function(old) old)", write)
+        for (local in c(FALSE, TRUE)) expect_null(member_write_receiver(lines, "obj", local)$fields$fun)
+    }
+})

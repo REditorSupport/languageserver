@@ -1391,7 +1391,8 @@ basic_name_completion_reply <- function(id, workspace, document, point, capabili
 #' The response to a textDocument/completion request
 #' @noRd
 completion_reply <- function(id, uri, workspace, document, point, capabilities) {
-    if (!check_scope(uri, document, point) && is.null(member_cursor(document, point))) {
+    if (!check_scope(uri, document, point) &&
+            (!isTRUE(lsp_settings$get("member_completion")) || is.null(member_cursor(document, point)))) {
         quoted <- if (isTRUE(lsp_settings$get("s3_dispatch")) && check_r_region(document, point)) s3_quoted_values(workspace, document, point)
         if (!is.null(quoted)) return(Response$new(id, result = list(isIncomplete = FALSE, items = unname(quoted))))
         return(Response$new(

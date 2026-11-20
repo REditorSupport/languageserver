@@ -320,7 +320,7 @@ rendered help share a persistent cache under `tools::R_user_dir("languageserver"
 It keeps up to 512 entries and 256 MiB, removing older entries as needed. Package
 file, loaded namespace, dependency, registry, R version and server implementation changes invalidate
 cached results; incompatible or corrupt entries are rebuilt. Member inference
-follows direct assignments such as `env$fun <- function(x, y) x + y` and literal
+follows direct assignments with `env$fun` or `lst[["fun2"]]` and literal
 `source("file.R")` calls in workspace scripts without running the code.
 File contents are checksummed on first use and after changes to file identity,
 size, modification time or change time; warm lookups reuse the checksum. Help

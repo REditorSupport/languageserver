@@ -191,13 +191,7 @@ Document <- R6::R6Class(
             if (signature) {
                 bounds <- document_r_bounds(self, row)
                 if (is.null(bounds)) return(list(token = ""))
-                if (is.null(self$signature_call_cache)) {
-                    self$signature_call_cache <- .Call("new_signature_call_cache_c",
-                        PACKAGE = "languageserver")
-                }
-                fub_result <- .Call("signature_call_bracket_c",
-                    self$content, row, col, bounds[[1L]], self$signature_call_cache,
-                    PACKAGE = "languageserver")
+                fub_result <- document_open_bracket(self, point, bounds)
                 loc <- fub_result[[1L]]
                 bracket <- fub_result[[2L]]
             } else if (col > 0) {
@@ -289,6 +283,14 @@ find_unbalanced_bracket <- function(content, row, column, skip_empty_line = FALS
         PACKAGE = "languageserver",
         content, row, column, skip_empty_line
     )
+}
+
+document_open_bracket <- function(document, point, bounds) {
+    if (is.null(document$signature_call_cache)) {
+        document$signature_call_cache <- .Call("new_signature_call_cache_c", PACKAGE = "languageserver")
+    }
+    .Call("signature_call_bracket_c", document$content, point$row, point$col, bounds[[1L]],
+        document$signature_call_cache, PACKAGE = "languageserver")
 }
 
 #' check if a position is inside quotes

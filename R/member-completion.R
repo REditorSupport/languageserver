@@ -26,7 +26,7 @@ member_incomplete_packages <- function(content) {
 member_index_bindings <- function(items) {
     bindings <- new.env(hash = TRUE, parent = emptyenv())
     aliases <- new.env(hash = TRUE, parent = emptyenv())
-    record <- function(name, rhs, item, write = FALSE, field = NULL) {
+    record <- function(name, rhs, item, write = FALSE, field = NULL, subset = FALSE) {
         history <- bindings[[name]]
         last <- length(history)
         entry <- list(expr = rhs, start = item$start, end = item$end, cache_prefix = item$cache_prefix)
@@ -34,6 +34,7 @@ member_index_bindings <- function(items) {
         if (write) {
             entry$writer <- name
             entry$field <- field
+            if (subset) entry$subset <- TRUE
             entry$first_write <- if (last && !is.null(history[[last]]$first_write)) {
                 history[[last]]$first_write
             } else {
@@ -81,13 +82,11 @@ member_index_bindings <- function(items) {
             if (!is.null(name) && nzchar(name)) {
                 record(name, rhs, item)
             } else if (is.call(lhs)) {
-                root <- lhs
-                while (is.call(root) && length(root) >= 2L) root <- root[[2L]]
-                name <- member_name(root)
+                name <- member_write_root(lhs)
                 if (!is.null(name) && nzchar(name)) {
                     field <- if (!member_head(expr, ":=")) member_write_field(lhs)
                     record(name, if (is.null(field)) quote(.__unknown_mutation__) else rhs, item,
-                        write = TRUE, field = field)
+                        write = TRUE, field = field, subset = member_head(lhs, "[["))
                 }
             }
         } else if (is.call(expr)) {
@@ -168,7 +167,8 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL) {
                     # that parse impossible, retry after the dangling opener.
                     if (end > start && endsWith(trimws(text[[1L]]), "(")) {
                         call <- tryCatch(str2lang(paste0(text[[1L]], ")")), error = function(e) NULL)
-                        if (is.call(call) && length(call) == 1L && member_head(call[[1L]], "$")) {
+                        if (is.call(call) && length(call) == 1L &&
+                                (member_head(call[[1L]], "$") || !is.null(member_write_field(call[[1L]])))) {
                             start <- end <- start + 1L
                             next
                         }
@@ -273,12 +273,73 @@ member_before <- function(a, b) {
     length(b) == 2L || (length(a) > 2L && a[[3L]] <= b[[3L]])
 }
 
+# Locate a single quoted key in x[["key"]]. The cursor can be inside the
+# literal or at either quote. Recovery verifies the receiver in the R syntax.
+member_bracket_cursor <- function(document, point, bounds = document_r_bounds(document, point$row),
+    line = document$line0(point$row)) {
+    if (is.null(bounds) || (!grepl("[[", line, fixed = TRUE) && !grepl("^[ \t]*[rR]?['\"]", line))) return(NULL)
+    # Use the same cached, document-aware lexer as signature help. A string
+    # containing what looks like an index has no opening bracket at that site.
+    open <- document_open_bracket(document, point, bounds)
+    if (open[[2L]] != "[") return(NULL)
+    operator_row <- open[[1L]][[1L]]
+    operator <- open[[1L]][[2L]] # zero-based second bracket, one-based first bracket
+    if (operator < 1L || substr(document$line0(operator_row), operator, operator + 1L) != "[[") return(NULL)
+    offset <- operator + 1L
+    if (operator_row != point$row) {
+        if (point$row - operator_row > 128L) return(NULL)
+        lines <- document_uncomment_lines(document, operator_row, point$row - 1L, bounds)
+        lines[[1L]] <- substring(lines[[1L]], offset + 1L)
+        if (any(nzchar(trimws(lines)))) return(NULL)
+        offset <- 0L
+    }
+    fragment <- substring(line, offset + 1L)
+    col <- point$col - offset
+    if (col < 0L) return(NULL)
+    if (substr(fragment, col + 1L, col + 1L) %in% c("'", "\"") &&
+            !nzchar(trimws(substr(fragment, 1L, col)))) col <- col + 1L
+    key <- .Call("scan_string_completion_c", fragment, as.integer(col), PACKAGE = "languageserver")
+    if (is.null(key)) return(NULL)
+    prefix <- sub("^[ \t]*", "", substr(fragment, 1L, key$start))
+    raw <- prefix %in% c("r", "R")
+    if (nzchar(prefix) && !raw) return(NULL)
+    quote <- substr(fragment, key$start + 1L, key$start + 1L)
+    start <- offset + key$start - as.integer(raw)
+    end <- offset + key$end
+    # A string in a computed or multidimensional subscript is not a field.
+    rest <- if (key$closed) trimws(substring(line, end + 1L), which = "left") else ""
+    if (key$closed && (!nzchar(rest) || startsWith(rest, "#")) && point$row < bounds[[2L]]) {
+        last <- min(bounds[[2L]], point$row + 128L)
+        following <- trimws(document_uncomment_lines(document, point$row + 1L, last, bounds))
+        tokens <- which(nzchar(following))
+        if (length(tokens)) rest <- following[[tokens[[1L]]]]
+    }
+    if (nzchar(rest) && !startsWith(rest, "#") && !startsWith(rest, "]")) return(NULL)
+    token <- if (raw) {
+        # A raw literal can be replaced with an equivalent quoted key. Its
+        # delimiter is not part of the prefix used to match member names.
+        if (!key$closed) return(NULL)
+        value <- tryCatch(str2lang(substr(line, start + 1L, end)), error = function(e) NULL)
+        if (!is.character(value)) return(NULL)
+        bare <- sub("^-*[([{]", "", key$token)
+        substr(value, 1L, nchar(bare))
+    } else if (grepl("\\", key$token, fixed = TRUE)) {
+        tryCatch(str2lang(paste0(quote, key$token, quote)), error = function(e) key$token)
+    } else {
+        key$token
+    }
+    list(operator = operator, operator_row = operator_row, start = start, end = end,
+        token = token, accessor = "[[", before = substr(line, 1L, start), quote = quote)
+}
+
 member_cursor <- function(document, point) {
     bounds <- document_r_bounds(document, point$row)
     if (is.null(bounds)) {
         return(NULL)
     }
     line <- document$line0(point$row)
+    bracket <- member_bracket_cursor(document, point, bounds, line)
+    if (!is.null(bracket)) return(bracket)
     prefix <- substr(line, 1L, point$col)
     # Include a closing backtick in the replacement when editing a quoted name.
     match <- regexec("[$@][ \\t]*(`[^`]*`?|[[:alnum:]_.]*)$", prefix, perl = TRUE)[[1L]]
@@ -651,7 +712,7 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
             rhs <- member_infer(write$expr, index, env, depth = depth + 1L, trail = c(trail, id), budget = budget)
             if (isTRUE(budget$exhausted)) return(member_value(reason = "budget"))
             value <- member_write_container(value, write$field, rhs, write$writer,
-                if (identical(budget$origin_name, write$field)) write$origin, index, env)
+                if (identical(budget$origin_name, write$field)) write$origin, index, env, isTRUE(write$subset))
             if (is.null(value)) return(member_value(reason = "unknown_mutation"))
             env[write$writer] <- NULL
         }
@@ -694,7 +755,12 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
             return(invisible(NULL))
         }
         if (member_head(node, accessor) && identical(member_name(node[[3L]]), sentinel)) {
-            if (is.null(name)) {
+            if (identical(accessor, "[[") && member_operator_masked(accessor, index, env)) {
+                result <<- member_value(reason = "unresolved_subset_dispatch")
+            } else if (identical(accessor, "[[") && !is.null(name)) {
+                node[[3L]] <- name
+                result <<- member_infer(node, index, env, budget = budget)
+            } else if (is.null(name)) {
                 result <<- member_infer(node[[2L]], index, env, budget = budget)
                 if (identical(accessor, "$") && isTRUE(result$default_dollar)) {
                     context <- member_package_context(index, result$member_package)
@@ -805,7 +871,8 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
                             if (direct) {
                                 value <- member_write_container(object, field,
                                     member_infer(child[[3L]], index, env, budget = budget), name,
-                                    if (identical(budget$origin_name, field)) attr(lhs, "member_origin", exact = TRUE), index, env)
+                                    if (identical(budget$origin_name, field)) attr(lhs, "member_origin", exact = TRUE),
+                                    index, env, member_head(lhs, "[["))
                             }
                             if (identical(object$type, "environment") && member_plain_container(object)) {
                                 for (alias in aliases) {
@@ -1025,10 +1092,11 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
     cache <- document$member_receivers
     view <- member_workspace_view(workspace, document)
     revision <- member_document_cache_revision(document, metadata, view$key)
-    # The receiver does not depend on the member prefix or the call arguments
-    # after it. Edits and accepted parses clear this document-local cache.
+    # Named [[ calls resolve the full subset expression in its lexical scope,
+    # including local subset methods. Other member prefixes share the receiver.
+    named_subset <- identical(cursor$accessor, "[[") && !is.null(name)
     key <- paste(point$row, cursor$start, cursor$end, cursor$operator_row,
-        cursor$operator, cursor$accessor, if (is.null(cursor$accessor)) name, sep = ":")
+        cursor$operator, cursor$accessor, if (is.null(cursor$accessor) || named_subset) name, sep = ":")
     if (origins) key <- paste("definition", name, key, sep = ":")
     cached <- if (!is.null(revision)) cache$get(key) else NULL
     if (!is.null(cached)) {
@@ -1052,7 +1120,7 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
         }
         bindings$.__member_position__ <- recovered$start
         value <- member_cursor_value(recovered$parsed, recovered$sentinel, index, bindings, budget,
-            if (is.null(cursor$accessor)) name, cursor$accessor, recovered$context,
+            if (is.null(cursor$accessor) || named_subset) name, cursor$accessor, recovered$context,
             recovered$path, recovered$source)
         cached_value <- if (!is.null(revision)) member_receiver_cache_value(value, index, budget) else NULL
         if (!is.null(cached_value)) {
@@ -1063,7 +1131,7 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
             cache$set(key, record)
         }
     }
-    if (!is.null(cursor$accessor) && !is.null(name)) {
+    if (!is.null(cursor$accessor) && !is.null(name) && !named_subset) {
         receiver <- value
         possible <- member_possible_receiver(receiver, index, bindings, cursor$accessor)
         if (!is.null(possible)) {
@@ -1165,11 +1233,13 @@ member_completion_tip <- function(value) {
 member_completion <- function(uri, workspace, document, point, snippet_support, limit,
     label_details_support = FALSE) {
     cursor <- member_cursor(document, point)
+    bracket <- identical(cursor$accessor, "[[")
     resolved <- member_resolve_cursor(uri, workspace, document, point, cursor)
     if (is.null(resolved)) {
-        return(NULL)
+        return(if (bracket) list() else NULL)
     }
     value <- resolved$value
+    if (bracket && !member_plain_container(value)) return(list())
     candidate <- member_possible_receiver(value, resolved$index, resolved$bindings, cursor$accessor)
     possible <- !is.null(candidate)
     common <- NULL
@@ -1200,7 +1270,7 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
     labels <- matches
     labels <- labels[keep]
     following <- substring(document$line0(point$row), cursor$end + 1L)
-    call_snippet <- snippet_support && !startsWith(trimws(following), "(")
+    call_snippet <- snippet_support && !bracket && !startsWith(trimws(following), "(")
     edit_range <- range(document$to_lsp_position(point$row, cursor$start),
         document$to_lsp_position(point$row, cursor$end))
     items <- lapply(labels, function(label) {
@@ -1219,7 +1289,7 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
         is_function <- !is.null(shape$function_expr) || !is.null(shape$result_shape) ||
             !is.null(shape$function_key) || (!is.null(key) && !is.na(key))
         if (label %in% ambiguous && any(vapply(sets, function(set) is.na(set[[label]]), logical(1L)))) is_function <- FALSE
-        inserted <- quote_completion_name(label)
+        inserted <- if (bracket) encodeString(label, quote = cursor$quote) else quote_completion_name(label)
         snippet <- is_function && call_snippet
         text <- if (snippet) paste0(escape_completion_snippet(inserted), "($0)") else inserted
         signature <- symbol$signature

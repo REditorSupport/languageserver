@@ -105,4 +105,10 @@ test_that("a dangling member call can be followed by independent declarations", 
     index <- member_document_index(c("env$fun(", "  lst <- list(),", "  1)", "env$"))
     expect_length(index$items, 1L)
     expect_identical(index$items[[1L]]$expr[[1L]], quote(env$fun))
+
+    bracket <- c('env[["fun"]](', "", "lst <- list()", 'lst[["run"]] <- function(y) y', 'lst[["run"]](')
+    fixture <- provider_fixture(bracket)
+    point <- list(row = 4L, col = nchar(bracket[[5L]]))
+    result <- signature_reply(1L, fixture$uri, fixture$workspace, fixture$document, point)$result
+    expect_identical(result$signatures[[1L]]$label, "run(y)")
 })

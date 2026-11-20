@@ -96,6 +96,9 @@ member_hover_location <- function(document, point) {
     if (is.null(cursor) || point$col < cursor$start || cursor$end <= cursor$start) {
         return(NULL)
     }
+    if (identical(cursor$accessor, "[[") && !member_bracket_key_closed(document, point$row, cursor$end)) {
+        return(NULL)
+    }
     token <- substr(document$line0(point$row), cursor$start + 1L, cursor$end)
     name <- tryCatch(member_name(str2lang(token)), error = function(e) NULL)
     if (is.null(name) || !nzchar(name)) {
@@ -144,6 +147,20 @@ document_uncomment_lines <- function(document, start_row, end_row = start_row,
     )
 }
 
+# A hover on a string denotes one named element only when the key fills the
+# entire subscript. Inspect continuations within the same R cell.
+member_bracket_key_closed <- function(document, row, end) {
+    rest <- substring(document$line0(row), end + 1L)
+    closes <- "^\\s*\\]\\s*\\]"
+    if (grepl(closes, rest, perl = TRUE)) return(TRUE)
+    if (!grepl("^[ \t]*\\]?[ \t]*(#.*)?$", rest)) return(FALSE)
+    bounds <- document_r_bounds(document, row)
+    if (row >= bounds[[2L]]) return(FALSE)
+    lines <- document_uncomment_lines(document, row, min(row + 128L, bounds[[2L]]), bounds)
+    lines[[1L]] <- substring(lines[[1L]], end + 1L)
+    grepl(closes, paste(lines, collapse = "\n"), perl = TRUE)
+}
+
 document_call_callee <- function(document, opening) {
     row <- opening$row
     bounds <- document_r_bounds(document, row)
@@ -178,6 +195,18 @@ member_call_location <- function(document, point, call = document$detect_call(po
     }
     callee <- if ("callee" %in% names(call)) call$callee else document_call_callee(document, opening)
     if (is.null(callee)) {
+        return(NULL)
+    }
+    if (substr(document$line0(callee$row), callee$col, callee$col) == "]") {
+        # The call scanner points just after the final ]. Walk past the two
+        # delimiters to the literal, allowing comments and line breaks.
+        for (i in seq_len(2L)) {
+            if (is.null(callee) || substr(document$line0(callee$row), callee$col, callee$col) != "]") return(NULL)
+            callee <- document_call_callee(document, list(row = callee$row, col = callee$col - 1L))
+        }
+        if (is.null(callee)) return(NULL)
+        location <- member_hover_location(document, callee)
+        if (identical(location$cursor$accessor, "[[") && location$cursor$end == callee$col) return(location)
         return(NULL)
     }
     location <- member_hover_location(document, callee)

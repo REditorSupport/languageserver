@@ -90,7 +90,7 @@ member_scope_index <- function(node) {
     })
     fields <- member_scope_field_writes(children, assigned, writes)
     tracked <- ifelse(nzchar(assigned), assigned, fields)
-    mandatory <- which(!nzchar(tracked) | assigned == "$<-" | startsWith(assigned, "$.") | startsWith(assigned, "[[.") | vapply(reads, function(names) {
+    mandatory <- which(!nzchar(tracked) | assigned %in% c("$<-", "[[<-") | startsWith(assigned, "$.") | startsWith(assigned, "[[.") | vapply(reads, function(names) {
         any(names %in% c("setClass", "setClassUnion"))
     }, logical(1L)))
     histories <- split(which(nzchar(tracked)), tracked[nzchar(tracked)])

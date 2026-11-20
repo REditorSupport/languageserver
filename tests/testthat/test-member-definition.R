@@ -115,3 +115,27 @@ test_that("member source lookup annotates only the statements followed by F12", 
         visits <- list()
     }
 })
+
+test_that("both member access spellings jump to the literal string that supplied the field", {
+    fixture <- provider_fixture(c("box <- list(fun2 = NULL)", "other <- list()",
+            'other[["fun2"]] <- function(other) other',
+            "box$fun2 <- function(old) old",
+            "box$fun2(1)",
+            'box[["fun2"]] <- function(x, y) x + y',
+            "box$fun2(1, 2)", "box[['fun2']](1, 2)"))
+    expect_equal(member_definition_test(fixture, 4L, "fun2")$range, range(position(3, 4), position(3, 8)))
+    for (row in 6:7) {
+        expect_equal(member_definition_test(fixture, row, "fun2")$range, range(position(5, 5), position(5, 11)))
+    }
+})
+
+test_that("recovering literal bracket declarations preserves their spelling and UTF-16 position", {
+    for (closing in list(c("  box$fun2()", "}"), "  box$fun2(")) {
+        fixture <- provider_fixture(c("f <- function() {", "  box <- list()",
+                '  "😀"; box[["fu\\u006e2"]] <- function(x, y) x + y', closing))
+        expect_equal(member_definition_test(fixture, 3L, "fun2")$range, range(position(2, 13), position(2, 24)))
+    }
+    fixture <- provider_fixture(c("box <- list()", "box[[", "  # literal member",
+            "  \"first", "second\"", "]] <- 1", "box$`first\\nsecond`"))
+    expect_equal(member_definition_test(fixture, 6L, "first")$range, range(position(3, 2), position(4, 7)))
+})

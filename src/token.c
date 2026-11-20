@@ -109,7 +109,7 @@ static int completion_quote_state(const fsm_state *state, int strings) {
     return strings ? state->single_quoted || state->double_quoted : state->backticked;
 }
 
-static SEXP scan_quoted_completion(SEXP line, SEXP col, int strings) {
+static SEXP scan_quoted_completion(SEXP line, SEXP col, int strings, int closed_only) {
     if (!Rf_isString(line) || Rf_length(line) != 1) {
         Rf_error("line must be a single character string");
     }
@@ -142,23 +142,28 @@ static SEXP scan_quoted_completion(SEXP line, SEXP col, int strings) {
         if (quoted && !next_quoted) closing = i;
     }
     int quoted = completion_quote_state(&state, strings);
-    /* Strings only need a context check immediately after their closing quote. */
-    if (start < 0 || (strings && quoted) || (!quoted && closing + 1 != cursor)) {
+    if (start < 0 || (closed_only && quoted) || (!quoted && closing + 1 != cursor)) {
         return R_NilValue;
     }
 
     int prefix_end = quoted ? cursor : closing;
     int end = cursor;
+    int closed = !quoted;
     if (quoted) {
         end = len;
         for (int i = cursor; i < len; i++) {
             fsm_feed(&state, text[i]);
             if (!completion_quote_state(&state, strings)) {
                 end = i + 1;
+                closed = 1;
                 break;
             }
         }
     }
+    /* While editing an unterminated subscript, preserve text after the
+     * cursor, including any brackets already inserted by the editor. */
+    int key = strings && !closed_only;
+    if (key && !closed) end = cursor;
     int start_col = 0;
     int end_col = 0;
     unsigned int cp = 0;
@@ -167,25 +172,33 @@ static SEXP scan_quoted_completion(SEXP line, SEXP col, int strings) {
         i = utf8_decode(text, len, i, &cp);
     }
 
-    SEXP out = PROTECT(Rf_allocVector(VECSXP, 3));
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, key ? 4 : 3));
     SET_VECTOR_ELT(out, 0, make_str(text, start + 1, prefix_end - start - 1));
     SET_VECTOR_ELT(out, 1, Rf_ScalarInteger(start_col));
     SET_VECTOR_ELT(out, 2, Rf_ScalarInteger(end_col));
-    SEXP names = PROTECT(Rf_allocVector(STRSXP, 3));
+    SEXP names = PROTECT(Rf_allocVector(STRSXP, key ? 4 : 3));
     SET_STRING_ELT(names, 0, Rf_mkChar("token"));
     SET_STRING_ELT(names, 1, Rf_mkChar("start"));
     SET_STRING_ELT(names, 2, Rf_mkChar("end"));
+    if (key) {
+        SET_VECTOR_ELT(out, 3, Rf_ScalarLogical(closed));
+        SET_STRING_ELT(names, 3, Rf_mkChar("closed"));
+    }
     Rf_setAttrib(out, R_NamesSymbol, names);
     UNPROTECT(2);
     return out;
 }
 
 SEXP scan_backtick_completion_c(SEXP line, SEXP col) {
-    return scan_quoted_completion(line, col, 0);
+    return scan_quoted_completion(line, col, 0, 0);
 }
 
 SEXP scan_closed_string_completion_c(SEXP line, SEXP col) {
-    return scan_quoted_completion(line, col, 1);
+    return scan_quoted_completion(line, col, 1, 1);
+}
+
+SEXP scan_string_completion_c(SEXP line, SEXP col) {
+    return scan_quoted_completion(line, col, 1, 0);
 }
 
 SEXP scan_token_c(SEXP line, SEXP col, SEXP forward) {

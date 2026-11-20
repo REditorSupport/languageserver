@@ -122,6 +122,12 @@ text_document_completion  <- function(self, id, params) {
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     if (reply_parse_failure(self, id, document)) return(invisible(NULL))
     point <- document$from_lsp_position(params$position)
+    if (isTRUE(params$context$triggerCharacter %in% c("'", "\""))) {
+        key <- if (isTRUE(lsp_settings$get("member_completion"))) member_bracket_cursor(document, point)
+        if (is.null(key) || point$col != key$start + 1L) {
+            return(self$deliver(Response$new(id, result = list(isIncomplete = FALSE, items = list()))))
+        }
+    }
     if ((isTRUE(lsp_settings$get("member_completion")) || isTRUE(lsp_settings$get("s3_dispatch"))) &&
             !identical(document$version, document$parse_data$version) &&
             !member_ordinary_request(workspace, document)) {

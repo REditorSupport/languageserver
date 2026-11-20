@@ -44,9 +44,10 @@ test_that("member lookup follows visible literal source calls and the current ta
     open("mid.R", 'source("api.R")')
     main <- open("transitive.R", c('source("mid.R")', "obj$fun("))
     expect_identical(signature(1L), "fun(updated)")
-    open("extend.R", "obj$fun <- function(extra) NULL")
+    extension <- open("extend.R", 'obj[["fun"]] <- function(extra) NULL')
     main <- open("extend-main.R", c("obj <- new.env()", 'source("extend.R")', "obj$fun("))
     expect_identical(signature(2L), "fun(extra)")
+    expect_equal(definition(2L), list(uri = extension$uri, range = range(position(0L, 5L), position(0L, 10L))))
 
     open("rebind.R", "alias <- new.env()")
     main <- open("alias-main.R", c("obj <- new.env()", "obj$fun <- function(original) NULL",

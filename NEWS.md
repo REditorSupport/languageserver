@@ -1,6 +1,6 @@
 # languageserver (development)
 
-- Track functions added to lists and environments with `$` assignment. Member
+- Track functions added to lists and environments with `$` or literal `[[` assignment. Member
   completion, argument suggestions, hover and signature help use the visible
   declaration. Go to Definition opens its source when available (#524).
 

@@ -1,20 +1,19 @@
-# The R AST drops argument tags' positions and the terminal name of a dollar
-# write. Join just those declarations to their parser tokens. The resulting
-# attributes contain no srcfile or parse tree and can travel with an inferred
-# field through document, workspace and worker caches.
+# The R AST drops positions of named arguments and written member keys. Join
+# those declarations to their parser tokens. The resulting attributes travel
+# with inferred fields without retaining a srcfile or parse tree.
 member_origin_tree <- function(data, syntax = NULL) {
     token <- data$token
     callees <- which(token == "SYMBOL_FUNCTION_CALL")
     lists <- callees[reference_symbol_names(data$text[callees]) %in% c("list", "list2", "data.frame")]
-    dollars <- which(token == "'$'")
-    if (!length(lists) && !length(dollars)) return(list())
+    operators <- which(token %in% c("'$'", "LBB"))
+    if (!length(lists) && !length(operators)) return(list())
     if (is.null(syntax)) syntax <- syntax_parse_data(data)
     parent <- syntax$parent_row
     calls <- intersect(parent[parent[lists]], parent[token == "EQ_SUB"])
-    # A dollar on the RHS can have the same parent assignment. Its tag is
+    # A member access on the RHS can have the same parent assignment. Its tag is
     # harmless and never consumed: mutation inference reads only the LHS.
     assignments <- parent[token %in% c("LEFT_ASSIGN", "EQ_ASSIGN", "RIGHT_ASSIGN")]
-    accesses <- parent[dollars]
+    accesses <- parent[operators]
     writes <- accesses[parent[accesses] %in% assignments]
     targets <- unique(c(calls, writes))
     if (!length(targets)) return(list())
@@ -26,10 +25,10 @@ member_origin_tree <- function(data, syntax = NULL) {
         current <- current[current > 0L]
         current <- current[!needed[current]]
     }
-    named <- dollar <- logical(length(token))
+    named <- write <- logical(length(token))
     named[calls] <- TRUE
-    dollar[writes] <- TRUE
-    list(syntax = syntax, needed = needed, named = named, dollar = dollar,
+    write[writes] <- TRUE
+    list(syntax = syntax, needed = needed, named = named, write = write,
         placeholders = parent[token == "PLACEHOLDER"],
         roots = syntax$roots[token[syntax$roots] %in% c("expr", "expr_or_assign_or_help")])
 }
@@ -44,18 +43,22 @@ member_source_origins <- function(parsed, data, uri, row_offset = 0L, col_offset
     roots <- if (is.null(item)) tree$roots else tree$roots[item]
     if (anyNA(roots) || length(roots) != length(parsed) || !any(needed[roots])) return(parsed)
     origin <- function(i) {
-        if (syntax$line1[[i]] != syntax$line2[[i]]) return(NULL)
-        row <- row_offset + syntax$line1[[i]] - 1L
-        offset <- if (syntax$line1[[i]] == 1L) col_offset else 0L
-        start <- syntax$col1[[i]] - 1L + offset
-        end <- syntax$col2[[i]] + offset
-        if (!is.null(edit) && row == edit$row && end > edit$start) {
-            if (start < edit$start + edit$inserted) return(NULL)
+        first <- syntax$line1[[i]]
+        last <- syntax$line2[[i]]
+        start <- syntax$col1[[i]] - 1L + if (first == 1L) col_offset else 0L
+        end <- syntax$col2[[i]] + if (last == 1L) col_offset else 0L
+        first <- row_offset + first - 1L
+        last <- row_offset + last - 1L
+        if (!is.null(edit) && first <= edit$row && edit$row <= last &&
+                (edit$row < last || end > edit$start)) {
+            if (first < edit$row || start < edit$start + edit$inserted) return(NULL)
             shift <- edit$inserted - (edit$end - edit$start)
             start <- start - shift
-            end <- end - shift
+            if (last == edit$row) end <- end - shift
         }
-        list(uri = uri, range = c(row, start, end))
+        result <- list(uri = uri, range = c(first, start, end))
+        if (first != last) result$end_row <- last
+        result
     }
     expr_tokens <- c("expr", "expr_or_assign_or_help")
     walk <- function(node, row, inserted = 0L) {
@@ -70,10 +73,17 @@ member_source_origins <- function(parsed, data, uri, row_offset = 0L, col_offset
             names(tags) <- as.character(argument[equals])
             attr(node, "member_origins") <- tags
         }
-        if (tree$dollar[[row]] && member_head(node, "$")) {
-            attr(node, "member_origin") <- origin(utils::tail(children, 1L))
-        }
         positions <- which(kinds %in% expr_tokens)
+        if (tree$write[[row]]) {
+            if (member_head(node, "$")) {
+                attr(node, "member_origin") <- origin(utils::tail(children, 1L))
+            } else if (member_head(node, "[[") && length(positions) == 2L && length(node) == 3L &&
+                    is.character(node[[3L]])) {
+                key <- syntax_children(syntax, children[[positions[[2L]]]])
+                key <- key[token[key] == "STR_CONST"]
+                if (length(key) == 1L) attr(node, "member_origin") <- origin(key)
+            }
+        }
         if ("forcond" %in% kinds) {
             cond <- syntax_children(syntax, children[kinds == "forcond"][[1L]])
             rows <- c(cond[token[cond] %in% expr_tokens], children[positions])
@@ -207,9 +217,12 @@ member_definition_location <- function(uri, workspace, document, point) {
             at <- origin$range
             if (is.list(at) && !is.null(at$start)) {
                 result <- list(uri = origin$uri, range = at)
-            } else if (!is.null(target) && length(at) == 3L && at[[1L]] >= 0L && at[[1L]] < target$nline) {
-                result <- list(uri = origin$uri, range = range(target$to_lsp_position(at[[1L]], at[[2L]]),
-                        target$to_lsp_position(at[[1L]], at[[3L]])))
+            } else if (!is.null(target) && length(at) == 3L) {
+                last <- if (is.null(origin$end_row)) at[[1L]] else origin$end_row
+                if (at[[1L]] >= 0L && last < target$nline) {
+                    result <- list(uri = origin$uri, range = range(target$to_lsp_position(at[[1L]], at[[2L]]),
+                            target$to_lsp_position(last, at[[3L]])))
+                }
             }
         }
     }
