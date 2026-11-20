@@ -98,24 +98,62 @@ member_index_bindings <- function(items) {
     as.list(bindings)
 }
 
-member_document_index <- function(content, parsed = NULL, syntax = NULL) {
-    complete <- !is.null(parsed)
+# Start bounded member recovery at the first uncertain top-level statement.
+# Earlier expressions came from the original text. Retain the recovery
+# window's line/byte limits and never cut a semicolon-separated source line.
+member_recovery_start <- function(content, data, incomplete_lines) {
+    if (!length(incomplete_lines) || !length(data$id)) return(1L)
+    roots <- which(data$parent == 0L & data$token %in% c("expr", "expr_or_assign_or_help"))
+    begin <- data$line1[roots]
+    end <- data$line2[roots]
+    stop_line <- incomplete_lines[[1L]] + 1L
+    if (stop_line <= 1L) return(1L)
+    if (any(startsWith(content[seq_len(stop_line - 1L)], "#line"))) return(1L)
+
+    prefix <- which(begin < stop_line)
+    bytes <- c(0, cumsum(as.double(nchar(content, type = "bytes"))))
+    unsupported <- which(end[prefix] >= stop_line | end[prefix] - begin[prefix] > 128L |
+            bytes[end[prefix] + 1L] - bytes[begin[prefix]] > 65536)
+    if (length(unsupported)) stop_line <- begin[[prefix[[unsupported[[1L]]]]]]
+    # An earlier expression can end on the first line of the next expression.
+    i <- findInterval(stop_line - 1L, begin)
+    while (i > 0L && end[[i]] >= stop_line) {
+        stop_line <- begin[[i]]
+        i <- findInterval(stop_line - 1L, begin)
+    }
+    stop_line
+}
+
+member_document_index <- function(content, parsed = NULL, syntax = NULL, incomplete_lines = NULL,
+    defer_small_scopes = FALSE) {
+    complete <- !is.null(parsed) && is.null(incomplete_lines)
+    recovery_start <- 1L
+    if (!complete && !is.null(parsed)) recovery_start <- member_recovery_start(content, syntax, incomplete_lines)
     recovered_packages <- character()
     items <- list()
     append <- function(expr, start, end) {
         items[[length(items) + 1L]] <<- list(expr = expr, start = start, end = end)
     }
-    if (!is.null(parsed)) {
+    if (complete || recovery_start > 1L) {
         refs <- attr(parsed, "srcref")
         for (i in seq_along(parsed)) {
             ref <- refs[[i]]
+            if (!complete && ref[[1L]] >= recovery_start) break
             append(parsed[[i]], c(ref[[1L]] - 1L, ref[[5L]] - 1L), c(ref[[3L]] - 1L, ref[[6L]]))
         }
-    } else {
+    }
+    prefix_bytes <- 0
+    if (!complete) {
+        if (length(items)) {
+            # Incomplete buffers use cursor recovery, not function-part indexes.
+            # The reused source references need their lines but not a duplicate
+            # full parse table in every worker snapshot.
+            prefix_bytes <- member_compact_source(parsed, NULL)
+        }
         # Recover complete statements after unrelated syntax errors. Bounds
         # apply to incomplete runs; valid large documents use the parser above.
-        start <- 1L
-        end <- 1L
+        start <- recovery_start
+        end <- recovery_start
         batch_end <- 0L
         append_parsed <- function(parsed, start) {
             refs <- attr(parsed, "srcref")
@@ -190,6 +228,14 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL) {
     class_scope <- FALSE
     symbol_scope <- FALSE
     parts <- if (complete) member_function_parts(if (is.null(syntax)) utils::getParseData(parsed) else syntax) else NULL
+    # Small scopes in recovered literate documents can be built when visited.
+    # Bound foreground work by both source bytes and AST size, including dense
+    # one-line functions. The complete function-part table is already shared.
+    defer_small_scopes <- defer_small_scopes && complete && !is.null(syntax)
+    if (defer_small_scopes) {
+        line_bytes <- c(0, cumsum(as.double(nchar(content, type = "bytes"))))
+        line_tokens <- c(0, cumsum(as.double(tabulate(syntax$line1[syntax$terminal], length(content)))))
+    }
     prefix <- ""
     previous <- c(0L, 0L)
     for (i in seq_along(items)) {
@@ -201,7 +247,15 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL) {
         expr <- item$expr
         syntax_names <- member_syntax_names(expr)
         if (!is.null(parts) && any(syntax_names %in% c("function", "{"))) {
-            item$source <- member_source_index(expr, parts)
+            first <- item$start[[1L]] + 1L
+            after <- item$end[[1L]] + 2L
+            if (defer_small_scopes && first >= 1L && after <= length(line_bytes) &&
+                    line_bytes[[after]] - line_bytes[[first]] <= 2048 &&
+                    line_tokens[[after]] - line_tokens[[first]] <= 128) {
+                item$deferred_source <- TRUE
+            } else {
+                item$source <- member_source_index(expr, parts)
+            }
             items[[i]] <- item
         }
         class_scope <- class_scope || "R6Class" %in% syntax_names
@@ -236,10 +290,10 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL) {
             effects[[length(effects) + 1L]] <- item
         }
     }
-    source_bytes <- if (complete) member_compact_source(parsed, parts) else 0
+    source_bytes <- if (complete) member_compact_source(parsed, parts) else prefix_bytes
     list(items = items, bindings = member_index_bindings(items), imports = imports, sources = sources, effects = effects, s4 = s4,
         content_key = digest::digest(content, algo = "xxhash64"),
-        source_bytes = source_bytes,
+        source_bytes = source_bytes, deferred_parts = if (defer_small_scopes) parts,
         packages = packages, class_scope = class_scope, symbol_scope = symbol_scope,
         s3 = s3_source_index(items))
 }
@@ -920,7 +974,7 @@ member_recover_scope <- function(document, point, cursor, data, budget = NULL) {
         sentinel <- ".__languageserver_member_cursor__"
         found <- FALSE
         found_path <- NULL
-        source_index <- items[[lo]]$source
+        source_index <- member_item_source(document, data, lo)
         source <- NULL
         syntax <- NULL
         contains <- function(ref) {

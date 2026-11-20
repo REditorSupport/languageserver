@@ -108,6 +108,48 @@ test_that("Semantic token deltas reconstruct the current result", {
     expect_identical(apply_semantic_delta(previous, edits), current)
 })
 
+test_that("viewport tokens during a final-line edit equal the accepted worker response", {
+    fixture <- provider_fixture(c('first <- "\U0001f600"', "f <- function(x) x", "stats", ""))
+    doc <- fixture$document
+    edit <- function(row, text) {
+        old <- doc$line0(row)
+        doc$apply_content_changes(doc$version + 1L, list(list(
+            range = range(position(row, 0L), position(row, nchar(old))), text = text)))
+    }
+    areas <- list(range(position(0L, 0L), position(2L, 0L)),
+        range(position(0L, 0L), position(3L, 0L)), range(position(2L, 2L), position(2L, 7L)))
+    fixture$workspace$parse_cache <- collections::dict()
+    fixture$workspace$parse_cache$set(doc$parse_data$content_hash, doc$parse_data)
+    previous <- semantic_tokens_full_reply(1L, fixture$uri, fixture$workspace, doc)$result
+    for (tail in c("stats:", "stats::", "stats:::median", "stats::median # note", "+", "+1")) {
+        edit(2L, tail)
+        parsed <- parse_document(fixture$uri, doc$content)
+        current <- parsed$semantic_data
+        delta <- semantic_tokens_delta_reply(1L, fixture$uri, fixture$workspace, doc, previous$resultId)$result
+        expect_identical(delta$resultId, parsed$content_hash)
+        expect_identical(apply_semantic_delta(previous$data, delta$edits), current$encoded)
+        previous <- semantic_tokens_full_reply(1L, fixture$uri, fixture$workspace, doc)$result
+        expect_identical(previous$data, current$encoded)
+        for (area in areas) {
+            reply <- semantic_tokens_range_reply(1L, fixture$uri, fixture$workspace, doc, area)
+            expect_identical(reply$result$data, semantic_data_for_range(current, area)$encoded, info = tail)
+        }
+    }
+    # A second edited line invalidates the prefix witnesses.
+    edit(0L, "changed <- TRUE")
+    expect_null(semantic_tokens_range_reply(1L, fixture$uri, fixture$workspace, doc, areas[[1L]]))
+
+    fixture <- provider_fixture(c("f <- function(arg)", "  arg"))
+    doc <- fixture$document
+    edit(1L, "stats::")
+    expect_null(semantic_tokens_range_reply(1L, fixture$uri, fixture$workspace, doc, areas[[1L]]))
+
+    fixture <- provider_fixture(c("pre <- 1", '#line 500 "virtual.R"', "old"))
+    doc <- fixture$document
+    edit(2L, "pkg::")
+    expect_null(semantic_tokens_full_reply(1L, fixture$uri, fixture$workspace, doc))
+})
+
 test_that("Trailing operators retain their positions and completed function roles", {
     uri <- "file:///trailing-operator.R"
     for (line in c("pkg::", "+")) {
@@ -207,12 +249,14 @@ test_that("Semantic token requests preserve unaffected lines through incomplete 
                 text = replacement
             ))
         ))
+        viewport <- respond_semantic_tokens_range(client, path, c(0L, 0L), c(3L, 0L))
         delta <- respond_semantic_tokens_delta(client, path, previous$resultId)
         current <- respond_semantic_tokens_full(client, path)
         ranged <- respond_semantic_tokens_range(client, path, c(0L, 0L), c(2L, 0L))
 
         expect_false(identical(previous$resultId, current$resultId))
         expect_identical(delta$resultId, current$resultId)
+        expect_identical(as.integer(viewport$data), as.integer(current$data), info = replacement)
         expect_true("edits" %in% names(delta))
         expect_identical(apply_semantic_delta(as.integer(previous$data), delta$edits),
             as.integer(current$data), info = replacement)

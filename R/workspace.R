@@ -48,7 +48,9 @@ workspace_document_uris <- function(workspace, uri = NULL) {
 #' Return documents that can reference a definition
 #' @noRd
 workspace_reference_document_uris <- function(workspace, definition_uri,
-    context_uri = definition_uri) {
+    context_uri = definition_uri, definition_key = NULL) {
+    # Local reference keys contain their declaring URI and lexical scope.
+    if (!is.null(definition_key) && startsWith(definition_key, "local:")) return(context_uri)
     if (is.function(workspace$document_uris_for_references)) {
         workspace$document_uris_for_references(definition_uri, context_uri)
     } else {

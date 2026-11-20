@@ -36,7 +36,7 @@ partial_failure_token <- function(data, content, terminals) {
 
 # A dangling operator can prevent the enclosing function's parameter and
 # declaration roles resolving. Blank only that operator for token classification.
-partial_semantic_data <- function(data, content, token, terminals) {
+partial_semantic_data <- function(data, content, token, terminals, gap_data = NULL) {
     if (is.null(token) || !token$operator) return(data)
     line <- token$line
     if (!token$closer && (line == length(content) ||
@@ -47,6 +47,23 @@ partial_semantic_data <- function(data, content, token, terminals) {
         }
     }
     substr(content[[line]], token$start, token$end) <- strrep(" ", token$end - token$start + 1L)
+    if (!is.null(gap_data) && data$token[[token$row]] %in% c("NS_GET", "NS_GET_INT")) {
+        # A lone receiver inserted in a verified statement gap is a plain
+        # symbol unless an enclosing function binds it as a formal. Its line
+        # can then be classified exactly without reparsing the entire buffer.
+        rows <- terminals[data$line1[terminals] == line]
+        if (length(rows) == 2L && data$token[[rows[[1L]]]] == "SYMBOL" &&
+                grepl("^[[:space:]]*$", substr(content[[line]], 1L, data$col1[[rows[[1L]]]] - 1L))) {
+            formals <- gap_data$text[gap_data$token == "SYMBOL_FORMALS"]
+            receiver <- reference_symbol_names(data$text[rows[[1L]]])
+            if (!receiver %in% reference_symbol_names(formals)) {
+                one <- utils::getParseData(parse(text = content[[line]], keep.source = TRUE))
+                one$line1 <- one$line1 + line - 1L
+                one$line2 <- one$line2 + line - 1L
+                return(one)
+            }
+        }
+    }
     repaired <- tryCatch(parse(text = content, keep.source = TRUE), error = function(e) NULL)
     if (is.null(repaired)) data else utils::getParseData(repaired)
 }
@@ -78,8 +95,7 @@ parse_provider_projection <- function(content) {
 # A gap at top level or between statements in a brace block can be removed.
 # Reject gaps that would join an operand, call argument or control-flow body
 # to code following the error (e.g. x <- / pkg:: / unrelated()).
-projection_statement_gap <- function(expr, line, col) {
-    data <- utils::getParseData(expr)
+projection_statement_gap <- function(data, line, col) {
     covering <- which(data$token %in% c("expr", "expr_or_assign_or_help") &
             (data$line1 < line | data$line1 == line & data$col1 < col) &
             (data$line2 > line | data$line2 == line & data$col2 >= col))
@@ -123,6 +139,25 @@ partial_prefix_content <- function(content, data) {
     projected
 }
 
+# Only affected lines take tokens from the failed/repaired token tree. Keep
+# the enclosing top-level expressions so parameter and function bindings
+# resolve exactly as they do in the full tree. Rebase parser IDs rather than
+# sizing the classifier's ID tables to the token's offset in a large file.
+partial_token_context <- function(data, incomplete_lines) {
+    if (!length(data$id) || !length(incomplete_lines)) return(NULL)
+    first <- incomplete_lines[[1L]] + 1L
+    last <- incomplete_lines[[length(incomplete_lines)]] + 1L
+    roots <- which(data$parent == 0L & data$line1 <= last & data$line2 >= first)
+    first <- min(first, data$line1[roots])
+    last <- max(last, data$line2[roots])
+    keep <- data$line1 <= last & data$line2 >= first
+    if (all(keep)) return(data)
+    data <- data[keep, , drop = FALSE]
+    data$parent <- match(data$parent, data$id, nomatch = 0L)
+    data$id <- seq_len(nrow(data))
+    data
+}
+
 recover_partial_content <- function(content, srcfile, error, include_tokens = TRUE) {
     data <- utils::getParseData(srcfile)
     prefix_only <- is.null(data)
@@ -134,7 +169,7 @@ recover_partial_content <- function(content, srcfile, error, include_tokens = TR
     }
     terminals <- which(data$terminal & !data$token %in% c("COMMENT", "LINE_DIRECTIVE"))
     token <- if (!prefix_only) partial_failure_token(data, content, terminals)
-    tokens <- if (include_tokens) partial_semantic_data(data, content, token, terminals)
+    gap_data <- NULL
     projected <- rep("", length(content))
     expr <- NULL
     # A body can begin on the next physical line even when every delimiter
@@ -173,8 +208,10 @@ recover_partial_content <- function(content, srcfile, error, include_tokens = TR
             candidate <- content
             substr(candidate[[line]], start, token$end) <- strrep(" ", token$end - start + 1L)
             expr <- parse_provider_projection(candidate)
-            if (!is.null(expr) && projection_statement_gap(expr, line, start)) {
+            candidate_data <- if (!is.null(expr)) utils::getParseData(expr)
+            if (!is.null(expr) && projection_statement_gap(candidate_data, line, start)) {
                 projected <- candidate
+                gap_data <- candidate_data
             } else {
                 expr <- NULL
             }
@@ -189,10 +226,10 @@ recover_partial_content <- function(content, srcfile, error, include_tokens = TR
         if (!prefix_only && !length(headers) && length(terminals)) {
             last <- terminals[[length(terminals)]]
             line <- data$line2[[last]]
-            token <- data$token[terminals]
-            at_top <- sum(token == "'{'") <= sum(token == "'}'") &&
-                sum(token == "'('") <= sum(token == "')'") &&
-                sum(token == "'['") + 2L * sum(token == "LBB") <= sum(token == "']'")
+            kinds <- data$token[terminals]
+            at_top <- sum(kinds == "'{'") <= sum(kinds == "'}'") &&
+                sum(kinds == "'('") <= sum(kinds == "')'") &&
+                sum(kinds == "'['") + 2L * sum(kinds == "LBB") <= sum(kinds == "']'")
             boundary <- data$text[[last]] %in% c(")", "]", "}") ||
                 data$token[[last]] %in% c("NS_GET", "NS_GET_INT")
             if (at_top && boundary && line >= 1L && line < length(content) &&
@@ -212,7 +249,10 @@ recover_partial_content <- function(content, srcfile, error, include_tokens = TR
     }
     incomplete <- which(content != projected) - 1L
     if (!is.null(attr(expr, "srcfile"))) projected <- attr(expr, "srcfile")$lines
-    list(content = projected, expr = expr, token_data = tokens, incomplete_lines = incomplete)
+    tokens <- if (include_tokens) partial_semantic_data(data, content, token, terminals, gap_data)
+    syntax <- if (!is.null(gap_data)) gap_data else if (include_tokens) utils::getParseData(expr)
+    list(content = projected, expr = expr, syntax = syntax,
+        token_data = partial_token_context(tokens, incomplete), incomplete_lines = incomplete)
 }
 
 # Keep scoped classifications and suffix positions from the structural tree,
@@ -220,11 +260,15 @@ recover_partial_content <- function(content, srcfile, error, include_tokens = TR
 merge_partial_tokens <- function(current, partial, incomplete_lines) {
     keep <- !current$lines %in% incomplete_lines
     add <- partial$lines %in% incomplete_lines
-    if (all(keep) && !any(add)) return(current)
-    fields <- c("lines", "cols", "lengths", "types", "modifiers")
-    result <- Map(function(x, y) c(x[keep], y[add]), current[fields], partial[fields])
-    order <- order(result$lines, result$cols)
-    result <- lapply(result, `[`, order)
+    if (all(keep) && !any(add)) {
+        if (!is.null(current$encoded)) return(current)
+        result <- current
+    } else {
+        fields <- c("lines", "cols", "lengths", "types", "modifiers")
+        result <- Map(function(x, y) c(x[keep], y[add]), current[fields], partial[fields])
+        # Both inputs are ordered. Appending a trailing operator needs no sort.
+        if (is.unsorted(result$lines)) result <- lapply(result, `[`, order(result$lines, result$cols))
+    }
     result$encoded <- .Call("encode_semantic_tokens_c", result$lines, result$cols,
         result$lengths, result$types, result$modifiers, PACKAGE = "languageserver")
     result

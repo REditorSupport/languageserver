@@ -68,21 +68,21 @@ s3_source_view <- function(document, peer = FALSE) {
     }
     items <- data$items
     index <- data$s3
-    if (peer && (isTRUE(parsed$parse_error) || !is.null(parsed$partial_complete_roots))) {
+    partial_peer <- peer && (isTRUE(parsed$parse_error) || !is.null(parsed$partial_complete_roots))
+    if (partial_peer) {
+        cached <- parsed$complete_s3_view
+        if (!is.null(cached) && identical(cached$uri, document$uri)) return(cached)
         ids <- member_complete_item_ids(parsed)
         if (length(ids) < length(items)) {
+            # Histories, imports and registrations index the filtered items by position.
             items <- items[ids]
-            # Histories, imports and registrations all refer to this compact
-            # list by position. Build and cache their index together.
-            index <- parsed$complete_s3_index
-            if (is.null(index)) {
-                index <- s3_source_index(items)
-                if (is.environment(parsed)) parsed$complete_s3_index <- index
-            }
+            index <- s3_source_index(items)
         }
     }
-    list(index = index %s3_or% s3_source_index(items), items = items,
+    view <- list(index = index %s3_or% s3_source_index(items), items = items,
         uri = document$uri, content_key = data$content_key)
+    if (partial_peer && is.environment(parsed)) parsed$complete_s3_view <- view
+    view
 }
 
 s3_source_value <- function(name, context) {
@@ -655,9 +655,9 @@ s3_index_summary <- function(content, uri, expressions = NULL, parse_data = NULL
         refs <- attr(expressions, "srcref")
         ids <- seq_along(expressions)
         if (length(incomplete_lines)) {
-            ids <- ids[vapply(refs, function(ref) {
-                findInterval(ref[[1L]] - 2L, incomplete_lines) == findInterval(ref[[3L]] - 1L, incomplete_lines)
-            }, logical(1L))]
+            first <- vapply(refs, `[[`, integer(1L), 1L)
+            last <- vapply(refs, `[[`, integer(1L), 3L)
+            ids <- ids[findInterval(first - 2L, incomplete_lines) == findInterval(last - 1L, incomplete_lines)]
         }
         items <- lapply(ids, function(i) {
             ref <- refs[[i]]
@@ -848,7 +848,7 @@ s3_may_dispatch <- function(workspace, document, location, packages = NULL) {
     }
     if (lo <= length(data$items)) {
         item <- data$items[[lo]]
-        if (member_before(item$start, at) && !is.null(item$source)) {
+        if (member_before(item$start, at) && !is.null(member_item_source(document, data, lo))) {
             return(TRUE)
         }
     }

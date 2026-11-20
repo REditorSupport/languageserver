@@ -438,12 +438,14 @@ refactor_definition_assignment <- function(token_node) {
 #' Collect names visible to generated refactoring bindings
 #' @noRd
 refactor_bound_names <- function(workspace, uri, global = TRUE) {
-    result <- character()
     uris <- workspace_document_uris(workspace, uri)
     if (global) uris <- union(uris, workspace_reference_document_uris(workspace, uri))
-    for (document_uri in uris) {
+    groups <- vector("list", length(uris))
+    for (i in seq_along(uris)) {
+        document_uri <- uris[[i]]
         parse_data <- workspace$get_parse_data(document_uri)
         if (is.null(parse_data)) next
+        uncertain <- character()
         if (global) {
             # Generated names are ASCII identifiers. Reserve even potential
             # names in unparsed code. Escaped spellings cannot be ruled out.
@@ -453,15 +455,16 @@ refactor_bound_names <- function(workspace, uri, global = TRUE) {
                 text <- workspace$documents$get(document_uri)$content[missing + 1L]
                 if (any(grepl("\\", text, fixed = TRUE))) return(NULL)
                 words <- regmatches(text, gregexpr("[A-Za-z0-9._]+", text))
-                result <- c(result, unlist(words, use.names = FALSE))
+                uncertain <- unlist(words, use.names = FALSE)
             }
         }
-        result <- c(
-            result,
+        groups[[i]] <- c(
+            uncertain,
             names(parse_data$definitions),
             parse_data$reference_index$name
         )
     }
+    result <- as.character(unlist(groups, use.names = FALSE))
     unique(result[nzchar(result)])
 }
 

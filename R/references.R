@@ -318,13 +318,16 @@ references_reply <- function(id, uri, workspace, document, point,
         )
         definition_key <- reference_key_at(
             parse_data$reference_index, token_point, token$token)
-        doc_uris <- workspace_reference_document_uris(workspace, defn$result$uri, uri)
-        if (for_rename && !rename_references_complete(workspace, uri, token, definition_key, doc_uris)) {
-            return(ResponseErrorMessage$new(id, "RequestFailed", "Incomplete R code may contain other uses of this symbol"))
-        }
+        doc_uris <- workspace_reference_document_uris(workspace, defn$result$uri, uri, definition_key)
         if (!is.null(definition_key)) {
             for (doc_uri in doc_uris) {
-                indexed <- workspace$get_parse_data(doc_uri)$reference_index
+                if (for_rename) {
+                    doc <- workspace$documents$get(doc_uri, NULL)
+                    if (!rename_document_complete(doc, uri, token, definition_key)) return(rename_incomplete_error(id))
+                    indexed <- doc$parse_data$reference_index
+                } else {
+                    indexed <- workspace$get_parse_data(doc_uri)$reference_index
+                }
                 if (is.null(indexed)) next
                 selected <- reference_indices(indexed, token$token, definition_key)
                 if (!isTRUE(include_declaration)) {
@@ -340,6 +343,12 @@ references_reply <- function(id, uri, workspace, document, point,
             return(Response$new(id, result = result))
         }
 
+        if (for_rename) {
+            for (doc_uri in doc_uris) {
+                doc <- workspace$documents$get(doc_uri, NULL)
+                if (!rename_document_complete(doc, uri, token, NULL)) return(rename_incomplete_error(id))
+            }
+        }
         doc_results <- lapply(doc_uris, function(doc_uri) {
             doc <- workspace$documents$get(doc_uri)
             xdoc <- parse_data_xml(workspace$get_parse_data(doc_uri))

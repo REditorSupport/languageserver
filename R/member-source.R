@@ -100,6 +100,23 @@ member_scope_index <- function(node) {
         refs = if (length(refs) == length(node)) lapply(refs[-1L], as.integer) else NULL)
 }
 
+# Deferred scope indexes are immutable and bounded to the accepted document.
+# The document drops its cache on edits and when a new worker result arrives.
+member_item_source <- function(document, data, i) {
+    item <- data$items[[i]]
+    if (!isTRUE(item$deferred_source)) return(item$source)
+    cache <- document$member_source_cache
+    if (is.null(cache)) {
+        cache <- ByteLruCache$new(1024^2, max_entries = 16L)
+        document$member_source_cache <- cache
+    }
+    key <- as.character(i)
+    if (cache$has(key)) return(cache$get(key))
+    index <- member_source_index(item$expr, data$deferred_parts)
+    cache$set(key, index, additional_bytes = if (is.null(index)) 0 else index$bytes)
+    index
+}
+
 member_source_index <- function(expr, parts) {
     scopes <- new.env(hash = TRUE, parent = emptyenv())
     routes <- new.env(hash = TRUE, parent = emptyenv())

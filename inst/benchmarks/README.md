@@ -348,6 +348,28 @@ Omit `--wait-parse` to type immediately after opening; `--open-delay`, `--pause`
 and `--rounds` control other typing scenarios. `--profile /tmp/typing.Rprof`
 records an R sampling profile without enabling server debug logging.
 
+### Incomplete expressions
+
+Use the same scripts with each installed revision. Run them sequentially so
+the timings do not include contention from another benchmark.
+
+```sh
+R_LIBS=/path/to/library Rscript --vanilla inst/benchmarks/partial-parse.R results.csv 1000 9
+python3 inst/benchmarks/typing.py /path/to/library --semantic-edits --lines 1000 --index auto --wait-parse --rounds 5
+```
+
+The first command measures worker parsing and warm viewport and outline
+requests on valid and incomplete R and Quarto files. It compares the returned
+definitions, symbols, and unchanged tokens against a valid control. Check
+`actual_count` and `matches_reference` alongside the timing: some earlier
+versions drop an entire document or cell on a parse error.
+
+The second command measures real LSP responses while editing the last line.
+The viewport includes that line and the preceding 40 lines. Each round uses
+distinct text. With `--wait-parse`, `elapsed_ms`, `full_ms`, and `outline_ms`
+measure time since the edit to the viewport, full tokens, and document symbols
+respectively, requested in that order.
+
 ## Workspace startup
 
 `workspace-loading.py` generates 3,000 R files with 1,000 lines each and sends

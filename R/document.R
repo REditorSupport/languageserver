@@ -14,6 +14,8 @@ Document <- R6::R6Class(
         parse_generation = 0L,
         parse_failure = NULL,
         parsed_content = NULL,
+        semantic_edit_line = NULL,
+        pending_semantic_result = NULL,
         inlay_hint_data = NULL,
         inlay_hint_formals = NULL,
         is_rmarkdown = NULL,
@@ -24,6 +26,7 @@ Document <- R6::R6Class(
         member_receivers = NULL,
         member_binding_cache = NULL,
         member_workspace_view = NULL,
+        member_source_cache = NULL,
         analysis_caches = NULL,
         s3_calls = NULL,
         s3_identity = NULL,
@@ -52,11 +55,23 @@ Document <- R6::R6Class(
 
         did_close = function() {
             self$is_open <- FALSE
+            self$pending_semantic_result <- NULL
         },
 
         set_content = function(version, content, change = NULL) {
+            # Track a single edited line at EOF until the worker finishes. A
+            # second line or a full replacement invalidates the shortcut.
+            row <- change$range$start$line
+            last <- length(content) - 1L
+            snapshot_current <- !is.null(self$parse_data) && identical(self$version, self$parse_data$version)
+            if (identical(version, self$version)) self$pending_semantic_result <- NULL
+            self$semantic_edit_line <- if (!self$is_rmarkdown && length(row) == 1L &&
+                    (snapshot_current || identical(self$semantic_edit_line, as.integer(row))) &&
+                    length(content) == length(self$content) && row == change$range$end$line &&
+                    (row == last || (row == last - 1L && !nzchar(content[[last + 1L]])))) as.integer(row)
             self$completion_outline <- NULL
             self$member_workspace_view <- NULL
+            self$member_source_cache <- NULL
             self$member_receivers$clear()
             self$s3_calls$clear()
             current <- identical(self$version, self$parse_data$version) || isTRUE(self$member_ordinary_edit)
@@ -145,8 +160,10 @@ Document <- R6::R6Class(
         },
 
         update_parse_data = function(parse_data) {
+            self$semantic_edit_line <- NULL
             self$completion_outline <- NULL
             self$member_workspace_view <- NULL
+            self$member_source_cache <- NULL
             self$member_receivers$clear()
             self$s3_calls$clear()
             self$member_ordinary_edit <- FALSE
@@ -653,6 +670,8 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
     env$xml_data <- NULL
     env$xml_doc <- NULL
     env$content_hash <- content_hash
+    # Recovery neutralizes #line directives to keep physical source ranges.
+    env$has_line_directive <- !is_rmarkdown && any(startsWith(content, "#line"))
     env$parse_error <- FALSE
     env$inlay_hint_incomplete <- length(incomplete_lines) > 0L
     env$inlay_hint_incomplete_lines <- incomplete_lines
@@ -686,7 +705,7 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
     env$documentation_names <- collections::queue()
     env$function_names <- collections::queue()
 
-    data <- utils::getParseData(expr)
+    data <- if (is.null(recovery)) utils::getParseData(expr) else recovery$syntax
     env$syntax_data <- syntax_parse_data(data)
     assignments <- symbol_assignment_rows(data, env$syntax_data)
     env$nested_by_position <- outline_nested_functions(env$syntax_data, assignments)
@@ -726,10 +745,11 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
     env$navigation_data <- navigation_parse_data(env$syntax_data)
     # Cursor recovery also tracks unfinished member accesses and their package
     # hints. Keep its original source and bounded recovery on a syntax error.
-    env$member_data <- if (is.null(recovery)) member_document_index(content, expr, data) else
-        member_document_index(content)
+    env$member_data <- member_document_index(content, expr, data, recovery$incomplete_lines,
+        defer_small_scopes = is_rmarkdown && length(incomplete_lines) > 0L)
     env$completion_data <- completion_parse_data(data, env$syntax_data)
-    env$semantic_data <- semantic_parse_data(data, content, env$syntax_data, assignments)
+    overlay <- !is.null(recovery) || (is_rmarkdown && length(literate$incomplete_lines) > 0L)
+    env$semantic_data <- semantic_parse_data(data, content, env$syntax_data, assignments, encode = !overlay)
     env$range_data <- range_provider_parse_data(data, content, env$syntax_data)
     if (length(incomplete_lines) || env$parse_error) {
         env$partial_incomplete_lines <- incomplete_lines
@@ -741,7 +761,8 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
                 findInterval(env$syntax_data$line2[roots] - 1L, incomplete_lines)]
     }
     if (!is.null(recovery)) {
-        partial_semantic <- semantic_parse_data(recovery$token_data, content)
+        partial_semantic <- semantic_parse_data(recovery$token_data, content,
+            only_lines = recovery$incomplete_lines, encode = FALSE)
         env$semantic_data <- merge_partial_tokens(env$semantic_data, partial_semantic, recovery$incomplete_lines)
         partial_strings <- range_provider_strings(recovery$token_data)
         env$range_data$strings <- merge_partial_strings(env$range_data$strings, partial_strings, recovery$incomplete_lines)

@@ -325,7 +325,7 @@ literate_r_content <- function(content, regions = NULL, parseable_only = FALSE) 
     for (cell in regions$cells) {
         if (!cell$executable || !identical(tolower(cell$engine), "r")) next
         body_lines <- seq_safe(cell$body_start, cell$body_end)
-        parsed <- tryCatch(parse(text = result[body_lines], keep.source = TRUE), error = function(e) NULL)
+        parsed <- tryCatch(parse(text = result[body_lines], keep.source = FALSE), error = function(e) NULL)
         if (is.null(parsed)) result[body_lines] <- ""
     }
     result
@@ -350,13 +350,18 @@ literate_provider_content <- function(content, regions = parse_literate_regions(
         rows <- as.integer(seq_safe(cell$body_start, cell$body_end))
         if (!length(rows)) next
         text <- source[rows]
+        # The final document parse builds source references and the token tree.
+        # A valid cell needs its own tree only to locate actual #line directives.
+        if (!any(startsWith(text, "#line")) &&
+                !is.null(tryCatch(parse(text = text, keep.source = FALSE), error = function(e) NULL))) next
         srcfile <- srcfilecopy("<text>", text)
         expr <- tryCatch(parse(text = text, srcfile = srcfile, keep.source = TRUE), error = identity)
         if (inherits(expr, "error")) {
             recovered <- recover_partial_content(text, srcfile, expr)
             result[rows] <- recovered$content
             incomplete_lines <- c(incomplete_lines, rows[recovered$incomplete_lines + 1L] - 1L)
-            tokens <- semantic_parse_data(recovered$token_data, text)
+            tokens <- semantic_parse_data(recovered$token_data, text,
+                only_lines = recovered$incomplete_lines, encode = FALSE)
             tokens$encoded <- NULL
             tokens$lines <- tokens$lines + (rows[[1L]] - 1L)
             partial_tokens[[length(partial_tokens) + 1L]] <- tokens

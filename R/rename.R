@@ -1,23 +1,21 @@
-rename_references_complete <- function(workspace, uri, token, definition_key, doc_uris) {
-    local <- !is.null(definition_key) && startsWith(definition_key, "local:")
-    if (local) doc_uris <- uri
-    for (doc_uri in doc_uris) {
-        doc <- workspace$documents$get(doc_uri, NULL)
-        data <- doc$parse_data
-        if (is.null(data) || !identical(doc$content, doc$parsed_content) ||
-                (!is.null(data$version) && !identical(doc$version, data$version))) return(FALSE)
-        if (local && partial_root_contains(data, token$range$start, token$range$end)) return(TRUE)
-        missing <- data$partial_incomplete_lines
-        if (isTRUE(data$parse_error) && is.null(missing)) return(FALSE)
-        if (!length(missing)) next
-        if (identical(doc_uri, uri) && is.null(definition_key)) return(FALSE)
-        # A bare name may be referenced in unindexed code, including through
-        # an escaped backtick spelling. Never return just the indexed edits.
-        lines <- doc$content[missing + 1L]
-        if (any(grepl(token$token, lines, fixed = TRUE)) ||
-                any(grepl("\\", lines, fixed = TRUE)) || grepl("\n", token$token, fixed = TRUE)) return(FALSE)
-    }
-    TRUE
+rename_document_complete <- function(doc, uri, token, definition_key) {
+    data <- doc$parse_data
+    if (is.null(data) || !identical(doc$content, doc$parsed_content) ||
+            (!is.null(data$version) && !identical(doc$version, data$version))) return(FALSE)
+    missing <- data$partial_incomplete_lines
+    if (!length(missing)) return(!isTRUE(data$parse_error) || !is.null(missing))
+    if (!is.null(definition_key) && startsWith(definition_key, "local:") &&
+            partial_root_contains(data, token$range$start, token$range$end)) return(TRUE)
+    if (identical(doc$uri, uri) && is.null(definition_key)) return(FALSE)
+    # A bare name may be referenced in unindexed code, including through
+    # an escaped backtick spelling. Never return just the indexed edits.
+    lines <- doc$content[missing + 1L]
+    !any(grepl(token$token, lines, fixed = TRUE)) &&
+        !any(grepl("\\", lines, fixed = TRUE)) && !grepl("\n", token$token, fixed = TRUE)
+}
+
+rename_incomplete_error <- function(id) {
+    ResponseErrorMessage$new(id, "RequestFailed", "Incomplete R code may contain other uses of this symbol")
 }
 
 prepare_rename_reply <- function(id, uri, workspace, document, point) {
@@ -43,9 +41,9 @@ prepare_rename_reply <- function(id, uri, workspace, document, point) {
 
     if (length(defn$result)) {
         key <- reference_key_at(parsed$reference_index, token$range$start, token$token)
-        doc_uris <- workspace_reference_document_uris(workspace, defn$result$uri, uri)
-        if (!rename_references_complete(workspace, uri, token, key, doc_uris)) {
-            return(ResponseErrorMessage$new(id, "RequestFailed", "Incomplete R code may contain other uses of this symbol"))
+        for (doc_uri in workspace_reference_document_uris(workspace, defn$result$uri, uri, key)) {
+            doc <- workspace$documents$get(doc_uri, NULL)
+            if (!rename_document_complete(doc, uri, token, key)) return(rename_incomplete_error(id))
         }
         Response$new(
             id,

@@ -87,12 +87,17 @@ test_that("rename uses complete lexical scopes in partial documents", {
         rename_reply(1L, fixture$uri, fixture$workspace, fixture$document,
             list(row = row, col = col), "updated")
     }
+    fixture$workspace$document_uris_for_references <- function(...) stop("unexpected cross-file lookup")
     for (row in c(0L, 2L)) {
+        prepared <- prepare_rename_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+            list(row = row, col = 20L))
+        expect_equal(prepared$result$start$line, row)
         reply <- rename(row, 20L)
         edits <- reply$result$changes[[fixture$uri]]
         expect_length(edits, 2L)
         expect_equal(vapply(edits, function(edit) edit$range$start$line, integer(1L)), rep(row, 2L))
     }
+    fixture$workspace$document_uris_for_references <- NULL
 
     # A second document can hide a use of the global, even if no indexed
     # occurrence from that file is among the locations to edit.
