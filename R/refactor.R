@@ -150,7 +150,7 @@ refactor_statement_context <- function(node) {
         }
         parent_tokens <- xml_name(xml_children(parent))
         if (any(parent_tokens %in% c(
-            "IF", "ELSE", "FOR", "WHILE", "REPEAT", "FUNCTION"
+            "IF", "ELSE", "FOR", "WHILE", "REPEAT", "FUNCTION", "OP-LAMBDA"
         ))) {
             return(NULL)
         }
@@ -306,8 +306,7 @@ refactor_selection_context <- function(uri, workspace, document, item_range) {
     if (refactor_compare_point(
         selected_range$start, selected_range$end
     ) >= 0L ||
-        !refactor_range_in_r_region(document, selected_range) ||
-        !partial_root_contains(parse_data, selected_range$start, selected_range$end)) {
+        !refactor_range_in_r_region(document, selected_range)) {
         return(NULL)
     }
     expression <- refactor_exact_expression(
@@ -318,6 +317,16 @@ refactor_selection_context <- function(uri, workspace, document, item_range) {
     )
     if (is.null(expression) && is.null(statements)) {
         return(NULL)
+    }
+    if (!partial_root_contains(parse_data, selected_range$start, selected_range$end)) {
+        # A selection may contain several complete top-level statements. The
+        # XML selection already covers their full ranges; also check that no
+        # original source between them was omitted during recovery.
+        missing <- parse_data$partial_incomplete_lines
+        if (is.null(statements) || !identical(xml_name(statements$container), "exprlist") ||
+                is.null(missing) || any(missing >= selected_range$start$row & missing <= selected_range$end$row)) {
+            return(NULL)
+        }
     }
     list(
         parse_data = parse_data,
@@ -646,7 +655,7 @@ refactor_extract_variable_action <- function(uri, workspace, document,
     if (is.null(node) || refactor_atomic_expression(node) ||
         refactor_unsafe_syntax(node) ||
         any(refactor_token_names(node) %in% c(
-            "LEFT_ASSIGN", "RIGHT_ASSIGN", "EQ_ASSIGN", "FUNCTION"
+            "LEFT_ASSIGN", "RIGHT_ASSIGN", "EQ_ASSIGN", "FUNCTION", "OP-LAMBDA"
         ))) {
         return(NULL)
     }
@@ -664,12 +673,8 @@ refactor_extract_variable_action <- function(uri, workspace, document,
     if (is.null(insertion)) {
         return(NULL)
     }
-    if (identical(xml_name(statement_context$container), "exprlist") &&
-            !refactor_index_ready(workspace)) {
-        return(NULL)
-    }
-
     global <- !xml_find_lgl_(statement_context$statement, "boolean(ancestor::expr[FUNCTION or OP-LAMBDA])")
+    if (global && !refactor_index_ready(workspace)) return(NULL)
     name <- refactor_unique_name("extracted_value", workspace, uri, global)
     if (is.null(name)) return(NULL)
     selected_text <- refactor_range_text(document, context$range)
@@ -880,14 +885,10 @@ refactor_extract_function_action <- function(uri, workspace, document,
     if (is.null(insertion)) {
         return(NULL)
     }
-    if (identical(xml_name(selection$container), "exprlist") &&
-            !refactor_index_ready(workspace)) {
-        return(NULL)
-    }
     global <- !xml_find_lgl_(statement, "boolean(ancestor::expr[FUNCTION or OP-LAMBDA])")
-    external_uses <- identical(xml_name(selection$container), "exprlist") ||
-        (global && length(context$parse_data$partial_incomplete_lines))
-    if (external_uses && refactor_selection_defines_binding(context)) return(NULL)
+    # A top-level brace or control-flow block still writes into the file's
+    # global scope. The selected assignment may be read in another document.
+    if (global && (!refactor_index_ready(workspace) || refactor_selection_defines_binding(context))) return(NULL)
 
     bindings <- refactor_function_bindings(context)
     if (length(bindings$outputs) > 1L) {

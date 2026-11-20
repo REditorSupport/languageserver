@@ -10,8 +10,17 @@ rename_document_complete <- function(doc, uri, token, definition_key) {
     # A bare name may be referenced in unindexed code, including through
     # an escaped backtick spelling. Never return just the indexed edits.
     lines <- doc$content[missing + 1L]
-    !any(grepl(token$token, lines, fixed = TRUE)) &&
-        !any(grepl("\\", lines, fixed = TRUE)) && !grepl("\n", token$token, fixed = TRUE)
+    name <- token$token
+    if (any(grepl("\\", lines, fixed = TRUE)) || grepl("\n", name, fixed = TRUE)) return(FALSE)
+    matches <- lines[grepl(name, lines, fixed = TRUE)]
+    if (!length(matches)) return(TRUE)
+    if (!grepl("^[A-Za-z.][A-Za-z0-9._]*$", name)) return(FALSE)
+    # An ASCII identifier cannot be a separate token inside a longer name
+    # such as the 'a' in stats::. Keep ambiguous numeric/placeholder runs:
+    # e.g. R can tokenize 1Lname as an integer followed by a symbol.
+    words <- unlist(regmatches(matches, gregexpr("[A-Za-z0-9._]+", matches)), use.names = FALSE)
+    ambiguous <- grepl("^([0-9_]|\\.[0-9])", words)
+    !any(words == name) && !any(grepl(name, words[ambiguous], fixed = TRUE))
 }
 
 rename_incomplete_error <- function(id) {

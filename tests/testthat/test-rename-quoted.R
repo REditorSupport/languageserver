@@ -125,3 +125,19 @@ test_that("rename uses complete lexical scopes in partial documents", {
     fixture <- provider_fixture(c(content[[1L]], "  damaged <- arg +", "}"))
     expect_equal(rename(0L, 20L)$error$code, ErrorCodes$RequestFailed)
 })
+
+test_that("an incomplete longer identifier does not block renaming an unrelated name", {
+    point <- list(row = 1L, col = 1L)
+    for (tail in c("stats::", "argument +", "data_item(")) {
+        fixture <- provider_fixture(c("a <- 1", "a", tail))
+        prepared <- prepare_rename_reply(1L, fixture$uri, fixture$workspace, fixture$document, point)
+        expect_equal(prepared$result$start, position(1L, 0L))
+        reply <- rename_reply(1L, fixture$uri, fixture$workspace, fixture$document, point, "renamed")
+        expect_length(reply$result$changes[[fixture$uri]], 2L)
+    }
+    for (tail in c("bad(a +", "bad(`a` +", "bad(1La", "bad(`\\141` +")) {
+        fixture <- provider_fixture(c("a <- 1", "a", tail))
+        reply <- rename_reply(1L, fixture$uri, fixture$workspace, fixture$document, point, "renamed")
+        expect_equal(reply$error$code, ErrorCodes$RequestFailed, info = tail)
+    }
+})

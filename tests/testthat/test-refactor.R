@@ -906,6 +906,49 @@ test_that("refactorings use complete local scopes on either side of damaged code
         "extracted_value_2 <- 3 + 4", fixed = TRUE)
 })
 
+test_that("global blocks keep workspace bindings and require a ready index for extraction", {
+    for (trailer in list(character(), "stats::")) {
+        content <- c("{", "  published <- (1 + 2) * 3", "}", trailer)
+        fixture <- provider_fixture(content)
+        actions <- function(selection) {
+            refactor_code_actions(fixture$uri, fixture$workspace, fixture$document, selection, list("refactor.extract"))
+        }
+        assignment <- refactor_test_range(content, 1L, trimws(content[[2L]]))
+        # Moving this assignment into a new function would hide it from
+        # scripts that source this file.
+        expect_length(actions(assignment), 0L)
+        expression <- refactor_test_range(content, 1L, "1 + 2")
+        expect_length(actions(expression), 2L)
+        fixture$workspace$index <- list(indexing_status = function() list(done = FALSE, failed = 0L))
+        expect_length(actions(expression), 0L)
+    }
+})
+
+test_that("extract never moves unbraced lambda bodies or defaults outside their function", {
+    skip_if(getRversion() < "4.1")
+    for (line in c("f <- \\(x) (x + 1) * 2", "f <- \\(x = x + 1) x")) {
+        content <- c(line, "pkg::")
+        fixture <- provider_fixture(content)
+        selection <- refactor_test_range(content, 0L, "x + 1")
+        expect_length(refactor_code_actions(fixture$uri, fixture$workspace, fixture$document,
+                selection, list("refactor.extract")), 0L)
+    }
+})
+
+test_that("extract keeps complete top-level statement groups on either side of recovery", {
+    for (gap in 0:2) {
+        content <- append(c("message('before')", "message('after')"), "pkg::", after = gap)
+        fixture <- provider_fixture(content)
+        first <- match("message('before')", content) - 1L
+        last <- match("message('after')", content) - 1L
+        selection <- list(start = list(row = first, col = 0L),
+            end = list(row = last, col = nchar(content[[last + 1L]])))
+        actions <- refactor_code_actions(fixture$uri, fixture$workspace, fixture$document,
+            selection, list("refactor.extract"))
+        expect_length(actions, if (gap == 1L) 0L else 1L)
+    }
+})
+
 test_that("refactor selections cannot cross literate R cells", {
     uri <- "file:///refactor.qmd"
     content <- c(
