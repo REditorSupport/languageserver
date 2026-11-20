@@ -14,6 +14,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument("library")
 parser.add_argument("--lines", type=int, default=20000)
 parser.add_argument("--providers", action="store_true")
+parser.add_argument("--semantic-edits", action="store_true",
+    help="Measure didChange to semantic tokens for the viewport containing an incomplete R edit")
 parser.add_argument("--wait-parse", action="store_true")
 parser.add_argument("--index", choices=("off", "auto"), default="off")
 parser.add_argument("--rounds", type=int, default=1)
@@ -183,6 +185,15 @@ try:
     previous = ""
     version = 1
     pause(args.open_delay)
+    if args.semantic_edits:
+        viewport = {**doc, "range": {"start": {"line": max(0, args.lines - 40), "character": 0},
+            "end": {"line": args.lines + 1, "character": 0}}}
+        reference = receive(send("textDocument/semanticTokens/range", viewport))["data"]
+        if not reference:
+            raise RuntimeError("The valid fixture must return semantic tokens")
+        tokens = ["stats", "stats:", "stats::", "stats::median", "+", "+1"]
+    else:
+        tokens = ["v", "va", "val", "valu", "value", "value_", "value_0", "value_00"]
     for round_number in range(1, args.rounds + 1):
         if args.wait_parse or round_number > 1:
             started = time.monotonic()
@@ -194,19 +205,33 @@ try:
             send("textDocument/documentSymbol", doc, background=True)
             send("textDocument/semanticTokens/full", doc, background=True)
             send("textDocument/foldingRange", doc, background=True)
-        for token in ["v", "va", "val", "valu", "value", "value_", "value_0", "value_00"]:
+        for token in tokens:
             pause(args.pause)
             version += 1
             point = {"line": args.lines, "character": len(token)}
+            # Distinct source each round avoids replaying an identical cached parse.
+            replacement = f"{token} # round {round_number}" if args.semantic_edits else token
             start = time.monotonic()
             send("textDocument/didChange", {"textDocument": {"uri": uri, "version": version},
                 "contentChanges": [{"range": {"start": {"line": args.lines, "character": 0},
-                    "end": {"line": args.lines, "character": len(previous)}}, "text": token}]}, False)
-            result = receive(send("textDocument/completion", {**doc, "position": point}))
+                    "end": {"line": args.lines, "character": len(previous)}}, "text": replacement}]}, False)
+            if args.semantic_edits:
+                data = receive(send("textDocument/semanticTokens/range", viewport))["data"]
+                count = {"tokens": len(data) // 5, "unchanged_tokens_match": data[:len(reference)] == reference}
+            else:
+                result = receive(send("textDocument/completion", {**doc, "position": point}))
+                count = {"items": len(result.get("items", []))}
+            elapsed = (time.monotonic() - start) * 1000
+            if args.semantic_edits and args.wait_parse:
+                full = receive(send("textDocument/semanticTokens/full", doc))
+                count["full_ms"] = round((time.monotonic() - start) * 1000, 2)
+                count["full_tokens"] = len(full["data"]) // 5
+                symbols = receive(send("textDocument/documentSymbol", doc)) or []
+                count["outline_ms"] = round((time.monotonic() - start) * 1000, 2)
+                count["symbols"] = len(symbols)
             print(json.dumps({"round": round_number, "token": token,
-                "elapsed_ms": round((time.monotonic() - start) * 1000, 2),
-                "items": len(result.get("items", []))}), flush=True)
-            previous = token
+                "elapsed_ms": round(elapsed, 2), **count}), flush=True)
+            previous = replacement
     receive(send("shutdown", {}))
     send("exit", {}, False)
     exit_code = process.wait(timeout=10)

@@ -150,7 +150,7 @@ refactor_statement_context <- function(node) {
         }
         parent_tokens <- xml_name(xml_children(parent))
         if (any(parent_tokens %in% c(
-            "IF", "ELSE", "FOR", "WHILE", "REPEAT", "FUNCTION"
+            "IF", "ELSE", "FOR", "WHILE", "REPEAT", "FUNCTION", "OP-LAMBDA"
         ))) {
             return(NULL)
         }
@@ -299,8 +299,7 @@ refactor_selection_context <- function(uri, workspace, document, item_range) {
         return(NULL)
     }
     parse_data <- current_parse_data(uri, workspace, document)
-    if (is.null(parse_data) || isTRUE(parse_data$parse_error) ||
-            is.null(parse_data_xml(parse_data))) {
+    if (is.null(parse_data) || is.null(parse_data_xml(parse_data))) {
         return(NULL)
     }
     selected_range <- refactor_trim_range(document, item_range)
@@ -318,6 +317,16 @@ refactor_selection_context <- function(uri, workspace, document, item_range) {
     )
     if (is.null(expression) && is.null(statements)) {
         return(NULL)
+    }
+    if (!partial_root_contains(parse_data, selected_range$start, selected_range$end)) {
+        # A selection may contain several complete top-level statements. The
+        # XML selection already covers their full ranges; also check that no
+        # original source between them was omitted during recovery.
+        missing <- parse_data$partial_incomplete_lines
+        if (is.null(statements) || !identical(xml_name(statements$container), "exprlist") ||
+                is.null(missing) || any(missing >= selected_range$start$row & missing <= selected_range$end$row)) {
+            return(NULL)
+        }
     }
     list(
         parse_data = parse_data,
@@ -437,24 +446,42 @@ refactor_definition_assignment <- function(token_node) {
 
 #' Collect names visible to generated refactoring bindings
 #' @noRd
-refactor_bound_names <- function(workspace, uri) {
-    result <- character()
-    for (document_uri in workspace_document_uris(workspace, uri)) {
+refactor_bound_names <- function(workspace, uri, global = TRUE) {
+    uris <- workspace_document_uris(workspace, uri)
+    if (global) uris <- union(uris, workspace_reference_document_uris(workspace, uri))
+    groups <- vector("list", length(uris))
+    for (i in seq_along(uris)) {
+        document_uri <- uris[[i]]
         parse_data <- workspace$get_parse_data(document_uri)
         if (is.null(parse_data)) next
-        result <- c(
-            result,
+        uncertain <- character()
+        if (global) {
+            # Generated names are ASCII identifiers. Reserve even potential
+            # names in unparsed code. Escaped spellings cannot be ruled out.
+            missing <- parse_data$partial_incomplete_lines
+            if (isTRUE(parse_data$parse_error) && is.null(missing)) return(NULL)
+            if (length(missing)) {
+                text <- workspace$documents$get(document_uri)$content[missing + 1L]
+                if (any(grepl("\\", text, fixed = TRUE))) return(NULL)
+                words <- regmatches(text, gregexpr("[A-Za-z0-9._]+", text))
+                uncertain <- unlist(words, use.names = FALSE)
+            }
+        }
+        groups[[i]] <- c(
+            uncertain,
             names(parse_data$definitions),
             parse_data$reference_index$name
         )
     }
+    result <- as.character(unlist(groups, use.names = FALSE))
     unique(result[nzchar(result)])
 }
 
 #' Generate a deterministic collision-free binding name
 #' @noRd
-refactor_unique_name <- function(base, workspace, uri) {
-    existing <- refactor_bound_names(workspace, uri)
+refactor_unique_name <- function(base, workspace, uri, global = TRUE) {
+    existing <- refactor_bound_names(workspace, uri, global)
+    if (is.null(existing)) return(NULL)
     if (!base %in% existing) {
         return(base)
     }
@@ -628,7 +655,7 @@ refactor_extract_variable_action <- function(uri, workspace, document,
     if (is.null(node) || refactor_atomic_expression(node) ||
         refactor_unsafe_syntax(node) ||
         any(refactor_token_names(node) %in% c(
-            "LEFT_ASSIGN", "RIGHT_ASSIGN", "EQ_ASSIGN", "FUNCTION"
+            "LEFT_ASSIGN", "RIGHT_ASSIGN", "EQ_ASSIGN", "FUNCTION", "OP-LAMBDA"
         ))) {
         return(NULL)
     }
@@ -646,12 +673,10 @@ refactor_extract_variable_action <- function(uri, workspace, document,
     if (is.null(insertion)) {
         return(NULL)
     }
-    if (identical(xml_name(statement_context$container), "exprlist") &&
-            !refactor_index_ready(workspace)) {
-        return(NULL)
-    }
-
-    name <- refactor_unique_name("extracted_value", workspace, uri)
+    global <- !xml_find_lgl_(statement_context$statement, "boolean(ancestor::expr[FUNCTION or OP-LAMBDA])")
+    if (global && !refactor_index_ready(workspace)) return(NULL)
+    name <- refactor_unique_name("extracted_value", workspace, uri, global)
+    if (is.null(name)) return(NULL)
     selected_text <- refactor_range_text(document, context$range)
     continuation <- paste0(
         insertion$indent,
@@ -860,12 +885,10 @@ refactor_extract_function_action <- function(uri, workspace, document,
     if (is.null(insertion)) {
         return(NULL)
     }
-    if (identical(xml_name(selection$container), "exprlist") &&
-            !refactor_index_ready(workspace)) {
-        return(NULL)
-    }
-    if (identical(xml_name(selection$container), "exprlist") &&
-            refactor_selection_defines_binding(context)) return(NULL)
+    global <- !xml_find_lgl_(statement, "boolean(ancestor::expr[FUNCTION or OP-LAMBDA])")
+    # A top-level brace or control-flow block still writes into the file's
+    # global scope. The selected assignment may be read in another document.
+    if (global && (!refactor_index_ready(workspace) || refactor_selection_defines_binding(context))) return(NULL)
 
     bindings <- refactor_function_bindings(context)
     if (length(bindings$outputs) > 1L) {
@@ -881,8 +904,8 @@ refactor_extract_function_action <- function(uri, workspace, document,
         }
     }
 
-    name <- refactor_unique_name("extracted_function", workspace, uri)
-    if (name %in% bindings$free) {
+    name <- refactor_unique_name("extracted_function", workspace, uri, global)
+    if (is.null(name) || name %in% bindings$free) {
         return(NULL)
     }
     arguments <- paste(bindings$free, collapse = ", ")
@@ -987,7 +1010,7 @@ refactor_inline_variable_action <- function(uri, workspace, document,
         return(NULL)
     }
     parse_data <- current_parse_data(uri, workspace, document)
-    if (is.null(parse_data) || isTRUE(parse_data$parse_error) ||
+    if (is.null(parse_data) || !partial_root_contains(parse_data, item_range$start, item_range$end) ||
             is.null(parse_data_xml(parse_data))) {
         return(NULL)
     }

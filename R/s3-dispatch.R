@@ -60,13 +60,29 @@ s3_source_index <- function(items) {
     )
 }
 
-s3_source_view <- function(document) {
-    data <- document$parse_data$member_data
+s3_source_view <- function(document, peer = FALSE) {
+    parsed <- document$parse_data
+    data <- parsed$member_data
     if (is.null(data)) {
         return(NULL)
     }
-    list(index = data$s3 %s3_or% s3_source_index(data$items), items = data$items,
+    items <- data$items
+    index <- data$s3
+    partial_peer <- peer && (isTRUE(parsed$parse_error) || !is.null(parsed$partial_complete_roots))
+    if (partial_peer) {
+        cached <- parsed$complete_s3_view
+        if (!is.null(cached) && identical(cached$uri, document$uri)) return(cached)
+        ids <- member_complete_item_ids(parsed)
+        if (length(ids) < length(items)) {
+            # Histories, imports and registrations index the filtered items by position.
+            items <- items[ids]
+            index <- s3_source_index(items)
+        }
+    }
+    view <- list(index = index %s3_or% s3_source_index(items), items = items,
         uri = document$uri, content_key = data$content_key)
+    if (partial_peer && is.environment(parsed)) parsed$complete_s3_view <- view
+    view
 }
 
 s3_source_value <- function(name, context) {
@@ -292,7 +308,7 @@ s3_context <- function(uri, workspace, document, at) {
     for (other in setdiff(others, uri)) {
         candidate <- workspace$documents$get(other, NULL)
         if (!is.null(candidate) && identical(candidate$version, candidate$parse_data$version)) {
-            context$sources <- c(context$sources, list(s3_source_view(candidate)))
+            context$sources <- c(context$sources, list(s3_source_view(candidate, peer = TRUE)))
         }
     }
     if (!is.null(workspace$index) && isTRUE(workspace$index$enabled)) {
@@ -629,12 +645,21 @@ resolve_s3_call <- function(uri, workspace, document, point, hover = FALSE, call
     result
 }
 
-s3_index_summary <- function(content, uri, expressions = NULL, parse_data = NULL) {
+s3_index_summary <- function(content, uri, expressions = NULL, parse_data = NULL, incomplete_lines = integer()) {
     if (!is.null(parse_data$member_data)) {
         items <- parse_data$member_data$items
+        if (isTRUE(parse_data$parse_error) || !is.null(parse_data$partial_complete_roots)) {
+            items <- items[member_complete_item_ids(parse_data)]
+        }
     } else if (!is.null(expressions)) {
         refs <- attr(expressions, "srcref")
-        items <- lapply(seq_along(expressions), function(i) {
+        ids <- seq_along(expressions)
+        if (length(incomplete_lines)) {
+            first <- vapply(refs, `[[`, integer(1L), 1L)
+            last <- vapply(refs, `[[`, integer(1L), 3L)
+            ids <- ids[findInterval(first - 2L, incomplete_lines) == findInterval(last - 1L, incomplete_lines)]
+        }
+        items <- lapply(ids, function(i) {
             ref <- refs[[i]]
             list(
                 expr = expressions[[i]], start = c(ref[[1L]] - 1L, ref[[5L]] - 1L),
@@ -677,14 +702,19 @@ s3_index_summary <- function(content, uri, expressions = NULL, parse_data = NULL
 }
 
 s3_recover_call <- function(document, location, recovered) {
-    source <- normalize_parse_content(document$content, document$is_rmarkdown)
     start <- recovered$start
-    last <- min(length(source), location$point$row + 129L)
-    lines <- source[seq.int(start[[1L]] + 1L, last)]
+    last <- min(document$nline, location$point$row + 129L)
+    if (document$is_rmarkdown) {
+        cell <- literate_r_cell_at(document$regions, location$point$row)
+        if (is.null(cell)) return(NULL)
+        if (start[[1L]] < cell$body_start - 1L) start <- c(cell$body_start - 1L, 0L)
+        last <- min(last, cell$body_end)
+    }
+    lines <- document_cursor_lines(document, seq.int(start[[1L]] + 1L, last), location$point$row)
     offset <- location$point$row - start[[1L]] + 1L
     lines[[offset]] <- paste0(
         location$cursor$before, recovered$sentinel,
-        substring(source[[location$point$row + 1L]], location$cursor$end + 1L)
+        substring(lines[[offset]], location$cursor$end + 1L)
     )
     lines[[1L]] <- sub("^[ \t]*;[ \t]*", "", substring(lines[[1L]], start[[2L]] + 1L))
     for (end in seq.int(offset, length(lines))) {
@@ -750,7 +780,7 @@ s3_peer_packages <- function(workspace, document) {
     for (uri in setdiff(others, document$uri)) {
         candidate <- workspace$documents$get(uri, NULL)
         if (!is.null(candidate) && identical(candidate$version, candidate$parse_data$version)) {
-            packages <- add_source(s3_source_view(candidate), packages)
+            packages <- add_source(s3_source_view(candidate, peer = TRUE), packages)
         }
     }
     index <- workspace$index
@@ -823,7 +853,7 @@ s3_may_dispatch <- function(workspace, document, location, packages = NULL) {
     }
     if (lo <= length(data$items)) {
         item <- data$items[[lo]]
-        if (member_before(item$start, at) && !is.null(item$source)) {
+        if (member_before(item$start, at) && !is.null(member_item_source(document, data, lo))) {
             return(TRUE)
         }
     }

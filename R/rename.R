@@ -1,3 +1,32 @@
+rename_document_complete <- function(doc, uri, token, definition_key) {
+    data <- doc$parse_data
+    if (is.null(data) || !identical(doc$content, doc$parsed_content) ||
+            (!is.null(data$version) && !identical(doc$version, data$version))) return(FALSE)
+    missing <- data$partial_incomplete_lines
+    if (!length(missing)) return(!isTRUE(data$parse_error) || !is.null(missing))
+    if (!is.null(definition_key) && startsWith(definition_key, "local:") &&
+            partial_root_contains(data, token$range$start, token$range$end)) return(TRUE)
+    if (identical(doc$uri, uri) && is.null(definition_key)) return(FALSE)
+    # A bare name may be referenced in unindexed code, including through
+    # an escaped backtick spelling. Never return just the indexed edits.
+    lines <- doc$content[missing + 1L]
+    name <- token$token
+    if (any(grepl("\\", lines, fixed = TRUE)) || grepl("\n", name, fixed = TRUE)) return(FALSE)
+    matches <- lines[grepl(name, lines, fixed = TRUE)]
+    if (!length(matches)) return(TRUE)
+    if (!grepl("^[A-Za-z.][A-Za-z0-9._]*$", name)) return(FALSE)
+    # An ASCII identifier cannot be a separate token inside a longer name
+    # such as the 'a' in stats::. Keep ambiguous numeric/placeholder runs:
+    # e.g. R can tokenize 1Lname as an integer followed by a symbol.
+    words <- unlist(regmatches(matches, gregexpr("[A-Za-z0-9._]+", matches)), use.names = FALSE)
+    ambiguous <- grepl("^([0-9_]|\\.[0-9])", words)
+    !any(words == name) && !any(grepl(name, words[ambiguous], fixed = TRUE))
+}
+
+rename_incomplete_error <- function(id) {
+    ResponseErrorMessage$new(id, "RequestFailed", "Incomplete R code may contain other uses of this symbol")
+}
+
 prepare_rename_reply <- function(id, uri, workspace, document, point) {
     if (!check_r_region(document, point)) {
         return(ResponseErrorMessage$new(
@@ -7,7 +36,8 @@ prepare_rename_reply <- function(id, uri, workspace, document, point) {
         ))
     }
 
-    token <- reference_token_at(document, workspace$get_parse_data(uri), point)
+    parsed <- workspace$get_parse_data(uri)
+    token <- reference_token_at(document, parsed, point)
     if (!nzchar(token$token) || !check_scope(uri, document, point)) {
         return(ResponseErrorMessage$new(id, "RequestCancelled", "Cannot rename the symbol"))
     }
@@ -19,6 +49,11 @@ prepare_rename_reply <- function(id, uri, workspace, document, point) {
     ))
 
     if (length(defn$result)) {
+        key <- reference_key_at(parsed$reference_index, token$range$start, token$token)
+        for (doc_uri in workspace_reference_document_uris(workspace, defn$result$uri, uri, key)) {
+            doc <- workspace$documents$get(doc_uri, NULL)
+            if (!rename_document_complete(doc, uri, token, key)) return(rename_incomplete_error(id))
+        }
         Response$new(
             id,
             result = range(
@@ -163,7 +198,8 @@ rename_reply <- function(id, uri, workspace, document, point, newName) {
         return(Response$new(id))
     }
 
-    refs <- references_reply(NULL, uri, workspace, document, point)
+    refs <- references_reply(id, uri, workspace, document, point, for_rename = TRUE)
+    if (!is.null(refs$error)) return(refs)
     uris <- vapply(refs$result, function(ref) ref$uri, character(1L))
     groups <- split(seq_along(uris), factor(uris, levels = unique(uris)))
     replacement <- quote_completion_name(newName)

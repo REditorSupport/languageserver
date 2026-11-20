@@ -22,6 +22,29 @@ member_incomplete_packages <- function(content) {
     packages
 }
 
+# A partially parsed R cell still has the original receiver subtree for a
+# dangling $/@. Use its physical extent to limit the existing package probe,
+# even when the receiver sits inside a long cell or an unfinished call.
+member_cell_packages <- function(content, data, terminals) {
+    n <- length(terminals)
+    if (n < 2L) return(character())
+    # The lexer can record a closing delimiter or a comma after the accessor
+    # that triggered the error (e.g. fn(pkg::object$, x)).
+    last <- n
+    if (!data$token[[terminals[[last]]]] %in% c("'$'", "'@'")) last <- last - 1L
+    op <- terminals[[last]]
+    if (last < 2L || data$parent[[op]] != 0L || !data$token[[op]] %in% c("'$'", "'@'")) return(character())
+    prev <- terminals[[last - 1L]]
+    receiver <- which(data$token == "expr" & data$parent == 0L &
+            data$line2 == data$line2[[prev]] & data$col2 == data$col2[[prev]])
+    if (length(receiver) != 1L) return(character())
+    first <- data$line1[[receiver]]
+    end <- data$line2[[op]]
+    if (end - first > 128L || sum(nchar(content[seq.int(first, end)], type = "bytes")) > 65536L) return(character())
+    text <- get_range_text(content, first, data$col1[[receiver]], end, data$col2[[op]])
+    member_incomplete_packages(text)
+}
+
 # Ordered bindings can be built for a document or a workspace source sequence.
 member_index_bindings <- function(items) {
     bindings <- new.env(hash = TRUE, parent = emptyenv())
@@ -98,42 +121,81 @@ member_index_bindings <- function(items) {
     as.list(bindings)
 }
 
-member_document_index <- function(content, parsed = NULL, syntax = NULL) {
-    complete <- !is.null(parsed)
+# Start bounded member recovery at the first uncertain top-level statement.
+# Earlier expressions came from the original text. Retain the recovery
+# window's line/byte limits and never cut a semicolon-separated source line.
+member_recovery_start <- function(content, data, incomplete_lines) {
+    if (!length(incomplete_lines) || !length(data$id)) return(1L)
+    roots <- which(data$parent == 0L & data$token %in% c("expr", "expr_or_assign_or_help"))
+    begin <- data$line1[roots]
+    end <- data$line2[roots]
+    stop_line <- incomplete_lines[[1L]] + 1L
+    if (stop_line <= 1L) return(1L)
+    prefix <- which(begin < stop_line)
+    bytes <- c(0, cumsum(as.double(nchar(content, type = "bytes"))))
+    unsupported <- which(end[prefix] >= stop_line | end[prefix] - begin[prefix] > 128L |
+            bytes[end[prefix] + 1L] - bytes[begin[prefix]] > 65536)
+    if (length(unsupported)) stop_line <- begin[[prefix[[unsupported[[1L]]]]]]
+    # An earlier expression can end on the first line of the next expression.
+    i <- findInterval(stop_line - 1L, begin)
+    while (i > 0L && end[[i]] >= stop_line) {
+        stop_line <- begin[[i]]
+        i <- findInterval(stop_line - 1L, begin)
+    }
+    stop_line
+}
+
+member_document_index <- function(content, parsed = NULL, syntax = NULL, incomplete_lines = NULL,
+    defer_small_scopes = FALSE, value_source = NULL) {
+    complete <- !is.null(parsed) && is.null(incomplete_lines)
+    recovery_start <- 1L
+    if (!complete && !is.null(parsed)) recovery_start <- member_recovery_start(content, syntax, incomplete_lines)
     recovered_packages <- character()
     items <- list()
     append <- function(expr, start, end) {
         items[[length(items) + 1L]] <<- list(expr = expr, start = start, end = end)
     }
-    if (!is.null(parsed)) {
+    if (complete || recovery_start > 1L) {
         refs <- attr(parsed, "srcref")
         for (i in seq_along(parsed)) {
             ref <- refs[[i]]
-            append(parsed[[i]], c(ref[[1L]] - 1L, ref[[5L]] - 1L), c(ref[[3L]] - 1L, ref[[6L]]))
+            # first_parsed/last_parsed are physical, including across #line.
+            if (!complete && ref[[7L]] >= recovery_start) break
+            append(parsed[[i]], c(ref[[7L]] - 1L, ref[[5L]] - 1L), c(ref[[8L]] - 1L, ref[[6L]]))
         }
-    } else {
+    }
+    prefix_bytes <- 0
+    if (!complete) {
+        if (length(items)) {
+            # Incomplete buffers use cursor recovery, not function-part indexes.
+            # The reused source references need their lines but not a duplicate
+            # full parse table in every worker snapshot.
+            prefix_bytes <- member_compact_source(parsed, NULL)
+        }
         # Recover complete statements after unrelated syntax errors. Bounds
         # apply to incomplete runs; valid large documents use the parser above.
-        start <- 1L
-        end <- 1L
+        start <- recovery_start
+        end <- recovery_start
         batch_end <- 0L
         append_parsed <- function(parsed, start) {
+            if (!is.null(value_source)) {
+                text <- attr(parsed, "srcfile")$lines
+                rows <- seq.int(start, length.out = length(text))
+                parsed <- restore_tabbed_parse(parsed, utils::getParseData(parsed), text,
+                    value_source[rows])$expr
+            }
             refs <- attr(parsed, "srcref")
             for (i in seq_along(parsed)) {
                 ref <- refs[[i]]
-                append(parsed[[i]], c(start + ref[[1L]] - 2L, ref[[5L]] - 1L),
-                    c(start + ref[[3L]] - 2L, ref[[6L]]))
+                append(parsed[[i]], c(start + ref[[7L]] - 2L, ref[[5L]] - 1L),
+                    c(start + ref[[8L]] - 2L, ref[[6L]]))
             }
         }
         while (end <= length(content)) {
             if (end == start && end > batch_end) {
                 batch_end <- min(length(content), start + 128L)
                 text <- content[seq.int(start, batch_end)]
-                # A #line directive changes later source references within a
-                # parse call. Keep the original physical-buffer recovery for
-                # these sections instead of shifting subsequent bindings.
-                if (sum(nchar(text, type = "bytes")) <= 65536L &&
-                        !any(grepl("^[ \t]*#line[ \t]", text))) {
+                if (sum(nchar(text, type = "bytes")) <= 65536L) {
                     parsed <- tryCatch(parse(text = text, keep.source = TRUE), error = function(e) NULL)
                     if (!is.null(parsed)) {
                         append_parsed(parsed, start)
@@ -190,18 +252,35 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL) {
     class_scope <- FALSE
     symbol_scope <- FALSE
     parts <- if (complete) member_function_parts(if (is.null(syntax)) utils::getParseData(parsed) else syntax) else NULL
+    # Small scopes in recovered literate documents can be built when visited.
+    # Bound foreground work by both source bytes and AST size, including dense
+    # one-line functions. The complete function-part table is already shared.
+    defer_small_scopes <- defer_small_scopes && complete && !is.null(syntax)
+    if (defer_small_scopes) {
+        line_bytes <- c(0, cumsum(as.double(nchar(content, type = "bytes"))))
+        line_tokens <- c(0, cumsum(as.double(tabulate(syntax$line1[syntax$terminal], length(content)))))
+    }
     prefix <- ""
     previous <- c(0L, 0L)
+    fingerprint_source <- if (is.null(value_source)) content else value_source
     for (i in seq_along(items)) {
         item <- items[[i]]
-        prefix <- member_source_prefix(content, previous, item$end, prefix)
+        prefix <- member_source_prefix(fingerprint_source, previous, item$end, prefix)
         previous <- item$end
         item$cache_prefix <- prefix
         items[[i]] <- item
         expr <- item$expr
         syntax_names <- member_syntax_names(expr)
         if (!is.null(parts) && any(syntax_names %in% c("function", "{"))) {
-            item$source <- member_source_index(expr, parts)
+            first <- item$start[[1L]] + 1L
+            after <- item$end[[1L]] + 2L
+            if (defer_small_scopes && first >= 1L && after <= length(line_bytes) &&
+                    line_bytes[[after]] - line_bytes[[first]] <= 2048 &&
+                    line_tokens[[after]] - line_tokens[[first]] <= 128) {
+                item$deferred_source <- TRUE
+            } else {
+                item$source <- member_source_index(expr, parts)
+            }
             items[[i]] <- item
         }
         class_scope <- class_scope || "R6Class" %in% syntax_names
@@ -236,10 +315,10 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL) {
             effects[[length(effects) + 1L]] <- item
         }
     }
-    source_bytes <- if (complete) member_compact_source(parsed, parts) else 0
+    source_bytes <- if (complete) member_compact_source(parsed, parts) else prefix_bytes
     list(items = items, bindings = member_index_bindings(items), imports = imports, sources = sources, effects = effects, s4 = s4,
-        content_key = digest::digest(content, algo = "xxhash64"),
-        source_bytes = source_bytes,
+        content_key = digest::digest(fingerprint_source, algo = "xxhash64"),
+        source_bytes = source_bytes, deferred_parts = if (defer_small_scopes) parts,
         packages = packages, class_scope = class_scope, symbol_scope = symbol_scope,
         s3 = s3_source_index(items))
 }
@@ -384,7 +463,7 @@ member_cursor <- function(document, point) {
 }
 
 member_recover <- function(document, point, cursor, data, origin_uri = NULL) {
-    content <- if (document$is_rmarkdown) purl(document$content, parseable_only = FALSE) else document$content
+    content <- if (document$is_rmarkdown) literate_r_content(document$content, document$regions) else document$content
     content[[point$row + 1L]] <- cursor$before
     items <- data$items
     # Items are ordered by end position. Avoid scanning a long document on each
@@ -403,6 +482,11 @@ member_recover <- function(document, point, cursor, data, origin_uri = NULL) {
     }
     start <- if (length(preceding)) items[[utils::tail(preceding, 1L)]]$end[[1L]] else 0L
     start <- max(start, point$row - 128L)
+    if (document$is_rmarkdown) {
+        cell <- literate_r_cell_at(document$regions, point$row)
+        if (is.null(cell)) return(NULL)
+        start <- max(start, cell$body_start - 1L)
+    }
     sentinel <- ".__languageserver_member_cursor__"
     lines <- content[seq.int(start + 1L, point$row + 1L)]
     if (length(preceding)) {
@@ -920,8 +1004,7 @@ member_recover_scope <- function(document, point, cursor, data, budget = NULL) {
         sentinel <- ".__languageserver_member_cursor__"
         found <- FALSE
         found_path <- NULL
-        source_index <- items[[lo]]$source
-        source <- NULL
+        source_index <- member_item_source(document, data, lo)
         syntax <- NULL
         contains <- function(ref) {
             !is.null(ref) && member_before(c(ref[[1L]] - 1L, ref[[5L]] - 1L), at) &&
@@ -929,11 +1012,10 @@ member_recover_scope <- function(document, point, cursor, data, budget = NULL) {
         }
         recover_node <- function(node, ref, ast_path) {
             if (!contains(ref)) return(node)
-            if (is.null(source)) source <<- normalize_parse_content(document$content, document$is_rmarkdown)
-            lines <- source[seq.int(ref[[1L]], ref[[3L]])]
+            lines <- document_cursor_lines(document, seq.int(ref[[1L]], ref[[3L]]), point$row)
             offset <- point$row - ref[[1L]] + 2L
-            lines[[offset]] <- paste0(gsub("\t", " ", cursor$before, fixed = TRUE), sentinel,
-                substring(source[[point$row + 1L]], cursor$end + 1L))
+            lines[[offset]] <- paste0(cursor$before, sentinel,
+                substring(lines[[offset]], cursor$end + 1L))
             # Trim the source range after replacing the token: its last column
             # moves when the cursor and range end share a line.
             end <- ref[[6L]]

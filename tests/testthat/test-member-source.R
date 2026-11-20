@@ -184,3 +184,49 @@ test_that("Scope slicing preserves direct writes through local and inherited ali
         expect_identical(names(resolved$value$function_expr[[2L]]), "from_alias")
     }
 })
+
+test_that("small recovered literate scopes are indexed on first member or S3 lookup", {
+    uri <- "file:///deferred-scope.qmd"
+    content <- c("```{r}", "small <- function() {", "  box <- list(alpha = 1L)", "  box$alpha", "}",
+        "large <- function(x) {", rep("  x <- x + 1L", 50L), "}", "```", "```{r}", "pkg::", "```")
+    doc <- Document$new(uri, version = 1L, content = content)
+    workspace <- provider_fixture("")$workspace
+    workspace$documents$set(uri, doc)
+    workspace$s3_metadata <- list(may_dispatch = function(name) FALSE)
+
+    accept <- function() {
+        parsed <- parse_document(uri, doc$content, is_rmarkdown = TRUE)
+        parsed$version <- doc$version
+        doc$update_parse_data(unserialize(serialize(parsed, NULL)))
+    }
+    accept()
+    items <- doc$parse_data$member_data$items
+    expect_true(items[[1L]]$deferred_source)
+    expect_null(items[[1L]]$source)
+    expect_false(is.null(items[[2L]]$source))
+    expect_null(doc$member_source_cache)
+
+    point <- list(row = 3L, col = 6L)
+    expect_true(s3_may_dispatch(workspace, doc, list(point = point, call = list(token = "unknown"))))
+    expect_equal(doc$member_source_cache$size(), 1L)
+    cached <- doc$member_source_cache$get("1")
+    hover <- function() member_hover_reply(1L, uri, workspace, doc,
+        member_hover_location(doc, list(row = 3L, col = 8L)))$result
+    expect_match(hover()$contents, "1L", fixed = TRUE)
+    expect_identical(member_item_source(doc, doc$parse_data$member_data, 1L), cached)
+
+    content[[3L]] <- "  box <- list(beta = 2L)"
+    content[[4L]] <- "  box$beta"
+    doc$set_content(2L, content)
+    expect_null(doc$member_source_cache)
+    accept()
+    cursor <- member_cursor(doc, point)
+    expect_identical(names(member_resolve_cursor(uri, workspace, doc, point, cursor)$value$fields), "beta")
+    expect_match(hover()$contents, "2L", fixed = TRUE)
+
+    content[content == "pkg::"] <- "pkg::run"
+    doc$set_content(3L, content)
+    accept()
+    expect_false(is.null(doc$parse_data$member_data$items[[1L]]$source))
+    expect_null(doc$member_source_cache)
+})

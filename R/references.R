@@ -261,6 +261,19 @@ reference_key_at <- function(index, point, name) {
     index$definition_key[[candidates[[1L]]]]
 }
 
+# Local edits can use a whole expression whose original enclosing scope was
+# parsed, even when a different expression in the file is incomplete.
+partial_root_contains <- function(parsed, start, end = start) {
+    if (!isTRUE(parsed$parse_error) && !length(parsed$partial_incomplete_lines)) return(TRUE)
+    roots <- parsed$partial_complete_roots
+    syntax <- parsed$syntax_data
+    starts_before <- syntax$line1[roots] < start$row + 1L |
+        (syntax$line1[roots] == start$row + 1L & syntax$col1[roots] <= start$col + 1L)
+    ends_after <- syntax$line2[roots] > end$row + 1L |
+        (syntax$line2[roots] == end$row + 1L & syntax$col2[roots] >= end$col)
+    any(starts_before & ends_after)
+}
+
 #' Create reference locations from an indexed selection
 #' @noRd
 indexed_reference_locations <- function(index, uri, selected) {
@@ -277,7 +290,7 @@ indexed_reference_locations <- function(index, uri, selected) {
 
 #' @noRd
 references_reply <- function(id, uri, workspace, document, point,
-    include_declaration = TRUE) {
+    include_declaration = TRUE, for_rename = FALSE) {
 
     if (!check_r_region(document, point)) {
         return(Response$new(id, result = list()))
@@ -305,11 +318,16 @@ references_reply <- function(id, uri, workspace, document, point,
         )
         definition_key <- reference_key_at(
             parse_data$reference_index, token_point, token$token)
+        doc_uris <- workspace_reference_document_uris(workspace, defn$result$uri, uri, definition_key)
         if (!is.null(definition_key)) {
-            doc_uris <- workspace_reference_document_uris(
-                workspace, defn$result$uri, uri)
             for (doc_uri in doc_uris) {
-                indexed <- workspace$get_parse_data(doc_uri)$reference_index
+                if (for_rename) {
+                    doc <- workspace$documents$get(doc_uri, NULL)
+                    if (!rename_document_complete(doc, uri, token, definition_key)) return(rename_incomplete_error(id))
+                    indexed <- doc$parse_data$reference_index
+                } else {
+                    indexed <- workspace$get_parse_data(doc_uri)$reference_index
+                }
                 if (is.null(indexed)) next
                 selected <- reference_indices(indexed, token$token, definition_key)
                 if (!isTRUE(include_declaration)) {
@@ -325,8 +343,12 @@ references_reply <- function(id, uri, workspace, document, point,
             return(Response$new(id, result = result))
         }
 
-        doc_uris <- workspace_reference_document_uris(
-            workspace, defn$result$uri, uri)
+        if (for_rename) {
+            for (doc_uri in doc_uris) {
+                doc <- workspace$documents$get(doc_uri, NULL)
+                if (!rename_document_complete(doc, uri, token, NULL)) return(rename_incomplete_error(id))
+            }
+        }
         doc_results <- lapply(doc_uris, function(doc_uri) {
             doc <- workspace$documents$get(doc_uri)
             xdoc <- parse_data_xml(workspace$get_parse_data(doc_uri))

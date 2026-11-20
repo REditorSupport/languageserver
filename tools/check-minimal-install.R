@@ -29,6 +29,9 @@ check_minimal_install <- function(source_path = ".") {
     library <- tempfile("languageserver-minimal-")
     dir.create(library)
     on.exit(unlink(library, recursive = TRUE), add = TRUE)
+    workspace <- tempfile("minimal-workspace-")
+    dir.create(workspace)
+    on.exit(unlink(workspace, recursive = TRUE), add = TRUE)
     for (package in unique(dependencies)) {
         if (package %in% c("R", "languageserver")) next
         source <- find.package(package)
@@ -81,28 +84,42 @@ check_minimal_install <- function(source_path = ".") {
     on.exit({
         if (client$process$is_alive()) client$process$kill_tree()
     }, add = TRUE)
-    wait <- function(done) {
-        deadline <- Sys.time() + 20
-        while (!done() && Sys.time() < deadline) {
-            data <- client$fetch(blocking = TRUE, timeout = 1)
-            if (!is.null(data)) client$handle_raw(data)
-        }
-        stopifnot(done())
+    stderr <- character()
+    wait <- function(done, operation, timeout = 20) {
+        deadline <- proc.time()[["elapsed"]] + timeout
+        tryCatch({
+            while (!done()) {
+                stderr <<- tail(c(stderr, client$process$read_error_lines()), 20L)
+                remaining <- deadline - proc.time()[["elapsed"]]
+                if (remaining <= 0) stop(sprintf("timed out after %s seconds", timeout))
+                data <- client$fetch(blocking = TRUE, timeout = min(1, remaining))
+                if (!is.null(data)) client$handle_raw(data)
+            }
+        }, error = function(e) {
+            details <- tail(c(stderr, client$process$read_error_lines()), 20L)
+            stop(paste(c(sprintf("%s: %s", operation, conditionMessage(e)), details), collapse = "\n"),
+                call. = FALSE)
+        })
     }
-    request <- function(method, params) {
+    request <- function(method, params, timeout = 20) {
         response <- NULL
         client$deliver(client$request(method, params), callback = function(self, result, error = NULL) {
             response <<- list(result = result, error = error)
         })
-        wait(function() !is.null(response))
+        wait(function() !is.null(response), method, timeout)
         response
     }
-    client$start(working_dir = tempdir())
-    wait(function() !is.null(client$ServerCapabilities))
+    # Cold startup may build the package metadata bundles before responding.
+    # Capture initialize errors through the same callback as other requests.
+    params <- list(rootUri = namespace$path_to_uri(workspace),
+        capabilities = structure(list(), names = character()))
+    init <- request("initialize", params, timeout = 60)
+    if (!is.null(init$error)) stop("initialize failed: ", init$error$message, call. = FALSE)
+    stopifnot(!is.null(init$result$capabilities))
     client$deliver(namespace$Notification$new("initialized"))
     client$deliver(namespace$Notification$new("workspace/didChangeConfiguration",
             list(settings = list(diagnostics = FALSE))))
-    uri <- namespace$path_to_uri(file.path(tempdir(), "minimal-buffer.R"))
+    uri <- namespace$path_to_uri(file.path(workspace, "minimal-buffer.R"))
     content <- c(comments, "hello <- function(x, y = 2) x + y",
         "plain <- function(value = 1) value", "hello(x = 1)", "plain()",
         "fs::path_abs('.')", "hel", "pla")
@@ -162,7 +179,7 @@ check_minimal_install <- function(source_path = ".") {
     }
     client$deliver(namespace$Notification$new("workspace/didChangeConfiguration",
             list(settings = list(diagnostics = TRUE))))
-    wait(function() length(state$messages) > 0)
+    wait(function() length(state$messages) > 0, "missing lintr notification")
     stopifnot(grepl("lintr", state$messages[[1L]]))
     stopifnot(is.null(request("shutdown", NULL)$error))
     client$deliver(namespace$Notification$new("exit"))

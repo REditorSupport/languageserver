@@ -187,6 +187,32 @@ test_that("source edges survive incomplete edits and resolve created targets", {
     expect_true(future_uri %in% index$source_closure(main_uri))
 })
 
+test_that("workspace symbols reflect current source in incomplete open and closed files", {
+    local_index_settings(index_persistent_cache = FALSE)
+    root <- withr::local_tempdir()
+    path <- file.path(root, "partial.R")
+    uri <- path_to_uri(path)
+    writeLines("old_name <- function(x) x", path)
+    index <- WorkspaceIndex$new(root)
+    index$update_path(path)
+
+    content <- c("", "new_name <- function(x) x", "stats::", "after <- 1")
+    writeLines(content, path)
+    closed <- index$update_path(path)
+    expect_true(closed$parse_error)
+    expect_setequal(names(closed$definitions), c("new_name", "after"))
+    expect_equal(closed$definitions$new_name$range$start$line, 1L)
+    expect_length(index$definitions_for_query("old_name"), 0L)
+
+    content <- c("open_name <- function(y) y", "+")
+    open <- index$update_content(uri, content, cacheable = FALSE,
+        parse_data = parse_document(uri, content))
+    expect_setequal(names(open$definitions), "open_name")
+    expect_setequal(names(open$functions), "open_name")
+    expect_length(index$definitions_for_query("new_name"), 0L)
+    expect_length(index$definitions_for_query("open_name"), 1L)
+})
+
 test_that("discovery enforces exclusions, file sizes, and file limits", {
     local_index_settings(
         index_persistent_cache = FALSE,
@@ -387,4 +413,31 @@ test_that("references and code lenses include source dependents", {
             end = list(line = 3L, character = 4L)
         )
     ))
+})
+
+test_that("an incomplete closed file preserves literal tabs and physical declaration positions", {
+    root <- withr::local_tempdir()
+    path <- file.path(root, "script.R")
+    text <- c('source("a\tb.R")', '\tf <- function(value = "x\ty") value')
+    valid <- index_shallow_summary(path, text, root)
+    partial <- index_shallow_summary(path, c(text, "pkg::"), root)
+    expect_true(partial$parse_error)
+    expect_identical(partial$source_candidates, valid$source_candidates)
+    expect_identical(formals(partial$functions$f)$value, "x\ty")
+    expect_equal(valid$definitions$f$range$start, position(1L, 1L))
+    expect_equal(partial$definitions$f$range$start, position(1L, 1L))
+})
+
+test_that("closed-file definitions use physical positions after line directives and Unicode tabs", {
+    root <- withr::local_tempdir()
+    path <- file.path(root, "script.R")
+    prefix <- paste0('"', intToUtf8(0x1f600), '";\t')
+    text <- c('#line 90 "generated.R"', paste0(prefix, 'f <- function(s = "a\tb") s'))
+    for (edit in c("", "pkg::", "pkg::median")) {
+        summary <- index_shallow_summary(path, c(text, edit), root)
+        expect_identical(formals(summary$functions$f)$s, "a\tb")
+        expect_equal(summary$definitions$f$range$start, position(1L, 6L))
+        expect_equal(summary$definitions$f$range$end,
+            position(1L, nchar(text[[2L]]) + 1L))
+    }
 })

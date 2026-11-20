@@ -1,5 +1,10 @@
 # languageserver (development)
 
+- Keep highlighting, navigation, completions, outlines, folding, and hints
+  available in recoverable R code while typing incomplete expressions such as
+  `pkg::`. R Markdown and Quarto recover each R cell independently. Rename and
+  refactorings use recovered scopes when their edits can be determined (#869).
+
 - Show nested named functions under their enclosing functions in the document
   outline. For repeated local assignments to the same name, the outline uses
   the last assignment in source order and shows it if it defines a function

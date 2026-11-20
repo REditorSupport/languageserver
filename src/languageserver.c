@@ -69,6 +69,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"source_calls_c", (DL_FUNC) &source_calls_c, 1},
     {"syntax_xml_c", (DL_FUNC) &syntax_xml_c, 1},
     {"syntax_index_c", (DL_FUNC) &syntax_index_c, 2},
+    {"member_complete_items_c", (DL_FUNC) &member_complete_items_c, 3},
     {"navigation_index_c", (DL_FUNC) &navigation_index_c, 1},
     {"syntax_enclosing_c", (DL_FUNC) &syntax_enclosing_c, 2},
     {"navigation_select_c", (DL_FUNC) &navigation_select_c, 6},

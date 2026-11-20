@@ -118,9 +118,11 @@ test_that("same-version stale parses do not classify current local requests", {
         server <- ClassificationServer$new(root)
         document <- classification_open(server, path)
         server$parse_task_manager$finish()
+        accepted_version <- document$version
         text_document_did_save(server, list(textDocument = list(uri = document$uri),
                 text = "local_fn <- function(value) value"))
-        expect_identical(document$version, document$parse_data$version)
+        expect_identical(document$version, accepted_version)
+        expect_null(document$parse_data)
         expect_false(identical(document$content, document$parsed_content))
         handler(server, 1L, classification_params(document))
         server$process_index_requests()
@@ -131,6 +133,12 @@ test_that("same-version stale parses do not classify current local requests", {
         expect_false(server$get_workspace(document$uri)$index$full_started)
         expect_length(server$replies, 1L)
         expect_null(server$replies[[1L]]$error)
+        result <- server$replies[[1L]]$result
+        if (identical(handler, text_document_rename)) {
+            expect_length(result$changes[[document$uri]], 2L)
+        } else {
+            expect_identical(result[[1L]]$range$start$character, 28L)
+        }
     }
 })
 

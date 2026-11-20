@@ -1,3 +1,32 @@
+member_item_spans <- function(items) {
+    positions <- vapply(items, function(item) c(item$start, item$end), numeric(4L))
+    # A legacy double -0 denotes the same physical offset as integer 0.
+    positions <- positions + 0
+    sprintf("%.17g %.17g %.17g %.17g", positions[1L, ], positions[2L, ], positions[3L, ], positions[4L, ])
+}
+
+# Cursor recovery may collect local statements from an unfinished scope.
+# Other files can only replay items that match a verified top-level source
+# range. Preserve their original IDs for cross-file Go to Definition.
+member_complete_item_ids <- function(parsed) {
+    items <- parsed$member_data$items
+    roots <- parsed$partial_complete_roots
+    if (is.null(roots)) {
+        if (isTRUE(parsed$parse_error)) return(integer())
+        return(seq_along(items))
+    }
+    if (!is.null(parsed$complete_member_items)) return(parsed$complete_member_items)
+    syntax <- parsed$syntax_data
+    ids <- .Call("member_complete_items_c", items, syntax, roots, PACKAGE = "languageserver")
+    if (is.null(ids)) {
+        spans <- paste(syntax$line1[roots] - 1L, syntax$col1[roots] - 1L,
+            syntax$line2[roots] - 1L, syntax$col2[roots])
+        ids <- which(member_item_spans(items) %in% spans)
+    }
+    if (is.environment(parsed)) parsed$complete_member_items <- ids
+    ids
+}
+
 # Splice top-level literal source() calls into binding history in execution
 # order. A sourced expression keeps its own declaration URI and range. Only
 # its ordering coordinates change, so a later local write can use that value.
@@ -19,9 +48,24 @@ member_workspace_view <- function(workspace, document) {
         # Bound the unfold when a script repeatedly sources other scripts.
         state$statements <- state$statements + length(data$items)
         if (state$statements > 20000L || state$expansions > 64L) return(FALSE)
-        source_items <- vapply(data$sources, `[[`, integer(1L), "item")
+        item_ids <- seq_along(data$items)
+        sources <- data$sources
+        source_items <- vapply(sources, `[[`, integer(1L), "item")
+        source_bindings <- data$bindings$source
+        if (!is.null(anchor) && !is.null(doc$parse_data$partial_complete_roots)) {
+            item_ids <- member_complete_item_ids(doc$parse_data)
+            keep <- source_items %in% item_ids
+            sources <- sources[keep]
+            source_items <- source_items[keep]
+            if (length(source_bindings) && length(item_ids) != length(data$items)) {
+                # Only complete statements can shadow a later source(). These
+                # records already carry their owner's exact physical range.
+                verified <- member_item_spans(data$items[item_ids])
+                source_bindings <- source_bindings[member_item_spans(source_bindings) %in% verified]
+            }
+        }
         next_source <- 1L
-        for (i in seq_along(data$items)) {
+        for (i in item_ids) {
             item <- data$items[[i]]
             end <- item$end
             if (!is.null(anchor)) {
@@ -36,9 +80,9 @@ member_workspace_view <- function(workspace, document) {
                 imports$push(item)
             }
             if (next_source > length(source_items) || i != source_items[[next_source]]) next
-            source <- data$sources[[next_source]]
+            source <- sources[[next_source]]
             next_source <- next_source + 1L
-            if (member_history_position(data$bindings$source, end)) state$shadowed <- TRUE
+            if (member_history_position(source_bindings, end)) state$shadowed <- TRUE
             if (source$bare && state$shadowed) next
             paths <- index_source_candidates(source$spec, path_from_uri(doc$uri), workspace$index$root)
             if (!length(paths)) next
@@ -50,12 +94,12 @@ member_workspace_view <- function(workspace, document) {
             uri <- targets[[which(available)[[1L]]]]
             if (uri %in% trail) return(FALSE)
             target <- workspace$documents$get(uri, NULL)
-            if (is.null(target) || isTRUE(target$parse_data$parse_error) ||
-                    !identical(target$version, target$parse_data$version)) next
+            if (is.null(target) || !identical(target$version, target$parse_data$version) ||
+                    (isTRUE(target$parse_data$parse_error) && is.null(target$parse_data$partial_complete_roots))) next
             state$expansions <- state$expansions + 1L
             if (!expand(target, c(trail, uri), if (is.null(anchor)) end else anchor)) return(FALSE)
         }
-        if (length(data$bindings$source)) state$shadowed <- TRUE
+        if (length(source_bindings)) state$shadowed <- TRUE
         TRUE
     }
     view <- list(key = key)

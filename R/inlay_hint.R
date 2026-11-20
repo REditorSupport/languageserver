@@ -183,30 +183,22 @@ inlay_hint_reply <- function(id, uri, workspace, document, request_range) {
     parse_data <- current_parse_data(uri, workspace, document)
     if (is.null(parse_data)) return(NULL)
     incomplete <- isTRUE(parse_data$parse_error) || isTRUE(parse_data$inlay_hint_incomplete)
-    if (incomplete && !is.null(document$inlay_hint_data)) {
+    if (!is.null(parse_data$range_data)) {
+        current <- indexed_inlay_hint_reply(
+            id, uri, workspace, parse_data$range_data, request_range,
+            document$inlay_hint_formals, use_previous_formals = incomplete
+        )
+        if (!incomplete || is.null(document$inlay_hint_data) ||
+                length(current$result) >= 200L) return(current)
+        # Rebased calls fill only gaps in the current partial parse. A recovered
+        # call can legitimately have fewer hints after its declaration changes.
         previous <- indexed_inlay_hint_reply(
             id, uri, workspace, document$inlay_hint_data, request_range,
             document$inlay_hint_formals, use_previous_formals = TRUE,
-            regions = document$regions,
-            fallback_lines = if (isTRUE(parse_data$parse_error)) NULL else
-                parse_data$inlay_hint_incomplete_lines
+            regions = document$regions, fallback_lines = parse_data$inlay_hint_incomplete_lines,
+            recovered = parse_data$range_data
         )
-        if (isTRUE(parse_data$parse_error)) return(previous)
-        # Literate documents still parse their other R cells successfully.
-        current <- indexed_inlay_hint_reply(
-            id, uri, workspace, parse_data$range_data, request_range
-        )
-        hints <- c(current$result, previous$result)
-        positions <- vapply(hints, function(hint) {
-            paste(hint$position$line, hint$position$character, sep = ":")
-        }, character(1L))
-        return(Response$new(id, result = utils::head(hints[!duplicated(positions)], 200L)))
-    }
-    if (!is.null(parse_data$range_data)) {
-        return(indexed_inlay_hint_reply(
-            id, uri, workspace, parse_data$range_data, request_range,
-            document$inlay_hint_formals
-        ))
+        return(Response$new(id, result = utils::head(c(current$result, previous$result), 200L)))
     }
 
     xdoc <- parse_data_xml(parse_data)
@@ -330,7 +322,7 @@ inlay_hint_reply <- function(id, uri, workspace, document, request_range) {
 #' @noRd
 indexed_inlay_hint_reply <- function(id, uri, workspace, indexed, request_range,
     previous_formals = NULL, use_previous_formals = FALSE, regions = NULL,
-    fallback_lines = NULL) {
+    fallback_lines = NULL, recovered = NULL) {
     arguments <- indexed$arguments
     visible <- indexed$argument_order[range_line_indices(
         indexed$argument_lines,
@@ -344,6 +336,14 @@ indexed_inlay_hint_reply <- function(id, uri, workspace, indexed, request_range,
     }
     if (!is.null(fallback_lines)) {
         visible <- visible[arguments$line[visible] %in% fallback_lines]
+    }
+    if (length(visible) && !is.null(recovered)) {
+        rows <- range_line_indices(recovered$argument_lines,
+            request_range$start$line, request_range$end$line)
+        covered <- unique(recovered$arguments$call[recovered$argument_order[rows]])
+        call_keys <- function(calls, i) paste(calls$line[i], calls$col[i], sep = ":")
+        covered_keys <- call_keys(recovered$calls, covered)
+        visible <- visible[!call_keys(indexed$calls, arguments$call[visible]) %in% covered_keys]
     }
     if (!length(visible)) return(Response$new(id, result = list()))
     calls <- indexed$calls
@@ -375,18 +375,17 @@ indexed_inlay_hint_reply <- function(id, uri, workspace, indexed, request_range,
         if (exists(cache_key, envir = formals_cache, inherits = FALSE)) {
             formal_names <- get(cache_key, envir = formals_cache, inherits = FALSE)
         } else {
-            formal_names <- if (use_previous_formals && !is.null(previous_formals)) {
-                get0(cache_key, envir = previous_formals, inherits = FALSE)
-            } else {
-                NULL
-            }
-            if (is.null(formal_names)) {
-                function_formals <- tryCatch(call_with_optional_uri(
-                    workspace$get_formals, function_name, package, uri = uri),
-                error = function(e) NULL)
-                formal_names <- names(function_formals)
-                if (!use_previous_formals && !is.null(previous_formals)) {
+            function_formals <- tryCatch(call_with_optional_uri(
+                workspace$get_formals, function_name, package, uri = uri),
+            error = function(e) NULL)
+            formal_names <- names(function_formals)
+            if (!is.null(previous_formals)) {
+                if (!use_previous_formals) {
                     assign(cache_key, formal_names, envir = previous_formals)
+                } else if (is.null(formal_names)) {
+                    local <- if (is.null(package)) workspace$get_parse_data(uri)$functions[[function_name]]
+                    formal_names <- if (is.function(local)) names(formals(local)) else
+                        get0(cache_key, envir = previous_formals, inherits = FALSE)
                 }
             }
             assign(cache_key, formal_names, envir = formals_cache)

@@ -98,7 +98,7 @@ test_that("the outline updates after incremental section edits without reopening
     expect_setequal(map_chr(flatten_document_symbols(renamed), "name"), c("Before", "f", "Renamed"))
     invalid <- change(4L, list(list(
         range = range(position(2L, 15L), position(2L, 15L)), text = "\ng <- function(")))
-    expect_setequal(map_chr(flatten_document_symbols(invalid), "name"), c("Before", "Renamed"))
+    expect_setequal(map_chr(flatten_document_symbols(invalid), "name"), c("Before", "f", "Renamed"))
     repaired <- change(5L, list(list(
         range = range(position(3L, 14L), position(3L, 14L)), text = "x) { helper <- function() x - 1 }")))
     expect_setequal(map_chr(flatten_document_symbols(repaired), "name"), c("Before", "f", "Renamed", "g", "helper"))

@@ -78,3 +78,66 @@ test_that("rename groups edits once while preserving URI and occurrence order", 
         }))
     }
 })
+
+test_that("rename uses complete lexical scopes in partial documents", {
+    fixture <- provider_fixture(c(
+        "first <- function(arg) arg + 1", "stats::", "second <- function(arg) arg - 1"
+    ))
+    rename <- function(row, col) {
+        rename_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+            list(row = row, col = col), "updated")
+    }
+    fixture$workspace$document_uris_for_references <- function(...) stop("unexpected cross-file lookup")
+    for (row in c(0L, 2L)) {
+        prepared <- prepare_rename_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+            list(row = row, col = 20L))
+        expect_equal(prepared$result$start$line, row)
+        reply <- rename(row, 20L)
+        edits <- reply$result$changes[[fixture$uri]]
+        expect_length(edits, 2L)
+        expect_equal(vapply(edits, function(edit) edit$range$start$line, integer(1L)), rep(row, 2L))
+    }
+    fixture$workspace$document_uris_for_references <- NULL
+
+    # A second document can hide a use of the global, even if no indexed
+    # occurrence from that file is among the locations to edit.
+    uri <- "file:///uses.R"
+    content <- c("stats::", "first(")
+    doc <- Document$new(uri, version = 1L, content = content)
+    parsed <- parse_document(uri, content)
+    parsed$version <- doc$version
+    doc$update_parse_data(parsed)
+    fixture$workspace$documents$set(uri, doc)
+    expect_length(references_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+            list(row = 0L, col = 1L))$result, 1L)
+    expect_equal(rename(0L, 1L)$error$code, ErrorCodes$RequestFailed)
+    prepared <- prepare_rename_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+        list(row = 0L, col = 1L))
+    expect_equal(prepared$error$code, ErrorCodes$RequestFailed)
+    expect_length(rename(0L, 19L)$result$changes[[fixture$uri]], 2L)
+
+    fixture$workspace$documents$remove(uri)
+    expect_length(rename(0L, 1L)$result$changes[[fixture$uri]], 1L)
+
+    content <- c("first <- function(arg) {", "  stats::", "  arg", "}")
+    fixture <- provider_fixture(content)
+    expect_length(rename(0L, 20L)$result$changes[[fixture$uri]], 2L)
+    fixture <- provider_fixture(c(content[[1L]], "  damaged <- arg +", "}"))
+    expect_equal(rename(0L, 20L)$error$code, ErrorCodes$RequestFailed)
+})
+
+test_that("an incomplete longer identifier does not block renaming an unrelated name", {
+    point <- list(row = 1L, col = 1L)
+    for (tail in c("stats::", "argument +", "data_item(")) {
+        fixture <- provider_fixture(c("a <- 1", "a", tail))
+        prepared <- prepare_rename_reply(1L, fixture$uri, fixture$workspace, fixture$document, point)
+        expect_equal(prepared$result$start, position(1L, 0L))
+        reply <- rename_reply(1L, fixture$uri, fixture$workspace, fixture$document, point, "renamed")
+        expect_length(reply$result$changes[[fixture$uri]], 2L)
+    }
+    for (tail in c("bad(a +", "bad(`a` +", "bad(1La", "bad(`\\141` +")) {
+        fixture <- provider_fixture(c("a <- 1", "a", tail))
+        reply <- rename_reply(1L, fixture$uri, fixture$workspace, fixture$document, point, "renamed")
+        expect_equal(reply$error$code, ErrorCodes$RequestFailed, info = tail)
+    }
+})
