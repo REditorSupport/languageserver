@@ -9,7 +9,7 @@ test_that("Ordinary symbol providers and disabled scopes skip member inference",
     expect_length(signature_reply(1L, fixture$uri, fixture$workspace, fixture$document,
             list(row = 2L, col = 14L))$result$signatures, 1L)
     expect_no_error(hover_reply(1L, fixture$uri, fixture$workspace, fixture$document, list(row = 2L, col = 2L)))
-    expect_null(member_constructor_arguments(fixture$uri, fixture$workspace, fixture$document,
+    expect_null(member_call_arguments(fixture$uri, fixture$workspace, fixture$document,
             list(row = 2L, col = 14L), ""))
     old <- lsp_settings$get("member_completion")
     withr::defer(lsp_settings$set("member_completion", old))

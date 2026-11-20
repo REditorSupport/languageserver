@@ -5,6 +5,10 @@
   the last assignment in source order and shows it if it defines a function
   (#559).
 
+- Track functions added to lists and environments with `$` or literal `[[` assignment. Member
+  completion, argument suggestions, hover and signature help use the visible
+  declaration. Go to Definition opens its source when available (#524).
+
 - Keep the server connection open after responding to `shutdown` until the
   client sends `exit`, preventing broken-pipe errors when clients stop the
   server. Stop background workers and reject further requests while waiting

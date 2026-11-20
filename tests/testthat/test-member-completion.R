@@ -183,6 +183,56 @@ test_that("Member completion inserts parseable non-syntactic names", {
     expect_identical(item$textEdit$range$end$character, 4L)
 })
 
+test_that("Quoted bracket completion replaces a literal key using the original quote style", {
+    name <- "f'un$2"
+    declaration <- paste0("obj <- list(); obj[[", encodeString(name, quote = "\""), "]] <- function(x, y) x+y")
+    for (quote in c("'", "\"")) {
+        prefix <- paste0('"\U0001f600"; obj[[', quote, "f")
+        complete <- paste0(prefix, "xx", quote, "]]()")
+        for (line in c(prefix, complete)) {
+            fixture <- member_fixture(paste(declaration, line, sep = "\n"), point = list(row = 1L, col = nchar(prefix)))
+            items <- member_completion(fixture$document$uri, fixture$workspace, fixture$document,
+                fixture$point, TRUE, 100L)
+            expect_identical(vapply(items, `[[`, character(1L), "label"), name)
+            expect_identical(items[[1L]]$insertTextFormat, InsertTextFormat$PlainText)
+            edit <- items[[1L]]$textEdit
+            expect_identical(edit$newText, encodeString(name, quote = quote))
+            expect_equal(edit$range$start$character, 11L)
+            expect_equal(edit$range$end$character, if (line == prefix) 13L else 16L)
+        }
+    }
+
+    for (lines in list(c("obj[[", "  # key", '  "f"]]'), c('obj[["f"', "]]"))) {
+        row <- which(grepl('"f"', lines, fixed = TRUE))
+        col <- regexpr("f", lines[[row]], fixed = TRUE)[[1L]]
+        expect_identical(member_labels(paste(c(declaration, lines), collapse = "\n"),
+                point = list(row = row, col = col)), name)
+    }
+    for (lines in list('obj[["f", 2]]', 'obj[["f" + suffix]]', c('obj[["f"', ", 2]]"),
+            "# obj[['f']]", '"obj[[\'f\']]"')) {
+        col <- regexpr("f", lines[[1L]], fixed = TRUE)[[1L]]
+        expect_length(member_labels(paste(c(declaration, lines), collapse = "\n"),
+                point = list(row = 1L, col = col)), 0L)
+    }
+})
+
+test_that("Bracket key completion respects unfinished keys and surrounding multiline strings", {
+    fields <- "obj <- list(fun = function(x) x)"
+    for (text in list(c('obj[["fu', "other <- 1"), 'obj[["fu]]()')) {
+        items <- member_items(paste(c(fields, text), collapse = "\n"), point = list(row = 1L, col = 8L))
+        expect_identical(items[[1L]]$textEdit$newText, '"fun"')
+        expect_equal(items[[1L]]$textEdit$range$end$character, 8L)
+    }
+    for (text in list(c("s <- 'text", 'obj[["fun"]]()', "'"), c("s <- 'text", 'obj[["fun"]]()'),
+            c('s <- r"(text', 'obj[["fun"]]()', ')"'))) {
+        expect_length(member_labels(paste(c(fields, text), collapse = "\n"), point = list(row = 2L, col = 8L)), 0L)
+    }
+    expect_identical(member_labels(paste(c(fields, "s <- 'text", "end'; obj[[\"fun\"]]()"), collapse = "\n"),
+            point = list(row = 2L, col = 13L)), "fun")
+    expect_identical(member_labels(paste(fields, 'obj[[r"(fun)"]]()', sep = "\n"),
+            point = list(row = 1L, col = 10L)), "fun")
+})
+
 test_that("Member snippets preserve R escapes in quoted method names", {
     label <- "run\\$task}`"
     code <- paste0("x <- list(", encodeString(label, quote = "`"), "=function() 1)\nx$")

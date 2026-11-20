@@ -797,6 +797,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 self$pending_replies$set(uri, list(
                     `textDocument/completion` = collections::queue(),
                     `textDocument/hover` = collections::queue(),
+                    `textDocument/definition` = collections::queue(),
                     `textDocument/signatureHelp` = collections::queue(),
                     `textDocument/documentSymbol` = collections::queue(),
                     `textDocument/foldingRange` = collections::queue(),
@@ -1027,7 +1028,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     if (!identical(doc$version, doc$parse_data$version) ||
                             !identical(doc$content, doc$parsed_content)) next
                     point <- doc$from_lsp_position(request$params$position)
-                    definition <- definition_reply(NULL, request$uri, request$workspace, doc, point)$result
+                    definition <- symbol_definition_reply(NULL, request$uri, request$workspace, doc, point)$result
                     # Source edges can change while closed callers are parsed.
                     # Recompute their closure after each settled batch; queuing
                     # an already-current document is a no-op.

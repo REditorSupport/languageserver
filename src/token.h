@@ -8,5 +8,6 @@
 SEXP scan_token_c(SEXP line, SEXP col, SEXP forward);
 SEXP scan_backtick_completion_c(SEXP line, SEXP col);
 SEXP scan_closed_string_completion_c(SEXP line, SEXP col);
+SEXP scan_string_completion_c(SEXP line, SEXP col);
 
 #endif /* end of include guard: TOKEN_H__ */

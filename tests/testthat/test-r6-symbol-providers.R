@@ -257,7 +257,7 @@ test_that("R6 new hover, completion and signature use public initialize formals"
         list(row = 1L, col = 4L), FALSE, 200L)
     expect_identical(items[[1L]]$detail, signature$signatures[[1L]]$label)
     expect_identical(items[[1L]]$documentation$value, "Create an R6 instance of `Widget`")
-    arguments <- member_constructor_arguments(fixture$uri, fixture$workspace, fixture$document,
+    arguments <- member_call_arguments(fixture$uri, fixture$workspace, fixture$document,
         list(row = 1L, col = 13L), "")
     expect_identical(vapply(arguments, `[[`, character(1L), "label"), c("value", "flag"))
     expect_false(file.exists(marker))
@@ -432,7 +432,7 @@ test_that("R6 constructor argument completion and hover include the class", {
         'C <- R6::R6Class("Widget", public = list(initialize = function(value, flag = TRUE) NULL))',
         "C$new(flag = TRUE)"
     ))
-    items <- member_constructor_arguments(fixture$uri, fixture$workspace, fixture$document,
+    items <- member_call_arguments(fixture$uri, fixture$workspace, fixture$document,
         list(row = 1L, col = 13L), "")
     expect_true(all(vapply(items, function(item) {
         identical(item$documentation$value, "Create an R6 instance of `Widget`")

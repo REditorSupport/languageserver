@@ -282,7 +282,7 @@ settings | default | description
 `r.lsp.completion_label_details` | `false` | show inline function signatures and value/type tips for members and ordinary symbols when supported by the editor; selected-item details remain available
 `r.lsp.max_completions` | 200 | maximum number of completion items
 `r.lsp.s3_dispatch` | `true` | use static S3 dispatch for argument completion, hover and signature help, independently of member completion
-`r.lsp.member_completion` | `true` | infer `$` members and S4 `@` slots for completion, signature help and hover from document syntax and cached package metadata without executing document code
+`r.lsp.member_completion` | `true` | use static analysis for `$` member and S4 `@` slot completion, named arguments, signature help, hover and go-to-definition when a source location is available
 `r.lsp.lint_cache` | `false` | toggle caching of lint results
 `r.lsp.parse_delay` | `0.15` | seconds to debounce parsing after an edit
 `r.lsp.diagnostics_delay` | `0.75` | seconds to debounce diagnostics after the current parse
@@ -319,8 +319,9 @@ Package member models, startup datasets, S3 catalogs, documentation summaries an
 rendered help share a persistent cache under `tools::R_user_dir("languageserver", "cache")`.
 It keeps up to 512 entries and 256 MiB, removing older entries as needed. Package
 file, loaded namespace, dependency, registry, R version and server implementation changes invalidate
-cached results; incompatible or corrupt entries are rebuilt. Document-dependent
-inference remains local to the current document and its metadata revision.
+cached results; incompatible or corrupt entries are rebuilt. Member inference
+follows direct assignments with `env$fun` or `lst[["fun2"]]` and literal
+`source("file.R")` calls in workspace scripts without running the code.
 File contents are checksummed on first use and after changes to file identity,
 size, modification time or change time; warm lookups reuse the checksum. Help
 uses the actual database location, and checks its identity before using memory
