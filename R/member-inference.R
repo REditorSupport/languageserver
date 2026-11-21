@@ -497,14 +497,11 @@ member_cacheable <- function(value, depth = 0L) {
 }
 
 member_assigned_names <- function(node) {
-    out <- character()
-    member_walk(node, function(x) {
-        if (member_head(x, "<-") || member_head(x, "=") || member_head(x, ":=")) {
-            name <- member_write_root(x[[2L]])
-            if (!is.null(name)) out <<- c(out, name)
-        }
-    }, descend_functions = FALSE)
-    unique(out)
+    if (missing(node)) return(character())
+    calls <- .Call("member_assignment_calls_c", node, PACKAGE = "languageserver")
+    if (!length(calls)) return(character())
+    roots <- lapply(calls, function(call) member_write_root(call[[2L]]))
+    unique(c(character(), unlist(roots)))
 }
 
 # Retain lexical inputs used by the function (including nested closures and

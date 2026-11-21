@@ -283,20 +283,13 @@ formal_parameter_symbol_ids <- function(data, member_or_ns_parents = NULL) {
     )
 
     formal_parents <- data$parent[formal_rows]
-    unique_scopes <- unique(c(formal_parents, local_bindings$scope_ids))
-    scope_idx <- integer(max_id)
-    scope_idx[unique_scopes] <- seq_along(unique_scopes)
-
-    n_names <- length(unique_names)
-    n_scopes <- length(unique_scopes)
-    formal_name_idx <- match(formal_names, unique_names)
-    has_formal <- logical(n_names * n_scopes)
-    has_formal[(scope_idx[formal_parents] - 1L) * n_names + formal_name_idx] <- TRUE
-
-    has_local <- logical(n_names * n_scopes)
+    is_scope <- logical(max_id)
+    is_scope[c(formal_parents, local_bindings$scope_ids)] <- TRUE
+    # Index only bindings that occur. Formals come first so match() retains
+    # their precedence over a local assignment in the same scope.
+    bindings <- paste(formal_parents, formal_names, sep = ":")
     if (length(local_bindings$scope_ids)) {
-        local_name_idx <- match(local_bindings$names, unique_names)
-        has_local[(scope_idx[local_bindings$scope_ids] - 1L) * n_names + local_name_idx] <- TRUE
+        bindings <- c(bindings, paste(local_bindings$scope_ids, local_bindings$names, sep = ":"))
     }
 
     super_assign_rows <- which(
@@ -306,7 +299,6 @@ formal_parameter_symbol_ids <- function(data, member_or_ns_parents = NULL) {
     )
     super_target_rows <- assignment_target_symbol_rows(data, super_assign_rows, id_parent)
 
-    cand_name_idx <- match(cand_names, unique_names)
     anc <- data$parent[cand_rows]
     is_super <- cand_rows %in% super_target_rows
     if (any(is_super)) {
@@ -316,22 +308,19 @@ formal_parameter_symbol_ids <- function(data, member_or_ns_parents = NULL) {
     matched <- logical(length(cand_rows))
     active <- which(anc > 0L)
     anc <- anc[active]
-    cand_name_idx <- cand_name_idx[active]
     steps <- 0L
     max_steps <- nrow(data)
 
     while (length(active) && steps <= max_steps) {
-        s <- scope_idx[anc]
-        at_scope <- which(s > 0L)
+        at_scope <- which(is_scope[anc])
         if (length(at_scope)) {
-            lookup_idx <- (s[at_scope] - 1L) * n_names + cand_name_idx[at_scope]
-            hit <- (has_formal | has_local)[lookup_idx]
-            if (any(hit)) {
-                hit_idx <- at_scope[hit]
-                matched[active[at_scope[has_formal[lookup_idx]]]] <- TRUE
+            keys <- paste(anc[at_scope], cand_names[active[at_scope]], sep = ":")
+            binding <- match(keys, bindings, nomatch = 0L)
+            hit_idx <- at_scope[binding > 0L]
+            if (length(hit_idx)) {
+                matched[active[hit_idx]] <- binding[binding > 0L] <= length(formal_rows)
                 active <- active[-hit_idx]
                 anc <- anc[-hit_idx]
-                cand_name_idx <- cand_name_idx[-hit_idx]
                 if (!length(active)) break
             }
         }
@@ -340,7 +329,6 @@ formal_parameter_symbol_ids <- function(data, member_or_ns_parents = NULL) {
         if (!all(keep)) {
             active <- active[keep]
             anc <- anc[keep]
-            cand_name_idx <- cand_name_idx[keep]
         }
         steps <- steps + 1L
     }
@@ -676,56 +664,49 @@ semantic_parse_data <- function(data, content, syntax = NULL,
         )
     }
 
-    lines <- as.integer(line1_vec - 1L)
-    if (is.null(only_lines)) {
-        non_ascii_lines <- nchar(content, type = "bytes") != nchar(content, type = "chars")
-    } else {
-        non_ascii_lines <- logical(length(content))
-        used <- unique(line1_vec)
-        non_ascii_lines[used] <- nchar(content[used], type = "bytes") != nchar(content[used], type = "chars")
+    # LSP tokens occupy one line. Expand multiline strings in one batch so
+    # embedded SQL or long text literals do not copy every preceding token
+    # once per source line.
+    multi <- rows[data$line1[rows] != data$line2[rows]]
+    if (length(multi)) {
+        first <- data$line1[multi]
+        last <- pmin.int(length(content), data$line2[multi])
+        if (!is.null(only_lines)) {
+            # Find the slice of requested lines covered by each token. Two
+            # tokens ending and starting on one line each retain their span.
+            only_lines <- unique(only_lines)
+            first <- findInterval(first - 2L, only_lines) + 1L
+            last <- findInterval(last - 1L, only_lines)
+        }
+        spans <- pmax.int(0L, last - first + 1L)
+        lines <- sequence(spans, from = first)
+        if (!is.null(only_lines)) lines <- only_lines[lines] + 1L
+        source_rows <- rep.int(multi, spans)
+        widths <- nchar(content[lines])
+        first <- lines == data$line1[source_rows]
+        last <- lines == data$line2[source_rows]
+        starts <- integer(length(lines))
+        ends <- widths
+        starts[first] <- pmin.int(widths[first], data$col1[source_rows[first]] - 1L)
+        ends[last] <- pmin.int(widths[last], data$col2[source_rows[last]])
+        line1_vec <- c(line1_vec, lines)
+        start_cp <- c(start_cp, starts)
+        end_cp <- c(end_cp, ends)
+        token <- data$token[source_rows]
+        types <- c(types, unname(token_types[token]))
+        modifiers <- c(modifiers, (token == "SYMBOL_FORMALS") * semantic_declaration_modifier)
     }
-    units <- syntax_unit_columns(
-        content, line1_vec, start_cp, end_cp, non_ascii_lines
-    )
+
+    if (!is.null(only_lines)) {
+        used <- unique(line1_vec)
+        units <- syntax_unit_columns(content[used], match(line1_vec, used), start_cp, end_cp)
+    } else {
+        units <- syntax_unit_columns(content, line1_vec, start_cp, end_cp)
+    }
     cols <- units$start
     lengths <- as.integer(units$end - units$start)
 
-    # Semantic tokens are single-line. Split the rare multiline string into
-    # one token per non-empty source line.
-    multiline_rows <- setdiff(rows, single_rows)
-    for (row_index in multiline_rows) {
-        token_type <- unname(token_types[[data$token[[row_index]]]])
-        modifier <- if (data$token[[row_index]] == "SYMBOL_FORMALS") {
-            semantic_declaration_modifier
-        } else {
-            0L
-        }
-        token_lines <- seq.int(data$line1[[row_index]], data$line2[[row_index]])
-        if (!is.null(only_lines)) token_lines <- token_lines[(token_lines - 1L) %in% only_lines]
-        for (line_number in token_lines) {
-            line_text <- if (line_number <= length(content)) content[[line_number]] else ""
-            start_point <- if (line_number == data$line1[[row_index]]) {
-                data$col1[[row_index]] - 1L
-            } else {
-                0L
-            }
-            end_point <- if (line_number == data$line2[[row_index]]) {
-                data$col2[[row_index]]
-            } else {
-                nchar(line_text)
-            }
-            utf16 <- code_point_to_unit(line_text, c(start_point, end_point))
-            token_length <- utf16[[2L]] - utf16[[1L]]
-            if (token_length <= 0L) next
-
-            lines <- c(lines, line_number - 1L)
-            cols <- c(cols, utf16[[1L]])
-            lengths <- c(lengths, token_length)
-            types <- c(types, token_type)
-            modifiers <- c(modifiers, modifier)
-        }
-    }
-
+    lines <- as.integer(line1_vec - 1L)
     keep <- lengths > 0L
     lines <- lines[keep]
     cols <- cols[keep]

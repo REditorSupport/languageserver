@@ -231,44 +231,50 @@ refactor_expression_movable <- function(node, statement) {
     }
 }
 
-#' Find an expression exactly matching a selected range
+#' Find expressions beginning at the selection, in document order
 #' @noRd
-refactor_exact_expression <- function(xdoc, selected_range) {
-    nodes <- xml_find_all_(xdoc, "//expr[@line1]")
-    matches <- vapply(nodes, function(node) {
-        refactor_range_equal(refactor_node_range(node), selected_range)
-    }, logical(1L))
-    nodes <- nodes[matches]
-    if (!length(nodes)) {
-        return(NULL)
+refactor_starting_expressions <- function(xdoc, start) {
+    index <- attr(xdoc, "top_level_index", exact = TRUE)
+    syntax <- index$syntax
+    line <- start$row + 1L
+    col <- start$col + 1L
+    if (is.null(syntax)) {
+        return(xml_find_all_(xdoc, sprintf("descendant::expr[@line1=%d and @col1=%d]", line, col)))
     }
-    nodes[[length(nodes)]]
+    rows <- which(syntax$line1 == line & syntax$col1 == col & syntax$token == "expr")
+    index$all_nodes[sort(syntax$order_rank[rows])]
+}
+
+#' Compare the rows and columns of any number of positions
+#' @noRd
+refactor_at_or_before <- function(row, col, other_row, other_col) {
+    row < other_row | (row == other_row & col <= other_col)
 }
 
 #' Find contiguous statement expressions matching a selected range
 #' @noRd
-refactor_statement_selection <- function(xdoc, selected_range) {
-    containers <- xml_find_all_(xdoc, "/exprlist | //OP-LEFT-BRACE/parent::expr")
+refactor_statement_selection <- function(starting, selected_range) {
     result <- NULL
-    for (container in containers) {
+    # The first selected statement must begin exactly at the selection's
+    # start. Only its direct siblings can form a contiguous sequence.
+    for (first in starting) {
+        container <- xml_parent(first)
+        if (!refactor_sequence_container(container)) next
         children <- xml_children(container)
         children <- children[xml_name(children) == "expr"]
-        if (!length(children)) next
-        child_ranges <- lapply(children, refactor_node_range)
-        selected <- which(vapply(child_ranges, function(item_range) {
-            refactor_range_contains(selected_range, item_range)
-        }, logical(1L)))
+        line1 <- as.integer(xml_attr(children, "line1")) - 1L
+        col1 <- as.integer(xml_attr(children, "col1")) - 1L
+        line2 <- as.integer(xml_attr(children, "line2")) - 1L
+        col2 <- as.integer(xml_attr(children, "col2"))
+        selected <- which(refactor_at_or_before(selected_range$start$row,
+                selected_range$start$col, line1, col1) &
+                refactor_at_or_before(line2, col2, selected_range$end$row, selected_range$end$col))
         if (!length(selected) || any(diff(selected) != 1L)) next
-        combined <- list(
-            start = child_ranges[[selected[[1L]]]]$start,
-            end = child_ranges[[selected[[length(selected)]]]]$end
-        )
-        if (!refactor_range_equal(combined, selected_range)) next
-        result <- list(
-            nodes = children[selected],
-            container = container,
-            range = combined
-        )
+        first_index <- selected[[1L]]
+        last_index <- selected[[length(selected)]]
+        if (line1[[first_index]] != selected_range$start$row || col1[[first_index]] != selected_range$start$col ||
+                line2[[last_index]] != selected_range$end$row || col2[[last_index]] != selected_range$end$col) next
+        result <- list(nodes = children[selected], container = container, range = selected_range)
     }
     result
 }
@@ -299,9 +305,7 @@ refactor_selection_context <- function(uri, workspace, document, item_range) {
         return(NULL)
     }
     parse_data <- current_parse_data(uri, workspace, document)
-    if (is.null(parse_data) || is.null(parse_data_xml(parse_data))) {
-        return(NULL)
-    }
+    if (is.null(parse_data)) return(NULL)
     selected_range <- refactor_trim_range(document, item_range)
     if (refactor_compare_point(
         selected_range$start, selected_range$end
@@ -309,12 +313,14 @@ refactor_selection_context <- function(uri, workspace, document, item_range) {
         !refactor_range_in_r_region(document, selected_range)) {
         return(NULL)
     }
-    expression <- refactor_exact_expression(
-        parse_data_xml(parse_data), selected_range
-    )
-    statements <- refactor_statement_selection(
-        parse_data_xml(parse_data), selected_range
-    )
+    xdoc <- parse_data_xml(parse_data)
+    if (is.null(xdoc)) return(NULL)
+    starting <- refactor_starting_expressions(xdoc, selected_range$start)
+    if (!length(starting)) return(NULL)
+    ends <- which(as.integer(xml_attr(starting, "line2")) == selected_range$end$row + 1L &
+            as.integer(xml_attr(starting, "col2")) == selected_range$end$col)
+    expression <- if (length(ends)) starting[[ends[[length(ends)]]]]
+    statements <- refactor_statement_selection(starting, selected_range)
     if (is.null(expression) && is.null(statements)) {
         return(NULL)
     }
@@ -330,7 +336,7 @@ refactor_selection_context <- function(uri, workspace, document, item_range) {
     }
     list(
         parse_data = parse_data,
-        xdoc = parse_data_xml(parse_data),
+        xdoc = xdoc,
         range = selected_range,
         expression = expression,
         statements = statements
@@ -738,15 +744,19 @@ refactor_occurrence_range <- function(index, i) {
     )
 }
 
+#' Find reference occurrences wholly contained by an internal range
+#' @noRd
+refactor_occurrences_in_range <- function(index, item_range) {
+    refactor_at_or_before(item_range$start$row, item_range$start$col, index$line, index$code_point_col) &
+        refactor_at_or_before(index$end_line, index$code_point_end_col, item_range$end$row, item_range$end$col)
+}
+
 #' Test whether a selection contains a binding definition
 #' @noRd
 refactor_selection_defines_binding <- function(context) {
     index <- context$parse_data$reference_index
     if (is.null(index) || !length(index$name)) return(FALSE)
-    any(vapply(which(index$is_definition), function(i) {
-        refactor_range_contains(
-            context$range, refactor_occurrence_range(index, i))
-    }, logical(1L)))
+    any(index$is_definition & refactor_occurrences_in_range(index, context$range))
 }
 
 #' Test whether a selected definition is available to a selected read
@@ -776,12 +786,7 @@ refactor_function_bindings <- function(context) {
     if (is.null(index) || !length(index$name)) {
         return(list(free = character(), outputs = character()))
     }
-    inside <- vapply(seq_along(index$name), function(i) {
-        refactor_range_contains(
-            context$range, refactor_occurrence_range(index, i)
-        )
-    }, logical(1L))
-    selected <- which(inside)
+    selected <- which(refactor_occurrences_in_range(index, context$range))
     selected_definitions <- unique(index$definition_key[
         selected[index$is_definition[selected]]
     ])
@@ -800,29 +805,12 @@ refactor_function_bindings <- function(context) {
     }, logical(1L))]
     free_names <- unique(index$name[free])
 
-    output_indices <- integer()
-    for (definition_key in selected_definitions) {
-        definitions <- selected[
-            index$is_definition[selected] &
-                index$definition_key[selected] == definition_key
-        ]
-        if (!length(definitions)) next
-        later_reads <- which(
-            !index$is_definition &
-                index$definition_key == definition_key &
-                vapply(seq_along(index$name), function(i) {
-                    refactor_compare_point(
-                        refactor_occurrence_range(index, i)$start,
-                        context$range$end
-                    ) >= 0L
-                }, logical(1L))
-        )
-        if (length(later_reads)) {
-            output_indices <- c(
-                output_indices, definitions[[length(definitions)]]
-            )
-        }
-    }
+    later_reads <- !index$is_definition & refactor_at_or_before(context$range$end$row,
+        context$range$end$col, index$line, index$code_point_col)
+    output_keys <- intersect(selected_definitions, index$definition_key[later_reads])
+    definitions <- rev(selected[index$is_definition[selected]])
+    output_indices <- definitions[match(output_keys, index$definition_key[definitions])]
+
     list(
         free = free_names,
         outputs = unique(index$name[output_indices])
@@ -977,11 +965,8 @@ refactor_occurrence_at_range <- function(index, item_range) {
         return(NULL)
     }
     point <- item_range$start
-    candidates <- which(vapply(seq_along(index$name), function(i) {
-        occurrence <- refactor_occurrence_range(index, i)
-        refactor_compare_point(occurrence$start, point) <= 0L &&
-            refactor_compare_point(occurrence$end, point) >= 0L
-    }, logical(1L)))
+    candidates <- which(refactor_at_or_before(index$line, index$code_point_col, point$row, point$col) &
+            refactor_at_or_before(point$row, point$col, index$end_line, index$code_point_end_col))
     if (!length(candidates)) {
         return(NULL)
     }
@@ -1054,8 +1039,7 @@ refactor_inline_variable_action <- function(uri, workspace, document,
         return(NULL)
     }
     parse_data <- current_parse_data(uri, workspace, document)
-    if (is.null(parse_data) || !partial_root_contains(parse_data, item_range$start, item_range$end) ||
-            is.null(parse_data_xml(parse_data))) {
+    if (is.null(parse_data) || !partial_root_contains(parse_data, item_range$start, item_range$end)) {
         return(NULL)
     }
     index <- parse_data$reference_index
@@ -1080,8 +1064,10 @@ refactor_inline_variable_action <- function(uri, workspace, document,
         return(NULL)
     }
 
+    xdoc <- parse_data_xml(parse_data)
+    if (is.null(xdoc)) return(NULL)
     token_node <- xdoc_find_token(
-        parse_data_xml(parse_data),
+        xdoc,
         definition_range$start$row + 1L,
         definition_range$start$col + 1L
     )
@@ -1105,7 +1091,7 @@ refactor_inline_variable_action <- function(uri, workspace, document,
         return(NULL)
     }
     read_node <- xdoc_find_token(
-        parse_data_xml(parse_data),
+        xdoc,
         read_range$start$row + 1L,
         read_range$start$col + 2L
     )

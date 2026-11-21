@@ -398,3 +398,35 @@ test_that("Trailing blank line with spaces and no terminal newline fixes cleanly
   expect_equal(document$content, c("x <- 1", ""))
   expect_length(diagnose_file(uri, document$content, cache = FALSE), 0L)
 })
+
+test_that("fix-all retains priority across lines and permits insertions at boundaries", {
+    fix <- function(label, row, col, end_row, end_col, priority) {
+        list(edit = text_edit(range(position(row, col), position(end_row, end_col)), label),
+            priority = priority)
+    }
+    fixes <- list(
+        fix("wide", 1, 3, 3, 5, 1L),
+        fix("right", 2, 0, 3, 5, 2L),
+        fix("at start", 1, 3, 1, 3, 2L),
+        fix("left", 1, 3, 2, 0, 3L),
+        fix("inside left", 1, 4, 1, 4, 1L),
+        fix("separate", 4, 0, 4, 1, 1L)
+    )
+    expect_identical(code_action_non_overlapping_fixes(fixes), fixes[c(4, 3, 2, 6)])
+})
+
+test_that("fix-all skips conflict checks for disjoint edits on a single line", {
+    uri <- "file:///same-line.R"
+    doc <- Document$new(uri, content = "'\U0001f408';x=1;y=2")
+    diagnostics <- lapply(c(6L, 10L), function(col) {
+        list(source = "lintr", code = "assignment_linter",
+            range = range(position(0L, col), position(0L, col + 1L)))
+    })
+    testthat::local_mocked_bindings(
+        code_action_edits_overlap = function(...) stop("Compared disjoint edits"),
+        .package = "languageserver")
+    reply <- document_code_action_reply(1L, uri, NULL, doc, list(),
+        list(only = "source.fixAll", diagnostics = rev(diagnostics)))
+    expect_identical(reply$result[[1L]]$edit$changes[[uri]],
+        lapply(diagnostics, function(item) text_edit(item$range, " <- ")))
+})

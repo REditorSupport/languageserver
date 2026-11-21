@@ -108,12 +108,10 @@ Document <- R6::R6Class(
             }
             self$version <- version
             self$nline <- length(content)
-            self$content <- content
-            self$regions <- if (self$is_rmarkdown) {
-                parse_literate_regions(content)
-            } else {
-                NULL
+            if (self$is_rmarkdown) {
+                self$regions <- update_literate_regions(self$regions, self$content, content, change$range)
             }
+            self$content <- content
         },
 
         apply_content_changes = function(version, content_changes) {

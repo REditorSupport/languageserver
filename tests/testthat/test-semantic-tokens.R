@@ -433,6 +433,37 @@ test_that("Semantic parse data handles UTF-16 and multiline tokens", {
     )
 })
 
+test_that("Multiline semantic tokens keep exact UTF-16 spans in full and partial parses", {
+    astral <- intToUtf8(0x10400)
+    content <- c(paste0('x <- "', astral), "", paste0(astral, '"; y <- "'),
+        paste0(astral, '"'))
+    data <- utils::getParseData(parse(text = content, keep.source = TRUE))
+    for (selected in list(NULL, 1:3, 2L)) {
+        semantic <- semantic_parse_data(data, content, only_lines = selected)
+        strings <- semantic$types == SemanticTokenTypes$string
+        lines <- c(0L, 2L, 2L, 3L)
+        keep <- if (is.null(selected)) rep(TRUE, length(lines)) else lines %in% selected
+        expect_identical(semantic$lines[strings], lines[keep])
+        expect_identical(semantic$cols[strings], c(5L, 0L, 10L, 0L)[keep])
+        expect_identical(semantic$lengths[strings], c(3L, 3L, 1L, 3L)[keep])
+    }
+})
+
+test_that("Sparse semantic lines preserve shared boundaries and clip multiline tokens to the document", {
+    astral <- intToUtf8(0x10400)
+    content <- c('"one', paste0(astral, '"; "three'), 'four";', '"five', 'six"')
+    data <- utils::getParseData(parse(text = content, keep.source = TRUE))
+    full <- semantic_parse_data(data, content)
+    columns <- c("lines", "cols", "lengths", "types", "modifiers")
+    for (size in c(0L, 2L, length(content))) {
+        for (wanted in list(integer(), c(1L, 1L, 3L, 4L, 8L))) {
+            partial <- semantic_parse_data(data, content[seq_len(size)], only_lines = wanted)
+            keep <- full$lines < size & full$lines %in% wanted
+            expect_identical(partial[columns], lapply(full[columns], `[`, keep))
+        }
+    }
+})
+
 test_that("Function assignment names are function declarations", {
     content <- c(
         "fn <- function(x) x",

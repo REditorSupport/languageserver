@@ -1032,3 +1032,21 @@ test_that("inline variable ignores comments around assignment operators", {
         "}"
     ), collapse = "\n"))
 })
+
+test_that("refactor selection matches XML-only snapshots and defers XML for a cursor", {
+    content <- c("outer <- function(x) {", "  y <- x + 1", "  # between statements", "  y * 3", "}")
+    fixture <- provider_fixture(content)
+    parsed <- fixture$document$parse_data
+    selections <- list(refactor_test_range(content, 1L, "x + 1"),
+        list(start = list(row = 1L, col = 2L), end = list(row = 3L, col = 7L)))
+    actions <- function(r) refactor_code_actions(fixture$uri, fixture$workspace, fixture$document, r, NULL)
+    expected <- lapply(selections, actions)
+    expect_true(all(lengths(expected) > 0L))
+
+    parsed$xml_doc <- parsed$xml_data <- NULL
+    parsed$xml_deferred <- TRUE
+    cursor <- list(row = 0L, col = 1L)
+    expect_identical(actions(list(start = cursor, end = cursor)), list())
+    expect_null(parsed$xml_doc)
+    expect_identical(lapply(selections, actions), expected)
+})

@@ -216,28 +216,36 @@ member_source_names <- function(parsed, source, path, name = NULL, accessor = "$
     unique(c(referenced, member_syntax_names(node)))
 }
 
-# Resolve the latest preceding definitions of needed names. Mandatory effects
-# divide the history into ordered segments; their reads and writes retain the
-# same conservative precedence as a backwards scan of every statement.
+# Start at the cursor and every preceding mandatory effect. Each read needs
+# its latest preceding assignment or field write. A field write also reads
+# its receiver, so following its reads retains earlier writes to that object.
 member_scope_slice <- function(scope, target, needed) {
-    selected <- target
-    before <- target - 1L
+    if (target <= 1L) return(target)
     mandatory <- scope$mandatory[scope$mandatory < target]
-    while (before > 0L) {
-        latest <- 0L
-        for (name in needed) {
+    pending <- integer(target)
+    count <- length(mandatory) + 1L
+    pending[seq_len(count)] <- c(target, mandatory)
+    selected <- rep(FALSE, target)
+    selected[c(target, mandatory)] <- TRUE
+    head <- 1L
+    while (head <= count) {
+        row <- pending[[head]]
+        reads <- if (row == target) needed else scope$reads[[row]]
+        for (name in reads) {
             history <- scope$histories[[name]]
-            position <- findInterval(before, history)
-            if (position) latest <- max(latest, history[[position]])
+            if (!length(history)) next
+            position <- findInterval(row - 1L, history)
+            if (!position) next
+            previous <- history[[position]]
+            if (!selected[[previous]]) {
+                selected[[previous]] <- TRUE
+                count <- count + 1L
+                pending[[count]] <- previous
+            }
         }
-        if (length(mandatory)) latest <- max(latest, mandatory[[length(mandatory)]])
-        if (!latest) break
-        selected <- c(selected, latest)
-        needed <- union(setdiff(needed, scope$assigned[[latest]]), scope$reads[[latest]])
-        before <- latest - 1L
-        if (length(mandatory) && mandatory[[length(mandatory)]] == latest) mandatory <- mandatory[-length(mandatory)]
+        head <- head + 1L
     }
-    rev(selected)
+    which(selected)
 }
 
 member_cursor_path <- function(node, sentinel, accessor) {

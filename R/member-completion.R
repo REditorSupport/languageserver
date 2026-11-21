@@ -286,17 +286,24 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL, incompl
         }
         class_scope <- class_scope || "R6Class" %in% syntax_names
         symbol_scope <- symbol_scope || any(syntax_names %in% c("R6Class", "setClass", "setRefClass", member_s7_intrinsics))
-        member_walk(expr, function(node) {
-            if (!symbol_scope && (member_head(node, "<-") || member_head(node, "=")) &&
-                    is.symbol(node[[2L]]) && is.call(node[[3L]]) &&
-                    (member_head(node[[3L]], "$") || member_head(node[[3L]], "@") || member_head(node[[3L]], "[["))) {
-                symbol_scope <<- TRUE
-            }
-            if (member_head(node, "::") || member_head(node, ":::")) {
-                package <- member_name(node[[2L]])
-                if (!is.null(package)) packages <<- union(packages, package)
-            }
-        })
+        # The syntax names already cover nested calls. Walk the expression
+        # only when it could contain a qualified name or a member assignment.
+        if (any(c("::", ":::") %in% syntax_names) ||
+                (!symbol_scope && any(c("$", "@", "[[") %in% syntax_names) &&
+                        any(c("<-", "=") %in% syntax_names))) {
+            member_walk(expr, function(node) {
+                if (!is.call(node)) return()
+                if (!symbol_scope && (member_head(node, "<-") || member_head(node, "=")) &&
+                        is.symbol(node[[2L]]) && is.call(node[[3L]]) &&
+                        (member_head(node[[3L]], "$") || member_head(node[[3L]], "@") || member_head(node[[3L]], "[["))) {
+                    symbol_scope <<- TRUE
+                }
+                if (member_head(node, "::") || member_head(node, ":::")) {
+                    package <- member_name(node[[2L]])
+                    if (!is.null(package)) packages <<- union(packages, package)
+                }
+            })
+        }
         declaration <- if (member_head(expr, "<-") || member_head(expr, "=")) expr[[3L]] else expr
         if (is.call(declaration)) {
             head <- declaration[[1L]]

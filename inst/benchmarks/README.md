@@ -5,6 +5,98 @@ latency of interactive requests. The baseline is commit `9618b5b`. Measurements
 below were taken locally with R 4.6.1 on macOS arm64; they are reproducible
 workloads, not timing assertions in the test suite.
 
+## Repository performance review
+
+The table compares performance commit `622fe20` with `bcdff9e` on macOS arm64,
+R 4.6.1. The corpus comprises all 89 R source files from that commit.
+Both installed revisions read the same inputs. The checks compare semantic
+tokens, definition names, referenced packages and member-analysis flags.
+The provider benchmarks validate returned methods, completion items, actions
+and edits. Times below are local elapsed medians.
+
+| Workload | Before | After |
+| --- | ---: | ---: |
+| Parse the package's R sources, 41,261 lines | 5.11 s | 3.71 s |
+| Parse a 4,000-line file of ordinary functions | 371 ms | 311 ms |
+| Fix All, 1,000 diagnostics on separate lines | 3,248 ms | 70 ms |
+| Complete a field after 1,000 calls with distinct inputs | 1,150 ms | 19 ms |
+| Resolve an S3 call at a new position in a 1,000-file package | 131 ms | 17 ms |
+| Extract two statements in 4,000 lines, first / repeat | 183 / 136 ms | 35 / 4 ms |
+| Change ordinary prose in a 5,100-line Quarto file | 129 ms | 0.1 ms |
+| Edit a closing fence in the same file | 140 ms | 14 ms |
+| Classify semantic tokens, 2,000 assignments plus 2,000 embedded SQL lines | 77 ms | 3 ms |
+
+Parsing spends a substantial share of its CPU time discovering members and
+bindings. In baseline profiles of this package's `R/completion.R` and
+`R/index.R`, member indexing accounted for 55–68% of worker time. The
+worker now uses native assignment discovery and skips walking expressions
+whose syntax rules out the package or member operations it is looking for.
+The corpus timer includes classification checksums and excludes file I/O.
+An earlier five-sample run took 4.31 s before and 3.67 s after, giving a
+15–27% reduction in elapsed time across the two comparisons.
+
+Fix All compares edits within groups of potentially overlapping ranges. The first extraction
+still constructs XML on demand. Subsequent refactorings can narrow selection
+and binding lookups to candidate positions. S3 resolution hashes peer files
+for sources actually supplying bindings. Member completion follows each
+required statement's dependencies once. The Quarto region model survives
+ordinary same-line edits, and a structural edit examines candidate fence and
+div markers across the document.
+
+Follow-up measurements against `622fe20` cover two more editor requests.
+Fix All for 600 disjoint assignments on one physical line fell from 1,449
+to 49 ms after partitioning edits by both line and UTF-16 column. Editing a
+Markdown heading in the same Quarto fixture fell from 12.5 to 0.1 ms after
+narrowing the region check to structural markers. Both are three-sample medians.
+Classifying three requested lines from a 250,000-line multiline literal also
+reduced R allocations from 8.59 MiB to 2.54 KiB by expanding just those lines.
+
+Batched multiline tokens reduced total R allocations for the SQL classification
+from 273 to 5.4 MiB. For 2,000 functions with distinct parameter names, storing
+only the scope/name pairs that exist reduced parameter-classification
+allocations from 54 to 8.2 MiB. Worker parsing, synchronous document updates
+and provider execution are measured separately. Provider times exclude editor
+rendering, IPC and preparation of the accepted parse.
+
+The baseline's warm 4,000-line provider workload measured roughly 0.5 ms for
+definition, 1 ms for hover, 1.8 ms for completion and 2.4 ms for signature
+help. In the end-to-end typing benchmark with 5,000 lines and workspace
+indexing, 16 completions took a median of 15.1 ms before and 15.2 ms after.
+The initial document-symbol response fell from 1.53 s to 1.27 s. Both runs
+returned the same number of bytes and completed all six background requests.
+On a cold, 500-file workspace with 50,000 lines, 30 lightweight probes on
+the branch had a 0.5 ms median and a 71 ms maximum during discovery.
+
+One uncached Polars 2.0.0 model preparation took 6.4 s.
+A separate replay of static return inference took
+4.5 s. On the 259-line `R/navigation.R`, default lintr took 301 ms on
+first submission and styler took 995 ms. Formatting the resulting styled
+buffer took 5 ms. These backend timings exclude process launch and queuing.
+
+The main remaining interactive cost measured here was finding references to
+methods across intervening calls. On the branch, 32 consumer files produced
+1,025 verified locations. First References and Rename took 2.27 and 2.41 s,
+respectively, and repeats took 23 and 26 ms. In a 12-consumer profile, resolving
+individual receivers accounted for 89% of cold CPU samples, including 22%
+of all samples spent building the member context. A follow-up experiment
+could reuse package and import setup across sites in one document while still
+checking receiver identity on each side of an intervening call.
+
+Run these scripts from the branch against each installed revision. For the
+corpus, point both runs at the same baseline source directory.
+
+```sh
+Rscript --vanilla inst/benchmarks/parse-corpus.R /path/to/baseline/R 5
+Rscript --vanilla inst/benchmarks/code-actions.R actions.csv 1000 3
+Rscript --vanilla inst/benchmarks/scoped-inference.R inference.csv 1000 1000 7
+Rscript --vanilla inst/benchmarks/literate-edits.R literate.csv 100 10 5
+Rscript --vanilla inst/benchmarks/semantic-shapes.R 2000 3
+```
+
+Set `R_LIBS` to the intended installation before each run. For end-to-end
+transport and for additional cold and warm workloads, see the benchmark
+instructions below.
+
 ## Completion label details
 
 See the [completion label-details benchmark](completion-label-details.md) for

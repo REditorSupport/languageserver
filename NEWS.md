@@ -1,5 +1,10 @@
 # languageserver (development)
 
+- Speed up parsing and document refactorings in large R files, Fix All with
+  many diagnostics, and edits to Quarto or R Markdown documents. Member
+  completion in long functions and S3 dispatch across many files also take
+  less time.
+
 - Find References, Rename, highlights, call hierarchy and call-count lenses
   distinguish source members by their declarations. Named argument references
   include matching calls to source functions and methods.
