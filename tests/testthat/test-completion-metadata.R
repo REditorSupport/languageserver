@@ -719,7 +719,7 @@ test_that("Installed Polars metadata is prepared before chained LSP completion",
     lines <- c("library(polars)", "q <- pl$scan_csv(csv_file)$filter(predicate)", "q$collect")
     client %>% did_open(temp_file,text=paste(lines,collapse="\n"))
     # Resolution is asynchronous; requests never initialize the package.
-    deadline <- Sys.time() + 15
+    deadline <- Sys.time() + worker_timeout(15, covr = 30)
     repeat {
         result <- client %>% respond_completion(temp_file,c(2L,2L))
         labels <- vapply(result$items,`[[`,character(1L),"label")

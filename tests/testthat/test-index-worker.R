@@ -465,3 +465,63 @@ test_that("late discovery callbacks cannot revive a detached index", {
     expect_length(index$pending, 0L)
     expect_null(index$.__enclos_env__$private$discovery_result)
 })
+
+test_that("failed batch workers retry only files still owned by the disk index", {
+    root <- withr::local_tempdir()
+    paths <- file.path(root, c("first.R", "second.R", "third.R"))
+    uris <- unname(vapply(paths, path_to_uri, character(1L)))
+    for (path in paths) writeLines("saved <- 1", path)
+    index <- WorkspaceIndex$new(root)
+    manager <- index_test_manager()
+    index$attach_worker(manager)
+    for (path in paths) index$queue_path(path)
+    index$process_batch()
+    task <- tail(manager$tasks$values(), 1L)[[1L]]$.__enclos_env__$private
+    withr::defer(index_worker_release(task$args$key))
+    index$await_parse(uris[[2L]], cacheable = FALSE)
+    task$error(simpleError("worker exited"))
+    expect_false(index$worker_running)
+    expect_setequal(index$pending, uris[c(1L, 3L)])
+
+    index$process_batch()
+    retry <- index_test_result(manager)
+    expect_true(retry$private$args$bootstrap)
+    # A partial worker result should queue the unprocessed tail for the next batch.
+    retry$result$processed <- 1L
+    retry$private$callback(retry$result)
+    expect_true(index$summaries$has(uris[[1L]]))
+    expect_identical(index$pending, uris[[3L]])
+
+    index$process_batch()
+    last <- index_test_result(manager)
+    last$private$callback(last$result)
+    expect_true(index$summaries$has(uris[[3L]]))
+    expect_length(index$pending, 0L)
+    expect_false(index$summaries$has(uris[[2L]]))
+})
+
+test_that("a discovery error retries only the current worker lifecycle", {
+    discovery_worker_settings()
+    root <- withr::local_tempdir()
+    path <- file.path(root, "main.R")
+    writeLines("value <- 1", path)
+    manager <- index_test_manager()
+    index <- WorkspaceIndex$new(root)
+    index$attach_worker(manager)
+    index$discover()
+    index$process_batch()
+    first <- tail(manager$tasks$values(), 1L)[[1L]]$.__enclos_env__$private
+    withr::defer(index_worker_release(first$args$key))
+    first$error(simpleError("worker unavailable"))
+    expect_false(index$worker_running)
+    index$process_batch()
+    retry <- tail(manager$tasks$values(), 1L)[[1L]]$.__enclos_env__$private
+    expect_true(index$worker_running)
+    retry$callback(do.call(index_worker_discover, retry$args))
+    index$process_batch()
+    expect_true(index$files$has(path_to_uri(path)))
+    index$detach_worker()
+    first$error(simpleError("late error"))
+    expect_false(index$discovering)
+    expect_false(index$worker_running)
+})

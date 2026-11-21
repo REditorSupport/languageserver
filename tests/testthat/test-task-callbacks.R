@@ -133,3 +133,47 @@ test_that("a buffered worker error cleans observed children before completing", 
     expect_true(task$check())
     expect_true(state$cleaned)
 })
+
+test_that("failed session creation leaves the task queued for a later attempt", {
+    manager <- TaskManager$new("retry", use_session = TRUE, min_idle_sessions = 0L)
+    withr::defer(manager$stop())
+    private <- manager$.__enclos_env__$private
+    mockery::stub(private$ensure_demand_sessions, "private$create_session", function() stop("unavailable"))
+    result <- NULL
+    manager$add_task("doc", create_task(identity, list(TRUE), callback = function(value) result <<- value))
+    manager$run_tasks()
+    expect_true(manager$has("doc"))
+    expect_identical(private$running_tasks$size(), 0L)
+    private$sessions <- list(callback_session())
+    manager$run_tasks()
+    manager$check_tasks()
+    expect_true(result)
+    expect_false(manager$has_work())
+})
+
+test_that("failed and finished workers leave the session pool without dropping healthy work", {
+    withr::local_envvar(R_COVR = "false")
+    failed <- callback_session()
+    failed$get_state <- function() stop("session disconnected")
+    finished <- callback_session()
+    finished$state <- "finished"
+    idle <- callback_session()
+    manager <- callback_manager(list(failed, finished, idle))
+    withr::defer(manager$stop())
+    private <- manager$.__enclos_env__$private
+    manager$check_tasks()
+    expect_true(failed$killed)
+    expect_identical(private$sessions, list(idle))
+
+    # A second worker can fail between pruning and dispatch.
+    broken <- callback_session()
+    broken$get_state <- function() stop("read failed")
+    private$sessions <- list(broken, idle)
+    result <- NULL
+    manager$add_task("doc", create_task(identity, list(TRUE), callback = function(value) result <<- value))
+    manager$run_tasks()
+    manager$check_tasks()
+    expect_true(broken$killed)
+    expect_true(result)
+    expect_false(manager$has_work())
+})
