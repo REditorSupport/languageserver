@@ -386,6 +386,16 @@ test_that("inlay edit bound covers nested outer calls and moves with edits", {
     expect_null(changed)
 })
 
+test_that("inlay positions include literal U+FEFF inserted before a call", {
+    fixture <- provider_fixture("x <- 1; target(one, two)")
+    indexed <- fixture$document$inlay_hint_data
+    moved <- inlay_hint_apply_change(indexed, list(
+        range = range(position(0L, 0L), position(0L, 0L)), text = "\ufeff"
+    ), fixture$document$content)
+    expect_equal(moved$calls$col, indexed$calls$col + 1L)
+    expect_equal(moved$arguments$col, indexed$arguments$col + 1L)
+})
+
 test_that("inlay hints move untouched calls through sequential Unicode edits", {
     fixture <- provider_fixture(
         c('label <- "\U0001f600"; target(one, two)', "", "target(, two, three)"),

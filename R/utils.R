@@ -890,6 +890,12 @@ format_file_size <- function(bytes) {
 is_text_file <- function(path, n = 1000) {
     bytes <- readBin(path, "raw", n = n + 3)
     bin <- if (length(bytes) > n) bytes[seq_len(n)] else bytes
+    encoding <- text_bom_encoding(bytes)
+    if (!is.null(encoding)) {
+        # Zero bytes are normal in UTF-16/32 code units, but a NUL in UTF-8
+        # cannot be read into an R string.
+        return(encoding != "UTF-8" || !any(bin == as.raw(0)))
+    }
     # R strings cannot contain NUL. rawToChar() silently strips trailing NULs.
     if (!any(bin == as.raw(0))) {
         if (validUTF8(rawToChar(bin))) return(TRUE)
@@ -906,12 +912,7 @@ is_text_file <- function(path, n = 1000) {
         return(identical(detected$Confidence[1L], 1))
     }
 
-    # A byte order mark identifies UTF-16 or UTF-32 without statistical detection.
-    if (length(bin) < 2L) return(FALSE)
-    prefix <- bin[1:2]
-    identical(prefix, as.raw(c(0xff, 0xfe))) ||
-        identical(prefix, as.raw(c(0xfe, 0xff))) ||
-        (length(bin) >= 4L && identical(bin[1:4], as.raw(c(0, 0, 0xfe, 0xff))))
+    FALSE
 }
 
 compare_position <- function(position1, position2) {

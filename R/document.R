@@ -121,7 +121,7 @@ Document <- R6::R6Class(
                 if (is.null(change$range)) {
                     self$set_content(
                         version,
-                        split_text_lines(change$text)
+                        split_document_lines(change$text)
                     )
                     next
                 }
@@ -131,9 +131,9 @@ Document <- R6::R6Class(
                 replacement <- split_text_lines(change$text)
 
                 start_line <- self$line0(start$row)
-                end_line <- strip_utf8_bom(self$line0(end$row))
+                end_line <- self$line0(end$row)
                 prefix <- if (start$col > 0L) {
-                    substr(strip_utf8_bom(start_line), 1L, start$col)
+                    substr(start_line, 1L, start$col)
                 } else {
                     ""
                 }

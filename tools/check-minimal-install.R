@@ -72,6 +72,10 @@ check_minimal_install <- function(source_path = ".") {
     writeBin(charToRaw(enc2utf8(paste0(line, "\r\n"))), path)
     stopifnot(identical(namespace$read_text_lines(path), line), namespace$is_text_file(path),
         namespace$match_with("caf\u00e9", "\u00c9"), namespace$fuzzy_find("\u6e2c_test", "\u6e2ct"))
+    marked <- file.path(workspace, "marked.txt")
+    # UTF-32LE signature, U+6E2C, LF.
+    writeBin(as.raw(c(0xff, 0xfe, 0, 0, 0x2c, 0x6e, 0, 0, 0x0a, 0, 0, 0)), marked)
+    stopifnot(identical(namespace$read_text_lines(marked), "\u6e2c"))
     stopifnot(is.null(namespace$roxygen2_namespace()))
     comments <- c("#' Local documentation marker", "#' @param x The input marker")
     fallback <- "Local documentation marker  \n@param x The input marker"
@@ -128,7 +132,7 @@ check_minimal_install <- function(source_path = ".") {
     uri <- namespace$path_to_uri(file.path(workspace, "minimal-buffer.R"))
     content <- c(comments, "hello <- function(x, y = 2) x + y",
         "plain <- function(value = 1) value", "hello(x = 1)", "plain()",
-        "fs::path_abs('.')", "hel", "pla", '"\U0001f642"; old_name <- 1')
+        "fs::path_abs('.')", "hel", "pla", '"marked.txt"', "marker <- '", "\ufeff\U0001f642'; old_name <- 1")
     client$deliver(namespace$Notification$new("textDocument/didOpen", list(textDocument = list(
         uri = uri, languageId = "r", version = 1L,
         text = paste(content, collapse = "\r\n")))))
@@ -138,7 +142,7 @@ check_minimal_install <- function(source_path = ".") {
         vapply(symbols$result, `[[`, character(1L), "name")
     }
     stopifnot(all(c("hello", "old_name") %in% symbol_names()))
-    # The emoji takes two UTF-16 code units on the wire.
+    # U+FEFF inside the multiline string counts as one UTF-16 unit, the emoji as two.
     row <- length(content) - 1L
     edit <- list(start = list(line = row, character = 6L), end = list(line = row, character = 14L))
     client$deliver(namespace$Notification$new("textDocument/didChange", list(
@@ -152,6 +156,8 @@ check_minimal_install <- function(source_path = ".") {
         stopifnot(is.null(result$error))
         result$result
     }
+    definition <- text_request("textDocument/definition", 9L, 3L)
+    stopifnot(identical(normalizePath(namespace$path_from_uri(definition$uri)), normalizePath(marked)))
     for (case in list(list(name = "hello", line = 7L, call = 4L, character = 6L,
                 signature = "hello(x, y = 2)"),
             list(name = "plain", line = 8L, call = 5L, character = 6L,

@@ -1,13 +1,17 @@
-strip_utf8_bom <- function(text) {
-    text <- enc2utf8(text)
-    bom <- which(startsWith(text, "\ufeff"))
-    if (length(bom)) text[bom] <- substr(text[bom], 2L, nchar(text[bom]))
+strip_document_bom <- function(text) {
+    if (length(text) && isTRUE(startsWith(text[[1L]], "\ufeff"))) {
+        text[[1L]] <- substr(text[[1L]], 2L, nchar(text[[1L]]))
+    }
     text
+}
+
+split_document_lines <- function(text) {
+    split_text_lines(strip_document_bom(text))
 }
 
 split_text_lines <- function(text, keep_final_empty = TRUE) {
     if (is.na(text)) return(NA_character_)
-    text <- strip_utf8_bom(text)
+    text <- enc2utf8(text)
     if (!nzchar(text)) return("")
     # Normalize Unicode line breaks before a fixed split. Splitting at each
     # regex match is much slower for large UTF-8 documents.
@@ -17,18 +21,46 @@ split_text_lines <- function(text, keep_final_empty = TRUE) {
     strsplit(text, "\n", fixed = TRUE)[[1L]]
 }
 
+# UTF-32LE starts with the UTF-16LE signature, so check the longer marks first.
+text_byte_order_marks <- list(
+    "UTF-32BE" = as.raw(c(0, 0, 0xfe, 0xff)),
+    "UTF-32LE" = as.raw(c(0xff, 0xfe, 0, 0)),
+    "UTF-8" = as.raw(c(0xef, 0xbb, 0xbf)),
+    "UTF-16BE" = as.raw(c(0xfe, 0xff)),
+    "UTF-16LE" = as.raw(c(0xff, 0xfe))
+)
+
+text_bom_encoding <- function(bytes) {
+    for (encoding in names(text_byte_order_marks)) {
+        mark <- text_byte_order_marks[[encoding]]
+        if (length(bytes) >= length(mark) && identical(bytes[seq_along(mark)], mark)) return(encoding)
+    }
+    NULL
+}
+
 decode_text_bytes <- function(bytes, encoding) {
     if (identical(encoding, "")) encoding <- NULL
-    # Explicit and configured ICU charsets take precedence even for bytes
-    # that incidentally form valid UTF-8. Without ICU, prefer UTF-8 on disk
-    # so the index agrees with the same source text opened in the editor.
+    bom <- text_bom_encoding(bytes)
+    if (!is.null(bom)) {
+        # A matching Unicode declaration can omit the byte order. A conflicting
+        # explicit charset owns the original bytes, including the apparent mark.
+        declared <- gsub("[-_]", "", toupper(encoding))
+        signature <- gsub("-", "", bom)
+        if (is.null(encoding) || declared %in% c(signature, sub("(LE|BE)$", "", signature))) {
+            encoding <- bom
+            bytes <- bytes[-seq_along(text_byte_order_marks[[bom]])]
+        }
+    }
+    # Unmarked files retain any configured ICU charset. Without ICU, prefer
+    # UTF-8 so an indexed file agrees with the same source opened in the editor.
     if (is.null(encoding)) {
         use_icu_default <- isNamespaceLoaded("stringi") ||
             (!l10n_info()[["UTF-8"]] && requireNamespace("stringi", quietly = TRUE))
         if (use_icu_default) encoding <- stringi::stri_enc_get()
     }
-    if (is.null(encoding) || toupper(encoding) %in% c("UTF-8", "UTF8")) {
-        text <- iconv(list(bytes), from = "UTF-8", to = "UTF-8")
+    from <- if (is.null(encoding) || toupper(encoding) == "UTF8") "UTF-8" else toupper(encoding)
+    if (from %in% names(text_byte_order_marks)) {
+        text <- iconv(list(bytes), from = from, to = "UTF-8")
         if (!is.na(text)) return(text)
     }
     # ICU preserves the previous handling of malformed input and legacy
@@ -58,7 +90,7 @@ read_text_lines <- function(path, encoding = NULL) {
 
 write_text_lines <- function(text, path) {
     stopifnot(!anyNA(text))
-    writeLines(strip_utf8_bom(text), path, useBytes = TRUE)
+    writeLines(enc2utf8(strip_document_bom(text)), path, useBytes = TRUE)
 }
 
 count_newlines <- function(text) {
@@ -67,7 +99,7 @@ count_newlines <- function(text) {
 }
 
 leading_whitespace <- function(text) {
-    text <- strip_utf8_bom(text)
+    text <- enc2utf8(text)
     match <- regexpr(paste0("^", unicode_whitespace, "*"), text, perl = TRUE)
     substring(text, 1L, attr(match, "match.length"))
 }
