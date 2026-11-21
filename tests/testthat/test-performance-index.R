@@ -159,6 +159,28 @@ test_that("unchanged buffers reuse their current parse after cache eviction", {
     document$set_content(1L, "changed <- 2")
     expect_s3_class(parse_task(self, uri, document), "Task")
 })
+
+test_that("member assignment discovery preserves source order and lexical boundaries", {
+    code <- expression(
+        a <- b <- 1,
+        if (a) x$field[[1L]] <- 2,
+        (factory <- maker)(, arg = (argument <- 3)),
+        `:=`("quoted", 4),
+        child <- function(default = (hidden <- 1)) {
+            inner <- 1
+        },
+        a <- x,
+        invisible((`<-`)(ignored, 1)),
+        base::`<-`(qualified, 2)
+    )
+    expect_identical(member_assigned_names(code),
+        c("a", "b", "x", "factory", "argument", "quoted", "child"))
+    expect_identical(member_assigned_names(quote(`=`(new_name, 1))), "new_name")
+    expect_identical(member_assigned_names(as.pairlist(as.list(code))), character())
+    expect_identical(member_assigned_names(quote(f(, ))), character())
+    expect_identical(member_assigned_names(), character())
+})
+
 test_that("source discovery includes computed callees without executing them", {
     marker <- new.env(parent = emptyenv())
     marker$ran <- FALSE
