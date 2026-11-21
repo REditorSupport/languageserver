@@ -36,6 +36,9 @@ definition_reply <- function(id, uri, workspace, document, point,
         }
     }
 
+    s4 <- s4_definition_at(uri, workspace, document, point)
+    if (length(s4)) return(Response$new(id, result = s4))
+
     symbol_definition_reply(id, uri, workspace, document, point, rootPath, context_uri, text_document_content)
 }
 
@@ -55,6 +58,55 @@ xml_argument_definition <- function(document, parsed, point) {
     args <- xml_find_all_(fns[[length(fns)]], "SYMBOL_FORMALS")
     i <- match(xml_text(token), xml_text(args))
     if (!is.na(i)) location(document$uri, get_element_range(document, args[[i]]))
+}
+
+s4_definition_operators <- c("SPECIAL", "'+'", "'-'", "'*'", "'/'", "'^'", "':'", "'!'",
+    "AND", "OR", "LT", "LE", "GT", "GE", "EQ", "NE", "'['", "LBB")
+
+# An S4 call may have several source definitions. Only Go to Definition takes
+# this path: providers that identify a lexical binding need a single location.
+s4_definition_at <- function(uri, workspace, document, point) {
+    parsed <- workspace$get_parse_data(uri)
+    syntax <- parsed$syntax_data
+    if (is.null(syntax)) return(NULL)
+    row <- point$row + 1L
+    col <- point$col + 1L
+    # On x[f(i)], selecting the bracket and selecting the first letter of f
+    # refer to different calls even when both have S4 methods.
+    token <- navigation_token(parsed, row, col, c("SYMBOL", "SYMBOL_FUNCTION_CALL", s4_definition_operators))
+    if (!token) return(NULL)
+    kind <- syntax$token[[token]]
+    if (kind == "STR_CONST") {
+        name <- s4_definition_literal(parsed, token)
+        if (is.null(name)) return(NULL)
+    } else {
+        name <- syntax$text[[token]]
+        if (kind %in% c("SYMBOL", "SYMBOL_FUNCTION_CALL")) {
+            # Qualified names, slots and member calls belong to their receiver.
+            parent <- syntax$parent_row[[token]]
+            if (length(syntax_children(syntax, parent)) != 1L) return(NULL)
+            name <- reference_symbol_names(name)
+        } else if (!kind %in% s4_definition_operators) {
+            return(NULL)
+        } else if (kind == "'^'") {
+            name <- "^" # R also spells this operator **.
+        }
+        if (kind %in% c("SYMBOL_FUNCTION_CALL", "'['", "LBB") && s4_definition_replacement(syntax, token)) {
+            name <- paste0(name, "<-")
+        }
+    }
+
+    direct <- workspace_s4_definitions(workspace, uri, name)
+    targets <- direct
+    for (group in s4_definition_groups(name)) {
+        targets <- c(targets, workspace_s4_definitions(workspace, uri, group, methods_only = TRUE))
+    }
+    if (!length(targets)) return(NULL)
+    if (kind != "STR_CONST") {
+        binding <- s4_masking_definition(workspace, document, point, token, name, direct)
+        if (!is.null(binding)) return(binding)
+    }
+    if (length(targets) == 1L) targets[[1L]] else targets
 }
 
 # Reference, rename and call-hierarchy indexes track lexical symbols separately

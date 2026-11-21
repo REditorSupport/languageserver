@@ -839,6 +839,7 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
         env$range_data$strings <- merge_partial_strings(env$range_data$strings, literate$partial_strings, literate$incomplete_lines)
     }
     env$source_specs <- index_source_specs(expr)
+    env$s4_declarations <- s4_declarations(expr, content, incomplete_lines)
     env$reference_index <- reference_parse_data(
         data, content, env$completion_data, uri, env$definitions, env$syntax_data)
     # Indexed providers need no XML. Keep it out of worker snapshots and
