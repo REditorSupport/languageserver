@@ -1,5 +1,5 @@
 # Older summaries can contain stale definitions copied from an earlier valid file.
-index_cache_version <- 5L
+index_cache_version <- 6L
 
 #' Recognize a package without recursively searching a workspace
 #' @noRd
@@ -270,6 +270,12 @@ index_physical_srcrefs <- function(expr, srcfile, text, tabbed) {
         attr(ref, "srcfile") <- srcfile
         ref
     })
+    # Braces carry a separate set of references for their top-level statements.
+    for (i in seq_along(expr)) {
+        if (member_head(expr[[i]], "{")) {
+            expr[[i]] <- index_physical_srcrefs(expr[[i]], srcfile, text, tabbed)
+        }
+    }
     expr
 }
 
@@ -400,6 +406,8 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
         content_hash = get_content_hash(content),
         definitions = definitions,
         functions = functions,
+        s4_declarations = if (is.null(parse_data)) s4_declarations(expressions, content, incomplete_lines) else
+            parse_data$s4_declarations,
         s3 = s3_index_summary(content, path_to_uri(path), expressions, parse_data, incomplete_lines = incomplete_lines),
         sources = sources,
         source_candidates = source_candidates,
@@ -466,6 +474,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
         package_memberships = NULL,
         definition_counts = NULL,
         package_definition_counts = NULL,
+        s4_sources = NULL,
         update_definition_names = function(previous, current, counts = private$definition_counts) {
             for (name in setdiff(previous, current)) {
                 count <- counts$get(name, 0L) - 1L
@@ -728,6 +737,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             private$package_memberships <- collections::dict()
             private$definition_counts <- collections::dict()
             private$package_definition_counts <- collections::dict()
+            private$s4_sources <- collections::dict()
             private$activated_packages <- collections::dict()
             private$discovery_seen <- collections::dict()
             private$discovered_files <- collections::dict()
@@ -889,7 +899,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             if (isTRUE(discard_summary) && self$summaries$has(uri)) {
                 empty <- self$summaries$get(uri)
                 empty$sources <- empty$source_candidates <- character()
-                empty$definitions <- empty$functions <- list()
+                empty$definitions <- empty$functions <- empty$s4_declarations <- list()
                 empty$parse_error <- FALSE
                 empty$package_root <- NULL
                 self$set_summary(empty)
@@ -1319,6 +1329,16 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             self$summaries$set(uri, summary)
             private$update_definition_names(names(previous$definitions), names(summary$definitions))
             private$update_package_definitions(previous, summary)
+            old <- names(previous$s4_declarations)
+            new <- names(summary$s4_declarations)
+            for (name in setdiff(old, new)) {
+                others <- setdiff(private$s4_sources$get(name), uri)
+                if (length(others)) private$s4_sources$set(name, others)
+                else private$s4_sources$remove(name)
+            }
+            for (name in setdiff(new, old)) {
+                private$s4_sources$set(name, c(private$s4_sources$get(name, character()), uri))
+            }
             private$failed_parses$pop(uri, NULL)
             if (private$awaiting_parses$has(uri)) private$awaiting_parses$remove(uri)
             private$mark_dirty(uri, summary)
@@ -1539,7 +1559,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             if (!is.null(previous)) {
                 empty <- previous
                 empty$sources <- empty$source_candidates <- character()
-                empty$definitions <- empty$functions <- list()
+                empty$definitions <- empty$functions <- empty$s4_declarations <- list()
                 empty$parse_error <- FALSE
                 empty$package_root <- NULL
                 self$set_summary(empty)
@@ -1648,6 +1668,8 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             private$package_memberships$set(key, result)
             result
         },
+
+        s4_declaration_uris = function(name) private$s4_sources$get(name, character()),
 
         has_definition = function(name, uri = NULL) {
             if (!private$definition_counts$has(name)) return(FALSE)

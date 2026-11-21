@@ -1,5 +1,9 @@
 # languageserver (development)
 
+- Go to Definition on an S4 generic shows its source declaration and visible
+  method registrations. This also works for replacement calls, operators and
+  literal generic names in calls such as `selectMethod()` (#628).
+
 - Keep highlighting, navigation, completions, outlines, folding, and hints
   available in recoverable R code while typing incomplete expressions such as
   `pkg::`. R Markdown and Quarto recover each R cell independently. Rename and

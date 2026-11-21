@@ -24,7 +24,85 @@ definition_reply <- function(id, uri, workspace, document, point,
         if (!is.null(member)) return(Response$new(id, result = member$result))
     }
 
+    s4 <- s4_definition_at(uri, workspace, document, point)
+    if (length(s4)) return(Response$new(id, result = s4))
+
     symbol_definition_reply(id, uri, workspace, document, point, rootPath, context_uri, text_document_content)
+}
+
+s4_definition_operators <- c("SPECIAL", "'+'", "'-'", "'*'", "'/'", "'^'", "':'", "'!'",
+    "AND", "OR", "LT", "LE", "GT", "GE", "EQ", "NE", "'['", "LBB")
+
+# An S4 call may have several source definitions. Only Go to Definition takes
+# this path: providers that identify a lexical binding need a single location.
+s4_definition_at <- function(uri, workspace, document, point) {
+    parsed <- workspace$get_parse_data(uri)
+    syntax <- parsed$syntax_data
+    if (is.null(syntax)) return(NULL)
+    row <- point$row + 1L
+    col <- point$col + 1L
+    token <- navigation_token(parsed, row, col)
+    if (!token) return(NULL)
+    # At x[i] the shared token boundary normally selects x. Prefer an operator
+    # that actually starts under the cursor when looking up an S4 method.
+    if (syntax$line2[[token]] == row && syntax$col2[[token]] == col - 1L &&
+            grepl("^[[%+*/^:!&|<>=-]", substr(document$line0(point$row), col, col))) {
+        parent <- syntax$parent_row[[token]]
+        while (parent && syntax$line2[[parent]] == row && syntax$col2[[parent]] < col) {
+            parent <- syntax$parent_row[[parent]]
+        }
+        siblings <- if (parent) syntax_children(syntax, parent)
+        operator <- siblings[syntax$line1[siblings] == row & syntax$col1[siblings] == col &
+                syntax$token[siblings] %in% s4_definition_operators]
+        if (length(operator)) token <- operator[[1L]]
+    }
+    kind <- syntax$token[[token]]
+    if (kind == "STR_CONST") {
+        name <- s4_definition_literal(parsed, token)
+        if (is.null(name)) return(NULL)
+    } else {
+        name <- syntax$text[[token]]
+        if (kind %in% c("SYMBOL", "SYMBOL_FUNCTION_CALL")) {
+            # Qualified names, slots and member calls belong to their receiver.
+            parent <- syntax$parent_row[[token]]
+            if (length(syntax_children(syntax, parent)) != 1L) return(NULL)
+            name <- reference_symbol_names(name)
+        } else if (!kind %in% s4_definition_operators) {
+            return(NULL)
+        } else if (kind == "'^'") {
+            name <- "^" # R also spells this operator **.
+        }
+        if (kind %in% c("SYMBOL_FUNCTION_CALL", "'['", "LBB") && s4_definition_replacement(syntax, token)) {
+            name <- paste0(name, "<-")
+        }
+    }
+
+    targets <- workspace_s4_definitions(workspace, uri, name)
+    if (!length(targets)) return(NULL)
+    if (kind != "STR_CONST") {
+        local <- s4_definition_binding(parsed, document, token, name)
+        binding <- NULL
+        if (!is.null(local)) {
+            binding <- location(uri, local)
+        } else if (is.function(workspace$get_namespace)) {
+            scope <- workspace$get_namespace(WORKSPACE, uri = uri)
+            if (!is.null(scope)) {
+                binding <- scope$get_definition(name)
+                if (identical(binding$uri, uri)) binding <- NULL
+            }
+        }
+        if (!is.null(binding)) {
+            # setGeneric/setMethod can turn an earlier ordinary function into
+            # the default method. A later assignment masks the generic again.
+            at <- if (identical(binding$uri, uri)) document$to_lsp_position(point$row, point$col) else position(Inf, Inf)
+            after_binding <- range(binding$range$end, at)
+            promoted <- any(vapply(targets, function(target) {
+                identical(binding$uri, target$uri) && lsp_range_contains(after_binding, target$range$end)
+            }, logical(1L)))
+            if (!promoted) return(binding)
+        }
+    }
+    if (length(targets) == 1L) targets[[1L]] else targets
 }
 
 # Reference, rename and call-hierarchy indexes track lexical symbols separately
