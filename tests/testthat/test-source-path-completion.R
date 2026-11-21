@@ -160,3 +160,20 @@ test_that("source quote requests after a long prefix use the current parse", {
     expect_true("helper.R" %in% complete('base::source("', 2L))
     expect_length(complete('obj $ source("', 3L), 0L)
 })
+
+test_that("source path recovery checks later arguments while the parse is stale", {
+    root <- withr::local_tempdir()
+    file.create(file.path(root, "helper.R"))
+    workspace <- list(root = root)
+    choices <- function(lines) {
+        fixture <- source_path_fixture(lines, workspace)
+        fixture$doc$parse_data$version <- 0L
+        source_path_completion(fixture$doc, fixture$point, workspace)
+    }
+    selected <- choices(c('base::source("he|",', "    local = TRUE)", "later <- 1"))
+    expect_identical(map_chr(selected$items, "label"), "helper.R")
+    expect_null(choices(c('base::source("he|",', '    file = "other.R")')))
+    expect_null(choices(c('base::source("he|",', paste0("#", strrep("a", 16500L)), ")")))
+    expect_null(choices(c(rep("# older lines", 130L), 'base::source("he|")')))
+    expect_null(choices('base::source("https://example.org/he|")'))
+})

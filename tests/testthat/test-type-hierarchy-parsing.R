@@ -390,3 +390,38 @@ test_that("Element ranges reject absent or incomplete parse nodes", {
         document, xdoc, list(name = "Anything")
     ))
 })
+
+test_that("subtype searches accept mixed indexed and XML snapshots and cache by context", {
+    root <- provider_fixture(c(
+        'R6Kid <- R6Class("R6Kid", inherit = Parent)',
+        'setClass("S4Kid", contains = "Parent")',
+        'setRefClass("RefKid", contains = "Parent")'))
+    peer_uri <- "file:///peer.R"
+    peer_code <- c('setClass("S4Kid", contains = "Parent")',
+        'setClass("Sibling", contains = "Parent")')
+    peer <- Document$new(peer_uri, version = 1L, content = peer_code)
+    parsed <- parse_document(peer_uri, peer_code)
+    parsed$version <- peer$version
+    peer$update_parse_data(parsed)
+    ws <- root$workspace
+    ws$documents$set(peer_uri, peer)
+    ws$type_hierarchy_cache <- collections::dict()
+    ws$document_uris_for_context <- function(uri) {
+        if (uri == peer_uri) peer_uri else c(root$uri, peer_uri)
+    }
+
+    # A snapshot without class facts still supplies its XML to the providers.
+    root$document$parse_data$class_data <- NULL
+    root$document$parse_data$class_declarations <- NULL
+    children <- function(type, context = root$uri) {
+        find_type_subtypes(ws, list(name = "Parent", classType = type, uri = root$uri), context)
+    }
+    expect_identical(map_chr(children("R6"), "name"), "R6Kid")
+    expect_identical(map_chr(children("RefClass"), "name"), "RefKid")
+    both <- children("S4")
+    expect_identical(map_chr(both, "name"), c("S4Kid", "Sibling"))
+    expect_identical(map_chr(both, "uri"), c(root$uri, peer_uri))
+    expect_identical(map_chr(children("S4", peer_uri), "uri"), rep(peer_uri, 2L))
+    expect_identical(children("S4"), both)
+    expect_length(children("S3"), 0L)
+})
