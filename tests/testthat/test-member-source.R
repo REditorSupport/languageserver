@@ -47,6 +47,14 @@ test_that("Scoped histories select the same statements as conservative backwards
     }
 })
 
+test_that("Scoped dependencies follow field writes at the point of each read", {
+    statements <- c("x <- list()", "other <- list()", "other$skip <- 9", "x$first <- 5",
+        "value <- x$first", "x$second <- 8", "message(value)", "x <- list(fresh = 3)",
+        "x$third <- x$fresh", "x$third")
+    scope <- member_scope_index(parse(text = c("{", statements, "}"))[[1L]])
+    expect_identical(member_scope_slice(scope, 10L, "x"), c(1L, 4L, 5L, 7L, 8L, 9L, 10L))
+})
+
 test_that("Serialized source indexes preserve nested scopes, defaults and alias captures", {
     cases <- list(
         c("probe <- function() {", "x <- list(old = 1)", "read <- function() x",

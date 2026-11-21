@@ -164,7 +164,10 @@ test_that("S3 reuse validates peer contents and metadata identity", {
     fixture$workspace$documents$set(peer$uri, peer)
     resolve <- function() {
         context <- s3_context(fixture$uri, fixture$workspace, fixture$document, c(1L, 0L))
-        list(value = s3_source_value("item", context), context = context)
+        expect_length(ls(context$binding_keys), 0L)
+        value <- s3_source_value("item", context)
+        expect_true(fixture$uri %in% ls(context$binding_keys))
+        list(value = value, context = context)
     }
     expect_identical(resolve()$value$classes, "data.frame")
     expect_identical(resolve()$context$nodes, 0L)

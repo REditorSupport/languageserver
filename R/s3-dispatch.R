@@ -88,7 +88,8 @@ s3_source_view <- function(document, peer = FALSE) {
 }
 
 s3_source_value <- function(name, context) {
-    for (source in context$sources) {
+    for (i in seq_along(context$sources)) {
+        source <- context$sources[[i]]
         at <- if (identical(source$uri, context$source_uri)) context$at else c(Inf, Inf)
         history <- source$index$histories[[name]]
         position <- member_history_position(history, at)
@@ -102,9 +103,8 @@ s3_source_value <- function(name, context) {
             return(s3_unknown("binding_cycle"))
         }
         item <- source$items[[record$item]]
-        cache_key <- if (!is.null(context$binding_cache) && s3_binding_context_unchanged(context) && !is.null(item$cache_prefix) &&
-                !is.null(context$binding_contexts[[source$uri]])) {
-            paste(source$uri, name, position, item$cache_prefix, context$binding_contexts[[source$uri]], sep = ":")
+        cache_key <- if (!is.null(context$binding_cache) && !is.null(item$cache_prefix) && s3_binding_context_unchanged(context)) {
+            paste(source$uri, name, position, item$cache_prefix, s3_binding_context_key(context, i), sep = ":")
         }
         cached <- analysis_cache_get(context$binding_cache, cache_key)
         if (cached$hit) {
@@ -302,7 +302,7 @@ s3_context_sources <- function(uri, workspace, document) {
     for (other in setdiff(others, uri)) {
         candidate <- workspace$documents$get(other, NULL)
         if (!is.null(candidate) && identical(candidate$version, candidate$parse_data$version)) {
-            sources <- c(sources, list(s3_source_view(candidate, peer = TRUE)))
+            sources[[length(sources) + 1L]] <- s3_source_view(candidate, peer = TRUE)
         }
     }
     if (!is.null(workspace$index) && isTRUE(workspace$index$enabled)) {
@@ -310,7 +310,7 @@ s3_context_sources <- function(uri, workspace, document) {
         uris <- if (!is.null(package_root)) workspace$index$package_source_uris(package_root) else workspace$index$source_closure(uri, update = FALSE)
         for (other in setdiff(uris, c(uri, others))) {
             summary <- workspace$index$summaries$get(other, NULL)
-            if (!is.null(summary$s3)) sources <- c(sources, list(summary$s3))
+            if (!is.null(summary$s3)) sources[[length(sources) + 1L]] <- summary$s3
         }
     }
     Filter(Negate(is.null), sources)
@@ -384,28 +384,38 @@ s3_context <- function(uri, workspace, document, at) {
     context$analyzer <- analyzer
     context$binding_root <- as.list(context$root, all.names = TRUE)
     context$binding_imports <- context$imports
-    context$binding_contexts <- list()
     if (!isTRUE(context$incomplete) && !isTRUE(context$registration_unknown) && !isTRUE(context$exhausted) &&
             is.function(metadata$revision) && is.function(metadata$identity) &&
             all(vapply(context$sources, function(source) !is.null(source$content_key), logical(1L)))) {
         context$binding_cache <- analysis_cache(document, "s3-bindings",
             list(metadata = metadata$identity(), revision = metadata$revision(), namespace = namespace$key),
             max_bytes = 4 * 1024^2)
-        source_keys <- vapply(context$sources, `[[`, "", "content_key")
-        source_uris <- vapply(context$sources, `[[`, "", "uri")
-        registrations <- unlist(lapply(context$sources, function(source) {
+        context$binding_keys <- new.env(parent = emptyenv())
+        context$source_uris <- vapply(context$sources, `[[`, "", "uri")
+        context$source_keys <- vapply(context$sources, `[[`, "", "content_key")
+        context$registrations <- unlist(lapply(context$sources, function(source) {
             vapply(source$index$registrations, function(i) {
                 item <- source$items[[i]]
                 if (!identical(source$uri, uri) || member_before(item$end, at)) item$cache_prefix %s3_or% "" else ""
             }, "")
         }), use.names = FALSE)
-        for (i in seq_along(source_uris)) {
-            context$binding_contexts[[source_uris[[i]]]] <- digest::digest(list(
-                sources = source_uris[-i], content = source_keys[-i], imports = context$imports,
-                registrations = registrations, startup = startup_packages), algo = "xxhash64")
-        }
     }
     context
+}
+
+# The binding prefix covers its own file up to the assignment. Hash the other
+# sources in search order, once for each file actually supplying a binding.
+s3_binding_context_key <- function(context, i) {
+    uri <- context$source_uris[[i]]
+    key <- context$binding_keys[[uri]]
+    if (is.null(key)) {
+        peers <- list(sources = context$source_uris[-i], content = context$source_keys[-i],
+            imports = context$binding_imports, registrations = context$registrations,
+            startup = startup_packages)
+        key <- digest::digest(peers, algo = "xxhash64")
+        context$binding_keys[[uri]] <- key
+    }
+    key
 }
 
 s3_binding_context_unchanged <- function(context) {
