@@ -356,3 +356,20 @@ test_that("LanguageBase isolates callback failures for results and errors", {
         error = list(message = "broken")
     )))
 })
+
+test_that("legacy stdin readers preserve header boundaries and UTF-8 body bytes", {
+    skip_on_cran()
+    header <- paste0("X-Extension: ", strrep("a", 1100L))
+    body <- strrep(enc2utf8("\u00e9"), 1100L)
+    input <- charToRaw(paste0(header, "\r\n\n", body))
+    pipe <- processx::conn_create_pipepair(nonblocking = c(FALSE, FALSE))
+    withr::defer(processx::processx_conn_close(pipe[[1L]]))
+    expect_length(processx::conn_write(pipe[[2L]], input), 0L)
+    processx::processx_conn_close(pipe[[2L]])
+
+    # A child owns stdin so the test runner's input cannot be consumed.
+    read <- callr::r(function(n) {
+        list(header = stdin_read_line(), blank = stdin_read_line(), body = stdin_read_char(n))
+    }, list(nchar(body, type = "bytes")), package = "languageserver", stdin = pipe[[1L]])
+    expect_identical(read, list(header = header, blank = "", body = body))
+})

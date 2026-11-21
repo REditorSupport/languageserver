@@ -286,3 +286,39 @@ test_that("worker timeouts scale with R_LANGSVR_TIMEOUT_SCALE and ignore invalid
         expect_identical(worker_timeout(8, covr = 60), 8, info = invalid)
     }
 })
+
+test_that("removing NAMESPACE invalidates import and diagnostic caches", {
+    root <- withr::local_tempdir()
+    writeLines("Package: namespacefixture", file.path(root, "DESCRIPTION"))
+    namespace <- file.path(root, "NAMESPACE")
+    writeLines(c("import(stats)", "importFrom(utils, head)"), namespace)
+    workspace <- Workspace$new(root)
+    workspace$import_from_namespace_file()
+    expect_true("stats" %in% workspace$imported_packages)
+    expect_equal(workspace$imported_objects$get("head"), "utils")
+    workspace$diagnostics_globals_cache <- new.env()
+    workspace$diagnostics_cache$set("sentinel", TRUE)
+
+    unlink(namespace)
+    expect_true(workspace$poll_namespace_file())
+    expect_length(workspace$imported_packages, 0L)
+    expect_false(workspace$imported_objects$has("head"))
+    expect_false(workspace$diagnostics_cache$has("sentinel"))
+    expect_null(workspace$diagnostics_globals_cache)
+    expect_null(workspace$poll_namespace_file())
+})
+
+test_that("conditional NAMESPACE directives retain only reachable imports", {
+    namespace <- withr::local_tempfile()
+    writeLines(c(
+        "if (FALSE) import(unused) else import(stats, except = filter)",
+        "if (unknown_flag) { importFrom(utils, head); importFrom(utils, tail) } else import(methods)",
+        "if (TRUE) importFrom(graphics, plot) else import(unused)",
+        "importFrom(stats, except = median)"
+    ), namespace)
+    imports <- extract_namespace_imports(namespace)
+    expect_setequal(imports$packages, c("stats", "methods"))
+    expect_named(imports$objects, c("head", "tail", "plot"))
+    expect_equal(imports$objects, list(head = "utils", tail = "utils", plot = "graphics"))
+    expect_identical(imports$directives[[1L]]$except, "filter")
+})
