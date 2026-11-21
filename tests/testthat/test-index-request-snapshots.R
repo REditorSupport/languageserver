@@ -49,7 +49,7 @@ RequestSnapshotServer <- R6::R6Class("RequestSnapshotServer", inherit = Language
 
 request_snapshot_open <- function(server, path) {
     workspace <- server$get_workspace(path_to_uri(path))
-    document <- Document$new(path_to_uri(path), "r", 1L, stringi::stri_read_lines(path))
+    document <- Document$new(path_to_uri(path), "r", 1L, read_text_lines(path))
     document$did_open()
     workspace$documents$set(document$uri, document)
     server$text_sync(document$uri, document, parse = TRUE)

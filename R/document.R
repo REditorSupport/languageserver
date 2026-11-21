@@ -121,23 +121,23 @@ Document <- R6::R6Class(
                 if (is.null(change$range)) {
                     self$set_content(
                         version,
-                        stringi::stri_split_lines(change$text)[[1]]
+                        split_document_lines(change$text)
                     )
                     next
                 }
 
                 start <- self$from_lsp_position(change$range$start)
                 end <- self$from_lsp_position(change$range$end)
-                replacement <- stringi::stri_split_lines(change$text)[[1]]
+                replacement <- split_text_lines(change$text)
 
                 start_line <- self$line0(start$row)
                 end_line <- self$line0(end$row)
                 prefix <- if (start$col > 0L) {
-                    stringi::stri_sub(start_line, 1L, start$col)
+                    substr(start_line, 1L, start$col)
                 } else {
                     ""
                 }
-                suffix <- stringi::stri_sub(end_line, end$col + 1L)
+                suffix <- substr(end_line, end$col + 1L, nchar(end_line))
 
                 if (length(replacement) == 1L) {
                     changed <- paste0(prefix, replacement, suffix)

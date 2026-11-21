@@ -63,7 +63,7 @@ test_that("Timed-out test requests discard callbacks before late replies arrive"
 
 test_that("LanguageBase reads fragmented headers and content", {
     base <- TestLanguageBase$new(
-        lines = list("Content-Length: 2", character(), ""),
+        lines = list("Content-Length: 2", character(), "Content-Type: application/vscode-jsonrpc", ""),
         chars = list(character(), "a", "b")
     )
     expect_equal(base$read_header(), 2L)

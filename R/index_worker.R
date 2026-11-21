@@ -93,7 +93,7 @@ index_worker_batch <- function(key, root, updates, requests, bootstrap = FALSE,
         info <- file.info(path)
         if (nrow(info) && !isTRUE(info$isdir[[1L]]) &&
                 !is.na(info$size[[1L]]) && info$size[[1L]] <= max_file_bytes) {
-            content <- tryCatch(stringi::stri_read_lines(path), error = function(e) NULL)
+            content <- tryCatch(read_text_lines(path), error = function(e) NULL)
             if (!is.null(content)) {
                 summary <- index_shallow_summary(path, content, root, info)
                 after <- file.info(path)

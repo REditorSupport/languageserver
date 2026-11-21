@@ -15,12 +15,12 @@ test_that("Simple hover works", {
 
     result <- client %>% respond_hover(temp_file, c(0, 7))
     expect_length(result$contents, 1)
-    expect_true(stringi::stri_detect_fixed(result$contents[1], "strsplit"))
+    expect_true(grepl("strsplit", result$contents[[1]], fixed = TRUE))
     expect_equal(result$range$end$character, 12)
 
     result <- client %>% respond_hover(temp_file, c(1, 7))
     expect_length(result$contents, 1)
-    expect_true(stringi::stri_detect_fixed(result$contents[1], "path_real"))
+    expect_true(grepl("path_real", result$contents[[1]], fixed = TRUE))
     expect_equal(result$range$end$character, 13)
 })
 
@@ -477,11 +477,9 @@ test_that("Hover on function argument works", {
     expect_equal(result$range$start, list(line = 0, character = 27))
     expect_equal(result$range$end, list(line = 0, character = 36))
     expect_equal(result$contents[[1]], "```r\nunlist(x, recursive = TRUE, use.names = TRUE) \n```")
-    expect_true(stringi::stri_detect_fixed(result$contents[[2]], "`recursive` - logical"))
-    expect_true(stringi::stri_detect_fixed(
-        result$contents[[2]],
-        "Should unlisting be applied to list components of `x`"
-    ))
+    expect_true(grepl("`recursive` - logical", result$contents[[2]], fixed = TRUE))
+    expect_true(grepl("Should unlisting be applied to list components of `x`",
+            result$contents[[2]], fixed = TRUE))
 
     result <- client %>% respond_hover(temp_file, c(1, 12))
     expect_equal(result$range$start, list(line = 1, character = 10))
@@ -634,12 +632,12 @@ test_that("Simple hover works in Rmarkdown", {
 
     result <- client %>% respond_hover(temp_file, c(5, 7))
     expect_length(result$contents, 1)
-    expect_true(stringi::stri_detect_fixed(result$contents[1], "strsplit"))
+    expect_true(grepl("strsplit", result$contents[[1]], fixed = TRUE))
     expect_equal(result$range$end$character, 12)
 
     result <- client %>% respond_hover(temp_file, c(6, 7))
     expect_length(result$contents, 1)
-    expect_true(stringi::stri_detect_fixed(result$contents[1], "path_real"))
+    expect_true(grepl("path_real", result$contents[[1]], fixed = TRUE))
     expect_equal(result$range$end$character, 13)
 })
 
@@ -748,11 +746,9 @@ test_that("Hover on function argument works in Rmarkdown", {
     expect_equal(result$range$start, list(line = 5, character = 27))
     expect_equal(result$range$end, list(line = 5, character = 36))
     expect_equal(result$contents[[1]], "```r\nunlist(x, recursive = TRUE, use.names = TRUE) \n```")
-    expect_true(stringi::stri_detect_fixed(result$contents[[2]], "`recursive` - logical"))
-    expect_true(stringi::stri_detect_fixed(
-        result$contents[[2]],
-        "Should unlisting be applied to list components of `x`"
-    ))
+    expect_true(grepl("`recursive` - logical", result$contents[[2]], fixed = TRUE))
+    expect_true(grepl("Should unlisting be applied to list components of `x`",
+            result$contents[[2]], fixed = TRUE))
 
     result <- client %>% respond_hover(temp_file, c(6, 12))
     expect_equal(result$range$start, list(line = 6, character = 10))

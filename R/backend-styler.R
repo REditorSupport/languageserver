@@ -205,7 +205,7 @@ styler_range_edits <- function(uri, document, range, options) {
     }
 
     selection <- document$content[(row1:row2) + 1]
-    indention <- nchar(stringi::stri_extract_first_regex(selection[1], "^\\s*"))
+    indention <- nchar(leading_whitespace(selection[1]))
     new_text <- style_text(selection, style, indention = indention)
     if (is.null(new_text)) {
         return(list())
@@ -397,7 +397,7 @@ styler_on_type_edits <- function(uri, document, point, ch, options) {
 
         leading_lines <- start_line - chunk$start_line - run$start_line + 1L
         if (leading_lines > 0L) {
-            lines <- stringi::stri_split_lines(paste0(chunk$text, collapse = "\n"))[[1L]]
+            lines <- split_text_lines(paste0(chunk$text, collapse = "\n"))
             chunk$text <- lines[seq.int(leading_lines + 1L, length(lines))]
         }
 
@@ -413,7 +413,7 @@ styler_on_type_edits <- function(uri, document, point, ch, options) {
             style$token$force_assignment_op <- NULL
         }
 
-        prefix <- stringi::stri_extract_first_regex(content[start_line], "^\\s*")
+        prefix <- leading_whitespace(content[start_line])
         indention <- if (ch == "\n" && isFALSE(options$insertSpaces)) {
             formatting_indent_width(prefix, options$tabSize)
         } else {
@@ -439,7 +439,7 @@ styler_on_type_edits <- function(uri, document, point, ch, options) {
             }
             original <- paste0(content[start_line:end_line], collapse = "\n")
             if (ch == "\n" && !is.null(new_text) &&
-                    stringi::stri_count_fixed(new_text, "\n") != stringi::stri_count_fixed(original, "\n")) {
+                    count_newlines(new_text) != count_newlines(original)) {
                 new_text <- NULL
             }
             if (!is.null(new_text)) {
@@ -448,7 +448,7 @@ styler_on_type_edits <- function(uri, document, point, ch, options) {
                     # styler's indentation transformations count spaces.
                     line <- document$line0(point$row)
                     if (!grepl("^[ \t]*$", line)) return(NULL)
-                    lines <- stringi::stri_split_lines(new_text)[[1L]]
+                    lines <- split_text_lines(new_text)
                     width <- formatting_indent_width(lines[[length(lines)]], options$tabSize)
                     new_text <- paste0(strrep("\t", width %/% options$tabSize),
                         strrep(" ", width %% options$tabSize))

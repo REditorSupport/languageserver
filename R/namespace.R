@@ -241,7 +241,7 @@ PackageNamespace <- R6::R6Class("PackageNamespace",
 
             # Legacy clients open the generated body through a normal file URI.
             temp_file <- file.path(tempdir(), paste0(symbol, ".R"))
-            stringi::stri_write_lines(text, temp_file)
+            write_text_lines(text, temp_file)
             def <- list(
                 uri = path_to_uri(temp_file),
                 range = range(

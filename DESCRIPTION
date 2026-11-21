@@ -30,7 +30,6 @@ Imports:
     processx (>= 3.4.1),
     ps,
     R6 (>= 2.4.1),
-    stringi (>= 1.1.7),
     tools,
     utils,
     xml2 (>= 1.2.2),
@@ -49,6 +48,7 @@ Suggests:
     roxygen2 (>= 7.0.0),
     S7,
     stats4,
+    stringi (>= 1.1.7),
     stringr,
     styler (>= 1.5.1)
 ByteCompile: yes
