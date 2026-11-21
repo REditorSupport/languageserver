@@ -338,6 +338,7 @@ Workspace <- R6::R6Class("Workspace",
         s3_package_cache = NULL,
         s3_package_cache_state = NULL,
         s4_document_sources = NULL,
+        s4_names_by_uri = NULL,
         s4_document_state = NULL,
         namespace_poll_time = -Inf,
         namespace_poll_mtime = NULL,
@@ -801,10 +802,15 @@ Workspace <- R6::R6Class("Workspace",
             state <- c(self$s3_revision, self$documents$size())
             if (!identical(private$s4_document_state, state)) {
                 documents <- self$documents$values()
-                names_by_file <- lapply(documents, function(doc) names(doc$parse_data$s4_declarations))
+                names_by_file <- lapply(documents, function(doc) {
+                    if (identical(doc$version, doc$parse_data$version)) names(doc$parse_data$s4_declarations)
+                })
                 uris <- vapply(documents, function(doc) doc$uri, character(1L))
                 by_name <- split(rep.int(uris, lengths(names_by_file)), unlist(names_by_file, use.names = FALSE))
                 private$s4_document_sources <- list2env(by_name, hash = TRUE, parent = emptyenv())
+                registered <- lengths(names_by_file) > 0L
+                private$s4_names_by_uri <- list2env(stats::setNames(names_by_file[registered], uris[registered]),
+                    hash = TRUE, parent = emptyenv())
                 private$s4_document_state <- state
             }
             get0(name, private$s4_document_sources, inherits = FALSE, ifnotfound = character())
@@ -849,8 +855,34 @@ Workspace <- R6::R6Class("Workspace",
             self$documents$get(uri, NULL)$parse_data
         },
 
-        invalidate_s3_context = function() {
-            self$s3_revision <- self$s3_revision + 1L
+        invalidate_s3_context = function(uri = NULL) {
+            previous <- self$s3_revision
+            self$s3_revision <- previous + 1L
+            # A normal edit changes only this document's registrations. Keep
+            # a warm name map current without visiting unrelated documents.
+            # A transfer, inventory change or unspecified invalidation still
+            # rebuilds lazily on the next lookup.
+            if (!is.null(uri) && !is.null(private$s4_document_state)) {
+                count <- self$documents$size()
+                if (identical(private$s4_document_state, c(previous, count))) {
+                    doc <- self$documents$get(uri, NULL)
+                    fresh <- if (!is.null(doc) && identical(doc$version, doc$parse_data$version)) names(doc$parse_data$s4_declarations)
+                    old <- private$s4_names_by_uri[[uri]]
+                    if (!identical(old, fresh)) {
+                        for (name in setdiff(old, fresh)) {
+                            remaining <- setdiff(private$s4_document_sources[[name]], uri)
+                            if (length(remaining)) private$s4_document_sources[[name]] <- remaining
+                            else rm(list = name, envir = private$s4_document_sources)
+                        }
+                        for (name in setdiff(fresh, old)) {
+                            private$s4_document_sources[[name]] <- c(private$s4_document_sources[[name]], uri)
+                        }
+                        if (length(fresh)) private$s4_names_by_uri[[uri]] <- fresh
+                        else if (length(old)) rm(list = uri, envir = private$s4_names_by_uri)
+                    }
+                    private$s4_document_state <- c(self$s3_revision, count)
+                }
+            }
             invisible(NULL)
         },
 
@@ -992,7 +1024,6 @@ Workspace <- R6::R6Class("Workspace",
         },
 
         update_parse_data = function(uri, parse_data) {
-            self$invalidate_s3_context()
             doc <- self$documents$get(uri)
             previous_parse <- doc$parse_data
             if (is.null(previous_parse)) previous_parse <- doc$superseded_parse_data
@@ -1003,6 +1034,7 @@ Workspace <- R6::R6Class("Workspace",
             # Indexed providers can publish immediately. Legacy providers
             # materialize main-process XML through parse_data_xml on demand.
             doc$update_parse_data(parse_data)
+            self$invalidate_s3_context(uri)
             if (!is.null(self$index)) self$index$finish_document(uri)
             if (!is.null(self$index) && isTRUE(self$index$enabled)) {
                 index_uri <- index_canonical_uri(uri)

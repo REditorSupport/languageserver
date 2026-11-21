@@ -295,3 +295,23 @@ test_that("a quoted key in a caller retrieves its unopened source declaration on
     expect_null(result$error)
     expect_setequal(vapply(result$result, `[[`, "", "uri"), c(document$uri, path_to_uri(source)))
 })
+
+test_that("anonymous callback parameters remain local without workspace discovery", {
+    classification_settings()
+    root <- index_normalize_path(withr::local_tempdir())
+    path <- file.path(root, "main.R")
+    code <- "out <- vapply(1:3, function(element) element, integer(1))"
+    writeLines(code, path)
+    writeLines('source("main.R")', file.path(root, "unused.R"))
+    server <- ClassificationServer$new(root)
+    document <- classification_open(server, path)
+    server$parse_task_manager$finish()
+    params <- classification_params(document, as.integer(regexpr("element", code, fixed = TRUE)))
+    params$context$includeDeclaration <- TRUE
+    text_document_references(server, 1L, params)
+    expect_false(server$get_workspace(document$uri)$index$full_started)
+    expect_length(server$replies[[1L]]$result, 2L)
+    text_document_rename(server, 2L, params)
+    expect_false(server$get_workspace(document$uri)$index$full_started)
+    expect_length(server$replies[[2L]]$result$changes[[document$uri]], 2L)
+})

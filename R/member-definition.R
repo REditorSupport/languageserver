@@ -208,13 +208,23 @@ member_parse_recovered <- function(lines, uri, row, col = 0L, edit = NULL) {
     member_strip_srcref(parsed)
 }
 
-member_definition_location <- function(uri, workspace, document, point) {
+member_definition_location <- function(uri, workspace, document, point, audit = NULL) {
     location <- member_hover_location(document, point)
     if (is.null(location)) return(NULL)
+    if (!is.null(audit)) audit$fields <- NULL
     resolved <- member_resolve_cursor(uri, workspace, document, location$point,
-        location$cursor, location$cursor$token, origins = TRUE)
+        location$cursor, location$cursor$token, origins = TRUE, audit = audit)
     if (is.null(resolved) && !check_scope(uri, document, point)) return(NULL)
     origin <- resolved$value$origin
+    if (!is.null(audit)) {
+        # Only the parser's physical (row, column, end-column) origin can
+        # participate in cross-request member-navigation proofs. Installed
+        # metadata, on-disk srcrefs and inconclusive budgets are rechecked.
+        audit$source <- !is.null(origin) && is.numeric(origin$range) && length(origin$range) == 3L &&
+            is.null(origin$source_text) && !isTRUE(resolved$budget$exhausted) &&
+            !isTRUE(resolved$budget$transient) && !isTRUE(resolved$value$possible_receiver)
+        if (!audit$source) audit$fields <- NULL
+    }
     if (is.null(origin) && !is.null(resolved$value$function_key) && !is.null(resolved$value$metadata)) {
         owner <- member_package_context(resolved$index, resolved$value$metadata)
         origin <- member_lookup(owner$locations, resolved$value$function_key)

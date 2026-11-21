@@ -116,38 +116,157 @@ member_navigation_syntax <- function(parsed) {
         }
     }
     index <- index[order(index$row), , drop = FALSE]
-    # Consecutive top-level reads of the same simple receiver share the
-    # same source bindings. A declaration, nested call or expression with
-    # uncertain effects ends the group, as does a class registration.
-    index$group <- rep("", nrow(index))
-    if (nrow(index)) {
-        roots <- s$roots
-        top <- c(0L, roots)[1L + findInterval(s$order_rank, s$order_rank[roots])]
-        root <- top[index$row]
-        read <- index$kind == "read" & index$expr == root
-        call <- index$kind == "call" & s$parent_row[pmax(1L, index$expr)] == root
-        simple <- which((read | call) & !index$name %in% c("set", "register"))
-        first <- s$children[s$child_start[index$expr[simple]]]
-        binding <- s$children[s$child_start[first]]
-        simple_head <- s$child_end[first] == s$child_start[first] & tok[binding] == "SYMBOL"
-        simple <- simple[which(simple_head)]
-        binding <- binding[which(simple_head)]
-        bad <- top[tok %in% c("LEFT_ASSIGN", "EQ_ASSIGN", "RIGHT_ASSIGN", "FUNCTION", "OP-LAMBDA",
-                "SPECIAL", "PIPE", "SYMBOL_PACKAGE", "IF", "FOR", "WHILE", "REPEAT")]
-        calls <- tabulate(top[tok == "SYMBOL_FUNCTION_CALL"], nbins = length(tok))
-        keep <- which(!root[simple] %in% bad & calls[root[simple]] <= 1L)
-        simple <- simple[keep]
-        binding <- binding[keep]
-        runs <- cumsum(!roots %in% root[simple])
-        accessor <- tok[s$children[s$child_start[index$expr[simple]] + 1L]]
-        receiver <- which(accessor %in% c("'$'", "'@'", "LBB"))
-        simple <- simple[receiver]
-        index$group[simple] <- paste(runs[match(root[simple], roots)], s$text[binding[receiver]], accessor[receiver],
-            index$name[simple], sep = ":")
-    }
+    index$group <- member_navigation_groups(s, index)
+    attr(index, "literal_calls") <- member_navigation_literal_calls(s, index)
+    by_name <- split(seq_len(nrow(index)), index$name)
+    attr(index, "by_name") <- list2env(by_name, hash = TRUE, parent = emptyenv())
     attr(index, "dynamic_receivers") <- dynamic
     if (is.environment(parsed)) parsed$member_navigation_syntax <- index
     index
+}
+
+# Runs of direct, statically identical paths share one receiver proof within
+# this request. Use the parser's block identity and the exact operator/key
+# sequence. Calls, writes, control flow and nested blocks end a run. A bare
+# name or scalar literal between two paths leaves their bindings intact.
+member_navigation_groups <- function(s, index) {
+    groups <- rep("", nrow(index))
+    reads <- which(index$kind == "read")
+    if (!length(reads)) return(groups)
+    t <- s$token
+    expr <- index$expr[reads]
+    second <- s$child_start[expr] + 1L
+    access <- which(second <= s$child_end[expr] & t[s$children[second]] %in% c("'$'", "'@'", "LBB"))
+    reads <- reads[access]
+    expr <- expr[access]
+    if (!length(reads)) return(groups)
+    # Intern path components from shortest to longest; no concatenation of
+    # arbitrary member names can collide. Only accepted, literal accesses
+    # already have a row in the member index.
+    first <- s$children[s$child_start[expr]]
+    token <- s$children[s$child_start[first]]
+    simple <- which(s$child_start[first] == s$child_end[first] & t[token] == "SYMBOL")
+    paths <- integer(length(t))
+    paths[first[simple]] <- match(s$text[token[simple]], unique(s$text[token[simple]]))
+    next_id <- max(c(0L, paths[first[simple]]))
+    unresolved <- seq_along(reads)
+    operator <- t[s$children[s$child_start[expr] + 1L]]
+    # Receiver inference also has a depth budget. Extremely deep syntax can
+    # still be examined per occurrence, without making indexing quadratic.
+    for (depth in seq_len(128L)) {
+        if (!length(unresolved)) break
+        layer <- unresolved[paths[first[unresolved]] > 0L & operator[unresolved] %in% c("'$'", "'@'", "LBB")]
+        if (!length(layer)) break
+        # Numeric IDs and a fixed grammar delimiter precede the unrestricted
+        # decoded key, so e.g. x$`a$b` and x$a$b remain distinct.
+        keys <- paste(paths[first[layer]], operator[layer], index$name[reads[layer]], sep = ":")
+        ids <- match(keys, unique(keys))
+        paths[expr[layer]] <- next_id + ids
+        next_id <- next_id + max(ids)
+        unresolved <- setdiff(unresolved, layer)
+    }
+    if (!any(paths[expr])) return(groups)
+
+    statements <- which(t %in% c("expr", "expr_or_assign_or_help"))
+    parent <- s$parent_row[statements]
+    blocks <- unique(s$parent_row[t == "'{'"])
+    statements <- statements[parent == 0L | parent %in% blocks]
+    if (!length(statements)) return(groups)
+    statements <- statements[order(s$parent_row[statements], s$order_rank[statements])]
+    blocks <- s$parent_row[statements]
+    head <- s$children[s$child_start[statements]]
+    atom <- s$child_start[statements] == s$child_end[statements] &
+        t[head] %in% c("SYMBOL", "NUM_CONST", "STR_CONST", "NULL_CONST")
+    boundary <- paths[statements] == 0L & !atom
+    runs <- cumsum(boundary | c(TRUE, diff(blocks) != 0L))
+    # Inner accesses in a direct path have the same lexical environment.
+    # Accesses inside arguments, assignments and other expressions stay
+    # independent and take the complete inference path.
+    direct <- statements[paths[statements] > 0L]
+    run <- integer(length(t))
+    run[statements] <- runs
+    while (length(direct)) {
+        match_read <- match(direct, expr)
+        keep <- which(!is.na(match_read))
+        if (!length(keep)) break
+        row <- match_read[keep]
+        groups[reads[row]] <- paste(run[direct[keep]], paths[direct[keep]], sep = ":")
+        inner <- first[row]
+        run[inner] <- run[direct[keep]]
+        direct <- inner
+    }
+    groups
+}
+
+# Possible consecutive, top-level calls on one simple receiver. This index
+# proves only syntax. A run becomes reusable at request time after proving
+# that its actual source member and each argument are inert. Every other
+# statement, including a call on a different member, separates runs.
+member_navigation_literal_calls <- function(s, index) {
+    runs <- integer(nrow(index))
+    calls <- which(index$kind == "call")
+    if (!length(calls)) return(runs)
+    expr <- index$expr[calls]
+    call <- s$parent_row[expr]
+    direct <- s$parent_row[call] == 0L
+    head <- s$children[s$child_start[expr]]
+    receiver <- s$children[s$child_start[head]]
+    dollar <- s$token[s$children[s$child_start[expr] + 1L]] == "'$'"
+    simple <- which(direct & dollar & s$child_start[head] == s$child_end[head] & s$token[receiver] == "SYMBOL")
+    if (!length(simple)) return(runs)
+    children <- s$children[s$token[s$children] != "COMMENT"]
+    parents <- s$parent_row[children]
+    roots <- s$roots[s$token[s$roots] != "COMMENT"]
+    selected <- call[simple]
+    arguments <- children[parents %in% selected]
+    arguments <- arguments[!arguments %in% expr[simple]]
+    kinds <- s$token[arguments]
+    values <- arguments[kinds == "expr"]
+    literal <- s$child_start[values] == s$child_end[values] &
+        s$token[s$children[s$child_start[values]]] %in% c("NUM_CONST", "STR_CONST", "NULL_CONST")
+    bad <- c(s$parent_row[values[!literal]], s$parent_row[arguments[!kinds %in% c("expr", "'('", "')'", "','")]])
+    # An empty argument (e.g. f(,)) can force a default just as f() can.
+    n <- tabulate(match(s$parent_row[values], selected), length(selected))
+    commas <- tabulate(match(s$parent_row[arguments[kinds == "','"]], selected), length(selected))
+    keep <- which(!selected %in% bad & (n == commas + 1L | (n == 0L & commas == 0L)))
+    if (!length(keep)) return(runs)
+    simple <- simple[keep]
+    root_id <- match(call[simple], roots)
+    receiver <- s$text[receiver[simple]]
+    name <- index$name[calls[simple]]
+    arity <- n[keep]
+    same <- diff(root_id) == 1L & receiver[-1L] == receiver[-length(receiver)] &
+        name[-1L] == name[-length(name)] & diff(arity) == 0L
+    runs[calls[simple]] <- cumsum(c(TRUE, !same))
+    counts <- integer(nrow(index))
+    counts[calls[simple]] <- arity
+    attr(runs, "arity") <- counts
+    runs
+}
+
+member_navigation_indices <- function(index, names) {
+    if (!length(names) || !nrow(index)) return(integer())
+    catalog <- attr(index, "by_name", exact = TRUE)
+    if (is.null(catalog)) return(which(index$name %in% names))
+    if (length(names) == 1L) return(get0(names, envir = catalog, inherits = FALSE, ifnotfound = integer()))
+    hits <- mget(unique(names), catalog, ifnotfound = list(integer()), inherits = FALSE)
+    sort.int(as.integer(unlist(hits, use.names = FALSE)))
+}
+
+member_navigation_prefix_indices <- function(index, name) {
+    n <- nchar(name)
+    if (!n) return(integer())
+    # A protocol rename can supply a very long non-syntactic name. Avoid
+    # constructing all of its prefixes (quadratic total bytes).
+    if (n > 128L) return(which(startsWith(rep.int(name, nrow(index)), index$name)))
+    prefixes <- substring(name, 1L, seq_len(n))
+    member_navigation_indices(index, prefixes)
+}
+
+member_navigation_key <- function(loc) {
+    if (is.null(loc)) return("")
+    paste(loc$uri, loc$range$start$line, loc$range$start$character,
+        loc$range$end$line, loc$range$end$character, sep = ":")
 }
 
 member_navigation_token <- function(parsed, pos) {
@@ -194,11 +313,34 @@ member_navigation_field_tag <- function(workspace, doc, rec) {
     name != "list2" || "rlang" %in% doc$loaded_packages
 }
 
-member_navigation_access <- function(workspace, doc, rec) {
+member_navigation_access <- function(workspace, doc, rec, audit = NULL) {
     s <- doc$parse_data$syntax_data
     point <- member_navigation_point(s, rec$row)
-    member_definition_location(doc$uri, workspace, doc, point)$result
+    member_definition_location(doc$uri, workspace, doc, point, audit = audit)$result
 }
+
+member_navigation_accepted <- function(doc) {
+    parsed <- doc$parse_data
+    !is.null(doc$version) && is.environment(parsed) && identical(doc$version, parsed$version) &&
+        identical(doc$content, doc$parsed_content) && !isTRUE(parsed$parse_error) && !length(parsed$partial_incomplete_lines)
+}
+
+# Only a real revisioned workspace can attest that an earlier per-site proof
+# still describes the same caller, source dependencies, packages and indexes.
+# Create this bounded store on a request; edits only advance existing epochs.
+member_navigation_proof_cache <- function(workspace, doc, domain) {
+    if (!member_navigation_accepted(doc) || !is.numeric(workspace$s3_revision) ||
+            !is.numeric(workspace$index$revision) || !is.function(workspace$member_metadata$revision) ||
+            !is.function(workspace$member_metadata$identity)) return(NULL)
+    context <- list(uri = doc$uri, version = doc$version, generation = doc$parse_generation,
+        parsed = doc$parse_data, workspace = workspace$documents, documents = workspace$documents$size(),
+        revision = workspace$s3_revision, index = workspace$index, index_revision = workspace$index$revision,
+        topology = workspace$index$topology_revision, packages = workspace$index$package_revision,
+        metadata = workspace$member_metadata$identity(), metadata_revision = workspace$member_metadata$revision(),
+        startup = workspace$startup_packages, imported = workspace$imported_packages)
+    analysis_cache(doc, domain, context, max_bytes = 256L * 1024L, max_entries = 16L)
+}
+
 
 # Get the source function expression and its actual range, distinct from its
 # declaration's name token. This is also the item's body for call hierarchy.
@@ -351,6 +493,7 @@ member_navigation_at <- function(workspace, document, point) {
     kind <- s$token[[row]]
     if (!kind %in% c("SYMBOL", "SYMBOL_FUNCTION_CALL", "SYMBOL_SUB", "SLOT", "STR_CONST")) return(NULL)
     if (kind %in% c("SYMBOL", "SYMBOL_FUNCTION_CALL") && !navigation_after_dollar(s, row)) return(NULL)
+    if (kind == "STR_CONST" && !reference_member_literal_candidate(s, row)) return(NULL)
     index <- member_navigation_syntax(parsed)
     at <- match(row, index$row)
     if (is.na(at)) return(NULL)
@@ -392,11 +535,6 @@ member_navigation_uris <- function(workspace, target, context_uri) {
 # an identifier, including a backtick name that needs escaping.
 member_navigation_occurrences <- function(workspace, owner, name, uris, formal = FALSE, declarations = TRUE, calls_only = FALSE) {
     if (is.null(owner)) return(list())
-    key <- function(loc) {
-        if (is.null(loc)) return("")
-        paste(loc$uri, loc$range$start$line, loc$range$start$character,
-            loc$range$end$line, loc$range$end$character, sep = ":")
-    }
     property <- FALSE
     if (!formal && !calls_only) {
         source <- workspace$documents$get(owner$uri, NULL)
@@ -406,87 +544,233 @@ member_navigation_occurrences <- function(workspace, owner, name, uris, formal =
             if (length(matches)) property <- TRUE
         }
     }
-    uses <- list()
-    origins <- writes <- character()
-    for (uri in uris) {
+    files <- vector("list", length(uris))
+    for (f in seq_along(uris)) {
+        uri <- uris[[f]]
         doc <- workspace$documents$get(uri, NULL)
         if (is.null(doc)) next
         parsed <- doc$parse_data
         if (is.null(parsed) || (!is.null(parsed$version) && !identical(parsed$version, doc$version))) next
         idx <- member_navigation_syntax(parsed)
-        candidates <- if (calls_only) {
-            # An R6 constructor forwards to its (possibly inherited) initializer.
-            # F12 verifies the receiver and the physical initializer declaration.
-            calls <- if (name == "initialize") c(name, "new") else name
-            which(idx$kind == "call" & idx$name %in% calls)
+        if (calls_only) {
+            # R6 new() forwards to the source initializer. F12 verifies it.
+            names <- if (name == "initialize") c(name, "new") else name
+            candidates <- member_navigation_indices(idx, names)
+            candidates <- candidates[idx$kind[candidates] == "call"]
+            tags <- integer()
         } else if (formal) {
-            which(idx$kind == "tag" & startsWith(rep.int(name, nrow(idx)), idx$name))
+            candidates <- member_navigation_prefix_indices(idx, name)
+            candidates <- candidates[idx$kind[candidates] == "tag"]
+            tags <- integer()
         } else {
-            which(idx$name == name & idx$kind %in% c("read", "write", "call", if (property) "tag"))
+            hits <- member_navigation_indices(idx, name)
+            candidates <- hits[idx$kind[hits] %in% c("read", "write", "call", if (property) "tag")]
+            tags <- if (declarations) hits[idx$kind[hits] %in% c("tag", "field")]
         }
-        known <- new.env(hash = TRUE, parent = emptyenv())
-        for (i in candidates) {
+        if (!length(candidates) && !length(tags)) next
+
+        # Prove a group only once, including a failed proof. Ungrouped sites
+        # remain independent. Defer URI/range objects until the reaching
+        # definition graph selects the occurrences belonging to this owner.
+        group <- idx$group[candidates]
+        retained <- !nzchar(group) | !duplicated(group)
+        chosen <- candidates[retained]
+        # Opaque calls/expressions remain independent, even with identical
+        # spelling. Retain only completed positive proofs, keyed by their
+        # exact parser site for subsequent requests on this accepted snapshot.
+        # Cheap grouped and name-miss paths need no persistent store.
+        ungrouped <- !nzchar(group[retained]) & idx$kind[chosen] %in% c("read", "call", "write")
+        use_cache <- !formal && sum(ungrouped) >= 2L
+        cache <- if (use_cache) member_navigation_proof_cache(workspace, doc, "member-source-origins")
+        cache_key <- paste(if (calls_only) "calls" else "members", name, sep = ":")
+        cached <- if (!is.null(cache)) analysis_cache_get(cache, cache_key)$value
+        origins <- rep("", length(chosen))
+        fields <- vector("list", length(chosen))
+        hit <- logical(length(chosen))
+        if (length(cached$sites)) {
+            # A peer can be in the middle of a reparse or have been reopened
+            # at the same version. Check each target buffer once, including
+            # its content hash, before accepting its stored physical offsets.
+            current <- vapply(seq_along(cached$uris), function(j) {
+                target <- workspace$documents$get(cached$uris[[j]], NULL)
+                member_navigation_accepted(target) && identical(target$parse_data$content_hash, cached$hashes[[j]])
+            }, logical(1L))
+            found <- match(idx$row[chosen], cached$sites, nomatch = 0L)
+            hit <- found > 0L & c(FALSE, current[cached$owners])[found + 1L]
+            origins[hit] <- cached$origins[found[hit]]
+            if (length(cached$field_ids)) fields[hit] <- cached$fields[cached$field_ids[found[hit]]]
+        }
+        audit <- if (!formal) new.env(parent = emptyenv())
+        target_uris <- rep("", length(chosen))
+        literal_calls <- attr(idx, "literal_calls", exact = TRUE)
+        runs <- literal_calls[chosen]
+        arity <- attr(literal_calls, "arity", exact = TRUE)
+        certified <- 0L
+        representative <- 0L
+        for (j in which(!hit)) {
+            i <- chosen[[j]]
+            if (certified && runs[[j]] == certified) {
+                origins[[j]] <- origins[[representative]]
+                fields[j] <- fields[representative]
+                target_uris[[j]] <- target_uris[[representative]]
+                next
+            }
             rec <- idx[i, , drop = FALSE]
-            if (formal && member_navigation_field_tag(workspace, doc, rec)) next
+            if (!is.null(audit)) {
+                audit$source <- FALSE
+                audit$fields <- NULL
+                audit$literal_arity <- if (length(runs) && runs[[j]]) arity[[i]]
+                audit$inert <- FALSE
+            }
             target <- if (formal) {
-                member_navigation_formal(workspace, doc, rec)
+                if (!member_navigation_field_tag(workspace, doc, rec)) member_navigation_formal(workspace, doc, rec)
             } else if (rec$kind == "tag") {
                 member_navigation_constructor_tag(workspace, doc, rec)
-            } else if (nzchar(rec$group) && exists(rec$group, known, inherits = FALSE)) {
-                known[[rec$group]]
             } else {
-                resolved <- member_navigation_access(workspace, doc, rec)
-                if (nzchar(rec$group)) assign(rec$group, resolved, known)
-                resolved
+                member_navigation_access(workspace, doc, rec, audit)
             }
-            if (is.null(target) && rec$kind != "write") next
-            rng <- navigation_range(doc, parsed$syntax_data, rec$row)
-            loc <- location(uri, rng)
-            attr(loc, "spelling") <- member_navigation_format(doc, rec$row)
-            attr(loc, "role") <- rec$kind
-            j <- length(uses) + 1L
-            uses[[j]] <- loc
-            origins[[j]] <- key(target)
-            writes[[j]] <- if (rec$kind == "write") key(loc) else ""
+            origins[[j]] <- member_navigation_key(target)
+            if (isTRUE(audit$source) && !is.null(target)) {
+                if (!is.null(audit$fields)) fields[j] <- list(audit$fields)
+                if (ungrouped[[j]]) target_uris[[j]] <- target$uri
+                if (isTRUE(audit$inert)) {
+                    certified <- runs[[j]]
+                    representative <- j
+                }
+            }
         }
+        if (!is.null(cache) && any(nzchar(target_uris))) {
+            if (any(hit)) target_uris[hit] <- cached$uris[cached$owners[found[hit]]]
+            uris_seen <- unique(target_uris[nzchar(target_uris)])
+            hashes <- vapply(uris_seen, function(target_uri) {
+                target <- workspace$documents$get(target_uri, NULL)
+                if (!member_navigation_accepted(target)) return("")
+                target$parse_data$content_hash %s3_or% ""
+            }, character(1L), USE.NAMES = FALSE)
+            positive <- nzchar(hashes)
+            uris_seen <- uris_seen[positive]
+            owners <- match(target_uris, uris_seen)
+            save <- which(!is.na(owners))
+            if (length(save)) {
+                record <- list(sites = idx$row[chosen[save]], origins = origins[save],
+                    owners = owners[save], uris = uris_seen, hashes = hashes[positive])
+                # Keep one copy of identical closed field sets. The temporary
+                # integer ID string is unambiguous even for unusual R names.
+                ids <- fields[save]
+                if (any(lengths(ids))) {
+                    all_names <- unique(unlist(ids, use.names = FALSE))
+                    labels <- vapply(ids, function(x) paste(match(x, all_names), collapse = ","), "")
+                    first <- !duplicated(labels)
+                    record$fields <- ids[first]
+                    record$field_ids <- match(labels, labels[first])
+                }
+                analysis_cache_set(cache, cache_key, record)
+            }
+        }
+        if (any(!retained)) {
+            source <- match(group, group[retained])
+            source[retained] <- seq_along(chosen)
+            origins <- origins[source]
+            fields <- fields[source]
+        }
+        writes <- rep("", length(candidates))
+        prefix <- which(idx$kind[candidates] == "write")
+        if (length(prefix)) {
+            writes[prefix] <- member_navigation_site_keys(doc, idx$row[candidates[prefix]])
+        }
+        files[[f]] <- list(doc = doc, index = idx, candidates = candidates, origins = origins, writes = writes, tags = tags, fields = fields)
     }
-    # F12 returns the most recent assignment. Bridge successive writes only
-    # when the earlier source location was proved at the assignment itself.
-    # Rebinding the receiver to a different object starts a separate group.
-    group <- key(owner)
+    files <- Filter(Negate(is.null), files)
+    origins <- unlist(lapply(files, `[[`, "origins"), use.names = FALSE)
+    writes <- unlist(lapply(files, `[[`, "writes"), use.names = FALSE)
+    group <- member_navigation_key(owner)
     edges <- which(nzchar(writes) & nzchar(origins) & writes != origins)
-    repeat {
-        incident <- edges[origins[edges] %in% group | writes[edges] %in% group]
-        if (!length(incident)) break
-        group <- unique(c(group, writes[incident], origins[incident]))
-        edges <- setdiff(edges, incident)
-    }
-    selected <- origins %in% group | writes %in% group
-    result <- uses[selected]
-    # Each independent starting point has a source tag or initial write.
-    # Later writes are references even when declarations have been excluded.
-    roots <- setdiff(group, writes[nzchar(origins) & writes != origins])
-    if (length(result)) {
-        root_use <- vapply(result, function(loc) key(loc) %in% roots, logical(1L))
-        if (!declarations) result <- result[!root_use]
-        else for (i in which(root_use)) attr(result[[i]], "role") <- "declaration"
-    }
-    if (declarations && !formal) {
-        for (uri in uris) {
-            doc <- workspace$documents$get(uri, NULL)
-            if (is.null(doc)) next
-            idx <- member_navigation_syntax(doc$parse_data)
-            rows <- idx$row[idx$name == name & idx$kind %in% c("tag", "field")]
-            for (row in rows) {
-                loc <- location(uri, navigation_range(doc, doc$parse_data$syntax_data, row))
-                if (!key(loc) %in% roots) next
-                attr(loc, "spelling") <- member_navigation_format(doc, row)
-                attr(loc, "role") <- "declaration"
-                result <- c(list(loc), result)
+    if (length(edges)) {
+        # Find the connected component of writes in either direction. A chain
+        # of N successive writes is visited once rather than rescanned N times.
+        from <- origins[edges]
+        to <- writes[edges]
+        neighbors <- list2env(split(c(to, from), c(from, to)), hash = TRUE, parent = emptyenv())
+        seen <- new.env(hash = TRUE, parent = emptyenv())
+        seen[[group]] <- TRUE
+        queue <- character(length(ls(neighbors, all.names = TRUE)) + 1L)
+        queue[[1L]] <- group
+        head <- tail <- 1L
+        while (head <= tail) {
+            for (next_key in neighbors[[queue[[head]]]]) {
+                if (is.null(seen[[next_key]])) {
+                    seen[[next_key]] <- TRUE
+                    tail <- tail + 1L
+                    queue[[tail]] <- next_key
+                }
             }
+            head <- head + 1L
+        }
+        group <- queue[seq_len(tail)]
+    }
+    roots <- setdiff(group, writes[nzchar(origins) & writes != origins])
+    result <- declaration_sites <- list()
+    for (file in files) {
+        idx <- file$index
+        selected <- file$origins %in% group | file$writes %in% group
+        root_write <- nzchar(file$writes) & file$writes %in% roots
+        if (!declarations) selected <- selected & !root_write
+        hits <- which(selected)
+        if (length(hits)) {
+            rows <- idx$row[file$candidates[hits]]
+            roles <- idx$kind[file$candidates[hits]]
+            roles[root_write[hits]] <- "declaration"
+            result[[length(result) + 1L]] <- member_navigation_locations(file$doc, rows, roles, file$fields[hits])
+        }
+        if (length(file$tags)) {
+            rows <- idx$row[file$tags]
+            rows <- rows[member_navigation_site_keys(file$doc, rows) %in% roots]
+            if (length(rows)) declaration_sites[[length(declaration_sites) + 1L]] <-
+                member_navigation_locations(file$doc, rows, rep("declaration", length(rows)))
         }
     }
-    result
+    c(rev(unlist(declaration_sites, recursive = FALSE)), unlist(result, recursive = FALSE), list())
+}
+
+member_navigation_columns <- function(doc, rows) {
+    s <- doc$parse_data$syntax_data
+    starts <- s$line1[rows]
+    ends <- s$line2[rows]
+    lines <- unique(c(starts, ends))
+    text <- doc$content[lines]
+    non_ascii <- nchar(text, type = "bytes") != nchar(text, type = "chars")
+    cols <- c(s$col1[rows] - 1L, s$col2[rows])
+    if (any(non_ascii)) {
+        all <- c(starts, ends)
+        affected <- which(all %in% lines[non_ascii])
+        for (i in split(affected, all[affected])) {
+            cols[i] <- code_point_to_unit(doc$content[[all[[i[[1L]]]]]], cols[i])
+        }
+    }
+    n <- seq_along(rows)
+    list(start = cols[n], end = cols[length(rows) + n])
+}
+
+member_navigation_site_keys <- function(doc, rows) {
+    s <- doc$parse_data$syntax_data
+    cols <- member_navigation_columns(doc, rows)
+    paste(doc$uri, s$line1[rows] - 1L, cols$start, s$line2[rows] - 1L, cols$end, sep = ":")
+}
+
+member_navigation_locations <- function(doc, rows, roles, fields = NULL) {
+    s <- doc$parse_data$syntax_data
+    cols <- member_navigation_columns(doc, rows)
+    lapply(seq_along(rows), function(i) {
+        row <- rows[[i]]
+        rng <- range(position(s$line1[[row]] - 1L, cols$start[[i]]),
+            position(s$line2[[row]] - 1L, cols$end[[i]]))
+        loc <- location(doc$uri, rng)
+        attr(loc, "spelling") <- member_navigation_format(doc, row)
+        attr(loc, "role") <- roles[[i]]
+        attr(loc, "member_row") <- row
+        if (!is.null(fields)) attr(loc, "member_fields") <- fields[[i]]
+        loc
+    })
 }
 
 member_navigation_formal_owner <- function(parsed, uri, name, key) {
@@ -626,9 +910,16 @@ member_navigation_outgoing <- function(workspace, doc, item, nested = list()) {
 member_navigation_rename_conflict <- function(workspace, uris, refs, old, new) {
     # Keep all reaching source locations, including assignments, so an alias
     # after a write receives the same protection as its original receiver.
+    memo <- new.env(parent = emptyenv())
+    by_uri <- if (!is.null(new) && !identical(new, old)) split(refs, vapply(refs, `[[`, "", "uri"))
     same_origin <- function(origin) {
         loc <- member_navigation_origin(workspace, origin)
-        !is.null(loc) && any(vapply(refs, function(ref) equal_definition(ref, loc), logical(1L)))
+        if (is.null(loc)) return(FALSE)
+        if (is.null(memo$origin_keys)) {
+            spellings <- vapply(refs, member_navigation_key, "")
+            memo$origin_keys <- list2env(stats::setNames(rep(list(TRUE), length(spellings)), spellings), parent = emptyenv())
+        }
+        exists(member_navigation_key(loc), memo$origin_keys, inherits = FALSE)
     }
     for (uri in uris) {
         doc <- workspace$documents$get(uri)
@@ -658,12 +949,11 @@ member_navigation_rename_conflict <- function(workspace, uris, refs, old, new) {
         }
         # The receiver can acquire the proposed name later, including through
         # a list copy. Checking only at old-name reads misses that collision.
-        uses <- which(index$kind %in% c("read", "call", "write") & index$name != old)
+        prefixes <- member_navigation_prefix_indices(index, old)
+        if (!is.null(new)) prefixes <- union(prefixes, member_navigation_prefix_indices(index, new))
+        uses <- prefixes[index$name[prefixes] != old & index$kind[prefixes] %in% c("read", "call", "write")]
         if (length(uses)) {
-            spellings <- index$name[uses]
-            prefix <- startsWith(rep(old, length(uses)), spellings)
-            if (!is.null(new)) prefix <- prefix | startsWith(rep(new, length(uses)), spellings)
-            for (i in uses[prefix]) {
+            for (i in uses) {
                 rec <- index[i, , drop = FALSE]
                 loc <- member_hover_location(doc, member_navigation_point(s, rec$row))
                 if (is.null(loc)) next
@@ -683,15 +973,29 @@ member_navigation_rename_conflict <- function(workspace, uris, refs, old, new) {
                         "A partial member access on this object could change meaning")
             }
         }
-        if (is.null(new) || identical(new, old)) next
-        for (ref in refs) {
-            if (!identical(ref$uri, uri)) next
-            pos <- doc$from_lsp_position(ref$range$start)
-            row <- member_navigation_token(parsed, pos)
-            rec <- index[match(row, index$row), , drop = FALSE]
-            if (!nrow(rec) || is.na(rec$row)) next
-            if (rec$kind %in% c("field", "tag")) {
-                if (any(index$name == new & s$parent_row[index$row] == s$parent_row[[row]])) {
+        local <- by_uri[[uri]]
+        if (!length(local)) next
+        rows <- vapply(local, function(ref) {
+            row <- attr(ref, "member_row", exact = TRUE)
+            if (!is.null(row)) return(row)
+            member_navigation_token(parsed, doc$from_lsp_position(ref$range$start))
+        }, integer(1L))
+        hits <- match(rows, index$row, nomatch = 0L)
+        fields <- lapply(local, attr, which = "member_fields", exact = TRUE)
+        confirmed <- lengths(fields) > 0L
+        if (any(confirmed) && new %in% unlist(fields[confirmed], use.names = FALSE)) {
+            return("Another member of this object already has the new name")
+        }
+        hits <- unique(hits[hits > 0L & !confirmed])
+        # A proved group has the same receiver state at every read. Additional
+        # spellings and assignments that could change it form separate groups.
+        groups <- index$group[hits]
+        hits <- hits[!nzchar(groups) | !duplicated(groups)]
+        for (i in hits) {
+            row <- index$row[[i]]
+            if (index$kind[[i]] %in% c("field", "tag")) {
+                same_name <- member_navigation_indices(index, new)
+                if (any(s$parent_row[index$row[same_name]] == s$parent_row[[row]])) {
                     return("Another member of this object already has the new name")
                 }
                 for (class in parsed$class_data$declarations) {

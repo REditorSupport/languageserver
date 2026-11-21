@@ -1,14 +1,24 @@
 # Registration literals belong to the source generic, while same-spelled
 # strings, lexical functions and methods on an object have other identities.
-s4_reference_registrations <- function(workspace, uri, name) {
+s4_reference_sources <- function(workspace, name) {
     index <- workspace$index
     indexed <- if (isTRUE(index$enabled) && is.function(index$s4_declaration_uris)) index$s4_declaration_uris(name)
-    loaded <- if (is.function(workspace$s4_declaration_uris)) workspace$s4_declaration_uris(name) else workspace$documents$keys()
-    sources <- as.character(unique(unlist(c(loaded, indexed), use.names = FALSE)))
-    if (!length(sources)) return(list())
+    loaded <- if (is.function(workspace$s4_declaration_uris)) {
+        workspace$s4_declaration_uris(name)
+    } else {
+        docs <- workspace$documents$values()
+        vapply(Filter(function(doc) length(doc$parse_data$s4_declarations[[name]]) > 0L, docs), `[[`, "", "uri")
+    }
+    if (!length(loaded) && !length(indexed)) return(NULL)
+    list(uris = as.character(unique(unlist(c(loaded, indexed), use.names = FALSE))), indexed = length(indexed) > 0L)
+}
+
+s4_reference_registrations <- function(workspace, uri, name, candidates = s4_reference_sources(workspace, name)) {
+    if (is.null(candidates)) return(list())
+    sources <- candidates$uris
     # Use the same live-buffer precedence and range records as F12. Historical
     # snapshots without the declaration index contribute no registrations.
-    if (length(indexed)) {
+    if (candidates$indexed) {
         open <- workspace_s4_open_uris(workspace, uri, workspace$documents$keys())
         aliases <- unname(open[vapply(sources, index_canonical_uri, character(1L))])
         sources[!is.na(aliases)] <- aliases[!is.na(aliases)]
@@ -88,15 +98,22 @@ s4_reference_unmasked <- function(workspace, doc, row, name, direct) {
     is.null(s4_masking_definition(workspace, doc, point, row, name, direct))
 }
 
-s4_reference_target <- function(workspace, document, point, include_binding = FALSE) {
-    parsed <- document$parse_data
-    syntax <- parsed$syntax_data
-    if (is.null(syntax)) return(NULL)
+s4_reference_site <- function(parsed, point) {
+    if (is.null(parsed$syntax_data)) return(NULL)
     row <- navigation_token(parsed, point$row + 1L, point$col + 1L, c("SYMBOL", "SYMBOL_FUNCTION_CALL", s4_definition_operators))
     if (!row) return(NULL)
     name <- s4_reference_name(parsed, row)
-    if (is.null(name)) return(NULL)
-    declarations <- s4_reference_registrations(workspace, document$uri, name)
+    if (!is.null(name)) list(name = name, row = row)
+}
+
+s4_reference_target <- function(workspace, document, point, include_binding = FALSE,
+    site = s4_reference_site(document$parse_data, point), candidates = s4_reference_sources(workspace, site$name)) {
+    if (is.null(site) || is.null(candidates)) return(NULL)
+    parsed <- document$parse_data
+    syntax <- parsed$syntax_data
+    row <- site$row
+    name <- site$name
+    declarations <- s4_reference_registrations(workspace, document$uri, name, candidates)
     if (!length(declarations)) return(NULL)
     scope <- reference_source_scope(workspace, document$uri)
     direct <- s4_reference_direct(declarations, scope)
@@ -184,9 +201,10 @@ s4_reference_locations <- function(workspace, target, include_declaration) {
 # A later ordinary assignment can shadow a generic in the same script.
 # The lexical index calls both global:name; preserve the earlier S4 calls
 # when renaming the later binding.
-s4_reference_lexical_indices <- function(workspace, doc, selected, name, target = NULL) {
+s4_reference_lexical_indices <- function(workspace, doc, selected, name, target = NULL,
+    candidates = s4_reference_sources(workspace, name)) {
     if (!length(selected)) return(selected)
-    defs <- if (is.null(target)) s4_reference_registrations(workspace, doc$uri, name) else target$declarations
+    defs <- if (is.null(target)) s4_reference_registrations(workspace, doc$uri, name, candidates) else target$declarations
     if (!length(defs)) return(selected)
     direct <- s4_reference_direct(defs, reference_source_scope(workspace, doc$uri))
     if (!length(direct) && is.null(target)) return(selected)

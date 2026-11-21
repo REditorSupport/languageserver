@@ -1235,7 +1235,8 @@ member_recover_scope <- function(document, point, cursor, data, budget = NULL) {
     member_recover(document, point, cursor, data, origin_uri)
 }
 
-member_resolve_cursor <- function(uri, workspace, document, point, cursor, name = NULL, origins = FALSE, origin_name = name) {
+member_resolve_cursor <- function(uri, workspace, document, point, cursor, name = NULL, origins = FALSE, origin_name = name,
+    audit = NULL) {
     if (!identical(document$version, document$parse_data$version) &&
             !is.null(document$parse_data$version)) {
         return(NULL)
@@ -1327,7 +1328,29 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
         }
         value <- if (identical(cursor$accessor, "@")) member_slot(receiver, name, index, bindings, budget) else
             member_access(receiver, name, index, bindings)
-        key <- member_members(receiver, index, bindings, cursor$accessor)[name]
+        members <- member_members(receiver, index, bindings, cursor$accessor)
+        key <- members[name]
+        # Rename can use the complete field names already computed at this
+        # site. Unknown/open or class-dispatched receivers need a fresh check.
+        if (!is.null(audit) && identical(cursor$accessor, "$") && identical(receiver$type, "list") &&
+                !isTRUE(receiver$open) && !length(receiver$classes) && !length(receiver$possible_returns) &&
+                is.null(receiver$reason) && !isTRUE(receiver$possible_receiver) && is.null(possible) &&
+                length(members) <= 64L && name %in% names(members)) audit$fields <- names(members)
+        # Literal arguments cannot run project code. An ordinary source-list
+        # closure returning an inert constant or a supplied positional formal
+        # has no call effects, even when its other defaults are lazy promises.
+        # Confirm the physical source origin separately before reusing it.
+        arity <- audit$literal_arity
+        if (!is.null(arity) && !is.null(audit$fields) && member_plain_container(receiver) &&
+                !member_operator_masked("$", index, bindings) && is.null(value$r6_owner) &&
+                member_head(value$function_expr, "function")) {
+            formals <- names(value$function_expr[[2L]])
+            body <- value$function_expr[[3L]]
+            used <- if (is.symbol(body)) match(member_name(body), formals)
+            constant <- (is.atomic(body) && !is.object(body) && length(body) == 1L) || is.null(body)
+            audit$inert <- !("..." %in% formals) && arity <= length(formals) &&
+                (constant || (length(used) && !is.na(used) && used <= arity))
+        }
         if (is.null(value$function_key) && length(key) && !is.na(key[[1L]]) && !is.null(value$function_expr)) {
             value$function_key <- key[[1L]]
         }

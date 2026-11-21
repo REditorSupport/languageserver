@@ -66,10 +66,9 @@ evalq(
                 file.path(tempdir(), "performance-fixture.R"), content, tempdir()
             )
         }, 5L)
+        xdoc <- parse_data_xml(parsed)
         measure("token_lookup_near_end", function() {
-            xdoc_find_token(
-                document$parse_data$xml_doc, point$row + 1L, point$col + 1L
-            )
+            xdoc_find_token(xdoc, point$row + 1L, point$col + 1L)
         }, 100L)
         measure("document_highlight", function() {
             document_highlight_reply(

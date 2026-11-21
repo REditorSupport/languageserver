@@ -190,3 +190,15 @@ test_that("parameter Rename preserves tab-indented roxygen comments", {
     expect_identical(rename_roxygen_apply(case), c("outer <- function() {",
             "\t#'\t@param\trenamed\tInput.", "\tinner <- function(renamed) renamed", "}"))
 })
+
+test_that("named call tags and XML lexical fallback update only their formal's attached roxygen", {
+    f <- provider_fixture(c("#' @param input A value.", "f <- function(input) input",
+            "#' @param input An unrelated value.", "g <- function(input) input", "f(input = 1)"))
+    result <- rename_reply(1L, f$uri, f$workspace, f$document, list(row = 4L, col = 4L), "data")
+    edits <- result$result$changes[[f$uri]]
+    expect_equal(sort(vapply(edits, function(edit) edit$range$start$line, integer(1L))), c(0L, 1L, 1L, 4L))
+    f$document$parse_data$reference_index <- NULL
+    result <- rename_reply(1L, f$uri, f$workspace, f$document, list(row = 1L, col = 15L), "data")
+    edits <- result$result$changes[[f$uri]]
+    expect_equal(sort(vapply(edits, function(edit) as.integer(edit$range$start$line), integer(1L))), c(0L, 1L, 1L))
+})

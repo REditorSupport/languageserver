@@ -795,7 +795,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             }
             # A peer's last parse becomes stale before its replacement arrives.
             # Stop using its imports as soon as an edit or reload is scheduled.
-            if (is.function(workspace$invalidate_s3_context)) workspace$invalidate_s3_context()
+            if (is.function(workspace$invalidate_s3_context)) workspace$invalidate_s3_context(uri)
             if (!self$pending_replies$has(uri)) {
                 self$pending_replies$set(uri, list(
                     `textDocument/completion` = collections::queue(),
@@ -930,9 +930,14 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 point <- document$from_lsp_position(params$position)
                 if (!check_scope(uri, document, point) && !reference_literal_needs_workspace(document, point)) return(FALSE)
                 token <- document$detect_token(point)
-                key <- reference_key_at(document$parse_data$reference_index, point, token$token)
-                if (!is.null(key) && !startsWith(key, "global:") &&
-                        !reference_formal_needs_workspace(document$parse_data, uri, token$token, key, document)) return(FALSE)
+                parsed <- document$parse_data
+                index <- parsed$reference_index
+                i <- reference_index_at(index, point, token$token)
+                if (i && !startsWith(index$definition_key[[i]], "global:")) {
+                    if (index$definition_kind[[i]] != "formal") return(FALSE)
+                    formal <- member_navigation_formal_owner(parsed, uri, token$token, index$definition_key[[i]])
+                    if (is.null(formal) || !identical(reference_formal_call_scope(parsed, document, formal), "workspace")) return(FALSE)
+                }
             }
             indexes <- list()
             pending <- waiting_parse

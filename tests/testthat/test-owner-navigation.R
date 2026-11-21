@@ -230,3 +230,172 @@ test_that("formal rename preserves R argument matching at calls on the same owne
     f <- provider_fixture(c("a <- list(f=function(alpha, beta) alpha + beta)", "a$f(1, b=2)"))
     expect_equal(owner_reply(f, rename_reply, 0L, "alpha", "beta_long")$error$code, ErrorCodes$RequestFailed)
 })
+
+test_that("references reuse only identical receiver paths within an uninterrupted lexical block", {
+    f <- provider_fixture(c(
+        "f <- function() {", "  a <- list(box=list(run=1))",
+        "  a$box$run", "  a$box$run", "  42", "  a$box$run",
+        "  { a$box$run; a$box$run }", "  a$box$run",
+        "  opaque()", "  a$box$run", "  a <- list(box=list(run=2))",
+        "  a$box$run", "  a$box$run", "}",
+        "g <- function() { a <- list(box=list(run=3)); a$box$run; a$box$run }"
+    ))
+    original <- member_navigation_access
+    counts <- new.env(parent = emptyenv())
+    counts$proofs <- 0L
+    testthat::local_mocked_bindings(member_navigation_access = function(...) {
+        counts$proofs <- counts$proofs + 1L
+        original(...)
+    })
+    # Select the declared token explicitly rather than the adjacent argument punctuation.
+    parsed <- f$document$parse_data
+    idx <- member_navigation_syntax(parsed)
+    tags <- member_navigation_indices(idx, "run")
+    decl <- idx$row[tags[idx$kind[tags] == "tag"]][[1L]]
+    owner <- location(f$uri, navigation_range(f$document, parsed$syntax_data, decl))
+    counts$proofs <- 0L
+    uses <- member_navigation_occurrences(f$workspace, owner, "run", f$uri)
+    expect_identical(vapply(uses, function(x) x$range$start$line, integer(1L)), c(1L, 2L, 3L, 5L, 6L, 6L, 7L, 9L))
+    expect_identical(counts$proofs, 6L)
+    expect_true(all(vapply(uses, function(x) !is.null(attr(x, "member_row", exact = TRUE)), logical(1L))))
+    expect_identical(member_navigation_indices(idx, c("absent", "run", "run")), tags)
+    expect_identical(member_navigation_prefix_indices(idx, "running"), tags)
+    expect_identical(member_navigation_indices(idx, c("unknown", "elsewhere")), integer())
+})
+
+test_that("member occurrence write groups bridge in both directions and retain physical ranges", {
+    f <- provider_fixture(c('"🐈"; a <- list(value=0)', rep('a[["value"]] <- 1', 14L),
+            '"🐈"; a$value', "a <- list(value=2)", "a$value"))
+    s <- f$document$parse_data$syntax_data
+    list_index <- member_navigation_syntax(f$document$parse_data)
+    middle <- list_index$row[list_index$kind == "write"][[8L]]
+    target <- location(f$uri, navigation_range(f$document, s, middle))
+    locations <- member_navigation_occurrences(f$workspace, target, "value", f$uri)
+    expect_identical(vapply(locations, function(x) x$range$start$line, integer(1L)), 0:15)
+    for (loc in locations) {
+        expect_equal(loc$range, navigation_range(f$document, s, attr(loc, "member_row")))
+    }
+})
+
+test_that("positive navigation proofs survive repeat requests and follow workspace generations", {
+    root <- index_normalize_path(withr::local_tempdir())
+    workspace <- Workspace$new(root)
+    store <- function(file, lines, version, doc = NULL) {
+        path <- file.path(root, file)
+        writeLines(lines, path)
+        uri <- path_to_uri(path)
+        if (is.null(doc)) {
+            doc <- Document$new(uri, language = "r", version = version, content = lines)
+            workspace$documents$set(uri, doc)
+        } else {
+            doc$set_content(version, lines)
+        }
+        doc$is_open <- TRUE
+        parsed <- parse_document(uri, lines)
+        parsed$version <- version
+        workspace$update_parse_data(uri, parsed)
+        doc
+    }
+    owner <- store("api.R", "a <- list(run=function(x) x, spare=1)", 1L)
+    statements <- c('source("api.R")', "a$run(1)", "hook()", "a$run(2)",
+        "missing_obj$run(1)", "hook()", "missing_obj$run(2)")
+    caller <- store("caller.R", statements, 1L)
+    count <- new.env(parent = emptyenv())
+    count$proofs <- 0L
+    original <- member_navigation_access
+    testthat::local_mocked_bindings(member_navigation_access = function(...) {
+        count$proofs <- count$proofs + 1L
+        original(...)
+    })
+    query <- function(expected, expected_proofs) {
+        count$proofs <- 0L
+        code <- owner$parse_data
+        idx <- member_navigation_syntax(code)
+        declared <- idx$row[idx$name == "run" & idx$kind == "tag"][[1L]]
+        target <- location(owner$uri, navigation_range(owner, code$syntax_data, declared))
+        uses <- member_navigation_occurrences(workspace, target, "run", caller$uri)
+        expect_equal(vapply(uses, function(x) x$range$start$line, integer(1L)), expected)
+        expect_equal(count$proofs, expected_proofs)
+        invisible(uses)
+    }
+    first <- query(c(1L, 3L), 4L)
+    repeat_request <- query(c(1L, 3L), 2L)  # unresolved receivers are never memoized
+    for (uses in list(first, repeat_request)) {
+        expect_identical(lapply(uses, attr, which = "member_fields"), rep(list(c("run", "spare")), 2L))
+    }
+    peer <- store("peer.R", "new_binding <- 1", 1L)
+    query(c(1L, 3L), 4L)
+    query(c(1L, 3L), 2L)
+    store("peer.R", "new_binding <- NULL", 1L, peer)
+    query(c(1L, 3L), 4L)
+    query(c(1L, 3L), 2L)
+    workspace$member_metadata <- MemberMetadataCache$new(1024L * 1024L)
+    query(c(1L, 3L), 4L)
+    query(c(1L, 3L), 2L)
+    workspace$member_metadata$set("originfixture", member_index_freeze(member_generic_index("originfixture")))
+    query(c(1L, 3L), 4L)
+    query(c(1L, 3L), 2L)
+    workspace$invalidate_s3_context()
+    query(c(1L, 3L), 4L)
+    query(c(1L, 3L), 2L)
+    owner <- store("api.R", c("# new physical offset", "a <- list(run=function(x) x)"), 1L)
+    query(c(1L, 3L), 4L)
+    query(c(1L, 3L), 2L)
+    caller <- store("caller.R", c(statements[1:2], "a <- list(run=function(x) 42)", statements[4:7]), 2L, caller)
+    query(1L, 4L)
+    query(1L, 2L)  # different owners are retained at their distinct call sites
+})
+
+test_that("member origin proof cache requires current complete versioned source", {
+    fixture <- provider_fixture(c("obj <- list(run=1)", "obj$run"))
+    expect_null(member_navigation_proof_cache(fixture$workspace, fixture$document, "test"))
+    workspace <- Workspace$new(NULL)
+    workspace$documents$set(fixture$uri, fixture$document)
+    workspace$update_parse_data(fixture$uri, fixture$document$parse_data)
+    expect_false(is.null(member_navigation_proof_cache(workspace, fixture$document, "test")))
+    fixture$document$set_content(2L, c("obj <- list(run=1)", "obj$run", "x <-"))
+    expect_null(member_navigation_proof_cache(workspace, fixture$document, "test"))
+    parsed <- parse_document(fixture$uri, fixture$document$content)
+    parsed$version <- 2L
+    workspace$update_parse_data(fixture$uri, parsed)
+    expect_null(member_navigation_proof_cache(workspace, fixture$document, "test"))
+})
+
+test_that("straight literal calls reuse a proof only for an inert plain source-list member", {
+    real <- member_navigation_access
+    state <- new.env(parent = emptyenv())
+    testthat::local_mocked_bindings(member_navigation_access = function(...) {
+        state$n <- state$n + 1L
+        real(...)
+    })
+    probe <- function(lines, cold, warm) {
+        f <- provider_fixture(lines)
+        w <- Workspace$new(NULL)
+        w$documents$set(f$uri, f$document)
+        w$update_parse_data(f$uri, f$document$parse_data)
+        parsed <- f$document$parse_data
+        idx <- member_navigation_syntax(parsed)
+        decl <- idx$row[which(idx$name == "run" & idx$kind %in% c("tag", "field"))[[1L]]]
+        owner <- location(f$uri, navigation_range(f$document, parsed$syntax_data, decl))
+        result <- NULL
+        for (expected in c(cold, warm)) {
+            state$n <- 0L
+            uses <- member_navigation_occurrences(w, owner, "run", f$uri)
+            expect_identical(state$n, expected)
+            if (!is.null(result)) expect_equal(uses, result)
+            result <- uses
+        }
+        length(result)
+    }
+    straight <- c("a <- list(run=function(x) x)", sprintf("a$run(%dL)", 1:100))
+    expect_equal(probe(straight, 1L, 0L), 101L)
+    expect_equal(probe(c("a <- list(run=function(x=opaque()) 42L)", rep("a$run()", 3)), 1L, 0L), 4L)
+    expect_equal(probe(c("a <- list(run=function(x) x)", "a$run(1)", "hook()", "a$run(2)"), 2L, 0L), 3L)
+    expect_equal(probe(c("a <- list(run=function(x=opaque()) x)", rep("a$run()", 3)), 3L, 0L), 4L)
+    expect_equal(probe(c("a <- list(run=function(x) x)", rep("a$run(opaque())", 3)), 3L, 0L), 4L)
+    expect_equal(probe(c("a <- list(run=function(x) opaque(x))", rep("a$run(1)", 3)), 3L, 0L), 4L)
+    expect_equal(probe(c('C <- R6::R6Class("C", public=list(run=function(x) x))',
+                "a <- C$new()", rep("a$run(1)", 3)), 3L, 0L), 4L)
+    expect_equal(probe(c("a <- list(run=function(x) x)", "a$run(1)", "a$run(2)",
+                "a <- list(run=function(x) x)", "a$run(3)", "a$run(4)"), 2L, 0L), 3L)
+})

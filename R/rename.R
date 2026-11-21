@@ -50,12 +50,11 @@ rename_target_scope <- function(parsed, name, key) {
 # Detect collisions in both directions. A changed use must not resolve to an
 # inner binding, and existing free uses of the new name must not become bound
 # by the renamed declaration. Only the two indexed spellings are inspected.
-rename_lexical_conflict <- function(workspace, doc, selected, new, owner_uri, owner_scope) {
+rename_lexical_conflict <- function(workspace, doc, selected, new, owner_uri, owner_scope, indexed_new) {
     if (is.null(owner_scope) || (owner_scope && !identical(doc$uri, owner_uri))) return(FALSE)
     parsed <- doc$parse_data
     index <- parsed$reference_index
-    if (!owner_scope && isTRUE(workspace$index$enabled) && is.function(workspace$index$has_definition) &&
-            workspace$index$has_definition(new, uri = doc$uri)) return(TRUE)
+    if (indexed_new && workspace$index$has_definition(new, uri = doc$uri)) return(TRUE)
     existing <- reference_indices(index, new)
     existing <- existing[!startsWith(index$definition_key[existing], "package:")]
     if (!length(existing)) return(FALSE)
@@ -210,71 +209,59 @@ rename_roxygen_names <- function(text, offset) {
 
 #' Rename attached @param tags only for formal declarations selected by Rename
 #' @noRd
-rename_roxygen_edits <- function(uri, workspace, document, references, new_name) {
-    syntax <- workspace$get_parse_data(uri)$syntax_data
-    formals <- which(syntax$token == "SYMBOL_FORMALS")
-    if (!length(formals) || !length(references)) return(list())
-    range_key <- function(value) {
-        paste(value$start$line, value$start$character,
-            value$end$line, value$end$character, sep = ":")
-    }
-    own_references <- references[vapply(references, function(ref) identical(ref$uri, uri), logical(1L))]
-    reference_ranges <- vapply(own_references, function(ref) range_key(ref$range), character(1L))
-    selected <- formals[vapply(formals, function(row) {
-        range_key(navigation_range(document, syntax, row)) %in% reference_ranges
-    }, logical(1L))]
+rename_roxygen_edits <- function(document, formal, new_name) {
+    parsed <- document$parse_data
+    syntax <- parsed$syntax_data
+    point <- document$from_lsp_position(formal$range$start)
+    row <- member_navigation_token(parsed, point)
+    if (!row || syntax$token[[row]] != "SYMBOL_FORMALS" ||
+            !equal_range(navigation_range(document, syntax, row), formal$range)) return(list())
+    declaration <- rename_function_declaration(syntax, row)
+    if (!declaration) return(list())
+    first <- syntax$line1[[declaration]]
+    prefix <- substr(document$content[[first]], 1L, syntax$col1[[declaration]] - 1L)
+    if (first <= 1L || nzchar(trimws(prefix)) || !startsWith(trimws(document$content[[first - 1L]]), "#'")) return(list())
+    name <- reference_symbol_names(syntax$text[[row]])
     edits <- list()
-    comment_lines <- logical(document$nline)
-    comments <- which(syntax$token == "COMMENT" & startsWith(syntax$text, "#'"))
-    # String contents may resemble roxygen and have a trailing real comment.
-    # Require the roxygen marker to start the actual standalone comment token.
-    comment_lines[syntax$line1[comments]] <- vapply(comments, function(row) {
-        text <- sub("^[[:space:]]*", "", document$content[[syntax$line1[[row]]]])
-        identical(gsub("\t", " ", text, fixed = TRUE), syntax$text[[row]])
-    }, logical(1L))
+    # Look up only the contiguous roxygen block immediately above this
+    # declaration. Text resembling a tag inside a string is not a comment.
+    first_comment <- first
+    while (first_comment > 1L) {
+        line <- first_comment - 1L
+        text <- document$content[[line]]
+        marker <- regexpr("#'", text, fixed = TRUE)[[1L]]
+        if (marker < 1L || nzchar(trimws(substr(text, 1L, marker - 1L)))) break
+        token <- navigation_token(parsed, line, marker, prefer_start = "COMMENT")
+        if (!token || syntax$token[[token]] != "COMMENT" || syntax$col1[[token]] != marker) break
+        first_comment <- line
+    }
+    if (first_comment == first) return(edits)
+    rows <- seq.int(first_comment, first - 1L)
     replacement <- if (grepl("[[:space:],]", new_name)) quote_completion_name(new_name) else new_name
-    for (formal in selected) {
-        declaration <- rename_function_declaration(syntax, formal)
-        if (!declaration) next
-        first <- syntax$line1[[declaration]]
-        prefix <- substr(document$content[[first]], 1L, syntax$col1[[declaration]] - 1L)
-        if (nzchar(trimws(prefix))) next
-        rows <- integer()
-        row <- first - 1L
-        while (row > 0L && comment_lines[[row]] && grepl("^[[:space:]]*#'", document$content[[row]])) {
-            rows <- c(row, rows)
-            row <- row - 1L
+    for (row in rows) {
+        text <- document$content[[row]]
+        tag <- regexpr("^[[:space:]]*#'[[:space:]]*@param(?:[[:space:]]+|$)", text, perl = TRUE)
+        if (tag[[1L]] != 1L) next
+        offset <- attr(tag, "match.length")
+        name_row <- row
+        interrupted <- FALSE
+        while (!nzchar(trimws(substr(text, offset + 1L, nchar(text)))) && name_row < first - 1L) {
+            name_row <- name_row + 1L
+            text <- document$content[[name_row]]
+            continuation <- regexpr("^[[:space:]]*#'[[:space:]]*", text)
+            offset <- attr(continuation, "match.length")
+            if (startsWith(substr(text, offset + 1L, nchar(text)), "@")) {
+                interrupted <- TRUE
+                break
+            }
         }
-        name <- reference_symbol_names(syntax$text[[formal]])
-        for (row in rows) {
-            text <- document$content[[row]]
-            tag <- regexpr("^[[:space:]]*#'[[:space:]]*@param(?:[[:space:]]+|$)", text, perl = TRUE)
-            if (tag[[1L]] != 1L) next
-            offset <- attr(tag, "match.length")
-            name_row <- row
-            interrupted <- FALSE
-            while (!nzchar(trimws(substr(text, offset + 1L, nchar(text)))) && name_row < first - 1L) {
-                name_row <- name_row + 1L
-                if (!comment_lines[[name_row]]) {
-                    interrupted <- TRUE
-                    break
-                }
-                text <- document$content[[name_row]]
-                continuation <- regexpr("^[[:space:]]*#'[[:space:]]*", text)
-                offset <- attr(continuation, "match.length")
-                if (startsWith(substr(text, offset + 1L, nchar(text)), "@")) {
-                    interrupted <- TRUE
-                    break
-                }
-            }
-            if (interrupted) next
-            names <- rename_roxygen_names(text, offset)
-            for (parameter in names) {
-                if (!identical(parameter$name, name)) next
-                edits[[length(edits) + 1L]] <- text_edit(range(
-                    start = document$to_lsp_position(name_row - 1L, parameter$start),
-                    end = document$to_lsp_position(name_row - 1L, parameter$end)), replacement)
-            }
+        if (interrupted) next
+        names <- rename_roxygen_names(text, offset)
+        for (parameter in names) {
+            if (!identical(parameter$name, name)) next
+            edits[[length(edits) + 1L]] <- text_edit(range(
+                start = document$to_lsp_position(name_row - 1L, parameter$start),
+                end = document$to_lsp_position(name_row - 1L, parameter$end)), replacement)
         }
     }
     edits
@@ -301,11 +288,13 @@ rename_reply <- function(id, uri, workspace, document, point, newName) {
             text_edit(range = ref$range, new_text = text)
         })
     })
-    for (doc_uri in names(result)) {
-        doc <- workspace$documents$get(doc_uri, NULL)
-        if (is.null(doc)) next
-        documentation <- rename_roxygen_edits(doc_uri, workspace, doc, refs$result[groups[[doc_uri]]], newName)
-        if (length(documentation)) result[[doc_uri]] <- c(result[[doc_uri]], documentation)
+    formal <- attr(refs$result, "rename_formal", exact = TRUE)
+    if (!is.null(formal)) {
+        doc <- workspace$documents$get(formal$uri, NULL)
+        if (!is.null(doc)) {
+            documentation <- rename_roxygen_edits(doc, formal, newName)
+            if (length(documentation)) result[[formal$uri]] <- c(result[[formal$uri]], documentation)
+        }
     }
 
     logger$info("rename_reply: ", result)
