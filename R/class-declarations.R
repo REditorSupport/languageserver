@@ -54,11 +54,29 @@ class_literal_row <- function(syntax, row, kinds) {
     if (length(children) == 1L && syntax$token[children] %in% kinds) children else 0L
 }
 
+# Hierarchy names refer to the characters inside a registry name literal.
+# Keep escape sequences in their written source positions.
+class_literal_range <- function(selection, text) {
+    prefix <- if (startsWith(text, '"') || startsWith(text, "'")) 1L else 0L
+    suffix <- prefix
+    if (!prefix && grepl("^[rR]['\"]", text)) {
+        delimiter <- regexpr("^[rR]['\"]-*", text)
+        prefix <- attr(delimiter, "match.length") + 1L
+        suffix <- prefix - 1L
+    }
+    range(position(selection$start$line, selection$start$character + prefix),
+        position(selection$end$line, selection$end$character - suffix))
+}
+
 class_source_declarations <- function(syntax, content, uri, incomplete_lines = integer()) {
-    which_call <- which(syntax$token == "SYMBOL_FUNCTION_CALL" & syntax$text %in% names(class_call_helpers))
-    if (!length(which_call)) return(list())
+    calls <- which(syntax$token == "SYMBOL_FUNCTION_CALL")
+    call_names <- reference_symbol_names(syntax$text[calls])
+    helpers <- which(call_names %in% names(class_call_helpers))
+    if (!length(helpers)) return(list())
     assignments <- syntax$token %in% c("LEFT_ASSIGN", "EQ_ASSIGN", "RIGHT_ASSIGN")
-    helper_names <- which(syntax$token == "SYMBOL" & syntax$text %in% names(class_call_helpers))
+    variables <- which(syntax$token == "SYMBOL")
+    variable_names <- reference_symbol_names(syntax$text[variables])
+    helper_names <- variables[variable_names %in% names(class_call_helpers)]
     shadowed <- integer()
     for (token in helper_names) {
         i <- syntax$parent_row[syntax$parent_row[token]]
@@ -76,13 +94,14 @@ class_source_declarations <- function(syntax, content, uri, incomplete_lines = i
         S4 = names(formals(methods::setClass)),
         S7 = c("name", "parent", "package", "properties", "abstract", "constructor", "validator"))
     declarations <- masked <- list()
-    for (symbol in which_call) {
+    for (i in helpers) {
+        symbol <- calls[[i]]
+        helper <- call_names[[i]]
         row <- syntax$parent_row[syntax$parent_row[symbol]]
         if (!length(row) || !row || (length(incomplete_lines) &&
                     findInterval(syntax$line1[row] - 2L, incomplete_lines) !=
                         findInterval(syntax$line2[row] - 1L, incomplete_lines))) next
         call <- syntax_call_arguments(syntax, row)
-        helper <- syntax$text[symbol]
         if (is.null(call) || !identical(call$name, helper) ||
                 (!is.null(call$package) && call$package != class_helper_packages[[helper]])) next
         type <- class_call_helpers[[helper]]
@@ -92,7 +111,7 @@ class_source_declarations <- function(syntax, content, uri, incomplete_lines = i
             formals[[type]]
         }
         args <- class_matched_arguments(call, formal_names)
-        if (!is.null(args$where)) next
+        if (is.null(args) || !is.null(args$where)) next
         parent <- syntax$parent_row[[row]]
         expr <- row
         binding <- 0L
@@ -109,7 +128,7 @@ class_source_declarations <- function(syntax, content, uri, incomplete_lines = i
                 next
             }
         }
-        if (is.null(call$package) && any(syntax$text[shadowed] == helper &
+        if (is.null(call$package) && any(reference_symbol_names(syntax$text[shadowed]) == helper &
                     syntax$order_rank[shadowed] < syntax$order_rank[symbol])) {
             if (binding) masked[[class_token_text(syntax$text[[binding]])]] <- at(expr)
             next
@@ -119,6 +138,13 @@ class_source_declarations <- function(syntax, content, uri, incomplete_lines = i
         enclosing <- syntax$parent_row[[expr]]
         if (enclosing && !any(syntax$token[syntax_children(syntax, enclosing)] == "'{'")) next
         literal <- class_literal_row(syntax, switch(type, R6 = args$classname, S7 = args$name, S4Generic = args$name, S4Method = args$f, args$Class), "STR_CONST")
+        if (type %in% c("S4Generic", "S4Method")) {
+            # The methods helpers return the generic's name. A variable taking
+            # that return value is a separate binding from the registered API.
+            if (!literal) next
+            binding <- 0L
+            expr <- row
+        }
         if (!literal && !binding) next
         name_row <- if (binding) binding else literal
         name <- class_token_text(syntax$text[[name_row]])
@@ -163,8 +189,12 @@ class_source_declarations <- function(syntax, content, uri, incomplete_lines = i
                 }
             }
         }
+        hierarchy_range <- if (literal && (type %in% c("S4", "RefClass") || !binding) && kind == SymbolKind$Class) {
+            class_literal_range(at(literal), syntax$text[[literal]])
+        }
         declarations[[length(declarations) + 1L]] <- list(name = name, class_name = class_name, type = type, kind = kind,
-            uri = uri, range = at(expr), selectionRange = at(name_row), name_row = name_row, literal_row = literal,
+            uri = uri, range = at(expr), selectionRange = at(name_row), hierarchyRange = hierarchy_range,
+            name_row = name_row, literal_row = literal,
             binding = binding > 0L, children = members, member_rows = member_rows, member_values = member_values,
             parents = parents)
     }
@@ -184,19 +214,44 @@ class_binding_definitions <- function(definitions, classes) {
     definitions
 }
 
-class_workspace_declarations <- function(workspace, uris = NULL) {
-    indexed <- !is.null(workspace$index) && isTRUE(workspace$index$enabled)
-    if (is.null(uris)) uris <- unique(c(if (indexed) workspace$index$summaries$keys(), workspace$documents$keys()))
-    unlist(lapply(uris, function(uri) {
-        document <- workspace$documents$get(uri, NULL)
-        if (!is.null(document)) {
-            current_parse_data(uri, workspace, document)$class_data$declarations
-        } else if (indexed) {
-            workspace$index$summaries$get(uri, NULL)$class_declarations
+class_workspace_sources <- function(workspace, uris = NULL) {
+    documents <- workspace$documents
+    indexed <- isTRUE(workspace$index$enabled)
+    if (is.null(uris)) uris <- unique(c(if (indexed) workspace$index$summaries$keys(), documents$keys()))
+    if (!length(uris)) return(list())
+    if (indexed) {
+        # A live buffer can use a different URI spelling from the shallow
+        # index (or a retained disk document) for the same physical file.
+        open <- workspace_s4_open_uris(workspace, NULL, documents$keys())
+        if (length(open)) {
+            aliases <- unname(open[vapply(uris, index_canonical_uri, character(1L))])
+            uris[!is.na(aliases)] <- aliases[!is.na(aliases)]
         }
-    }), recursive = FALSE)
+    }
+    lapply(unique(uris), function(uri) {
+        document <- documents$get(uri, NULL)
+        if (isTRUE(document$is_open) || !indexed) {
+            if (!is.null(document)) current_parse_data(uri, workspace, document)
+        } else {
+            summary <- workspace$index$summaries$get(index_canonical_uri(uri), NULL)
+            if (is.null(summary) && !is.null(document)) {
+                current_parse_data(uri, workspace, document)
+            } else if (!isFALSE(summary$cacheable)) {
+                summary
+            }
+        }
+    })
+}
+
+class_source_records <- function(data) {
+    if (is.null(data$class_data)) data$class_declarations else data$class_data$declarations
+}
+
+class_workspace_declarations <- function(workspace, uris = NULL) {
+    unlist(lapply(class_workspace_sources(workspace, uris), class_source_records), recursive = FALSE)
 }
 
 class_hierarchy_item <- function(cls) {
-    list(name = cls$class_name, uri = cls$uri, range = cls$selectionRange, classType = cls$type)
+    selection <- if (is.null(cls$hierarchyRange)) cls$selectionRange else cls$hierarchyRange
+    list(name = cls$class_name, uri = cls$uri, range = selection, classType = cls$type, binding = cls$name)
 }

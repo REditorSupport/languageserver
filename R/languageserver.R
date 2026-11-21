@@ -178,6 +178,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
         formatting_task_manager = NULL,
         index_task_manager = NULL,
         formatting_requests = NULL,
+        implementation_requests = NULL,
         formatting_capability_state = NULL,
         backend_generations = NULL,
         backend_documents = NULL,
@@ -236,6 +237,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 max_running_tasks = 1, min_idle_sessions = 0
             )
             self$formatting_requests <- collections::dict()
+            self$implementation_requests <- collections::dict()
 
             self$pending_replies <- collections::dict()
             self$index_requests <- collections::ordered_dict()
@@ -274,6 +276,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
         process_events = function() {
             self$parse_task_manager$check_tasks()
             self$diagnostics_task_manager$check_tasks()
+            check_implementation_requests(self)
             self$resolve_task_manager$check_tasks()
             if (!is.null(self$member_task_manager)) self$member_task_manager$check_tasks()
             self$formatting_task_manager$check_tasks()

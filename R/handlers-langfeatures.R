@@ -125,6 +125,11 @@ text_document_completion  <- function(self, id, params) {
     if (isTRUE(params$context$triggerCharacter %in% c("'", "\""))) {
         key <- if (isTRUE(lsp_settings$get("member_completion"))) member_bracket_cursor(document, point)
         if (is.null(key) || point$col != key$start + 1L) {
+            if (!identical(document$version, document$parse_data$version) && check_r_region(document, point) &&
+                    isTRUE(document$detect_call(point, signature = TRUE)$token %in% c("source", "sys.source"))) {
+                enqueue_latest_reply(self, uri, "textDocument/completion", list(id = id, version = document$version, params = params))
+                return(invisible(NULL))
+            }
             paths <- source_path_completion(document, point, workspace)
             if (!is.null(paths)) return(self$deliver(Response$new(id, result = paths)))
             return(self$deliver(Response$new(id, result = list(isIncomplete = FALSE, items = list()))))

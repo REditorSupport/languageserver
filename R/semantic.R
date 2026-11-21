@@ -641,13 +641,13 @@ semantic_parse_data <- function(data, content, syntax = NULL,
     keys <- row_parents %in% member_parents
     types[keys & tok == "SYMBOL"] <- SemanticTokenTypes$property
     types[keys & tok == "SYMBOL_FUNCTION_CALL"] <- SemanticTokenTypes$method
-    if (is.null(classes) && any(data$token == "SYMBOL_FUNCTION_CALL" & data$text %in% names(class_call_helpers))) {
+    if (is.null(classes) && any(reference_symbol_names(data$text[data$token == "SYMBOL_FUNCTION_CALL"]) %in% names(class_call_helpers))) {
         if (is.null(syntax)) syntax <- syntax_parse_data(data)
         classes <- class_source_declarations(syntax, content, "")
     }
-    for (cls in classes) {
-        declared <- c(cls$name_row, cls$member_rows)
-        kinds <- class_semantic_types(cls)
+    if (length(classes)) {
+        declared <- unlist(lapply(classes, function(cls) c(cls$name_row, cls$member_rows)), use.names = FALSE)
+        kinds <- unlist(lapply(classes, class_semantic_types), use.names = FALSE)
         hits <- match(declared, std_rows)
         keep <- !is.na(hits) & tok[hits] != "STR_CONST"
         types[hits[keep]] <- kinds[keep]

@@ -30,7 +30,7 @@ range_provider_parse_data <- function(data, content, syntax = NULL) {
         data$line1[variable_rows], data$col1[variable_rows]
     )]
     empty$variables <- list(
-        name = data$text[variable_rows],
+        name = reference_symbol_names(data$text[variable_rows]),
         line = as.integer(data$line1[variable_rows] - 1L),
         col = as.integer(data$col1[variable_rows] - 1L),
         end_line = as.integer(data$line2[variable_rows] - 1L),

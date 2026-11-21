@@ -103,10 +103,21 @@ test_that("oversized virtual bodies retain the legacy file definition fallback",
     state <- TextDocumentContent$new(max_bytes = 1)
     reply <- definition_reply(1L, fixture$uri, fixture$workspace,
         fixture$document, list(row = 0L, col = 8L), text_document_content = state)
-    expect_identical(reply$result$uri, path_to_uri(file.path(tempdir(), "print.R")))
+    expect_identical(basename(path_from_uri(reply$result$uri)), "print.R")
     expect_true(file.exists(path_from_uri(reply$result$uri)))
     expect_identical(state$size(), 0L)
     expect_null(attr(reply$result, "text_document_content"))
+})
+
+test_that("legacy generated definitions keep same-named package methods independent", {
+    first <- package_body_definition("one", "predict.widget", "function(x) 1")
+    second <- package_body_definition("two", "predict.widget", "function(x) 2")
+    expect_false(identical(first$uri, second$uri))
+    expect_identical(tail(readLines(path_from_uri(first$uri)), 1L), "function(x) 1")
+    expect_identical(tail(readLines(path_from_uri(second$uri)), 1L), "function(x) 2")
+    operator <- package_body_definition("example", "/", "function(x, y) x / y")
+    expect_true(file.exists(path_from_uri(operator$uri)))
+    expect_false(identical(operator$uri, package_body_definition("example", "CON", "NULL")$uri))
 })
 
 test_that("source and workspace definitions retain their real document URIs", {

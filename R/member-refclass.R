@@ -125,17 +125,19 @@ member_s4_constructor <- function(target, index, bindings, budget, new = FALSE) 
     # Offer optional slot arguments only for a visible source declaration.
     slots <- if (!is.null(target$recipe) || length(member_lookup(index$document_s4, target$name)) ||
             !is.null(member_lookup(bindings$.__s4_classes__, target$name))) names(shape$slot_types)
-    classes <- target$name
-    for (i in seq_len(16L)) {
-        parents <- unlist(lapply(classes, function(name) member_s4_descriptor(name, index, bindings)$contains),
+    frontier <- target$name
+    distances <- stats::setNames(0L, target$name)
+    for (depth in seq_len(16L)) {
+        parents <- unlist(lapply(frontier, function(name) member_s4_descriptor(name, index, bindings)$contains),
             use.names = FALSE)
-        more <- setdiff(parents, classes)
-        if (!length(more)) break
-        classes <- unique(c(classes, more))
-        if (length(classes) > 64L) return(NULL)
+        frontier <- setdiff(parents, names(distances))
+        if (!length(frontier)) break
+        distances[frontier] <- depth
+        if (length(distances) > 64L) return(NULL)
     }
     at <- bindings$.__member_position__
-    classes <- c(classes, "ANY")
+    distances["ANY"] <- Inf
+    unknown_registration <- FALSE
     matches <- list()
     for (entry in rev(index$document_initializers)) {
         if (!is.null(at) && !member_before(entry$end, at)) next
@@ -152,10 +154,10 @@ member_s4_constructor <- function(target, index, bindings, budget, new = FALSE) 
         }
         if (!is.character(sig) || length(sig) != 1L) {
             # A computed registration might bind this class.
-            slots <- character()
+            if (!target$name %in% names(matches)) unknown_registration <- TRUE
             next
         }
-        if (!sig %in% classes || sig %in% names(matches)) next
+        if (!sig %in% names(distances) || sig %in% names(matches)) next
         definition <- args$definition
         matches[[sig]] <- if (member_head(definition, "function") &&
                 identical(utils::head(names(definition[[2L]]), 1L), ".Object")) {
@@ -165,8 +167,14 @@ member_s4_constructor <- function(target, index, bindings, budget, new = FALSE) 
             list(quote(.__unknown_initializer__))
         }
     }
-    if (length(matches)) {
-        match <- if (target$name %in% names(matches)) matches[[target$name]] else if (length(matches) == 1L) matches[[1L]]
+    if (unknown_registration) {
+        slots <- character()
+    } else if (length(matches)) {
+        # A unique method on the closest ancestor wins over more distant
+        # ancestors and ANY. Avoid choosing between equally near parents.
+        rank <- distances[names(matches)]
+        best <- which(rank == min(rank))
+        match <- if (length(best) == 1L) matches[[best]]
         slots <- character()
         if (!is.null(match) && (length(match) == 0L || !is.null(names(match)))) formals <- match
     }

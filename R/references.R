@@ -300,8 +300,9 @@ references_reply <- function(id, uri, workspace, document, point,
     if (!is.null(member)) {
         return(member_navigation_references(id, workspace, document, member, include_declaration, for_rename, new_name))
     }
-    s4 <- s4_reference_target(workspace, document, point)
-    if (!is.null(s4)) {
+    s4 <- s4_reference_target(workspace, document, point, include_binding = TRUE)
+    if (!is.null(s4$binding) && for_rename && s4_reference_promotes_binding(workspace, s4)) return(s4_reference_rename_error(id))
+    if (!is.null(s4) && is.null(s4$binding)) {
         if (for_rename) return(s4_reference_rename_error(id))
         return(Response$new(id, result = s4_reference_locations(workspace, s4, include_declaration)))
     }
@@ -330,21 +331,31 @@ references_reply <- function(id, uri, workspace, document, point,
         )
         definition_key <- reference_key_at(
             parse_data$reference_index, token_point, token$token)
-        doc_uris <- workspace_reference_document_uris(workspace, defn$result$uri, uri, definition_key)
+        scope_key <- if (is.null(s4$binding)) definition_key else paste0("global:", token$token)
+        doc_uris <- workspace_reference_document_uris(workspace, defn$result$uri, uri, scope_key)
         if (!is.null(definition_key)) {
+            check_capture <- for_rename && !is.null(new_name) && !identical(new_name, token$token)
+            owner_scope <- if (check_capture) rename_target_scope(workspace$get_parse_data(defn$result$uri), token$token, scope_key)
             for (doc_uri in doc_uris) {
                 if (for_rename) {
                     doc <- workspace$documents$get(doc_uri, NULL)
-                    if (!rename_document_complete(doc, uri, token, definition_key)) return(rename_incomplete_error(id))
+                    if (!rename_document_complete(doc, uri, token, scope_key)) return(rename_incomplete_error(id))
                     indexed <- doc$parse_data$reference_index
                 } else {
                     indexed <- workspace$get_parse_data(doc_uri)$reference_index
                 }
                 if (is.null(indexed)) next
                 selected <- reference_indices(indexed, token$token, definition_key)
-                if (startsWith(definition_key, "global:") && length(selected)) {
+                if (!is.null(s4$binding)) {
+                    selected <- reference_indices(indexed, token$token)
+                    selected <- s4_reference_lexical_indices(workspace, workspace$documents$get(doc_uri), selected, token$token, s4)
+                } else if (startsWith(definition_key, "global:") && length(selected)) {
                     doc <- workspace$documents$get(doc_uri)
                     selected <- s4_reference_lexical_indices(workspace, doc, selected, token$token)
+                }
+                if (check_capture && rename_lexical_conflict(workspace, workspace$documents$get(doc_uri),
+                        selected, new_name, defn$result$uri, owner_scope)) {
+                    return(ResponseErrorMessage$new(id, "RequestFailed", "The new name would change an existing lexical binding"))
                 }
                 if (!isTRUE(include_declaration)) {
                     selected <- selected[!indexed$is_definition[selected]]
@@ -373,6 +384,10 @@ references_reply <- function(id, uri, workspace, document, point,
                             return(rename_incomplete_error(id))
                         }
                     }
+                }
+                if (for_rename && !is.null(new_name) && !identical(new_name, token$token) &&
+                        member_navigation_formal_conflict(workspace, uris, formal, token$token, new_name)) {
+                    return(ResponseErrorMessage$new(id, "RequestFailed", "A named argument would match a different parameter"))
                 }
                 tags <- member_navigation_occurrences(workspace, formal, token$token, uris,
                     formal = TRUE, declarations = FALSE)

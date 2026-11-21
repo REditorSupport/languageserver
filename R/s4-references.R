@@ -88,7 +88,7 @@ s4_reference_unmasked <- function(workspace, doc, row, name, direct) {
     is.null(s4_masking_definition(workspace, doc, point, row, name, direct))
 }
 
-s4_reference_target <- function(workspace, document, point) {
+s4_reference_target <- function(workspace, document, point, include_binding = FALSE) {
     parsed <- document$parse_data
     syntax <- parsed$syntax_data
     if (is.null(syntax)) return(NULL)
@@ -101,8 +101,38 @@ s4_reference_target <- function(workspace, document, point) {
     scope <- reference_source_scope(workspace, document$uri)
     direct <- s4_reference_direct(declarations, scope)
     if (!length(direct)) return(NULL)
-    if (syntax$token[[row]] != "STR_CONST" && !s4_reference_unmasked(workspace, document, row, name, direct)) return(NULL)
+    if (syntax$token[[row]] != "STR_CONST") {
+        binding <- s4_masking_definition(workspace, document, point, row, name, direct)
+        if (!is.null(binding)) {
+            if (!include_binding) return(NULL)
+            # Function locals and formals retain their lexical reference keys.
+            bound <- s4_definition_binding_row(parsed, row, name)
+            if (!is.null(bound)) {
+                parent <- syntax$parent_row[[bound]]
+                while (parent) {
+                    if (syntax$function_close[[parent]]) return(NULL)
+                    parent <- syntax$parent_row[[parent]]
+                }
+            }
+            return(list(name = name, declarations = declarations, binding = binding))
+        }
+    }
     list(name = name, declarations = declarations, anchor = s4_reference_owner(workspace, declarations, scope))
+}
+
+s4_reference_promotes_binding <- function(workspace, target) {
+    for (registration in target$declarations) {
+        doc <- workspace$documents$get(registration$uri, NULL)
+        if (is.null(doc) || !target$binding$uri %in% reference_source_scope(workspace, registration$uri)) next
+        if (registration$uri == target$binding$uri &&
+                !member_before(target$binding$range$end, registration$range$start)) next
+        pt <- doc$from_lsp_position(registration$range$start)
+        row <- member_navigation_token(doc$parse_data, pt)
+        if (!row) next
+        before <- s4_masking_definition(workspace, doc, pt, row, target$name, list())
+        if (!is.null(before) && equal_definition(before, target$binding)) return(TRUE)
+    }
+    FALSE
 }
 
 s4_reference_locations <- function(workspace, target, include_declaration) {
@@ -154,17 +184,23 @@ s4_reference_locations <- function(workspace, target, include_declaration) {
 # A later ordinary assignment can shadow a generic in the same script.
 # The lexical index calls both global:name; preserve the earlier S4 calls
 # when renaming the later binding.
-s4_reference_lexical_indices <- function(workspace, doc, selected, name) {
+s4_reference_lexical_indices <- function(workspace, doc, selected, name, target = NULL) {
     if (!length(selected)) return(selected)
-    defs <- s4_reference_registrations(workspace, doc$uri, name)
+    defs <- if (is.null(target)) s4_reference_registrations(workspace, doc$uri, name) else target$declarations
     if (!length(defs)) return(selected)
     direct <- s4_reference_direct(defs, reference_source_scope(workspace, doc$uri))
-    if (!length(direct)) return(selected)
+    if (!length(direct) && is.null(target)) return(selected)
     parsed <- doc$parse_data
     index <- parsed$reference_index
     keep <- vapply(selected, function(i) {
-        if (index$is_definition[[i]]) return(TRUE)
+        if (is.null(target) && index$is_definition[[i]]) return(TRUE)
         row <- member_navigation_token(parsed, list(row = index$line[[i]], col = index$code_point_col[[i]]))
+        if (!is.null(target)) {
+            if (!row || !identical(s4_reference_name(parsed, row), name)) return(FALSE)
+            point <- member_navigation_point(parsed$syntax_data, row)
+            binding <- s4_masking_definition(workspace, doc, point, row, name, direct)
+            return(!is.null(binding) && equal_definition(binding, target$binding))
+        }
         !row || !identical(s4_reference_name(parsed, row), name) ||
             !s4_reference_unmasked(workspace, doc, row, name, direct)
     }, logical(1L))

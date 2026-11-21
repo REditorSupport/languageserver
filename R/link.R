@@ -40,8 +40,8 @@ document_link_reply <- function(id, uri, workspace, document, rootPath) {
             strings <- data.frame(line = str_line1, end_line = str_line1,
                 col1 = str_col1 + grepl("^[rR]", str_expr), col2 = str_col2 - 1L,
                 text = as.character(str_texts), source = rep(FALSE, length(str_texts)), project_relative = rep(FALSE, length(str_texts)))
-            if (length(parse_data$source_specs)) {
-                strings <- source_document_link_ranges(strings, document, parse_data$syntax_data)
+            if (!is.null(parse_data$syntax_data)) {
+                strings <- source_document_link_ranges(strings, document, parse_data$syntax_data, workspace)
             }
             keys <- if (nrow(strings)) paste(strings$source, strings$project_relative, strings$text, sep = "\r") else character()
             first <- which(!duplicated(keys))
@@ -97,24 +97,26 @@ document_link_reply <- function(id, uri, workspace, document, rootPath) {
 
 # A statically known source argument owns the complete path expression. Keep
 # other string literals (including paths outside the workspace) independent.
-source_document_link_ranges <- function(strings, document, syntax) {
+source_document_link_ranges <- function(strings, document, syntax, workspace) {
     names <- which(syntax$token == "SYMBOL_FUNCTION_CALL" & syntax$text %in% c("source", "sys.source"))
     spans <- list()
     for (name in names) {
         row <- syntax$parent_row[syntax$parent_row[[name]]]
         if (!length(row) || !row) next
         call <- syntax_call_arguments(syntax, row)
-        if (!identical(call$name, syntax$text[[name]]) ||
-                (!is.null(call$package) && call$package != "base")) next
-        i <- match("file", names(call$values), nomatch = match("", names(call$values)))
-        if (is.na(i) || !call$values[[i]]) next
-        arg <- call$values[[i]]
+        arg <- source_file_syntax(syntax, row, call)
+        if (is.null(arg) || !arg) next
+        if (is.null(call$package) && !source_base_binding(workspace, document, call$name,
+                syntax$line1[[name]] - 1L, syntax$col1[[name]])) next
         first <- syntax$line1[[arg]]
         last <- syntax$line2[[arg]]
         start <- syntax$col1[[arg]]
         end <- syntax$col2[[arg]]
         lines <- get_range_text(document$content, first, start, last, end)
-        spec <- tryCatch(index_static_path(str2lang(paste(lines, collapse = "\n"))), error = function(e) NULL)
+        expr <- tryCatch(str2lang(paste(lines, collapse = "\n")), error = function(e) NULL)
+        if (member_head(expr, "file.path") && !source_base_binding(workspace, document, "file.path",
+                first - 1L, start)) next
+        spec <- index_static_path(expr)
         if (is.null(spec)) next
         literal <- length(syntax_children(syntax, arg)) == 1L &&
             syntax$token[syntax_children(syntax, arg)] == "STR_CONST"

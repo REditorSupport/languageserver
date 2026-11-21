@@ -103,6 +103,22 @@ test_that("S4 constructors, method formals and literal keys use declared slots",
     expect_identical(member_consistency_probe(init, 'new("W", |)', "labels"), c("seed", "strict"))
 })
 
+test_that("S4 constructor signatures follow the nearest known initializer", {
+    code <- c(
+        'Top <- methods::setClass("Top", slots = c(value = "numeric"))',
+        'Mid <- methods::setClass("Mid", contains = "Top")',
+        'Child <- methods::setClass("Child", contains = "Mid")',
+        'methods::setMethod("initialize", "Top", function(.Object, top = 7L) .Object)',
+        'methods::setMethod("initialize", "Mid", function(.Object, middle = 8L) .Object)'
+    )
+    signature <- function(lines) member_consistency_probe(lines, "Child(|)", "signature")[[1L]]$label
+    expect_identical(signature(code), "Child(middle = 8L)")
+    dynamic <- 'methods::setMethod("initialize", choose_class(), function(.Object, dynamic) .Object)'
+    expect_identical(signature(c(code, dynamic)), "Child(...)")
+    exact <- 'methods::setMethod("initialize", "Child", function(.Object, exact) .Object)'
+    expect_identical(signature(c(code, dynamic, exact)), "Child(exact)")
+})
+
 test_that("S7 literal property calls complete only a proven property key", {
     skip_if_not_installed("S7")
     snapshot <- list(S7 = member_prepare_package("S7"))

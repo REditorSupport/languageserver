@@ -53,7 +53,7 @@ inline_value_reply <- function(id, uri, workspace, document, request_range) {
     line_cond <- paste0("@line1 >= ", start_line, " and @line1 <= ", end_line)
     nodes <- xml_find_all_(
         xdoc,
-        paste0("//SYMBOL[", line_cond, " and not(preceding-sibling::OP-DOLLAR or preceding-sibling::OP-AT)]",
+        paste0("//SYMBOL[", line_cond, " and not(preceding-sibling::OP-DOLLAR or preceding-sibling::OP-AT or preceding-sibling::NS_GET or preceding-sibling::NS_GET_INT)]",
             " | //SYMBOL_FORMALS[", line_cond, "]")
     )
     if (!length(nodes)) return(Response$new(id, result = list()))
@@ -62,7 +62,7 @@ inline_value_reply <- function(id, uri, workspace, document, request_range) {
     col1 <- as.integer(xml_attr(nodes, "col1"))
     line2 <- as.integer(xml_attr(nodes, "line2"))
     col2 <- as.integer(xml_attr(nodes, "col2"))
-    names <- xml_text(nodes)
+    names <- reference_symbol_names(xml_text(nodes))
 
     values <- list()
     seen <- new.env(parent = emptyenv())

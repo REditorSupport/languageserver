@@ -1,5 +1,5 @@
 # Older summaries can contain stale definitions copied from an earlier valid file.
-index_cache_version <- 7L
+index_cache_version <- 8L
 
 #' Recognize a package without recursively searching a workspace
 #' @noRd
@@ -152,10 +152,9 @@ index_static_path <- function(expr) {
         if (!length(parts) || !all(vapply(parts, function(part) {
             is.character(part) && length(part) == 1L && !is.na(part)
         }, logical(1L)))) return(NULL)
-        return(list(
-            path = do.call(file.path, unname(parts)),
-            project_relative = FALSE
-        ))
+        path <- tryCatch(do.call(base::file.path, parts), error = function(e) NULL)
+        if (length(path) != 1L) return(NULL)
+        return(list(path = path, project_relative = FALSE))
     }
     if (fun %in% c("here::here", "here:::here")) {
         parts <- as.list(expr)[-1L]
@@ -176,26 +175,12 @@ index_source_specs <- function(expr) {
     result <- list()
     calls <- .Call("source_calls_c", expr, PACKAGE = "languageserver")
     for (node in calls) {
-        args <- as.list(node)[-1L]
-        arg_names <- names(args)
-        file_arg <- NULL
-        if (length(args)) {
-            named_file <- which(!is.null(arg_names) & arg_names == "file")
-            if (length(named_file)) {
-                file_index <- named_file[[1L]]
-            } else {
-                unnamed <- if (is.null(arg_names)) {
-                    seq_along(args)
-                } else {
-                    which(!nzchar(arg_names))
-                }
-                file_index <- if (length(unnamed)) unnamed[[1L]] else NULL
-            }
-            if (length(file_index) &&
-                    !identical(args[[file_index]], quote(expr = ))) {
-                file_arg <- args[[file_index]]
-            }
-        }
+        head <- node[[1L]]
+        name <- member_name(if (is.call(head)) head[[3L]] else head)
+        fn <- if (identical(name, "sys.source")) base::sys.source else base::source
+        args <- tryCatch(match.call(fn, node), error = function(e) NULL)
+        file_arg <- args$file
+        if (identical(file_arg, quote(expr = ))) next
         spec <- index_static_path(file_arg)
         if (!is.null(spec)) result[[length(result) + 1L]] <- spec
     }
@@ -404,7 +389,7 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
     size <- if (is.data.frame(metadata) && nrow(metadata)) metadata$size[[1L]] else NA_real_
     mtime <- if (is.data.frame(metadata) && nrow(metadata)) metadata$mtime[[1L]] else as.POSIXct(NA)
     classes <- if (!is.null(parse_data)) parse_data$class_data$declarations else if (
-        length(expressions) && any(grepl("R6Class|setClass|setRefClass|new_class|set(Generic|GroupGeneric|Method|ReplaceMethod)", content))) {
+        length(expressions) && any(grepl("R6Class|setClass|setRefClass|new_class|set(Generic|GroupGeneric|Method|ReplaceMethod)|\\\\", content))) {
         data <- utils::getParseData(expressions)
         if (any(tabbed) && identical(text, enc2utf8(content))) {
             # R expands tabs in parser columns. Full provider parses use physical character offsets.

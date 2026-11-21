@@ -9,7 +9,7 @@ member_navigation_syntax <- function(parsed) {
         kids[tok[kids] != "COMMENT"]
     }
     records <- collections::queue()
-    dynamic <- integer()
+    dynamic <- list()
     add <- function(row, expr, kind, value = 0L) {
         text <- s$text[[row]]
         name <- if (tok[[row]] == "STR_CONST" || startsWith(text, "`") ||
@@ -21,17 +21,29 @@ member_navigation_syntax <- function(parsed) {
         if (is.null(name) || !nzchar(name)) return()
         records$push(list(row = row, name = name, expr = expr, kind = kind, value = value))
     }
-    for (op in which(tok %in% c("'$'", "'@'", "LBB"))) {
+    for (op in which(tok %in% c("'$'", "'@'", "'['", "LBB"))) {
         expr <- s$parent_row[[op]]
         kids <- children(expr)
-        if (tok[[op]] == "LBB") {
-            if (length(kids) != 5L || !identical(tok[kids], c("expr", "LBB", "expr", "']'", "']'"))) next
-            key <- children(kids[[3L]])
-            if (length(key) != 1L || tok[[key]] != "STR_CONST") {
-                # Numeric positions are independent of a field's spelling.
-                if (length(key) != 1L || tok[[key]] != "NUM_CONST") dynamic <- c(dynamic, kids[[1L]])
+        if (tok[[op]] %in% c("'['", "LBB")) {
+            args <- kids[-1L]
+            values <- args[tok[args] == "expr"]
+            if (!length(values)) next
+            tokens <- lapply(values, children)
+            literals <- vapply(tokens, function(x) length(x) == 1L && tok[x] == "STR_CONST", logical(1L))
+            canonical <- tok[[op]] == "LBB" && identical(tok[kids], c("expr", "LBB", "expr", "']'", "']'"))
+            if (!canonical || !literals[[1L]]) {
+                # These subscripts do not expose a proven, editable field token.
+                # Remember the receiver and possible key spellings for rename.
+                numeric <- vapply(tokens, function(x) length(x) == 1L && tok[x] == "NUM_CONST", logical(1L))
+                if (all(numeric)) next
+                keys <- if (all(literals | numeric)) class_token_text(s$text[unlist(tokens[literals], use.names = FALSE)])
+                exact <- which(tok[args] == "SYMBOL_SUB" & s$text[args] == "exact")
+                optional <- if (length(exact) == 1L && exact + 2L <= length(args)) children(args[[exact + 2L]])
+                partial <- tok[[op]] == "LBB" && length(exact) > 0L && !identical(s$text[optional], "TRUE")
+                dynamic[[length(dynamic) + 1L]] <- list(receiver = kids[[1L]], keys = keys, partial = partial)
                 next
             }
+            key <- tokens[[1L]]
         } else {
             if (length(kids) != 3L) next
             key <- kids[[3L]]
@@ -219,7 +231,7 @@ member_navigation_function <- function(doc, definition) {
     0L
 }
 
-member_navigation_formal <- function(workspace, doc, rec) {
+member_navigation_formals <- function(workspace, doc, rec) {
     parsed <- doc$parse_data
     s <- parsed$syntax_data
     callee <- syntax_children(s, rec$expr)
@@ -248,20 +260,68 @@ member_navigation_formal <- function(workspace, doc, rec) {
     source <- owner$parse_data$syntax_data
     kids <- syntax_children(source, fn)
     formals <- kids[source$token[kids] == "SYMBOL_FORMALS"]
-    names <- reference_symbol_names(source$text[formals])
+    list(owner = owner, rows = formals, names = reference_symbol_names(source$text[formals]))
+}
+
+member_navigation_formal <- function(workspace, doc, rec) {
+    info <- member_navigation_formals(workspace, doc, rec)
+    if (is.null(info)) return(NULL)
+    names <- info$names
     if (rec$name == "...") return(NULL)
     matched <- match(rec$name, names)
     if (is.na(matched)) {
         # Partial argument matching stops at dots. An exact tag elsewhere in
         # this call claims its formal before any partial tags are matched.
+        index <- member_navigation_syntax(doc$parse_data)
         before_dots <- seq_len(match("...", names, nomatch = length(names) + 1L) - 1L)
         tags <- index$name[index$kind == "tag" & index$expr == rec$expr & index$row != rec$row]
         candidates <- before_dots[!names[before_dots] %in% tags & startsWith(names[before_dots], rec$name)]
         if (length(candidates) != 1L) return(NULL)
         matched <- candidates[[1L]]
     }
-    location(owner$uri, navigation_range(owner, source, formals[[matched]]))
+    owner <- info$owner
+    location(owner$uri, navigation_range(owner, owner$parse_data$syntax_data, info$rows[[matched]]))
 }
+
+# R matches exact tags before partial tags and only then assigns positional
+# arguments. Renaming a formal must preserve the mapping of untouched tags,
+# including labels previously captured by dots.
+member_navigation_tag_positions <- function(tags, formals) {
+    args <- stats::setNames(seq_along(tags), tags)
+    matched <- class_matched_arguments(list(values = args), formals)
+    if (!length(matched)) return(NULL)
+    mapping <- rep.int(match("...", formals), length(tags))
+    for (key in setdiff(names(matched), "...")) mapping[matched[[key]]] <- match(key, formals)
+    mapping
+}
+
+member_navigation_formal_conflict <- function(workspace, uris, target, old, new) {
+    for (uri in uris) {
+        doc <- workspace$documents$get(uri, NULL)
+        if (is.null(doc)) next
+        index <- member_navigation_syntax(doc$parse_data)
+        possible <- which(index$kind == "tag" & startsWith(rep.int(new, nrow(index)), index$name))
+        for (i in possible[!duplicated(index$expr[possible])]) {
+            rec <- index[i, , drop = FALSE]
+            if (member_navigation_field_tag(workspace, doc, rec)) next
+            info <- member_navigation_formals(workspace, doc, rec)
+            if (is.null(info) || !identical(info$owner$uri, target$uri)) next
+            formal <- match(old, info$names)
+            if (is.na(formal)) next
+            owner <- info$owner
+            if (!equal_range(target$range, navigation_range(owner, owner$parse_data$syntax_data, info$rows[[formal]]))) next
+            tags <- index$name[index$kind == "tag" & index$expr == rec$expr]
+            before <- member_navigation_tag_positions(tags, info$names)
+            if (is.null(before)) return(TRUE)
+            tags[before == formal] <- new
+            renamed <- info$names
+            renamed[[formal]] <- new
+            if (!identical(before, member_navigation_tag_positions(tags, renamed))) return(TRUE)
+        }
+    }
+    FALSE
+}
+
 
 member_navigation_origin <- function(workspace, origin) {
     if (is.null(origin$uri) || is.null(origin$range)) return(NULL)
@@ -532,12 +592,19 @@ member_navigation_calls <- function(workspace, definition, name, context_uri) {
     member_navigation_occurrences(workspace, definition, name, uris, declarations = FALSE, calls_only = TRUE)
 }
 
-member_navigation_outgoing <- function(workspace, doc, item) {
+member_navigation_outgoing <- function(workspace, doc, item, nested = list()) {
     if (is.null(doc)) return(list())
     s <- doc$parse_data$syntax_data
     idx <- member_navigation_syntax(doc$parse_data)
     calls <- which(idx$kind == "call" & s$line1[idx$row] >= item$range$start$line + 1L &
             s$line1[idx$row] <= item$range$end$line + 1L)
+    if (length(nested) && length(calls)) {
+        rows <- idx$row[calls]
+        units <- syntax_unit_columns(doc$content, s$line1[rows], s$col1[rows] - 1L, s$col2[rows])
+        sites <- list(line = s$line1[rows] - 1L, end_line = s$line2[rows] - 1L,
+            col = units$start, end_col = units$end)
+        calls <- calls[indexed_call_containers(sites, seq_along(calls), nested) == 0L]
+    }
     outgoing <- list()
     for (i in calls) {
         rec <- idx[i, , drop = FALSE]
@@ -568,7 +635,12 @@ member_navigation_rename_conflict <- function(workspace, uris, refs, old, new) {
         parsed <- doc$parse_data
         s <- parsed$syntax_data
         index <- member_navigation_syntax(parsed)
-        for (receiver in attr(index, "dynamic_receivers")) {
+        for (subscript in attr(index, "dynamic_receivers")) {
+            keys <- subscript$keys
+            if (length(keys) && !any(keys %in% c(old, new)) &&
+                    !(subscript$partial && (any(startsWith(rep(old, length(keys)), keys)) ||
+                                (!is.null(new) && any(startsWith(rep(new, length(keys)), keys)))))) next
+            receiver <- subscript$receiver
             kids <- syntax_children(s, receiver)
             if (!length(kids)) next
             last <- utils::tail(kids, 1L)
@@ -582,7 +654,34 @@ member_navigation_rename_conflict <- function(workspace, uris, refs, old, new) {
             value <- member_resolve_cursor(doc$uri, workspace, doc, loc$point, loc$cursor, loc$cursor$token,
                 origins = TRUE, origin_name = old)$value
             field <- member_lookup(value$fields, old)
-            if (same_origin(field$origin)) return("A computed key on this object may refer to the member")
+            if (same_origin(field$origin)) return("A subscript on this object may refer to the member")
+        }
+        # The receiver can acquire the proposed name later, including through
+        # a list copy. Checking only at old-name reads misses that collision.
+        uses <- which(index$kind %in% c("read", "call", "write") & index$name != old)
+        if (length(uses)) {
+            spellings <- index$name[uses]
+            prefix <- startsWith(rep(old, length(uses)), spellings)
+            if (!is.null(new)) prefix <- prefix | startsWith(rep(new, length(uses)), spellings)
+            for (i in uses[prefix]) {
+                rec <- index[i, , drop = FALSE]
+                loc <- member_hover_location(doc, member_navigation_point(s, rec$row))
+                if (is.null(loc)) next
+                exact <- identical(rec$name, new)
+                if (!exact && !identical(loc$cursor$accessor, "$")) next
+                resolved <- member_resolve_cursor(uri, workspace, doc, loc$point, loc$cursor,
+                    origins = TRUE, origin_name = old)
+                value <- resolved$value
+                if (!exact && (!any(value$type %in% c("list", "pairlist", "data.frame")) ||
+                            rec$name %in% names(value$fields))) next
+                field <- if (identical(loc$cursor$accessor, "@")) {
+                    member_slot(value, old, resolved$index, resolved$bindings, resolved$budget)
+                } else {
+                    member_lookup(value$fields, old)
+                }
+                if (same_origin(field$origin)) return(if (exact) "The new name is already used on this object" else
+                        "A partial member access on this object could change meaning")
+            }
         }
         if (is.null(new) || identical(new, old)) next
         for (ref in refs) {

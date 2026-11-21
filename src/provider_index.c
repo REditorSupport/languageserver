@@ -6,7 +6,7 @@
 typedef enum {
     P_OTHER, P_EXPR, P_SYMBOL, P_FORMAL, P_CALL, P_PACKAGE, P_FUNCTION,
     P_LEFT_ASSIGN, P_RIGHT_ASSIGN, P_EQ_ASSIGN, P_OPEN, P_CLOSE,
-    P_COMMA, P_SUB, P_EQ_SUB, P_MEMBER, P_LBB, P_STRING, P_COMMENT, P_PIPE, P_SPECIAL, P_PLACEHOLDER
+    P_COMMA, P_SUB, P_EQ_SUB, P_MEMBER, P_NAMESPACE, P_LBB, P_STRING, P_COMMENT, P_PIPE, P_SPECIAL, P_PLACEHOLDER
 } provider_token;
 
 typedef struct {
@@ -48,6 +48,7 @@ static provider_token provider_kind(SEXP value) {
     if (!strcmp(name, "SYMBOL_SUB")) return P_SUB;
     if (!strcmp(name, "EQ_SUB")) return P_EQ_SUB;
     if (!strcmp(name, "'$'") || !strcmp(name, "'@'")) return P_MEMBER;
+    if (!strcmp(name, "NS_GET") || !strcmp(name, "NS_GET_INT")) return P_NAMESPACE;
     if (!strcmp(name, "LBB")) return P_LBB;
     if (!strcmp(name, "STR_CONST")) return P_STRING;
     if (!strcmp(name, "COMMENT")) return P_COMMENT;
@@ -227,7 +228,8 @@ SEXP range_provider_index_c(SEXP data, SEXP syntax) {
     for (int i = 0; i < n; i++) {
         if ((i & 16383) == 0) R_CheckUserInterrupt();
         if (tree.kind[i] == P_FORMAL || (tree.kind[i] == P_SYMBOL &&
-                (previous[i] < 0 || tree.kind[previous[i]] != P_MEMBER))) rows[VARIABLES][variables_n++] = i;
+                (previous[i] < 0 || (tree.kind[previous[i]] != P_MEMBER &&
+                tree.kind[previous[i]] != P_NAMESPACE)))) rows[VARIABLES][variables_n++] = i;
         if (tree.kind[i] != P_EXPR) continue;
         int callee_expr = tree.first[tree.id[i]];
         if (callee_expr < 0 || tree.kind[callee_expr] != P_EXPR) continue;

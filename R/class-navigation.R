@@ -33,17 +33,16 @@ class_navigation_symbol <- function(document, parsed, point) {
     list(location = location, call = call)
 }
 
-type_definition_reply <- function(id, uri, workspace, document, point) {
-    empty <- Response$new(id)
-    if (!isTRUE(lsp_settings$get("member_completion")) || !check_r_region(document, point)) return(empty)
+class_navigation_declaration <- function(uri, workspace, document, point) {
+    if (!isTRUE(lsp_settings$get("member_completion")) || !check_r_region(document, point)) return(NULL)
     parsed <- current_parse_data(uri, workspace, document)
-    if (is.null(parsed)) return(empty)
+    if (is.null(parsed)) return(NULL)
     location <- member_hover_location(document, point)
     if (is.null(location)) location <- class_navigation_symbol(document, parsed, point)$location
-    if (is.null(location)) return(empty)
+    if (is.null(location)) return(NULL)
     value <- member_resolve_cursor(uri, workspace, document, location$point, location$cursor,
         location$cursor$token, origins = TRUE)$value
-    if (isTRUE(value$possible_receiver) || length(value$possible_returns)) return(empty)
+    if (isTRUE(value$possible_receiver) || length(value$possible_returns)) return(NULL)
     cls <- if (isTRUE(value$r6_role %in% c("instance", "generator")) && !is.null(value$r6_class$origin)) {
         list(type = "R6", name = value$r6_class$name, origin = value$r6_class$origin)
     } else if (!is.null(value$s4_class$origin)) {
@@ -58,17 +57,23 @@ type_definition_reply <- function(id, uri, workspace, document, point) {
             list(type = "S7", name = descriptor$name, origin = descriptor$origin)
         }
     }
-    if (is.null(cls)) return(empty)
-    declarations <- class_workspace_declarations(workspace, workspace_document_uris(workspace, uri))
-    candidates <- Filter(function(x) identical(x$type, cls$type) && identical(x$class_name, cls$name), declarations)
-    if (length(candidates) != 1L) return(empty)
-    target <- candidates[[1L]]
-    if (!identical(target$uri, cls$origin$uri)) return(empty)
-    source <- workspace$documents$get(target$uri, NULL)
+    if (is.null(cls)) return(NULL)
+    # The constructor call's physical source range distinguishes classes that
+    # have the same display name, even if both are assigned in the same file.
+    source <- workspace$documents$get(cls$origin$uri, NULL)
     loc <- cls$origin$range
-    if (is.null(source) || !identical(source$version, source$parse_data$version) || length(loc) != 3L ||
-            !lsp_range_contains(target$range, source$to_lsp_position(loc[[1L]], loc[[2L]]))) return(empty)
-    Response$new(id, result = list(uri = target$uri, range = target$selectionRange))
+    if (is.null(source) || length(loc) != 3L ||
+            !identical(source$version, source$parse_data$version)) return(NULL)
+    at <- source$to_lsp_position(loc[[1L]], loc[[2L]])
+    candidates <- Filter(function(x) {
+        identical(x$type, cls$type) && identical(x$class_name, cls$name) && lsp_range_contains(x$range, at)
+    }, source$parse_data$class_data$declarations)
+    if (length(candidates) == 1L) candidates[[1L]]
+}
+
+type_definition_reply <- function(id, uri, workspace, document, point) {
+    cls <- class_navigation_declaration(uri, workspace, document, point)
+    Response$new(id, result = if (!is.null(cls)) location(cls$uri, cls$selectionRange))
 }
 
 s3_implementation_target <- function(method, workspace, store) {
@@ -89,32 +94,29 @@ s3_implementation_target <- function(method, workspace, store) {
     if (!is.null(method$source) || is.null(method$body_hash)) return(NULL)
     name <- method$name
     pkg <- method$package
-    if (is.null(pkg) || !isTRUE(method$verified_binding) || grepl("[/\\\\]", name)) return(NULL)
+    if (is.null(pkg) || !isTRUE(method$verified_binding)) return(NULL)
     verified <- if (isNamespaceLoaded(pkg)) {
         s3_verified_method_body(pkg, name, method$owner, method$body_hash, materialize = FALSE)
     } else {
         list(deferred = TRUE)
     }
-    if (isTRUE(verified$deferred)) {
-        # Package initialization stays outside the language server. Send only
-        # the already-selected method, checked against the worker's catalog.
-        verified <- tryCatch(callr::r(function(pkg, name, owner, hash) {
-            get("s3_verified_method_body", asNamespace("languageserver"))(pkg, name, owner, hash, materialize = TRUE)
-        }, args = list(pkg, name, method$owner, method$body_hash), libpath = .libPaths(),
-        timeout = worker_timeout(3), system_profile = FALSE, user_profile = FALSE), error = function(e) NULL)
-    }
+    if (isTRUE(verified$deferred)) return(verified)
+    s3_implementation_location(method, workspace, store, verified)
+}
+
+s3_implementation_location <- function(method, workspace, store, verified) {
     if (is.null(verified)) return(NULL)
     if (!is.null(verified$origin)) {
         target <- member_file_definition(verified$origin, workspace)
         if (!is.null(target)) return(target)
     }
-    target <- package_body_definition(pkg, name, verified$code, store$scheme)
+    target <- package_body_definition(method$package, method$name, verified$code, store$scheme)
     text <- attr(target, "text_document_content")
     if (!is.null(text)) {
         if (store$set(target$uri, text)) {
             attr(target, "text_document_content") <- NULL
         } else {
-            target <- package_body_definition(pkg, name, verified$code)
+            target <- package_body_definition(method$package, method$name, verified$code)
         }
     }
     target
@@ -148,16 +150,95 @@ s3_implementation_unique <- function(result, workspace, document, point) {
     TRUE
 }
 
-implementation_reply <- function(id, uri, workspace, document, point, store = NULL) {
-    if (!check_r_region(document, point)) return(Response$new(id))
-    parsed <- current_parse_data(uri, workspace, document)
+implementation_method <- function(workspace, document, point) {
+    if (!check_r_region(document, point)) return(NULL)
+    parsed <- current_parse_data(document$uri, workspace, document)
     call <- class_navigation_symbol(document, parsed, point)$call
-    if (is.null(call)) return(Response$new(id))
-    result <- resolve_s3_call(uri, workspace, document, point, call = call)
-    target <- if (!is.null(result) && s3_implementation_unique(result, workspace, document, point)) {
-        s3_implementation_target(result$method, workspace, store)
+    if (is.null(call)) return(NULL)
+    result <- resolve_s3_call(document$uri, workspace, document, point, call = call)
+    if (!is.null(result) && s3_implementation_unique(result, workspace, document, point)) result$method
+}
+
+implementation_reply <- function(id, uri, workspace, document, point, store = NULL, defer = NULL) {
+    method <- implementation_method(workspace, document, point)
+    target <- if (!is.null(method)) s3_implementation_target(method, workspace, store)
+    if (isTRUE(target$deferred)) {
+        if (is.function(defer)) {
+            defer(method)
+            return(NULL)
+        }
+        target <- NULL
     }
     Response$new(id, result = target)
+}
+
+# Package initialization and lazy method lookup must leave the server free
+# to process edits and cancellation. The resolve manager uses isolated workers.
+queue_implementation_lookup <- function(self, id, workspace, document, point, method) {
+    uri <- document$uri
+    key <- request_id_key(id)
+    task_key <- paste0("\001implementation-", key)
+    version <- document$version
+    snapshot <- document$content
+    generation <- document$parse_generation
+    identity <- c("package", "name", "owner", "body_hash")
+    current <- function() {
+        identical(workspace, self$get_workspace(uri)) &&
+            identical(document, workspace$documents$get(uri, NULL)) &&
+            identical(version, document$version) && identical(snapshot, document$content) &&
+            identical(generation, document$parse_generation)
+    }
+    # A late result from a replaced or cancelled request cannot send a second response.
+    ticket <- new.env(parent = emptyenv())
+    finish <- function(verified) {
+        if (!identical(self$implementation_requests$get(key, NULL)$ticket, ticket)) return(invisible(NULL))
+        self$implementation_requests$remove(key)
+        if (!current()) {
+            self$deliver(ResponseErrorMessage$new(id, "RequestCancelled", "Document changed during method lookup"))
+            return(invisible(NULL))
+        }
+        target <- tryCatch({
+            selected <- implementation_method(workspace, document, point)
+            if (identical(selected[identity], method[identity])) {
+                s3_implementation_location(method, workspace, self$text_document_content, verified)
+            }
+        }, error = function(e) {
+            logger$info("S3 implementation lookup: ", e)
+            NULL
+        })
+        self$deliver(Response$new(id, result = target))
+    }
+    task <- create_task(package_call(s3_verified_method_body),
+        args = list(pkg = method$package, name = method$name, owner = method$owner, hash = method$body_hash, materialize = TRUE),
+        callback = finish, error = function(e) finish(NULL), profiles = FALSE)
+    self$implementation_requests$set(key, list(
+        id = id, ticket = ticket, task_key = task_key, current = current, timeout = worker_timeout(3)
+    ))
+    self$resolve_task_manager$add_task(task_key, task)
+    invisible(NULL)
+}
+
+check_implementation_requests <- function(self, cancel_id = NULL) {
+    requests <- self$implementation_requests
+    if (is.null(requests) || !requests$size()) return(invisible(NULL))
+    keys <- if (is.null(cancel_id)) requests$keys() else request_id_key(cancel_id)
+    for (key in keys) {
+        entry <- requests$get(key, NULL)
+        if (is.null(entry)) next
+        expired <- FALSE
+        if (is.null(cancel_id) && entry$current()) {
+            task <- self$resolve_task_manager$get_task(entry$task_key)
+            start <- task$execution_started_at
+            expired <- !is.null(start) && proc.time()[[3L]] - start >= entry$timeout
+            if (!expired) next
+        }
+        requests$remove(key)
+        self$resolve_task_manager$cancel(entry$task_key)
+        reply <- if (expired) Response$new(entry$id) else
+            ResponseErrorMessage$new(entry$id, "RequestCancelled", "Method lookup cancelled")
+        self$deliver(reply)
+    }
+    invisible(NULL)
 }
 
 class_navigation_waiting <- function(self, workspace, document, point, method) {
@@ -192,9 +273,10 @@ class_navigation_request <- function(self, id, params, method) {
         return(invisible(NULL))
     }
     reply <- if (identical(method, "textDocument/implementation")) {
-        implementation_reply(id, uri, workspace, document, point, self$text_document_content)
+        implementation_reply(id, uri, workspace, document, point, self$text_document_content,
+            defer = function(method) queue_implementation_lookup(self, id, workspace, document, point, method))
     } else {
         type_definition_reply(id, uri, workspace, document, point)
     }
-    self$deliver(reply)
+    if (!is.null(reply)) self$deliver(reply)
 }

@@ -20,6 +20,11 @@ selection_range_reply <- function(id, uri, workspace, document, points) {
             if (!check_r_region(document, point)) return(cursor_range(point))
             row <- navigation_token(parse_data, point$row + 1L, point$col + 1L)
             if (!row) return(cursor_range(point))
+            if (syntax$line2[[row]] == point$row + 1L && syntax$col2[[row]] == point$col) {
+                next_row <- navigation_token(parse_data, point$row + 1L, point$col + 2L)
+                if (next_row && syntax$line1[[next_row]] == point$row + 1L &&
+                        syntax$col1[[next_row]] == point$col + 1L) row <- next_row
+            }
             ancestors <- collections::stack()
             while (row) {
                 ancestors$push(row)
@@ -42,6 +47,12 @@ selection_range_reply <- function(id, uri, workspace, document, points) {
             row <- point$row + 1
             col <- point$col + 1
             token <- xdoc_find_token(xdoc, row, col)
+            if (!inherits(token, "xml_missing") && as.integer(xml_attr(token, "line2")) == row &&
+                    as.integer(xml_attr(token, "col2")) == col - 1L) {
+                following <- xdoc_find_token(xdoc, row, col + 1L)
+                if (!inherits(following, "xml_missing") && as.integer(xml_attr(following, "line1")) == row &&
+                        as.integer(xml_attr(following, "col1")) == col) token <- following
+            }
             nodes <- xml_find_all_(token, "ancestor-or-self::*[@line1]")
             if (!length(nodes)) return(cursor_range(point))
             ranges <- lapply(nodes, function(token) {

@@ -342,20 +342,25 @@ class_member_information <- function(cls, uri) {
 # search records separate from the lexical definition table used by navigation.
 class_search_definitions <- function(definitions, classes) {
     if (!length(classes)) return(definitions)
-    for (cls in classes) {
+    bindings <- match(vapply(classes, `[[`, character(1L), "name"), names(definitions))
+    extra <- vector("list", length(classes))
+    for (i in seq_along(classes)) {
+        cls <- classes[[i]]
+        own <- list()
         if (cls$binding) {
-            previous <- definitions[[cls$name]]
+            row <- bindings[[i]]
+            if (is.na(row)) next
+            previous <- definitions[[row]]
             if (is.null(previous$range) || !equal_range(previous$range, cls$range)) next
-            definitions[[cls$name]]$kind <- cls$kind
+            definitions[[row]]$kind <- cls$kind
         } else {
-            record <- list(name = cls$name, kind = cls$kind, range = cls$selectionRange)
-            definitions <- c(definitions, stats::setNames(list(record), cls$name))
+            own[[cls$name]] <- list(name = cls$name, kind = cls$kind, range = cls$selectionRange)
         }
         children <- lapply(cls$children, function(child) {
             list(name = child$name, kind = child$kind, containerName = cls$name, range = child$selectionRange)
         })
         names(children) <- vapply(cls$children, `[[`, character(1L), "name")
-        definitions <- c(definitions, children)
+        extra[[i]] <- c(own, children)
     }
-    definitions
+    c(definitions, unlist(extra, recursive = FALSE, use.names = TRUE))
 }

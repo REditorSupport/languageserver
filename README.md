@@ -262,6 +262,9 @@ complete statements and choose **Extract selection to function**. Extraction
 keeps the selected code in its original scope and identifies the inputs needed
 by an extracted function. A local variable can also be replaced with its value
 using **Inline variable** when doing so preserves evaluation and binding behavior.
+Literal constants and simple arithmetic on small numeric literals can move into
+call arguments. Reads of other bindings or members must stay in the next statement
+at an eager use, such as a direct assignment or the first operand of base arithmetic.
 
 These actions use static analysis and are offered only when the transformation
 can be determined safely. Unsupported selections, ambiguous bindings, and code

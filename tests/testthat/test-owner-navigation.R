@@ -180,3 +180,53 @@ test_that("two slot helpers with the same key still resolve their individual rec
         expect_equal(vapply(refs, function(x) x$range$start$line, integer(1L)), c(row - 4L, row))
     }
 })
+
+test_that("member rename protects later writes on list copies and partial or subscript reads", {
+    for (access in c("b$taken <- 2", "b$taken", "b$al", 'b[["alpha", exact=TRUE]]', 'b["alpha"]')) {
+        f <- provider_fixture(c("a <- list(alpha = 1)", "b <- a", access, "a$alpha"))
+        result <- owner_reply(f, rename_reply, 0L, "alpha", "taken")
+        expect_equal(result$error$code, ErrorCodes$RequestFailed, label = access)
+    }
+    for (access in c('b["other"]', 'b[["other", exact=TRUE]]', "b[1L]", 'other["alpha"]',
+            "other$al", "other$taken <- 2", "b$also")) {
+        f <- provider_fixture(c("a <- list(alpha = 1, also = 3)", "b <- a", "other <- list(alpha = 4)", access, "a$alpha"))
+        edits <- owner_reply(f, rename_reply, 0L, "alpha", "taken")$result$changes[[f$uri]]
+        expect_equal(vapply(edits, function(edit) edit$range$start$line, integer(1L)), c(0L, 4L), label = access)
+    }
+})
+
+test_that("member call hierarchy assigns nested helper calls to the helper", {
+    f <- provider_fixture(c("a <- list(run = function(arg) arg)", "outer <- function() {",
+            "    inner <- function() a$run(42)", "    inner()", "}", "outer()"))
+    w <- Workspace$new(NULL)
+    w$documents$set(f$uri, f$document)
+    w$update_parse_data(f$uri, f$document$parse_data)
+    f$workspace <- w
+    target <- owner_reply(f, prepare_call_hierarchy_reply, 0L, "run")$result[[1L]]
+    outer <- owner_reply(f, prepare_call_hierarchy_reply, 1L, "outer")$result[[1L]]
+    incoming <- indexed_incoming_calls(w, target)
+    expect_equal(vapply(incoming, function(x) x$from$name, ""), "inner")
+    inner <- incoming[[1L]]$from
+    expect_equal(inner$selectionRange, range(position(2L, 4L), position(2L, 9L)))
+    expect_equal(vapply(indexed_outgoing_calls(w, inner), function(x) x$to$name, ""), "run")
+    expect_equal(vapply(indexed_outgoing_calls(w, outer), function(x) x$to$name, ""), "inner")
+    expect_equal(vapply(indexed_incoming_calls(w, inner), function(x) x$from$name, ""), "outer")
+    top <- indexed_incoming_calls(w, outer)[[1L]]$from
+    expect_true(top$data$topLevel)
+    top_calls <- vapply(indexed_outgoing_calls(w, top), function(x) x$to$name, "")
+    expect_true("outer" %in% top_calls)
+    expect_false(any(c("inner", "run") %in% top_calls))
+})
+
+test_that("formal rename preserves R argument matching at calls on the same owner", {
+    for (call in c("f(1, b=2)", "f(1, beta_long=2)")) {
+        f <- provider_fixture(c("f <- function(alpha, beta, ...) alpha + beta", call))
+        expect_equal(owner_reply(f, rename_reply, 0L, "alpha", "beta_long")$error$code, ErrorCodes$RequestFailed)
+    }
+    f <- provider_fixture(c("a <- list(f=function(alpha, beta) alpha + beta)",
+            "b <- list(f=function(alpha, beta) alpha + beta)", "a$f(al=1, b=2)", "b$f(1, b=2)"))
+    edits <- owner_reply(f, rename_reply, 0L, "alpha", "beta_long")$result$changes[[f$uri]]
+    expect_equal(vapply(edits, function(edit) edit$range$start$line, integer(1L)), c(0L, 0L, 2L))
+    f <- provider_fixture(c("a <- list(f=function(alpha, beta) alpha + beta)", "a$f(1, b=2)"))
+    expect_equal(owner_reply(f, rename_reply, 0L, "alpha", "beta_long")$error$code, ErrorCodes$RequestFailed)
+})

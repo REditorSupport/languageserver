@@ -64,6 +64,75 @@ test_that("foreground implementation lookup never reads deferred or active bindi
     expect_null(s3_verified_method_body("pkg", "active", "pkg", "hash", FALSE, scope))
 })
 
+test_that("cold package implementation verification is cancellable and scoped to the current request", {
+    f <- class_navigation_fixture("stats::predict(stats::lm(mpg ~ wt, mtcars))")
+    self <- new.env(parent = emptyenv())
+    self$get_workspace <- function(...) f$workspace
+    self$implementation_requests <- collections::dict()
+    self$pending_replies <- collections::dict()
+    self$resolve_task_manager <- TaskManager$new("implementation-test", use_session = FALSE)
+    self$text_document_content <- TextDocumentContent$new()
+    self$replies <- list()
+    self$deliver <- function(reply) self$replies[[length(self$replies) + 1L]] <- reply
+    testthat::local_mocked_bindings(
+        s3_verified_method_body = function(...) list(deferred = TRUE),
+        .package = "languageserver"
+    )
+    request <- function(id) {
+        class_navigation_request(self, id, list(textDocument = list(uri = f$uri),
+                position = position(0L, 8L)), "textDocument/implementation")
+        key <- self$implementation_requests$get(request_id_key(id))$task_key
+        self$resolve_task_manager$get_task(key)$.__enclos_env__$private$callback
+    }
+    done <- request(7L)
+    cancelled <- request("7")
+    expect_length(self$replies, 0L)
+    cancel_request(self, list(id = "7"))
+    cancelled(list(code = "wrong()"))
+    expect_length(self$replies, 1L)
+    expect_identical(self$replies[[1L]]$id, "7")
+    expect_equal(self$replies[[1L]]$error$code, ErrorCodes$RequestCancelled)
+    done(list(code = "function(object) 1"))
+    expect_match(self$text_document_content$get(self$replies[[2L]]$result$uri), "function(object) 1", fixed = TRUE)
+    late <- request(8L)
+    f$document$set_content(2L, "predict <- function(x) 1")
+    check_implementation_requests(self)
+    late(list(code = "stale()"))
+    expect_length(self$replies, 3L)
+    expect_equal(self$replies[[3L]]$error$code, ErrorCodes$RequestCancelled)
+    expect_equal(self$implementation_requests$size(), 0L)
+
+    # An already queued package lookup also expires if the isolated worker stalls.
+    f$document$set_content(3L, "stats::predict(stats::lm(mpg ~ wt, mtcars))")
+    parsed <- parse_document(f$uri, f$document$content)
+    parsed$version <- f$document$version
+    f$document$update_parse_data(parsed)
+    expired <- request(9L)
+    task_key <- self$implementation_requests$get(request_id_key(9L))$task_key
+    task <- self$resolve_task_manager$get_task(task_key)
+    task$execution_started_at <- proc.time()[[3L]] - worker_timeout(3) - 1
+    check_implementation_requests(self)
+    expired(list(code = "late()"))
+    expect_length(self$replies, 4L)
+    expect_null(self$replies[[4L]]$result)
+    expect_equal(self$implementation_requests$size(), 0L)
+})
+
+test_that("installed implementation navigation resolves a cold package through the server", {
+    skip_on_cran()
+    skip_if_not_installed("MASS")
+    root <- withr::local_tempdir()
+    path <- file.path(root, "cold.R")
+    writeLines(c("fit <- MASS::rlm(mpg ~ wt, data = mtcars)", "print(fit)"), path)
+    client <- language_client(root, capabilities = list(workspace = list(textDocumentContent = list())))
+    did_open(client, path)
+    target <- respond(client, "textDocument/implementation",
+        list(textDocument = list(uri = path_to_uri(path)), position = position(1L, 2L)))
+    expect_match(target$uri, "/MASS/print.rlm.R", fixed = TRUE)
+    body <- respond(client, "workspace/textDocumentContent", list(uri = target$uri))
+    expect_match(body$text, "function", fixed = TRUE)
+})
+
 test_that("type definition requires a unique visible declaration of the inferred class", {
     types <- list(
         c('Alias <- R6::R6Class("Widget")', "x <- Alias$new()"),
@@ -84,8 +153,9 @@ test_that("type definition requires a unique visible declaration of the inferred
         expect_equal(at(4L, 6L), at(3L))
         for (row in 6:8) expect_null(at(row, 1L))
     }
-    f <- provider_fixture(c('A <- R6::R6Class("Widget")', 'B <- R6::R6Class("Widget")', "x <- A$new()", "x"))
-    expect_null(at(3L))
+    f <- provider_fixture(c('A <- R6::R6Class("Widget")', 'B <- R6::R6Class("Widget")', "x <- A$new()", "x", "x <- B$new()", "x"))
+    expect_equal(at(3L)$range, range(position(0L, 0L), position(0L, 1L)))
+    expect_equal(at(5L)$range, range(position(1L, 0L), position(1L, 1L)))
     # A class defined inside a function has no visible top-level declaration.
     f <- provider_fixture(c('Outer <- R6::R6Class("Widget")',
             'make <- function() { Inner <- R6::R6Class("Widget"); Inner$new() }', "x <- make()", "x"))

@@ -113,3 +113,135 @@ test_that("class syntax respects masked helpers and XML fallback token roles", {
     fallback <- list(get_parse_data = function(...) list(xml_doc = parse_data_xml(parsed)))
     expect_equal(extract_semantic_tokens(f$uri, fallback, f$document), cached)
 })
+
+test_that("same-named generators retain their individual hierarchy edges", {
+    lines <- c('First <- R6::R6Class("First")', 'Second <- R6::R6Class("Second")',
+        'A <- R6::R6Class("Node", inherit=First)', 'B <- R6::R6Class("Node", inherit=Second)',
+        'C <- R6::R6Class("Node", inherit=First)')
+    f <- class_provider_fixture(lines)
+    item <- function(row) {
+        prepare_type_hierarchy_reply(1L, f$uri, f$workspace, f$document, list(row = row, col = 0L))$result[[1L]]
+    }
+    for (row in 2:4) {
+        parent <- type_hierarchy_supertypes_reply(1L, f$workspace, item(row))$result
+        expect_equal(map_chr(parent, "name"), if (row == 3L) "Second" else "First")
+    }
+    children <- type_hierarchy_subtypes_reply(1L, f$workspace, item(0L))$result
+    expect_equal(map_chr(children, "name"), c("Node", "Node"))
+    expect_equal(vapply(children, function(x) x$selectionRange$start$line, integer(1L)), c(2L, 4L))
+})
+
+test_that("class hierarchy follows source dependencies and unopened reverse dependents", {
+    root <- index_normalize_path(withr::local_tempdir())
+    w <- Workspace$new(root)
+    register <- function(file, code) {
+        path <- file.path(root, file)
+        writeLines(code, path)
+        uri <- path_to_uri(path)
+        w$index$update_content(uri, code)
+        uri
+    }
+    base <- register("base.R", 'Base <- R6::R6Class("Parent")')
+    child <- register("child.R", c('source("base.R")', 'Child <- R6::R6Class("Child",inherit=Base)'))
+    register("unrelated.R", c('Base <- R6::R6Class("Other")', 'Child <- R6::R6Class("Child",inherit=Base)'))
+    register("ambiguous.R", c('source("base.R")', 'source("unrelated.R")', 'Both <- R6::R6Class("Both",inherit=Base)'))
+    base_item <- class_hierarchy_item(w$index$summaries$get(base)$class_declarations[[1L]])
+    children <- find_type_subtypes(w, base_item)
+    expect_equal(map_chr(children, "uri"), child)
+    expect_equal(map_chr(children, "name"), "Child")
+    expect_equal(find_type_supertypes(w, children[[1L]]), list(base_item))
+})
+
+test_that("S4 registration return bindings are ordinary variables in outlines and search", {
+    f <- class_provider_fixture(c('g <- methods::setGeneric("speak", function(x) standardGeneric("speak"))',
+            'm <- methods::setMethod("speak", "numeric", function(x) x)'))
+    flat <- document_symbol_reply(1L, f$uri, f$workspace, f$document, list())$result
+    expect_equal(map_int(flat[map_chr(flat, "name") %in% c("g", "m")], "kind"),
+        rep(get_document_symbol_kind("variable"), 2L))
+    expect_equal(map_int(flat[map_chr(flat, "name") == "speak"], "kind"), c(SymbolKind$Function, SymbolKind$Method))
+    search <- workspace_symbol_reply(1L, list(f$workspace), "speak")$result
+    expect_equal(map_int(search, "kind"), c(SymbolKind$Function, SymbolKind$Method))
+})
+
+test_that("quoted and escaped declaration helpers agree between open files and the disk index", {
+    code <- c('A <- R6::`R6Class`("A", public = list(run = function() 1))',
+        'B <- R6::`R6Cl\\141ss`("B", public = list(value = 2))',
+        "`R6Cl\\141ss` <- function(...) base::list()", 'ordinary <- R6Class("Ordinary", public = list(ghost = 1))')
+    path <- withr::local_tempfile(fileext = ".R")
+    writeLines(code, path)
+    f <- class_provider_fixture(code, path_to_uri(path))
+    parsed <- f$document$parse_data
+    classes <- parsed$class_data$declarations
+    expect_equal(map_chr(classes, "name"), c("A", "B"))
+    expect_equal(parsed$definitions$ordinary$type, "variable")
+    expect_equal(index_shallow_summary(path, code, dirname(path))$class_declarations, classes)
+    single <- code[[2L]]
+    expect_equal(map_chr(index_shallow_summary(path, single, dirname(path))$class_declarations, "name"), "B")
+    data <- parsed$semantic_data
+    expect_equal(data$types[data$lines == 1L & data$cols == 0L], SemanticTokenTypes$class)
+})
+
+test_that("live URI aliases replace indexed hierarchy declarations until their edit is parsed", {
+    root <- index_normalize_path(withr::local_tempdir())
+    w <- Workspace$new(root)
+    path <- file.path(root, "types.R")
+    lines <- c('Base <- R6::R6Class("Base")', 'Child <- R6::R6Class("Child",inherit=Base)')
+    writeLines(lines, path)
+    uri <- path_to_uri(path)
+    w$index$update_content(uri, lines)
+    initial <- class_hierarchy_item(class_workspace_declarations(w, uri)[[1L]])
+    expect_length(find_type_subtypes(w, initial), 1L)
+    alias <- sub("types[.]R$", "%74ypes.R", uri)
+    doc <- Document$new(alias, version = 1L, content = c("# edited", lines))
+    doc$did_open()
+    w$documents$set(alias, doc)
+    expect_length(class_workspace_declarations(w, uri), 0L)
+    expect_length(find_type_subtypes(w, initial), 0L)
+    parsed <- parse_document(alias, doc$content)
+    parsed$version <- 1L
+    w$update_parse_data(alias, parsed)
+    classes <- class_workspace_declarations(w)
+    expect_equal(map_chr(classes, "uri"), rep(alias, 2L))
+    current <- class_hierarchy_item(classes[[1L]])
+    expect_equal(find_type_subtypes(w, current)[[1L]]$uri, alias)
+    expect_equal(current$range$start$line, 1L)
+})
+
+test_that("an ordinary reassignment masks the old parent generator", {
+    f <- class_provider_fixture(c('Base <- R6::R6Class("Base")', "Base <- 1",
+            'Child <- R6::R6Class("Child", inherit=Base)'))
+    classes <- f$document$parse_data$class_data$declarations
+    expect_length(find_type_supertypes(f$workspace, class_hierarchy_item(classes[[2L]])), 0L)
+    expect_length(find_type_subtypes(f$workspace, class_hierarchy_item(classes[[1L]])), 0L)
+})
+
+test_that("hierarchy preparation uses current source declarations without building XML", {
+    f <- class_provider_fixture(c('Class <- R6::R6Class("Node")', "x <- Class$new()", "x"))
+    testthat::local_mocked_bindings(parse_data_xml = function(...) stop("unexpected XML rebuild"), .package = "languageserver")
+    for (row in c(0L, 2L)) {
+        item <- prepare_type_hierarchy_reply(1L, f$uri, f$workspace, f$document, list(row = row, col = 0L))$result
+        expect_equal(item[[1L]]$range$start, position(0L, 0L))
+    }
+    f$document$set_content(2L, "different <- 1")
+    expect_null(prepare_type_hierarchy_reply(1L, f$uri, f$workspace, f$document, list(row = 0L, col = 1L))$result)
+})
+
+test_that("S4 and reference class hierarchy select registered literal contents across generator aliases", {
+    for (helper in c("setClass", "setRefClass")) {
+        code <- c(paste0("Generator <- methods::", helper, '(r"--[Par🐈ent]--")'),
+            paste0("ChildFactory <- methods::", helper, '("Kid", contains = "Par🐈ent")'))
+        f <- class_provider_fixture(code)
+        classes <- f$document$parse_data$class_data$declarations
+        parent <- class_hierarchy_item(classes[[1L]])
+        child <- class_hierarchy_item(classes[[2L]])
+        selected_text <- function(item) {
+            first <- f$document$from_lsp_position(item$range$start)
+            last <- f$document$from_lsp_position(item$range$end)
+            substr(code[[first$row + 1L]], first$col + 1L, last$col)
+        }
+        expect_identical(selected_text(parent), "Par🐈ent")
+        expect_identical(selected_text(child), "Kid")
+        expect_identical(find_type_supertypes(f$workspace, child), list(parent))
+        expect_identical(find_type_subtypes(f$workspace, parent), list(child))
+    }
+})

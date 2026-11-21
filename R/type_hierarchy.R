@@ -125,59 +125,41 @@ type_hierarchy_subtypes_reply <- function(id, workspace, item) {
 #'
 #' @noRd
 detect_type_definition <- function(uri, workspace, document, point, token_text) {
-    xdoc <- parse_data_xml(workspace$get_parse_data(uri))
-    if (is.null(xdoc)) {
-        return(NULL)
-    }
-
-    row <- point$row + 1
-    col <- point$col + 1
-
-    token <- xdoc_find_token(xdoc, row, col)
-    if (!length(token)) {
-        return(NULL)
-    }
-
-    token_name <- xml_name(token)
-
-    token_value <- class_token_text(xml_text(token))
-
-    # Only process SYMBOL, SYMBOL_FUNCTION_CALL, or STR_CONST
-    if (!(token_name %in% c("SYMBOL", "SYMBOL_FUNCTION_CALL", "STR_CONST"))) {
-        return(NULL)
-    }
-
-    enclosing_scopes <- xdoc_find_enclosing_scopes(xdoc, row, col, top = TRUE)
-
-    parsed <- workspace$get_parse_data(uri)
-    declarations <- parsed$class_data$declarations
-    if (token_value %in% names(attr(declarations, "masked", exact = TRUE)) &&
-            identical(parsed$definitions[[token_value]]$type, "variable")) return(NULL)
-    if (length(declarations) || !is.null(parsed$syntax_data)) {
-        focused <- navigation_token(parsed, row, col)
+    parsed <- current_parse_data(uri, workspace, document)
+    if (is.null(parsed)) return(NULL)
+    row <- point$row + 1L
+    col <- point$col + 1L
+    syntax <- parsed$syntax_data
+    if (!is.null(syntax)) {
+        focused <- member_navigation_token(parsed, point)
+        if (!focused) return(NULL)
+        token_name <- syntax$token[[focused]]
+        if (!token_name %in% c("SYMBOL", "SYMBOL_FUNCTION_CALL", "STR_CONST")) return(NULL)
+        token_value <- class_token_text(syntax$text[[focused]])
+        declarations <- parsed$class_data$declarations
+        if (token_value %in% names(attr(declarations, "masked", exact = TRUE)) &&
+                identical(parsed$definitions[[token_value]]$type, "variable")) return(NULL)
         for (cls in declarations) {
-            if (cls$type %in% c("R6", "S7") && focused %in% c(cls$name_row, cls$literal_row)) {
+            if (cls$kind == SymbolKind$Class && focused %in% c(cls$name_row, cls$literal_row)) {
                 return(class_hierarchy_item(cls))
             }
         }
-        if (token_name %in% c("SYMBOL", "SYMBOL_FUNCTION_CALL") && !is.null(document$parse_data$member_data)) {
-            location <- member_symbol_location(document, point)
-            if (!is.null(location)) {
-                resolved <- member_resolve_cursor(uri, workspace, document, location$point, location$cursor, location$cursor$token)
-                value <- resolved$value
-                type <- if (!is.null(value$r6_class$name)) "R6" else if (!is.null(value$s4_class$name)) "S4" else
-                    if (!is.null(value$s7_descriptor$name) && identical(value$s7_descriptor$kind, "class")) "S7"
-                if (length(type)) {
-                    name <- switch(type, R6 = value$r6_class$name, S4 = value$s4_class$name, S7 = value$s7_descriptor$name)
-                    candidates <- class_workspace_declarations(workspace, workspace_document_uris(workspace, uri))
-                    hits <- Filter(function(x) x$type == type && identical(name, x$class_name), candidates)
-                    if (length(hits) == 1L) return(class_hierarchy_item(hits[[1L]]))
-                }
-                # Only a proven class or its exact class declaration is a type target.
-                if (!is.null(value$type) && !identical(value$type, "function")) return(NULL)
-            }
+        if (token_name %in% c("SYMBOL", "SYMBOL_FUNCTION_CALL") && !is.null(parsed$member_data)) {
+            cls <- class_navigation_declaration(uri, workspace, document, point)
+            if (!is.null(cls)) return(class_hierarchy_item(cls))
+            # A plain source binding can share a name with a class. Only
+            # dotted S3 method names still need legacy method detection here.
+            bound <- navigation_definitions(parsed, row, col, token_value, token = focused, last = TRUE)
+            if (length(bound) && !grepl(".", token_value, fixed = TRUE)) return(NULL)
         }
     }
+
+    xdoc <- parse_data_xml(parsed)
+    if (is.null(xdoc)) return(NULL)
+    token <- xdoc_find_token(xdoc, row, col)
+    if (!length(token) || !xml_name(token) %in% c("SYMBOL", "SYMBOL_FUNCTION_CALL", "STR_CONST")) return(NULL)
+    token_value <- class_token_text(xml_text(token))
+    enclosing_scopes <- xdoc_find_enclosing_scopes(xdoc, row, col, top = TRUE)
 
     # Fallback scan for R6Class definition
     r6_type <- detect_r6class(enclosing_scopes, token_value, document, uri)
@@ -315,10 +297,90 @@ detect_s3class <- function(scopes, token_text, document, uri) {
     NULL
 }
 
+# An ordinary assignment to the generator name can shadow its declaration.
+# Check the lexical definition in each file visible to the child, including
+# shallow source summaries for files that have not been opened.
+class_hierarchy_parent_bindings <- function(workspace, uri, type, name) {
+    sources <- class_workspace_sources(workspace, reference_source_scope(workspace, uri))
+    candidates <- list()
+    for (source in sources) {
+        declarations <- class_source_records(source)
+        if (type %in% c("S4", "RefClass")) {
+            # contains= names a registered class, independent of any ordinary
+            # variable (including the generator binding) with that name.
+            declarations <- Filter(function(x) x$type == type && x$class_name == name, declarations)
+        } else {
+            declarations <- Filter(function(x) x$type == type && x$binding && x$name == name, declarations)
+            bound <- source$definitions[[name]]
+            if (!is.null(bound) && !any(vapply(declarations, function(x) equal_range(x$range, bound$range), logical(1L)))) {
+                return(list(known = TRUE, candidates = list()))
+            }
+        }
+        candidates <- c(candidates, declarations)
+    }
+    list(known = length(candidates) > 0L, candidates = candidates)
+}
+
+# A generator's binding and its declared class name can differ. The location
+# in the hierarchy item disambiguates different generators named e.g. "Node".
+class_hierarchy_relatives <- function(workspace, item, parents) {
+    if (!item$classType %in% c("R6", "S7", "S4", "RefClass") || is.null(workspace$documents)) return(NULL)
+    # Range-less S4/RefClass items use the existing name-based class index.
+    if (is.null(item$range) && item$classType %in% c("S4", "RefClass")) return(NULL)
+    own <- Filter(function(x) x$type == item$classType && item$name %in% c(x$name, x$class_name),
+        class_workspace_declarations(workspace, item$uri))
+    if (!is.null(item$binding)) {
+        own <- Filter(function(x) x$name == item$binding && equal_range(class_hierarchy_item(x)$range, item$range), own)
+        if (!length(own)) return(list()) # the declaration was edited or removed
+    }
+    if (!length(own)) return(NULL) # legacy XML-only snapshots
+    if (length(own) > 1L) {
+        own <- Filter(function(x) !is.null(item$range) && equal_range(class_hierarchy_item(x)$range, item$range), own)
+        if (length(own) != 1L) return(list())
+    }
+    cls <- own[[1L]]
+    if (parents) {
+        if (!length(cls$parents)) return(list())
+        legacy <- workspace$get_parse_data(cls$uri)$class_data$supertypes
+        found <- lapply(unique(cls$parents), function(name) {
+            found <- class_hierarchy_parent_bindings(workspace, cls$uri, cls$type, name)
+            if (length(found$candidates) == 1L) return(class_hierarchy_item(found$candidates[[1L]]))
+            if (found$known || !is.environment(legacy)) return(NULL)
+            # Preserve the source reference in inherit= for external parents.
+            key <- class_index_key(cls$type, cls$class_name)
+            fallback <- Filter(function(x) x$name == name, get0(key, legacy, inherits = FALSE))
+            if (length(fallback)) fallback[[1L]]
+        })
+        return(Filter(Negate(is.null), found))
+    }
+
+    uris <- reference_source_scope(workspace, cls$uri, callers = TRUE)
+    parent_name <- if (cls$type %in% c("S4", "RefClass")) cls$class_name else cls$name
+    children <- Filter(function(x) x$type == cls$type && parent_name %in% x$parents,
+        class_workspace_declarations(workspace, uris))
+    scopes <- new.env(hash = TRUE, parent = emptyenv())
+    related <- Filter(function(child) {
+        # Package members share one scope. Scripts have their own source graph,
+        # which can include a second, unrelated parent with the same binding.
+        index <- workspace$index
+        scope <- if (isTRUE(index$enabled)) index$package_root_for_uri(child$uri)
+        if (is.null(scope)) scope <- if (isTRUE(index$enabled)) child$uri else "workspace"
+        if (!exists(scope, scopes, inherits = FALSE)) {
+            candidates <- class_hierarchy_parent_bindings(workspace, child$uri, cls$type, parent_name)$candidates
+            scopes[[scope]] <- length(candidates) == 1L && candidates[[1L]]$uri == cls$uri &&
+                equal_range(candidates[[1L]]$selectionRange, cls$selectionRange)
+        }
+        scopes[[scope]]
+    }, children)
+    lapply(related, class_hierarchy_item)
+}
+
 #' Find supertypes (parent types) of a given type
 #'
 #' @noRd
 find_type_supertypes <- function(workspace, type_def) {
+    catalog <- class_hierarchy_relatives(workspace, type_def, parents = TRUE)
+    if (!is.null(catalog)) return(catalog)
     cache_key <- paste(
         "super", type_def$uri, type_def$classType, type_def$name,
         sep = "\r")
@@ -356,25 +418,6 @@ find_type_supertypes <- function(workspace, type_def) {
         }
     }
 
-    if (class_type %in% c("R6", "S7")) {
-        classes <- class_workspace_declarations(workspace, workspace_document_uris(workspace, type_def$uri))
-        own <- Filter(function(x) {
-            x$type == class_type && x$uri == type_def$uri && type_def$name %in% c(x$name, x$class_name)
-        }, classes)
-        if (length(own) == 1L && length(own[[1L]]$parents)) {
-            resolved <- lapply(unique(own[[1L]]$parents), function(name) {
-                candidates <- Filter(function(x) x$type == class_type && x$name == name, classes)
-                if (length(candidates) == 1L) return(class_hierarchy_item(candidates[[1L]]))
-                # Multiple matching declarations cannot establish a parent URI.
-                if (!length(candidates)) {
-                    current <- Filter(function(x) x$name == name, supertypes)
-                    if (length(current)) return(current[[1L]])
-                }
-                NULL
-            })
-            supertypes <- Filter(Negate(is.null), resolved)
-        }
-    }
     # Final deduplication by class name
     if (length(supertypes) > 0) {
         seen_names <- character()
@@ -562,6 +605,8 @@ find_s3_supertypes <- function(doc, xdoc, class_name, uri) {
 #'
 #' @noRd
 find_type_subtypes <- function(workspace, type_def, context_uri = type_def$uri) {
+    catalog <- class_hierarchy_relatives(workspace, type_def, parents = FALSE)
+    if (!is.null(catalog)) return(catalog)
     cache_key <- if (identical(context_uri, type_def$uri)) {
         paste("sub", type_def$uri, type_def$classType, type_def$name,
             sep = "\r")
@@ -612,21 +657,6 @@ find_type_subtypes <- function(workspace, type_def, context_uri = type_def$uri) 
         subtypes <- c(subtypes, found_subtypes)
     }
 
-    if (class_type %in% c("R6", "S7")) {
-        classes <- class_workspace_declarations(workspace, workspace_document_uris(workspace, context_uri))
-        own <- Filter(function(x) {
-            x$type == class_type && x$uri == type_def$uri && parent_name %in% c(x$name, x$class_name)
-        }, classes)
-        if (length(own) == 1L) {
-            binding <- own[[1L]]$name
-            if (sum(vapply(classes, function(x) x$type == class_type && x$name == binding, logical(1L))) == 1L) {
-                children <- Filter(function(x) x$type == class_type && binding %in% x$parents, classes)
-                if (length(children)) subtypes <- lapply(children, class_hierarchy_item)
-            } else {
-                subtypes <- list()
-            }
-        }
-    }
     # Final deduplication by class name across all documents
     if (length(subtypes) > 0) {
         seen_names <- character()
@@ -838,20 +868,11 @@ get_element_range <- function(document, element) {
             return(NULL)
         }
 
-        if (xml_name(element) == "STR_CONST") {
-            text <- xml_text(element)
-            first_char <- substr(text, 1, 1)
-            last_char <- substr(text, nchar(text), nchar(text))
-            if (first_char %in% c("\"", "'") && last_char == first_char) {
-                col1 <- col1 + 1
-                col2 <- col2 - 1
-            }
-        }
-
-        range(
+        selection <- range(
             start = document$to_lsp_position(row = line1 - 1, col = col1 - 1),
             end = document$to_lsp_position(row = line2 - 1, col = col2)
         )
+        if (xml_name(element) == "STR_CONST") class_literal_range(selection, xml_text(element)) else selection
     }, error = function(e) {
         logger$info("Error getting element range: ", e)
         NULL

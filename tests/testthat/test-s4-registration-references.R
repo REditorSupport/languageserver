@@ -92,8 +92,10 @@ test_that("references share F12's promotion and masking rules and exclude qualif
     expect_equal(rename_reply(1L, f$uri, w, f$document, point(4L), "mid")$error$code, ErrorCodes$RequestFailed)
     expect_equal(prepare_rename_reply(1L, f$uri, w, f$document, point(4L))$error$code, ErrorCodes$RequestFailed)
     edits <- rename_reply(1L, f$uri, w, f$document, point(8L), "middle")$result$changes[[f$uri]]
-    expect_false(4L %in% rows(edits))
-    expect_true(all(c(7L, 8L) %in% rows(edits)))
+    expect_equal(rows(edits), 7:8)
+    expect_equal(rows(refs(1L)), 0:1)
+    expect_equal(rename_reply(1L, f$uri, w, f$document, point(1L), "middle")$error$code, ErrorCodes$RequestFailed)
+    expect_equal(prepare_rename_reply(1L, f$uri, w, f$document, point(1L))$error$code, ErrorCodes$RequestFailed)
     # An older snapshot can still contain the symbol outline but cannot
     # establish a registration absent from the authoritative S4 index.
     f$document$parse_data$s4_declarations <- NULL

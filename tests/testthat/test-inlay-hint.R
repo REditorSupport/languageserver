@@ -205,9 +205,9 @@ test_that("inlay hint helpers handle malformed and empty calls", {
     expect_length(groups, 1L)
     expect_length(groups[[1L]]$nodes, 0L)
 
-    expect_equal(match_named_formal("alpha", c("alpha", "beta")), 1L)
-    expect_equal(match_named_formal("al", c("alpha", "beta")), 1L)
-    expect_true(is.na(match_named_formal("a", c("alpha", "alpine"))))
+    expect_equal(inlay_positional_formals(c("alpha", "beta"), "alpha"), 2L)
+    expect_equal(inlay_positional_formals(c("alpha", "beta"), "al"), 2L)
+    expect_length(inlay_positional_formals(c("alpha", "alpine"), "a"), 0L)
 })
 
 test_that("inlay hints handle empty parse data and boundary ranges", {

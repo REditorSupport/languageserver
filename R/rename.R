@@ -23,6 +23,88 @@ rename_document_complete <- function(doc, uri, token, definition_key) {
     !any(words == name) && !any(grepl(name, words[ambiguous], fixed = TRUE))
 }
 
+# The enclosing function is the lexical scope for assignments, formals and
+# loop variables. Row zero denotes the document/workspace's outer bindings.
+rename_binding_scopes <- function(syntax, rows) {
+    scopes <- syntax$parent_row[rows]
+    repeat {
+        pending <- which(scopes > 0L)
+        pending <- pending[syntax$function_close[scopes[pending]] == 0L]
+        if (!length(pending)) return(scopes)
+        scopes[pending] <- syntax$parent_row[scopes[pending]]
+    }
+}
+
+rename_target_scope <- function(parsed, name, key) {
+    if (startsWith(key, "global:")) return(0L)
+    index <- parsed$reference_index
+    sites <- reference_indices(index, name, key)
+    declaration <- sites[index$is_definition[sites]]
+    if (!length(declaration)) return(NULL)
+    i <- declaration[[1L]]
+    row <- member_navigation_token(parsed, list(row = index$line[[i]], col = index$code_point_col[[i]]))
+    if (!row) return(NULL)
+    rename_binding_scopes(parsed$syntax_data, row)
+}
+
+# Detect collisions in both directions. A changed use must not resolve to an
+# inner binding, and existing free uses of the new name must not become bound
+# by the renamed declaration. Only the two indexed spellings are inspected.
+rename_lexical_conflict <- function(workspace, doc, selected, new, owner_uri, owner_scope) {
+    if (is.null(owner_scope) || (owner_scope && !identical(doc$uri, owner_uri))) return(FALSE)
+    parsed <- doc$parse_data
+    index <- parsed$reference_index
+    if (!owner_scope && isTRUE(workspace$index$enabled) && is.function(workspace$index$has_definition) &&
+            workspace$index$has_definition(new, uri = doc$uri)) return(TRUE)
+    existing <- reference_indices(index, new)
+    existing <- existing[!startsWith(index$definition_key[existing], "package:")]
+    if (!length(existing)) return(FALSE)
+    syntax <- parsed$syntax_data
+    stride <- as.double(syntax$maxcol) + 1
+    at <- function(i) as.double(index$line[i] + 1L) * stride + index$code_point_col[i] + 1L
+    start <- function(rows) as.double(syntax$line1[rows]) * stride + syntax$col1[rows]
+    end <- function(rows) as.double(syntax$line2[rows]) * stride + syntax$col2[rows]
+    if (owner_scope) {
+        position <- at(existing)
+        existing <- existing[position >= start(owner_scope) & position <= end(owner_scope)]
+        if (!length(existing)) return(FALSE)
+    }
+
+    defs <- existing[index$is_definition[existing]]
+    if (!length(defs)) return(TRUE)
+    rows <- vapply(defs, function(i) {
+        member_navigation_token(parsed, list(row = index$line[[i]], col = index$code_point_col[[i]]))
+    }, integer(1L))
+    if (any(!rows)) return(TRUE)
+    scopes <- rename_binding_scopes(syntax, rows)
+    if (any(scopes == owner_scope)) return(TRUE)
+
+    # The remaining declarations are separate bindings in enclosed functions.
+    # Merging their intervals avoids comparing every edit with every scope.
+    covered <- function(points, first, last) {
+        order <- order(first)
+        found <- findInterval(points, first[order])
+        points <= c(-Inf, cummax(last[order]))[found + 1L]
+    }
+    if (any(covered(at(selected), start(scopes), end(scopes)))) return(TRUE)
+    reads <- existing[!index$is_definition[existing]]
+    if (!length(reads)) return(FALSE)
+    first <- at(defs)
+    formals <- index$token[defs] == "SYMBOL_FORMALS"
+    first[formals] <- start(scopes[formals])
+    # A read in the RHS of x <- x still reaches an outer binding. A function
+    # literal can refer recursively to the name being assigned.
+    nav <- parsed$navigation_data
+    candidates <- get0(new, envir = nav$by_name, inherits = FALSE, ifnotfound = integer())
+    assignments <- candidates[match(rows, nav$name[candidates])]
+    values <- which(!is.na(assignments) & nav[["function"]][assignments] == 0L)
+    first[values] <- end(nav$node[assignments[values]]) + 1
+    loop <- which(syntax$token[syntax$parent_row[rows]] == "forcond")
+    first[loop] <- end(syntax$parent_row[rows[loop]])
+
+    any(!covered(at(reads), first, end(scopes)))
+}
+
 rename_incomplete_error <- function(id) {
     ResponseErrorMessage$new(id, "RequestFailed", "Incomplete R code may contain other uses of this symbol")
 }
@@ -43,7 +125,8 @@ prepare_rename_reply <- function(id, uri, workspace, document, point) {
         if (length(checked$result)) return(Response$new(id, result = member$range))
         return(ResponseErrorMessage$new(id, "RequestCancelled", "Cannot rename the symbol"))
     }
-    if (!is.null(s4_reference_target(workspace, document, point))) return(s4_reference_rename_error(id))
+    s4 <- s4_reference_target(workspace, document, point, include_binding = TRUE)
+    if (!is.null(s4) && (is.null(s4$binding) || s4_reference_promotes_binding(workspace, s4))) return(s4_reference_rename_error(id))
     parsed <- workspace$get_parse_data(uri)
     token <- reference_token_at(document, parsed, point)
     if (!nzchar(token$token) || !check_scope(uri, document, point)) {

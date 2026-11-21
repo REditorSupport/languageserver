@@ -76,6 +76,33 @@ call_hierarchy_file_item <- function(workspace, uri, selection_range,
     )
 }
 
+# Nested function declarations own the calls in their bodies. The lexical
+# binding table keeps them separate even when two enclosing functions use the
+# same helper name. Cache only syntax/ranges with the accepted parse.
+call_hierarchy_nested_functions <- function(doc, parsed) {
+    if (!is.null(parsed$hierarchy_nested_functions)) return(parsed$hierarchy_nested_functions)
+    nav <- parsed$navigation_data
+    s <- parsed$syntax_data
+    which_fn <- which(nav[["function"]] > 0L)
+    ancestors <- s$parent_row[nav$node[which_fn]]
+    inside <- logical(length(which_fn))
+    while (any(ancestors > 0L)) {
+        active <- which(ancestors > 0L)
+        inside[active] <- s$function_close[ancestors[active]] > 0L
+        ancestors[active] <- ifelse(inside[active], 0L, s$parent_row[ancestors[active]])
+    }
+    definitions <- lapply(which_fn[inside], function(i) {
+        row <- nav$name[[i]]
+        name <- reference_symbol_names(s$text[[row]])
+        point <- list(row = s$line1[[row]] - 1L, col = s$col1[[row]] - 1L)
+        list(name = name, type = "function", range = navigation_range(doc, s, nav$node[[i]]),
+            selectionRange = navigation_range(doc, s, row),
+            definitionKey = reference_key_at(parsed$reference_index, point, name))
+    })
+    if (is.environment(parsed)) parsed$hierarchy_nested_functions <- definitions
+    definitions
+}
+
 indexed_incoming_calls <- function(workspace, item) {
     target_key <- item$data$definitionKey
     if (is.null(target_key)) target_key <- paste0("global:", item$name)
@@ -109,7 +136,9 @@ indexed_incoming_calls <- function(workspace, item) {
 
         definitions <- parse_data$definitions
         if (is.function(workspace$get_definitions_for_uri)) definitions <- workspace$get_definitions_for_uri(doc_uri)
-        definitions <- c(definitions, member_navigation_methods(workspace, workspace$documents$get(doc_uri, NULL)))
+        caller_doc <- workspace$documents$get(doc_uri, NULL)
+        definitions <- c(definitions, member_navigation_methods(workspace, caller_doc),
+            call_hierarchy_nested_functions(caller_doc, parse_data))
         definitions <- definitions[vapply(definitions, function(definition) {
             identical(definition$type, "function")
         }, logical(1L))]
@@ -164,9 +193,10 @@ indexed_incoming_calls <- function(workspace, item) {
                     kind = get_document_symbol_kind(definition$type),
                     uri = doc_uri,
                     range = definition$range,
-                    selectionRange = definition$range,
+                    selectionRange = definition$selectionRange %s3_or% definition$range,
                     data = list(
                         definition = list(uri = doc_uri, range = definition$range),
+                        definitionKey = definition$definitionKey,
                         contextUri = context_uri
                     )
                 ),
@@ -185,7 +215,16 @@ indexed_outgoing_calls <- function(workspace, item) {
     if (is.null(index)) return(NULL)
 
     selected <- indexed_calls_in_range(index, item$range)
-    member_calls <- member_navigation_outgoing(workspace, doc, item)
+    nested <- c(call_hierarchy_nested_functions(doc, parse_data), member_navigation_methods(workspace, doc))
+    if (isTRUE(item$data$topLevel)) nested <- c(nested, Filter(function(x) identical(x$type, "function"), parse_data$definitions))
+    nested <- Filter(function(x) {
+        (isTRUE(item$data$topLevel) || !equal_range(x$range, item$range)) && lsp_range_contains(item$range, x$range$start) &&
+            lsp_range_contains(item$range, x$range$end)
+    }, nested)
+    if (length(nested) && length(selected)) {
+        selected <- selected[indexed_call_containers(index, selected, nested) == 0L]
+    }
+    member_calls <- member_navigation_outgoing(workspace, doc, item, nested)
     if (!length(selected)) return(member_calls)
 
     groups <- split(selected, paste(
@@ -206,8 +245,8 @@ indexed_outgoing_calls <- function(workspace, item) {
         symbol_definition <- symbol_definition_reply(
             NULL, item$uri, workspace, doc, point,
             context_uri = context_uri)$result
-        if (is.null(symbol_definition) ||
-                equal_definition(symbol_definition, item$data$definition)) {
+        if (is.null(symbol_definition) || (!is.null(item$data$definition) &&
+                    equal_definition(symbol_definition, item$data$definition))) {
             next
         }
 

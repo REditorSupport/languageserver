@@ -18,7 +18,17 @@ package_body_definition <- function(pkgname, symbol, code, scheme = NULL) {
     }
 
     # Legacy clients open the generated body through a normal file URI.
-    temp_file <- file.path(tempdir(), paste0(symbol, ".R"))
+    # Separate package and symbol identities on case-insensitive filesystems.
+    # R bindings can be operators or names that are not valid filenames.
+    folder <- file.path(tempdir(), "languageserver-definitions",
+        digest::digest(c(pkgname, symbol), algo = "xxhash64"))
+    dir.create(folder, recursive = TRUE, showWarnings = FALSE)
+    label <- text_document_content_segment(symbol)
+    if (nchar(label, type = "bytes") > 96L ||
+            grepl("^(con|prn|aux|nul|com[1-9]|lpt[1-9])([.]|$)", label, ignore.case = TRUE)) {
+        label <- "definition"
+    }
+    temp_file <- file.path(folder, paste0(label, ".R"))
     stringi::stri_write_lines(text, temp_file)
     def <- list(
         uri = path_to_uri(temp_file),

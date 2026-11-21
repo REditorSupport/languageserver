@@ -192,3 +192,44 @@ test_that("LSP member requests and refactorings agree on the current document", 
     expect_false("Extract selection to function" %in% vapply(actions, `[[`, "", "title"))
     expect_length(action(7L, 2L, 7L, "refactor.inline"), 0L)
 })
+
+test_that("member hint labels respect exact matches before partial argument tags", {
+    f <- provider_fixture(c("obj <- list(draw = function(alpha, alphaLong, omega) NULL)",
+            "obj$draw(1, al=2, alpha=3)", "obj$draw(1, al=2)", "obj[['draw']](alpha=3, 1, al=2)"))
+    hints <- inlay_hint_reply(1L, f$uri, f$workspace, f$document, range(position(1L, 0L), position(4L, 0L)))$result
+    expect_identical(vapply(hints, `[[`, "", "label"), c("omega =", "omega ="))
+    expect_identical(vapply(hints, function(h) h$position$line, integer(1L)), c(1L, 3L))
+    dots <- provider_fixture(c("obj <- list(draw=function(..., after) NULL)", "obj$draw(1, unknown=2)"))
+    expect_length(inlay_hint_reply(1L, dots$uri, dots$workspace, dots$document,
+            range(position(1L, 0L), position(2L, 0L)))$result, 0L)
+})
+
+test_that("inline debugger lookups and selection use the lexical token range", {
+    f <- provider_fixture(c("base::pi + pi", "base:::pi", "`a b`", "box$value"))
+    data <- f$document$parse_data
+    for (index in c(TRUE, FALSE)) {
+        if (!index) data$range_data <- data$syntax_data <- NULL
+        hints <- inline_value_reply(1L, f$uri, f$workspace, f$document, range(position(0L, 0L), position(4L, 0L)))$result
+        expect_identical(vapply(hints, `[[`, "", "variableName"), c("pi", "a b", "box"))
+        expect_equal(hints[[1L]]$range$start, position(0L, 11L))
+        select <- selection_range_reply(1L, f$uri, f$workspace, f$document, list(list(row = 3L, col = 4L)))$result
+        expect_equal(select[[1L]]$range, range(position(3L, 4L), position(3L, 9L)))
+    }
+})
+
+test_that("inline keeps eager reads out of lazy call arguments", {
+    actions <- function(rhs, use, prefix = character()) {
+        f <- provider_fixture(c(prefix, "f <- function(p, obj) {", paste("  saved <-", rhs), paste(" ", use), "}"))
+        row <- length(prefix) + 1L
+        refactor_code_actions(f$uri, f$workspace, f$document,
+            list(start = list(row = row, col = 2L), end = list(row = row, col = 7L)), list("refactor.inline"))
+    }
+    for (rhs in c("p", "obj + 1", "obj$active", "might_fail()")) {
+        expect_length(actions(rhs, "ignore(saved)"), 0L)
+        expect_length(actions(rhs, "other <- saved"), 1L)
+    }
+    expect_length(actions("1 + 2", "ignore(saved)"), 1L)
+    expect_length(actions("1 + 2", "ignore(saved)", "`+` <- function(a,b) side_effect()"), 0L)
+    expect_length(actions("p", "saved * 2", "`*` <- function(a,b) 0"), 0L)
+    expect_length(actions("p", "2 * saved"), 0L)
+})

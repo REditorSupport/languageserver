@@ -10,6 +10,8 @@
 - Go to Implementation opens the selected S3 method when static dispatch
   identifies it. Go to Type Definition opens the source class of a receiver
   with a uniquely identified declaration.
+- Verify cold package implementations in cancellable background workers.
+  Generated file targets distinguish packages with same-named methods.
 - Preserve list updates and saved reads when offering Extract Function and
   Inline Variable. Debugger inline values look up the receiver of a field
   access, and documented method parameters support linked editing.

@@ -57,11 +57,18 @@ call_has_implicit_argument <- function(call_node) {
 
 #' Match an R named argument using exact and unique partial matching
 #' @noRd
-match_named_formal <- function(name, formal_names) {
-    exact <- match(name, formal_names)
-    if (!is.na(exact)) return(exact)
-    partial <- which(startsWith(formal_names, name))
-    if (length(partial) == 1L) partial else NA_integer_
+inlay_positional_formals <- function(formal_names, tags) {
+    available <- seq_along(formal_names)
+    tags <- tags[!is.na(tags) & nzchar(tags)]
+    if (!length(tags)) return(available)
+    tags <- reference_symbol_names(tags)
+    # R reserves all exact names before attempting any partial names.
+    # Ignore unknown/extra arguments while preserving established positional
+    # hints in incomplete calls, and never partially match past real dots.
+    keys <- union(formal_names, "...")
+    matched <- s3_match_arguments(stats::setNames(seq_along(keys), keys), stats::setNames(seq_along(tags), tags))
+    if (is.null(matched)) return(integer())
+    setdiff(available, matched[keys[matched] != "..."])
 }
 
 #' Move untouched calls with an incremental edit, discarding intersecting calls
@@ -277,12 +284,8 @@ inlay_hint_reply <- function(id, uri, workspace, document, request_range) {
             groups, function(group) length(group$nodes) > 0L, logical(1L))) + implicit_argument
         if (supplied_arguments < minimum_arguments) next
 
-        named_formals <- vapply(groups, function(group) {
-            if (is.null(group$name)) return(NA_integer_)
-            match_named_formal(group$name, formal_names)
-        }, integer(1L))
-        unavailable <- unique(named_formals[!is.na(named_formals)])
-        available <- setdiff(seq_along(formal_names), unavailable)
+        group_names <- vapply(groups, function(group) group$name %s3_or% NA_character_, "")
+        available <- inlay_positional_formals(formal_names, group_names)
         if (implicit_argument) {
             if (!length(available) || formal_names[[available[[1L]]]] == "...") next
             available <- available[-1L]
@@ -427,9 +430,7 @@ indexed_inlay_hint_reply <- function(id, uri, workspace, indexed, request_range,
         if (!length(formal_names)) next
         group_names <- arguments$name[groups]
         named <- !is.na(group_names)
-        named_formals <- vapply(group_names[named], match_named_formal,
-            integer(1L), formal_names = formal_names)
-        available <- setdiff(seq_along(formal_names), named_formals[!is.na(named_formals)])
+        available <- inlay_positional_formals(formal_names, group_names)
         if (implicit_argument) {
             if (!length(available) || formal_names[[available[[1L]]]] == "...") next
             available <- available[-1L]

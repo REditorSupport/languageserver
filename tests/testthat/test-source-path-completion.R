@@ -87,3 +87,76 @@ test_that("typing the opening source quote requests files from the language serv
     expect_equal(item$kind, CompletionItemKind$File)
     expect_equal(item$textEdit$newText, "entry.R")
 })
+
+test_that("path completion and links identify the actual unshadowed base file argument", {
+    root <- withr::local_tempdir()
+    dir.create(file.path(root, "R"))
+    file.create(file.path(root, "R", c("helper.R", "joined_child.R")))
+    dir.create(file.path(root, "R", "helpers"))
+    file.create(file.path(root, "helpers"))
+    ws <- list(root = root)
+    choices <- function(code) {
+        row <- grep("CURSOR", code, fixed = TRUE)
+        col <- regexpr("CURSOR", code[[row]], fixed = TRUE)[[1L]] - 1L
+        code[[row]] <- sub("CURSOR", "", code[[row]], fixed = TRUE)
+        doc <- Document$new(path_to_uri(file.path(root, "R", "main.R")), language = "r", version = 1L, content = code)
+        data <- parse_document(doc$uri, code)
+        data$version <- 1L
+        doc$update_parse_data(data)
+        result <- source_path_completion(doc, list(row = row - 1L, col = col), ws)
+        vapply(result$items, `[[`, "", "label")
+    }
+    for (code in list('obj $ source("heCURSOR', 'obj $ source("heCURSOR")', 'other :: source("heCURSOR',
+            c("obj $", 'source("heCURSOR'), 'x %>% source("heCURSOR")')) {
+        expect_length(choices(code), 0L)
+    }
+    expect_true("helper.R" %in% choices('source(fil = "heCURSOR")'))
+    expect_identical(choices('source("helCURSOR/nested.R")'), "helpers/")
+    if (getRversion() >= "4.1.0") {
+        expect_length(choices('input |> source("heCURSOR")'), 0L)
+        expect_true("helper.R" %in% choices('input |> base::source(file = "heCURSOR")'))
+    }
+
+    links <- function(code) {
+        uri <- path_to_uri(file.path(root, "R", "main.R"))
+        doc <- Document$new(uri, language = "r", version = 1L, content = code)
+        parsed <- parse_document(uri, code)
+        parsed$version <- 1L
+        doc$update_parse_data(parsed)
+        workspace <- list(root = root, get_parse_data = function(...) parsed)
+        result <- document_link_reply(1L, uri, workspace, doc, root)$result
+        vapply(result, function(link) basename(link$data$path), "")
+    }
+    expect_length(links(c("source <- function(...) NULL", 'source(file.path("helper.R"))')), 0L)
+    expect_length(links('f <- function(file.path) base::source(file.path("helper.R"))'), 0L)
+    expect_identical(links('base::source(fil="helper.R")'), "helper.R")
+    expect_identical(links('"helper.R" %>% source(file=.)'), "helper.R")
+    expect_identical(links('base::source(file.path("joined", "child.R", fsep="_"))'), "joined_child.R")
+    if (getRversion() >= "4.1.0") {
+        expect_length(links('"absent.R" |> source("helper.R")'), 0L)
+        expect_identical(links('"helper.R" |> source()'), "helper.R")
+    }
+})
+
+test_that("source quote requests after a long prefix use the current parse", {
+    skip_on_cran()
+    root <- withr::local_tempdir()
+    path <- file.path(root, "main.R")
+    writeLines("ok <- TRUE", file.path(root, "helper.R"))
+    client <- language_client(root)
+    lines <- c(rep("ok <- 1", 180L), "base::source(")
+    did_open(client, path, text = lines)
+    notify(client, "workspace/didChangeConfiguration", list(settings = list(parse_delay = 0.5)))
+    uri <- path_to_uri(path)
+    complete <- function(line, version) {
+        lines[[length(lines)]] <- line
+        notify(client, "textDocument/didChange", list(textDocument = list(uri = uri, version = version),
+                contentChanges = list(list(text = paste(lines, collapse = "\n")))))
+        result <- respond(client, "textDocument/completion", list(textDocument = list(uri = uri),
+                position = list(line = length(lines) - 1L, character = nchar(line)),
+                context = list(triggerKind = 2L, triggerCharacter = '"')), retry = FALSE)
+        vapply(result$items, `[[`, "", "label")
+    }
+    expect_true("helper.R" %in% complete('base::source("', 2L))
+    expect_length(complete('obj $ source("', 3L), 0L)
+})
