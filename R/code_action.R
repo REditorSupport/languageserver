@@ -311,21 +311,17 @@ code_action_direct_fixes <- function(document, diagnostics) {
     fixes <- Filter(Negate(is.null), fixes)
     if (!length(fixes)) return(list())
 
-    result <- list()
-    keys <- character()
-    for (fix in fixes) {
-        key <- code_action_edit_key(fix$edit)
-        index <- match(key, keys)
-        if (is.na(index)) {
-            result[[length(result) + 1L]] <- fix
-            keys <- c(keys, key)
-        } else {
-            result[[index]]$diagnostics <- c(
-                result[[index]]$diagnostics, fix$diagnostics)
-            if (fix$priority > result[[index]]$priority) {
-                result[[index]]$title <- fix$title
-                result[[index]]$priority <- fix$priority
-            }
+    keys <- vapply(fixes, function(fix) code_action_edit_key(fix$edit), character(1L))
+    duplicate <- duplicated(keys)
+    result <- unname(fixes[!duplicate])
+    indices <- match(keys, keys[!duplicate])
+    for (i in which(duplicate)) {
+        fix <- fixes[[i]]
+        index <- indices[[i]]
+        result[[index]]$diagnostics <- c(result[[index]]$diagnostics, fix$diagnostics)
+        if (fix$priority > result[[index]]$priority) {
+            result[[index]]$title <- fix$title
+            result[[index]]$priority <- fix$priority
         }
     }
     result
@@ -342,24 +338,28 @@ code_action_edits_overlap <- function(left, right) {
 #' @noRd
 code_action_non_overlapping_fixes <- function(fixes) {
     if (!length(fixes)) return(list())
-    fixes <- fixes[order(
-        -vapply(fixes, function(fix) fix$priority, integer(1L)),
-        vapply(fixes, function(fix) fix$edit$range$start$line, numeric(1L)),
-        vapply(fixes, function(fix) fix$edit$range$start$character, numeric(1L))
-    )]
-    selected <- list()
-    for (fix in fixes) {
-        overlaps <- vapply(selected, function(other) {
-            code_action_edits_overlap(fix$edit, other$edit)
-        }, logical(1L))
-        if (!length(overlaps) || !any(overlaps)) {
-            selected[[length(selected) + 1L]] <- fix
+    priority <- vapply(fixes, function(fix) fix$priority, integer(1L))
+    line <- vapply(fixes, function(fix) fix$edit$range$start$line, numeric(1L))
+    col <- vapply(fixes, function(fix) fix$edit$range$start$character, numeric(1L))
+    last <- vapply(fixes, function(fix) fix$edit$range$end$line, numeric(1L))
+    ordered <- order(line, col, -priority)
+
+    # Only edits sharing source lines can conflict. Include every line of a
+    # multi-line edit when partitioning, then retain the priority rule within
+    # each group. Source order breaks ties between fixes of equal priority.
+    groups <- cumsum(c(TRUE, line[ordered][-1L] > cummax(last[ordered])[-length(ordered)]))
+    selected <- rep(TRUE, length(fixes))
+    for (group in split(ordered, groups)) {
+        if (length(group) < 2L) next
+        accepted <- integer()
+        for (i in group[order(-priority[group])]) {
+            overlaps <- vapply(accepted, function(j) {
+                code_action_edits_overlap(fixes[[i]]$edit, fixes[[j]]$edit)
+            }, logical(1L))
+            if (any(overlaps)) selected[[i]] <- FALSE else accepted <- c(accepted, i)
         }
     }
-    selected[order(
-        vapply(selected, function(fix) fix$edit$range$start$line, numeric(1L)),
-        vapply(selected, function(fix) fix$edit$range$start$character, numeric(1L))
-    )]
+    unname(fixes[ordered[selected[ordered]]])
 }
 
 #' Create an edit that adds or broadens an inline nolint directive
@@ -472,20 +472,24 @@ document_code_action_reply <- function(id, uri, workspace, document, range, cont
     if (is.null(diagnostics)) diagnostics <- list()
     only <- context$only
 
-    direct_fixes <- code_action_direct_fixes(document, diagnostics)
-    result <- lapply(direct_fixes, function(fix) {
-        list(
-            title = fix$title,
-            kind = CodeActionKind$QuickFix,
-            diagnostics = fix$diagnostics,
-            isPreferred = TRUE,
-            edit = code_action_workspace_edit(uri, list(fix$edit))
-        )
-    })
-    result <- c(result, code_action_suppression_actions(uri, document, diagnostics))
+    quick_fix <- code_action_kind_requested(CodeActionKind$QuickFix, only)
+    fix_all <- length(only) && code_action_kind_requested(CodeActionKind$SourceFixAll, only)
+    result <- list()
+    if (quick_fix || fix_all) direct_fixes <- code_action_direct_fixes(document, diagnostics)
+    if (quick_fix) {
+        result <- lapply(direct_fixes, function(fix) {
+            list(
+                title = fix$title,
+                kind = CodeActionKind$QuickFix,
+                diagnostics = fix$diagnostics,
+                isPreferred = TRUE,
+                edit = code_action_workspace_edit(uri, list(fix$edit))
+            )
+        })
+        result <- c(result, code_action_suppression_actions(uri, document, diagnostics))
+    }
 
-    if (code_action_kind_requested(CodeActionKind$SourceFixAll, only) &&
-            length(only) && length(direct_fixes)) {
+    if (fix_all && length(direct_fixes)) {
         selected <- code_action_non_overlapping_fixes(direct_fixes)
         result[[length(result) + 1L]] <- list(
             title = "Fix all auto-fixable lintr problems",

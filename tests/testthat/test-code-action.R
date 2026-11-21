@@ -398,3 +398,19 @@ test_that("Trailing blank line with spaces and no terminal newline fixes cleanly
   expect_equal(document$content, c("x <- 1", ""))
   expect_length(diagnose_file(uri, document$content, cache = FALSE), 0L)
 })
+
+test_that("fix-all retains priority across lines and permits insertions at boundaries", {
+    fix <- function(label, row, col, end_row, end_col, priority) {
+        list(edit = text_edit(range(position(row, col), position(end_row, end_col)), label),
+            priority = priority)
+    }
+    fixes <- list(
+        fix("wide", 1, 3, 3, 5, 1L),
+        fix("right", 2, 0, 3, 5, 2L),
+        fix("at start", 1, 3, 1, 3, 2L),
+        fix("left", 1, 3, 2, 0, 3L),
+        fix("inside left", 1, 4, 1, 4, 1L),
+        fix("separate", 4, 0, 4, 1, 1L)
+    )
+    expect_identical(code_action_non_overlapping_fixes(fixes), fixes[c(4, 3, 2, 6)])
+})
