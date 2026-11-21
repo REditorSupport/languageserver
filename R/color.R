@@ -36,9 +36,13 @@ document_color_reply <- function(id, uri, workspace, document) {
             error = function(e) NULL)
 
         if (length(str_texts)) {
+            short_hex <- grepl("^#[0-9a-fA-F]{3,4}$", str_texts)
+            if (any(short_hex) && is.null(tryCatch(grDevices::col2rgb("#abc"), error = function(e) NULL))) {
+                short_hex[] <- FALSE
+            }
             is_color <- !grepl("^[rR]", str_expr) &
                 (grepl("^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$", str_texts) |
-                        str_texts %in% grDevices::colors())
+                        short_hex | str_texts %in% c("transparent", grDevices::colors()))
             color_texts <- str_texts[is_color]
             color_line1 <- str_line1[is_color]
             color_col1 <- str_col1[is_color]

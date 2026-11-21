@@ -126,7 +126,14 @@ resolve_function_code_lens <- function(workspace, lens) {
     uri <- lens$data$uri
     if (is.null(symbol) || is.null(uri)) return(lens)
 
-    locations <- function_call_locations(workspace, symbol, context_uri = uri)
+    def <- lens$data$memberDefinition
+    locations <- if (is.null(def)) {
+        function_call_locations(workspace, symbol, context_uri = uri)
+    } else {
+        owner <- workspace$documents$get(uri, NULL)
+        if (is.null(owner) || !identical(owner$version, lens$data$version)) return(lens)
+        member_navigation_calls(workspace, def, symbol, uri)
+    }
     count <- length(locations)
     title <- sprintf("%d call%s", count, if (count == 1L) "" else "s")
     command <- list(
@@ -153,7 +160,7 @@ code_lens_reply <- function(id, uri, workspace, document, client_capabilities = 
     parse_data <- current_parse_data(uri, workspace, document)
     if (is.null(parse_data)) return(NULL)
 
-    definitions <- parse_data$definitions
+    definitions <- c(parse_data$definitions, member_navigation_methods(workspace, document))
     if (!length(definitions)) return(Response$new(id, result = list()))
 
     resolve_options <- client_capabilities$textDocument$codeLens$resolveSupport
@@ -163,8 +170,9 @@ code_lens_reply <- function(id, uri, workspace, document, client_capabilities = 
         "command" %in% resolve_options$properties
 
     lenses <- list()
-    for (symbol in names(definitions)) {
-        definition <- definitions[[symbol]]
+    for (i in seq_along(definitions)) {
+        definition <- definitions[[i]]
+        symbol <- if (is.null(definition$name)) names(definitions)[[i]] else definition$name
         if (!identical(definition$type, "function")) next
 
         start <- definition$range$start
@@ -179,6 +187,7 @@ code_lens_reply <- function(id, uri, workspace, document, client_capabilities = 
                 version = document$version
             )
         )
+        if (!is.null(definition$memberDefinition)) lens$data$memberDefinition <- definition$memberDefinition
         if (!resolve_command) {
             lens <- resolve_function_code_lens(workspace, lens)
         }

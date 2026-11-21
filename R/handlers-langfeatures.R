@@ -52,17 +52,17 @@ index_context_waiting <- function(self, workspace, document, point, hover = FALS
 
 # Namespace member models run independently of S3 catalogs. Wait only for
 # packages used by this receiver, never unrelated source-member requests.
-member_metadata_waiting <- function(self, uri, document, point) {
+member_metadata_waiting <- function(self, uri, document, point, cursor = NULL, name = NULL) {
     if (!isTRUE(lsp_settings$get("member_completion"))) return(FALSE)
     manager <- if (is.null(self$member_task_manager)) self$resolve_task_manager else self$member_task_manager
     if (is.null(manager) || !is.function(manager$has) || !manager$has(uri)) return(FALSE)
-    cursor <- member_cursor(document, point)
+    if (is.null(cursor)) cursor <- member_cursor(document, point)
     if (is.null(cursor)) return(FALSE)
     recovered <- tryCatch(member_recover_scope(document, point, cursor, document$parse_data$member_data),
         error = function(e) NULL)
     if (is.null(recovered)) return(FALSE)
-    referenced <- member_source_names(recovered$parsed, recovered$source, recovered$path,
-        accessor = cursor$accessor)
+    referenced <- member_source_names(recovered$parsed, recovered$source, recovered$path, name, cursor$accessor)
+    referenced <- union(name, referenced)
     expressions <- list(recovered$parsed)
     seen <- character()
     for (pass in seq_len(16L)) {
@@ -125,6 +125,8 @@ text_document_completion  <- function(self, id, params) {
     if (isTRUE(params$context$triggerCharacter %in% c("'", "\""))) {
         key <- if (isTRUE(lsp_settings$get("member_completion"))) member_bracket_cursor(document, point)
         if (is.null(key) || point$col != key$start + 1L) {
+            paths <- source_path_completion(document, point, workspace)
+            if (!is.null(paths)) return(self$deliver(Response$new(id, result = paths)))
             return(self$deliver(Response$new(id, result = list(isIncomplete = FALSE, items = list()))))
         }
     }
@@ -272,16 +274,16 @@ text_document_definition  <- function(self, id, params) {
 #' Handler to the `textDocument/typeDefinition` [Request].
 #'
 #' @noRd
-text_document_type_definition  <- function(self, id, params) {
-
+text_document_type_definition <- function(self, id, params) {
+    class_navigation_request(self, id, params, "textDocument/typeDefinition")
 }
 
 #' `textDocument/implementation` request handler
 #'
 #' Handler to the `textDocument/implementation` [Request].
 #' @noRd
-text_document_implementation  <- function(self, id, params) {
-
+text_document_implementation <- function(self, id, params) {
+    class_navigation_request(self, id, params, "textDocument/implementation")
 }
 
 #' `textDocument/references` request handler

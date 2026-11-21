@@ -36,6 +36,14 @@ prepare_rename_reply <- function(id, uri, workspace, document, point) {
         ))
     }
 
+    member <- member_navigation_at(workspace, document, point)
+    if (!is.null(member)) {
+        checked <- member_navigation_references(id, workspace, document, member, TRUE, TRUE)
+        if (!is.null(checked$error)) return(checked)
+        if (length(checked$result)) return(Response$new(id, result = member$range))
+        return(ResponseErrorMessage$new(id, "RequestCancelled", "Cannot rename the symbol"))
+    }
+    if (!is.null(s4_reference_target(workspace, document, point))) return(s4_reference_rename_error(id))
     parsed <- workspace$get_parse_data(uri)
     token <- reference_token_at(document, parsed, point)
     if (!nzchar(token$token) || !check_scope(uri, document, point)) {
@@ -48,7 +56,7 @@ prepare_rename_reply <- function(id, uri, workspace, document, point) {
         defn = defn$result
     ))
 
-    if (length(defn$result)) {
+    if (member_navigation_writable(workspace, defn$result)) {
         key <- reference_key_at(parsed$reference_index, token$range$start, token$token)
         for (doc_uri in workspace_reference_document_uris(workspace, defn$result$uri, uri, key)) {
             doc <- workspace$documents$get(doc_uri, NULL)
@@ -198,18 +206,24 @@ rename_reply <- function(id, uri, workspace, document, point, newName) {
         return(Response$new(id))
     }
 
-    refs <- references_reply(id, uri, workspace, document, point, for_rename = TRUE)
+    refs <- references_reply(id, uri, workspace, document, point, for_rename = TRUE, new_name = newName)
     if (!is.null(refs$error)) return(refs)
     uris <- vapply(refs$result, function(ref) ref$uri, character(1L))
     groups <- split(seq_along(uris), factor(uris, levels = unique(uris)))
     replacement <- quote_completion_name(newName)
     result <- lapply(groups, function(indices) {
         lapply(refs$result[indices], function(ref) {
-            text_edit(range = ref$range, new_text = replacement)
+            quote <- attr(ref, "spelling", exact = TRUE)
+            text <- if (length(quote) && nzchar(quote)) encodeString(newName, quote = quote) else replacement
+            text_edit(range = ref$range, new_text = text)
         })
     })
-    documentation <- rename_roxygen_edits(uri, workspace, document, refs$result, newName)
-    if (length(documentation)) result[[uri]] <- c(result[[uri]], documentation)
+    for (doc_uri in names(result)) {
+        doc <- workspace$documents$get(doc_uri, NULL)
+        if (is.null(doc)) next
+        documentation <- rename_roxygen_edits(doc_uri, workspace, doc, refs$result[groups[[doc_uri]]], newName)
+        if (length(documentation)) result[[doc_uri]] <- c(result[[doc_uri]], documentation)
+    }
 
     logger$info("rename_reply: ", result)
 

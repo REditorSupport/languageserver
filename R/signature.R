@@ -44,7 +44,7 @@ parse_signature_parameters <- function(signature) {
 #' Detect the active positional or named argument without evaluating source
 #' @noRd
 detect_active_parameter <- function(content, start_row, start_col,
-    end_row, end_col, signature = NULL, no_active_parameter = FALSE) {
+    end_row, end_col, signature = NULL, no_active_parameter = FALSE, completion = FALSE) {
     if (start_row < 0L || start_row >= length(content) || end_row < start_row) {
         return(0L)
     }
@@ -64,7 +64,7 @@ detect_active_parameter <- function(content, start_row, start_col,
     .Call("active_parameter_c", PACKAGE = "languageserver",
         paste0(lines, collapse = "\n"), parameters, content,
         as.integer(start_row), as.integer(start_col),
-        isTRUE(no_active_parameter) && !is.null(signature))
+        isTRUE(no_active_parameter) && !is.null(signature), completion)
 }
 
 signature_no_active_parameter_support <- function(client_capabilities) {

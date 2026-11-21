@@ -4,6 +4,7 @@ s3_source_index <- function(items) {
     histories <- new.env(hash = TRUE, parent = emptyenv())
     functions <- new.env(hash = TRUE, parent = emptyenv())
     imports <- registrations <- list()
+    aliases <- character()
     for (i in seq_along(items)) {
         item <- items[[i]]
         expr <- item$expr
@@ -16,6 +17,7 @@ s3_source_index <- function(items) {
                 names <- member_name(lhs)
                 kind <- "binding"
                 if (member_head(rhs, "function")) functions[[names]] <- s3_generic_descriptor(rhs)
+                if (is.symbol(rhs) || member_head(rhs, "::") || member_head(rhs, ":::")) aliases <- c(aliases, names)
             } else if (is.call(lhs) && length(lhs) > 1L && is.symbol(lhs[[2L]])) {
                 names <- member_name(lhs[[2L]])
                 kind <- "mutation"
@@ -56,7 +58,7 @@ s3_source_index <- function(items) {
     }
     list(
         histories = as.list(histories, all.names = TRUE), functions = as.list(functions, all.names = TRUE), imports = imports,
-        registrations = registrations
+        registrations = registrations, aliases = unique(aliases)
     )
 }
 
@@ -126,8 +128,13 @@ s3_source_value <- function(name, context) {
         if (identical(record$kind, "binding")) {
             result <- context$infer(expr[[3L]], context$root)
             if (!is.null(result$fn)) {
+                implementation <- if (member_head(expr[[3L]], "function")) {
+                    list(uri = source$uri, start = item$start, end = item$end, columns = item$implementation_columns)
+                } else {
+                    result$source$implementation
+                }
                 result$source <- list(
-                    uri = source$uri, line = item$start[[1L]] + 1L,
+                    uri = source$uri, line = item$start[[1L]] + 1L, binding = name, implementation = implementation,
                     comments = item$comments, version = source$version
                 )
             }
@@ -289,6 +296,26 @@ s3_lookup_method <- function(generic, classes, scope, context, owner = "source")
     NULL
 }
 
+s3_context_sources <- function(uri, workspace, document) {
+    sources <- list(s3_source_view(document))
+    others <- if (!is.null(workspace$documents)) workspace_document_uris(workspace, uri) else character()
+    for (other in setdiff(others, uri)) {
+        candidate <- workspace$documents$get(other, NULL)
+        if (!is.null(candidate) && identical(candidate$version, candidate$parse_data$version)) {
+            sources <- c(sources, list(s3_source_view(candidate, peer = TRUE)))
+        }
+    }
+    if (!is.null(workspace$index) && isTRUE(workspace$index$enabled)) {
+        package_root <- workspace$index$package_root_for_uri(uri)
+        uris <- if (!is.null(package_root)) workspace$index$package_source_uris(package_root) else workspace$index$source_closure(uri, update = FALSE)
+        for (other in setdiff(uris, c(uri, others))) {
+            summary <- workspace$index$summaries$get(other, NULL)
+            if (!is.null(summary$s3)) sources <- c(sources, list(summary$s3))
+        }
+    }
+    Filter(Negate(is.null), sources)
+}
+
 s3_context <- function(uri, workspace, document, at) {
     context <- new.env(parent = emptyenv())
     context$at <- at
@@ -303,23 +330,7 @@ s3_context <- function(uri, workspace, document, at) {
     context$metadata <- workspace$s3_metadata
     metadata <- workspace$s3_metadata
     if (!is.null(metadata)) for (package in metadata$keys()) context$catalogs[[package]] <- if (is.function(metadata$catalog)) metadata$catalog(package) else metadata$get(package)
-    context$sources <- list(s3_source_view(document))
-    others <- if (!is.null(workspace$documents)) workspace_document_uris(workspace, uri) else character()
-    for (other in setdiff(others, uri)) {
-        candidate <- workspace$documents$get(other, NULL)
-        if (!is.null(candidate) && identical(candidate$version, candidate$parse_data$version)) {
-            context$sources <- c(context$sources, list(s3_source_view(candidate, peer = TRUE)))
-        }
-    }
-    if (!is.null(workspace$index) && isTRUE(workspace$index$enabled)) {
-        package_root <- workspace$index$package_root_for_uri(uri)
-        uris <- if (!is.null(package_root)) workspace$index$package_source_uris(package_root) else workspace$index$source_closure(uri, update = FALSE)
-        for (other in setdiff(uris, c(uri, others))) {
-            summary <- workspace$index$summaries$get(other, NULL)
-            if (!is.null(summary$s3)) context$sources <- c(context$sources, list(summary$s3))
-        }
-    }
-    context$sources <- Filter(Negate(is.null), context$sources)
+    context$sources <- s3_context_sources(uri, workspace, document)
     context$imports <- workspace$imported_packages %s3_or% character()
     for (source in context$sources) {
         for (import in source$index$imports) {
@@ -425,7 +436,8 @@ s3_call_location <- function(document, point, hover = FALSE, call = NULL) {
     # callee by detect_call(), even though their keyword is a valid token.
     if (!is.character(call$token) || length(call$token) != 1L ||
             is.na(call$token) || !nzchar(call$token)) return(NULL)
-    location <- member_call_location(document, point, call, symbols = TRUE)
+    location <- call$symbol_location
+    if (is.null(location)) location <- member_call_location(document, point, call, symbols = TRUE)
     if (is.null(location) || !is.null(location$cursor$accessor)) {
         return(NULL)
     }
@@ -684,6 +696,12 @@ s3_index_summary <- function(content, uri, expressions = NULL, parse_data = NULL
     # generic descriptor/formals without duplicating its body in disk indexes.
     items <- lapply(items, function(item) {
         line <- item$start[[1L]] + 1L
+        end <- item$end
+        if (line >= 1L && line <= length(content) && end[[1L]] >= 0L && end[[1L]] < length(content) &&
+                (member_head(item$expr, "<-") || member_head(item$expr, "=")) && member_head(item$expr[[3L]], "function")) {
+            item$implementation_columns <- c(code_point_to_unit(content[[line]], item$start[[2L]]),
+                code_point_to_unit(content[[end[[1L]] + 1L]], end[[2L]]))
+        }
         start <- detect_comments(content, line - 1L) + 1L
         if (start < line && line - start <= 64L) item$comments <- content[seq.int(start, line - 1L)]
         if (as.numeric(utils::object.size(item$expr)) > 65536L) {

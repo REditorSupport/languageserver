@@ -1393,7 +1393,14 @@ basic_name_completion_reply <- function(id, workspace, document, point, capabili
 completion_reply <- function(id, uri, workspace, document, point, capabilities) {
     if (!check_scope(uri, document, point) &&
             (!isTRUE(lsp_settings$get("member_completion")) || is.null(member_cursor(document, point)))) {
-        quoted <- if (isTRUE(lsp_settings$get("s3_dispatch")) && check_r_region(document, point)) s3_quoted_values(workspace, document, point)
+        paths <- source_path_completion(document, point, workspace)
+        if (!is.null(paths)) return(Response$new(id, result = paths))
+        quoted <- if (isTRUE(lsp_settings$get("member_completion")) && check_r_region(document, point)) {
+            member_call_arguments(uri, workspace, document, point, "", document$detect_call(point, signature = TRUE), quoted = TRUE)
+        }
+        if (is.null(quoted) && isTRUE(lsp_settings$get("s3_dispatch")) && check_r_region(document, point)) {
+            quoted <- s3_quoted_values(workspace, document, point)
+        }
         if (!is.null(quoted)) return(Response$new(id, result = list(isIncomplete = FALSE, items = unname(quoted))))
         return(Response$new(
             id,
@@ -1578,18 +1585,20 @@ completion_item_resolve_reply <- function(id, workspace, params, capabilities) {
         if (params$data$type == "s3_parameter") {
             params <- s3_resolve_parameter(workspace, params)
             resolved <- TRUE
-        } else if (params$data$type == "member") {
+        } else if (params$data$type %in% c("member", "member_value")) {
             if (completion_label_details_resolve_enabled(capabilities) &&
-                    !is.null(params$data$signature) && is.null(params$data$parameter) &&
+                    params$data$type == "member" && !is.null(params$data$signature) && is.null(params$data$parameter) &&
                     is.null(params$labelDetails$detail)) params$labelDetails$detail <-
                 substring(params$data$signature, nchar(quote_completion_name(params$label)) + 1L)
-            if (!is.null(params$data$package) && is.character(params$data$function_id) &&
-                    length(params$data$function_id) == 1L && !is.na(params$data$function_id)) {
-                doc <- workspace$get_documentation(params$data$function_id,
-                    params$data$package, isf = TRUE, uri = params$data$context_uri)
-                if (is.list(doc) && !is.null(doc$description)) params$documentation <- list(
-                    kind = "markdown", value = paste(c(params$documentation$value, doc$description), collapse = "\n\n"))
+            doc <- member_symbol_documentation(workspace, params$data, params$data$context_uri)
+            parameter <- if (params$data$type == "member_value") params$data$argument else params$data$parameter
+            help <- if (is.list(doc)) {
+                if (is.null(parameter)) doc$description else doc$arguments[[parameter]]
+            } else if (is.null(parameter)) {
+                doc
             }
+            if (!is.null(help)) params$documentation <- list(kind = "markdown",
+                value = paste(unique(c(params$documentation$value, help)), collapse = "\n\n"))
             resolved <- TRUE
         } else if (params$data$type == "package") {
             if (length(find.package(params$label, quiet = TRUE))) {

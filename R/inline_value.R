@@ -53,7 +53,8 @@ inline_value_reply <- function(id, uri, workspace, document, request_range) {
     line_cond <- paste0("@line1 >= ", start_line, " and @line1 <= ", end_line)
     nodes <- xml_find_all_(
         xdoc,
-        paste0("//SYMBOL[", line_cond, "] | //SYMBOL_FORMALS[", line_cond, "]")
+        paste0("//SYMBOL[", line_cond, " and not(preceding-sibling::OP-DOLLAR or preceding-sibling::OP-AT)]",
+            " | //SYMBOL_FORMALS[", line_cond, "]")
     )
     if (!length(nodes)) return(Response$new(id, result = list()))
 

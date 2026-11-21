@@ -162,6 +162,8 @@ The following editors are supported by installing the corresponding extensions:
 - [x] [completionItemResolve](https://microsoft.github.io/language-server-protocol/specifications/specification-current/#completionItem_resolve)
 - [x] [signatureHelpProvider](https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocument_signatureHelp)
 - [x] [definitionProvider](https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocument_definition)
+- [x] [typeDefinitionProvider](https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocument_typeDefinition)
+- [x] [implementationProvider](https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocument_implementation)
 - [x] [referencesProvider](https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocument_references)
 - [x] [documentHighlightProvider](https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocument_documentHighlight)
 - [x] [documentSymbolProvider](https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocument_documentSymbol)
@@ -197,6 +199,29 @@ request variable lookup ranges from the language server, evaluate them in the
 selected stack frame, and render the resulting values beside the source. They
 have no visible effect when the client or R debug adapter does not request
 `textDocument/inlineValue`.
+
+Find References, Rename, document highlights and call hierarchy can follow a
+source-defined member through `obj$run` and `obj[["run"]]`. When two objects
+define a method named `run`, results are tied to the declaration of the
+selected method. Method call-count lenses use the same locations. Renaming
+a source parameter includes named arguments at calls the server can resolve.
+Rename requires an editable declaration and can decline an ambiguous edit.
+
+Inside the file argument of `source()` or `sys.source()`, completion offers
+matching files and directories from the workspace root and the script's
+directory. Document links also recognize static paths assembled with
+`file.path()`.
+
+Parameter hints use the resolved signature of member calls. For example, if
+`draw` is declared as `function(width, height)`, `canvas$draw(40, 20)` can
+show `width =` and `height =` inline. R6 active bindings, S4 slots and S7
+properties appear in class outlines and workspace symbol searches.
+
+Go to Type Definition opens the class declaration of a source-defined R6,
+RefClass, S4 or S7 receiver when its origin is known. Go to Implementation
+opens the S3 method selected for a call. For example, on a source generic
+`render(x)`, F12 can open `render` and Go to Implementation can open
+`render.data.frame` when `x` is known to be a data frame.
 
 R6 member inference has a known limitation after field assignments inside a
 method. The written reference keeps its class context, but field information

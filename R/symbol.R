@@ -43,6 +43,7 @@ get_document_symbol_kind <- function(type) {
             `class` = SymbolKind$Class,
             R6 = SymbolKind$Class,
             S4 = SymbolKind$Class,
+            S7 = SymbolKind$Class,
             RefClass = SymbolKind$Class,
             SymbolKind$Field
         )
@@ -160,6 +161,13 @@ document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
     }
 
     defns <- workspace$get_definitions_for_uri(uri)
+    classes <- parse_data$class_data$declarations
+    # Retain the definition selected by the ordinary binding index after a reassignment.
+    classes <- Filter(function(x) {
+        !x$binding || (!is.null(defns[[x$name]]$range) && equal_range(defns[[x$name]]$range, x$range))
+    }, classes)
+    class_by_name <- list()
+    for (cls in classes) if (cls$binding) class_by_name[[cls$name]] <- cls
     logger$info("document definitions found: ", length(defns))
     
     if (isTRUE(capabilities$hierarchicalDocumentSymbolSupport)) {
@@ -171,7 +179,13 @@ document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
             
             children <- NULL
             kind <- get_document_symbol_kind(def$type)
-            if (length(nested[[i]])) {
+            selection <- def$range
+            cls <- class_by_name[[name]]
+            if (!is.null(cls)) {
+                kind <- SymbolKind$Class
+                selection <- cls$selectionRange
+                children <- cls$children
+            } else if (length(nested[[i]])) {
                 kind <- SymbolKind$Function
                 children <- nested_function_symbols(document, parse_data$syntax_data, nested[[i]])
             } else if (!is.null(def$type) && def$type %in% c("R6", "S4", "RefClass")) {
@@ -186,7 +200,7 @@ document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
                 name = name,
                 kind = kind,
                 range = def$range,
-                selectionRange = def$range,
+                selectionRange = selection,
                 children = children
             )
         })
@@ -227,7 +241,10 @@ document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
             )
         })
         
-        result <- document_symbol_tree(c(definition_symbols, section_symbols))
+        standalone <- lapply(Filter(function(x) !x$binding, classes), function(x) {
+            document_symbol(x$name, x$kind, x$range, x$selectionRange, children = x$children)
+        })
+        result <- document_symbol_tree(c(definition_symbols, standalone, section_symbols))
     } else {
         # Use flat SymbolInformation format for backward compatibility
         definition_symbols <- lapply(seq_along(defns), function(i) {
@@ -235,7 +252,7 @@ document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
             name <- names(defns)[[i]]
             symbol_information(
                 name = name,
-                kind = get_document_symbol_kind(def$type),
+                kind = if (is.null(class_by_name[[name]])) get_document_symbol_kind(def$type) else SymbolKind$Class,
                 location = location(
                     uri = uri,
                     range = def$range
@@ -272,7 +289,11 @@ document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
             )
         })
         
-        result <- c(definition_symbols, section_symbols)
+        standalone <- lapply(Filter(function(x) !x$binding, classes), function(x) {
+            symbol_information(x$name, x$kind, location(uri, x$selectionRange))
+        })
+        members <- unlist(lapply(classes, class_member_information, uri = uri), recursive = FALSE)
+        result <- c(definition_symbols, standalone, members, section_symbols)
     }
 
     # Parse data is replaced after an edit. Keep the immutable result with
@@ -294,15 +315,47 @@ workspace_symbol_reply <- function(id, workspaces, query) {
     }
     logger$info("workspace symbols found: ", length(defns))
     result <- lapply(defns, function(def) {
-        symbol_information(
+        item <- symbol_information(
             name = def$name,
-            kind = get_document_symbol_kind(def$type),
+            kind = if (is.null(def$kind)) get_document_symbol_kind(def$type) else def$kind,
             location = location(
                 uri = def$uri,
                 range = def$range
             )
         )
+        item$containerName <- def$containerName
+        item
     })
 
     Response$new(id, result = result)
+}
+
+class_member_information <- function(cls, uri) {
+    lapply(cls$children, function(child) {
+        item <- symbol_information(child$name, child$kind, location(uri, child$selectionRange))
+        item$containerName <- cls$name
+        item
+    })
+}
+
+# Symbol search may return several members with the same spelling. Keep the
+# search records separate from the lexical definition table used by navigation.
+class_search_definitions <- function(definitions, classes) {
+    if (!length(classes)) return(definitions)
+    for (cls in classes) {
+        if (cls$binding) {
+            previous <- definitions[[cls$name]]
+            if (is.null(previous$range) || !equal_range(previous$range, cls$range)) next
+            definitions[[cls$name]]$kind <- cls$kind
+        } else {
+            record <- list(name = cls$name, kind = cls$kind, range = cls$selectionRange)
+            definitions <- c(definitions, stats::setNames(list(record), cls$name))
+        }
+        children <- lapply(cls$children, function(child) {
+            list(name = child$name, kind = child$kind, containerName = cls$name, range = child$selectionRange)
+        })
+        names(children) <- vapply(cls$children, `[[`, character(1L), "name")
+        definitions <- c(definitions, children)
+    }
+    definitions
 }

@@ -11,10 +11,15 @@ selection_range_reply <- function(id, uri, workspace, document, points) {
     }
 
     syntax <- parse_data$syntax_data
+    cursor_range <- function(point) {
+        pos <- document$to_lsp_position(point$row, point$col)
+        list(range = range(pos, pos), parent = NULL)
+    }
     if (!is.null(syntax)) {
         result <- lapply(points, function(point) {
-            if (!check_r_region(document, point)) return(NULL)
+            if (!check_r_region(document, point)) return(cursor_range(point))
             row <- navigation_token(parse_data, point$row + 1L, point$col + 1L)
+            if (!row) return(cursor_range(point))
             ancestors <- collections::stack()
             while (row) {
                 ancestors$push(row)
@@ -33,11 +38,12 @@ selection_range_reply <- function(id, uri, workspace, document, points) {
     xdoc <- parse_data_xml(parse_data)
     if (!is.null(xdoc)) {
         result <- lapply(points, function(point) {
-            if (!check_r_region(document, point)) return(NULL)
+            if (!check_r_region(document, point)) return(cursor_range(point))
             row <- point$row + 1
             col <- point$col + 1
             token <- xdoc_find_token(xdoc, row, col)
             nodes <- xml_find_all_(token, "ancestor-or-self::*[@line1]")
+            if (!length(nodes)) return(cursor_range(point))
             ranges <- lapply(nodes, function(token) {
                 range(
                     start = document$to_lsp_position(

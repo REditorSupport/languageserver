@@ -868,7 +868,16 @@ refactor_extract_function_action <- function(uri, workspace, document,
         logical(1L),
         extracting_function = TRUE
     )
-    if (any(unsafe)) {
+    # Replacement assignments rebind their receiver. A helper's local write
+    # cannot update the caller's list, vector or S4 object, and the value of
+    # the assignment is the RHS rather than the updated receiver.
+    replacements <- any(vapply(selection$nodes, function(node) {
+        xml_find_lgl_(node, paste0("boolean(",
+                ".//LEFT_ASSIGN/preceding-sibling::expr[1][not(count(*) = 1 and SYMBOL)] | ",
+                ".//EQ_ASSIGN/preceding-sibling::expr[1][not(count(*) = 1 and SYMBOL)] | ",
+                ".//RIGHT_ASSIGN/following-sibling::expr[1][not(count(*) = 1 and SYMBOL)])"))
+    }, logical(1L)))
+    if (any(unsafe) || replacements) {
         return(NULL)
     }
     uses_dots <- vapply(selection$nodes, function(node) {
@@ -1063,15 +1072,43 @@ refactor_inline_variable_action <- function(uri, workspace, document,
     read_node <- xdoc_find_token(
         parse_data_xml(parse_data),
         read_range$start$row + 1L,
-        read_range$start$col + 1L
+        read_range$start$col + 2L
     )
-    if (inherits(read_node, "xml_missing")) {
+    if (inherits(read_node, "xml_missing") || !refactor_range_equal(refactor_node_range(read_node), read_range)) {
         return(NULL)
     }
     read_statement <- refactor_statement_context(xml_parent(read_node))
     if (is.null(read_statement) ||
+            !refactor_expression_movable(xml_parent(read_node), read_statement$statement) ||
             refactor_unsafe_syntax(read_statement$statement)) {
         return(NULL)
+    }
+
+    # Constants can cross statements. A saved expression can read mutable
+    # state, including through an environment alias or an active binding.
+    # Keep such reads in the same block, before any intervening computation.
+    literal <- xml_find_lgl_(assignment$value,
+        "boolean(count(*) = 1 and (NUM_CONST or STR_CONST or NULL_CONST))")
+    if (!literal) {
+        next_statement <- xml_find_first_(assignment$node, "following-sibling::expr[1]")
+        if (!length(next_statement) || inherits(next_statement, "xml_missing") ||
+                !refactor_same_node(next_statement, read_statement$statement)) return(NULL)
+        # A call can force arguments in any order (or never force one). An
+        # accessor, including an active binding, must still be evaluated at
+        # the original point. A standalone read or simple assignment is eager.
+        reads_member <- xml_find_lgl_(assignment$value,
+            "boolean(.//OP-DOLLAR | .//OP-AT | .//OP-LEFT-BRACKET | .//LBB | .//SYMBOL_FUNCTION_CALL)")
+        if (reads_member) {
+            use <- xml_parent(read_node)
+            target <- refactor_assignment_parts(read_statement$statement)
+            eager <- if (is.null(target)) read_statement$statement else target$value
+            if (!refactor_same_node(use, eager)) return(NULL)
+        }
+        writes <- xml_find_all_(read_statement$statement, ".//LEFT_ASSIGN | .//EQ_ASSIGN | .//RIGHT_ASSIGN")
+        for (write in writes) {
+            if (refactor_compare_point(refactor_node_range(xml_parent(write))$end,
+                    read_range$start) <= 0L) return(NULL)
+        }
     }
 
     value_text <- refactor_range_text(

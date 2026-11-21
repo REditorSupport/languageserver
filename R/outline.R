@@ -2,17 +2,16 @@
 #' @noRd
 outline_parse_data <- function(syntax) {
     comments <- syntax$order[syntax$token[syntax$order] == "COMMENT"]
-    opening <- which(syntax$token %in% c("'('", "'['", "'{'") &
+    opening <- which(syntax$token %in% c("'('", "'['", "'{'", "LBB") &
             syntax$parent_row > 0L)
     closing <- which(syntax$token %in% c("')'", "']'", "'}'") &
             syntax$parent_row > 0L)
-    # Each expression's first direct opener/closer is exactly the pair selected
-    # by the XML union. LBB ([[) deliberately retains the legacy exclusion.
+    # Two separate closing bracket tokens belong to the same [[ expression.
     first <- last <- integer(length(syntax$token))
     opening <- opening[order(syntax$order_rank[opening])]
     closing <- closing[order(syntax$order_rank[closing])]
     opening <- opening[!duplicated(syntax$parent_row[opening])]
-    closing <- closing[!duplicated(syntax$parent_row[closing])]
+    closing <- closing[!duplicated(syntax$parent_row[closing], fromLast = TRUE)]
     first[syntax$parent_row[opening]] <- opening
     last[syntax$parent_row[closing]] <- closing
     rows <- syntax$order[syntax$token[syntax$order] == "expr"]

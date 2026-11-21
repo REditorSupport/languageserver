@@ -23,9 +23,27 @@ member_symbol_info <- function(label, value, key, index) {
     list(
         label = label, signature = signature, formals = if (!is.null(signature)) fn[[2L]],
         function_id = key,
-        package = index$package, value = value,
+        package = index$package, value = value, comments = member_callable_comments(fn),
         description = description
     )
+}
+
+# Source functions carry the physical lines kept by the document parser.
+# Capture the small roxygen block before compacting the callable for resolve.
+member_callable_comments <- function(fn) {
+    if (!member_head(fn, "function") || length(fn) < 4L || !inherits(fn[[4L]], "srcref")) return(NULL)
+    ref <- fn[[4L]]
+    file <- attr(ref, "srcfile", exact = TRUE)
+    if (!is.environment(file)) return(NULL)
+    stored <- member_binding(file, "lines")
+    if (!identical(stored[[1L]], "value")) return(NULL)
+    lines <- stored[[2L]]
+    ref <- unclass(ref)
+    if (!is.integer(ref) || length(ref) < 7L || !is.character(lines) || is.object(lines)) return(NULL)
+    row <- ref[[7L]]
+    if (is.na(row) || row < 2L || row > length(lines) || !grepl("^\\s*#'", lines[[row - 1L]])) return(NULL)
+    first <- detect_comments(lines, row - 1L) + 1L
+    lines[seq.int(first, row - 1L)]
 }
 
 member_r6_description <- function(value) {
@@ -59,19 +77,21 @@ member_symbol <- function(uri, workspace, document, location) {
         return(NULL)
     }
     value <- resolved$value
+    if (!is.null(value$s4_generator)) {
+        constructor <- member_s4_constructor(value$s4_generator, resolved$index, resolved$bindings, resolved$budget)
+        if (!is.null(constructor)) value <- constructor
+    }
     member_symbol_info(location$cursor$token, value, value$function_key, resolved$index)
 }
 
 member_symbol_documentation <- function(workspace, symbol, uri) {
     key <- symbol$function_id
-    if (is.null(symbol) || is.null(workspace$get_documentation) || !nzchar(symbol$package) || !is.character(key) ||
-        length(key) != 1L || is.na(key)) {
-        return(symbol$description)
+    doc <- if (length(symbol$comments)) {
+        convert_comment_to_documentation(unlist(symbol$comments, use.names = FALSE))
+    } else if (is.function(workspace$get_documentation) && isTRUE(nzchar(symbol$package)) &&
+            is.character(key) && length(key) == 1L && !is.na(key)) {
+        call_with_optional_uri(workspace$get_documentation, key, symbol$package, isf = TRUE, uri = uri)
     }
-    doc <- call_with_optional_uri(workspace$get_documentation,
-        key, symbol$package,
-        isf = TRUE, uri = uri
-    )
     if (is.null(symbol$description)) return(doc)
     if (is.list(doc)) {
         doc$description <- paste(c(symbol$description, doc$description), collapse = "\n\n")
@@ -236,13 +256,14 @@ member_symbol_location <- function(document, point) {
     }
     list(point = list(row = row, col = end), range = bounds,
         cursor = list(operator_row = row, operator = start + 1L, start = start, end = end,
-            accessor = NULL, token = token$token, before = substr(document$line0(row), 1L, start)))
+            accessor = NULL, token = token$token, before = substr(document$line0(row), 1L, start),
+            s4_new = token$token == "new" && (is.null(token$package) || identical(token$package, "methods"))))
 }
 
 member_constructor_symbol <- function(uri, workspace, document, location) {
     if (is.null(location)) return(NULL)
     symbol <- member_symbol(uri, workspace, document, location)
-    if (is.null(symbol$value$s7_generator) && !identical(symbol$value$r6_role, "constructor")) return(NULL)
+    if (is.null(symbol$value$s7_generator) && !isTRUE(symbol$value$s4_constructor) && !identical(symbol$value$r6_role, "constructor")) return(NULL)
     symbol
 }
 
@@ -253,27 +274,104 @@ member_call_symbol <- function(uri, workspace, document, location) {
         # Keep unresolved member calls out of bare-name and S3 lookup.
         return(if (is.null(symbol)) list() else symbol)
     }
-    if (!is.null(symbol$value$s7_generator) || identical(symbol$value$r6_role, "constructor") ||
-            !is.null(symbol$value$r6_owner)) return(symbol)
+    if (!is.null(symbol$value$s7_generator) || isTRUE(symbol$value$s4_constructor) || identical(symbol$value$r6_role, "constructor") ||
+            !is.null(symbol$value$r6_owner) || !is.null(symbol$value$refclass_instance) || isTRUE(symbol$value$extracted_callable)) return(symbol)
     NULL
 }
 
-member_call_arguments <- function(uri, workspace, document, point, token, call = document$detect_call(point)) {
+# A tag in a custom initializer or constructor is a function parameter, even
+# when it happens to share a property's spelling.
+member_constructor_parameter_origin <- function(uri, workspace, document, point, name, call = document$detect_call(point)) {
+    location <- member_call_location(document, point, call, symbols = TRUE)
+    if (is.null(location)) return(NULL)
+    symbol <- member_resolve_cursor(uri, workspace, document, location$point, location$cursor,
+        location$cursor$token, origins = TRUE, origin_name = name)
+    value <- symbol$value
+    if (!is.null(value$s4_generator)) {
+        value <- member_s4_constructor(value$s4_generator, symbol$index, symbol$bindings, symbol$budget)
+    }
+    if (isTRUE(value$s4_constructor)) return(value$constructor_origins[[name]])
+    class <- value$s7_generator
+    if (is.null(class) || !name %in% names(class$constructor[[2L]])) return(NULL)
+    property <- class$properties[[name]]
+    while (!is.null(class) && !isTRUE(class$custom)) {
+        if (name %in% class$own) return(property$origin)
+        class <- class$parent
+    }
+    NULL
+}
+
+member_call_arguments <- function(uri, workspace, document, point, token, call = document$detect_call(point),
+    quoted = FALSE) {
     location <- member_call_location(document, point, call,
         symbols = member_symbol_required(workspace, document))
     symbol <- member_call_symbol(uri, workspace, document, location)
     if (is.null(symbol)) return(NULL)
-    args <- setdiff(names(symbol$formals), "...")
-    if (!length(args)) return(list())
+    if (is.null(symbol$signature)) return(list())
+    formals <- as.character(names(symbol$formals))
+    slots <- setdiff(symbol$value$constructor_slots, formals)
+    match_signature <- symbol$signature
+    if (length(slots)) {
+        # Slots are optional named arguments accepted through dots. Placing
+        # them after dots gives them exact-only matching in completion.
+        formals <- c(formals, slots)
+        match_signature <- paste0("f(", paste(vapply(formals, quote_completion_name, ""), collapse = ", "), ")")
+    }
+    first <- 0L
+    content <- document$content
+    if (document$is_rmarkdown) {
+        bounds <- document_r_bounds(document, point$row)
+        first <- bounds[[1L]]
+        content <- content[seq.int(first + 1L, bounds[[2L]] + 1L)]
+    }
+    match <- detect_active_parameter(content, call$opening$row - first, call$opening$col,
+        point$row - first, point$col, match_signature, completion = TRUE)
+    if (!is.list(match)) return(list())
+    active <- formals[match[[1L]] + 1L]
+    args <- formals[match[[2L]]]
+    if (quoted || isTRUE(match[[3L]])) args <- character()
     args <- args[match_with(args, token)]
-    lapply(seq_along(args), function(i) {
+    identity <- list(signature = symbol$signature, package = symbol$package, function_id = symbol$function_id,
+        comments = symbol$comments, context_uri = uri)
+    tag_range <- NULL
+    if (length(args) && nzchar(token)) {
+        tag <- document$detect_token(point)$range
+        rest <- substring(document$line0(tag$end$row), tag$end$col + 1L)
+        if (grepl("^[ \t]*=(?!=)", rest, perl = TRUE)) {
+            tag_range <- range(document$to_lsp_position(tag$start$row, tag$start$col),
+                document$to_lsp_position(tag$end$row, tag$end$col))
+        }
+    }
+    items <- lapply(seq_along(args), function(i) {
         list(label = args[[i]], kind = CompletionItemKind$Variable,
             detail = symbol$signature, sortText = sprintf("%s%03d", sort_prefixes$arg, i),
             documentation = if (!is.null(symbol$description)) list(kind = "markdown", value = symbol$description),
             insertText = paste0(quote_completion_name(args[[i]]), " = "),
             insertTextFormat = InsertTextFormat$PlainText,
-            data = list(type = "member", signature = symbol$signature, parameter = args[[i]]))
+            textEdit = if (!is.null(tag_range)) text_edit(tag_range, quote_completion_name(args[[i]])),
+            data = c(list(type = "member", parameter = args[[i]]), identity))
     })
+    if (!length(active) || is.na(active) || !active %in% names(symbol$formals) || active == "...") return(items)
+    line <- document$line0(point$row)
+    if (quoted) {
+        key <- .Call("scan_string_completion_c", line, as.integer(point$col), PACKAGE = "languageserver")
+        if (is.null(key)) return(list())
+        quote <- substr(line, key$start + 1L, key$start + 1L)
+        token <- tryCatch(str2lang(paste0(quote, key$token, quote)), error = function(e) key$token)
+    }
+    choices <- argument_value_items(extract_default_values(symbol$formals[[active]]),
+        symbol$label, symbol$package, active, token, uri)
+    for (i in seq_along(choices)) {
+        choices[[i]]$data <- c(list(type = "member_value", argument = active), identity)
+        if (quoted) {
+            spelling <- encodeString(choices[[i]]$label, quote = quote)
+            choices[[i]]$insertText <- NULL
+            replacement <- range(document$to_lsp_position(point$row, key$start + 1L),
+                document$to_lsp_position(point$row, key$end - as.integer(key$closed)))
+            choices[[i]]$textEdit <- text_edit(replacement, substr(spelling, 2L, nchar(spelling) - 1L))
+        }
+    }
+    c(items, choices)
 }
 
 member_argument_location <- function(document, point, symbols = FALSE) {

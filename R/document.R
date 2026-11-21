@@ -807,7 +807,10 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
     }
     env$completion_data <- completion_parse_data(data, env$syntax_data)
     overlay <- !is.null(recovery) || (is_rmarkdown && length(literate$incomplete_lines) > 0L)
-    env$semantic_data <- semantic_parse_data(data, content, env$syntax_data, assignments, encode = !overlay)
+    classes <- class_source_declarations(env$syntax_data, content, uri, incomplete_lines)
+    env$definitions <- class_binding_definitions(env$definitions, classes)
+    env$semantic_data <- semantic_parse_data(data, content, env$syntax_data, assignments,
+        encode = !overlay, classes = classes)
     env$range_data <- range_provider_parse_data(data, content, env$syntax_data)
     if (length(incomplete_lines) || env$parse_error) {
         env$partial_incomplete_lines <- incomplete_lines
@@ -845,6 +848,8 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
     xml <- function() if (is.null(env$xml_data)) syntax_xml(env$syntax_data) else env$xml_data
     env$class_data <- tryCatch(class_parse_data(uri, content, xml(),
             env$syntax_data, env$definitions), error = function(e) NULL)
+    env$class_data$declarations <- classes
+    if (length(classes)) env$class_data$bytes <- sum(env$class_data$bytes, as.numeric(utils::object.size(classes)))
     # These original-id lookup tables are used only while constructing
     # worker indexes. Providers use the compact physical syntax tree.
     env$syntax_data[c("id_row", "id_first", "id_next", "id_function_scope", "scope_row",
@@ -1001,6 +1006,11 @@ drain_pending_replies <- function(self, uri, version, max_replies = Inf, first =
         if (!queue$size()) return(FALSE)
         item <- queue$peek()
         if (!is.null(version) && !is.null(item$version) && item$version > version) return(FALSE)
+        if (method %in% c("textDocument/typeDefinition", "textDocument/implementation") && !is.null(document) &&
+                identical(item$version, document$version)) {
+            point <- document$from_lsp_position(item$params$position)
+            return(!class_navigation_waiting(self, self$get_workspace(uri), document, point, method))
+        }
         if (identical(method, "textDocument/definition") && !is.null(document) &&
                 identical(item$version, document$version)) {
             point <- document$from_lsp_position(item$params$position)

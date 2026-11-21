@@ -164,6 +164,8 @@ s3_function_record <- function(
     }
     list(
         name = name, package = package, owner = owner, formals = formals,
+        verified_binding = !require_dispatch_or_summary && isNamespaceLoaded(package) &&
+            identical(member_binding(asNamespace(package), name), list("value", fn)),
         body_hash = if (!is.null(syntax)) s3_function_identity(syntax, owner),
         generic = generic, summary = summary,
         identity = digest::digest(list(owner, formals, if (!is.null(generic) || !is.null(summary)) syntax),

@@ -149,31 +149,32 @@ detect_type_definition <- function(uri, workspace, document, point, token_text) 
 
     enclosing_scopes <- xdoc_find_enclosing_scopes(xdoc, row, col, top = TRUE)
 
-    # Check for R6Class definition using token context first
-    if (token_name %in% c("SYMBOL", "STR_CONST")) {
-        r6_expr <- class_xml_first(token,
-            "ancestor::expr[.//SYMBOL_FUNCTION_CALL[text() = 'R6Class']]")
-        if (length(r6_expr)) {
-            class_str <- class_xml_name(r6_expr)
-            class_sym <- class_xml_first(r6_expr,
-                "(.//LEFT_ASSIGN | .//EQ_ASSIGN)/preceding-sibling::expr[1]/SYMBOL")
-            class_name_value <- NULL
-            if (length(class_str)) {
-                class_name_value <- class_token_text(xml_text(class_str))
-            } else if (length(class_sym)) {
-                class_name_value <- class_token_text(xml_text(class_sym))
+    parsed <- workspace$get_parse_data(uri)
+    declarations <- parsed$class_data$declarations
+    if (token_value %in% names(attr(declarations, "masked", exact = TRUE)) &&
+            identical(parsed$definitions[[token_value]]$type, "variable")) return(NULL)
+    if (length(declarations) || !is.null(parsed$syntax_data)) {
+        focused <- navigation_token(parsed, row, col)
+        for (cls in declarations) {
+            if (cls$type %in% c("R6", "S7") && focused %in% c(cls$name_row, cls$literal_row)) {
+                return(class_hierarchy_item(cls))
             }
-
-            if (!is.null(class_name_value)) {
-                range_info <- get_element_range(document, r6_expr)
-                if (!is.null(range_info)) {
-                    return(list(
-                        name = class_name_value,
-                        uri = uri,
-                        range = range_info,
-                        classType = "R6"
-                    ))
+        }
+        if (token_name %in% c("SYMBOL", "SYMBOL_FUNCTION_CALL") && !is.null(document$parse_data$member_data)) {
+            location <- member_symbol_location(document, point)
+            if (!is.null(location)) {
+                resolved <- member_resolve_cursor(uri, workspace, document, location$point, location$cursor, location$cursor$token)
+                value <- resolved$value
+                type <- if (!is.null(value$r6_class$name)) "R6" else if (!is.null(value$s4_class$name)) "S4" else
+                    if (!is.null(value$s7_descriptor$name) && identical(value$s7_descriptor$kind, "class")) "S7"
+                if (length(type)) {
+                    name <- switch(type, R6 = value$r6_class$name, S4 = value$s4_class$name, S7 = value$s7_descriptor$name)
+                    candidates <- class_workspace_declarations(workspace, workspace_document_uris(workspace, uri))
+                    hits <- Filter(function(x) x$type == type && identical(name, x$class_name), candidates)
+                    if (length(hits) == 1L) return(class_hierarchy_item(hits[[1L]]))
                 }
+                # Only a proven class or its exact class declaration is a type target.
+                if (!is.null(value$type) && !identical(value$type, "function")) return(NULL)
             }
         }
     }
@@ -280,50 +281,34 @@ detect_refclass <- function(scopes, token_text, document, uri) {
 detect_s3class <- function(scopes, token_text, document, uri) {
     # Pattern: method.ClassName <- function(...)
     # Extract ClassName from method.ClassName
-    parts <- strsplit(token_text, "\\.")[[1]]
-    if (length(parts) >= 2) {
-        class_name <- parts[length(parts)]
-
-        xpath <- glue(
-            "(//LEFT_ASSIGN | //EQ_ASSIGN)[
-                preceding-sibling::expr[count(*) = 1]/SYMBOL[text() = '{token_quote}']
-            ]/parent::*",
-            token_quote = xml_single_quote(token_text)
-        )
-
-        defs <- class_xml_all(scopes, xpath)
-        if (length(defs) > 0) {
-            defn <- defs[[1]]
-            range_info <- get_element_range(document, defn)
-            if (!is.null(range_info)) {
-                return(list(
-                    name = class_name,
-                    uri = uri,
-                    range = range_info,
-                    classType = "S3"
-                ))
+    parts <- strsplit(token_text, "\\.")[[1L]]
+    if (length(parts) >= 2L) {
+        token_quote <- xml_single_quote(token_text)
+        defs <- class_xml_all(scopes, paste0("(//LEFT_ASSIGN | //EQ_ASSIGN)[",
+                "preceding-sibling::expr[count(*)=1]/SYMBOL[text()='", token_quote,
+                "'] and following-sibling::expr[1]/FUNCTION]/parent::*"))
+        if (length(defs)) {
+            # A generic or a class name can itself contain dots. Use the longest
+            # recognized generic prefix rather than splitting off the last word.
+            for (n in rev(seq_len(length(parts) - 1L))) {
+                generic <- paste(parts[seq_len(n)], collapse = ".")
+                standard <- any(vapply(intersect(startup_packages, loadedNamespaces()), function(pkg) {
+                    fn <- get0(generic, asNamespace(pkg), inherits = FALSE)
+                    is.function(fn) && (generic %in% .S3PrimitiveGenerics ||
+                            (!is.primitive(fn) && "UseMethod" %in% all.names(body(fn))))
+                }, logical(1L)))
+                declared <- any(class_token_text(xml_text(class_xml_all(scopes,
+                                "//SYMBOL_FUNCTION_CALL[text()='UseMethod']/parent::expr/following-sibling::expr[1]/STR_CONST"))) == generic)
+                if (standard || declared) return(list(name = paste(parts[-seq_len(n)], collapse = "."),
+                        uri = uri, range = get_element_range(document, defs[[1L]]), classType = "S3"))
             }
         }
     }
-
-    # Pattern: setMethod("generic", "ClassName", function(...))
-    xpath <- glue(
-        "//SYMBOL_FUNCTION_CALL[text() = 'setMethod']/parent::expr/following-sibling::expr[STR_CONST[contains(text(), {dquote}{token_text}{dquote})]]",
-        token_text = token_text,
-        dquote = '"'
-    )
-
-    defs <- class_xml_all(scopes, xpath)
-    if (length(defs) > 0) {
-        defn <- defs[[1]]
-        range_info <- get_element_range(document, defn)
-        if (!is.null(range_info)) {
-            return(list(
-                name = token_text,
-                uri = uri,
-                range = range_info,
-                classType = "S4"
-            ))
+    for (call in class_xml_calls(scopes, "setMethod", token_text)) {
+        signature <- class_xml_argument(call, "signature")
+        for (literal in class_xml_all(signature, ".//STR_CONST")) {
+            if (identical(class_token_text(xml_text(literal)), token_text)) return(list(
+                name = token_text, uri = uri, range = get_element_range(document, literal), classType = "S4"))
         }
     }
 
@@ -344,14 +329,16 @@ find_type_supertypes <- function(workspace, type_def) {
     supertypes <- list()
 
     # Get the document where the type is defined
-    doc <- workspace$documents$get(type_def$uri)
-    if (is.null(doc)) {
+    doc <- workspace$documents$get(type_def$uri, NULL)
+    if (is.null(doc) && !type_def$classType %in% c("R6", "S7")) {
         return(supertypes)
     }
 
     class_type <- type_def$classType
     parse_data <- workspace$get_parse_data(type_def$uri)
-    if (!is.null(parse_data$class_data) && class_type %in% c("R6", "S4", "RefClass", "S3")) {
+    if (is.null(doc) || class_type == "S7") {
+        # S7 and shallow-only declarations use the source catalog below.
+    } else if (!is.null(parse_data$class_data) && class_type %in% c("R6", "S4", "RefClass", "S3")) {
         supertypes <- get0(class_index_key(class_type, type_def$name),
             envir = parse_data$class_data$supertypes, inherits = FALSE, ifnotfound = list())
     } else {
@@ -369,6 +356,25 @@ find_type_supertypes <- function(workspace, type_def) {
         }
     }
 
+    if (class_type %in% c("R6", "S7")) {
+        classes <- class_workspace_declarations(workspace, workspace_document_uris(workspace, type_def$uri))
+        own <- Filter(function(x) {
+            x$type == class_type && x$uri == type_def$uri && type_def$name %in% c(x$name, x$class_name)
+        }, classes)
+        if (length(own) == 1L && length(own[[1L]]$parents)) {
+            resolved <- lapply(unique(own[[1L]]$parents), function(name) {
+                candidates <- Filter(function(x) x$type == class_type && x$name == name, classes)
+                if (length(candidates) == 1L) return(class_hierarchy_item(candidates[[1L]]))
+                # Multiple matching declarations cannot establish a parent URI.
+                if (!length(candidates)) {
+                    current <- Filter(function(x) x$name == name, supertypes)
+                    if (length(current)) return(current[[1L]])
+                }
+                NULL
+            })
+            supertypes <- Filter(Negate(is.null), resolved)
+        }
+    }
     # Final deduplication by class name
     if (length(supertypes) > 0) {
         seen_names <- character()
@@ -574,8 +580,10 @@ find_type_subtypes <- function(workspace, type_def, context_uri = type_def$uri) 
     parent_name <- type_def$name
 
     # Search through all documents for classes that inherit from this one
-    for (doc_uri in workspace_document_uris(workspace, context_uri)) {
-        doc <- workspace$documents$get(doc_uri)
+    uris <- workspace_document_uris(workspace, context_uri)
+    for (doc_uri in if (class_type != "S7") uris) {
+        doc <- workspace$documents$get(doc_uri, NULL)
+        if (is.null(doc)) next
         parse_data <- workspace$get_parse_data(doc_uri)
         if (!is.null(parse_data$class_data) && class_type %in% c("R6", "S4", "RefClass", "S3")) {
             found_subtypes <- get0(class_index_key(class_type, parent_name),
@@ -604,6 +612,21 @@ find_type_subtypes <- function(workspace, type_def, context_uri = type_def$uri) 
         subtypes <- c(subtypes, found_subtypes)
     }
 
+    if (class_type %in% c("R6", "S7")) {
+        classes <- class_workspace_declarations(workspace, workspace_document_uris(workspace, context_uri))
+        own <- Filter(function(x) {
+            x$type == class_type && x$uri == type_def$uri && parent_name %in% c(x$name, x$class_name)
+        }, classes)
+        if (length(own) == 1L) {
+            binding <- own[[1L]]$name
+            if (sum(vapply(classes, function(x) x$type == class_type && x$name == binding, logical(1L))) == 1L) {
+                children <- Filter(function(x) x$type == class_type && binding %in% x$parents, classes)
+                if (length(children)) subtypes <- lapply(children, class_hierarchy_item)
+            } else {
+                subtypes <- list()
+            }
+        }
+    }
     # Final deduplication by class name across all documents
     if (length(subtypes) > 0) {
         seen_names <- character()
@@ -899,7 +922,7 @@ extract_r6_members <- function(document, xdoc, def) {
             next
         }
 
-        for (access in c("public", "private")) {
+        for (access in c("public", "private", "active")) {
             members_node <- class_xml_argument(class_def, access)
             if (length(members_node)) {
                 members <- c(members, extract_r6_list_members(document, members_node, access))
@@ -918,78 +941,20 @@ extract_r6_members <- function(document, xdoc, def) {
 extract_r6_list_members <- function(document, list_node, access_modifier) {
     members <- list()
 
-    # Find SYMBOL_SUB elements that have EQ_SUB as immediate next sibling
-    # This indicates name = value patterns
-    all_symbol_subs <- class_xml_all(list_node,
-        ".//EQ_SUB/preceding-sibling::*[not(self::COMMENT)][1][self::SYMBOL_SUB or self::STR_CONST]")
-
-    # Process all SYMBOL_SUB elements and try to find their values
-    for (symbol_sub in all_symbol_subs) {
-        member_name <- class_token_text(xml_text(symbol_sub))
-
-        # Skip if this is a nested list definition (public/private/active)
-        if (member_name %in% c("public", "private", "active", "inherit", "lock_objects",
-                "class", "portable", "lock_class", "cloneable", "parent_env")) {
-            next
-        }
-
-        # The structure at the R6Class call level is:
-        # SYMBOL_SUB (member_name), EQ_SUB, expr[value], OP-COMMA, ...
-        # All as direct siblings within the list(...) call expr
-
-        # Find the value expr - it's the first expr sibling after this SYMBOL_SUB
-        # This skips over the EQ SUB that's between them
-        value_expr <- class_xml_first(symbol_sub, "following-sibling::expr[1]")
-        if (!length(value_expr)) {
-            next
-        }
-
-        # Skip if this SYMBOL_SUB is nested inside a function body
-        # Function structure in parse tree: expr[FUNCTION, params, body_expr]
-        # Body expressions have FUNCTION as a preceding sibling
-        # Check if symbol_sub has an ancestor expr that has FUNCTION as preceding sibling
-        func_body_ancestor <- class_xml_first(symbol_sub,
-            "ancestor::expr[preceding-sibling::FUNCTION]")
-
-        if (length(func_body_ancestor)) {
-            # This symbol is inside a function body, not a member definition
-            next
-        }
-
-        # Also skip if this SYMBOL_SUB is nested inside a list/other structure that is a field value
-        # Member-level SYMBOL_SUBs have a grandparent ABOVE list_node (the R6Class call)
-        # Nested ones (like result in test2 = list(result = 1)) have list_node as their grandparent
-        # Check: symbol_sub -> parent expr -> grandparent expr
-        # If grandparent IS list_node, this is nested and should be skipped
-        grandparent <- class_xml_first(symbol_sub, "parent::expr/parent::expr")
-        if (length(grandparent)) {
-            # Check if grandparent is list_node by comparing node identities
-            gp_line <- xml_attr(grandparent, "line1")
-            gp_col <- xml_attr(grandparent, "col1")
-            ln_line <- xml_attr(list_node, "line1")
-            ln_col <- xml_attr(list_node, "col1")
-
-            if (identical(gp_line, ln_line) && identical(gp_col, ln_col)) {
-                # Grandparent IS list_node, so this is nested
-                next
-            }
-        }
-
-        # Check if this specific value expression contains a FUNCTION keyword
-        is_function <- xml_find_lgl_(value_expr, "boolean(.//FUNCTION)")
-
-        member_kind <- if (is_function) SymbolKind$Method else SymbolKind$Field
-        member_range <- get_element_range(document, symbol_sub)
-
-        if (!is.null(member_range)) {
-            members <- c(members, list(document_symbol(
-                name = member_name,
-                detail = access_modifier,
-                kind = member_kind,
-                range = member_range,
-                selectionRange = member_range
-            )))
-        }
+    # Only direct argument labels belong to this section. A field can itself
+    # contain arbitrarily nested lists or functions.
+    if (!xml_find_lgl_(list_node, "boolean(./expr/SYMBOL_FUNCTION_CALL[text()='list'])")) return(members)
+    labels <- class_xml_all(list_node,
+        "./EQ_SUB/preceding-sibling::*[not(self::COMMENT)][1][self::SYMBOL_SUB or self::STR_CONST]")
+    for (label in labels) {
+        value <- class_xml_first(label, "following-sibling::expr[1]")
+        if (!length(value)) next
+        kind <- if (access_modifier == "active") SymbolKind$Property else if (
+            xml_find_lgl_(value, "boolean(./FUNCTION | ./OP-LAMBDA)")) SymbolKind$Method else SymbolKind$Field
+        selected <- get_element_range(document, label)
+        body <- get_element_range(document, value)
+        if (!is.null(selected) && !is.null(body)) members[[length(members) + 1L]] <- document_symbol(
+            class_token_text(xml_text(label)), kind, range(selected$start, body$end), selected, detail = access_modifier)
     }
 
     members

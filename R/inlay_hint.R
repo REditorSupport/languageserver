@@ -150,7 +150,9 @@ inlay_hint_apply_change <- function(indexed, change, content) {
         lines[move] <- lines[move] + new_end_line - end$line
         list(line = lines, col = cols)
     }
-    for (fields in list(c("line", "col"), c("end_line", "end_col"), c("context_line", "context_col"))) {
+    positions <- list(c("line", "col"), c("end_line", "end_col"), c("context_line", "context_col"))
+    if (!is.null(calls$opening_line)) positions <- c(positions, list(c("opening_line", "opening_col")))
+    for (fields in positions) {
         moved <- shift(calls[[fields[[1L]]]], calls[[fields[[2L]]]], after)
         calls[[fields[[1L]]]] <- moved$line
         calls[[fields[[2L]]]] <- moved$col
@@ -186,7 +188,7 @@ inlay_hint_reply <- function(id, uri, workspace, document, request_range) {
     if (!is.null(parse_data$range_data)) {
         current <- indexed_inlay_hint_reply(
             id, uri, workspace, parse_data$range_data, request_range,
-            document$inlay_hint_formals, use_previous_formals = incomplete
+            document$inlay_hint_formals, use_previous_formals = incomplete, document = document
         )
         if (!incomplete || is.null(document$inlay_hint_data) ||
                 length(current$result) >= 200L) return(current)
@@ -196,13 +198,22 @@ inlay_hint_reply <- function(id, uri, workspace, document, request_range) {
             id, uri, workspace, document$inlay_hint_data, request_range,
             document$inlay_hint_formals, use_previous_formals = TRUE,
             regions = document$regions, fallback_lines = parse_data$inlay_hint_incomplete_lines,
-            recovered = parse_data$range_data
+            recovered = parse_data$range_data, document = document
         )
         return(Response$new(id, result = utils::head(c(current$result, previous$result), 200L)))
     }
 
     xdoc <- parse_data_xml(parse_data)
     if (is.null(xdoc)) return(Response$new(id, result = list()))
+    if (!is.null(parse_data$syntax_data)) {
+        syntax <- parse_data$syntax_data
+        # Older snapshots can omit the viewport index. The compact tree
+        # stores parent rows; the native index builder expects parser IDs.
+        data <- list2DF(syntax[c("id", "token", "text", "terminal", "line1", "col1", "line2", "col2")])
+        data$parent <- c(0L, syntax$id)[syntax$parent_row + 1L]
+        indexed <- range_provider_parse_data(data, document$content)
+        return(indexed_inlay_hint_reply(id, uri, workspace, indexed, request_range, document = document))
+    }
 
     start_line <- request_range$start$line + 1L
     end_line <- request_range$end$line + 1L
@@ -322,7 +333,7 @@ inlay_hint_reply <- function(id, uri, workspace, document, request_range) {
 #' @noRd
 indexed_inlay_hint_reply <- function(id, uri, workspace, indexed, request_range,
     previous_formals = NULL, use_previous_formals = FALSE, regions = NULL,
-    fallback_lines = NULL, recovered = NULL) {
+    fallback_lines = NULL, recovered = NULL, document = NULL) {
     arguments <- indexed$arguments
     visible <- indexed$argument_order[range_line_indices(
         indexed$argument_lines,
@@ -347,6 +358,11 @@ indexed_inlay_hint_reply <- function(id, uri, workspace, indexed, request_range,
     }
     if (!length(visible)) return(Response$new(id, result = list()))
     calls <- indexed$calls
+    if (is.null(document) && !is.null(workspace$documents)) document <- workspace$documents$get(uri, NULL)
+    parsed <- if (!is.null(document)) document$parse_data
+    member_enabled <- !is.null(document) && isTRUE(lsp_settings$get("member_completion"))
+    candidates <- NULL
+    use_s3 <- !is.null(document) && isTRUE(lsp_settings$get("s3_dispatch"))
     call_indices <- sort(unique(arguments$call[visible]))
     visible_by_call <- list2env(split(visible, arguments$call[visible]),
         parent = emptyenv())
@@ -371,8 +387,26 @@ indexed_inlay_hint_reply <- function(id, uri, workspace, indexed, request_range,
         function_name <- calls$name[[call_index]]
         package <- calls$package[[call_index]]
         if (is.na(package)) package <- NULL
+        member <- isTRUE(calls$member[call_index])
+        generic <- use_s3 && (!is.null(parsed$member_data$s3$functions[[function_name]]) ||
+                (is.null(package) && function_name %in% parsed$member_data$s3$aliases) ||
+                (is.function(workspace$s3_metadata$may_dispatch) && workspace$s3_metadata$may_dispatch(function_name)))
+        context <- NULL
+        if (member && !member_enabled) next
+        symbol <- FALSE
+        if (!member && member_enabled) {
+            if (is.null(candidates)) candidates <- inlay_symbol_candidates(workspace, document)
+            symbol <- candidates(function_name, package, calls$line[[call_index]])
+        }
+        if ((member || symbol || generic) && !is.null(calls$opening_line)) {
+            opening <- position(calls$opening_line[[call_index]], calls$opening_col[[call_index]])
+            context <- inlay_call_context(workspace, document, opening, member, symbol, generic)
+            if (member && is.null(context$formals)) next
+        }
         cache_key <- paste(if (is.null(package)) "" else package, function_name, sep = "::")
-        if (exists(cache_key, envir = formals_cache, inherits = FALSE)) {
+        if (!is.null(context)) {
+            formal_names <- names(context$formals)
+        } else if (exists(cache_key, envir = formals_cache, inherits = FALSE)) {
             formal_names <- get(cache_key, envir = formals_cache, inherits = FALSE)
         } else {
             function_formals <- tryCatch(call_with_optional_uri(
@@ -433,11 +467,96 @@ indexed_inlay_hint_reply <- function(id, uri, workspace, indexed, request_range,
                     parameter = formal_name
                 )
             )
+            if (!is.null(context)) {
+                hints[[hint_count]]$data$opening <- opening
+                hints[[hint_count]]$data$version <- document$version
+                hints[[hint_count]]$data$member <- member
+            }
             if (hint_count >= 200L) break
         }
         if (hint_count >= 200L) break
     }
     Response$new(id, result = hints[seq_len(hint_count)])
+}
+
+# A bare call can be a class constructor, a local alias or a method visible
+# inside a class. Test the compact parse and package catalogs before trying
+# receiver inference for every ordinary call in a viewport.
+inlay_symbol_candidates <- function(workspace, document) {
+    parsed <- document$parse_data
+    metadata <- workspace$member_metadata
+    packages <- unique(vapply(parsed$member_data$imports, function(item) {
+        if (length(item$expr) < 2L) return("")
+        member_name(item$expr[[2L]]) %s3_or% ""
+    }, character(1L)))
+    view <- member_workspace_view(workspace, document)
+    scope <- member_symbol_required(workspace, document) || length(view$bindings) > 0L
+    classes <- parsed$class_data$declarations
+    # The names of inherited non-portable R6 and RefClass methods can be
+    # supplied by another file. Their method bodies still need full resolution.
+    inherited <- Filter(function(cls) cls$type %in% c("R6", "RefClass") && length(cls$parents) > 0L, classes)
+    first <- vapply(inherited, function(cls) cls$range$start$line, integer(1L))
+    last <- vapply(inherited, function(cls) cls$range$end$line, integer(1L))
+    metadata_keys <- if (!is.null(metadata)) metadata$keys()
+    decisions <- new.env(hash = TRUE, parent = emptyenv())
+    local <- parsed$inlay_member_candidate_names
+    if (is.null(local) && scope) {
+        nav <- parsed$navigation_data
+        syntax <- parsed$syntax_data
+        # Ordinary function literals already have their formals in the lexical
+        # index. Other bindings and formal defaults may hold extracted methods.
+        rows <- c(nav$name[nav[["function"]] == 0L], nav$scope_name)
+        members <- unlist(lapply(classes, function(cls) {
+            vapply(cls$children, `[[`, character(1L), "name")
+        }), use.names = FALSE)
+        local <- unique(c(reference_symbol_names(syntax$text[rows]), members))
+        if (is.environment(parsed)) parsed$inlay_member_candidate_names <- local
+    }
+    catalog_candidate <- function(pkg, name, qualified) {
+        if (!pkg %in% metadata_keys) return(FALSE)
+        catalog <- if (is.function(metadata$catalog)) metadata$catalog(pkg) else metadata$get(pkg)
+        if (is.null(catalog)) return(FALSE)
+        value <- if (qualified) member_lookup(catalog$namespace_roots, paste(pkg, name, sep = "::"))
+        if (is.null(value)) value <- member_lookup(catalog$roots, name)
+        !is.null(value) && (!is.null(value$s7_generator) || !is.null(value$s4_generator) ||
+                !is.null(value$refclass_instance) || !is.null(value$r6_role) || !is.null(value$r6_owner) ||
+                isTRUE(value$extracted_callable))
+    }
+    function(name, package, line) {
+        if (identical(name, "new") && (is.null(package) || package == "methods")) return(TRUE)
+        if (is.null(package) && any(first <= line & line <= last)) return(TRUE)
+        if (!scope && is.null(package)) return(FALSE)
+        key <- paste(package %s3_or% "", name, sep = "::")
+        cached <- decisions[[key]]
+        if (!is.null(cached)) return(cached)
+        candidate <- if (!is.null(package)) {
+            catalog_candidate(package, name, TRUE)
+        } else {
+            name %in% local || any(vapply(view$bindings[[name]], function(item) {
+                !member_head(item$expr, "function")
+            }, logical(1L))) || any(vapply(packages, catalog_candidate, logical(1L), name = name, qualified = FALSE))
+        }
+        decisions[[key]] <- candidate
+        candidate
+    }
+}
+
+# Recover the specific callee using the same opening parenthesis as signature
+# help. An unresolved member must never borrow a same-named global's formals.
+inlay_call_context <- function(workspace, document, opening, member, symbols, generic) {
+    point <- document$from_lsp_position(opening)
+    point$col <- point$col + 1L
+    call <- document$detect_call(point)
+    if (member || symbols) {
+        location <- member_call_location(document, point, call, symbols = symbols)
+        symbol <- member_call_symbol(document$uri, workspace, document, location)
+        if (!is.null(symbol)) return(list(formals = symbol$formals, symbol = symbol, signature = symbol$signature))
+    }
+    if (generic && !member) {
+        s3 <- resolve_s3_call(document$uri, workspace, document, point, call = call)
+        if (!is.null(s3)) return(list(formals = s3$formals, s3 = s3, signature = s3$signature))
+    }
+    NULL
 }
 
 #' Resolve explanatory text for an inlay hint
@@ -447,6 +566,21 @@ inlay_hint_resolve_reply <- function(id, workspace, hint) {
     parameter <- hint$data$parameter
     package <- hint$data$package
     if (is.null(function_name) || is.null(parameter)) {
+        return(Response$new(id, result = hint))
+    }
+    if (!is.null(hint$data$opening)) {
+        document <- workspace$documents$get(hint$data$uri, NULL)
+        if (is.null(document) || !isTRUE(document$version == hint$data$version)) return(Response$new(id, result = hint))
+        context <- inlay_call_context(workspace, document, hint$data$opening, isTRUE(hint$data$member),
+            isTRUE(lsp_settings$get("member_completion")), isTRUE(lsp_settings$get("s3_dispatch")))
+        if (!is.null(context$signature) && parameter %in% names(context$formals)) {
+            doc <- if (!is.null(context$s3)) s3_documentation(workspace, context$s3) else
+                member_symbol_documentation(workspace, context$symbol, document$uri)
+            contents <- argument_hover_contents(doc, context$signature, parameter)
+            if (is.null(contents)) contents <- c(sprintf("```r\n%s\n```", context$signature),
+                if (is.character(doc)) doc else doc$description)
+            hint$tooltip <- list(kind = "markdown", value = paste(contents, collapse = "\n\n"))
+        }
         return(Response$new(id, result = hint))
     }
 

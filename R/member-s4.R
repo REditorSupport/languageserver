@@ -1,6 +1,6 @@
 # S4 slot declarations are separate from dollar members. Read syntax and class
 # metadata only: never call new(), initialize(), validity or slot accessors.
-member_methods_intrinsics <- c("setClass", "setClassUnion", "representation", "prototype", "new", "slot")
+member_methods_intrinsics <- c("setRefClass", "setMethod", "setReplaceMethod", "signature", "setClass", "setClassUnion", "representation", "prototype", "new", "slot")
 
 member_s4_unshadowed <- function(name, index, bindings) {
     if (name %in% names(bindings)) return(FALSE)
@@ -69,7 +69,7 @@ member_s4_recipe <- function(expr, index, bindings) {
         types <- member_s4_strings(members, index, bindings)
         return(list(name = name, union = as.list(types), virtual = TRUE, complete = length(types) <= 256L))
     }
-    slots <- list()
+    slots <- origins <- list()
     contains <- member_s4_strings(args$contains, index, bindings)
     complete <- is.null(args$contains) || length(contains) > 0L || identical(args$contains, character()) ||
         (member_s4_literal_call(args$contains, "c", index, bindings) && length(args$contains) == 1L)
@@ -99,6 +99,8 @@ member_s4_recipe <- function(expr, index, bindings) {
                 complete <<- FALSE
             } else if (nzchar(key)) {
                 slots[key] <<- list(type)
+                origin <- attr(node, "member_origins", exact = TRUE)[[as.character(i)]]
+                if (!is.null(origin)) origins[key] <<- list(origin)
             } else if (legacy) {
                 contains <<- union(contains, type)
             } else {
@@ -116,8 +118,10 @@ member_s4_recipe <- function(expr, index, bindings) {
     if (member_s4_literal_call(prototype, "list", index, bindings) || identical(member_s4_method(prototype, index, bindings), "prototype")) {
         defaults <- as.list(prototype)[-1L]
     }
-    list(name = name, slots = slots, contains = setdiff(contains, "VIRTUAL"),
+    recipe <- list(name = name, slots = slots, origins = origins, contains = setdiff(contains, "VIRTUAL"),
         virtual = "VIRTUAL" %in% contains, defaults = defaults, complete = complete)
+    recipe$class_origin <- attr(expr, "class_origin", exact = TRUE)
+    recipe
 }
 
 member_s4_effect <- function(expr, index, bindings) {
@@ -126,7 +130,7 @@ member_s4_effect <- function(expr, index, bindings) {
     bindings
 }
 
-member_s4_descriptor <- function(name, index, bindings, package = NULL) {
+member_s4_descriptor <- function(name, index, bindings, package = NULL, budget = NULL) {
     if (!is.null(package)) {
         if (identical(package, index$package)) return(member_lookup(index$s4_classes, name))
         descriptor <- member_lookup(member_lookup(index$namespace_indices, package)$s4_classes, name)
@@ -142,7 +146,13 @@ member_s4_descriptor <- function(name, index, bindings, package = NULL) {
         if (!member_before(item$end, at)) next
         env <- bindings
         env$.__member_position__ <- item$start
-        recipe <- member_s4_recipe(item$expr, index, env)
+        expr <- item$expr
+        if (!is.null(budget$origin_name) && !is.null(budget$document)) {
+            # Resolve the declaration at the version/position chosen by inference.
+            i <- member_history_position(budget$document$parse_data$member_data$items, item$end)
+            if (i) expr <- member_declaration_expr(budget$document, i, budget)
+        }
+        recipe <- member_s4_recipe(expr, index, env)
         if (!is.null(recipe)) return(recipe)
     }
     if (is.null(index$document_bindings)) return(member_lookup(index$s4_classes, name))
@@ -161,7 +171,7 @@ member_s4_shape <- function(name, index, bindings, package = NULL, trail = chara
     }
     identity <- paste(package, name, sep = "::")
     if (length(trail) > 32L || identity %in% trail) return(member_value(reason = "s4_cycle"))
-    descriptor <- member_s4_descriptor(name, index, bindings, package)
+    descriptor <- member_s4_descriptor(name, index, bindings, package, budget)
     if (is.null(descriptor) || isFALSE(descriptor$complete)) return(member_value(reason = "unknown_s4_class"))
     trail <- c(trail, identity)
     if (!is.null(descriptor$union)) {
@@ -171,7 +181,7 @@ member_s4_shape <- function(name, index, bindings, package = NULL, trail = chara
             member_s4_shape(as.character(type), index, bindings, if (is.null(owner)) package else owner, trail, budget)
         })))
     }
-    slots <- defaults <- list()
+    slots <- defaults <- origins <- list()
     for (parent in descriptor$contains) {
         # R's built-in storage classes contribute the data part of an S4
         # extension, rather than a user-defined slot inheritance recipe.
@@ -187,9 +197,12 @@ member_s4_shape <- function(name, index, bindings, package = NULL, trail = chara
         inherited <- member_s4_shape(parent, index, bindings, package, trail, budget)
         if (is.null(inherited$slot_types)) return(member_value(reason = "unknown_s4_parent"))
         slots <- utils::modifyList(slots, inherited$slot_types)
+        origins[names(inherited$slot_origins)] <- inherited$slot_origins
         if (!is.null(inherited$slots)) defaults <- utils::modifyList(defaults, inherited$slots)
     }
     slots <- utils::modifyList(slots, descriptor$slots)
+    origins[names(descriptor$slots)] <- NULL
+    origins[names(descriptor$origins)] <- descriptor$origins
     if (length(slots) > 256L) return(member_value(reason = "s4_slot_limit"))
     for (slot in intersect(names(descriptor$defaults), names(slots))) {
         # Prototype declarations supply syntax, not evaluated default objects.
@@ -197,8 +210,10 @@ member_s4_shape <- function(name, index, bindings, package = NULL, trail = chara
         defaults[slot] <- list(member_value(binding_expr = descriptor$defaults[[slot]], binding_env = bindings))
     }
     owner <- if (is.null(descriptor$package)) package else descriptor$package
-    member_value(type = name, s4_class = list(name = name, package = owner),
-        slot_types = slots, slots = defaults)
+    result <- member_value(type = name, s4_class = list(name = name, package = owner), slot_types = slots, slots = defaults)
+    result$s4_class$origin <- descriptor$class_origin
+    if (length(origins)) result$slot_origins <- origins
+    result
 }
 
 member_s4_types <- function(types, package = NULL) {

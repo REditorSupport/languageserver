@@ -751,10 +751,10 @@ Workspace <- R6::R6Class("Workspace",
             for (doc in documents) {
                 parse_data <- doc$parse_data
                 if (is.null(parse_data)) next
-                symbols <- names(parse_data$definitions)
-                matches <- symbols[fuzzy_find(symbols, pattern)]
+                records <- class_search_definitions(parse_data$definitions, parse_data$class_data$declarations)
+                matches <- fuzzy_find(names(records), pattern)
                 result <- c(result, lapply(
-                    unname(parse_data$definitions[matches]),
+                    unname(records[matches]),
                     function(def) {
                         c(uri = doc$uri, def)
                     }

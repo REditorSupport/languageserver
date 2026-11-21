@@ -18,6 +18,22 @@ document_highlight_reply <- function(id, uri, workspace, document, point) {
         return(Response$new(id))
     }
 
+    member <- member_navigation_at(workspace, document, point)
+    if (!is.null(member)) {
+        if (!is.null(member$definition) && member$formal) {
+            matches <- member_navigation_references(id, workspace, document, member, TRUE, FALSE)$result
+            matches <- Filter(function(x) identical(x$uri, uri), matches)
+        } else {
+            matches <- member_navigation_occurrences(workspace, member$definition, member$name, uri)
+        }
+        if (!length(matches)) return(Response$new(id))
+        return(Response$new(id, result = lapply(matches, function(ref) {
+            role <- attr(ref, "role")
+            write <- !is.null(role) && role %in% c("declaration", "write")
+            list(range = ref$range, kind = if (write) DocumentHighlightKind$Write else DocumentHighlightKind$Read)
+        })))
+    }
+
     result <- NULL
     parse_data <- workspace$get_parse_data(uri)
     index <- parse_data$reference_index
@@ -39,6 +55,12 @@ document_highlight_reply <- function(id, uri, workspace, document, point) {
                     kind = DocumentHighlightKind$Text
                 )
             })
+            formal <- member_navigation_formal_owner(parse_data, uri, detected$token, definition_key)
+            if (!is.null(formal)) {
+                tags <- member_navigation_occurrences(workspace, formal, detected$token, uri,
+                    formal = TRUE, declarations = FALSE)
+                result <- c(result, lapply(tags, function(x) list(range = x$range, kind = DocumentHighlightKind$Read)))
+            }
             return(Response$new(id, result = result))
         }
     }

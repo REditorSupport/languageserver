@@ -603,13 +603,13 @@ static int parameter_match(const char *text, int start, int end, SEXP parameters
 }
 
 typedef struct signature_named_argument {
-    int start, end, current;
+    int start, end, current, editing;
     const char *name;
     struct signature_named_argument *next;
 } signature_named_argument;
 
 static int pipe_active_parameter(const char *text, int cursor, SEXP parameters,
-    int pipe, int allow_null) {
+    int pipe, int allow_null, int *available, int *named_value) {
     int size = (int) strlen(text);
     int nparameters = Rf_length(parameters);
     const char **normalized = NULL;
@@ -625,7 +625,8 @@ static int pipe_active_parameter(const char *text, int cursor, SEXP parameters,
     memset(used, 0, ((size_t) nparameters + 1) * sizeof(int));
     int depth = 0, start = 0, name_end = -1;
     int value_tokens = 0, placeholder = 0, has_placeholder = 0;
-    int positional = 0, active_name = -1, active_named = 0, active = 0;
+    int positional = 0, positional_total = 0, current_positional = 0;
+    int active_name = -1, active_named = 0, active = 0, editing_tag = -1;
     signature_named_argument *partial_names = NULL, *last_partial = NULL;
     int dots = -1;
     for (int i = 0; i < nparameters; i++) {
@@ -642,13 +643,17 @@ static int pipe_active_parameter(const char *text, int cursor, SEXP parameters,
             int matched = name_end < 0 ? -1 : parameter_match(
                 text, start, name_end, parameters, 0, NULL, normalized, &tag);
             int current = start <= cursor && cursor <= i;
-            if (matched >= 0) used[matched] = 1;
+            if (matched >= 0) {
+                used[matched] = 1;
+                if (current && cursor <= name_end) editing_tag = matched;
+            }
             if (allow_null && name_end >= 0 && matched < 0) {
                 signature_named_argument *argument = (signature_named_argument *)
                     R_alloc(1, sizeof(signature_named_argument));
                 argument->start = start;
                 argument->end = name_end;
                 argument->current = current && name_end < cursor;
+                argument->editing = current && cursor <= name_end;
                 argument->name = tag;
                 argument->next = NULL;
                 if (last_partial != NULL) last_partial->next = argument;
@@ -658,6 +663,10 @@ static int pipe_active_parameter(const char *text, int cursor, SEXP parameters,
             if (current && name_end >= 0 && name_end < cursor) {
                 active_name = matched;
                 active_named = 1;
+            }
+            if (name_end < 0) {
+                positional_total++;
+                if (current) current_positional = 1;
             }
             if (i < cursor) {
                 active++;
@@ -736,7 +745,24 @@ static int pipe_active_parameter(const char *text, int cursor, SEXP parameters,
                 if (partial_counts[matched] > 1) matched = -2;
             }
             if (argument->current) active_name = matched;
+            if (argument->editing) editing_tag = matched;
         }
+    }
+    if (available != NULL) {
+        int implicit = pipe && !has_placeholder;
+        int count = 0;
+        /* A prefix being typed in the current argument is still available.
+         * Positional arguments consume only formals preceding the ellipsis. */
+        for (int i = 0; i < nparameters; i++) {
+            available[i] = !used[i] && i != dots;
+            if (!used[i] && (dots < 0 || i < dots)) {
+                if (count < positional_total + implicit &&
+                        !(current_positional && count == positional + implicit)) available[i] = 0;
+                count++;
+            }
+        }
+        if (editing_tag >= 0) available[editing_tag] = 1;
+        *named_value = active_named;
     }
     if (active_name >= 0) return active_name;
     if (allow_null && active_named) return active_name == -2 ? -1 : dots;
@@ -752,7 +778,7 @@ static int pipe_active_parameter(const char *text, int cursor, SEXP parameters,
 }
 
 SEXP active_parameter_c(SEXP call_text, SEXP parameters, SEXP content,
-    SEXP start_row, SEXP start_col, SEXP allow_null) {
+    SEXP start_row, SEXP start_col, SEXP allow_null, SEXP completion) {
     const char *text = single_string(call_text, "call text");
     if (TYPEOF(parameters) != STRSXP) Rf_error("parameters must be character");
     size_t size_long = strlen(text);
@@ -760,7 +786,8 @@ SEXP active_parameter_c(SEXP call_text, SEXP parameters, SEXP content,
     int size = (int) size_long;
     int row = Rf_asInteger(start_row);
     int col = Rf_asInteger(start_col);
-    int nullable = Rf_asLogical(allow_null) == TRUE;
+    int completing = Rf_asLogical(completion) == TRUE;
+    int nullable = completing || Rf_asLogical(allow_null) == TRUE;
     if (TYPEOF(content) == STRSXP && row >= 0 && row < Rf_length(content) &&
             col >= 0 && STRING_ELT(content, row) != NA_STRING) {
         const char *line = Rf_translateCharUTF8(STRING_ELT(content, row));
@@ -774,8 +801,19 @@ SEXP active_parameter_c(SEXP call_text, SEXP parameters, SEXP content,
             /* Keep the complete cursor prefix, then inspect at most 64 KiB
              * more for named arguments that can reserve positional formals. */
             size_t limit = pipe ? (size_t) -1 : (size_t) size + 65536;
-            int active = pipe_active_parameter(
-                pipe_call_text(content, row, byte + 1, limit), size, parameters, pipe, nullable);
+            int named_value = 0;
+            SEXP available = PROTECT(completing ? Rf_allocVector(LGLSXP, Rf_length(parameters)) : R_NilValue);
+            int active = pipe_active_parameter(pipe_call_text(content, row, byte + 1, limit),
+                size, parameters, pipe, nullable, completing ? LOGICAL(available) : NULL, &named_value);
+            if (completing) {
+                SEXP result = PROTECT(Rf_allocVector(VECSXP, 3));
+                SET_VECTOR_ELT(result, 0, Rf_ScalarInteger(active));
+                SET_VECTOR_ELT(result, 1, available);
+                SET_VECTOR_ELT(result, 2, Rf_ScalarLogical(named_value));
+                UNPROTECT(2);
+                return result;
+            }
+            UNPROTECT(1);
             return active < 0 ? R_NilValue : Rf_ScalarInteger(active);
         }
     }

@@ -1,5 +1,22 @@
 # languageserver (development)
 
+- Find References, Rename, highlights, call hierarchy and call-count lenses
+  distinguish source members by their declarations. Named argument references
+  include matching calls to source functions and methods.
+- Show parameter hints for resolved member calls. Argument completion, hover
+  and signature help recognize extracted functions, quoted member names and
+  source reference classes. Class outlines, workspace symbols and semantic
+  tokens include declared methods and properties.
+- Go to Implementation opens the selected S3 method when static dispatch
+  identifies it. Go to Type Definition opens the source class of a receiver
+  with a uniquely identified declaration.
+- Preserve list updates and saved reads when offering Extract Function and
+  Inline Variable. Debugger inline values look up the receiver of a field
+  access, and documented method parameters support linked editing.
+- Complete file paths in quoted `source()` and `sys.source()` arguments,
+  recognize static source paths in document links, fold multiline double
+  brackets, and provide selection ranges for mixed R and prose selections.
+
 - Keep highlighting, navigation, completions, outlines, folding, and hints
   available in recoverable R code while typing incomplete expressions such as
   `pkg::`. R Markdown and Quarto recover each R cell independently. Rename and

@@ -85,16 +85,31 @@ indexed_incoming_calls <- function(workspace, item) {
     doc_uris <- workspace_reference_document_uris(
         workspace, item$uri, context_uri)
 
+    member <- isTRUE(item$data$member)
+    if (member) {
+        sites <- member_navigation_calls(workspace, item$data$definition, item$name, context_uri)
+        sites <- split(sites, vapply(sites, `[[`, "", "uri"))
+        doc_uris <- names(sites)
+    }
     for (doc_uri in doc_uris) {
         parse_data <- workspace$get_parse_data(doc_uri)
-        index <- parse_data$reference_index
-        if (is.null(index)) return(NULL)
-
-        selected <- reference_indices(index, item$name, target_key)
-        selected <- selected[index$token[selected] == "SYMBOL_FUNCTION_CALL"]
+        if (member) {
+            ranges <- lapply(sites[[doc_uri]], `[[`, "range")
+            coordinate <- function(end, axis) vapply(ranges, function(x) as.integer(x[[end]][[axis]]), integer(1L))
+            index <- list(line = coordinate("start", "line"), col = coordinate("start", "character"),
+                end_line = coordinate("end", "line"), end_col = coordinate("end", "character"))
+            selected <- seq_along(ranges)
+        } else {
+            index <- parse_data$reference_index
+            if (is.null(index)) return(NULL)
+            selected <- reference_indices(index, item$name, target_key)
+            selected <- selected[index$token[selected] == "SYMBOL_FUNCTION_CALL"]
+        }
         if (!length(selected)) next
 
-        definitions <- workspace$get_definitions_for_uri(doc_uri)
+        definitions <- parse_data$definitions
+        if (is.function(workspace$get_definitions_for_uri)) definitions <- workspace$get_definitions_for_uri(doc_uri)
+        definitions <- c(definitions, member_navigation_methods(workspace, workspace$documents$get(doc_uri, NULL)))
         definitions <- definitions[vapply(definitions, function(definition) {
             identical(definition$type, "function")
         }, logical(1L))]
@@ -103,7 +118,7 @@ indexed_incoming_calls <- function(workspace, item) {
         used <- unique(containers[containers > 0L])
         if (doc_uri == item$uri) {
             recursive <- used[vapply(definitions[used], function(definition) {
-                equal_range(definition$range, item$data$definition$range)
+                equal_range(definition$range, item$range)
             }, logical(1L))]
             keep <- !containers %in% recursive
             containers <- containers[keep]
@@ -144,7 +159,7 @@ indexed_incoming_calls <- function(workspace, item) {
                 sep = ":"
             )
             in_calls$set(key, list(
-                from = list(
+                from = if (!is.null(definition$memberDefinition)) member_navigation_call_item(definition, context_uri) else list(
                     name = definition$name,
                     kind = get_document_symbol_kind(definition$type),
                     uri = doc_uri,
@@ -170,7 +185,8 @@ indexed_outgoing_calls <- function(workspace, item) {
     if (is.null(index)) return(NULL)
 
     selected <- indexed_calls_in_range(index, item$range)
-    if (!length(selected)) return(list())
+    member_calls <- member_navigation_outgoing(workspace, doc, item)
+    if (!length(selected)) return(member_calls)
 
     groups <- split(selected, paste(
         index$name[selected],
@@ -213,7 +229,7 @@ indexed_outgoing_calls <- function(workspace, item) {
             fromRanges = lapply(indices, function(j) indexed_call_range(index, j))
         )
     }
-    result
+    c(result, member_calls)
 }
 
 #' @noRd
@@ -223,6 +239,11 @@ prepare_call_hierarchy_reply <- function(id, uri, workspace, document, point) {
         return(Response$new(id, result = NULL))
     }
 
+    member <- member_navigation_at(workspace, document, point)
+    if (!is.null(member)) {
+        method <- if (!member$formal) member_navigation_method(workspace, member$definition)
+        return(Response$new(id, result = if (!is.null(method)) list(member_navigation_call_item(method, uri))))
+    }
     token <- document$detect_token(point)
     defn <- symbol_definition_reply(NULL, uri, workspace, document, point)$result
     token_quote <- xml_single_quote(token$token)

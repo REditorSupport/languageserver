@@ -80,7 +80,7 @@ test_that("pending local references and rename wait for parsing without discover
     for (handler in list(text_document_references, text_document_rename)) {
         root <- index_normalize_path(withr::local_tempdir())
         path <- file.path(root, "main.R")
-        writeLines("local_fn <- function(value) value", path)
+        writeLines("scope <- function() { value <- 1; value }", path)
         server <- ClassificationServer$new(root)
         document <- classification_open(server, path)
         workspace <- server$get_workspace(document$uri)
@@ -104,7 +104,7 @@ test_that("pending local references and rename wait for parsing without discover
             expect_true(all(vapply(reply$result$changes[[document$uri]], function(edit) edit$newText == "renamed", logical(1L))))
         } else {
             expect_length(reply$result, 1L)
-            expect_identical(reply$result[[1L]]$range$start$character, 28L)
+            expect_identical(reply$result[[1L]]$range$start$character, 34L)
         }
     }
 })
@@ -120,7 +120,7 @@ test_that("same-version stale parses do not classify current local requests", {
         server$parse_task_manager$finish()
         accepted_version <- document$version
         text_document_did_save(server, list(textDocument = list(uri = document$uri),
-                text = "local_fn <- function(value) value"))
+                text = "scope <- function() { value <- 1; value }"))
         expect_identical(document$version, accepted_version)
         expect_null(document$parse_data)
         expect_false(identical(document$content, document$parsed_content))
@@ -137,7 +137,7 @@ test_that("same-version stale parses do not classify current local requests", {
         if (identical(handler, text_document_rename)) {
             expect_length(result$changes[[document$uri]], 2L)
         } else {
-            expect_identical(result[[1L]]$range$start$character, 28L)
+            expect_identical(result[[1L]]$range$start$character, 34L)
         }
     }
 })
@@ -176,7 +176,7 @@ test_that("pending classification remains usable without an enabled workspace in
         classification_settings("off")
         root <- index_normalize_path(withr::local_tempdir())
         path <- file.path(root, "main.R")
-        writeLines("local_fn <- function(value) value", path)
+        writeLines("scope <- function() { value <- 1; value }", path)
         server <- ClassificationServer$new(if (folderless) NULL else root)
         document <- classification_open(server, path)
         text_document_references(server, 1L, classification_params(document))
@@ -195,7 +195,7 @@ test_that("pending classification cancels changed snapshots and client cancellat
     for (change in c("content", "index", "workspace", "cancel")) {
         root <- index_normalize_path(withr::local_tempdir())
         path <- file.path(root, "main.R")
-        writeLines("local_fn <- function(value) value", path)
+        writeLines("scope <- function() { value <- 1; value }", path)
         server <- ClassificationServer$new(root)
         document <- classification_open(server, path)
         workspace <- server$get_workspace(document$uri)
@@ -217,7 +217,7 @@ test_that("failed current parses settle pending refactoring without discovery", 
     classification_settings()
     root <- index_normalize_path(withr::local_tempdir())
     path <- file.path(root, "main.R")
-    writeLines("local_fn <- function(value) value", path)
+    writeLines("scope <- function() { value <- 1; value }", path)
     server <- ClassificationServer$new(root)
     document <- classification_open(server, path)
     text_document_rename(server, 1L, classification_params(document))
@@ -235,7 +235,7 @@ test_that("ready local requests are not starved behind pending workspace queries
     classification_settings()
     root <- index_normalize_path(withr::local_tempdir())
     path <- file.path(root, "main.R")
-    writeLines("local_fn <- function(value) value", path)
+    writeLines("scope <- function() { value <- 1; value }", path)
     server <- ClassificationServer$new(root)
     document <- classification_open(server, path)
     for (id in seq_len(21L)) workspace_symbol(server, id, list(query = "local_fn"))
@@ -249,4 +249,49 @@ test_that("ready local requests are not starved behind pending workspace queries
     expect_length(server$replies[[1L]]$result, 1L)
     expect_identical(server$index_requests$size(), 21L)
     expect_true(server$get_workspace(document$uri)$index$discovering)
+})
+
+test_that("public formals and quoted semantic names discover unopened callers", {
+    classification_settings()
+    for (case in list(
+        list(code = "api <- function(amount) amount", call = "api(amount = 1)", name = "amount", rename = TRUE),
+        list(code = 'api <- list(); api[["run"]] <- function(x) x', call = "api$run(1)", name = "run", rename = TRUE),
+        list(code = 'methods::setGeneric("draw", function(x) standardGeneric("draw"))',
+            call = "draw(1)", name = "draw", rename = FALSE)
+    )) {
+        root <- index_normalize_path(withr::local_tempdir())
+        path <- file.path(root, "api.R")
+        caller <- file.path(root, "main.R")
+        writeLines(case$code, path)
+        writeLines(c('source("api.R")', case$call), caller)
+        server <- ClassificationServer$new(root)
+        document <- classification_open(server, path)
+        params <- classification_params(document, as.integer(regexpr(case$name, case$code, fixed = TRUE)))
+        params$context$includeDeclaration <- TRUE
+        if (case$rename) text_document_rename(server, 1L, params) else text_document_references(server, 1L, params)
+        classification_drain(server)
+        reply <- server$replies[[1L]]
+        expect_null(reply$error)
+        locations <- if (case$rename) names(reply$result$changes) else vapply(reply$result, `[[`, "", "uri")
+        expect_setequal(locations, c(document$uri, path_to_uri(caller)))
+    }
+})
+
+test_that("a quoted key in a caller retrieves its unopened source declaration on first request", {
+    classification_settings()
+    root <- index_normalize_path(withr::local_tempdir())
+    path <- file.path(root, "main.R")
+    source <- file.path(root, "api.R")
+    writeLines("api <- list(run = function(x) x)", source)
+    writeLines(c('source("api.R")', 'api[["run"]](1)'), path)
+    server <- ClassificationServer$new(root)
+    document <- classification_open(server, path)
+    params <- classification_params(document)
+    params$position <- position(1L, 7L)
+    params$context$includeDeclaration <- TRUE
+    text_document_references(server, 1L, params)
+    classification_drain(server)
+    result <- server$replies[[1L]]
+    expect_null(result$error)
+    expect_setequal(vapply(result$result, `[[`, "", "uri"), c(document$uri, path_to_uri(source)))
 })

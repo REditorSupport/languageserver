@@ -11,7 +11,8 @@ range_provider_parse_data <- function(data, content, syntax = NULL) {
             first_argument = integer(), last_argument = integer(),
             line = integer(), col = integer(),
             end_line = integer(), end_col = integer(),
-            context_line = integer(), context_col = integer(), implicit_argument = logical()
+            context_line = integer(), context_col = integer(), implicit_argument = logical(),
+            opening_line = integer(), opening_col = integer(), member = logical()
         ),
         arguments = list(
             call = integer(), line = integer(), col = integer(),
@@ -62,6 +63,9 @@ range_provider_parse_data <- function(data, content, syntax = NULL) {
         package = text_at(index$package),
         first_argument = index$first_argument,
         last_argument = index$last_argument,
+        opening_line = as.integer(data$line1[index$opening] - 1L),
+        opening_col = convert_columns(data$line1[index$opening] - 1L, data$col1[index$opening] - 1L),
+        member = as.logical(index$member),
         line = as.integer(data$line1[index$call] - 1L),
         col = convert_columns(data$line1[index$call] - 1L, data$col1[index$call] - 1L),
         end_line = as.integer(data$line2[index$call] - 1L),

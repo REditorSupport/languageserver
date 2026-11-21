@@ -43,6 +43,8 @@ test_that("S7 properties and constructor signatures follow the user's declaratio
     fixture <- s7_fixture(c(code, "Dog(age = "), list(S7 = snapshot))
     expect_identical(s7_signature(fixture)$signatures[[1L]]$label, expected)
     expect_identical(s7_signature(fixture)$activeParameter, 1L)
+    expect_length(member_call_arguments(fixture$uri, fixture$workspace, fixture$document, fixture$point, ""), 0L)
+    fixture <- s7_fixture(c(code, "Dog("), list(S7 = snapshot))
     args <- member_call_arguments(fixture$uri, fixture$workspace, fixture$document, fixture$point, "")
     expect_identical(vapply(args, `[[`, character(1L), "label"), c("name", "age"))
     expect_identical(args[[2L]]$insertText, "age = ")
