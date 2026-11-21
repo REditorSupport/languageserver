@@ -48,7 +48,7 @@ SourceReadServer <- R6::R6Class("SourceReadServer", inherit = LanguageServer,
         }
     ))
 
-source_read_open <- function(server, path, content = stringi::stri_read_lines(path)) {
+source_read_open <- function(server, path, content = read_text_lines(path)) {
     uri <- path_to_uri(path)
     document <- Document$new(uri, "r", 1L, content)
     document$did_open()
@@ -94,16 +94,16 @@ test_that("failed source reads release all providers and retry after file events
     main <- file.path(root, "main.R")
     writeLines("helper_fn <- function(value) value", helper)
     writeLines(c("source('helper.R')", "print()", "pri"), main)
-    original <- stringi::stri_read_lines
+    original <- read_text_lines
     failing <- TRUE
     reads <- 0L
-    testthat::local_mocked_bindings(stri_read_lines = function(path, ...) {
+    testthat::local_mocked_bindings(read_text_lines = function(path, ...) {
         if (identical(index_normalize_path(path), helper)) {
             reads <<- reads + 1L
             if (failing) stop("source is unreadable")
         }
         original(path, ...)
-    }, .package = "stringi")
+    }, .package = "languageserver")
     server <- SourceReadServer$new(root)
     document <- source_read_open(server, main)
     server$parse_task_manager$finish()
@@ -245,11 +245,11 @@ test_that("failed closed reloads discard stale parses and open buffers recover",
     workspace <- server$get_workspace(document$uri)
     uri <- path_to_uri(helper)
     expect_true(workspace$documents$has(uri))
-    original <- stringi::stri_read_lines
-    testthat::local_mocked_bindings(stri_read_lines = function(path, ...) {
+    original <- read_text_lines
+    testthat::local_mocked_bindings(read_text_lines = function(path, ...) {
         if (identical(index_normalize_path(path), helper)) stop("source is unreadable")
         original(path, ...)
-    }, .package = "stringi")
+    }, .package = "languageserver")
     expect_null(server$load_index_document(workspace, uri, reload = TRUE))
     expect_false(workspace$documents$has(uri))
     expect_false(workspace$index$summaries$has(uri))

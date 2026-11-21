@@ -1385,7 +1385,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             info <- file.info(path)
             if (!nrow(info) || is.na(info$size[[1L]]) ||
                     info$size[[1L]] > self$max_file_bytes()) return(NULL)
-            content <- tryCatch(stringi::stri_read_lines(path),
+            content <- tryCatch(read_text_lines(path),
                 error = function(e) NULL)
             if (is.null(content)) return(NULL)
             self$update_content(path_to_uri(index_normalize_path(path)), content, info)

@@ -59,6 +59,12 @@ function signatures and installed-package documentation remain available.
 install.packages("roxygen2")
 ```
 
+Base R reads UTF-8 source files and UTF-16 or UTF-32 files with a byte-order
+mark. Installing the optional `stringi` package enables ICU's Unicode case matching
+for completion and workspace search, and helps Go to Definition recognize legacy-encoded text
+files when following a quoted path. For example, ICU can match a fuzzy search
+for `ß` against `ss` and recognize unmarked Shift_JIS text.
+
 To try the latest features, install the daily development build from our [r-universe](https://reditorsupport.r-universe.dev) repository:
 
 ```r

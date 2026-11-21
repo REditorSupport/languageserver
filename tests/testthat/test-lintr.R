@@ -18,8 +18,8 @@ test_that("lintr works", {
     expect_equal(client$diagnostics$size(), 1)
     expect_equal(client$diagnostics$get(data$uri), data$diagnostics)
     expect_equal(data$diagnostics[[1]]$code, "assignment_linter")
-    expect_true(stringi::stri_detect_fixed(data$diagnostics[[1]]$message, "assignment"))
-    expect_true(stringi::stri_detect_fixed(data$diagnostics[[1]]$message, "not ="))
+    expect_true(grepl("assignment", data$diagnostics[[1]]$message, fixed = TRUE))
+    expect_true(grepl("not =", data$diagnostics[[1]]$message, fixed = TRUE))
 
     no_newline_file <- withr::local_tempfile(tmpdir = dir, fileext = ".R")
     cat("x <- 1", file = no_newline_file)

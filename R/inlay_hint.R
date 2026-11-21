@@ -147,7 +147,7 @@ inlay_hint_apply_change <- function(indexed, change, content) {
     keep <- before | after
     if (!any(keep)) return(NULL)
 
-    replacement <- stringi::stri_split_lines(change$text)[[1L]]
+    replacement <- split_text_lines(change$text)
     new_end_line <- start$line + length(replacement) - 1L
     new_end_col <- code_point_to_unit(utils::tail(replacement, 1L), Inf)
     if (length(replacement) == 1L) new_end_col <- new_end_col + start$character

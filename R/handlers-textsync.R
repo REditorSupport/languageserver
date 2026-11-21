@@ -34,9 +34,9 @@ text_document_did_open <- function(self, params) {
     logger$info("did open:", list(uri = uri, version = version))
     path <- path_from_uri(uri)
     if (!is.null(text)) {
-        content <- stringi::stri_split_lines(text)[[1]]
+        content <- split_document_lines(text)
     } else if (file.exists(path)) {
-        content <- stringi::stri_read_lines(path)
+        content <- read_text_lines(path)
     } else {
         content <- NULL
     }
@@ -95,7 +95,7 @@ text_document_did_change <- function(self, params) {
         # tolerant of a client that sends a full replacement before didOpen.
         full_change <- Filter(function(change) is.null(change$range), contentChanges)
         content <- if (length(full_change)) {
-            stringi::stri_split_lines(full_change[[length(full_change)]]$text)[[1]]
+            split_document_lines(full_change[[length(full_change)]]$text)
         } else {
             ""
         }
@@ -144,9 +144,9 @@ text_document_did_save <- function(self, params) {
 
     path <- path_from_uri(uri)
     if (!is.null(text)) {
-        content <- stringi::stri_split_lines(text)[[1]]
+        content <- split_document_lines(text)
     } else if (file.exists(path)) {
-        content <- stringi::stri_read_lines(path)
+        content <- read_text_lines(path)
     } else {
         content <- NULL
     }

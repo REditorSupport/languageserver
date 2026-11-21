@@ -29,7 +29,7 @@ package_body_definition <- function(pkgname, symbol, code, scheme = NULL) {
         label <- "definition"
     }
     temp_file <- file.path(folder, paste0(label, ".R"))
-    stringi::stri_write_lines(text, temp_file)
+    write_text_lines(text, temp_file)
     def <- list(
         uri = path_to_uri(temp_file),
         range = range(

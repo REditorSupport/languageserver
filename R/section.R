@@ -278,48 +278,25 @@ extract_lines_out_blocks <- function(line_seq, block_lines_list) {
 #' some sections. if no sections defined, NULL will be returned.
 #' @noRd
 extract_document_section <- function(line_numbers, line_content) {
-    # extract comment line with at least 4 of one of `section_range_regex`
-    is_section_lines <- grepl(
-        paste0(
-            "^\\s*\\#",
-            "(", section_level_regex, ")\\s*+", # section levels group
-            "(%%)?\\s*+",
-            "(\\S.+?)\\s*+", # section names group
-            "(", section_range_regex, ")\\s*$"
-        ),
-        line_content,
-        perl = TRUE
+    # The comment and its end marker allow ordinary R indentation. Inside the
+    # comment, trim Unicode whitespace on both sides of the displayed title.
+    gap <- paste0(unicode_whitespace, "*+")
+    pattern <- paste0(
+        "(*ANY)^\\s*#(?<level>", section_level_regex, ")", gap,
+        "(?:%%)?", gap, "(?<title>.{2,}?)", gap,
+        "(?:", section_range_regex, ")\\s*$"
     )
-    if (any(is_section_lines)) {
-        section_lines <- line_numbers[is_section_lines]
-        # extract section markers of section levels and its name
-        # this should be a matrix
-        # ** section levels - the second column
-        # ** section names - the fourth column
-        section_levels_and_names <- stringi::stri_match_first(
-            line_content[is_section_lines],
-            regex = paste0(
-                "^\\s*\\#",
-                "(", section_level_regex, ")\\s*+", # section levels group
-                "(%%)?\\s*+",
-                "(\\S.+?)\\s*+", # section names group
-                "(", section_range_regex, ")\\s*$"
-            )
-        )
-        section_names <- section_levels_and_names[, 4L, drop = TRUE]
+    matches <- regexpr(pattern, line_content, perl = TRUE)
+    rows <- which(matches > 0L)
+    if (!length(rows)) return(NULL)
 
-        # define section levels based on the number of one of
-        # `section_level_prefix`
-        section_levels <- nchar(
-            section_levels_and_names[, 2L, drop = TRUE]
-        )
-        return(list(
-            lines = section_lines,
-            names = section_names,
-            levels = section_levels
-        ))
-    }
-    NULL
+    widths <- attr(matches, "capture.length")
+    start <- attr(matches, "capture.start")[rows, "title"]
+    list(
+        lines = line_numbers[rows],
+        names = substr(unname(line_content[rows]), start, start + widths[rows, "title"] - 1L),
+        levels = unname(widths[rows, "level"])
+    )
 }
 
 #' `nline_to_break_succession` or more blank lines out of block ranges should break sections succession

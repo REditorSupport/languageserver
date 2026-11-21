@@ -130,7 +130,7 @@ indentation_only_edits <- function(document, point, options,
     if (all(location >= 0L)) {
         context_row <- location[[1L]] + start_line - 1L
         context_line <- document$line0(context_row)
-        base <- stringi::stri_extract_first_regex(context_line, "^\\s*")
+        base <- leading_whitespace(context_line)
         indentation <- paste0(base, indent_unit)
     } else {
         previous <- row - 1L
@@ -141,7 +141,7 @@ indentation_only_edits <- function(document, point, options,
         if (previous < minimum_row) return(NULL)
 
         previous_line <- document$line0(previous)
-        indentation <- stringi::stri_extract_first_regex(previous_line, "^\\s*")
+        indentation <- leading_whitespace(previous_line)
         if (is_incomplete_line(previous_line)) {
             indentation <- paste0(indentation, indent_unit)
         }

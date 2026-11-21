@@ -88,7 +88,7 @@ notify <- function(client, method, params = NULL) {
 
 did_open <- function(client, path, uri = path_to_uri(path), text = NULL, languageId = NULL) {
     if (is.null(text)) {
-        text <- stringi::stri_read_lines(path)
+        text <- read_text_lines(path)
     }
     text <- paste0(text, collapse = "\n")
 
@@ -120,7 +120,7 @@ did_save <- function(client, path, uri = path_to_uri(path), text = NULL) {
     )
     if (includeText) {
         if (is.null(text)) {
-            text <- stringi::stri_read_lines(path)
+            text <- read_text_lines(path)
         }
         text <- paste0(text, collapse = "\n")
         params <- list(textDocument = list(uri = uri), text = text)

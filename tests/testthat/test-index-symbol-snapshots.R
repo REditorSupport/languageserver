@@ -71,7 +71,7 @@ symbol_snapshot_drain <- function(server) {
 
 symbol_snapshot_open <- function(server, path) {
     uri <- path_to_uri(path)
-    document <- Document$new(uri, "r", 1L, stringi::stri_read_lines(path))
+    document <- Document$new(uri, "r", 1L, read_text_lines(path))
     document$did_open()
     server$get_workspace(uri)$documents$set(uri, document)
     server$text_sync(uri, document, parse = TRUE)

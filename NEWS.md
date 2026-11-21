@@ -19,6 +19,9 @@
   recognize static source paths in document links, fold multiline double
   brackets, and provide selection ranges for mixed R and prose selections.
 
+- Make `stringi` optional for a smaller source installation. Install it for
+  ICU-based Unicode matching and detection of legacy text encodings (#574).
+
 - Go to Definition on an S4 generic shows its source declaration and visible
   method registrations. This also works for replacement calls, operators and
   literal generic names in calls such as `selectMethod()` (#628).

@@ -422,7 +422,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 }
                 return(invisible(NULL))
             }
-            content <- tryCatch(stringi::stri_read_lines(path),
+            content <- tryCatch(read_text_lines(path),
                 error = function(e) NULL)
             if (is.null(content)) {
                 index <- workspace$index

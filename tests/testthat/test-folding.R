@@ -19,6 +19,13 @@ test_that("Expression folding rage works", {
     expect_equal(result[[1]]$endLine, 1)
 })
 
+test_that("section names preserve Unicode text and trim whitespace around the title", {
+    lines <- c("x <- 1", "#\u00a0\u6d4b\u8bd5\u2002----", "  ### %%\u202fCafe\u0301 ====")
+    expect_identical(extract_document_section(seq_along(lines), lines),
+        list(lines = c(2L, 3L), names = c("\u6d4b\u8bd5", "Cafe\u0301"), levels = c(0L, 2L)))
+    expect_null(extract_document_section(1L, "# not a section ---"))
+})
+
 test_that("Section folding range works", {
     skip_on_cran()
     client <- language_client()
