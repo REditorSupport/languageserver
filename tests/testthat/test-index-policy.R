@@ -51,7 +51,7 @@ policy_workspace <- function(root) {
         workspace_startup_s3 = provider_startup_s3, .package = "languageserver")
 }
 
-policy_open <- function(server, path, content = stringi::stri_read_lines(path)) {
+policy_open <- function(server, path, content = read_text_lines(path)) {
     workspace <- server$get_workspace(path_to_uri(path))
     doc <- Document$new(path_to_uri(path), "r", 1L, content)
     doc$did_open()

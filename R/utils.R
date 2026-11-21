@@ -257,26 +257,34 @@ check_scope <- function(uri, document, point) {
 }
 
 is_ascii_string <- function(x) {
-    length(x) == 1 && !is.na(x) && !grepl("[^\\x00-\\x7F]", x)
+    length(x) == 1L && !is.na(x) && is_ascii_vector(x)
 }
 
 is_ascii_vector <- function(x) {
-    if (!length(x)) {
-        return(TRUE)
-    }
-    any_non_ascii <- any(grepl("[^\\x00-\\x7F]", x), na.rm = TRUE)
-    !any_non_ascii
+    !any(grepl("[^\\x00-\\x7F]", x, perl = TRUE, useBytes = TRUE))
+}
+
+has_stringi <- function() requireNamespace("stringi", quietly = TRUE)
+
+# Quote each code point separately so a literal backslash followed by E,
+# regex punctuation, or a non-ASCII character can be matched in either engine.
+unicode_literal_pattern <- function(pattern, separator = "") {
+    points <- utf8ToInt(enc2utf8(pattern))
+    if (anyNA(points)) return("(?!)")
+    paste(sprintf("\\x{%X}", points), collapse = separator)
 }
 
 match_with <- function(x, token) {
-    if (is_ascii_string(token) && is_ascii_vector(x)) {
-        matches <- .Call("match_with_c", PACKAGE = "languageserver", x, token)
-        matches[is.na(matches)] <- FALSE
-        return(matches)
-    }
     if (is.na(token)) return(rep(NA, length(x)))
     if (!nzchar(token)) return(!is.na(x))
-    matches <- stringi::stri_detect_fixed(x, token, case_insensitive = TRUE)
+    if (is_ascii_string(token) && is_ascii_vector(x)) {
+        matches <- .Call("match_with_c", PACKAGE = "languageserver", x, token)
+    } else if (has_stringi()) {
+        matches <- stringi::stri_detect_fixed(x, token, case_insensitive = TRUE)
+    } else {
+        pattern <- paste0("(*UTF)(*UCP)(?i)", unicode_literal_pattern(token))
+        matches <- grepl(pattern, enc2utf8(x), perl = TRUE)
+    }
     matches[is.na(matches)] <- FALSE
     matches
 }
@@ -287,10 +295,12 @@ fuzzy_find <- function(x, pattern) {
     if (is_ascii_string(pattern) && is_ascii_vector(x)) {
         matches <- .Call("fuzzy_find_c", PACKAGE = "languageserver", x, pattern)
     } else {
-        characters <- strsplit(pattern, "", fixed = TRUE)[[1L]]
-        subsequence_regex <- paste0("\\Q", characters, "\\E", collapse = ".*")
-        matches <- stringi::stri_detect_regex(x, subsequence_regex,
-            case_insensitive = TRUE, dotall = TRUE)
+        subsequence <- unicode_literal_pattern(pattern, ".*")
+        if (has_stringi()) {
+            matches <- stringi::stri_detect_regex(x, subsequence, case_insensitive = TRUE, dotall = TRUE)
+        } else {
+            matches <- grepl(paste0("(*UTF)(*UCP)(?is)", subsequence), enc2utf8(x), perl = TRUE)
+        }
     }
     matches[is.na(matches)] <- FALSE
     matches
@@ -459,35 +469,10 @@ throttle <- function(fun, t = 1) {
     }
 }
 
-#' sanitize package objects names
-#'
-#' Remove unwanted objects, _e.g._ `names<-`, `%>%`, `.__C_` etc.
-#'
-#' @noRd
-sanitize_names <- function(objects) {
-    objects[stringi::stri_detect_regex(objects, r"(^([^\W_]|\.(?!_))(\w|\.)*$)")]
-}
+# Unicode White_Space, including non-breaking spaces and U+0085 (NEXT LINE).
+unicode_whitespace <- r"([\p{Z}\x09-\x0D\x{85}])"
 
-na_to_empty_string <- function(x) if (is.na(x)) "" else x
 empty_string_to_null <- function(x) if (nzchar(x)) x else NULL
-
-look_forward <- function(text) {
-    matches <- stringi::stri_match_first_regex(text, r"(^(?:[^\W]|\.)*\b)")[1]
-    list(
-        token = na_to_empty_string(matches[1])
-    )
-}
-
-look_backward <- function(text) {
-    matches <- stringi::stri_match_first_regex(
-        text, r"((?<!\$)(?:\b|(?=\.))(?:([a-zA-Z][a-zA-Z0-9.]+)(:::?))?((?:[^\W_]|\.)(?:[^\W]|\.)*)?$)")
-    list(
-        full_token = na_to_empty_string(matches[1]),
-        package  = na_to_empty_string(matches[2]),
-        accessor = na_to_empty_string(matches[3]),
-        token = na_to_empty_string(matches[4])
-    )
-}
 
 scan_token <- function(text, col, forward = TRUE) {
     if (length(text) == 0) {
@@ -883,13 +868,13 @@ html_to_markdown <- function(html) {
     html_file <- file.path(tempdir(), "temp.html")
     md_file <- file.path(tempdir(), "temp.md")
     logger$info("Converting html to markdown using", html_file, md_file)
-    stringi::stri_write_lines(html, html_file)
+    write_text_lines(html, html_file)
     result <- tryCatch({
         pandoc_version <- rmarkdown::pandoc_version()
         format <- if (pandoc_version >= "2.0") "gfm" else "markdown_github"
         options <- if (pandoc_version >= "2.11") c("--lua-filter", system.file(package = "languageserver", "lua/html-to-markdown.lua"))
         rmarkdown::pandoc_convert(html_file, to = format, output = md_file, options = options)
-        paste0(stringi::stri_read_lines(md_file, encoding = "utf-8"), collapse = "\n")
+        paste0(read_text_lines(md_file, encoding = "utf-8"), collapse = "\n")
     }, error = function(e) {
         logger$info("html_to_markdown failed: ", conditionMessage(e))
         NULL
@@ -903,18 +888,30 @@ format_file_size <- function(bytes) {
 }
 
 is_text_file <- function(path, n = 1000) {
-    bin <- readBin(path, "raw", n = n)
-    is_utf8 <- stringi::stri_enc_isutf8(bin)
-    if (is_utf8) {
-        return(TRUE)
-    } else {
-        result <- stringi::stri_enc_detect(bin)[[1]]
-        conf <- result$Confidence[1]
-        if (identical(conf, 1)) {
-            return(TRUE)
+    bytes <- readBin(path, "raw", n = n + 3)
+    bin <- if (length(bytes) > n) bytes[seq_len(n)] else bytes
+    # R strings cannot contain NUL. rawToChar() silently strips trailing NULs.
+    if (!any(bin == as.raw(0))) {
+        if (validUTF8(rawToChar(bin))) return(TRUE)
+        # A sample can end inside a two-, three-, or four-byte UTF-8 character.
+        # Complete that character without inspecting the next one.
+        for (i in seq_len(length(bytes) - length(bin))) {
+            next_byte <- bytes[length(bin) + i]
+            if (bitwAnd(as.integer(next_byte), 0xc0) != 0x80) break
+            if (validUTF8(rawToChar(bytes[seq_len(length(bin) + i)]))) return(TRUE)
         }
     }
-    return(FALSE)
+    if (has_stringi()) {
+        detected <- stringi::stri_enc_detect(bin)[[1L]]
+        return(identical(detected$Confidence[1L], 1))
+    }
+
+    # A byte order mark identifies UTF-16 or UTF-32 without statistical detection.
+    if (length(bin) < 2L) return(FALSE)
+    prefix <- bin[1:2]
+    identical(prefix, as.raw(c(0xff, 0xfe))) ||
+        identical(prefix, as.raw(c(0xfe, 0xff))) ||
+        (length(bin) >= 4L && identical(bin[1:4], as.raw(c(0, 0, 0xfe, 0xff))))
 }
 
 compare_position <- function(position1, position2) {

@@ -125,7 +125,7 @@ test_that("background discovery streams caches in bounded batches and honors set
     dir.create(file.path(root, "renv"))
     writeLines("ignored <- 1", file.path(root, "renv", "ignored.R"))
     cached <- lapply(paths, function(path) {
-        index_shallow_summary(path, stringi::stri_read_lines(path), root)
+        index_shallow_summary(path, read_text_lines(path), root)
     })
     cache <- file.path(root, "cache.rds")
     saveRDS(list(version = index_cache_version, root = index_normalize_path(root), summaries = cached), cache)

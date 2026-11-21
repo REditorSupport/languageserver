@@ -53,8 +53,8 @@ test_that("generated content is negotiated with a distinct scheme per server", {
 test_that("package definitions use cached virtual content without writing files", {
     fixture <- text_content_definition_fixture()
     testthat::local_mocked_bindings(
-        stri_write_lines = function(...) stop("A capable client must not generate a file"),
-        .package = "stringi")
+        write_text_lines = function(...) stop("A capable client must not generate a file"),
+        .package = "languageserver")
     refreshed <- character()
     state <- TextDocumentContent$new(refresh = function(uri) refreshed <<- c(refreshed, uri))
     reply <- definition_reply(1L, fixture$uri, fixture$workspace,

@@ -480,7 +480,7 @@ test_that("partial inlay hints resolve the current callee after prefix replaceme
         fixture$document$apply_content_changes(2L, list(list(
             range = range(position(0L, 0L), position(0L, 5L)), text = prefix
         )))
-        added_lines <- length(stringi::stri_split_lines(prefix)[[1L]]) - 1L
+        added_lines <- length(split_text_lines(prefix)) - 1L
         parsed <- inlay_hint_edit(fixture, 3L, list(list(
             range = range(position(1L + added_lines, 0L), position(1L + added_lines, 0L)),
             text = "other("

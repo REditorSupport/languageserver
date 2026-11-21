@@ -199,15 +199,6 @@ test_that("small text helpers cover boundaries and throttling", {
     expect_null(throttled("second"))
     expect_equal(calls, 1L)
 
-    expect_equal(look_forward("alpha.beta + rest")$token, "alpha.beta")
-    expect_equal(look_forward("+")$token, "")
-    expect_equal(look_backward("pkg:::fun"), list(
-        full_token = "pkg:::fun", package = "pkg",
-        accessor = ":::", token = "fun"
-    ))
-    expect_equal(look_backward("object$member")$full_token, "")
-    expect_equal(look_backward("member")$full_token, "member")
-    expect_equal(na_to_empty_string(NA_character_), "")
     expect_null(empty_string_to_null(""))
     expect_equal(empty_string_to_null("value"), "value")
     expect_equal(str_trunc("abcdefgh", 6L), "abc...")

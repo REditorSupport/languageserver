@@ -24,7 +24,7 @@ check_minimal_install <- function(source_path = ".") {
         installed["languageserver", field] <- description[[1L, field]]
     }
     dependencies <- minimal_install_dependencies(installed)
-    optional <- c("lintr", "styler", "roxygen2", "pkgload")
+    optional <- c("lintr", "styler", "roxygen2", "pkgload", "stringi")
     stopifnot(!any(optional %in% dependencies))
     library <- tempfile("languageserver-minimal-")
     dir.create(library)
@@ -67,6 +67,11 @@ check_minimal_install <- function(source_path = ".") {
         stdout = "|", stderr = "|", error_on_status = TRUE)
     namespace <- loadNamespace("languageserver")
     stopifnot(identical(normalizePath(dirname(getNamespaceInfo(namespace, "path"))), normalizePath(library)))
+    path <- file.path(workspace, "unicode.R")
+    line <- paste0("# ", strrep("\u6e2c", 400L))
+    writeBin(charToRaw(enc2utf8(paste0(line, "\r\n"))), path)
+    stopifnot(identical(namespace$read_text_lines(path), line), namespace$is_text_file(path),
+        namespace$match_with("caf\u00e9", "\u00c9"), namespace$fuzzy_find("\u6e2c_test", "\u6e2ct"))
     stopifnot(is.null(namespace$roxygen2_namespace()))
     comments <- c("#' Local documentation marker", "#' @param x The input marker")
     fallback <- "Local documentation marker  \n@param x The input marker"
@@ -77,7 +82,8 @@ check_minimal_install <- function(source_path = ".") {
     stopifnot(cached$hit, identical(cached$value, fallback),
         identical(namespace$analysis_documentation(owner, comments), fallback),
         is.null(namespace$analysis_documentation(owner, character())))
-    server <- paste0("stopifnot(!requireNamespace('roxygen2', quietly = TRUE), ",
+    server <- paste0("stopifnot(!requireNamespace('stringi', quietly = TRUE), ",
+        "!requireNamespace('roxygen2', quietly = TRUE), ",
         "!requireNamespace('pkgload', quietly = TRUE)); languageserver::run()")
     client <- namespace$LanguageClient$new(file.path(R.home("bin"), "R"),
         c("--no-echo", "--vanilla", "-e", server))
@@ -122,13 +128,24 @@ check_minimal_install <- function(source_path = ".") {
     uri <- namespace$path_to_uri(file.path(workspace, "minimal-buffer.R"))
     content <- c(comments, "hello <- function(x, y = 2) x + y",
         "plain <- function(value = 1) value", "hello(x = 1)", "plain()",
-        "fs::path_abs('.')", "hel", "pla")
+        "fs::path_abs('.')", "hel", "pla", '"\U0001f642"; old_name <- 1')
     client$deliver(namespace$Notification$new("textDocument/didOpen", list(textDocument = list(
         uri = uri, languageId = "r", version = 1L,
-        text = paste(content, collapse = "\n")))))
-    symbols <- request("textDocument/documentSymbol", list(textDocument = list(uri = uri)))
-    stopifnot(is.null(symbols$error), any(vapply(symbols$result,
-                function(item) identical(item$name, "hello"), logical(1L))))
+        text = paste(content, collapse = "\r\n")))))
+    symbol_names <- function() {
+        symbols <- request("textDocument/documentSymbol", list(textDocument = list(uri = uri)))
+        stopifnot(is.null(symbols$error))
+        vapply(symbols$result, `[[`, character(1L), "name")
+    }
+    stopifnot(all(c("hello", "old_name") %in% symbol_names()))
+    # The emoji takes two UTF-16 code units on the wire.
+    row <- length(content) - 1L
+    edit <- list(start = list(line = row, character = 6L), end = list(line = row, character = 14L))
+    client$deliver(namespace$Notification$new("textDocument/didChange", list(
+        textDocument = list(uri = uri, version = 2L),
+        contentChanges = list(list(range = edit, text = "new_name")))))
+    updated <- symbol_names()
+    stopifnot("new_name" %in% updated, !"old_name" %in% updated)
     text_request <- function(method, line, character) {
         result <- request(method, list(textDocument = list(uri = uri),
                 position = list(line = line, character = character)))
@@ -185,7 +202,7 @@ check_minimal_install <- function(source_path = ".") {
     client$deliver(namespace$Notification$new("exit"))
     client$process$wait(5000)
     stopifnot(!client$process$is_alive(), identical(client$process$get_exit_status(), 0L))
-    cat(paste0("Minimal installation: fresh install without roxygen2/pkgload, documentation cache fallback, ",
+    cat(paste0("Minimal installation: Unicode files, matching and edits, documentation cache fallback, ",
             "local completion/hover/signatures, installed-package help and missing-backend errors passed.\n"))
 }
 

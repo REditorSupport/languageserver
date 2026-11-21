@@ -70,9 +70,9 @@ LanguageBase <- R6::R6Class("LanguageBase",
                     if (!startsWith(header, "Content")) {
                         stop("Unexpected non-empty line")
                     }
-                    matches <- stringi::stri_match_first_regex(header, "Content-Length: ([0-9]+)")
-                    if (!is.na(matches[2])) {
-                        bytes <- as.integer(matches[2])
+                    matches <- regmatches(header, regexec("Content-Length: ([0-9]+)", header))[[1L]]
+                    if (length(matches)) {
+                        bytes <- as.integer(matches[[2L]])
                     }
                 }
                 header <- self$read_line()

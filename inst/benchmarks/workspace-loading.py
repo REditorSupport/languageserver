@@ -49,7 +49,7 @@ if args.cached:
             pattern = "^file-.*[.]R$", full.names = TRUE)
         index <- languageserver:::WorkspaceIndex$new(root)
         template <- languageserver:::index_shallow_summary(paths[[1L]],
-            stringi::stri_read_lines(paths[[1L]]), root)
+            languageserver:::read_text_lines(paths[[1L]]), root)
         metadata <- file.info(paths)
         summaries <- lapply(seq_along(paths), function(i) {
             summary <- template
