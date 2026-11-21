@@ -49,10 +49,9 @@ test_that("ordinary S4-reference misses reuse the registration catalog without w
     f <- provider_fixture(c('methods::setGeneric("draw", function(x) standardGeneric("draw"))', "ordinary(1)"))
     w$documents$set(f$uri, f$document)
     w$update_parse_data(f$uri, f$document$parse_data)
-    cache <- s4_reference_catalog(w)
-    expect_identical(s4_reference_catalog(w), cache)
+    expect_length(s4_reference_registrations(w, f$uri, "draw"), 1L)
     testthat::local_mocked_bindings(reference_source_scope = function(...) stop("unexpected scope walk"),
-        class_workspace_declarations = function(...) stop("unexpected registration rebuild"), .package = "languageserver")
+        workspace_s4_source_data = function(...) stop("unexpected registration lookup"), .package = "languageserver")
     expect_null(s4_reference_target(w, f$document, list(row = 1L, col = 3L)))
 })
 
@@ -76,4 +75,48 @@ test_that("S4 replacement and getter registrations have independent call referen
     expect_equal(lookup(0L, 23L), c(0L, 2L))
     expect_equal(lookup(1L, 30L), c(1L, 3:5))
     expect_equal(lookup(3L, 2L), c(1L, 3:5))
+})
+
+test_that("references share F12's promotion and masking rules and exclude qualified package calls", {
+    f <- provider_fixture(c("median <- function(x) x", "median(1)", 'methods::setGeneric("median")',
+            'methods::setMethod("median", "Model", function(x) 1)', "median(2)",
+            "fun <- function(median) median(3)", "stats::median(4)", "median <- function(y) y", "median(5)"))
+    w <- Workspace$new(NULL)
+    w$documents$set(f$uri, f$document)
+    w$update_parse_data(f$uri, f$document$parse_data)
+    point <- function(row, col = 2L) list(row = row, col = col)
+    refs <- function(row, col = 2L) references_reply(1L, f$uri, w, f$document, point(row, col))$result
+    rows <- function(xs) vapply(xs, function(x) as.integer(x$range$start$line), integer(1L))
+    expect_equal(rows(refs(4L)), 2:4)
+    expect_equal(rows(refs(6L, 9L)), 6L)
+    expect_equal(rename_reply(1L, f$uri, w, f$document, point(4L), "mid")$error$code, ErrorCodes$RequestFailed)
+    expect_equal(prepare_rename_reply(1L, f$uri, w, f$document, point(4L))$error$code, ErrorCodes$RequestFailed)
+    edits <- rename_reply(1L, f$uri, w, f$document, point(8L), "middle")$result$changes[[f$uri]]
+    expect_false(4L %in% rows(edits))
+    expect_true(all(c(7L, 8L) %in% rows(edits)))
+    # An older snapshot can still contain the symbol outline but cannot
+    # establish a registration absent from the authoritative S4 index.
+    f$document$parse_data$s4_declarations <- NULL
+    w$invalidate_s3_context()
+    expect_null(s4_reference_target(w, f$document, point(4L)))
+
+    # A package fallback can resolve the bare name to stats::median, but
+    # the source registration owns the bare call at this point.
+    f <- provider_fixture(c('methods::setGeneric("median", function(x) standardGeneric("median"))',
+            "median(1)", "stats::median(2)"))
+    w$documents$set(f$uri, f$document)
+    w$update_parse_data(f$uri, f$document$parse_data)
+    expect_equal(rows(refs(2L, 9L)), 2L)
+})
+
+test_that("recognized relative S4 helper literals share compound replacement identity", {
+    f <- provider_fixture(c('methods::setReplaceMethod("value", "Box", function(x, value) x)',
+            "value(x)[1] <- 3", 'methods::selectMethod("value<-", "Box")',
+            'other::selectMethod("value<-", "Box")'))
+    req <- function(row, col) references_reply(1L, f$uri, f$workspace, f$document, list(row = row, col = col))$result
+    for (site in list(c(0L, 31L), c(1L, 2L), c(2L, 26L))) {
+        locs <- req(site[[1L]], site[[2L]])
+        expect_setequal(vapply(locs, function(x) x$range$start$line, integer(1L)), 0:2)
+    }
+    expect_length(req(3L, 25L), 0L)
 })

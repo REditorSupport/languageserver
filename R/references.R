@@ -420,7 +420,8 @@ references_reply <- function(id, uri, workspace, document, point,
                 symbol_defn <- symbol_definition_reply(
                     NULL, doc_uri, workspace, doc, symbol_point,
                     context_uri = uri)
-                if (identical(symbol_defn$result, defn$result)) {
+                if (identical(symbol_defn$result, defn$result) &&
+                        is.null(s4_reference_target(workspace, doc, symbol_point))) {
                     idx <- idx + 1L
                     matches[[idx]] <- list(
                         uri = doc_uri,
@@ -491,10 +492,7 @@ reference_literal_needs_workspace <- function(document, point) {
     parsed <- document$parse_data
     row <- member_navigation_token(parsed, point)
     if (!row || parsed$syntax_data$token[[row]] != "STR_CONST") return(FALSE)
-    declarations <- parsed$class_data$declarations
-    if (any(vapply(declarations, function(x) {
-        x$type %in% c("S4Generic", "S4Method") && identical(x$literal_row, row)
-    }, logical(1L)))) return(TRUE)
+    if (!is.null(s4_definition_literal(parsed, row))) return(TRUE)
     row %in% member_navigation_syntax(parsed)$row
 }
 

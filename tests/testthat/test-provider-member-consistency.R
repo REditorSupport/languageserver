@@ -132,8 +132,8 @@ test_that("S4 reference requests connect registered names and unshadowed calls",
             references_reply(1L, fixture$uri, fixture$workspace, fixture$document, point,
                 include_declaration = declarations)$result
         }
-        expect_identical(vapply(refs(TRUE), function(x) x$range$start$line, integer(1L)), 0:2)
-        expect_identical(vapply(refs(FALSE), function(x) x$range$start$line, integer(1L)), 2L)
+        expect_identical(vapply(refs(TRUE), function(x) x$range$start$line, integer(1L)), c(0L, 0:2))
+        expect_identical(vapply(refs(FALSE), function(x) x$range$start$line, integer(1L)), c(0L, 2L))
     }
 })
 
