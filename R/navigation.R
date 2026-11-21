@@ -78,15 +78,24 @@ navigation_parse_data <- function(syntax) {
 }
 
 #' Find a token using the shared terminal interval index
+#'
+#' At a shared boundary, providers can prefer specific tokens that start
+#' under the cursor. Other tokens keep the usual end-of-identifier behavior.
 #' @noRd
-navigation_token <- function(parse_data, line, col) {
+navigation_token <- function(parse_data, line, col, prefer_start = NULL) {
     syntax <- parse_data$syntax_data
     if (is.null(syntax)) return(NULL)
     rows <- syntax$terminals
     selected <- .Call("navigation_find_token_c", PACKAGE = "languageserver",
         syntax$tokens$line1, syntax$tokens$col1, syntax$tokens$line2, syntax$tokens$col2,
         syntax$tokens$is_string, as.integer(c(line, col)))
-    if (selected) rows[[selected]] else 0L
+    if (!selected) return(0L)
+    if (!is.null(prefer_start) && selected < length(rows)) {
+        following <- rows[[selected + 1L]]
+        if (syntax$line1[[following]] == line && syntax$col1[[following]] == col &&
+                syntax$token[[following]] %in% prefer_start) return(following)
+    }
+    rows[[selected]]
 }
 
 #' Query declaration histories in the same order as the legacy XPath union

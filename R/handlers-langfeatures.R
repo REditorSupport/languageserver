@@ -254,12 +254,12 @@ text_document_definition  <- function(self, id, params) {
     document <- workspace$documents$get(uri, NULL)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     point <- document$from_lsp_position(params$position)
-    if (isTRUE(lsp_settings$get("member_completion")) && !is.null(member_hover_location(document, point)) &&
-            (!identical(document$version, document$parse_data$version) ||
-                    index_context_waiting(self, workspace, document, point, hover = TRUE) ||
-                    member_metadata_waiting(self, uri, document, point))) {
+    member <- isTRUE(lsp_settings$get("member_completion")) && !is.null(member_hover_location(document, point))
+    if (!identical(document$version, document$parse_data$version) ||
+            index_context_waiting(self, workspace, document, point, hover = TRUE) ||
+            (member && member_metadata_waiting(self, uri, document, point))) {
         enqueue_latest_reply(self, uri, "textDocument/definition", list(id = id, version = document$version, params = params))
-        if (is.function(self$member_task_manager$promote)) self$member_task_manager$promote(uri)
+        if (member && is.function(self$member_task_manager$promote)) self$member_task_manager$promote(uri)
         return(invisible(NULL))
     }
     rootPath <- get_root_path_for_uri(uri, workspace$root)

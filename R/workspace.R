@@ -58,6 +58,71 @@ workspace_reference_document_uris <- function(workspace, definition_uri,
     }
 }
 
+# The URI spelling of a live buffer wins over a retained document and its
+# disk summary, including while the new text is waiting for a parse.
+workspace_s4_open_uris <- function(workspace, uri, visible) {
+    if (is.null(workspace$documents)) return(character())
+    visible <- as.character(unlist(visible, use.names = FALSE))
+    open <- visible[vapply(visible, function(id) isTRUE(workspace$documents$get(id)$is_open), logical(1L))]
+    open <- c(intersect(uri, open), setdiff(open, uri))
+    stats::setNames(open, vapply(open, index_canonical_uri, character(1L)))
+}
+
+workspace_s4_source_data <- function(workspace, uri, source) {
+    doc <- if (!is.null(workspace$documents)) workspace$documents$get(source, NULL)
+    index <- workspace$index
+    summary <- if (isTRUE(index$enabled) && !is.null(index$summaries)) index$summaries$get(index_canonical_uri(source), NULL)
+    if (isTRUE(doc$is_open) || (!is.null(doc) && identical(source, uri)) || is.null(summary)) {
+        if (is.null(doc)) return(workspace$get_parse_data(source))
+        if (identical(doc$version, doc$parse_data$version)) return(doc$parse_data)
+    } else if (!isFALSE(summary$cacheable)) {
+        return(summary)
+    }
+    NULL
+}
+
+#' Find source declarations of an S4 generic in the document's workspace scope
+#' @noRd
+workspace_s4_definitions <- function(workspace, uri, name, methods_only = FALSE) {
+    index <- if (isTRUE(workspace$index$enabled) && is.function(workspace$index$s4_declaration_uris)) workspace$index
+    indexed <- if (!is.null(index)) index$s4_declaration_uris(name)
+    documents <- workspace$documents
+    loaded <- if (is.function(workspace$s4_declaration_uris)) workspace$s4_declaration_uris(name)
+    if (!is.null(loaded) && !length(loaded) && !length(indexed)) return(list())
+    visible <- if (is.null(documents)) uri else workspace_document_uris(workspace, uri)
+    visible <- as.character(unlist(visible, use.names = FALSE))
+    loaded <- if (is.null(loaded)) visible else intersect(visible, loaded)
+
+    if (length(indexed) && index$contains_path(path_from_uri(uri))) {
+        root <- index$package_root_for_uri(uri)
+        scope <- if (is.null(root)) index$source_closure(uri) else index$package_source_uris(root)
+        indexed <- intersect(indexed, as.character(unlist(scope, use.names = FALSE)))
+    } else {
+        indexed <- character()
+    }
+    sources <- union(loaded, indexed)
+    if (!length(sources)) return(list())
+    open <- workspace_s4_open_uris(workspace, uri, visible)
+    if (length(open)) {
+        aliases <- unname(open[vapply(sources, index_canonical_uri, character(1L))])
+        matched <- !is.na(aliases)
+        sources[matched] <- aliases[matched]
+        sources <- unique(sources)
+    }
+    sources <- c(intersect(uri, sources), sort(setdiff(sources, uri)))
+    generics <- methods <- list()
+    for (source in sources) {
+        data <- workspace_s4_source_data(workspace, uri, source)
+        for (record in data$s4_declarations[[name]]) {
+            if (methods_only && record$kind != "method") next
+            target <- location(source, record$range)
+            if (record$kind == "generic") generics[[length(generics) + 1L]] <- target
+            else methods[[length(methods) + 1L]] <- target
+        }
+    }
+    c(generics, methods)
+}
+
 #' A byte-bounded least-recently-used cache
 #' @noRd
 ByteLruCache <- R6::R6Class(
@@ -272,6 +337,8 @@ Workspace <- R6::R6Class("Workspace",
         import_globals_cache = NULL,
         s3_package_cache = NULL,
         s3_package_cache_state = NULL,
+        s4_document_sources = NULL,
+        s4_document_state = NULL,
         namespace_poll_time = -Inf,
         namespace_poll_mtime = NULL,
         refresh_scope_cache = function(uris) {
@@ -726,6 +793,21 @@ Workspace <- R6::R6Class("Workspace",
                     ns$get_definition(symbol, exported_only = exported_only)
                 }
             }
+        },
+
+        s4_declaration_uris = function(name) {
+            # A miss needs neither a scope walk nor a scan over all package
+            # files. Accepted parses and document transfers change this state.
+            state <- c(self$s3_revision, self$documents$size())
+            if (!identical(private$s4_document_state, state)) {
+                documents <- self$documents$values()
+                names_by_file <- lapply(documents, function(doc) names(doc$parse_data$s4_declarations))
+                uris <- vapply(documents, function(doc) doc$uri, character(1L))
+                by_name <- split(rep.int(uris, lengths(names_by_file)), unlist(names_by_file, use.names = FALSE))
+                private$s4_document_sources <- list2env(by_name, hash = TRUE, parent = emptyenv())
+                private$s4_document_state <- state
+            }
+            get0(name, private$s4_document_sources, inherits = FALSE, ifnotfound = character())
         },
 
         get_definitions_for_uri = function(uri) {

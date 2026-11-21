@@ -253,6 +253,21 @@ Try [the LSP 3.18 demo script](inst/examples/lsp-3-18.R) for signature help,
 linked extraction names, multiline string preservation, generated package
 definitions and refactoring documentation.
 
+## Go to Definition for S4 methods
+
+Go to Definition on `compileStanModel(object)` opens the visible
+`setGeneric("compileStanModel", ...)` and `setMethod("compileStanModel", ...)`
+declarations in your source files. When several methods are registered, the
+editor can show each implementation. You can use this before running the code
+or knowing the class of `object`.
+
+On `x + y`, Go to Definition includes methods registered for `+`, `Arith`
+and `Ops`. On `value(x)[i] <- y`, selecting `value` opens the replacement
+method for `value<-`. You can also navigate from a literal generic name in
+calls such as `selectMethod("compileStanModel", "Model")`. In an indexed
+workspace, targets come from the current package's R sources or the script's
+static source dependencies.
+
 ## Generated package definitions
 
 When a package function has no source-file location, Go to Definition shows its
