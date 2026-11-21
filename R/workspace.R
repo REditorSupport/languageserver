@@ -58,9 +58,32 @@ workspace_reference_document_uris <- function(workspace, definition_uri,
     }
 }
 
+# The URI spelling of a live buffer wins over a retained document and its
+# disk summary, including while the new text is waiting for a parse.
+workspace_s4_open_uris <- function(workspace, uri, visible) {
+    if (is.null(workspace$documents)) return(character())
+    visible <- as.character(unlist(visible, use.names = FALSE))
+    open <- visible[vapply(visible, function(id) isTRUE(workspace$documents$get(id)$is_open), logical(1L))]
+    open <- c(intersect(uri, open), setdiff(open, uri))
+    stats::setNames(open, vapply(open, index_canonical_uri, character(1L)))
+}
+
+workspace_s4_source_data <- function(workspace, uri, source) {
+    doc <- if (!is.null(workspace$documents)) workspace$documents$get(source, NULL)
+    index <- workspace$index
+    summary <- if (isTRUE(index$enabled) && !is.null(index$summaries)) index$summaries$get(index_canonical_uri(source), NULL)
+    if (isTRUE(doc$is_open) || (!is.null(doc) && identical(source, uri)) || is.null(summary)) {
+        if (is.null(doc)) return(workspace$get_parse_data(source))
+        if (identical(doc$version, doc$parse_data$version)) return(doc$parse_data)
+    } else if (!isFALSE(summary$cacheable)) {
+        return(summary)
+    }
+    NULL
+}
+
 #' Find source declarations of an S4 generic in the document's workspace scope
 #' @noRd
-workspace_s4_definitions <- function(workspace, uri, name) {
+workspace_s4_definitions <- function(workspace, uri, name, methods_only = FALSE) {
     index <- if (isTRUE(workspace$index$enabled) && is.function(workspace$index$s4_declaration_uris)) workspace$index
     indexed <- if (!is.null(index)) index$s4_declaration_uris(name)
     documents <- workspace$documents
@@ -79,32 +102,19 @@ workspace_s4_definitions <- function(workspace, uri, name) {
     }
     sources <- union(loaded, indexed)
     if (!length(sources)) return(list())
-    if (!is.null(documents)) {
-        # An open URI can encode the same path as a retained closed document
-        # or disk summary. Even a pending buffer supersedes both old copies.
-        open <- visible[vapply(visible, function(id) isTRUE(documents$get(id)$is_open), logical(1L))]
-        if (length(open)) {
-            open <- c(intersect(uri, open), setdiff(open, uri))
-            aliases <- match(vapply(sources, index_canonical_uri, character(1L)),
-                vapply(open, index_canonical_uri, character(1L)))
-            matched <- !is.na(aliases)
-            sources[matched] <- open[aliases[matched]]
-            sources <- unique(sources)
-        }
+    open <- workspace_s4_open_uris(workspace, uri, visible)
+    if (length(open)) {
+        aliases <- unname(open[vapply(sources, index_canonical_uri, character(1L))])
+        matched <- !is.na(aliases)
+        sources[matched] <- aliases[matched]
+        sources <- unique(sources)
     }
     sources <- c(intersect(uri, sources), sort(setdiff(sources, uri)))
     generics <- methods <- list()
     for (source in sources) {
-        doc <- if (!is.null(documents)) documents$get(source, NULL)
-        summary <- if (!is.null(index)) index$summaries$get(index_canonical_uri(source), NULL)
-        if (isTRUE(doc$is_open) || (!is.null(doc) && identical(source, uri)) || is.null(summary)) {
-            data <- if (is.null(doc)) workspace$get_parse_data(source) else doc$parse_data
-            if (!is.null(doc) && !identical(doc$version, data$version)) next
-        } else {
-            if (isFALSE(summary$cacheable)) next
-            data <- summary
-        }
+        data <- workspace_s4_source_data(workspace, uri, source)
         for (record in data$s4_declarations[[name]]) {
+            if (methods_only && record$kind != "method") next
             target <- location(source, record$range)
             if (record$kind == "generic") generics[[length(generics) + 1L]] <- target
             else methods[[length(methods) + 1L]] <- target

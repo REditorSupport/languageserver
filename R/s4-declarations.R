@@ -1,5 +1,24 @@
 s4_registration_helpers <- c("setGeneric", "setGroupGeneric", "setMethod", "setReplaceMethod")
 
+# Snapshot the standard S4 groups supplied by this version of R. Retrieve the
+# group objects from methods so project registrations cannot change the table.
+s4_definition_group_index <- local({
+    index <- new.env(hash = TRUE, parent = emptyenv())
+    namespace <- asNamespace("methods")
+    for (name in c("Ops", "Arith", "Compare", "Logic", "Math", "Math2", "Summary", "Complex", "matrixOps")) {
+        group <- get0(name, namespace, inherits = FALSE)
+        if (is.null(group)) next
+        parents <- methods::getGroup(group, recursive = TRUE, where = namespace)
+        groups <- c(name, unlist(parents, use.names = FALSE))
+        for (member in methods::getGroupMembers(group)) index[[member]] <- groups
+    }
+    index
+})
+
+s4_definition_groups <- function(name) {
+    get0(name, s4_definition_group_index, inherits = FALSE, ifnotfound = character())
+}
+
 s4_registration_name <- function(helper, name) {
     if (!is.character(name) || length(name) != 1L || is.na(name) || !nzchar(name)) return(NULL)
     if (helper == "setReplaceMethod") paste0(name, "<-") else name

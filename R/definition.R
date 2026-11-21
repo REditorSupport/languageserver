@@ -41,21 +41,10 @@ s4_definition_at <- function(uri, workspace, document, point) {
     if (is.null(syntax)) return(NULL)
     row <- point$row + 1L
     col <- point$col + 1L
-    token <- navigation_token(parsed, row, col)
+    # On x[f(i)], selecting the bracket and selecting the first letter of f
+    # refer to different calls even when both have S4 methods.
+    token <- navigation_token(parsed, row, col, c("SYMBOL", "SYMBOL_FUNCTION_CALL", s4_definition_operators))
     if (!token) return(NULL)
-    # At x[i] the shared token boundary normally selects x. Prefer an operator
-    # that actually starts under the cursor when looking up an S4 method.
-    if (syntax$line2[[token]] == row && syntax$col2[[token]] == col - 1L &&
-            grepl("^[[%+*/^:!&|<>=-]", substr(document$line0(point$row), col, col))) {
-        parent <- syntax$parent_row[[token]]
-        while (parent && syntax$line2[[parent]] == row && syntax$col2[[parent]] < col) {
-            parent <- syntax$parent_row[[parent]]
-        }
-        siblings <- if (parent) syntax_children(syntax, parent)
-        operator <- siblings[syntax$line1[siblings] == row & syntax$col1[siblings] == col &
-                syntax$token[siblings] %in% s4_definition_operators]
-        if (length(operator)) token <- operator[[1L]]
-    }
     kind <- syntax$token[[token]]
     if (kind == "STR_CONST") {
         name <- s4_definition_literal(parsed, token)
@@ -77,30 +66,15 @@ s4_definition_at <- function(uri, workspace, document, point) {
         }
     }
 
-    targets <- workspace_s4_definitions(workspace, uri, name)
+    direct <- workspace_s4_definitions(workspace, uri, name)
+    targets <- direct
+    for (group in s4_definition_groups(name)) {
+        targets <- c(targets, workspace_s4_definitions(workspace, uri, group, methods_only = TRUE))
+    }
     if (!length(targets)) return(NULL)
     if (kind != "STR_CONST") {
-        local <- s4_definition_binding(parsed, document, token, name)
-        binding <- NULL
-        if (!is.null(local)) {
-            binding <- location(uri, local)
-        } else if (is.function(workspace$get_namespace)) {
-            scope <- workspace$get_namespace(WORKSPACE, uri = uri)
-            if (!is.null(scope)) {
-                binding <- scope$get_definition(name)
-                if (identical(binding$uri, uri)) binding <- NULL
-            }
-        }
-        if (!is.null(binding)) {
-            # setGeneric/setMethod can turn an earlier ordinary function into
-            # the default method. A later assignment masks the generic again.
-            at <- if (identical(binding$uri, uri)) document$to_lsp_position(point$row, point$col) else position(Inf, Inf)
-            after_binding <- range(binding$range$end, at)
-            promoted <- any(vapply(targets, function(target) {
-                identical(binding$uri, target$uri) && lsp_range_contains(after_binding, target$range$end)
-            }, logical(1L)))
-            if (!promoted) return(binding)
-        }
+        binding <- s4_masking_definition(workspace, document, point, token, name, direct)
+        if (!is.null(binding)) return(binding)
     }
     if (length(targets) == 1L) targets[[1L]] else targets
 }

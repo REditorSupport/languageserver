@@ -45,15 +45,64 @@ test_that("S4 helper literals respect a redefined helper", {
     expect_identical(s4_definition_literal(parsed, tokens[[3L]]), "draw")
 })
 
-test_that("S4 replacement names apply to the target call or subset operator", {
-    lines <- c("size(widget) <- size(other)", "value -> size(widget)",
-        "size(widget) = size(other)", "size(widget) <<- value", "outer(size(widget)) <- value",
-        "size(widget)[1] <- value", "value -> widget[[1]]", "widget[[1]]", "widget[1]")
-    parsed <- provider_fixture(lines)$document$parse_data
-    syntax <- parsed$syntax_data
-    tokens <- which(syntax$token %in% c("SYMBOL_FUNCTION_CALL", "'['", "LBB"))
-    actual <- vapply(tokens, function(i) s4_definition_replacement(syntax, i), logical(1L))
-    expect_identical(actual, c(TRUE, FALSE, TRUE, TRUE, FALSE, TRUE, TRUE, FALSE, FALSE, TRUE, TRUE, FALSE, FALSE))
+test_that("S4 replacement names follow the target's receiver through compound calls", {
+    cases <- list(
+        "size(widget) <- size(other)" = c(TRUE, FALSE),
+        "value -> size(widget)" = TRUE,
+        "size(widget) = size(other)" = c(TRUE, FALSE),
+        "size(widget) <<- value" = TRUE,
+        "outer(size(widget)) <- value" = c(TRUE, TRUE),
+        "size(widget)[1] <- value" = c(TRUE, TRUE),
+        "value -> widget[[1]]" = TRUE,
+        "widget[[1]]" = FALSE,
+        "widget[1]" = FALSE,
+        "outer(, size(widget)) <- value" = c(TRUE, FALSE),
+        "receiver$fun(size(widget)) <- value" = c(FALSE, FALSE),
+        "size(widget) %>% outer(other) -> value" = c(FALSE, FALSE),
+        "base::attr(size(widget), which) <- value" = c(TRUE, TRUE)
+    )
+    syntax <- syntax_parse_data(utils::getParseData(parse(text = names(cases), keep.source = TRUE)))
+    for (line in seq_along(cases)) {
+        tokens <- which(syntax$line1 == line & syntax$token %in% c("SYMBOL_FUNCTION_CALL", "'['", "LBB"))
+        actual <- vapply(tokens, function(i) s4_definition_replacement(syntax, i), logical(1L))
+        expect_identical(actual, cases[[line]], info = names(cases)[[line]])
+    }
+})
+
+test_that("definition selects setters along the object path and getters in indices and values", {
+    declarations <- c(
+        'setMethod("value", "Widget", function(x) x)',
+        'setReplaceMethod("value", "Widget", function(x, value) x)',
+        'setMethod("[", "Widget", function(x, i, j, ..., drop) x)',
+        'setReplaceMethod("[", "Widget", function(x, i, j, ..., value) x)',
+        'setMethod("[[", "Widget", function(x, i, j, ...) x)',
+        'setReplaceMethod("[[", "Widget", function(x, i, j, ..., value) x)',
+        'setMethod("outer", "Widget", function(object, index) object)',
+        'setReplaceMethod("outer", "Widget", function(object, index, value) object)'
+    )
+    # Expected zero-based definition lines for successive calls and brackets.
+    calls <- list(
+        "value(x)[value(i)] <- value(rhs)" = c(1, 3, 0, 0),
+        "value(rhs) -> outer(object = value(x)[[value(i)]], index = value(j))$slot" = c(0, 7, 1, 5, 0, 0),
+        "outer(value(x)@slot, value(i))[[value(j)]] = value(rhs)" = c(7, 1, 0, 5, 0, 0),
+        "value(x)[[i]][value(j)] <<- value(rhs)" = c(1, 5, 3, 0, 0),
+        "sink <- outer(value(x)[value(i)], value(j))" = c(6, 0, 2, 0, 0),
+        "outer(index = value(x), object = value(i)) <- value(rhs)" = c(7, 1, 0, 0)
+    )
+    fixture <- provider_fixture(c(declarations, names(calls)))
+    fixture$workspace$get_definition <- function(...) NULL
+    syntax <- fixture$document$parse_data$syntax_data
+    for (i in seq_along(calls)) {
+        line <- length(declarations) + i
+        tokens <- which(syntax$line1 == line & syntax$token %in% c("SYMBOL_FUNCTION_CALL", "'['", "LBB"))
+        targets <- vapply(tokens, function(token) {
+            column <- syntax$col1[[token]] - 1L
+            point <- list(row = line - 1L, col = column)
+            reply <- definition_reply(1L, fixture$uri, fixture$workspace, fixture$document, point)
+            as.integer(reply$result$range$start$line)
+        }, integer(1L))
+        expect_equal(targets, calls[[i]], info = names(calls)[[i]])
+    }
 })
 
 test_that("S4 calls use the nearest visible ordinary binding", {
@@ -78,7 +127,8 @@ test_that("S4 calls use the nearest visible ordinary binding", {
     binding <- function(line, kind, name) {
         tokens <- which(syntax$line1 == line & syntax$token == kind)
         token <- utils::tail(tokens, 1L)
-        s4_definition_binding(parsed, fixture$document, token, name)
+        row <- s4_definition_binding_row(parsed, token, name)
+        if (!is.null(row)) navigation_range(fixture$document, syntax, row)
     }
     expect_null(binding(2L, "SYMBOL_FUNCTION_CALL", "draw"))
     expect_equal(binding(4L, "SYMBOL_FUNCTION_CALL", "draw"), range(position(2, 17), position(2, 21)))

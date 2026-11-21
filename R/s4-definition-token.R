@@ -36,11 +36,6 @@ s4_definition_binding_row <- function(parsed, token, name) {
     targets[[visible[[best]]]]
 }
 
-s4_definition_binding <- function(parsed, document, token, name) {
-    row <- s4_definition_binding_row(parsed, token, name)
-    if (!is.null(row)) navigation_range(document, parsed$syntax_data, row)
-}
-
 # Only a literal occupying the generic-name argument of a known helper refers
 # to a generic. Other strings, including class signatures, retain file lookup.
 s4_definition_literal <- function(parse_data, token) {
@@ -100,8 +95,16 @@ s4_definition_literal <- function(parse_data, token) {
     s4_registration_name(helper, class_token_text(syntax$text[[token]]))
 }
 
-# A direct assignment to a call uses the replacement function, including
-# when the target is written on the right of -> or ->>.
+# Replacement requires a function name: handle ordinary and qualified calls.
+s4_replacement_callee <- function(syntax, row) {
+    kinds <- syntax$token[syntax_children(syntax, row)]
+    kinds <- kinds[kinds != "COMMENT"]
+    (length(kinds) == 1L && kinds %in% c("SYMBOL_FUNCTION_CALL", "STR_CONST")) ||
+        (length(kinds) == 3L && kinds[[2L]] %in% c("NS_GET", "NS_GET_INT"))
+}
+
+# R writes a compound target back through the first argument of each call.
+# In value(x)[i] <- y this invokes both `[<-` and `value<-`.
 s4_definition_replacement <- function(syntax, token) {
     head <- syntax$parent_row[[token]]
     if (!head) return(FALSE)
@@ -112,14 +115,31 @@ s4_definition_replacement <- function(syntax, token) {
         if (!call) return(FALSE)
         children <- syntax_children(syntax, call)
         children <- children[syntax$token[children] != "COMMENT"]
-        if (length(children) < 3L || children[[1L]] != head || syntax$token[[children[[2L]]]] != "'('") return(FALSE)
+        if (length(children) < 3L || children[[1L]] != head || syntax$token[[children[[2L]]]] != "'('" ||
+                !s4_replacement_callee(syntax, head)) return(FALSE)
     }
-    parent <- syntax$parent_row[[call]]
-    if (!parent) return(FALSE)
-    siblings <- syntax_children(syntax, parent)
-    siblings <- siblings[syntax$token[siblings] != "COMMENT"]
-    if (length(siblings) != 3L) return(FALSE)
-    operator <- syntax$token[[siblings[[2L]]]]
-    (siblings[[1L]] == call && operator %in% c("LEFT_ASSIGN", "EQ_ASSIGN")) ||
-        (siblings[[3L]] == call && operator == "RIGHT_ASSIGN")
+    repeat {
+        parent <- syntax$parent_row[[call]]
+        if (!parent) return(FALSE)
+        siblings <- syntax_children(syntax, parent)
+        siblings <- siblings[syntax$token[siblings] != "COMMENT"]
+        if (length(siblings) < 3L) return(FALSE)
+        kinds <- syntax$token[siblings]
+        operator <- kinds[[2L]]
+        if (operator %in% c("LEFT_ASSIGN", "EQ_ASSIGN")) return(siblings[[1L]] == call)
+        if (operator == "RIGHT_ASSIGN") return(siblings[[3L]] == call)
+        if (operator %in% c("'['", "LBB", "'$'", "'@'")) {
+            receiver <- siblings[[1L]]
+        } else if (operator == "'('") {
+            # The first written argument receives the updated object, even
+            # when named. A computed function has no replacement name in R.
+            if (!s4_replacement_callee(syntax, siblings[[1L]])) return(FALSE)
+            first <- if (length(kinds) >= 5L && kinds[[4L]] == "EQ_SUB") 5L else 3L
+            receiver <- siblings[[first]]
+        } else {
+            return(FALSE)
+        }
+        if (receiver != call) return(FALSE)
+        call <- parent
+    }
 }
