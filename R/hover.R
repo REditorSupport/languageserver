@@ -57,8 +57,8 @@ hover_reply <- function(id, uri, workspace, document, point) {
             found
         }
         symbol <- if (!is.null(location)) member_symbol(uri, workspace, document, location)
-        if (!is.null(symbol$value$s7_generator) || !is.null(symbol$value$r6_role) ||
-                !is.null(symbol$value$r6_owner)) {
+        if (!is.null(symbol$value$s7_generator) || isTRUE(symbol$value$s4_constructor) || !is.null(symbol$value$r6_role) ||
+                !is.null(symbol$value$r6_owner) || !is.null(symbol$value$refclass_instance) || isTRUE(symbol$value$extracted_callable)) {
             return(member_hover_reply(id, uri, workspace, document, location, symbol))
         }
     }

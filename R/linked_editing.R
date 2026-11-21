@@ -62,10 +62,18 @@ linked_editing_index <- function(parse_data, document) {
     functions <- which(vapply(definitions, function(definition) {
         identical(definition$type, "function")
     }, logical(1L)))
-    starts <- vapply(definitions[functions], function(definition) {
+    candidates <- definitions[functions]
+    for (class in parse_data$class_data$declarations) {
+        methods <- which(vapply(class$children, function(child) identical(child$kind, SymbolKind$Method), logical(1L)))
+        for (i in methods) {
+            body <- class$member_values[[i]]
+            candidates[[paste0("method:", body)]] <- list(range = class$children[[i]]$range, method = body)
+        }
+    }
+    starts <- vapply(candidates, function(definition) {
         as.integer(definition$range$start$line)
     }, integer(1L))
-    ends <- vapply(definitions[functions], function(definition) {
+    ends <- vapply(candidates, function(definition) {
         as.integer(definition$range$end$line)
     }, integer(1L))
     roxygen <- grepl("^\\s*#'", document$content)
@@ -76,7 +84,8 @@ linked_editing_index <- function(parse_data, document) {
     cached <- list(
         content = document$content,
         definitions = definitions,
-        symbols = names(definitions)[functions],
+        candidates = candidates,
+        symbols = names(candidates),
         starts = documented_starts,
         ends = ends,
         ranges = new.env(parent = emptyenv())
@@ -99,7 +108,6 @@ linked_editing_range_reply <- function(id, uri, workspace, document, point) {
     parse_data <- current_parse_data(uri, workspace, document)
     if (is.null(parse_data)) return(NULL)
     syntax <- parse_data$syntax_data
-    definitions <- parse_data$definitions
     indexed <- linked_editing_index(parse_data, document)
     candidates <- which(indexed$starts <= point$line & indexed$ends >= point$line)
     for (symbol in indexed$symbols[candidates]) {
@@ -112,7 +120,7 @@ linked_editing_range_reply <- function(id, uri, workspace, document, point) {
             }
             next
         }
-        definition <- definitions[[symbol]]
+        definition <- indexed$candidates[[symbol]]
         definition_row <- definition$range$start$line
         documented <- roxygen_parameter_ranges(document, definition_row)
         if (!length(documented)) {
@@ -121,7 +129,11 @@ linked_editing_range_reply <- function(id, uri, workspace, document, point) {
         }
         formal_rows <- integer()
         formal_nodes <- NULL
-        if (!is.null(syntax) && !is.null(parse_data$navigation_data)) {
+        if (!is.null(definition$method) && !is.null(syntax)) {
+            children <- syntax_children(syntax, definition$method)
+            formal_rows <- children[syntax$token[children] == "SYMBOL_FORMALS"]
+            if (!length(formal_rows)) next
+        } else if (!is.null(syntax) && !is.null(parse_data$navigation_data)) {
             enclosing <- .Call("syntax_enclosing_c", syntax,
                 as.integer(c(definition_row + 1L, definition$range$start$character + 1L)),
                 PACKAGE = "languageserver")

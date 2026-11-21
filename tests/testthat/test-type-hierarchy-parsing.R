@@ -136,7 +136,7 @@ test_that("R6 hierarchy parsing finds inheritance and real members", {
             'Child <- R6::R6Class("Child", inherit = Base, ',
             'public = list(value = 1, run = function(x) { list(nested = x) }), ',
             'private = list(secret = 2, hide = function() secret), ',
-            'active = list(ignored = function() value), cloneable = TRUE)'
+            "active = list(label = function() value), cloneable = TRUE)"
         ),
         'Sibling <- R6Class("Sibling", inherit = Base, public = list())'
     )
@@ -162,12 +162,12 @@ test_that("R6 hierarchy parsing finds inheritance and real members", {
     )
     expect_setequal(
         map_chr(members, "name"),
-        c("value", "run", "secret", "hide")
+        c("value", "run", "secret", "hide", "label")
     )
     expect_false("nested" %in% map_chr(members, "name"))
     expect_setequal(
         map_chr(members, "detail"),
-        c("public", "private")
+        c("public", "private", "active")
     )
     kinds <- setNames(map_int(members, "kind"), map_chr(members, "name"))
     expect_equal(kinds[["value"]], SymbolKind$Field)

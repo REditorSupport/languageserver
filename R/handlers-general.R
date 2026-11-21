@@ -113,7 +113,10 @@ on_exit <- function(self, params) {
 cancel_request <- function(self, params) {
     request_id <- params$id
     request_key <- request_id_key(request_id)
-    if (!is.null(request_id)) cancel_formatting_requests(self, id = request_id)
+    if (!is.null(request_id)) {
+        cancel_formatting_requests(self, id = request_id)
+        check_implementation_requests(self, cancel_id = request_id)
+    }
     if (!is.null(self$index_requests)) {
         request <- self$index_requests$pop(request_key, NULL)
         if (!is.null(request$workspace)) request$workspace$index$prune_pending <- TRUE

@@ -259,7 +259,8 @@ test_that("R6 new hover, completion and signature use public initialize formals"
     expect_identical(items[[1L]]$documentation$value, "Create an R6 instance of `Widget`")
     arguments <- member_call_arguments(fixture$uri, fixture$workspace, fixture$document,
         list(row = 1L, col = 13L), "")
-    expect_identical(vapply(arguments, `[[`, character(1L), "label"), c("value", "flag"))
+    # The cursor is in flag's value, whose computed default stays inert.
+    expect_length(arguments, 0L)
     expect_false(file.exists(marker))
 })
 

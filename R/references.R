@@ -248,17 +248,21 @@ reference_indices <- function(index, name, definition_key = NULL) {
     selected[index$definition_key[selected] == definition_key]
 }
 
-#' Find the indexed definition key at an internal document position
+#' Find the indexed occurrence at an internal document position
 #' @noRd
-reference_key_at <- function(index, point, name) {
+reference_index_at <- function(index, point, name) {
     selected <- reference_indices(index, name)
     candidates <- selected[
         index$line[selected] == point$row &
             index$code_point_col[selected] <= point$col &
             index$code_point_end_col[selected] >= point$col
     ]
-    if (!length(candidates)) return(NULL)
-    index$definition_key[[candidates[[1L]]]]
+    if (length(candidates)) candidates[[1L]] else 0L
+}
+
+reference_key_at <- function(index, point, name) {
+    row <- reference_index_at(index, point, name)
+    if (row) index$definition_key[[row]]
 }
 
 # Local edits can use a whole expression whose original enclosing scope was
@@ -290,18 +294,33 @@ indexed_reference_locations <- function(index, uri, selected) {
 
 #' @noRd
 references_reply <- function(id, uri, workspace, document, point,
-    include_declaration = TRUE, for_rename = FALSE) {
+    include_declaration = TRUE, for_rename = FALSE, new_name = NULL) {
 
     if (!check_r_region(document, point)) {
         return(Response$new(id, result = list()))
     }
 
+    member <- member_navigation_at(workspace, document, point)
+    if (!is.null(member)) {
+        return(member_navigation_references(id, workspace, document, member, include_declaration, for_rename, new_name))
+    }
+    site <- s4_reference_site(document$parse_data, point)
+    sources <- if (!is.null(site)) s4_reference_sources(workspace, site$name)
+    s4 <- s4_reference_target(workspace, document, point, include_binding = TRUE, site = site, candidates = sources)
+    if (!is.null(s4$binding) && for_rename && s4_reference_promotes_binding(workspace, s4)) return(s4_reference_rename_error(id))
+    if (!is.null(s4) && is.null(s4$binding)) {
+        if (for_rename) return(s4_reference_rename_error(id))
+        return(Response$new(id, result = s4_reference_locations(workspace, s4, include_declaration)))
+    }
     parse_data <- workspace$get_parse_data(uri)
     token <- reference_token_at(document, parse_data, point)
     if (!nzchar(token$token) || !check_scope(uri, document, point)) {
         return(Response$new(id, result = list()))
     }
     defn <- symbol_definition_reply(NULL, uri, workspace, document, point)
+    if (for_rename && !member_navigation_writable(workspace, defn$result)) {
+        return(Response$new(id, result = list()))
+    }
 
     logger$info("references_reply: ", list(
         uri = uri,
@@ -318,18 +337,36 @@ references_reply <- function(id, uri, workspace, document, point,
         )
         definition_key <- reference_key_at(
             parse_data$reference_index, token_point, token$token)
-        doc_uris <- workspace_reference_document_uris(workspace, defn$result$uri, uri, definition_key)
+        scope_key <- if (is.null(s4$binding)) definition_key else paste0("global:", token$token)
+        doc_uris <- workspace_reference_document_uris(workspace, defn$result$uri, uri, scope_key)
         if (!is.null(definition_key)) {
+            check_capture <- for_rename && !is.null(new_name) && !identical(new_name, token$token)
+            owner_scope <- if (check_capture) rename_target_scope(workspace$get_parse_data(defn$result$uri), token$token, scope_key)
+            indexed_new <- check_capture && identical(owner_scope, 0L) && isTRUE(workspace$index$enabled) &&
+                is.function(workspace$index$has_definition) && workspace$index$has_definition(new_name)
+            global <- startsWith(definition_key, "global:")
+            if (global && !identical(site$name, token$token)) sources <- s4_reference_sources(workspace, token$token)
             for (doc_uri in doc_uris) {
                 if (for_rename) {
                     doc <- workspace$documents$get(doc_uri, NULL)
-                    if (!rename_document_complete(doc, uri, token, definition_key)) return(rename_incomplete_error(id))
+                    if (!rename_document_complete(doc, uri, token, scope_key)) return(rename_incomplete_error(id))
                     indexed <- doc$parse_data$reference_index
                 } else {
                     indexed <- workspace$get_parse_data(doc_uri)$reference_index
                 }
                 if (is.null(indexed)) next
                 selected <- reference_indices(indexed, token$token, definition_key)
+                if (!is.null(s4$binding)) {
+                    selected <- reference_indices(indexed, token$token)
+                    selected <- s4_reference_lexical_indices(workspace, workspace$documents$get(doc_uri), selected, token$token, s4)
+                } else if (global && !is.null(sources) && length(selected)) {
+                    doc <- workspace$documents$get(doc_uri)
+                    selected <- s4_reference_lexical_indices(workspace, doc, selected, token$token, candidates = sources)
+                }
+                if (check_capture && rename_lexical_conflict(workspace, workspace$documents$get(doc_uri),
+                        selected, new_name, defn$result$uri, owner_scope, indexed_new)) {
+                    return(ResponseErrorMessage$new(id, "RequestFailed", "The new name would change an existing lexical binding"))
+                }
                 if (!isTRUE(include_declaration)) {
                     selected <- selected[!indexed$is_definition[selected]]
                 }
@@ -339,6 +376,43 @@ references_reply <- function(id, uri, workspace, document, point,
                         indexed_reference_locations(indexed, doc_uri, selected)
                     )
                 }
+            }
+            formal <- if (startsWith(definition_key, "local:")) {
+                member_navigation_formal_owner(parse_data, uri, token$token, definition_key)
+            }
+            if (!is.null(formal)) {
+                if (for_rename && !is.null(new_name) && !identical(new_name, token$token)) {
+                    formal_row <- member_navigation_token(parse_data, document$from_lsp_position(formal$range$start))
+                    syntax <- parse_data$syntax_data
+                    siblings <- syntax_children(syntax, syntax$parent_row[[formal_row]])
+                    names <- reference_symbol_names(syntax$text[siblings[syntax$token[siblings] == "SYMBOL_FORMALS"]])
+                    if (new_name %in% names) return(ResponseErrorMessage$new(id, "RequestFailed",
+                            "Another parameter of this function already has the new name"))
+                }
+                scope <- reference_formal_call_scope(parse_data, document, formal)
+                uris <- if (identical(scope, "workspace")) {
+                    member_navigation_uris(workspace, formal, uri)
+                } else if (identical(scope, "document")) {
+                    uri
+                } else {
+                    character()
+                }
+                if (for_rename) {
+                    for (doc_uri in setdiff(uris, uri)) {
+                        if (!rename_document_complete(workspace$documents$get(doc_uri), uri, token, "formal")) {
+                            return(rename_incomplete_error(id))
+                        }
+                    }
+                }
+                if (for_rename && !is.null(new_name) && !identical(new_name, token$token) &&
+                        member_navigation_formal_conflict(workspace, uris, formal, token$token, new_name)) {
+                    return(ResponseErrorMessage$new(id, "RequestFailed", "A named argument would match a different parameter"))
+                }
+                tags <- member_navigation_occurrences(workspace, formal, token$token, uris,
+                    formal = TRUE, declarations = FALSE)
+                if (!for_rename) tags <- lapply(tags, function(x) location(x$uri, x$range))
+                result <- c(result, tags)
+                if (for_rename) attr(result, "rename_formal") <- formal
             }
             return(Response$new(id, result = result))
         }
@@ -356,7 +430,7 @@ references_reply <- function(id, uri, workspace, document, point,
                 return(list())
             }
 
-            symbols <- xml_find_all_(xdoc, "//SYMBOL | //SYMBOL_FUNCTION_CALL | //SYMBOL_FORMALS")
+            symbols <- xml_find_all_(xdoc, "//SYMBOL[not(preceding-sibling::OP-DOLLAR)] | //SYMBOL_FUNCTION_CALL[not(preceding-sibling::OP-DOLLAR)] | //SYMBOL_FORMALS")
             symbols <- symbols[reference_symbol_names(xml_text(symbols)) == token$token]
             if (length(symbols) == 0) {
                 return(list())
@@ -381,7 +455,8 @@ references_reply <- function(id, uri, workspace, document, point,
                 symbol_defn <- symbol_definition_reply(
                     NULL, doc_uri, workspace, doc, symbol_point,
                     context_uri = uri)
-                if (identical(symbol_defn$result, defn$result)) {
+                if (identical(symbol_defn$result, defn$result) &&
+                        is.null(s4_reference_target(workspace, doc, symbol_point))) {
                     idx <- idx + 1L
                     matches[[idx]] <- list(
                         uri = doc_uri,
@@ -410,6 +485,9 @@ references_reply <- function(id, uri, workspace, document, point,
 
         if (length(doc_results)) {
             result <- do.call(c, doc_results)
+            # XML-era indexes do not record a formal's reference key. The
+            # lexical definition still identifies its exact source location.
+            if (for_rename && length(result)) attr(result, "rename_formal") <- defn$result
         }
     }
 
@@ -419,4 +497,111 @@ references_reply <- function(id, uri, workspace, document, point,
         id,
         result = result
     )
+}
+
+reference_source_scope <- function(workspace, uri, callers = FALSE) {
+    index <- workspace$index
+    if (isTRUE(index$enabled) && index$contains_path(path_from_uri(uri))) {
+        root <- index$package_root_for_uri(uri)
+        if (!is.null(root)) return(union(uri, index$package_source_uris(root)))
+        if (callers) return(index$dependent_closure(uri))
+        return(index$source_closure(uri))
+    }
+    if (callers) workspace_reference_document_uris(workspace, uri, uri) else workspace_document_uris(workspace, uri)
+}
+
+# Named arguments can reference an assigned function or a named function
+# member. An anonymous callback has no source callee for tag matching.
+reference_formal_call_scope <- function(parsed, document, definition) {
+    row <- member_navigation_token(parsed, document$from_lsp_position(definition$range$start))
+    if (!row) return(NULL)
+    syntax <- parsed$syntax_data
+    fn <- syntax$parent_row[[row]]
+    declaration <- rename_function_declaration(syntax, row)
+    if (!declaration || declaration == fn) {
+        value <- fn
+        repeat {
+            parent <- syntax$parent_row[[value]]
+            if (!parent) return(NULL)
+            children <- syntax_children(syntax, parent)
+            children <- children[syntax$token[children] != "COMMENT"]
+            if (length(children) == 3L && children[[2L]] == value &&
+                    identical(syntax$token[children[c(1L, 3L)]], c("'('", "')'"))) {
+                value <- parent
+                next
+            }
+            pos <- match(value, children)
+            if (is.na(pos) || pos < 4L || syntax$token[[children[[pos - 1L]]]] != "EQ_SUB") return(NULL)
+            head <- syntax_children(syntax, children[[1L]])
+            if (!length(head) || !reference_symbol_names(syntax$text[utils::tail(head, 1L)]) %in% c("list", "list2", "data.frame")) {
+                return(NULL)
+            }
+            # A factory can return this named field to another document.
+            return("workspace")
+        }
+    }
+    assigned <- syntax_children(syntax, declaration)
+    assigned <- assigned[syntax$token[assigned] != "COMMENT"]
+    if (length(assigned) != 3L || syntax$text[[assigned[[2L]]]] %in% c("<<-", "->>")) return("workspace")
+    lhs <- if (syntax$token[[assigned[[2L]]]] == "RIGHT_ASSIGN") assigned[[3L]] else assigned[[1L]]
+    binding <- syntax_children(syntax, lhs)
+    if (length(binding) != 1L || syntax$token[[binding]] != "SYMBOL") return("workspace")
+    parent <- syntax$parent_row[[fn]]
+    while (parent) {
+        if (syntax$function_close[[parent]] > 0L) return("document")
+        parent <- syntax$parent_row[[parent]]
+    }
+    "workspace"
+}
+
+# A standalone string has one expression wrapper. Only double-bracket keys
+# and slot/prop arguments can be member uses in that position. Quoted tags
+# and direct $ or @ names are unwrapped children and need full classification.
+reference_member_literal_candidate <- function(syntax, row) {
+    parent <- syntax$parent_row[[row]]
+    if (!parent) return(FALSE)
+    if (syntax$child_start[[parent]] != syntax$child_end[[parent]]) return(TRUE)
+    call <- syntax$parent_row[[parent]]
+    if (!call) return(FALSE)
+    start <- syntax$child_start[[call]]
+    if (start >= syntax$child_end[[call]]) return(FALSE)
+    first <- syntax$children[[start]]
+    second <- syntax$children[[start + 1L]]
+    # Let the full parser handle unusual comments between the callee and opener.
+    if ("COMMENT" %in% syntax$token[c(first, second)]) return(TRUE)
+    if (first == parent) return(FALSE)
+    if (syntax$token[[second]] == "LBB") return(TRUE)
+    if (syntax$token[[second]] != "'('" || syntax$child_end[[first]] < syntax$child_start[[first]]) return(FALSE)
+    callee <- syntax$children[[syntax$child_end[[first]]]]
+    if (syntax$token[[callee]] == "COMMENT") return(TRUE)
+    syntax$token[[callee]] == "SYMBOL_FUNCTION_CALL" && reference_symbol_names(syntax$text[[callee]]) %in% c("slot", "prop")
+}
+
+reference_literal_needs_workspace <- function(document, point) {
+    parsed <- document$parse_data
+    row <- member_navigation_token(parsed, point)
+    if (!row || parsed$syntax_data$token[[row]] != "STR_CONST") return(FALSE)
+    if (!is.null(s4_definition_literal(parsed, row))) return(TRUE)
+    reference_member_literal_candidate(parsed$syntax_data, row) && row %in% member_navigation_syntax(parsed)$row
+}
+
+reference_request_documents <- function(workspace, doc, point) {
+    member <- member_navigation_at(workspace, doc, point)
+    s4 <- if (is.null(member)) s4_reference_target(workspace, doc, point)
+    definition <- if (!is.null(member)) {
+        member$definition$uri
+    } else if (!is.null(s4)) {
+        s4$anchor
+    } else {
+        symbol_definition_reply(NULL, doc$uri, workspace, doc, point)$result$uri
+    }
+    # A member can originate in an unopened source() dependency. Parse these
+    # first; the request manager asks again after their source edges settle.
+    scope <- if (!is.null(member) || !is.null(s4)) reference_source_scope(workspace, doc$uri)
+    callers <- if (!is.null(s4)) {
+        s4_reference_files(workspace, s4)
+    } else if (!is.null(definition)) {
+        reference_source_scope(workspace, definition, callers = TRUE)
+    }
+    unique(c(scope, callers))
 }

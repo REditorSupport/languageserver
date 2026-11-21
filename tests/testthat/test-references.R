@@ -366,3 +366,87 @@ test_that("References fall back to XML when no occurrence index exists", {
         c(0L, 23L, 33L)
     )
 })
+
+test_that("ordinary global rename probes absent workspace names once and skips roxygen in peers", {
+    f <- provider_fixture(c("old <- 1", "f <- function(formal) formal", "old"))
+    for (i in 1:5) {
+        uri <- paste0("file:///lexical-peer-", i, ".R")
+        lines <- c("old", "unrelated <- function(a,b,c,d) a+b+c+d")
+        doc <- Document$new(uri, version = 1L, content = lines)
+        parsed <- parse_document(uri, lines)
+        parsed$version <- 1L
+        doc$update_parse_data(parsed)
+        f$workspace$documents$set(uri, doc)
+    }
+    calls <- new.env(parent = emptyenv())
+    calls$open <- calls$disk <- calls$destination <- 0L
+    f$workspace$s4_declaration_uris <- function(name) {
+        calls$open <- calls$open + 1L
+        character()
+    }
+    f$workspace$index <- list(
+        enabled = TRUE,
+        s4_declaration_uris = function(name) {
+            calls$disk <- calls$disk + 1L
+            character()
+        },
+        has_definition = function(name, uri = NULL) {
+            expect_null(uri)
+            calls$destination <- calls$destination + 1L
+            FALSE
+        })
+    testthat::local_mocked_bindings(rename_roxygen_edits = function(...) stop("ordinary binding has no roxygen formal"),
+        s4_reference_lexical_indices = function(...) stop("no registered generic in any file"), .package = "languageserver")
+    result <- rename_reply(1L, f$uri, f$workspace, f$document, list(row = 0L, col = 1L), "fresh")
+    expect_null(result$error)
+    expect_equal(sum(lengths(result$result$changes)), 7L)
+    expect_equal(c(calls$open, calls$disk, calls$destination), rep(1L, 3L))
+})
+
+test_that("an accepted single-buffer parse updates only its warm S4 name entries", {
+    w <- Workspace$new(NULL)
+    docs <- w$documents
+    d <- Document$new("file:///changed.R", version = 1L, content = 'methods::setGeneric("draw")')
+    peer <- Document$new("file:///stable.R", version = 1L, content = 'methods::setGeneric("draw")')
+    for (doc in list(d, peer)) {
+        docs$set(doc$uri, doc)
+        parsed <- parse_document(doc$uri, doc$content)
+        parsed$version <- doc$version
+        w$update_parse_data(doc$uri, parsed)
+    }
+    expect_setequal(w$s4_declaration_uris("draw"), c(d$uri, peer$uri))
+    # A targeted edit and its accepted parse must not enumerate the workspace.
+    w$documents <- list(size = docs$size, get = docs$get, keys = docs$keys,
+        values = function() stop("unexpected workspace walk"))
+    d$set_content(2L, 'methods::setGeneric("paint")')
+    w$invalidate_s3_context(d$uri)
+    expect_identical(w$s4_declaration_uris("draw"), peer$uri)
+    expect_length(w$s4_declaration_uris("paint"), 0L)
+    parsed <- parse_document(d$uri, d$content)
+    parsed$version <- 2L
+    w$update_parse_data(d$uri, parsed)
+    expect_identical(w$s4_declaration_uris("paint"), d$uri)
+    expect_identical(w$s4_declaration_uris("draw"), peer$uri)
+    w$documents <- docs
+    docs$remove(peer$uri)
+    expect_length(w$s4_declaration_uris("draw"), 0L)
+    expect_identical(w$s4_declaration_uris("paint"), d$uri)
+})
+
+test_that("unrelated literal requests avoid building a member catalog", {
+    f <- provider_fixture(c('"ordinary"', 'source("script.R")', 'label <- "run"', 'api <- list("run" = 1)',
+            'api[["run"]]', 'methods::slot(obj, "run")', 'S7::prop(obj, "run")', 'api$"run"'))
+    parsed <- f$document$parse_data
+    for (i in 4:8) {
+        point <- list(row = i - 1L, col = as.integer(regexpr("run", f$document$content[[i]], fixed = TRUE)))
+        row <- member_navigation_token(parsed, point)
+        expect_true(reference_member_literal_candidate(parsed$syntax_data, row))
+        expect_true(reference_literal_needs_workspace(f$document, point))
+    }
+    testthat::local_mocked_bindings(member_navigation_syntax = function(...) stop("should not build member catalog"))
+    for (i in 1:3) {
+        point <- list(row = i - 1L, col = as.integer(regexpr('"', f$document$content[[i]], fixed = TRUE)) + 1L)
+        expect_false(reference_literal_needs_workspace(f$document, point))
+        expect_null(member_navigation_at(f$workspace, f$document, point))
+    }
+})

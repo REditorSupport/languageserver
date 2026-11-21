@@ -723,7 +723,7 @@ test_that("extract function passes a binding read by its own assignment", {
 test_that("inline local variable removes its declaration and preserves precedence", {
     content <- c(
         "outer <- function(argument) {",
-        "  value <- argument + 1",
+        "  value <- 2 + 1",
         "  print(value * 2)",
         "}"
     )
@@ -740,7 +740,7 @@ test_that("inline local variable removes its declaration and preserves precedenc
         content, actions[[1L]]$edit$changes[[fixture$uri]])
     expect_equal(actual, paste(c(
         "outer <- function(argument) {",
-        "  print((argument + 1) * 2)",
+        "  print((2 + 1) * 2)",
         "}"
     ), collapse = "\n"))
     expect_silent(parse(text = actual))

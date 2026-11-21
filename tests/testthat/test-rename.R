@@ -311,3 +311,59 @@ test_that("Prepare rename works in single file", {
     error <- client %>% respond_prepare_rename(single_file, c(0, 27), allow_error = TRUE)
     expect_equal(error$message, "Cannot rename the symbol")
 })
+
+test_that("lexical rename rejects merging or capturing an existing local or global binding", {
+    rename <- function(lines, at, old, new) {
+        fixture <- provider_fixture(lines)
+        workspace <- Workspace$new(NULL)
+        workspace$documents$set(fixture$uri, fixture$document)
+        workspace$update_parse_data(fixture$uri, fixture$document$parse_data)
+        pos <- regexpr(old, lines[[at]], fixed = TRUE)[[1L]]
+        rename_reply(1L, fixture$uri, workspace, fixture$document, list(row = at - 1L, col = pos), new)
+    }
+    for (case in list(
+        list(c("f <- function(a, b) {", "  old <- a", "  b + old", "}"), 2L, "b"),
+        list(c("f <- function(old) {", "  capture <- 2", "  capture + old", "}"), 1L, "capture"),
+        list(c("old <- 1", "occupied <- 2", "old + occupied"), 1L, "occupied"),
+        list(c("old <- 1", "f <- function(occupied) old + occupied"), 1L, "occupied"),
+        list(c("other <- 1", "f <- function(old) {", "  g <- function() other", "  g() + old", "}"), 2L, "other"),
+        list(c("f <- function(old) {", "  g <- function() { free; free <- 1; free }", "  old", "}"), 1L, "free"),
+        list(c("f <- function(old) {", "  g <- function() { b <- b; b }", "  old", "}"), 1L, "b"),
+        list(c("old <- function(x) x", "other <- function() mean(1)", "old(2)"), 1L, "mean")
+    )) {
+        expect_equal(rename(case[[1L]], case[[2L]], "old", case[[3L]])$error$code, ErrorCodes$RequestFailed)
+    }
+    for (case in list(
+        list(c("f <- function(old) old", "g <- function(occupied) occupied"), 1L, "occupied"),
+        list(c("old <- 1", "g <- function(occupied) occupied", "old"), 1L, "occupied"),
+        list(c("f <- function(old) {", "  g <- function() { occupied <- 2; occupied }", "  old", "}"), 1L, "occupied"),
+        list(c("obj <- list(occupied=2)", "f <- function(old) obj$occupied + old"), 2L, "occupied"),
+        list(c("old <- 1", "z <- stats::median", "old"), 1L, "median")
+    )) {
+        edits <- rename(case[[1L]], case[[2L]], "old", case[[3L]])$result$changes
+        expect_length(edits[[1L]], 2L)
+    }
+})
+
+test_that("workspace rename checks names visible through source dependencies", {
+    root <- index_normalize_path(withr::local_tempdir())
+    workspace <- Workspace$new(root)
+    put <- function(file, text) {
+        path <- file.path(root, file)
+        writeLines(text, path)
+        uri <- path_to_uri(path)
+        doc <- Document$new(uri, "r", 1L, text)
+        workspace$documents$set(uri, doc)
+        parsed <- parse_document(uri, text)
+        parsed$version <- doc$version
+        workspace$update_parse_data(uri, parsed)
+        doc
+    }
+    decl <- put("decl.R", "original <- 1")
+    put("other.R", "occupied <- 2")
+    put("unrelated.R", "isolated <- 3")
+    main <- put("main.R", c('source("decl.R")', 'source("other.R")', "original"))
+    change <- function(name) rename_reply(1L, decl$uri, workspace, decl, list(row = 0L, col = 2L), name)
+    expect_equal(change("occupied")$error$code, ErrorCodes$RequestFailed)
+    expect_setequal(names(change("isolated")$result$changes), c(decl$uri, main$uri))
+})

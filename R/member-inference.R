@@ -522,8 +522,13 @@ member_function_closure <- function(expr, bindings) {
 # Select a member from an already inferred receiver. This does not traverse
 # syntax, so a known declaration remains usable after inference hits a limit.
 member_slot <- function(value, name, index, bindings, budget = NULL) {
-    if (isTRUE(value$s7)) member_s7_slot(value, name, index, bindings, budget) else
+    result <- if (isTRUE(value$s7)) member_s7_slot(value, name, index, bindings, budget) else
         member_s4_slot(value, name, index, bindings, budget)
+    if (identical(budget$origin_name, name)) {
+        origin <- if (isTRUE(value$s7)) value$s7_descriptor$properties[[name]]$origin else value$slot_origins[[name]]
+        result$origin <- origin
+    }
+    result
 }
 
 # Closures retain their receiver when selected from the object's stored fields.
@@ -654,6 +659,11 @@ member_access <- function(lhs, name, index, bindings) {
         return(member_value(function_key = members[[name]], receiver_value = lhs, metadata = lhs$member_package))
     }
     unknown
+}
+
+member_extracted_callable <- function(value) {
+    if (!is.null(value$function_expr) || !is.null(value$function_key)) value$extracted_callable <- TRUE
+    value
 }
 
 member_infer <- function(
@@ -1204,6 +1214,10 @@ member_infer <- function(
     if (member_is_r6_call(expr, index, bindings)) {
         return(member_r6_shape(expr, index, bindings, budget, depth, trail))
     }
+    if (head == "setRefClass" || identical(expr[[1L]], quote(methods::setRefClass))) {
+        generator <- member_refclass_generator(expr, index, bindings, budget)
+        if (!is.null(generator)) return(generator)
+    }
     s4 <- member_s4_call(expr, index, bindings, budget)
     if (!is.null(s4)) return(s4)
     if (head %in% member_s7_intrinsics || (member_head(expr[[1L]], "::") &&
@@ -1245,10 +1259,10 @@ member_infer <- function(
             key %in% names(index$definitions) && !member_name(expr[[2L]]) %in% names(bindings)) {
             return(member_value(function_key = key))
         }
-        return(out)
+        return(member_extracted_callable(out))
     }
     if (member_head(expr, "@")) {
-        return(member_slot(infer(expr[[2L]]), member_name(expr[[3L]]), index, bindings, budget))
+        return(member_extracted_callable(member_slot(infer(expr[[2L]]), member_name(expr[[3L]]), index, bindings, budget)))
     }
     if (head %in% c("[[", "[")) {
         if (head == "[[" && is.null(qualified) && member_operator_masked(head, index, bindings)) return(unknown)
@@ -1272,7 +1286,7 @@ member_infer <- function(
                     # Default [[ selects exact storage. Special $ methods can
                     # expose additional names that do not exist in that storage.
                     field <- member_lookup(lhs$fields, name)
-                    return(if (is.null(field)) unknown else member_stored_field(lhs, field))
+                    return(if (is.null(field)) unknown else member_extracted_callable(member_stored_field(lhs, field)))
                 }
                 return(member_access(lhs, name, index, bindings))
             }
@@ -1688,6 +1702,7 @@ member_infer <- function(
     if (!is.null(callee$s4_generator)) {
         return(member_s4_construct(callee$s4_generator, actuals, index, bindings, budget))
     }
+    if (!is.null(callee$refclass_instance)) return(callee$refclass_instance)
     if (!is.null(callee$result_shape)) {
         return(member_r6_construct(callee, actuals, index, budget, depth, trail))
     }

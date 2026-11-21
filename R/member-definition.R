@@ -4,9 +4,11 @@
 member_origin_tree <- function(data, syntax = NULL) {
     token <- data$token
     callees <- which(token == "SYMBOL_FUNCTION_CALL")
-    lists <- callees[reference_symbol_names(data$text[callees]) %in% c("list", "list2", "data.frame")]
+    names <- reference_symbol_names(data$text[callees])
+    classes <- callees[names %in% c("R6Class", "setClass", "setRefClass", "new_class")]
+    lists <- callees[names %in% c("list", "list2", "data.frame", "c", "representation")]
     operators <- which(token %in% c("'$'", "LBB"))
-    if (!length(lists) && !length(operators)) return(list())
+    if (!length(lists) && !length(classes) && !length(operators)) return(list())
     if (is.null(syntax)) syntax <- syntax_parse_data(data)
     parent <- syntax$parent_row
     calls <- intersect(parent[parent[lists]], parent[token == "EQ_SUB"])
@@ -15,7 +17,13 @@ member_origin_tree <- function(data, syntax = NULL) {
     assignments <- parent[token %in% c("LEFT_ASSIGN", "EQ_ASSIGN", "RIGHT_ASSIGN")]
     accesses <- parent[operators]
     writes <- accesses[parent[accesses] %in% assignments]
-    targets <- unique(c(calls, writes))
+    class_calls <- parent[parent[classes]]
+    class_token <- if (length(classes)) {
+        positions <- integer(length(token))
+        positions[class_calls] <- classes
+        positions
+    }
+    targets <- unique(c(calls, writes, class_calls))
     if (!length(targets)) return(list())
     needed <- logical(length(token))
     current <- targets
@@ -28,7 +36,7 @@ member_origin_tree <- function(data, syntax = NULL) {
     named <- write <- logical(length(token))
     named[calls] <- TRUE
     write[writes] <- TRUE
-    list(syntax = syntax, needed = needed, named = named, write = write,
+    list(syntax = syntax, needed = needed, named = named, write = write, class_token = class_token,
         placeholders = parent[token == "PLACEHOLDER"],
         roots = syntax$roots[token[syntax$roots] %in% c("expr", "expr_or_assign_or_help")])
 }
@@ -63,6 +71,7 @@ member_source_origins <- function(parsed, data, uri, row_offset = 0L, col_offset
     expr_tokens <- c("expr", "expr_or_assign_or_help")
     walk <- function(node, row, inserted = 0L) {
         if (!needed[[row]] || !is.call(node)) return(node)
+        if (!is.null(tree$class_token) && tree$class_token[[row]]) attr(node, "class_origin") <- origin(tree$class_token[[row]])
         children <- syntax_children(syntax, row)
         children <- children[token[children] != "COMMENT"]
         kinds <- token[children]
@@ -199,13 +208,23 @@ member_parse_recovered <- function(lines, uri, row, col = 0L, edit = NULL) {
     member_strip_srcref(parsed)
 }
 
-member_definition_location <- function(uri, workspace, document, point) {
+member_definition_location <- function(uri, workspace, document, point, audit = NULL) {
     location <- member_hover_location(document, point)
     if (is.null(location)) return(NULL)
+    if (!is.null(audit)) audit$fields <- NULL
     resolved <- member_resolve_cursor(uri, workspace, document, location$point,
-        location$cursor, location$cursor$token, origins = TRUE)
+        location$cursor, location$cursor$token, origins = TRUE, audit = audit)
     if (is.null(resolved) && !check_scope(uri, document, point)) return(NULL)
     origin <- resolved$value$origin
+    if (!is.null(audit)) {
+        # Only the parser's physical (row, column, end-column) origin can
+        # participate in cross-request member-navigation proofs. Installed
+        # metadata, on-disk srcrefs and inconclusive budgets are rechecked.
+        audit$source <- !is.null(origin) && is.numeric(origin$range) && length(origin$range) == 3L &&
+            is.null(origin$source_text) && !isTRUE(resolved$budget$exhausted) &&
+            !isTRUE(resolved$budget$transient) && !isTRUE(resolved$value$possible_receiver)
+        if (!audit$source) audit$fields <- NULL
+    }
     if (is.null(origin) && !is.null(resolved$value$function_key) && !is.null(resolved$value$metadata)) {
         owner <- member_package_context(resolved$index, resolved$value$metadata)
         origin <- member_lookup(owner$locations, resolved$value$function_key)

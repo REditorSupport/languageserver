@@ -132,8 +132,8 @@ test_that("Type hierarchy returns S4 supertypes and subtypes", {
     expect_length(supertypes, 1)
     expect_equal(supertypes[[1]]$name, "BaseEntity")
     expect_equal(supertypes[[1]]$range, list(
-        start = list(line = 1L, character = 29L),
-        end = list(line = 1L, character = 39L)
+        start = list(line = 0L, character = 10L),
+        end = list(line = 0L, character = 20L)
     ))
 
     subtypes <- client %>% respond_type_hierarchy_subtypes(
@@ -176,8 +176,8 @@ test_that("Type hierarchy returns RefClass supertypes and subtypes", {
     expect_length(supertypes, 1)
     expect_equal(supertypes[[1]]$name, "BaseReference")
     expect_equal(supertypes[[1]]$range, list(
-        start = list(line = 1L, character = 41L),
-        end = list(line = 1L, character = 54L)
+        start = list(line = 0L, character = 13L),
+        end = list(line = 0L, character = 26L)
     ))
 
     subtypes <- client %>% respond_type_hierarchy_subtypes(

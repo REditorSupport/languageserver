@@ -6,7 +6,7 @@
 typedef enum {
     P_OTHER, P_EXPR, P_SYMBOL, P_FORMAL, P_CALL, P_PACKAGE, P_FUNCTION,
     P_LEFT_ASSIGN, P_RIGHT_ASSIGN, P_EQ_ASSIGN, P_OPEN, P_CLOSE,
-    P_COMMA, P_SUB, P_EQ_SUB, P_MEMBER, P_COMMENT, P_PIPE, P_SPECIAL, P_PLACEHOLDER
+    P_COMMA, P_SUB, P_EQ_SUB, P_MEMBER, P_NAMESPACE, P_LBB, P_STRING, P_COMMENT, P_PIPE, P_SPECIAL, P_PLACEHOLDER
 } provider_token;
 
 typedef struct {
@@ -48,6 +48,9 @@ static provider_token provider_kind(SEXP value) {
     if (!strcmp(name, "SYMBOL_SUB")) return P_SUB;
     if (!strcmp(name, "EQ_SUB")) return P_EQ_SUB;
     if (!strcmp(name, "'$'") || !strcmp(name, "'@'")) return P_MEMBER;
+    if (!strcmp(name, "NS_GET") || !strcmp(name, "NS_GET_INT")) return P_NAMESPACE;
+    if (!strcmp(name, "LBB")) return P_LBB;
+    if (!strcmp(name, "STR_CONST")) return P_STRING;
     if (!strcmp(name, "COMMENT")) return P_COMMENT;
     if (!strcmp(name, "PIPE")) return P_PIPE;
     if (!strcmp(name, "SPECIAL")) return P_SPECIAL;
@@ -217,14 +220,16 @@ SEXP range_provider_index_c(SEXP data, SEXP syntax) {
         }
     }
 
-    enum { VARIABLES, CALLS, FUNCTIONS, PACKAGES, FIRST_ARG, LAST_ARG, PIPE, IMPLICIT_ARG,
+    enum { VARIABLES, CALLS, FUNCTIONS, PACKAGES, FIRST_ARG, LAST_ARG, PIPE, OPENING, MEMBER, IMPLICIT_ARG,
         ARG_CALL, ARG_FIRST, ARG_NAME, ARG_SYMBOL, FIELDS };
     int *rows[FIELDS];
     for (int i = 0; i < FIELDS; i++) rows[i] = (int *) R_alloc((size_t) n, sizeof(int));
     int variables_n = 0, calls_n = 0, args_n = 0;
     for (int i = 0; i < n; i++) {
         if ((i & 16383) == 0) R_CheckUserInterrupt();
-        if (tree.kind[i] == P_SYMBOL || tree.kind[i] == P_FORMAL) rows[VARIABLES][variables_n++] = i;
+        if (tree.kind[i] == P_FORMAL || (tree.kind[i] == P_SYMBOL &&
+                (previous[i] < 0 || (tree.kind[previous[i]] != P_MEMBER &&
+                tree.kind[previous[i]] != P_NAMESPACE)))) rows[VARIABLES][variables_n++] = i;
         if (tree.kind[i] != P_EXPR) continue;
         int callee_expr = tree.first[tree.id[i]];
         if (callee_expr < 0 || tree.kind[callee_expr] != P_EXPR) continue;
@@ -234,9 +239,19 @@ SEXP range_provider_index_c(SEXP data, SEXP syntax) {
         for (int child = tree.first[tree.id[callee_expr]]; child >= 0; child = tree.next[child]) {
             if (tree.kind[child] == P_CALL && callee < 0) callee = child;
             else if (tree.kind[child] == P_PACKAGE && package < 0) package = child;
-            else if (tree.kind[child] == P_MEMBER) member = 1;
+            else if (tree.kind[child] == P_MEMBER) {
+                callee = next_non_comment(&tree, child);
+                member = 1;
+            } else if (tree.kind[child] == P_LBB) {
+                int key = next_non_comment(&tree, child);
+                int literal = key < 0 ? -1 : tree.first[tree.id[key]];
+                if (literal >= 0 && tree.kind[literal] == P_STRING && next_non_comment(&tree, literal) < 0) {
+                    callee = literal;
+                    member = 1;
+                }
+            }
         }
-        if (callee < 0 || member) continue;
+        if (callee < 0) continue;
         int close = -1;
         for (int child = next_non_comment(&tree, open); child >= 0; child = next_non_comment(&tree, child)) {
             if (tree.kind[child] == P_CLOSE) close = child;
@@ -245,6 +260,8 @@ SEXP range_provider_index_c(SEXP data, SEXP syntax) {
         rows[CALLS][calls_n] = i;
         rows[FUNCTIONS][calls_n] = callee;
         rows[PACKAGES][calls_n] = package;
+        rows[OPENING][calls_n] = open;
+        rows[MEMBER][calls_n] = member;
         rows[FIRST_ARG][calls_n] = args_n;
         int pipe = previous[i];
         if (pipe >= 0 && tree.kind[pipe] != P_PIPE &&
@@ -289,14 +306,14 @@ SEXP range_provider_index_c(SEXP data, SEXP syntax) {
         calls_n++;
     }
     const char *field_names[FIELDS] = {
-        "variable", "call", "function", "package", "first_argument", "last_argument", "pipe", "implicit_argument",
+        "variable", "call", "function", "package", "first_argument", "last_argument", "pipe", "opening", "member", "implicit_argument",
         "argument_call", "argument_first", "argument_name", "argument_symbol"
     };
     SEXP result = PROTECT(Rf_allocVector(VECSXP, FIELDS));
     SEXP names = PROTECT(Rf_allocVector(STRSXP, FIELDS));
     for (int i = 0; i < FIELDS; i++) {
         int size = i == VARIABLES ? variables_n : i <= IMPLICIT_ARG ? calls_n : args_n;
-        SET_VECTOR_ELT(result, i, provider_rows(rows[i], size, i == IMPLICIT_ARG ? 0 : 1));
+        SET_VECTOR_ELT(result, i, provider_rows(rows[i], size, i == IMPLICIT_ARG || i == MEMBER ? 0 : 1));
         SET_STRING_ELT(names, i, Rf_mkChar(field_names[i]));
     }
     Rf_setAttrib(result, R_NamesSymbol, names);

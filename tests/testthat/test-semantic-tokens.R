@@ -934,7 +934,7 @@ test_that("Lambda and qualified return() calls emit expected semantic tokens", {
         }
         expect_equal(token_type_at(0L, 21L, 8L), SemanticTokenTypes$keyword)
         expect_equal(token_type_at(1L, 6L, 1L), SemanticTokenTypes$keyword)
-        expect_equal(token_type_at(2L, 6L, 6L), SemanticTokenTypes[["function"]])
+        expect_equal(token_type_at(2L, 6L, 6L), SemanticTokenTypes$method)
         expect_equal(token_type_at(3L, 7L, 6L), SemanticTokenTypes[["function"]])
         expect_equal(token_type_at(4L, 8L, 6L), SemanticTokenTypes[["function"]])
         expect_equal(token_type_at(5L, 2L, 8L), SemanticTokenTypes[["function"]])
@@ -1102,7 +1102,7 @@ test_that("Named arguments and scoped parameter references emit parameter tokens
         list(line = 2L, col = 13L, name = "gamma", type = SemanticTokenTypes$parameter, mod = decl_mod),
         list(line = 2L, col = 20L, name = "alpha", type = SemanticTokenTypes$parameter, mod = 0L),
         list(line = 2L, col = 28L, name = "gamma", type = SemanticTokenTypes$parameter, mod = 0L),
-        list(line = 2L, col = 40L, name = "alpha", type = SemanticTokenTypes$variable, mod = 0L),
+        list(line = 2L, col = 40L, name = "alpha", type = SemanticTokenTypes$property, mod = 0L),
         list(line = 2L, col = 53L, name = "beta", type = SemanticTokenTypes$variable, mod = 0L),
         # Named call argument (SYMBOL_SUB)
         list(line = 3L, col = 8L, name = "gamma", type = SemanticTokenTypes$parameter, mod = 0L),
@@ -1257,9 +1257,9 @@ test_that("Builtin constants, ellipsis, and pipe placeholders emit readonly defa
         list(line = 3L, col = 22L, text = "F", type = SemanticTokenTypes$parameter, mod = decl_mod),
         list(line = 3L, col = 30L, text = "T", type = SemanticTokenTypes$parameter, mod = 0L),
         list(line = 3L, col = 33L, text = "F", type = SemanticTokenTypes$parameter, mod = 0L),
-        list(line = 3L, col = 40L, text = "T", type = SemanticTokenTypes$variable, mod = 0L),
+        list(line = 3L, col = 40L, text = "T", type = SemanticTokenTypes$property, mod = 0L),
         list(line = 3L, col = 48L, text = "F", type = SemanticTokenTypes$variable, mod = 0L),
-        list(line = 3L, col = 55L, text = "...", type = SemanticTokenTypes$variable, mod = 0L)
+        list(line = 3L, col = 55L, text = "...", type = SemanticTokenTypes$property, mod = 0L)
     )
 
     for (cached in c(TRUE, FALSE)) {

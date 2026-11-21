@@ -30,6 +30,7 @@ member_r6_shape <- function(expr, index, bindings, budget, depth = 0L, trail = c
     }
     class <- list(name = if (is.character(classname) && length(classname) == 1L) classname else NULL,
         package = if (is.null(index$document_bindings)) index$package else "")
+    class$origin <- attr(expr, "class_origin", exact = TRUE)
     active <- args$active
     inherited <- member_value()
     if (!is.null(args$inherit)) {
@@ -54,7 +55,8 @@ member_r6_shape <- function(expr, index, bindings, budget, depth = 0L, trail = c
         values <- as.list(node)[-1L]
         for (name in names(values)) {
             value <- infer(values[[name]])
-            if (identical(budget$origin_name, name)) {
+            if (identical(budget$origin_name, name) ||
+                    (section == "public" && name == "initialize" && identical(budget$origin_name, "new"))) {
                 origin <- attr(node, "member_origins", exact = TRUE)[[as.character(match(name, names(values)))]]
                 if (!is.null(origin)) value$origin <- origin
             }
@@ -124,6 +126,7 @@ member_r6_shape <- function(expr, index, bindings, budget, depth = 0L, trail = c
         r6_class = class, r6_role = "constructor"
     )), r6_class = class, r6_role = "generator")
     generator$fields$new$r6_initialize <- fields$initialize
+    if (member_head(initialize$function_expr, "function")) generator$fields$new$origin <- initialize$origin
     generator
 }
 

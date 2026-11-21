@@ -51,6 +51,54 @@ scripts report R allocations when memory profiling is supported. Local timings
 vary with hardware and load; regression tests assert behavior without elapsed
 thresholds.
 
+## Member references and rename
+
+Run the same script against the installed PR base, the reviewed revision and
+the updated package. The CSV records every sample and the expected and
+returned counts. Each result must match the expected URI, UTF-16 start and end
+positions. Rename also checks the replacement text and rejects extra edits.
+
+```sh
+R_LIBS=/path/to/base/lib Rscript --vanilla inst/benchmarks/member-navigation.R base.csv 128 32 3 6f42454 legacy all
+R_LIBS=/path/to/reviewed/lib Rscript --vanilla inst/benchmarks/member-navigation.R reviewed.csv 128 32 3 56dd618 owner all
+R_LIBS=/path/to/updated/lib Rscript --vanilla inst/benchmarks/member-navigation.R updated.csv 128 32 3 updated owner all
+R_LIBS=/path/to/updated/lib Rscript --vanilla inst/benchmarks/member-navigation.R method.csv 32 32 3 updated owner method
+```
+
+The first three commands use a shared declaration and 128 consumer files.
+Each consumer reads the shared member 32 times, an unrelated same-named member
+32 times, and a same-named lexical variable 32 times. Each request returns the
+declaration and 4,096 uses. Direct and chained accesses use separate fixtures.
+The method case uses 32 consumer files and returns 1,025 locations. It puts an
+opaque call between pairs of method calls and gives the unrelated owner a
+field with the proposed replacement name.
+
+Median elapsed milliseconds over three samples, measured serially on macOS
+arm64 with R 4.6.1. A first request starts with an indexed workspace, accepted
+parse results and fresh provider caches. A repeat is the next identical request.
+The timer includes edit construction for Rename. It excludes initial file
+discovery, parsing, transport, serialization of the response and editor display.
+
+| Operation | Reviewed first | Updated first | Reviewed repeat | Updated repeat |
+|---|---:|---:|---:|---:|
+| Direct member References | 6,465 | 712 | 6,006 | 170 |
+| Direct member Rename | 9,078 | 721 | 9,017 | 178 |
+| Chained member References | 7,565 | 852 | 6,737 | 165 |
+| Chained member Rename | 10,162 | 842 | 10,046 | 180 |
+| Method References with opaque calls | 1,627 | 1,676 | 1,483 | 18 |
+| Method Rename with opaque calls | 2,218 | 1,675 | 2,051 | 20 |
+
+On the same 129-file workspace, first/repeat lexical References took 52/32 ms
+on the base and 50/31 ms after the update. Lexical Rename took 69/42 ms and
+64/43 ms respectively. The base returned zero results for the member requests.
+
+First-time calls separated by opaque code still require individual receiver
+resolution. Subsequent requests can reuse a verified source location for that
+exact syntax site while its document, workspace and package metadata are
+current. Unresolved sites are retried. Direct reads in an unchanged block can
+share receiver resolution within the first request. Large result sets still
+require one edit or location per matching use.
+
 ## Member metadata workers
 
 Run these against separately installed revisions, without concurrent tests or

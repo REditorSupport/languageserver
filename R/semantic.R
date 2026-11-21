@@ -477,13 +477,21 @@ xml_symbol_is_function_assignment <- function(node) {
     }
 }
 
+class_semantic_types <- function(cls) {
+    kind <- if (cls$kind == SymbolKind$Method) SemanticTokenTypes$method else if (
+        cls$kind == SymbolKind$Function) SemanticTokenTypes[["function"]] else SemanticTokenTypes$class
+    c(kind, vapply(cls$children, function(x) {
+        if (x$kind == SymbolKind$Method) SemanticTokenTypes$method else SemanticTokenTypes$property
+    }, integer(1L)))
+}
+
 #' Build a compact semantic token index from R parse data
 #'
 #' This runs in the parse worker. Keeping ordinary integer vectors here avoids
 #' repeatedly walking the XML document on the main language-server thread.
 #' @noRd
 semantic_parse_data <- function(data, content, syntax = NULL,
-    assignments = symbol_assignment_rows(data, syntax), only_lines = NULL, encode = TRUE) {
+    assignments = symbol_assignment_rows(data, syntax), only_lines = NULL, encode = TRUE, classes = NULL) {
     if (is.null(data) || !nrow(data)) {
         return(empty_semantic_data())
     }
@@ -493,6 +501,7 @@ semantic_parse_data <- function(data, content, syntax = NULL,
         SYMBOL_FUNCTION_CALL = SemanticTokenTypes[["function"]],
         SYMBOL_FORMALS = SemanticTokenTypes$parameter,
         SYMBOL_SUB = SemanticTokenTypes$parameter,
+        SLOT = SemanticTokenTypes$property,
         SYMBOL_PACKAGE = SemanticTokenTypes$namespace,
         FUNCTION = SemanticTokenTypes$keyword,
         KEYWORD = SemanticTokenTypes$keyword,
@@ -628,6 +637,23 @@ semantic_parse_data <- function(data, content, syntax = NULL,
         modifiers[fun_lhs] <- semantic_declaration_modifier
     }
 
+    member_parents <- data$parent[data$token %in% c("'$'", "'@'")]
+    keys <- row_parents %in% member_parents
+    types[keys & tok == "SYMBOL"] <- SemanticTokenTypes$property
+    types[keys & tok == "SYMBOL_FUNCTION_CALL"] <- SemanticTokenTypes$method
+    if (is.null(classes) && any(reference_symbol_names(data$text[data$token == "SYMBOL_FUNCTION_CALL"]) %in% names(class_call_helpers))) {
+        if (is.null(syntax)) syntax <- syntax_parse_data(data)
+        classes <- class_source_declarations(syntax, content, "")
+    }
+    if (length(classes)) {
+        declared <- unlist(lapply(classes, function(cls) c(cls$name_row, cls$member_rows)), use.names = FALSE)
+        kinds <- unlist(lapply(classes, class_semantic_types), use.names = FALSE)
+        hits <- match(declared, std_rows)
+        keep <- !is.na(hits) & tok[hits] != "STR_CONST"
+        types[hits[keep]] <- kinds[keep]
+        modifiers[hits[keep]] <- semantic_declaration_modifier
+    }
+
     if (length(roxygen_rows)) {
         span_list <- lapply(roxygen_rows, function(row_index) {
             roxygen_comment_spans(
@@ -754,6 +780,7 @@ semantic_xml_token_types <- c(
     SYMBOL_FUNCTION_CALL = SemanticTokenTypes[["function"]],
     SYMBOL_FORMALS = SemanticTokenTypes$parameter,
     SYMBOL_SUB = SemanticTokenTypes$parameter,
+    SLOT = SemanticTokenTypes$property,
     SYMBOL_PACKAGE = SemanticTokenTypes$namespace,
     FUNCTION = SemanticTokenTypes$keyword,
     KEYWORD = SemanticTokenTypes$keyword,
@@ -846,6 +873,25 @@ extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
         return(list())
     }
 
+    # Older parse snapshots can carry XML alone. Recover declaration roles
+    # only when the snapshot contains an actual class helper.
+    classes <- parse_data$class_data$declarations
+    if (is.null(classes) && any(grepl("R6Class|set(Class|RefClass|Generic|Method)|new_class", document$content))) {
+        source <- if (document$is_rmarkdown) literate_provider_content(document$content, document$regions)$content else
+            normalize_parse_content(document$content)
+        expr <- parse_provider_projection(source)
+        if (!is.null(expr)) classes <- class_source_declarations(syntax_parse_data(utils::getParseData(expr)), source, uri)
+    }
+    roles <- new.env(parent = emptyenv(), hash = TRUE)
+    for (cls in classes) {
+        selections <- c(list(cls$selectionRange), lapply(cls$children, `[[`, "selectionRange"))
+        kinds <- class_semantic_types(cls)
+        for (i in seq_along(kinds)) {
+            start <- selections[[i]]$start
+            roles[[paste(start$line, start$character)]] <- kinds[[i]]
+        }
+    }
+
     # Get all token elements from the parse tree
     token_elements <- xml_find_all_(xdoc, semantic_tokens_xpath)
 
@@ -936,11 +982,24 @@ extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
             }
         }
 
+        if (token_name %in% c("SYMBOL", "SYMBOL_FUNCTION_CALL") &&
+                xml_find_lgl_(token_node, "boolean(preceding-sibling::OP-DOLLAR | preceding-sibling::OP-AT)")) {
+            token_type <- if (token_name == "SYMBOL_FUNCTION_CALL") SemanticTokenTypes$method else SemanticTokenTypes$property
+        }
+
         # Convert positions to UTF-16 code units for LSP
         # Parse data uses 1-based code point positions, LSP uses 0-based UTF-16 units
         utf16_cols <- code_point_to_unit(line_text, c(col1 - 1, col2))
         token_col <- utf16_cols[1]
         token_length <- utf16_cols[2] - utf16_cols[1]
+        if (length(classes) && token_name %in% c("SYMBOL", "SYMBOL_SUB")) {
+            role <- roles[[paste(line1 - 1L, token_col)]]
+            if (!is.null(role)) {
+                token_type <- role
+                modifiers <- semantic_declaration_modifier
+            }
+        }
+
 
         idx <- idx + 1L
         tokens[[idx]] <- list(

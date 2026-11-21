@@ -22,12 +22,42 @@ definition_reply <- function(id, uri, workspace, document, point,
     if (isTRUE(lsp_settings$get("member_completion"))) {
         member <- member_definition_location(uri, workspace, document, point)
         if (!is.null(member)) return(Response$new(id, result = member$result))
+        parsed <- document$parse_data
+        row <- member_navigation_token(parsed, point)
+        if (row && parsed$syntax_data$token[[row]] %in% c("SYMBOL_SUB", "STR_CONST")) {
+            tag <- member_navigation_at(workspace, document, point)
+            if (identical(tag$kind, "tag") && !is.null(tag$definition)) {
+                return(Response$new(id, result = tag$definition))
+            }
+        }
+        if (is.null(parsed$syntax_data)) {
+            formal <- xml_argument_definition(document, parsed, point)
+            if (!is.null(formal)) return(Response$new(id, result = formal))
+        }
     }
 
     s4 <- s4_definition_at(uri, workspace, document, point)
     if (length(s4)) return(Response$new(id, result = s4))
 
     symbol_definition_reply(id, uri, workspace, document, point, rootPath, context_uri, text_document_content)
+}
+
+# Older parse snapshots have XML instead of the compact navigation index.
+xml_argument_definition <- function(document, parsed, point) {
+    xdoc <- parse_data_xml(parsed)
+    if (is.null(xdoc)) return(NULL)
+    row <- point$row + 1L
+    col <- point$col + 1L
+    token <- xdoc_find_token(xdoc, row, col)
+    if (!identical(xml_name(token), "SYMBOL_SUB")) return(NULL)
+    name <- xml_find_chr_(token, "string(../expr[1][count(*)=1]/SYMBOL_FUNCTION_CALL)")
+    if (!nzchar(name)) return(NULL)
+    xpath <- glue(signature_xpath, row = row, token_quote = xml_single_quote(name))
+    fns <- xdoc_find_definitions(xdoc, row, col, name, xpath)
+    if (!length(fns)) return(NULL)
+    args <- xml_find_all_(fns[[length(fns)]], "SYMBOL_FORMALS")
+    i <- match(xml_text(token), xml_text(args))
+    if (!is.na(i)) location(document$uri, get_element_range(document, args[[i]]))
 }
 
 s4_definition_operators <- c("SPECIAL", "'+'", "'-'", "'*'", "'/'", "'^'", "':'", "'!'",

@@ -868,7 +868,16 @@ refactor_extract_function_action <- function(uri, workspace, document,
         logical(1L),
         extracting_function = TRUE
     )
-    if (any(unsafe)) {
+    # Replacement assignments rebind their receiver. A helper's local write
+    # cannot update the caller's list, vector or S4 object, and the value of
+    # the assignment is the RHS rather than the updated receiver.
+    replacements <- any(vapply(selection$nodes, function(node) {
+        xml_find_lgl_(node, paste0("boolean(",
+                ".//LEFT_ASSIGN/preceding-sibling::expr[1][not(count(*) = 1 and SYMBOL)] | ",
+                ".//EQ_ASSIGN/preceding-sibling::expr[1][not(count(*) = 1 and SYMBOL)] | ",
+                ".//RIGHT_ASSIGN/following-sibling::expr[1][not(count(*) = 1 and SYMBOL)])"))
+    }, logical(1L)))
+    if (any(unsafe) || replacements) {
         return(NULL)
     }
     uses_dots <- vapply(selection$nodes, function(node) {
@@ -1004,6 +1013,41 @@ refactor_declaration_removal_range <- function(document, assignment_range) {
 
 #' Create an inline-local-variable code action
 #' @noRd
+# A binding read or overloaded operator can force promises or invoke an
+# active binding. Only closed integer/double literal arithmetic within these
+# bounds is movable across an arbitrary consumer (including lazy calls).
+refactor_inline_literal <- function(node, base_operator) {
+    if (xml_find_lgl_(node, "boolean(count(*) = 1 and (NUM_CONST or STR_CONST or NULL_CONST))")) return(TRUE)
+    children <- xml_children(node)
+    parts <- xml_name(children)
+    args <- children[parts == "expr"]
+    op <- children[parts != "expr"]
+    if (length(op) != 1L || !length(args) || length(args) > 2L ||
+            !xml_text(op) %in% c("+", "-", "*") || !base_operator(op)) return(FALSE)
+    all(vapply(args, function(arg) {
+        tokens <- xml_children(arg)
+        if (length(tokens) != 1L || xml_name(tokens) != "NUM_CONST") return(FALSE)
+        value <- tryCatch(str2lang(xml_text(tokens)), error = function(e) NULL)
+        is.numeric(value) && length(value) == 1L && is.finite(value) && abs(value) <= 32767
+    }, logical(1L)))
+}
+
+refactor_inline_eager_use <- function(use, eager, base_operator) {
+    while (!refactor_same_node(use, eager)) {
+        parent <- xml_parent(use)
+        children <- xml_children(parent)
+        children <- children[xml_name(children) != "COMMENT"]
+        if (length(children) != 3L || !refactor_same_node(use, children[[1L]]) ||
+                !xml_text(children[[2L]]) %in% c("+", "-", "*", "/", "^", "%%", "%/%") ||
+                !base_operator(children[[2L]])) return(FALSE)
+        # These primitive operators force the first operand before evaluating
+        # the second. An intervening call or an earlier operand could skip or
+        # reorder the expression being inlined.
+        use <- parent
+    }
+    TRUE
+}
+
 refactor_inline_variable_action <- function(uri, workspace, document,
     item_range, client_capabilities = NULL) {
     if (is.null(workspace) || !check_r_region(document, item_range$start)) {
@@ -1063,15 +1107,44 @@ refactor_inline_variable_action <- function(uri, workspace, document,
     read_node <- xdoc_find_token(
         parse_data_xml(parse_data),
         read_range$start$row + 1L,
-        read_range$start$col + 1L
+        read_range$start$col + 2L
     )
-    if (inherits(read_node, "xml_missing")) {
+    if (inherits(read_node, "xml_missing") || !refactor_range_equal(refactor_node_range(read_node), read_range)) {
         return(NULL)
     }
     read_statement <- refactor_statement_context(xml_parent(read_node))
     if (is.null(read_statement) ||
+            !refactor_expression_movable(xml_parent(read_node), read_statement$statement) ||
             refactor_unsafe_syntax(read_statement$statement)) {
         return(NULL)
+    }
+
+    # Constants can cross statements. A saved expression can read mutable
+    # state, including through an environment alias or an active binding.
+    # Keep such reads in the same block, before any intervening computation.
+    base_operator <- function(operator) {
+        if (is.null(parse_data$syntax_data)) return(FALSE)
+        name <- xml_text(operator)
+        at <- refactor_node_range(operator)$start
+        if (length(navigation_definitions(parse_data, at$row + 1L, at$col + 1L, name, last = TRUE))) return(FALSE)
+        if (!is.function(workspace$guess_namespace)) return(TRUE)
+        owner <- call_with_optional_uri(workspace$guess_namespace, name, isf = TRUE, uri = uri)
+        is.null(owner) || identical(owner, "base")
+    }
+    literal <- refactor_inline_literal(assignment$value, base_operator)
+    if (!literal) {
+        next_statement <- xml_find_first_(assignment$node, "following-sibling::expr[1]")
+        if (!length(next_statement) || inherits(next_statement, "xml_missing") ||
+                !refactor_same_node(next_statement, read_statement$statement)) return(NULL)
+        use <- xml_parent(read_node)
+        target <- refactor_assignment_parts(read_statement$statement)
+        eager <- if (is.null(target)) read_statement$statement else target$value
+        if (!refactor_inline_eager_use(use, eager, base_operator)) return(NULL)
+        writes <- xml_find_all_(read_statement$statement, ".//LEFT_ASSIGN | .//EQ_ASSIGN | .//RIGHT_ASSIGN")
+        for (write in writes) {
+            if (refactor_compare_point(refactor_node_range(xml_parent(write))$end,
+                    read_range$start) <= 0L) return(NULL)
+        }
     }
 
     value_text <- refactor_range_text(

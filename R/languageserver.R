@@ -178,6 +178,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
         formatting_task_manager = NULL,
         index_task_manager = NULL,
         formatting_requests = NULL,
+        implementation_requests = NULL,
         formatting_capability_state = NULL,
         backend_generations = NULL,
         backend_documents = NULL,
@@ -236,6 +237,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 max_running_tasks = 1, min_idle_sessions = 0
             )
             self$formatting_requests <- collections::dict()
+            self$implementation_requests <- collections::dict()
 
             self$pending_replies <- collections::dict()
             self$index_requests <- collections::ordered_dict()
@@ -274,6 +276,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
         process_events = function() {
             self$parse_task_manager$check_tasks()
             self$diagnostics_task_manager$check_tasks()
+            check_implementation_requests(self)
             self$resolve_task_manager$check_tasks()
             if (!is.null(self$member_task_manager)) self$member_task_manager$check_tasks()
             self$formatting_task_manager$check_tasks()
@@ -792,12 +795,14 @@ LanguageServer <- R6::R6Class("LanguageServer",
             }
             # A peer's last parse becomes stale before its replacement arrives.
             # Stop using its imports as soon as an edit or reload is scheduled.
-            if (is.function(workspace$invalidate_s3_context)) workspace$invalidate_s3_context()
+            if (is.function(workspace$invalidate_s3_context)) workspace$invalidate_s3_context(uri)
             if (!self$pending_replies$has(uri)) {
                 self$pending_replies$set(uri, list(
                     `textDocument/completion` = collections::queue(),
                     `textDocument/hover` = collections::queue(),
                     `textDocument/definition` = collections::queue(),
+                    `textDocument/typeDefinition` = collections::queue(),
+                    `textDocument/implementation` = collections::queue(),
                     `textDocument/signatureHelp` = collections::queue(),
                     `textDocument/documentSymbol` = collections::queue(),
                     `textDocument/foldingRange` = collections::queue(),
@@ -923,10 +928,16 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     !identical(document$content, document$parsed_content))
             if (!is.null(document) && !waiting_parse) {
                 point <- document$from_lsp_position(params$position)
-                if (!check_scope(uri, document, point)) return(FALSE)
+                if (!check_scope(uri, document, point) && !reference_literal_needs_workspace(document, point)) return(FALSE)
                 token <- document$detect_token(point)
-                key <- reference_key_at(document$parse_data$reference_index, point, token$token)
-                if (!is.null(key) && !startsWith(key, "global:")) return(FALSE)
+                parsed <- document$parse_data
+                index <- parsed$reference_index
+                i <- reference_index_at(index, point, token$token)
+                if (i && !startsWith(index$definition_key[[i]], "global:")) {
+                    if (index$definition_kind[[i]] != "formal") return(FALSE)
+                    formal <- member_navigation_formal_owner(parsed, uri, token$token, index$definition_key[[i]])
+                    if (is.null(formal) || !identical(reference_formal_call_scope(parsed, document, formal), "workspace")) return(FALSE)
+                }
             }
             indexes <- list()
             pending <- waiting_parse
@@ -1028,11 +1039,10 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     if (!identical(doc$version, doc$parse_data$version) ||
                             !identical(doc$content, doc$parsed_content)) next
                     point <- doc$from_lsp_position(request$params$position)
-                    definition <- symbol_definition_reply(NULL, request$uri, request$workspace, doc, point)$result
                     # Source edges can change while closed callers are parsed.
                     # Recompute their closure after each settled batch; queuing
                     # an already-current document is a no-op.
-                    uris <- if (length(definition)) request$workspace$index$dependent_closure(definition$uri) else character()
+                    uris <- reference_request_documents(request$workspace, doc, point)
                     request$held_documents <- uris
                     request$prepared <- TRUE
                     self$index_requests$set(key, request)
@@ -1119,6 +1129,8 @@ LanguageServer$set("public", "register_handlers", function() {
         `textDocument/completion` = text_document_completion,
         `completionItem/resolve` = completion_item_resolve,
         `textDocument/definition` = text_document_definition,
+        `textDocument/typeDefinition` = text_document_type_definition,
+        `textDocument/implementation` = text_document_implementation,
         `textDocument/hover` = text_document_hover,
         `textDocument/signatureHelp` = text_document_signature_help,
         `textDocument/formatting` = text_document_formatting,

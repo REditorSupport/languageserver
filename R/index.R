@@ -1,5 +1,5 @@
 # Older summaries can contain stale definitions copied from an earlier valid file.
-index_cache_version <- 6L
+index_cache_version <- 8L
 
 #' Recognize a package without recursively searching a workspace
 #' @noRd
@@ -152,10 +152,9 @@ index_static_path <- function(expr) {
         if (!length(parts) || !all(vapply(parts, function(part) {
             is.character(part) && length(part) == 1L && !is.na(part)
         }, logical(1L)))) return(NULL)
-        return(list(
-            path = do.call(file.path, unname(parts)),
-            project_relative = FALSE
-        ))
+        path <- tryCatch(do.call(base::file.path, parts), error = function(e) NULL)
+        if (length(path) != 1L) return(NULL)
+        return(list(path = path, project_relative = FALSE))
     }
     if (fun %in% c("here::here", "here:::here")) {
         parts <- as.list(expr)[-1L]
@@ -176,26 +175,12 @@ index_source_specs <- function(expr) {
     result <- list()
     calls <- .Call("source_calls_c", expr, PACKAGE = "languageserver")
     for (node in calls) {
-        args <- as.list(node)[-1L]
-        arg_names <- names(args)
-        file_arg <- NULL
-        if (length(args)) {
-            named_file <- which(!is.null(arg_names) & arg_names == "file")
-            if (length(named_file)) {
-                file_index <- named_file[[1L]]
-            } else {
-                unnamed <- if (is.null(arg_names)) {
-                    seq_along(args)
-                } else {
-                    which(!nzchar(arg_names))
-                }
-                file_index <- if (length(unnamed)) unnamed[[1L]] else NULL
-            }
-            if (length(file_index) &&
-                    !identical(args[[file_index]], quote(expr = ))) {
-                file_arg <- args[[file_index]]
-            }
-        }
+        head <- node[[1L]]
+        name <- member_name(if (is.call(head)) head[[3L]] else head)
+        fn <- if (identical(name, "sys.source")) base::sys.source else base::source
+        args <- tryCatch(match.call(fn, node), error = function(e) NULL)
+        file_arg <- args$file
+        if (identical(file_arg, quote(expr = ))) next
         spec <- index_static_path(file_arg)
         if (!is.null(spec)) result[[length(result) + 1L]] <- spec
     }
@@ -252,15 +237,7 @@ index_physical_srcrefs <- function(expr, srcfile, text, tabbed) {
     positions[c(1L, 3L), ] <- positions[c(7L, 8L), ]
     lines <- c(positions[1L, ], positions[3L, ])
     columns <- c(positions[5L, ] - 1L, positions[6L, ])
-    affected <- which(tabbed[lines])
-    for (indices in split(affected, lines[affected])) {
-        line <- lines[[indices[[1L]]]]
-        tabs <- as.integer(gregexpr("\t", text[[line]], fixed = TRUE)[[1L]])
-        between <- diff(c(0L, tabs)) - 1L
-        stops <- cumsum((between %/% 8L + 1L) * 8L)
-        extra <- c(0L, stops - tabs)
-        columns[indices] <- columns[indices] - extra[findInterval(columns[indices], stops) + 1L]
-    }
+    columns <- index_physical_columns(columns, lines, text, tabbed)
     first <- seq_along(refs)
     positions[5L, ] <- columns[first] + 1L
     positions[6L, ] <- columns[first + length(refs)]
@@ -277,6 +254,19 @@ index_physical_srcrefs <- function(expr, srcfile, text, tabbed) {
         }
     }
     expr
+}
+
+index_physical_columns <- function(columns, lines, text, tabbed) {
+    affected <- which(tabbed[lines])
+    for (indices in split(affected, lines[affected])) {
+        line <- lines[[indices[[1L]]]]
+        tabs <- as.integer(gregexpr("\t", text[[line]], fixed = TRUE)[[1L]])
+        between <- diff(c(0L, tabs)) - 1L
+        stops <- cumsum((between %/% 8L + 1L) * 8L)
+        extra <- c(0L, stops - tabs)
+        columns[indices] <- columns[indices] - extra[findInterval(columns[indices], stops) + 1L]
+    }
+    columns
 }
 
 #' Extract top-level definitions and source edges without building semantic XML
@@ -398,6 +388,17 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
     }, logical(1L))
     size <- if (is.data.frame(metadata) && nrow(metadata)) metadata$size[[1L]] else NA_real_
     mtime <- if (is.data.frame(metadata) && nrow(metadata)) metadata$mtime[[1L]] else as.POSIXct(NA)
+    classes <- if (!is.null(parse_data)) parse_data$class_data$declarations else if (
+        length(expressions) && any(grepl("R6Class|setClass|setRefClass|new_class|set(Generic|GroupGeneric|Method|ReplaceMethod)|\\\\", content))) {
+        data <- utils::getParseData(expressions)
+        if (any(tabbed) && identical(text, enc2utf8(content))) {
+            # R expands tabs in parser columns. Full provider parses use physical character offsets.
+            data$col1 <- index_physical_columns(data$col1 - 1L, data$line1, text, tabbed) + 1L
+            data$col2 <- index_physical_columns(data$col2, data$line2, text, tabbed)
+        }
+        class_source_declarations(syntax_parse_data(data), content, path_to_uri(path), incomplete_lines)
+    }
+    if (is.null(parse_data)) definitions <- class_binding_definitions(definitions, classes)
     list(
         uri = path_to_uri(path),
         path = path,
@@ -405,6 +406,7 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
         mtime = as.numeric(mtime),
         content_hash = get_content_hash(content),
         definitions = definitions,
+        class_declarations = classes,
         functions = functions,
         s4_declarations = if (is.null(parse_data)) s4_declarations(expressions, content, incomplete_lines) else
             parse_data$s4_declarations,
@@ -899,7 +901,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             if (isTRUE(discard_summary) && self$summaries$has(uri)) {
                 empty <- self$summaries$get(uri)
                 empty$sources <- empty$source_candidates <- character()
-                empty$definitions <- empty$functions <- empty$s4_declarations <- list()
+                empty$definitions <- empty$functions <- empty$class_declarations <- empty$s4_declarations <- list()
                 empty$parse_error <- FALSE
                 empty$package_root <- NULL
                 self$set_summary(empty)
@@ -1559,7 +1561,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             if (!is.null(previous)) {
                 empty <- previous
                 empty$sources <- empty$source_candidates <- character()
-                empty$definitions <- empty$functions <- empty$s4_declarations <- list()
+                empty$definitions <- empty$functions <- empty$class_declarations <- empty$s4_declarations <- list()
                 empty$parse_error <- FALSE
                 empty$package_root <- NULL
                 self$set_summary(empty)
@@ -1686,7 +1688,9 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
 
         definitions_for_query = function(pattern) {
             if (is.null(private$catalog) || !identical(private$catalog_revision, self$revision)) {
-                summaries <- self$summaries$values()
+                summaries <- lapply(self$summaries$values(), function(summary) {
+                    list(uri = summary$uri, definitions = class_search_definitions(summary$definitions, summary$class_declarations))
+                })
                 sizes <- vapply(summaries, function(summary) length(names(summary$definitions)), integer(1L))
                 private$catalog <- list(
                     summaries = summaries,

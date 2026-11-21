@@ -1,3 +1,46 @@
+# The package-definition and S3-implementation providers expose the same
+# generated source to virtual-document clients and file-based clients.
+package_body_definition <- function(pkgname, symbol, code, scheme = NULL) {
+    text <- c(
+        "# Generated from function body. Editing this file has no effect.",
+        code
+    )
+    if (!is.null(scheme)) {
+        uri <- paste0(scheme, ":/",
+            text_document_content_segment(pkgname), "/",
+            text_document_content_segment(symbol), ".R")
+        def <- list(uri = uri, range = range(
+            position(0L, 0L), position(length(text), 0L)))
+        attr(def, "text_document_content") <- paste0(
+            paste(text, collapse = "\n"), "\n")
+        attr(def, "namespace") <- pkgname
+        return(def)
+    }
+
+    # Legacy clients open the generated body through a normal file URI.
+    # Separate package and symbol identities on case-insensitive filesystems.
+    # R bindings can be operators or names that are not valid filenames.
+    folder <- file.path(tempdir(), "languageserver-definitions",
+        digest::digest(c(pkgname, symbol), algo = "xxhash64"))
+    dir.create(folder, recursive = TRUE, showWarnings = FALSE)
+    label <- text_document_content_segment(symbol)
+    if (nchar(label, type = "bytes") > 96L ||
+            grepl("^(con|prn|aux|nul|com[1-9]|lpt[1-9])([.]|$)", label, ignore.case = TRUE)) {
+        label <- "definition"
+    }
+    temp_file <- file.path(folder, paste0(label, ".R"))
+    write_text_lines(text, temp_file)
+    def <- list(
+        uri = path_to_uri(temp_file),
+        range = range(
+            start = position(line = 0, character = 0),
+            end = position(line = length(code) + 1, character = 0)
+        )
+    )
+    attr(def, "namespace") <- pkgname
+    def
+}
+
 #' A class for storing package information
 #' @noRd
 PackageNamespace <- R6::R6Class("PackageNamespace",
@@ -223,34 +266,7 @@ PackageNamespace <- R6::R6Class("PackageNamespace",
                 return(NULL)
             }
 
-            text <- c(
-                "# Generated from function body. Editing this file has no effect.",
-                code
-            )
-            if (!is.null(content_scheme)) {
-                uri <- paste0(content_scheme, ":/",
-                    text_document_content_segment(self$package_name), "/",
-                    text_document_content_segment(symbol), ".R")
-                def <- list(uri = uri, range = range(
-                    position(0L, 0L), position(length(text), 0L)))
-                attr(def, "text_document_content") <- paste0(
-                    paste(text, collapse = "\n"), "\n")
-                attr(def, "namespace") <- self$package_name
-                return(def)
-            }
-
-            # Legacy clients open the generated body through a normal file URI.
-            temp_file <- file.path(tempdir(), paste0(symbol, ".R"))
-            write_text_lines(text, temp_file)
-            def <- list(
-                uri = path_to_uri(temp_file),
-                range = range(
-                    start = position(line = 0, character = 0),
-                    end = position(line = length(code) + 1, character = 0)
-                )
-            )
-            attr(def, "namespace") <- self$package_name
-            def
+            package_body_definition(self$package_name, symbol, code, content_scheme)
         },
 
         get_body = function(funct, exported_only = TRUE) {

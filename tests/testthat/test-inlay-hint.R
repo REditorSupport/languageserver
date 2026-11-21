@@ -205,9 +205,9 @@ test_that("inlay hint helpers handle malformed and empty calls", {
     expect_length(groups, 1L)
     expect_length(groups[[1L]]$nodes, 0L)
 
-    expect_equal(match_named_formal("alpha", c("alpha", "beta")), 1L)
-    expect_equal(match_named_formal("al", c("alpha", "beta")), 1L)
-    expect_true(is.na(match_named_formal("a", c("alpha", "alpine"))))
+    expect_equal(inlay_positional_formals(c("alpha", "beta"), "alpha"), 2L)
+    expect_equal(inlay_positional_formals(c("alpha", "beta"), "al"), 2L)
+    expect_length(inlay_positional_formals(c("alpha", "alpine"), "a"), 0L)
 })
 
 test_that("inlay hints handle empty parse data and boundary ranges", {
@@ -872,4 +872,25 @@ test_that("inlay hints ignore computed callees while hinting nested callee calls
             c(8L, 13L)
         )
     }
+})
+
+test_that("inlay hints probe bare aliases without inferring ordinary calls in a class file", {
+    fixture <- provider_fixture(c(
+        'C <- R6::R6Class("C", public=list(initialize=function(width, height) NULL))',
+        "add <- function(left, right) NULL",
+        "box <- list(run=function(first, second) NULL)", "alias <- box$run", "make <- C$new",
+        "add(10, 20)", "alias(10, 20)", "make(10, 20)", "box$run(10, 20)", "add(30, 40)"
+    ), function(...) formals(function(left, right) NULL))
+    original <- inlay_call_context
+    probed <- integer()
+    testthat::local_mocked_bindings(inlay_call_context = function(workspace, document, opening, member, symbols, generic) {
+        probed <<- c(probed, opening$line)
+        original(workspace, document, opening, member, symbols, generic)
+    })
+    result <- inlay_hint_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+        range(position(5L, 0L), position(10L, 0L)))$result
+    expect_equal(probed, 6:8)
+    expect_equal(vapply(result, `[[`, "", "label"), paste(c(
+        "left", "right", "first", "second", "width", "height", "first", "second", "left", "right"
+    ), "="))
 })

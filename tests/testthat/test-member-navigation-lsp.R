@@ -68,9 +68,19 @@ test_that("a function assigned with double brackets is available through either 
         signature <- respond_signature(client, path, c(row, arg_col), retry = FALSE)
         expect_identical(signature$signatures[[1L]]$label, "fun2(x, y)")
         expect_equal(signature$activeParameter, if (row == 6L) 0L else 1L)
-        args <- respond_completion(client, path, c(row, opening), retry = FALSE)$items
-        args <- Filter(function(item) !is.null(item$data$parameter), args)
-        expect_identical(vapply(args, `[[`, character(1L), "insertText"), c("x = ", "y = "))
+        arguments_at <- function(col) {
+            items <- respond_completion(client, path, c(row, col), retry = FALSE)$items
+            args <- Filter(function(item) !is.null(item$data$parameter), items)
+            vapply(args, `[[`, character(1L), "insertText")
+        }
+        if (row == 6L) {
+            expect_identical(arguments_at(opening), c("x = ", "y = "))
+        } else {
+            # Each positional value already supplies its own formal. Editing
+            # either value offers its name and preserves the other binding.
+            expect_identical(arguments_at(opening), "x = ")
+            expect_identical(arguments_at(arg_col), "y = ")
+        }
     }
     members <- respond_completion(client, path, c(4L, 4L), retry = FALSE)$items
     expect_identical(members[[1L]]$detail, "fun2(x, y)")

@@ -292,6 +292,9 @@ member_s7_call <- function(expr, index, bindings, budget, method = member_s7_met
                 name <- if (nzchar(keys[[i]])) keys[[i]] else property$name
                 if (is.null(name) || !nzchar(name) || name %in% keys[seq_len(i - 1L)]) return(member_value(reason = "dynamic_s7_properties"))
                 keys[[i]] <- name
+                if (identical(budget$origin_name, name)) {
+                    property$origin <- attr(args$properties, "member_origins", exact = TRUE)[[as.character(i)]]
+                }
                 properties[name] <- list(property)
                 own <- c(own, name)
             }
@@ -318,6 +321,7 @@ member_s7_call <- function(expr, index, bindings, budget, method = member_s7_met
             package = package, abstract = abstract,
             constructor = constructor, custom = custom, own = own, forward = if (!custom) forward else FALSE,
             modes = modes[c("class_ref", "overrides")])
+        descriptor$origin <- attr(expr, "class_origin", exact = TRUE)
         return(member_s7_generator(descriptor, bindings))
     }
     if (method == "prop") {
