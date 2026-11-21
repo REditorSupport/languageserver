@@ -433,6 +433,22 @@ test_that("Semantic parse data handles UTF-16 and multiline tokens", {
     )
 })
 
+test_that("Multiline semantic tokens keep exact UTF-16 spans in full and partial parses", {
+    astral <- intToUtf8(0x10400)
+    content <- c(paste0('x <- "', astral), "", paste0(astral, '"; y <- "'),
+        paste0(astral, '"'))
+    data <- utils::getParseData(parse(text = content, keep.source = TRUE))
+    for (selected in list(NULL, 1:3, 2L)) {
+        semantic <- semantic_parse_data(data, content, only_lines = selected)
+        strings <- semantic$types == SemanticTokenTypes$string
+        lines <- c(0L, 2L, 2L, 3L)
+        keep <- if (is.null(selected)) rep(TRUE, length(lines)) else lines %in% selected
+        expect_identical(semantic$lines[strings], lines[keep])
+        expect_identical(semantic$cols[strings], c(5L, 0L, 10L, 0L)[keep])
+        expect_identical(semantic$lengths[strings], c(3L, 3L, 1L, 3L)[keep])
+    }
+})
+
 test_that("Function assignment names are function declarations", {
     content <- c(
         "fn <- function(x) x",
