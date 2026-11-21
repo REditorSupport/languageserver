@@ -449,6 +449,21 @@ test_that("Multiline semantic tokens keep exact UTF-16 spans in full and partial
     }
 })
 
+test_that("Sparse semantic lines preserve shared boundaries and clip multiline tokens to the document", {
+    astral <- intToUtf8(0x10400)
+    content <- c('"one', paste0(astral, '"; "three'), 'four";', '"five', 'six"')
+    data <- utils::getParseData(parse(text = content, keep.source = TRUE))
+    full <- semantic_parse_data(data, content)
+    columns <- c("lines", "cols", "lengths", "types", "modifiers")
+    for (size in c(0L, 2L, length(content))) {
+        for (wanted in list(integer(), c(1L, 1L, 3L, 4L, 8L))) {
+            partial <- semantic_parse_data(data, content[seq_len(size)], only_lines = wanted)
+            keep <- full$lines < size & full$lines %in% wanted
+            expect_identical(partial[columns], lapply(full[columns], `[`, keep))
+        }
+    }
+})
+
 test_that("Function assignment names are function declarations", {
     content <- c(
         "fn <- function(x) x",

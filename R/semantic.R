@@ -669,14 +669,19 @@ semantic_parse_data <- function(data, content, syntax = NULL,
     # once per source line.
     multi <- rows[data$line1[rows] != data$line2[rows]]
     if (length(multi)) {
-        spans <- pmax.int(0L, pmin.int(length(content), data$line2[multi]) - data$line1[multi] + 1L)
-        lines <- sequence(spans, from = data$line1[multi])
-        source_rows <- rep.int(multi, spans)
+        first <- data$line1[multi]
+        last <- pmin.int(length(content), data$line2[multi])
         if (!is.null(only_lines)) {
-            keep <- (lines - 1L) %in% only_lines
-            lines <- lines[keep]
-            source_rows <- source_rows[keep]
+            # Find the slice of requested lines covered by each token. Two
+            # tokens ending and starting on one line each retain their span.
+            only_lines <- unique(only_lines)
+            first <- findInterval(first - 2L, only_lines) + 1L
+            last <- findInterval(last - 1L, only_lines)
         }
+        spans <- pmax.int(0L, last - first + 1L)
+        lines <- sequence(spans, from = first)
+        if (!is.null(only_lines)) lines <- only_lines[lines] + 1L
+        source_rows <- rep.int(multi, spans)
         widths <- nchar(content[lines])
         first <- lines == data$line1[source_rows]
         last <- lines == data$line2[source_rows]
@@ -692,16 +697,12 @@ semantic_parse_data <- function(data, content, syntax = NULL,
         modifiers <- c(modifiers, (token == "SYMBOL_FORMALS") * semantic_declaration_modifier)
     }
 
-    if (is.null(only_lines)) {
-        non_ascii_lines <- nchar(content, type = "bytes") != nchar(content, type = "chars")
-    } else {
-        non_ascii_lines <- logical(length(content))
+    if (!is.null(only_lines)) {
         used <- unique(line1_vec)
-        non_ascii_lines[used] <- nchar(content[used], type = "bytes") != nchar(content[used], type = "chars")
+        units <- syntax_unit_columns(content[used], match(line1_vec, used), start_cp, end_cp)
+    } else {
+        units <- syntax_unit_columns(content, line1_vec, start_cp, end_cp)
     }
-    units <- syntax_unit_columns(
-        content, line1_vec, start_cp, end_cp, non_ascii_lines
-    )
     cols <- units$start
     lengths <- as.integer(units$end - units$start)
 

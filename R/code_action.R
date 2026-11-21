@@ -341,15 +341,24 @@ code_action_non_overlapping_fixes <- function(fixes) {
     priority <- vapply(fixes, function(fix) fix$priority, integer(1L))
     line <- vapply(fixes, function(fix) fix$edit$range$start$line, numeric(1L))
     col <- vapply(fixes, function(fix) fix$edit$range$start$character, numeric(1L))
-    last <- vapply(fixes, function(fix) fix$edit$range$end$line, numeric(1L))
+    end_line <- vapply(fixes, function(fix) fix$edit$range$end$line, numeric(1L))
+    end_col <- vapply(fixes, function(fix) fix$edit$range$end$character, numeric(1L))
     ordered <- order(line, col, -priority)
 
-    # Only edits sharing source lines can conflict. Include every line of a
-    # multi-line edit when partitioning, then retain the priority rule within
-    # each group. Source order breaks ties between fixes of equal priority.
-    groups <- cumsum(c(TRUE, line[ordered][-1L] > cummax(last[ordered])[-length(ordered)]))
+    # A start at or past the furthest preceding end cannot overlap any earlier
+    # edit. An insertion strictly inside a range stays in its conflict group.
+    boundary <- logical(length(ordered))
+    right_line <- right_col <- -1
+    for (j in seq_along(ordered)) {
+        i <- ordered[[j]]
+        boundary[[j]] <- line[[i]] > right_line || (line[[i]] == right_line && col[[i]] >= right_col)
+        if (end_line[[i]] > right_line || (end_line[[i]] == right_line && end_col[[i]] > right_col)) {
+            right_line <- end_line[[i]]
+            right_col <- end_col[[i]]
+        }
+    }
     selected <- rep(TRUE, length(fixes))
-    for (group in split(ordered, groups)) {
+    for (group in split(ordered, cumsum(boundary))) {
         if (length(group) < 2L) next
         accepted <- integer()
         for (i in group[order(-priority[group])]) {

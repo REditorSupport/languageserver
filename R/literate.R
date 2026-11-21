@@ -1,3 +1,7 @@
+literate_fence_or_div <- "^ {0,3}(?:`{3}|~{3}|:{3})"
+literate_region_marker <- paste(literate_fence_or_div, "^[ \\t]*#\\|",
+    "^\ufeff?(?:---|\\.\\.\\.)[ \\t]*$", sep = "|")
+
 #' Parse the structural regions of an R Markdown or Quarto document
 #'
 #' The returned model is line preserving. Fenced code blocks and fenced divs
@@ -119,7 +123,7 @@ parse_literate_regions <- function(content) {
     cell <- NULL
     # Only fence and div markers can change the state. Find possible markers
     # in one pass so an edit need not parse every prose and code line in R.
-    boundaries <- grep("^ {0,3}(?:`{3}|~{3}|:{3})", content, perl = TRUE)
+    boundaries <- grep(literate_fence_or_div, content, perl = TRUE)
     for (i in boundaries[boundaries > yaml_end]) {
         line <- content[[i]]
 
@@ -272,7 +276,7 @@ update_literate_regions <- function(regions, previous, content, range) {
     if (!is.null(regions) && length(row) == 1L && row == range$end$line &&
             row >= 0L && row < length(content) && length(previous) == length(content)) {
         lines <- c(previous[[row + 1L]], content[[row + 1L]])
-        if (!any(grepl("^[ \\t]*[-.`~:#\ufeff]", lines, perl = TRUE))) return(regions)
+        if (!any(grepl(literate_region_marker, lines, perl = TRUE))) return(regions)
     }
     parse_literate_regions(content)
 }

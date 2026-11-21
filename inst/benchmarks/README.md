@@ -7,7 +7,7 @@ workloads, not timing assertions in the test suite.
 
 ## Repository performance review
 
-This review compares the performance branch with `bcdff9e` on macOS arm64,
+The table compares performance commit `622fe20` with `bcdff9e` on macOS arm64,
 R 4.6.1. The corpus comprises all 89 R source files from that commit.
 Both installed revisions read the same inputs. The checks compare semantic
 tokens, definition names, referenced packages and member-analysis flags.
@@ -35,13 +35,21 @@ The corpus timer includes classification checksums and excludes file I/O.
 An earlier five-sample run took 4.31 s before and 3.67 s after, giving a
 15–27% reduction in elapsed time across the two comparisons.
 
-Fix All compares edits within overlapping line ranges. The first extraction
+Fix All compares edits within groups of potentially overlapping ranges. The first extraction
 still constructs XML on demand. Subsequent refactorings can narrow selection
 and binding lookups to candidate positions. S3 resolution hashes peer files
 for sources actually supplying bindings. Member completion follows each
 required statement's dependencies once. The Quarto region model survives
 ordinary same-line edits, and a structural edit examines candidate fence and
 div markers across the document.
+
+Follow-up measurements against `622fe20` cover two more editor requests.
+Fix All for 600 disjoint assignments on one physical line fell from 1,449
+to 49 ms after partitioning edits by both line and UTF-16 column. Editing a
+Markdown heading in the same Quarto fixture fell from 12.5 to 0.1 ms after
+narrowing the region check to structural markers. Both are three-sample medians.
+Classifying three requested lines from a 250,000-line multiline literal also
+reduced R allocations from 8.59 MiB to 2.54 KiB by expanding just those lines.
 
 Batched multiline tokens reduced total R allocations for the SQL classification
 from 273 to 5.4 MiB. For 2,000 functions with distinct parameter names, storing

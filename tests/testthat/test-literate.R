@@ -76,6 +76,18 @@ test_that("editing an indented fence updates the surrounding R and Markdown line
     expect_identical(tail(doc$regions$line_type, 3L), rep("r", 3L))
 })
 
+test_that("edits to ordinary headings, list items and R comments reuse literate regions", {
+    doc <- Document$new("file:///report.qmd", content = c("# Title", "- item", "```{r}", "# comment", "```"))
+    regions <- doc$regions
+    local_mocked_bindings(parse_literate_regions = function(...) stop("Unexpected full region scan"))
+    for (row in c(0L, 1L, 3L)) {
+        edit <- list(range = range(position(row, 2L), position(row, 3L)), text = "X")
+        doc$apply_content_changes(2L, list(edit))
+    }
+    expect_identical(doc$content, c("# Xitle", "- Xtem", "```{r}", "# Xomment", "```"))
+    expect_identical(doc$regions, regions)
+})
+
 test_that("incremental literate regions agree with a full scan across structural edits", {
     content <- c("title", "text", "---", "```{r}", "#| label: old", "x <- 1", "```", "end")
     doc <- Document$new("file:///report.qmd", content = content)

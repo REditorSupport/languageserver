@@ -414,3 +414,19 @@ test_that("fix-all retains priority across lines and permits insertions at bound
     )
     expect_identical(code_action_non_overlapping_fixes(fixes), fixes[c(4, 3, 2, 6)])
 })
+
+test_that("fix-all skips conflict checks for disjoint edits on a single line", {
+    uri <- "file:///same-line.R"
+    doc <- Document$new(uri, content = "'\U0001f408';x=1;y=2")
+    diagnostics <- lapply(c(6L, 10L), function(col) {
+        list(source = "lintr", code = "assignment_linter",
+            range = range(position(0L, col), position(0L, col + 1L)))
+    })
+    testthat::local_mocked_bindings(
+        code_action_edits_overlap = function(...) stop("Compared disjoint edits"),
+        .package = "languageserver")
+    reply <- document_code_action_reply(1L, uri, NULL, doc, list(),
+        list(only = "source.fixAll", diagnostics = rev(diagnostics)))
+    expect_identical(reply$result[[1L]]$edit$changes[[uri]],
+        lapply(diagnostics, function(item) text_edit(item$range, " <- ")))
+})

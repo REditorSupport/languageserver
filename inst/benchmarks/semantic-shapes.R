@@ -53,3 +53,14 @@ for (workload in names(inputs)) {
     results <- rbind(measure(workload, operation, stage), measure(workload, "parse document", full))
     print(results, row.names = FALSE)
 }
+
+# Partial recovery can request just a few lines from one long literal.
+content <- c('query <- "SELECT id', rep("FROM source_table", size * 100), 'ORDER BY id"')
+data <- utils::getParseData(parse(text = content, keep.source = TRUE))
+wanted <- as.integer(c(1L, length(content) %/% 2L, length(content) - 1L))
+partial <- function() ns$semantic_parse_data(data, content, only_lines = wanted)
+tokens <- partial()
+stopifnot(identical(tokens$lines, wanted), all(tokens$cols == 0L),
+    identical(tokens$lengths, nchar(content[wanted + 1L])),
+    all(tokens$types == ns$SemanticTokenTypes$string))
+print(measure("sql", "three lines from a long literal", partial), row.names = FALSE)

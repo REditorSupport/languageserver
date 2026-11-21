@@ -40,6 +40,7 @@ measure <- function(operation, row, col, alternatives) {
 }
 results <- rbind(
     measure("prose", length(content) - 1L, 0L, c("A", "a")),
+    measure("heading", max(which(content == "# Results")) - 1L, 2L, c("R", "r")),
     measure("closing fence", max(which(content == "``` ")) - 1L, 3L, c(" ", "\t"))
 )
 utils::write.csv(results, output, row.names = FALSE)
