@@ -117,8 +117,10 @@ parse_literate_regions <- function(content) {
 
     div_stack <- list()
     cell <- NULL
-    i <- yaml_end + 1L
-    while (i <= nline) {
+    # Only fence and div markers can change the state. Find possible markers
+    # in one pass so an edit need not parse every prose and code line in R.
+    boundaries <- grep("^ {0,3}(?:`{3}|~{3}|:{3})", content, perl = TRUE)
+    for (i in boundaries[boundaries > yaml_end]) {
         line <- content[[i]]
 
         if (!is.null(cell)) {
@@ -129,7 +131,6 @@ parse_literate_regions <- function(content) {
                 cells[[length(cells) + 1L]] <- cell
                 cell <- NULL
             }
-            i <- i + 1L
             next
         }
 
@@ -148,7 +149,6 @@ parse_literate_regions <- function(content) {
                 label = header_label(opening$info, engine),
                 option_lines = integer()
             )
-            i <- i + 1L
             next
         }
 
@@ -188,7 +188,6 @@ parse_literate_regions <- function(content) {
                 line_type[[i]] <- "div"
             }
         }
-        i <- i + 1L
     }
 
     if (!is.null(cell)) {
@@ -262,6 +261,20 @@ parse_literate_regions <- function(content) {
         divs = divs,
         cells = cells
     )
+}
+
+# A same-line edit to ordinary prose or code preserves every stored region,
+# including line numbers. Recheck lines starting like a code fence, div, YAML
+# delimiter (including a BOM) or cell option: editing either side can change
+# the interpretation of the rest of the file or a cell's label.
+update_literate_regions <- function(regions, previous, content, range) {
+    row <- range$start$line
+    if (!is.null(regions) && length(row) == 1L && row == range$end$line &&
+            row >= 0L && row < length(content) && length(previous) == length(content)) {
+        lines <- c(previous[[row + 1L]], content[[row + 1L]])
+        if (!any(grepl("^[ \\t]*[-.`~:#\ufeff]", lines, perl = TRUE))) return(regions)
+    }
+    parse_literate_regions(content)
 }
 
 #' Return the R code runs in a literate document

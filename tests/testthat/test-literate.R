@@ -55,6 +55,50 @@ test_that("literate regions distinguish YAML Markdown divs and cells", {
     expect_identical(regions$cells[[2L]]$label, "quoted-cell")
 })
 
+test_that("editing an indented fence updates the surrounding R and Markdown lines", {
+    content <- c(
+        "    ~~~~{r}", "\t:::: ignored", "   :::: {.outer}", "   ````{r}",
+        "#| label: example", "x <- 1", "  ```", "    ````", "  ~~~~",
+        "::: inner text", "  ```` extra", "   ````\t", "::::", "prose"
+    )
+    doc <- Document$new("file:///fences.qmd", content = content)
+    expect_identical(doc$regions$line_type,
+        c("markdown", "markdown", "div", "cell", "yaml", rep("r", 6L),
+            "cell", "div", "markdown"))
+    expect_identical(doc$regions$cells[[1L]]$label, "example")
+    expect_true(doc$regions$divs[[1L]]$closed)
+
+    # A four-space indent makes the former closer part of the unclosed cell.
+    doc$apply_content_changes(2L, list(list(
+        range = range(position(11L, 0L), position(11L, 0L)), text = " ")))
+    expect_false(doc$regions$cells[[1L]]$closed)
+    expect_false(doc$regions$divs[[1L]]$closed)
+    expect_identical(tail(doc$regions$line_type, 3L), rep("r", 3L))
+})
+
+test_that("incremental literate regions agree with a full scan across structural edits", {
+    content <- c("title", "text", "---", "```{r}", "#| label: old", "x <- 1", "```", "end")
+    doc <- Document$new("file:///report.qmd", content = content)
+    replace <- function(row, length, text) {
+        list(range = range(position(row, 0L), position(row, length)), text = text)
+    }
+    change <- function(...) {
+        doc$apply_content_changes(2L, list(...))
+        expect_identical(doc$regions, parse_literate_regions(doc$content))
+    }
+    change(replace(0L, 5L, "\ufeff---"), replace(1L, 4L, "title: new"))
+    expect_true(doc$regions$yaml[[1L]]$closed)
+    change(replace(2L, 3L, "ordinary"))
+    expect_false(doc$regions$yaml[[1L]]$closed)
+    change(replace(2L, 8L, "..."), replace(4L, 12L, "value"),
+        replace(5L, 6L, "\t#| label: new"))
+    expect_identical(doc$regions$cells[[1L]]$label, "new")
+    change(replace(6L, 3L, "`\n``"))
+    expect_false(doc$regions$cells[[1L]]$closed)
+    change(replace(4L, 5L, "new_value"), replace(7L, 2L, "```"))
+    expect_true(doc$regions$cells[[1L]]$closed)
+})
+
 test_that("scope is limited to R code rather than executable-cell metadata", {
     content <- c(
         "---", "title: value", "---",
