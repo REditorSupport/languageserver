@@ -30,9 +30,31 @@ definition_reply <- function(id, uri, workspace, document, point,
                 return(Response$new(id, result = tag$definition))
             }
         }
+        if (is.null(parsed$syntax_data)) {
+            formal <- xml_argument_definition(document, parsed, point)
+            if (!is.null(formal)) return(Response$new(id, result = formal))
+        }
     }
 
     symbol_definition_reply(id, uri, workspace, document, point, rootPath, context_uri, text_document_content)
+}
+
+# Older parse snapshots have XML instead of the compact navigation index.
+xml_argument_definition <- function(document, parsed, point) {
+    xdoc <- parse_data_xml(parsed)
+    if (is.null(xdoc)) return(NULL)
+    row <- point$row + 1L
+    col <- point$col + 1L
+    token <- xdoc_find_token(xdoc, row, col)
+    if (!identical(xml_name(token), "SYMBOL_SUB")) return(NULL)
+    name <- xml_find_chr_(token, "string(../expr[1][count(*)=1]/SYMBOL_FUNCTION_CALL)")
+    if (!nzchar(name)) return(NULL)
+    xpath <- glue(signature_xpath, row = row, token_quote = xml_single_quote(name))
+    fns <- xdoc_find_definitions(xdoc, row, col, name, xpath)
+    if (!length(fns)) return(NULL)
+    args <- xml_find_all_(fns[[length(fns)]], "SYMBOL_FORMALS")
+    i <- match(xml_text(token), xml_text(args))
+    if (!is.na(i)) location(document$uri, get_element_range(document, args[[i]]))
 }
 
 # Reference, rename and call-hierarchy indexes track lexical symbols separately
