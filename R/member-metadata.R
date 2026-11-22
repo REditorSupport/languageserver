@@ -14,8 +14,8 @@ member_base_intrinsics <- c(
     "|", "!", "==", "!=", ">", "<", ">=", "<=", "&&", "||"
 )
 
-member_binding <- function(env, name, materialize = FALSE) {
-    .Call("member_binding_c", env, name, materialize, PACKAGE = "languageserver")
+member_binding <- function(env, name, materialize = FALSE, inspect = FALSE) {
+    .Call("member_binding_c", env, name, materialize, inspect, PACKAGE = "languageserver")
 }
 
 # Packages installed with keep.source carry source references on every `{`
@@ -104,17 +104,45 @@ member_list_storage <- function(value) {
 
 # Internal subset generics use the registered method table in base. Read
 # identities only in the worker; request handlers never look up runtime methods.
+member_s7_registered_accessor <- function(table, key) {
+    registered <- member_binding(table, key, inspect = TRUE)
+    if (!identical(registered[[1L]], "deferred")) return(registered)
+    # Base registers namespace methods lazily via assignWrapped(). Inspect
+    # its lookup and captured arguments without evaluating the promise.
+    origin <- registered[[2L]]
+    scope <- origin[[2L]]
+    if (!identical(origin[[1L]], quote(get(method, envir = home))) ||
+            !is.environment(scope) || !identical(topenv(scope), .BaseNamespaceEnv)) return(registered)
+    lookup <- scope
+    while (!identical(lookup, .BaseNamespaceEnv)) {
+        if (exists("get", lookup, inherits = FALSE)) return(registered)
+        lookup <- parent.env(lookup)
+    }
+    method <- member_binding(scope, "method")
+    if (!identical(method[[1L]], "value") || !is.character(method[[2L]]) || is.object(method[[2L]]) ||
+            length(method[[2L]]) != 1L || !identical(method[[2L]][[1L]], key) ||
+            !identical(member_binding(scope, "home"), list("value", asNamespace("S7")))) return(registered)
+    member_binding(asNamespace("S7"), key, materialize = TRUE)
+}
+
 member_subset_registry <- function(ns, package) {
     record <- member_binding(asNamespace("base"), ".__S3MethodsTable__.")
     if (!identical(record[[1L]], "value") || !is.environment(record[[2L]])) {
         return(list(methods = character(), complete = FALSE))
     }
     table <- record[[2L]]
-    keys <- package_metadata_sort(ls(table, all.names = TRUE, sorted = FALSE))
-    keys <- keys[startsWith(keys, "[.") | startsWith(keys, "[[.")]
+    keys <- ls(table, all.names = TRUE, sorted = FALSE)
+    keys <- keys[startsWith(keys, "[.") | startsWith(keys, "[[.") | startsWith(keys, "[[<-.") |
+            startsWith(keys, "$.") | startsWith(keys, "$<-.")]
     if (length(keys) > 5000L) return(list(methods = character(), complete = FALSE))
-    methods <- stats::setNames(vapply(keys, function(key) {
-        registered <- member_binding(table, key)
+    keys <- package_metadata_sort(keys)
+    # A competing accessor's name is enough to rule out default S7 environment
+    # access. Inspect identities only for subset reads and the S7 delegation.
+    methods <- stats::setNames(rep.int("opaque", length(keys)), keys)
+    inspect <- startsWith(keys, "[.") | startsWith(keys, "[[.") | endsWith(keys, ".S7_object")
+    s7_accessors <- if ("S7" %in% loadedNamespaces()) c("$.S7_object", "$<-.S7_object", "[[.S7_object", "[[<-.S7_object")
+    methods[inspect] <- vapply(keys[inspect], function(key) {
+        registered <- if (key %in% s7_accessors) member_s7_registered_accessor(table, key) else member_binding(table, key)
         if (!identical(registered[[1L]], "value") || typeof(registered[[2L]]) != "closure") return("opaque")
         fn <- registered[[2L]]
         if (key %in% c("[.data.frame", "[[.data.frame")) {
@@ -133,7 +161,7 @@ member_subset_registry <- function(ns, package) {
             if (!identical(original[[1L]], "value") || !identical(original[[2L]], fn)) return("opaque")
         }
         paste0("namespace:", provider, ":", digest::digest(member_function_syntax(fn), algo = "xxhash64"))
-    }, character(1L)), keys)
+    }, character(1L))
     list(methods = methods, complete = TRUE)
 }
 

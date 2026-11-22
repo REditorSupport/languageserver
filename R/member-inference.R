@@ -336,6 +336,13 @@ member_write_container <- function(object, field, value, name, origin, index, bi
         return(member_s7_update_slots(object, stats::setNames(list(value), field)))
     }
     setter <- if (subset) "[[<-" else "$<-"
+    if (isTRUE(object$s7_exact_class)) {
+        storage <- member_s7_environment_storage(object, setter, index, bindings)
+        if (is.null(storage)) return(NULL)
+        storage$fields[field] <- list(member_write_value(value, name, origin))
+        object$s7_storage <- storage
+        return(object)
+    }
     if (!member_plain_container(object) || member_operator_masked(setter, index, bindings)) return(NULL)
     value <- member_write_value(value, name, origin)
     if (identical(object$type, "environment")) {
@@ -473,6 +480,7 @@ member_shape_key <- function(value, depth = 0L) {
         slot_types = value$slot_types, s4_class = value$s4_class,
         s4_generator = value$s4_generator, s4_contains = value$s4_contains,
         s7 = value$s7, s7_descriptor = value$s7_descriptor,
+        s7_storage = if (!is.null(value$s7_storage)) member_shape_key(value$s7_storage, depth + 1L),
         r6_private = member_shape_key(value$r6_private, depth + 1L),
         # Class-shape instances omit `r6_super` and build it on demand; key the
         # same surface `r6_super` held before so fixed-point checks match.
@@ -508,7 +516,7 @@ member_cacheable <- function(value, depth = 0L) {
         return(FALSE)
     }
     all(vapply(
-        c(value$fields, value$slots, value$elements, value[c("r6_private", "r6_super", "r6_self")],
+        c(value$fields, value$slots, value$elements, value[c("r6_private", "r6_super", "r6_self", "s7_storage")],
             if (!is.null(value$element_shape)) list(value$element_shape)),
         member_cacheable, logical(1L), depth + 1L
     ))
@@ -527,7 +535,7 @@ member_assigned_names <- function(node) {
 member_function_closure <- function(expr, bindings) {
     if (!length(bindings)) return(list())
     # Replacement syntax implicitly invokes a lexical setter.
-    internal <- intersect(names(bindings), c("$<-", "[[<-", "@<-", ".__member_position__", ".__member_properties__",
+    internal <- intersect(names(bindings), c("$<-", "[[<-", "@<-", member_s7_setters, ".__member_position__", ".__member_properties__",
             ".__s4_classes__", ".__s7_package__", ".__s7_constructing__"))
     if (length(internal) == length(bindings)) return(bindings)
     referenced <- setdiff(member_syntax_names(expr), names(expr[[2L]]))
@@ -540,7 +548,11 @@ member_slot <- function(value, name, index, bindings, budget = NULL) {
     result <- if (isTRUE(value$s7)) member_s7_slot(value, name, index, bindings, budget) else
         member_s4_slot(value, name, index, bindings, budget)
     if (identical(budget$origin_name, name)) {
-        origin <- if (isTRUE(value$s7)) value$s7_descriptor$properties[[name]]$origin else value$slot_origins[[name]]
+        origin <- if (isTRUE(value$s7) && is.null(value$s7_generator)) {
+            value$s7_descriptor$properties[[name]]$origin
+        } else {
+            value$slot_origins[[name]]
+        }
         result$origin <- origin
     }
     result
@@ -612,6 +624,10 @@ member_stored_field <- function(lhs, value) {
 member_access <- function(lhs, name, index, bindings) {
     unknown <- member_value(reason = "unsupported")
     if (is.null(name)) return(unknown)
+    if (!is.null(lhs$s7_storage) && member_s7_reference(lhs)) {
+        storage <- member_s7_environment_storage(lhs, "$", index, bindings)
+        return(if (is.null(storage)) unknown else member_access(storage, name, index, bindings))
+    }
     possible <- member_possible_receiver(lhs, index, bindings)
     if (!is.null(possible)) {
         if (!name %in% possible$members) return(unknown)
@@ -727,7 +743,7 @@ member_infer <- function(
     qualified <- NULL
     if (is.call(expr) && member_head(expr[[1L]], "::") && identical(expr[[1L]][[2L]], as.name("base"))) {
         target <- member_name(expr[[1L]][[3L]])
-        if (length(target) && target %in% c("list", "data.frame", "new.env")) qualified <- target
+        if (length(target) && target %in% c("list", "data.frame", "new.env", "structure")) qualified <- target
     }
     intrinsic <- function(name) {
         if (identical(name, qualified)) return(TRUE)
@@ -919,8 +935,8 @@ member_infer <- function(
                     if (reference) {
                         for (alias in member_aliases(attr(env, "member_aliases"), name)) env[alias] <- list(object)
                     }
-                } else if (surface == "fields" && member_plain_container(object)) {
-                    reference <- identical(object$type, "environment")
+                } else if (surface == "fields" && (member_plain_container(object) || isTRUE(object$s7_exact_class))) {
+                    reference <- identical(object$type, "environment") || member_s7_reference(object)
                     object <- if (!is.null(direct)) member_write_container(object, direct, value, name,
                         if (identical(budget$origin_name, direct)) attr(lhs, "member_origin", exact = TRUE), index, env, subset)
                     if (is.null(object)) object <- unknown
@@ -936,6 +952,14 @@ member_infer <- function(
                     env <- update_object(env, name, object)
                 } else if (!is.null(name)) {
                     env[name] <- list(unknown)
+                }
+            } else if (!is.null(setter <- member_s7_property_setter(lhs))) {
+                name <- member_name(lhs[[2L]])
+                object <- member_lookup(env, name)
+                updated <- member_s7_property_write(setter, object, value, index, env, budget)
+                env[[name]] <- if (is.null(updated)) unknown else updated
+                if (isTRUE(object$s7) && member_s7_reference(object)) {
+                    for (alias in member_aliases(attr(env, "member_aliases"), name)) env[alias] <- env[name]
                 }
             } else if (member_head(lhs, "class")) {
                 name <- member_name(lhs[[2L]])
@@ -1291,6 +1315,10 @@ member_infer <- function(
     if (head %in% c("[[", "[")) {
         if (head == "[[" && is.null(qualified) && member_operator_masked(head, index, bindings)) return(unknown)
         lhs <- infer(expr[[2L]])
+        if (!is.null(lhs$s7_storage) && head == "[[" && member_s7_reference(lhs)) {
+            lhs <- member_s7_environment_storage(lhs, head, index, bindings)
+            if (is.null(lhs)) return(unknown)
+        }
         elements <- member_elements(lhs)
         selector <- if (length(expr) >= 3L && !identical(expr[[3L]], quote(expr = ))) infer(expr[[3L]]) else unknown
         method <- member_subset_method(lhs, head, index, bindings, budget, depth, trail)

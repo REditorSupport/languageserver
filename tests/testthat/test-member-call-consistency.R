@@ -44,6 +44,25 @@ test_that("member completion matches supplied arguments and the active default",
     expect_identical(labels("obj$draw(1, |, 'slow')"), c("mode", "flag", "fast", "slow"))
 })
 
+test_that("S7 constructor arguments use plain insertion until an equals sign is present", {
+    skip_if_not_installed("S7", "1.0.0")
+    metadata <- list(S7 = member_prepare_package("S7"))
+    code <- c("library(S7)", "Range := new_class(",
+        "  properties = list(start = class_double, end = class_double),",
+        "  validator = function(self) if (self@end < self@start) 'invalid range'",
+        ")")
+    items <- function(line) member_consistency_probe(code, line, "items", metadata)
+    expect_identical(vapply(items("x <- Range(|)"), `[[`, "", "insertText"), c("start = ", "end = "))
+    start <- items("x <- Range(st|)")[[1L]]
+    end <- items("x <- Range(start = 1, en|)")[[1L]]
+    expect_identical(c(start$insertText, end$insertText), c("start = ", "end = "))
+    # A JSON null edit makes VS Code discard the entire completion list.
+    expect_false("textEdit" %in% names(start))
+    expect_false("textEdit" %in% names(end))
+    edit <- items("x <- Range(st|art = 1)")[[1L]]$textEdit
+    expect_identical(edit, text_edit(range(position(length(code), 11L), position(length(code), 16L)), "start"))
+})
+
 test_that("documented callables preserve signatures, spelling and help across extraction", {
     code <- c("#' Draw a picture.", "#' @param mode Choose the speed.",
         "draw <- function(mode=c('fast','slow')) NULL", 'obj <- list("two words"=draw)')
@@ -198,6 +217,145 @@ test_that("S7 package generics preserve their callable and property interfaces",
     expect_identical(probe("describe(|)", "signature")[[1L]]$label, expected)
     expect_identical(probe("describe@|", "labels"), sort(names(attr(S7::S7_class(ns$describe), "properties", exact = TRUE))))
     expect_identical(probe("S7::method(describe, Dog) <- function(pet, ...) pet@|", "labels"), "name")
+})
+
+test_that("S7 conversion methods receive a callable target class", {
+    skip_if_not_installed("S7", "1.0.0")
+    metadata <- list(S7 = member_prepare_package("S7"))
+    code <- c("library(S7)", "Foo1 := new_class(properties = list(x = class_integer))",
+        "Foo2 := new_class(Foo1, properties = list(y = class_double))")
+    method <- "method(convert, list(Foo2, Foo1)) <- function(from, to, ...) "
+    probe <- function(line, source = code) member_consistency_probe(source, paste0(method, line), "labels", metadata)
+    expect_identical(probe("from@|"), c("x", "y"))
+    expect_identical(probe("to(x|)"), "x")
+    expect_identical(probe("to@na|"), "name")
+    expect_identical(probe("to@|", c(code, 'convert := new_generic(c("from", "to"))')), "x")
+})
+
+test_that("S7_data exposes tracked base data across construction and replacement", {
+    skip_if_not_installed("S7", "1.0.0")
+    metadata <- list(S7 = member_prepare_package("S7"))
+    code <- c("library(S7)", "MyDF := new_class(parent = class_data.frame)")
+    probe <- function(line, source = code) member_consistency_probe(source, line, "labels", metadata)
+    expect_identical(probe("S7_data(MyDF(data.frame(x = 1, y = 2)))$|"), c("x", "y"))
+    edits <- c(code, "Child := new_class(MyDF, properties = list(label = class_character))",
+        'x <- Child(data.frame(before = 1), label = "current")', "alias <- x", "S7_data(x) <- data.frame(after = 2)")
+    expect_identical(probe("S7::S7_data(x)$|", edits), "after")
+    expect_identical(probe("S7_data(alias)$|", edits), "before")
+    expect_identical(probe("x@|", edits), "label")
+    expect_length(probe("S7_data(x)$|", c(edits, "S7_data(x) <- unknown()")), 0L)
+    expect_length(probe("S7_data(x)$|", c(edits, "S7_data <- function(x) unknown()")), 0L)
+    masked <- c(edits, "mask <- function(v) {", "`S7_data<-` <- function(object, value) NULL",
+        "inner <- function() { S7_data(v) <- data.frame(wrong = 1); v }", "inner()", "}")
+    expect_length(probe("S7_data(mask(x))$|", masked), 0L)
+    custom <- c(code, 'Replacement <- new_S3_class("data.frame", constructor = function(.data = list()) data.frame(other = 1))',
+        "Different := new_class(Replacement)")
+    expect_length(probe("S7_data(Different(data.frame(wrong = 1)))$|", custom), 0L)
+    lists <- c("library(S7)", "Record := new_class(class_list)", "x <- Record(list(a = 1))",
+        "f <- function(x) {", "  S7_data(x) <- list(b = 2)", "  x", "}")
+    expect_identical(probe("S7_data(f(x))$|", lists), "b")
+    expect_identical(probe("S7_data(x)$|", lists), "a")
+})
+
+test_that("S7 method registrations type the receiver of a visible S3 generic", {
+    skip_if_not_installed("S7")
+    metadata <- list(S7 = member_prepare_package("S7"))
+    code <- c("library(S7)", 'Dog <- new_class("Dog", properties = list(age = class_integer))')
+    method <- "method(print, Dog) <- function(x, ...) x@|"
+    expect_identical(member_consistency_probe(code, method, "labels", metadata), "age")
+    after <- c(code, "method(print, Dog) <- function(x, ...) x@age")
+    expect_identical(member_consistency_probe(after, method, "labels", metadata), "age")
+    masked <- c(after, "print <- function(x, ...) NULL")
+    expect_length(member_consistency_probe(masked, method, "labels", metadata), 0L)
+    local <- c(code, 'draw <- function(data, ...) UseMethod("draw")')
+    expect_identical(member_consistency_probe(local, "method(draw, Dog) <- function(data, ...) data@|",
+            "labels", metadata), "age")
+})
+
+test_that("S7 source methods complete arguments for an exact dispatch signature", {
+    skip_if_not_installed("S7", "1.0.0")
+    metadata <- list(S7 = member_prepare_package("S7"))
+    code <- c("library(S7)", 'simple_print := new_generic("x")',
+        "method(simple_print, class_double) <- function(x, ..., digits = 3) {}",
+        "method(simple_print, class_character) <- function(x, ..., max_length = 100) {}")
+    probe <- function(line, source = code, provider = "labels") member_consistency_probe(source, line, provider, metadata)
+    expect_identical(probe("simple_print(1, dig|)"), "digits")
+    expect_identical(probe('simple_print("cat", max|)'), "max_length")
+    expect_identical(probe('simple_print("cat", |)', provider = "signature")[[1L]]$label,
+        "simple_print(x, ..., max_length = 100)")
+    expect_length(probe('simple_print(structure(1, class = "Other"), dig|)'), 0L)
+    s3 <- c(code, 'method(simple_print, new_S3_class("Other")) <- function(x, ..., width = 1) {}',
+        'v <- base::structure(1, class = c("Other", "parent"))')
+    expect_identical(probe("simple_print(v, |)", s3), "width")
+    # S7 uses the same dispatch key for a package class and an S3 object
+    # bearing its qualified name.
+    qualified <- c(code, 'Box := new_class(package = "shapes")',
+        "method(simple_print, Box) <- function(x, ..., contents = TRUE) {}")
+    expect_identical(probe('simple_print(structure(1, class = "shapes::Box"), |)', qualified), "contents")
+    expect_length(probe('simple_print(structure(1, class = "other::Box"), dig|)', qualified), 0L)
+    expect_length(probe("simple_print(unknown, dig|)"), 0L)
+    expect_length(probe("simple_print(1, dig|)", c(code, "alias <- simple_print", "method(alias, class_double) <- NULL")), 0L)
+    updated <- c(code, "method(simple_print, class_numeric) <- function(x, ..., scale = 1) {}")
+    expect_identical(probe("simple_print(c(100, NA), sc|)", updated), "scale")
+    expect_length(probe("simple_print(1, dig|)", updated), 0L)
+    expect_length(probe("simple_print(1, dig|)", c(code, "method(simple_print, opaque) <- function(x, ...) {}")), 0L)
+    local <- c("library(S7)", "f <- function() {", code[-1L], 'value <- "text"')
+    expect_identical(probe("simple_print(value, max|) }", local), "max_length")
+    # A complete call retains its indexed arguments even when its enclosing
+    # function exceeds the text recovery limit.
+    long_scope <- c(code, "f <- function() {", paste0("  # ", strrep("x", 65536L)))
+    expect_identical(probe("simple_print(1, dig|) }", long_scope), "digits")
+    expect_identical(probe('simple_print("cat", max|'), "max_length")
+
+    pair <- c("library(S7)", "Dog := new_class()", "French := new_class()", 'speak := new_generic(c("x", "y"))',
+        "method(speak, list(Dog, French)) <- function(x, y, volume = 1) {}", "dog <- Dog()")
+    expect_identical(probe("speak(dog, French(), vol|)", pair), "volume")
+    expect_length(probe("speak(French(), dog, vol|)", pair), 0L)
+})
+
+test_that("S7 method dispatch keys survive edits after their declarations", {
+    skip_if_not_installed("S7", "1.0.0")
+    workspace <- Workspace$new(NULL)
+    workspace$member_metadata$set("S7", member_prepare_package("S7"))
+    uri <- "file:///s7-method-edit.R"
+    doc <- Document$new(uri, language = "r", version = 0L, content = "")
+    workspace$documents$set(uri, doc)
+    replayed <- 0L
+    register <- member_s7_register_signature
+    testthat::local_mocked_bindings(member_s7_register_signature = function(...) {
+        replayed <<- replayed + 1L
+        register(...)
+    }, .package = "languageserver")
+    probe <- function(declarations, line) {
+        doc$set_content(doc$version + 1L, c(declarations, line))
+        parsed <- parse_document(uri, doc$content)
+        parsed$version <- doc$version
+        workspace$update_parse_data(uri, parsed)
+        point <- list(row = length(declarations), col = nchar(line) - 1L)
+        signature_reply(1L, uri, workspace, doc, point)$result$signatures[[1L]]$label
+    }
+    code <- c("library(S7)", 'g := new_generic("x")', "Target <- class_double",
+        "method(g, Target) <- function(x, ..., digits = 3) NULL")
+    expect_identical(probe(code, "g(1, )"), "g(x, ..., digits = 3)")
+    before <- replayed
+    expect_gt(before, 0L)
+    expect_identical(probe(code, "g(1, di)"), "g(x, ..., digits = 3)")
+    expect_identical(replayed, before)
+    cache <- doc$member_binding_cache
+    methods <- Filter(Negate(is.null), lapply(cache$keys(), function(key) {
+        analysis_cache_get(cache, key)$value$s7_method_types
+    }))
+    expect_identical(methods, list(list(list("double"))))
+
+    code[[3L]] <- "Target <- class_character"
+    expect_identical(probe(code, "g(1, )"), "g(x, ...)")
+    expect_gt(replayed, before)
+    code[[4L]] <- "method(g, Target) <- function(x, ..., width = 2) NULL"
+    expect_identical(probe(code, 'g("text", )'), "g(x, ..., width = 2)")
+    alias <- c(code, "alias <- g", "method(alias, Target) <- function(x, ..., size = 7) NULL")
+    expect_identical(probe(alias, 'g("text", )'), "g(x, ..., size = 7)")
+    expect_identical(probe(alias, 'g("text", si)'), "g(x, ..., size = 7)")
+    expect_identical(probe(c(alias, "method(alias, Target) <- NULL"), 'g("text", )'), "g(x, ...)")
 })
 
 test_that("S7 validation and property callbacks see the declared instance types", {

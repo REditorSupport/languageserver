@@ -81,16 +81,24 @@ member_navigation_syntax <- function(parsed) {
             tok[siblings[first + 1L]] == "'('" & s$parent_row[values] == s$parent_row[equals]
         for (i in which(named)) add(keys[[i]], callees[[i]], "tag", values[[i]])
     }
-    # slot() and prop() have literal key arguments. The member resolver
+    # Literal property and slot names are editable uses. The member resolver
     # verifies package identity and formal matching at the use site.
-    helpers <- which(tok == "SYMBOL_FUNCTION_CALL" & s$text %in% c("slot", "prop"))
-    for (helper in helpers) {
+    helper_names <- names(member_key_formals)
+    helpers <- which(tok == "SYMBOL_FUNCTION_CALL" & s$text %in% c(helper_names, paste0("`", helper_names, "`")))
+    props_rhs <- integer(length(helpers))
+    for (i in seq_along(helpers)) {
+        helper <- helpers[[i]]
         call_row <- s$parent_row[[s$parent_row[[helper]]]]
         if (!call_row) next
         call <- syntax_call_arguments(s, call_row)
         if (is.null(call)) next
-        args <- class_matched_arguments(call, c("object", "name"))
-        arg <- args$name
+        key <- member_key_formals[[call$name]]
+        rhs <- if (call$name == "slot") 0L else member_replacement_rhs(s, call_row)
+        replacement <- rhs > 0L
+        if (replacement && call$name == "props" && (is.null(call$package) || call$package == "S7")) props_rhs[[i]] <- rhs
+        if (replacement && call$name != "prop") next
+        args <- class_matched_arguments(call, c("object", key, if (replacement) "check"))
+        arg <- args[[key]]
         if (is.null(arg)) next
         row <- class_literal_row(s, arg, "STR_CONST")
         if (row) add(row, call_row, "read")
@@ -114,13 +122,34 @@ member_navigation_syntax <- function(parsed) {
                     name = vapply(class$children[missing], `[[`, "", "name"), expr = 0L,
                     kind = "field", value = class$member_values[missing]))
         }
+        replacements <- class$property_replacements
+        if (length(replacements)) {
+            targets <- class_token_text(s$text[replacements])
+            declared <- match(targets, vapply(class$children, `[[`, "", "name"), nomatch = 0L)
+            found <- which(declared > 0L | class$property_parent > 0L)
+            if (length(found)) index <- rbind(index, data.frame(row = replacements[found],
+                    name = targets[found], expr = class$property_parent, kind = "property_alias",
+                    value = c(0L, rows)[declared[found] + 1L]))
+        }
     }
     # Candidate property names in S7 updates. Preserve the exact outer
     # callee site for both dots and the documented single named-list form.
     updates <- which(tok == "SYMBOL_FUNCTION_CALL" & s$text %in% c("set_props", "`set_props`"))
-    if (length(updates)) {
+    replacements <- which(props_rhs > 0L)
+    if (length(updates) || length(replacements)) {
         caller <- integer(length(tok))
         nested <- logical(length(tok))
+        if (length(replacements)) {
+            replacement <- character(length(tok))
+            for (i in replacements) {
+                values <- syntax_call_arguments(s, props_rhs[[i]])
+                if (!identical(values$name, "list") || (!is.null(values$package) && values$package != "base")) next
+                caller[values$tags] <- helpers[[i]]
+                nested[values$tags] <- TRUE
+                replacement[values$tags] <- if (is.null(values$package)) "list" else "base::list"
+            }
+            index$replacement_list <- replacement[index$row]
+        }
         for (helper in updates) {
             row <- s$parent_row[[s$parent_row[[helper]]]]
             if (!row) next
@@ -312,6 +341,27 @@ member_navigation_point <- function(s, row) {
             as.integer(s$line1[[row]] == s$line2[[row]] && s$col2[[row]] > s$col1[[row]]))
 }
 
+member_replacement_rhs <- function(s, row) {
+    parent <- s$parent_row[[row]]
+    if (!parent) return(0L)
+    # Only an edge of the parent expression can be the assignment target.
+    # Inspect the indexed edges directly: one brace can contain many reads.
+    first <- s$child_start[[parent]]
+    last <- s$child_end[[parent]]
+    kids <- s$children
+    while (first < last && s$token[[kids[[first]]]] == "COMMENT") first <- first + 1L
+    while (last > first && s$token[[kids[[last]]]] == "COMMENT") last <- last - 1L
+    left <- kids[[first]]
+    right <- kids[[last]]
+    if (last - first < 2L || (row != left && row != right)) return(0L)
+    op <- first + 1L
+    while (op < last && s$token[[kids[[op]]]] == "COMMENT") op <- op + 1L
+    operator <- s$text[[kids[[op]]]]
+    if (row == left && operator %in% c("<-", "=")) return(right)
+    if (row == right && operator == "->") return(left)
+    0L
+}
+
 # Determine whether this tag declares a member or supplies a named argument to
 # a user function. A locally shadowed list constructor has ordinary formals.
 member_navigation_field_tag <- function(workspace, doc, rec) {
@@ -337,6 +387,15 @@ member_navigation_field_tag <- function(workspace, doc, rec) {
 
 member_navigation_access <- function(workspace, doc, rec, audit = NULL) {
     s <- doc$parse_data$syntax_data
+    if (rec$kind == "property_alias") {
+        if (rec$value) return(location(doc$uri, navigation_range(doc, s, rec$value)))
+        # An alias can forward to a property inherited from a source parent.
+        loc <- class_navigation_symbol(doc, doc$parse_data, member_navigation_point(s, rec$expr))$location
+        if (is.null(loc)) return(NULL)
+        gen <- member_resolve_cursor(doc$uri, workspace, doc, loc$point, loc$cursor, loc$cursor$token,
+            origins = TRUE, origin_name = rec$name)$value$s7_generator
+        return(member_navigation_origin(workspace, gen$properties[[rec$name]]$origin))
+    }
     point <- member_navigation_point(s, rec$row)
     member_definition_location(doc$uri, workspace, doc, point, audit = audit)$result
 }
@@ -503,6 +562,13 @@ member_navigation_origin <- function(workspace, origin) {
 # Check the replacement key in the call's lexical scope. Only a dot argument
 # (or an entry of the single accepted list) can name a property.
 member_s7_update_receiver <- function(node, name, nested, index, env, budget) {
+    if (is.character(nested)) {
+        if (!identical(member_s7_method(node, index, env), "props<-")) return(NULL)
+        if (nested == "list" && !member_s4_unshadowed("list", index, env)) return(NULL)
+        args <- member_s7_arguments(node, c("object", "check"))
+        object <- member_infer(args$object, index, env, budget = budget)
+        return(if (isTRUE(object$s7) && is.null(object$s7_generator)) object)
+    }
     if (!identical(member_s7_method(node, index, env), "set_props")) return(NULL)
     modes <- member_s7_modes(index)
     args <- member_s7_match(as.list(node)[-1L], modes$arguments$set_props)
@@ -530,7 +596,7 @@ member_navigation_constructor_tag <- function(workspace, doc, rec) {
         point <- member_navigation_point(parsed$syntax_data, rec$update_call)
         loc <- class_navigation_symbol(doc, parsed, point)$location
         if (is.null(loc)) return(NULL)
-        loc$cursor$s7_update_list <- rec$update_list
+        loc$cursor$s7_update_list <- if (isTRUE(nzchar(rec$replacement_list))) rec$replacement_list else rec$update_list
         value <- member_resolve_cursor(doc$uri, workspace, doc, loc$point, loc$cursor, rec$name, origins = TRUE)$value
         return(member_navigation_origin(workspace, value$s7_descriptor$properties[[rec$name]]$origin))
     }
@@ -619,7 +685,7 @@ member_navigation_occurrences <- function(workspace, owner, name, uris, formal =
             tags <- integer()
         } else {
             hits <- member_navigation_indices(idx, name)
-            candidates <- hits[idx$kind[hits] %in% c("read", "write", "call", if (property) "tag")]
+            candidates <- hits[idx$kind[hits] %in% c("read", "write", "call", if (property) c("tag", "property_alias"))]
             tags <- if (declarations) hits[idx$kind[hits] %in% c("tag", "field")]
         }
         if (!length(candidates) && !length(tags)) next

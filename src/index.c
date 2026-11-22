@@ -1,5 +1,6 @@
 #include "index.h"
 #include <R_ext/Utils.h>
+#include <string.h>
 
 /* Inspect syntax only: project code is never evaluated for indexing. */
 static int is_source_call(SEXP head) {
@@ -14,7 +15,22 @@ static int is_source_call(SEXP head) {
     return name == Rf_install("source") || name == Rf_install("sys.source");
 }
 
-typedef enum { SOURCE_CALLS, ASSIGNMENT_CALLS } call_kind;
+static int is_accessor_registration(SEXP head) {
+    if (TYPEOF(head) == LANGSXP &&
+        (CAR(head) == Rf_install("::") || CAR(head) == Rf_install(":::")) &&
+        Rf_length(head) == 3) {
+        head = CADDR(head);
+        if (TYPEOF(head) == STRSXP && XLENGTH(head) == 1 && STRING_ELT(head, 0) != NA_STRING) {
+            const char *name = CHAR(STRING_ELT(head, 0));
+            return strcmp(name, "registerS3method") == 0 || strcmp(name, "method") == 0 ||
+                strcmp(name, "method<-") == 0;
+        }
+    }
+    return head == Rf_install("registerS3method") || head == Rf_install("method") ||
+        head == Rf_install("method<-");
+}
+
+typedef enum { SOURCE_CALLS, ASSIGNMENT_CALLS, ACCESSOR_REGISTRATIONS } call_kind;
 
 static void collect_calls(SEXP node, call_kind kind, SEXP result, R_xlen_t *count,
     unsigned int *visited) {
@@ -30,8 +46,10 @@ static void collect_calls(SEXP node, call_kind kind, SEXP result, R_xlen_t *coun
     SEXP head = CAR(node);
     /* Assignments inside nested functions belong to their own lexical scopes. */
     if (kind == ASSIGNMENT_CALLS && head == R_FunctionSymbol) return;
-    int matches = kind == SOURCE_CALLS ? is_source_call(head) :
-        head == Rf_install("<-") || head == Rf_install("=") || head == Rf_install(":=");
+    int matches;
+    if (kind == SOURCE_CALLS) matches = is_source_call(head);
+    else if (kind == ACCESSOR_REGISTRATIONS) matches = is_accessor_registration(head);
+    else matches = head == Rf_install("<-") || head == Rf_install("=") || head == Rf_install(":=");
     if (matches) {
         if (result != R_NilValue) SET_VECTOR_ELT(result, *count, node);
         ++*count;
@@ -62,6 +80,10 @@ SEXP source_calls_c(SEXP expressions) {
 
 SEXP member_assignment_calls_c(SEXP expressions) {
     return matching_calls(expressions, ASSIGNMENT_CALLS);
+}
+
+SEXP member_accessor_registrations_c(SEXP expressions) {
+    return matching_calls(expressions, ACCESSOR_REGISTRATIONS);
 }
 
 /* Index of the first changed physical line at or after a source position. */

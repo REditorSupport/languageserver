@@ -7,11 +7,12 @@
 /* Inspect binding kind before looking up a value. In particular, findVarInFrame
  * must never reach an active binding. Unforced promises are returned as missing
  * unless a package metadata worker explicitly requests materialization. */
-SEXP member_binding_c(SEXP env, SEXP name, SEXP materialize) {
+SEXP member_binding_c(SEXP env, SEXP name, SEXP materialize, SEXP inspect) {
     if (TYPEOF(env) != ENVSXP || TYPEOF(name) != STRSXP || XLENGTH(name) != 1 ||
             STRING_ELT(name, 0) == NA_STRING) Rf_error("Invalid binding");
     SEXP sym = Rf_installTrChar(STRING_ELT(name, 0));
     SEXP result = PROTECT(Rf_allocVector(VECSXP, 2));
+    SEXP origin = R_NilValue;
 #if R_VERSION >= R_Version(4, 6, 0)
     R_BindingType_t kind = R_GetBindingType(sym, env);
     if (kind == R_BindingTypeActive) {
@@ -25,6 +26,11 @@ SEXP member_binding_c(SEXP env, SEXP name, SEXP materialize) {
         UNPROTECT(1);
     } else {
         SET_VECTOR_ELT(result, 0, Rf_mkString("deferred"));
+        if (kind == R_BindingTypeDelayed && Rf_asLogical(inspect) == TRUE) {
+            origin = PROTECT(Rf_allocVector(VECSXP, 2));
+            SET_VECTOR_ELT(origin, 0, R_DelayedBindingExpression(sym, env));
+            SET_VECTOR_ELT(origin, 1, R_DelayedBindingEnvironment(sym, env));
+        }
     }
 #else
     /* Older R binding-kind APIs require an existing name. Enumerating names
@@ -54,12 +60,21 @@ SEXP member_binding_c(SEXP env, SEXP name, SEXP materialize) {
         }
         if (value == R_UnboundValue || TYPEOF(value) == PROMSXP) {
             SET_VECTOR_ELT(result, 0, Rf_mkString("deferred"));
+            if (TYPEOF(value) == PROMSXP && Rf_asLogical(inspect) == TRUE) {
+                origin = PROTECT(Rf_allocVector(VECSXP, 2));
+                SET_VECTOR_ELT(origin, 0, PREXPR(value));
+                SET_VECTOR_ELT(origin, 1, PRENV(value));
+            }
         } else {
             SET_VECTOR_ELT(result, 0, Rf_mkString("value"));
             SET_VECTOR_ELT(result, 1, value);
         }
     }
 #endif
+    if (origin != R_NilValue) {
+        SET_VECTOR_ELT(result, 1, origin);
+        UNPROTECT(1);
+    }
     UNPROTECT(1);
     return result;
 }

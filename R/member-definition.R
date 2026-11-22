@@ -6,9 +6,10 @@ member_origin_tree <- function(data, syntax = NULL) {
     callees <- which(token == "SYMBOL_FUNCTION_CALL")
     names <- reference_symbol_names(data$text[callees])
     classes <- callees[names %in% c("R6Class", "setClass", "setRefClass", "new_class", "deprecated_class")]
+    properties <- callees[names %in% names(class_s7_property_formals)]
     lists <- callees[names %in% c("list", "list2", "data.frame", "c", "representation")]
     operators <- which(token %in% c("'$'", "LBB"))
-    if (!length(lists) && !length(classes) && !length(operators)) return(list())
+    if (!length(lists) && !length(classes) && !length(properties) && !length(operators)) return(list())
     if (is.null(syntax)) syntax <- syntax_parse_data(data)
     parent <- syntax$parent_row
     calls <- intersect(parent[parent[lists]], parent[token == "EQ_SUB"])
@@ -18,12 +19,22 @@ member_origin_tree <- function(data, syntax = NULL) {
     accesses <- parent[operators]
     writes <- accesses[parent[accesses] %in% assignments]
     class_calls <- parent[parent[classes]]
+    property_calls <- parent[parent[properties]]
+    property_name <- if (length(property_calls)) {
+        positions <- integer(length(token))
+        for (row in property_calls) {
+            call <- syntax_call_arguments(syntax, row)
+            literal <- if (!is.null(call)) class_s7_property_literals(syntax, call)$name
+            if (length(literal)) positions[[row]] <- literal
+        }
+        positions
+    }
     class_token <- if (length(classes)) {
         positions <- integer(length(token))
         positions[class_calls] <- classes
         positions
     }
-    targets <- unique(c(calls, writes, class_calls))
+    targets <- unique(c(calls, writes, class_calls, which(property_name > 0L)))
     if (!length(targets)) return(list())
     needed <- logical(length(token))
     current <- targets
@@ -37,6 +48,7 @@ member_origin_tree <- function(data, syntax = NULL) {
     named[calls] <- TRUE
     write[writes] <- TRUE
     list(syntax = syntax, needed = needed, named = named, write = write, class_token = class_token,
+        property_name = property_name,
         placeholders = parent[token == "PLACEHOLDER"],
         roots = syntax$roots[token[syntax$roots] %in% c("expr", "expr_or_assign_or_help")])
 }
@@ -72,6 +84,7 @@ member_source_origins <- function(parsed, data, uri, row_offset = 0L, col_offset
     walk <- function(node, row, inserted = 0L) {
         if (!needed[[row]] || !is.call(node)) return(node)
         if (!is.null(tree$class_token) && tree$class_token[[row]]) attr(node, "class_origin") <- origin(tree$class_token[[row]])
+        if (!is.null(tree$property_name) && tree$property_name[[row]]) attr(node, "property_origin") <- origin(tree$property_name[[row]])
         children <- syntax_children(syntax, row)
         children <- children[token[children] != "COMMENT"]
         kinds <- token[children]

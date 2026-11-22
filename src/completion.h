@@ -4,7 +4,7 @@
 #include <R.h>
 #include <Rinternals.h>
 
-SEXP member_binding_c(SEXP env, SEXP name, SEXP materialize);
+SEXP member_binding_c(SEXP env, SEXP name, SEXP materialize, SEXP inspect);
 
 /* Extract row indexes needed to build document completion indexes. */
 SEXP completion_parse_index_c(

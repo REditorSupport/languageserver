@@ -361,6 +361,48 @@ test_that("preparse completion leaves contextual and unmatched names to the curr
     expect_true(basic_name_completion_reply(4L, fixture$workspace, literate, list(row = 2L, col = 4L), list())$result$isIncomplete)
 })
 
+test_that("the first S7 constructor argument requests wait for the member worker", {
+    skip_if_not_installed("S7", "1.0.0")
+    fixture <- readiness_fixture(c("library(S7)",
+            "Range := new_class(properties = list(start = class_double, end = class_double))",
+            "x <- Range(st)", "length(x)"))
+    doc <- fixture$document
+    server <- fixture$server
+    doc$requested_packages <- member_package_request(doc$parse_data)
+    server$resolve_task_manager$has <- function(...) FALSE
+    server$member_task_manager <- list(has = function(...) TRUE)
+    # An ordinary call in the same document needs no S7 constructor metadata.
+    text_document_signature_help(server, 1L, readiness_params(fixture, 3L, 7L))
+    expect_length(server$replies, 1L)
+    params <- readiness_params(fixture, 2L, 13L)
+    text_document_completion(server, 2L, params)
+    text_document_signature_help(server, 3L, params)
+    expect_length(server$replies, 1L)
+    expect_identical(drain_pending_replies(server, fixture$uri, 1L)$processed, 0L)
+    fixture$workspace$member_metadata$set("S7", member_prepare_package("S7"))
+    expect_identical(drain_pending_replies(server, fixture$uri, 1L)$processed, 2L)
+    items <- server$replies[[2L]]$result$items
+    expect_true(any(vapply(items, function(x) identical(x$insertText, "start = "), logical(1L))))
+    expect_identical(server$replies[[3L]]$result$signatures[[1L]]$label, "Range(start = numeric(0), end = numeric(0))")
+})
+
+test_that("only a factory's returned constructor waits for S7 metadata", {
+    skip_if_not_installed("S7")
+    fixture <- readiness_fixture(c("library(S7)",
+            'make <- function(value) new_class("Box", properties = list(x = class_double))',
+            "Box <- make(1)", "make(1)", "Box(1)", "alias <- make", "alias(1)"))
+    doc <- fixture$document
+    doc$requested_packages <- member_package_request(doc$parse_data)
+    waiting <- function(row, col) {
+        point <- list(row = row, col = col)
+        member_metadata_waiting(fixture$server, fixture$uri, doc, point,
+            call = doc$detect_call(point, signature = TRUE))
+    }
+    expect_false(waiting(3L, 5L))
+    expect_true(waiting(4L, 4L))
+    expect_false(waiting(6L, 6L))
+})
+
 test_that("verified S7 constructors use member readiness independently of S3 catalogs", {
     skip_if_not_installed("S7")
     snapshot <- member_prepare_package("S7")

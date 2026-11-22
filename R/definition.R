@@ -26,7 +26,7 @@ definition_reply <- function(id, uri, workspace, document, point,
         row <- member_navigation_token(parsed, point)
         if (row && parsed$syntax_data$token[[row]] %in% c("SYMBOL_SUB", "STR_CONST")) {
             tag <- member_navigation_at(workspace, document, point)
-            if (identical(tag$kind, "tag") && !is.null(tag$definition)) {
+            if (!is.null(tag$definition) && tag$kind %in% c("tag", "property_alias")) {
                 return(Response$new(id, result = tag$definition))
             }
         }

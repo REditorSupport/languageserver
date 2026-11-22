@@ -894,3 +894,18 @@ test_that("inlay hints probe bare aliases without inferring ordinary calls in a 
         "left", "right", "first", "second", "width", "height", "first", "second", "left", "right"
     ), "="))
 })
+
+test_that("data.table bindings use ordinary argument hints with and without S7", {
+    metadata <- collections::dict()
+    metadata$set("data.table", list(roots = list(`:=` = member_value(metadata = "data.table", function_key = ":="))))
+    metadata$set("S7", list(roots = list(`:=` = member_value(metadata = "S7", function_key = ":="))))
+    testthat::local_mocked_bindings(inlay_call_context = function(...) stop("unexpected member inference"))
+    for (prefix in list("library(data.table)", c("library(data.table)", "library(S7)"))) {
+        lines <- c(prefix, "prices[, amount := round(price, 2)]", "prices[, amount := base::round(price, 2)]")
+        fixture <- provider_fixture(lines, function(...) formals(function(x, digits) NULL))
+        fixture$workspace$member_metadata <- metadata
+        reply <- inlay_hint_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+            range(position(length(prefix), 0L), position(length(lines), 0L)))
+        expect_identical(vapply(reply$result, `[[`, "", "label"), c("digits =", "digits ="))
+    }
+})

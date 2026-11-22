@@ -378,6 +378,58 @@ test_that("S7 evolution examples retain class properties and generic outlines", 
     expect_equal(d[[2L]]$type, "S7Alias")
 })
 
+test_that("S7 descriptor names and deprecation replacements keep distinct property identities", {
+    skip_if_not_installed("S7", "1.0.0")
+    code <- c("library(S7)", "Foo := new_class(properties = list(",
+        '  new_property(class_double, name = "size"),',
+        '  deprecated_property("count", new = "size", when = "2.0.0")', "))",
+        "foo <- Foo(count = 3)", "foo@count", "foo@size",
+        "new_property <- function(...) NULL", "deprecated_property <- new_property",
+        'Other := new_class(properties = list(new_property(name = "x"), other::new_property(name = "y"),',
+        '  deprecated_property("count", when = "2.0.0"), S7::new_property(name = "ok")))')
+    path <- withr::local_tempfile(fileext = ".R")
+    writeLines(code, path)
+    f <- class_provider_fixture(code, path_to_uri(path))
+    f$workspace$member_metadata$set("S7", member_index_thaw(member_prepare_package("S7")))
+    classes <- class_source_records(f$document$parse_data)
+    expect_equal(map_chr(classes[[1L]]$children, "name"), c("size", "count"))
+    expect_equal(map_chr(classes[[2L]]$children, "name"), "ok")
+    expect_equal(index_shallow_summary(path, code, dirname(path))$class_declarations, classes)
+    at <- function(line, name) list(row = line - 1L, col = regexpr(name, code[[line]], fixed = TRUE)[[1L]])
+    for (i in 1:2) {
+        name <- c("size", "count")[[i]]
+        point <- at(c(8L, 7L)[[i]], name)
+        selection <- classes[[1L]]$children[[i]]$selectionRange
+        expect_equal(definition_reply(1L, f$uri, f$workspace, f$document, point)$result$range, selection)
+        old <- rename_reply(1L, f$uri, f$workspace, f$document, point, "height")$result$changes[[f$uri]]
+        expected <- if (i == 1L) c(3L, 4L, 8L) else c(4L, 6L, 7L)
+        expect_equal(vapply(old, function(x) x$range$start$line + 1L, 0L), expected)
+        expect_equal(map_chr(old, "newText"), if (i == 1L) c('"height"', '"height"', "height") else c('"height"', "height", "height"))
+    }
+    target <- definition_reply(1L, f$uri, f$workspace, f$document, at(4L, "size"))$result
+    expect_equal(target$range, classes[[1L]]$children[[1L]]$selectionRange)
+
+    child <- class_provider_fixture(c(code[1:8], "Child := new_class(parent = Foo, properties = list(",
+            '  deprecated_property("legacy", new = "size", when = "3.0.0")))',
+            "child <- Child(legacy = 1)", "child@size"))
+    child$workspace$member_metadata$set("S7", member_index_thaw(member_prepare_package("S7")))
+    target <- definition_reply(1L, child$uri, child$workspace, child$document,
+        list(row = 9L, col = regexpr("size", child$document$content[[10L]], fixed = TRUE)[[1L]]))$result
+    expect_equal(target$range, classes[[1L]]$children[[1L]]$selectionRange)
+})
+
+test_that("S7 method registrations can assign an existing function", {
+    skip_if_not_installed("S7", "1.0.0")
+    code <- c("library(S7)", "Rle := new_class(properties = list(lengths = class_integer, values = class_atomic))",
+        "method(`$`, Rle) <- prop", "access <- function(x, name) prop(x, name)", "method(`$`, Rle) <- access",
+        "prop <- NULL", "method(`$`, Rle) <- prop", "method(`$`, Rle) <- NULL", "method(`$`, Rle) <- S7::prop")
+    f <- class_provider_fixture(code)
+    declarations <- class_source_records(f$document$parse_data)
+    methods <- Filter(function(x) x$kind == SymbolKind$Method, declarations)
+    expect_equal(map_chr(methods, "name"), rep("$", 3L))
+    expect_equal(vapply(methods, function(x) x$selectionRange$start$line + 1L, integer(1L)), c(3L, 5L, 9L))
+})
+
 test_that("source named binding follows the installed S7 export", {
     skip_if_not_installed("S7")
     has_bind <- ":=" %in% getNamespaceExports("S7")
@@ -454,6 +506,49 @@ test_that("S7 property navigation links direct and named-list updates to their r
         "would match a set_props", fixed = TRUE)
 })
 
+test_that("S7 replacement assignments preserve the receiver and link property updates to declarations", {
+    skip_if_not_installed("S7", "1.0.0")
+    code <- c("library(S7)", "Range := new_class(properties = list(start = class_double, end = class_double))",
+        "x <- Range(start = 1, end = 10)", "alias <- x", "props(x) <- list(start = 2, end = 11)",
+        'prop(x, "start") <- 3', "x@start", "alias@start",
+        "shift <- function(x) {", "  S7::props(x) <- base::list(start = 4)", "  x@start", "  x", "}",
+        "shift(x)@start", "prop(x, key) <- 7", "x@start",
+        "`props<-` <- function(object, value) list()", "props(x) <- list(start = 9)", "x@start")
+    f <- class_provider_fixture(code)
+    f$workspace$member_metadata$set("S7", member_index_thaw(member_prepare_package("S7")))
+    point <- function(line) list(row = line - 1L, col = regexpr("start", code[[line]], fixed = TRUE)[[1L]])
+    hover <- function(line) hover_reply(1L, f$uri, f$workspace, f$document, point(line))$result$contents
+    # A function argument has a known class when analyzing the call site.
+    expect_equal(hover(7L), "```r\n3\n```")
+    expect_equal(hover(8L), "```r\n1\n```")
+    expect_equal(hover(14L), "```r\n4\n```")
+    local <- c(code[1:2], "f <- function() {", code[3:7], "}")
+    nested <- class_provider_fixture(local)
+    nested$workspace$member_metadata$set("S7", member_index_thaw(member_prepare_package("S7")))
+    result <- hover_reply(1L, nested$uri, nested$workspace, nested$document, list(row = 7L, col = 3L))$result
+    expect_equal(result$contents, "```r\n3\n```")
+    expect_false(identical(hover(16L), hover(7L)))
+    expect_null(hover(19L))
+    declaration <- f$document$parse_data$class_data$declarations[[1L]]$children[[1L]]$selectionRange
+    expect_equal(definition_reply(1L, f$uri, f$workspace, f$document, point(5L))$result$range, declaration)
+    expect_equal(definition_reply(1L, f$uri, f$workspace, f$document, point(6L))$result$range, declaration)
+    edits <- rename_reply(1L, f$uri, f$workspace, f$document, point(7L), "lower")$result$changes[[f$uri]]
+    rows <- vapply(edits, function(edit) edit$range$start$line + 1L, integer(1L))
+    expect_true(all(c(2L, 3L, 5L, 6L, 7L, 8L) %in% rows))
+    expect_false(18L %in% rows)
+
+    # R resolves the replacement function independently of the getter.
+    masked <- class_provider_fixture(c(code[1:3], "prop <- function(...) NULL",
+            'prop(x, "start", check = FALSE) <- 3', "`prop<-` <- function(object, name, value) NULL",
+            'prop(x, "start") <- 4'))
+    masked$workspace$member_metadata$set("S7", member_index_thaw(member_prepare_package("S7")))
+    target <- function(row) {
+        definition_reply(1L, masked$uri, masked$workspace, masked$document, list(row = row, col = 10L))$result$range
+    }
+    expect_equal(target(4L), declaration)
+    expect_null(target(6L))
+})
+
 test_that("the S7 compatibility hierarchy distinguishes registry names from generator bindings", {
     skip_if_not_installed("S7", "1.0.0")
     parent <- class_provider_fixture(c('Point <- methods::setClass("RegisteredPoint", slots = c(x = "numeric"))',
@@ -478,6 +573,23 @@ test_that("the S7 compatibility hierarchy distinguishes registry names from gene
     expect_equal(up(nodes[[4L]]), nodes[1L])
     expect_equal(down(nodes[[1L]]), nodes[3:4])
     for (node in nodes[5:7]) expect_length(up(node), 0L)
+})
+
+test_that("S4 hierarchy follows S4_contains assigned to a visible binding", {
+    skip_if_not_installed("S7", "1.0.0")
+    code <- c("library(S7)", 'Sample <- new_class("Sample", properties = list(name = class_character))',
+        "S4_register(Sample)", "Sample_S4 <- S4_contains(Sample)",
+        'methods::setClass("ReplicatedSample", contains = Sample_S4, slots = c(replicate = "integer"))',
+        'if (test) Sample_S4 <- "other"',
+        'methods::setClass("Uncertain", contains = Sample_S4)',
+        'S4_contains <- function(x) "other"', "Bridge <- S4_contains(Sample)",
+        'methods::setClass("Masked", contains = Bridge)')
+    f <- class_provider_fixture(code)
+    nodes <- lapply(class_source_records(f$document$parse_data), class_hierarchy_item)
+    expect_equal(find_type_supertypes(f$workspace, nodes[[2L]]), nodes[1L])
+    expect_equal(find_type_subtypes(f$workspace, nodes[[1L]]), nodes[2L])
+    expect_length(find_type_supertypes(f$workspace, nodes[[3L]]), 0L)
+    expect_length(find_type_supertypes(f$workspace, nodes[[4L]]), 0L)
 })
 
 test_that("S7 names arbitrary factories as ordinary workspace bindings", {

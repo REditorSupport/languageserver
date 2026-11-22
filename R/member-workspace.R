@@ -45,6 +45,7 @@ member_workspace_view <- function(workspace, document) {
     state$expansions <- state$statements <- 0L
     expand <- function(doc, trail, anchor = NULL) {
         data <- doc$parse_data$member_data
+        if (isTRUE(data$accessor_registrations)) state$accessor_registrations <- TRUE
         # Bound the unfold when a script repeatedly sources other scripts.
         state$statements <- state$statements + length(data$items)
         if (state$statements > 20000L || state$expansions > 64L) return(FALSE)
@@ -105,6 +106,7 @@ member_workspace_view <- function(workspace, document) {
     if (expand(document, document$uri) && state$expansions) {
         view$bindings <- member_index_bindings(items$as_list())
         view$imports <- imports$as_list()
+        view$accessor_registrations <- state$accessor_registrations
     }
     document$member_workspace_view <- view
     view

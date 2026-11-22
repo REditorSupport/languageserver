@@ -290,6 +290,71 @@ test_that("S7 property updates match named object parameters and invalidate unkn
     }
 })
 
+test_that("S7 environment-backed classes retain ordinary fields through aliases", {
+    skip_if_not_installed("S7", "1.0.0")
+    metadata <- list(S7 = member_prepare_package("S7"))
+    # class_environment reference example, also inside a function body.
+    code <- c("library(S7)", "Counter := new_class(class_environment)",
+        "counter <- Counter()", "counter$n <- 0L", "copy <- counter", "copy$n <- 10L")
+    expect_identical(s7_labels(c(code, "counter$"), metadata), "n")
+    expect_identical(s7_hover(s7_fixture(c(code, "counter$n"), metadata))$contents, "```r\n10L\n```")
+    expect_identical(s7_labels(c(code, 'copy[["n'), metadata), "n")
+    expect_length(s7_labels(c(code, "counter@"), metadata), 0L)
+    expect_identical(s7_labels(c(code, "method(print, Counter) <- function(x, ...) x$n", "counter$"), metadata), "n")
+    expect_identical(s7_labels(c(code[1:2], "f <- function() {", code[3:6], "counter", "}", "f()$"), metadata), "n")
+    expect_length(s7_labels(c(code, "`$.Counter` <- function(x, name) 99L", "counter$"), metadata), 0L)
+    # Success on the first write cannot bypass a replacement method defined
+    # before the second write in the same receiver history.
+    expect_length(s7_labels(c(code[1:4], "`$<-.Counter` <- function(x, name, value) x",
+                "counter$other <- 2L", "counter$"), metadata), 0L)
+    expect_length(s7_labels(c(code, "method(`$`, Counter) <- function(x, name) 99L", "counter$"), metadata), 0L)
+
+    # A registration from a different package may intercept an inherited
+    # accessor. Discover its presence without invoking the method.
+    owner <- new.env(parent = baseenv())
+    owner$override <- function(x, name) stop("accessor must stay inert")
+    table <- asNamespace("base")[[".__S3MethodsTable__."]]
+    key <- "$.S7MemberEnvironmentBase"
+    registerS3method("$", "S7MemberEnvironmentBase", owner$override, envir = asNamespace("base"))
+    withr::defer(rm(list = key, envir = table))
+    metadata$other <- member_index_freeze(member_package_index(member_namespace_input(owner, "other", exports = "override")))
+    expect_identical(metadata$other$subset_registry[[key]], "opaque")
+    subclass <- c(code[[1L]], "S7MemberEnvironmentBase := new_class(class_environment)",
+        "Counter := new_class(S7MemberEnvironmentBase)", code[3:6])
+    expect_length(s7_labels(c(subclass, "counter$"), metadata), 0L)
+
+    # A later metadata revision can introduce a previously unseen method
+    # while the cursor remains on the same line in the same document.
+    fixture <- s7_fixture(c(subclass, "counter$"))
+    workspace <- list(member_metadata = MemberMetadataCache$new(32 * 1024^2))
+    workspace$member_metadata$set("S7", metadata$S7)
+    read <- function() {
+        items <- member_completion(fixture$uri, workspace, fixture$document, fixture$point, TRUE, 20L)
+        vapply(items, `[[`, "", "label")
+    }
+    expect_identical(read(), "n")
+    workspace$member_metadata$set("other", metadata$other)
+    expect_length(read(), 0L)
+})
+
+test_that("S7 accessor registrations are inspected without forcing user bindings", {
+    skip_if_not_installed("S7")
+    key <- "$.S7_object"
+    table <- new.env(parent = emptyenv())
+    scope <- new.env(parent = .BaseNamespaceEnv)
+    scope$home <- asNamespace("S7")
+    scope$method <- key
+    delayedAssign(key, get(method, envir = home), scope, table)
+    expect_identical(member_s7_registered_accessor(table, key), list("value", get(key, scope$home)))
+    scope$get <- function(...) stop("custom get was called")
+    expect_identical(member_s7_registered_accessor(table, key)[[1L]], "deferred")
+    rm("get", envir = scope)
+    delayedAssign("home", stop("home was forced"), assign.env = scope)
+    expect_identical(member_s7_registered_accessor(table, key)[[1L]], "deferred")
+    delayedAssign(key, stop("registry promise was forced"), assign.env = table)
+    expect_identical(member_s7_registered_accessor(table, key)[[1L]], "deferred")
+})
+
 test_that("S7 named bindings are verified and recovered in document and function scopes", {
     skip_if_not_installed("S7")
     snapshot <- member_prepare_package("S7")
@@ -350,6 +415,13 @@ test_that("S7 S4 parents, S3 defaults and deprecation declarations retain descri
         expect_identical(s7_labels(c(code, "Hybrid()@"), metadata), c("label", "value"))
         expect_identical(s7_signature(s7_fixture(c(code, "Hybrid("), metadata))$signatures[[1L]]$label,
             "Hybrid(value = integer(0), label = character(0))")
+        lookup <- c("library(S7)", 'methods::setClass("S4Point", slots = c(x = "numeric", y = "numeric"))',
+            'ColoredPoint <- new_class("ColoredPoint", parent = methods::getClass("S4Point"), properties = list(color = class_character))')
+        expect_identical(s7_signature(s7_fixture(c(lookup, "ColoredPoint("), metadata))$signatures[[1L]]$label,
+            "ColoredPoint(x = integer(0), y = integer(0), color = character(0))")
+        f <- s7_fixture(c(lookup, "pt <- ColoredPoint(x = 1, y = 2, color = 'red')", "pt@x"), metadata)
+        expect_equal(member_definition_location(f$uri, f$workspace, f$document, f$point)$result$range,
+            range(position(1L, 39L), position(1L, 40L)))
         scope <- new.env(parent = globalenv())
         scope$new_class <- S7::new_class
         scope$class_character <- S7::class_character
@@ -546,6 +618,56 @@ test_that("S7 property introspection follows the actual class and table schema",
         expect_identical(s7_labels(c(code, "prop_info(Point)$"), metadata), expected)
         expect_identical(s7_labels(c(code, "prop_info(p)$"), metadata), expected)
     }
+})
+
+test_that("quoted property keys resolve against the supplied instance or class object", {
+    skip_if_not_installed("S7")
+    snapshot <- member_prepare_package("S7")
+    metadata <- list(S7 = snapshot)
+    # Horse from the prop_names() and props() reference pages.
+    code <- c("library(S7)", 'Horse <- new_class("Horse", properties = list(',
+        "  name = class_character, colour = class_character))",
+        'lex <- Horse(name = "Lex", colour = "bay")')
+    probe <- function(line, source = code) {
+        at <- regexpr("|", line, fixed = TRUE)[[1L]] - 1L
+        lines <- c(source, sub("|", "", line, fixed = TRUE))
+        s7_fixture(lines, metadata, list(row = length(source), col = at))
+    }
+    for (line in c('prop_exists(lex, "co|lour")', 'S7::props(names = "co|lour", object = lex)')) {
+        f <- probe(line)
+        item <- member_completion(f$uri, f$workspace, f$document, f$point, FALSE, 200L)[[1L]]
+        expect_identical(item$label, "colour")
+        expect_identical(item$textEdit$newText, '"colour"')
+        expect_match(s7_hover(f)$contents, "bay", fixed = TRUE)
+        expect_equal(member_definition_location(f$uri, f$workspace, f$document, f$point)$result$range,
+            range(position(2L, 26L), position(2L, 32L)))
+    }
+    f <- probe('prop_exists(Horse, "na|me")')
+    expect_match(s7_hover(f)$contents, "Horse", fixed = TRUE)
+    expect_null(member_definition_location(f$uri, f$workspace, f$document, f$point)$result)
+    for (f in list(probe('prop_exists(Horse, "colo|")'), probe('props("co|", "colour")'),
+            probe('prop_exists(lex, "co|")', c(code, "prop_exists <- function(object, name) FALSE")))) {
+        expect_length(member_completion(f$uri, f$workspace, f$document, f$point, FALSE, 200L), 0L)
+    }
+})
+
+test_that("S7 property helpers on an S4 subclass use the S7 parent's properties", {
+    skip_if_not_installed("S7", "1.0.0")
+    metadata <- list(S7 = member_prepare_package("S7"))
+    code <- c("library(S7)", 'Sample <- new_class("Sample", properties = list(name = class_character, score = class_numeric))',
+        "S4_register(Sample)", "Sample_S4 <- S4_contains(Sample)",
+        'methods::setClass("ReplicatedSample", contains = Sample_S4, slots = c(replicate = "integer"))',
+        'methods::setClass("Child", contains = "ReplicatedSample")',
+        'rs <- methods::new("Child", name = "A", score = 3, replicate = 1L)')
+    expect_identical(s7_labels(c(code, "rs@"), metadata), c("name", "replicate", "score"))
+    expect_identical(s7_labels(c(code, "props(rs)$"), metadata), c("name", "score"))
+    expect_identical(s7_labels(c(code, 'prop_exists(rs, "'), metadata), c("name", "score"))
+    f <- s7_fixture(c(code, 'prop(rs, "score")'), metadata, list(row = length(code), col = 12L))
+    expect_match(s7_hover(f)$contents, "3", fixed = TRUE)
+    expect_equal(member_definition_location(f$uri, f$workspace, f$document, f$point)$result$range,
+        range(position(1L, 72L), position(1L, 77L)))
+    expect_length(s7_labels(c(code, 'prop(rs, "rep'), metadata), 0L)
+    expect_identical(s7_labels(c(code, 'methods::slot(rs, "rep'), metadata), "replicate")
 })
 
 test_that("S7 lazy conversion preserves the original subclass before dispatch", {

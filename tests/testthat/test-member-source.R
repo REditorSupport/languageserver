@@ -273,3 +273,18 @@ test_that("small recovered literate scopes are indexed on first member or S3 loo
     expect_false(is.null(doc$parse_data$member_data$items[[1L]]$source))
     expect_null(doc$member_source_cache)
 })
+
+test_that("document indexing checks just the possible accessor registration calls", {
+    content <- c("worker <- function(x, method) { method; x$a; x$b }",
+        "method(print, Counter) <- function(x) { x$a; x$b }",
+        "register <- function() base::registerS3method('$', 'Counter', accessor)")
+    original <- member_s7_accessor_registration
+    probed <- character()
+    testthat::local_mocked_bindings(member_s7_accessor_registration = function(node) {
+        probed <<- c(probed, s3_call_name(node[[1L]])$name)
+        original(node)
+    })
+    parsed <- parse_document("file:///accessor-index.R", content)
+    expect_true(parsed$member_data$accessor_registrations)
+    expect_identical(probed, c("method", "registerS3method"))
+})

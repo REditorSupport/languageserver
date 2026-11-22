@@ -136,9 +136,11 @@ member_index_bindings <- function(items) {
                 name <- member_write_root(lhs)
                 if (!is.null(name) && nzchar(name)) {
                     field <- if (!member_head(expr, ":=")) member_write_field(lhs)
-                    record(name, if (is.null(field)) quote(.__unknown_mutation__) else rhs, item,
+                    setter <- if (is.null(field)) member_s7_method_setter(lhs)
+                    if (is.null(field) && is.null(setter) && !member_head(expr, ":=")) setter <- member_s7_property_setter(lhs)
+                    record(name, if (is.null(field) && is.null(setter)) quote(.__unknown_mutation__) else rhs, item,
                         write = TRUE, field = field, subset = member_head(lhs, "[["),
-                        setter = if (is.null(field)) member_s7_method_setter(lhs), slot = member_head(lhs, "@"))
+                        setter = setter, slot = member_head(lhs, "@"))
                 }
             }
         } else if (is.call(expr)) {
@@ -321,6 +323,7 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL, incompl
     effects <- list()
     packages <- recovered_packages
     class_scope <- FALSE
+    accessor_registrations <- FALSE
     refclasses <- initializers <- list()
     symbol_scope <- FALSE
     parts <- if (complete) member_function_parts(if (is.null(syntax)) utils::getParseData(parsed) else syntax) else NULL
@@ -343,6 +346,18 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL, incompl
         items[[i]] <- item
         expr <- item$expr
         syntax_names <- member_syntax_names(expr)
+        check_accessors <- !accessor_registrations && ("registerS3method" %in% syntax_names ||
+                any(c("method", "method<-") %in% syntax_names) && any(c("$", "$<-", "[[", "[[<-") %in% syntax_names))
+        if (check_accessors) {
+            # A common method formal or a $ read in a method body is not a
+            # registration. Inspect just the matching calls, including nested ones.
+            for (call in .Call("member_accessor_registrations_c", expr, PACKAGE = "languageserver")) {
+                if (member_s7_accessor_registration(call)) {
+                    accessor_registrations <- TRUE
+                    break
+                }
+            }
+        }
         if (!is.null(parts) && any(syntax_names %in% c("function", "{"))) {
             first <- item$start[[1L]] + 1L
             after <- item$end[[1L]] + 2L
@@ -410,7 +425,7 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL, incompl
     list(items = items, has_blocks = has_blocks, bindings = member_index_bindings(items), imports = imports, sources = sources, effects = effects, s4 = s4, refclasses = refclasses, initializers = initializers,
         content_key = digest::digest(fingerprint_source, algo = "xxhash64"),
         source_bytes = source_bytes, deferred_parts = if (defer_small_scopes) parts,
-        packages = packages, class_scope = class_scope, symbol_scope = symbol_scope,
+        packages = packages, class_scope = class_scope, symbol_scope = symbol_scope, accessor_registrations = accessor_registrations,
         s3 = s3_source_index(items))
 }
 
@@ -500,6 +515,8 @@ member_bracket_cursor <- function(document, point, bounds = document_r_bounds(do
         token = token, accessor = "[[", before = substr(line, 1L, start), quote = quote)
 }
 
+member_key_formals <- c(slot = "name", prop = "name", prop_exists = "name", props = "names")
+
 member_cursor <- function(document, point) {
     bounds <- document_r_bounds(document, point$row)
     if (is.null(bounds)) {
@@ -524,14 +541,27 @@ member_cursor <- function(document, point) {
                 return(cursor)
             }
             call <- document$detect_call(before, signature = TRUE)
-            if (isTRUE(call$token %in% c("slot", "prop"))) {
+            if (isTRUE(call$token %in% names(member_key_formals))) {
                 expected <- if (call$token == "slot") "methods" else "S7"
                 if (is.null(call$package) || identical(call$package, expected)) {
+                    helper <- call$token
+                    parsed <- document$parse_data
+                    if (helper != "slot" && !is.null(parsed$syntax_data) && identical(parsed$version, document$version)) {
+                        s <- parsed$syntax_data
+                        literal <- member_navigation_token(parsed, list(row = point$row, col = key$start + 1L))
+                        if (literal && s$token[[literal]] == "STR_CONST") {
+                            owner <- s$parent_row[[s$parent_row[[literal]]]]
+                            if (owner && member_replacement_rhs(s, owner)) {
+                                if (helper != "prop") return(NULL)
+                                helper <- "prop<-"
+                            }
+                        }
+                    }
                     quote <- substr(line, key$start + 1L, key$start + 1L)
                     token <- tryCatch(str2lang(paste0(quote, key$token, quote)), error = function(e) key$token)
                     return(list(
                         operator = key$start + 1L, operator_row = point$row, start = key$start, end = key$end,
-                        accessor = "@", key_helper = call$token, token = token, quote = quote,
+                        accessor = "@", key_helper = helper, token = token, quote = quote,
                         before = substr(line, 1L, key$start)
                     ))
                 }
@@ -771,6 +801,8 @@ member_context_index <- function(workspace, uri, document, at, parsed = NULL,
         }
     }
     index$document_bindings <- bindings
+    index$accessor_registrations <- isTRUE(document$parse_data$member_data$accessor_registrations) ||
+        isTRUE(view$accessor_registrations)
     index$document_cache <- new.env(parent = emptyenv())
     index$document_binding_cache <- if (!is.null(revision)) document$member_binding_cache else NULL
     index$methods_attached <- TRUE
@@ -936,11 +968,12 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
     if (memo && exists(memo_key, index$document_cache, inherits = FALSE)) return(index$document_cache[[memo_key]])
     cache <- if (is.null(budget$origin_name)) index$document_binding_cache
     persistent_key <- if (memo && !is.null(cache) && !is.null(item$cache_prefix) &&
-            !member_head(item$expr, "function")) {
+            (!is.null(item$setter) || !member_head(item$expr, "function"))) {
         paste(index$package, index$document_context_key, id, item$cache_prefix, sep = ":")
     }
     cached <- analysis_cache_get(cache, persistent_key)
-    if (cached$hit) {
+    method_types <- cached$value$s7_method_types
+    if (cached$hit && is.null(method_types)) {
         value <- cached$value
         index$document_cache[[memo_key]] <- value
         return(value)
@@ -960,14 +993,44 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
         first <- item$first_write
         env$.__member_position__ <- history[[first]]$start
         value <- member_resolve_document(name, index, env, budget, depth + 1L, c(trail, id))
+        # Only exact dispatch keys survive an edit. The generic and method
+        # formals come from the current source, including their lexical scope.
+        cache_methods <- !is.null(persistent_key) && !is.null(value$s7_methods) && !length(value$s7_methods)
+        if (cache_methods && length(method_types)) {
+            recent <- seq.int(position - length(method_types) + 1L, position)
+            value$s7_methods <- Map(function(types, i) list(types = types, formals = history[[i]]$expr[[2L]]),
+                method_types, recent)
+            index$document_cache[[memo_key]] <- value
+            return(value)
+        }
         for (i in seq.int(first, position)) {
             write <- history[[i]]
+            env$.__member_position__ <- write$start
+            if (!is.null(write$setter) && identical(member_s7_method(write$setter, index, env), "method<-")) {
+                generic <- member_s7_register_signature(value, write$setter, write$expr, index, env, budget)
+                if (isTRUE(budget$exhausted)) return(member_value(reason = "budget"))
+                if (!is.null(generic)) {
+                    if (cache_methods && !member_head(write$expr, "function")) cache_methods <- FALSE
+                    value <- generic
+                    next
+                }
+            }
+            cache_methods <- FALSE
             if (!identical(name, write$writer) && (identical(value$type, "list") ||
                         (isTRUE(value$s7) && !member_s7_reference(value)))) next
-            env$.__member_position__ <- write$start
-            if (!is.null(write$setter) && length(member_s7_dispatch_args(value)) &&
-                    identical(member_s7_method(write$setter, index, env), "method<-")) next
-            if (is.null(write$field) || (!isTRUE(write$slot) && !member_plain_container(value))) {
+            if (!is.null(write$setter) && isTRUE(value$s7)) {
+                env[write$writer] <- list(value)
+                updated <- member_s7_property_write(write$setter, value,
+                    member_infer(write$expr, index, env, depth = depth + 1L, trail = c(trail, id), budget = budget),
+                    index, env, budget)
+                env[write$writer] <- NULL
+                if (!is.null(updated)) {
+                    value <- updated
+                    next
+                }
+            }
+            if (is.null(write$field) || (!isTRUE(write$slot) && !member_plain_container(value) &&
+                        !isTRUE(value$s7_exact_class))) {
                 value <- member_value(reason = "unknown_mutation")
                 break
             }
@@ -979,6 +1042,11 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
                 if (identical(budget$origin_name, write$field)) write$origin, index, env, isTRUE(write$subset), slot = isTRUE(write$slot))
             if (is.null(value)) return(member_value(reason = "unknown_mutation"))
             env[write$writer] <- NULL
+        }
+        if (cache_methods && length(value$s7_methods) && !isTRUE(budget$exhausted) && !isTRUE(budget$transient)) {
+            # In a method-only history the retained registrations are a
+            # contiguous suffix following the last opaque registration.
+            analysis_cache_set(cache, persistent_key, list(s7_method_types = lapply(value$s7_methods, `[[`, "types")))
         }
     }
     cached <- if (memo) member_receiver_cache_value(value, index, budget) else NULL
@@ -992,16 +1060,34 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
 }
 
 member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name = NULL, accessor = "$", context = NULL,
-    path = NULL, source = NULL, key_helper = NULL, s4_new = FALSE, s7_update_list = NULL) {
+    path = NULL, source = NULL, key_helper = NULL, s4_new = FALSE, s7_update_list = NULL, s7_call = NULL) {
     result <- NULL
     # Find the cursor once, including formal defaults. Replaying a lexical
     # scope must not recursively visit every earlier RHS or sibling method.
     visit <- function(node, env, path, ast_path = integer(), formal_types = NULL) {
+        if (member_head(node, ":=") && length(node) == 3L) {
+            # Cursor recovery can stop immediately before the call's opening
+            # parenthesis. Both forms identify the direct RHS callee.
+            rhs <- node[[3L]]
+            callee <- if (is.call(rhs) && !member_head(rhs, "::")) rhs[[1L]] else rhs
+            qualified <- member_head(callee, "::")
+            token <- if (qualified) callee[[3L]] else callee
+            if (is.null(accessor) && !is.null(name) && identical(token, as.name(sentinel)) &&
+                    is.symbol(node[[2L]]) && isTRUE(member_s7_modes(index)$bind) &&
+                    identical(member_s7_method(node, index, env), ":=")) {
+                if (qualified) callee[[3L]] <- as.name(name) else callee <- as.name(name)
+                result <<- member_infer(callee, index, env, budget = budget)
+                result$s7_bound_name <<- TRUE
+                return(invisible(NULL))
+            }
+            bound <- member_s7_bind(node, index, env)
+            if (!is.null(bound)) node <- bound
+        }
         if ((s4_new || !is.null(s7_update_list)) && is.call(node) && (identical(path, 1L) || identical(path, c(1L, 3L)))) {
             head <- node[[1L]]
             qualified <- member_head(head, "::") && identical(head[[3L]], as.name(sentinel))
             if (identical(head, as.name(sentinel)) || qualified) {
-                helper <- as.name(if (s4_new) "new" else "set_props")
+                helper <- as.name(if (s4_new) "new" else if (is.character(s7_update_list)) "props<-" else "set_props")
                 if (qualified) node[[1L]][[3L]] <- helper else node[[1L]] <- helper
                 if (!is.null(s7_update_list)) {
                     result <<- member_s7_update_receiver(node, name, s7_update_list, index, env, budget)
@@ -1022,12 +1108,19 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
         }
         if (!is.null(key_helper) && length(path) == 1L && is.call(node) &&
                 identical(node[[path[[1L]]]], as.name(sentinel))) {
+            replacement <- key_helper == "prop<-"
+            if (replacement) node <- member_s7_property_setter(node, simple_receiver = FALSE)
             helper <- if (key_helper == "slot") member_s4_method(node, index, env) else member_s7_method(node, index, env)
             if (identical(helper, key_helper)) {
-                args <- member_s7_arguments(node, c("object", "name"))
-                if (identical(args$name, as.name(sentinel)) && !is.null(args$object)) {
+                key <- if (replacement) "name" else member_key_formals[[key_helper]]
+                args <- member_s7_arguments(node, c("object", key, if (replacement) "check"))
+                if (identical(args[[key]], as.name(sentinel)) && !is.null(args$object)) {
                     receiver <- member_infer(args$object, index, env, budget = budget)
-                    if (identical(key_helper, "prop") == isTRUE(receiver$s7)) result <<- receiver
+                    if (key_helper == "slot") {
+                        if (!isTRUE(receiver$s7)) result <<- receiver
+                    } else {
+                        result <<- member_s7_property_receiver(receiver, env)
+                    }
                 }
             }
             return(invisible(NULL))
@@ -1042,7 +1135,11 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
                 value$context_locals <- unique(env$.__member_context_locals__)
                 value
             } else {
-                member_infer(as.name(name), index, env, budget = budget)
+                callee <- member_infer(as.name(name), index, env, budget = budget)
+                if (length(callee$s7_methods) && !is.null(s7_call)) {
+                    callee <- member_s7_call_signature(callee, s7_call, index, env, budget)
+                }
+                callee
             }
             return(invisible(NULL))
         }
@@ -1062,6 +1159,10 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
                 result <<- member_infer(node, index, env, budget = budget)
             } else if (is.null(name)) {
                 result <<- member_infer(node[[2L]], index, env, budget = budget)
+                if (isTRUE(result$s7_exact_class) && accessor %in% c("$", "[[")) {
+                    storage <- member_s7_environment_storage(result, accessor, index, env)
+                    if (!is.null(storage)) result <<- storage
+                }
                 if (identical(accessor, "$") && isTRUE(result$default_dollar)) {
                     context <- member_package_context(index, result$member_package)
                     if (is.null(context) || !member_default_dollar(result, context, env)) {
@@ -1126,7 +1227,7 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
             lookup <- list2env(env, hash = TRUE, parent = emptyenv())
             for (i in sequence$selected) {
                 child <- sequence$children[[i]]
-                if (member_head(child, ":=")) {
+                if (i != sequence$target && member_head(child, ":=")) {
                     bound <- member_s7_bind(child, index, env)
                     if (!is.null(bound)) child <- bound
                 }
@@ -1157,17 +1258,27 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
                         if (!is.null(setter) && identical(name, member_name(lhs[[2L]])) &&
                                 identical(member_s7_method(setter, index, env), "method<-")) {
                             generic <- member_infer(lhs[[2L]], index, env, budget = budget)
-                            if (length(member_s7_dispatch_args(generic))) next
+                            generic <- member_s7_register_signature(generic, setter, child[[3L]], index, env, budget)
+                            if (!is.null(generic)) {
+                                for (alias in c(name, member_aliases(attr(env, "member_aliases"), name))) {
+                                    env[[alias]] <- lookup[[alias]] <- generic
+                                }
+                                next
+                            }
                         }
                         aliases <- member_aliases(attr(env, "member_aliases"), name)
                         direct <- !is.null(field) && identical(name, member_name(lhs[[2L]]))
-                        if (direct || length(aliases)) {
+                        property <- if (is.null(field)) member_s7_property_setter(lhs)
+                        if (direct || !is.null(property) || length(aliases)) {
                             object <- member_infer(as.name(name), index, env, budget = budget)
                             if (direct) {
                                 value <- member_write_container(object, field,
                                     member_infer(child[[3L]], index, env, budget = budget), name,
                                     if (identical(budget$origin_name, field)) attr(lhs, "member_origin", exact = TRUE),
                                     index, env, member_head(lhs, "[["), slot = member_head(lhs, "@"))
+                            } else if (!is.null(property) && identical(name, member_name(lhs[[2L]]))) {
+                                value <- member_s7_property_write(property, object,
+                                    member_infer(child[[3L]], index, env, budget = budget), index, env, budget)
                             }
                             if ((identical(object$type, "environment") && member_plain_container(object)) ||
                                     (isTRUE(object$s7) && member_s7_reference(object))) {
@@ -1443,7 +1554,8 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
         bindings$.__member_position__ <- recovered$start
         value <- member_cursor_value(recovered$parsed, recovered$sentinel, index, bindings, budget,
             if (is.null(cursor$accessor) || named_subset) name, cursor$accessor, recovered$context,
-            recovered$path, recovered$source, key_helper, isTRUE(cursor$s4_new), cursor$s7_update_list)
+            recovered$path, recovered$source, key_helper, isTRUE(cursor$s4_new), cursor$s7_update_list,
+            s7_call = member_s7_cursor_call(document, point, cursor, recovered))
         cached_value <- if (!is.null(revision)) member_receiver_cache_value(value, index, budget) else NULL
         if (!is.null(cached_value)) {
             # Raw storage accounts for closure environments and makes each

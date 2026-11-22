@@ -6,8 +6,13 @@
 
 - Recognize S7 1.0 class and generic declarations made with `:=` in scripts
   and package sources. Completion and hover follow stored property updates,
-  S4 subclasses and typed method arguments. Signature help shows the generic
-  after method registration.
+  S4 subclasses and typed method arguments.
+
+- S7 argument completion, signature help and inlay hints account for the
+  `name` supplied by `:=`. Calls to a source generic can offer the selected
+  method's arguments when its dispatch classes are known. Property completion
+  and navigation also recognize quoted property names, replacement assignments
+  and names forwarded by `deprecated_property()`.
 
 - Speed up parsing and document refactorings in large R files, Fix All with
   many diagnostics, and edits to Quarto or R Markdown documents. Member
