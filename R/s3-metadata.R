@@ -421,17 +421,17 @@ s3_metadata_context <- function(packages) {
     digest::digest(records, algo = "xxhash64")
 }
 
-s3_namespace_binding <- function(ns, name) {
+s3_namespace_binding <- function(ns, name, materialize = TRUE) {
     # Re-exports can resolve through the imports environment into base.
     # Stop at an existing binding so active bindings never expose a fallback.
     base <- asNamespace("base")
     scopes <- if (identical(ns, base)) list(ns) else list(ns, parent.env(ns), base)
     for (scope in scopes) {
         if (exists(name, scope, inherits = FALSE)) {
-            return(member_binding(scope, name, materialize = TRUE))
+            return(member_binding(scope, name, materialize = materialize))
         }
     }
-    member_binding(ns, name, materialize = TRUE)
+    member_binding(ns, name, materialize = materialize)
 }
 
 s3_function_identity <- function(fn, owner = "local") {

@@ -942,7 +942,19 @@ s3_cached_callee <- function(workspace, document, location, packages) {
         if (is.null(namespace)) return(FALSE)
         found <- tryCatch(namespace$exists_funct(location$call$token,
                 exported_only = location$call$accessor != ":::"), error = function(e) FALSE)
-        if (isTRUE(found)) return(TRUE)
+        if (isTRUE(found)) {
+            # Startup generics can still provide ordinary help if their
+            # catalogs failed. For a requested package being prepared, a
+            # cached generic signature must not outrun its method catalog.
+            catalog <- workspace$s3_metadata$catalog(candidate)
+            if (candidate %in% startup_packages || (!is.null(catalog) && is.null(catalog$error))) return(TRUE)
+            binding <- s3_namespace_binding(getNamespace(candidate), location$call$token, materialize = FALSE)
+            if (!identical(binding[[1L]], "value") || !is.function(binding[[2L]])) return(FALSE)
+            fn <- binding[[2L]]
+            if (is.primitive(fn)) return(TRUE)
+            syntax <- as.call(list(as.name("function"), formals(fn), body(fn)))
+            return(is.null(s3_generic_descriptor(syntax)))
+        }
     }
     FALSE
 }
@@ -992,7 +1004,7 @@ s3_metadata_waiting <- function(self, uri, document, point = NULL, hover = FALSE
         if (!s3_may_dispatch(workspace, document, location, packages)) {
             history <- document$parse_data$member_data$s3$histories[[location$call$token]]
             if (is.null(package) && member_history_position(history, c(point$row, point$col))) return(FALSE)
-            if (s3_known_ordinary_call(workspace$s3_metadata, location$call$token, packages)) return(FALSE)
+            if (is.null(package) && s3_known_ordinary_call(workspace$s3_metadata, location$call$token, packages)) return(FALSE)
             # Unknown calls may belong to a generic in the package currently
             # being resolved. Preserve the wait until its catalog arrives.
         }
