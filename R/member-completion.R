@@ -45,11 +45,38 @@ member_cell_packages <- function(content, data, terminals) {
     member_incomplete_packages(text)
 }
 
+member_attachment_arguments <- c("package", "quietly", "verbose", "warn.conflicts", "logical.return", "character.only")
+
+# Normalize explicitly qualified attachment calls for the same import history
+# as a bare library/require. Keep the original item for expression recovery.
+member_attachment_item <- function(item) {
+    expr <- item$expr
+    if (!is.call(expr)) return(NULL)
+    head <- expr[[1L]]
+    if (identical(head, quote(base::library)) || identical(head, quote(base::require))) {
+        head <- head[[3L]]
+        item$qualified <- TRUE
+    } else if (!identical(head, as.name("library")) && !identical(head, as.name("require"))) {
+        return(NULL)
+    }
+    fn <- if (identical(head, as.name("library"))) base::library else base::require
+    args <- tryCatch(match.call(fn, expr), error = function(e) NULL)
+    if (!is.null(args) && is.null(args$package)) return(NULL)
+    package <- member_name(args$package)
+    if (is.null(package) || is.na(package) || !nzchar(package) || (is.symbol(args$package) &&
+            !is.null(args$character.only) && !identical(args$character.only, FALSE))) package <- NULL
+    if (is.null(package) || !all(names(as.list(args)[-1L]) %in% member_attachment_arguments)) {
+        item$uncertain <- TRUE
+    }
+    item$expr <- as.call(list(head, package))
+    item
+}
+
 # Ordered bindings can be built for a document or a workspace source sequence.
 member_index_bindings <- function(items) {
     bindings <- new.env(hash = TRUE, parent = emptyenv())
     aliases <- new.env(hash = TRUE, parent = emptyenv())
-    record <- function(name, rhs, item, write = FALSE, field = NULL, subset = FALSE) {
+    record <- function(name, rhs, item, write = FALSE, field = NULL, subset = FALSE, setter = NULL, slot = FALSE) {
         history <- bindings[[name]]
         last <- length(history)
         entry <- list(expr = rhs, start = item$start, end = item$end, cache_prefix = item$cache_prefix)
@@ -57,7 +84,9 @@ member_index_bindings <- function(items) {
         if (write) {
             entry$writer <- name
             entry$field <- field
+            if (!is.null(setter)) entry$setter <- setter
             if (subset) entry$subset <- TRUE
+            if (slot) entry$slot <- TRUE
             entry$first_write <- if (last && !is.null(history[[last]]$first_write)) {
                 history[[last]]$first_write
             } else {
@@ -108,7 +137,8 @@ member_index_bindings <- function(items) {
                 if (!is.null(name) && nzchar(name)) {
                     field <- if (!member_head(expr, ":=")) member_write_field(lhs)
                     record(name, if (is.null(field)) quote(.__unknown_mutation__) else rhs, item,
-                        write = TRUE, field = field, subset = member_head(lhs, "[["))
+                        write = TRUE, field = field, subset = member_head(lhs, "[["),
+                        setter = if (is.null(field)) member_s7_method_setter(lhs), slot = member_head(lhs, "@"))
                 }
             }
         } else if (is.call(expr)) {
@@ -152,8 +182,28 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL, incompl
     if (!complete && !is.null(parsed)) recovery_start <- member_recovery_start(content, syntax, incomplete_lines)
     recovered_packages <- character()
     items <- list()
-    append <- function(expr, start, end) {
-        items[[length(items) + 1L]] <<- list(expr = expr, start = start, end = end)
+    has_blocks <- FALSE
+    append <- function(expr, start, end, outer = NULL) {
+        # Braces in statement position share their caller's scope. Split only
+        # these unconditional blocks, never an argument, function or branch.
+        refs <- if (member_head(expr, "{") && length(expr) > 1L) attr(expr, "srcref", exact = TRUE)
+        if (length(refs) && length(refs) == length(expr)) {
+            offset <- start[[1L]] - refs[[1L]][[7L]]
+            if (is.null(outer)) {
+                has_blocks <<- TRUE
+                outer <- list(start = start, end = end)
+            }
+            for (j in seq.int(2L, length(expr))) {
+                ref <- refs[[j]]
+                append(expr[[j]], c(offset + ref[[7L]], ref[[5L]] - 1L),
+                    c(offset + ref[[8L]], ref[[6L]]), outer)
+            }
+        } else {
+            i <- length(items) + 1L
+            item <- list(expr = expr, start = start, end = end)
+            item$outer <- outer
+            items[[i]] <<- item
+        }
     }
     if (complete || recovery_start > 1L) {
         refs <- attr(parsed, "srcref")
@@ -322,7 +372,8 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL, incompl
             args <- tryCatch(match.call(methods::setMethod, expr), error = function(e) NULL)
             if (identical(args$f, "initialize")) initializers[[length(initializers) + 1L]] <- item
         }
-        if (member_head(expr, "library") || member_head(expr, "require")) imports[[length(imports) + 1L]] <- item
+        import <- member_attachment_item(item)
+        if (!is.null(import)) imports[[length(imports) + 1L]] <- import
         if (is.call(expr) && length(expr) == 2L && is.character(expr[[2L]]) &&
                 (member_head(expr, "source") || identical(expr[[1L]], quote(base::source))) &&
                 (is.null(names(expr)) || names(expr)[[2L]] %in% c("", "file"))) {
@@ -335,7 +386,7 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL, incompl
         }
     }
     source_bytes <- if (complete) member_compact_source(parsed, parts) else prefix_bytes
-    list(items = items, bindings = member_index_bindings(items), imports = imports, sources = sources, effects = effects, s4 = s4, refclasses = refclasses, initializers = initializers,
+    list(items = items, has_blocks = has_blocks, bindings = member_index_bindings(items), imports = imports, sources = sources, effects = effects, s4 = s4, refclasses = refclasses, initializers = initializers,
         content_key = digest::digest(fingerprint_source, algo = "xxhash64"),
         source_bytes = source_bytes, deferred_parts = if (defer_small_scopes) parts,
         packages = packages, class_scope = class_scope, symbol_scope = symbol_scope,
@@ -650,7 +701,7 @@ member_context_index <- function(workspace, uri, document, at, parsed = NULL,
     referenced = member_syntax_names(parsed)) {
     metadata <- if (!is.null(workspace$member_metadata)) workspace$member_metadata else NULL
     view <- member_workspace_view(workspace, document)
-    revision <- member_document_cache_revision(document, metadata, view$key)
+    revision <- member_document_cache_revision(document, metadata, view$key, workspace)
     bindings <- if (is.null(view$bindings)) document$parse_data$member_data$bindings else view$bindings
     # Choose the extractor associated with roots actually referenced here. The
     # core does not recognize package names, class names, or wrapper conventions.
@@ -702,6 +753,12 @@ member_context_index <- function(workspace, uri, document, at, parsed = NULL,
     index$document_cache <- new.env(parent = emptyenv())
     index$document_binding_cache <- if (!is.null(revision)) document$member_binding_cache else NULL
     index$methods_attached <- TRUE
+    index$s7_attached <- FALSE
+    index$document_package <- document$parse_data$member_data$document_package
+    if (isTRUE(document$parse_data$member_data$package_classes) && isTRUE(workspace$index$enabled)) {
+        index$source_workspace <- workspace
+        index$source_uri <- uri
+    }
     index$attached_roots <- list()
     index$attached_s4 <- list()
     index$document_initializers <- document$parse_data$member_data$initializers
@@ -750,17 +807,41 @@ member_context_index <- function(workspace, uri, document, at, parsed = NULL,
         }
     }
     imports <- character()
+    # Bindings are resolved lazily at their source position. Retain the
+    # previous S7 names only when an attachment changes that namespace's API.
+    s7_names <- member_lookup(index$namespace_indices, "S7")$exports
+    attachments <- list()
     for (item in if (is.null(view$bindings)) data$imports else view$imports) {
         if (!member_before(item$end, at)) next
+        if (!isTRUE(item$qualified) &&
+                member_history_position(bindings[[member_name(item$expr[[1L]])]], item$start)) next
         imports <- c(imports, if (is.null(item$cache_prefix)) paste(item$start, item$end, collapse = ":") else item$cache_prefix)
         expr <- item$expr
         if (length(expr) < 2L) next
         if (member_head(expr, "library") || member_head(expr, "require")) {
             package <- member_name(expr[[2L]])
-            if (!is.null(package) && package %in% names(index$namespace_indices)) {
-                roots <- index$namespace_indices[[package]]$roots
+            package_index <- member_lookup(index$namespace_indices, package)
+            excluded <- if (isTRUE(index$s7_attached) && !isTRUE(item$uncertain)) {
+                member_lookup(document$attachment_exclusions, package)
+            }
+            if (length(s7_names)) {
+                # Selective or dynamic attachments cannot establish ownership.
+                # Invalidate any overlapping S7 names at this source position.
+                changed <- if (is.null(package_index) && isTRUE(item$uncertain)) s7_names else
+                    intersect(setdiff(s7_names, excluded), package_index$exports)
+                if (length(changed)) {
+                    attachments[[length(attachments) + 1L]] <- list(end = item$end,
+                        previous = index$attached_roots[intersect(s7_names, names(index$attached_roots))])
+                    if (isTRUE(item$uncertain)) {
+                        index$attached_roots[changed] <- rep(list(member_value(reason = "uncertain_attachment")), length(changed))
+                    }
+                }
+            }
+            if (isTRUE(item$uncertain)) next
+            if (!is.null(package_index)) {
+                roots <- package_index$roots
+                if (length(excluded)) roots <- roots[setdiff(names(roots), excluded)]
                 index$attached_roots[names(roots)] <- roots
-                package_index <- index$namespace_indices[[package]]
                 if (!is.null(package_index$s4_classes)) {
                     index$attached_s4[names(package_index$s4_classes)] <- package_index$s4_classes
                 }
@@ -770,18 +851,41 @@ member_context_index <- function(workspace, uri, document, at, parsed = NULL,
                     Filter(function(name) member_head(package_index$definitions[[name]], "function"),
                         intersect(package_index$exports, names(package_index$definitions)))
                 }
-                for (name in functions) {
-                    if (is.null(index$attached_roots[[name]]$s4_generator) &&
+                for (name in setdiff(functions, excluded)) {
+                    if (is.null(index$attached_roots[[name]]$s7_dispatch_args) &&
+                            is.null(index$attached_roots[[name]]$s4_generator) &&
                             is.null(index$attached_roots[[name]]$s7_generator)) {
                         index$attached_roots[name] <- list(member_value(function_key = name, metadata = package))
                     }
                 }
             }
             if (identical(package, "R6")) index$r6_attached <- TRUE
-            if (identical(package, "S7")) index$s7_attached <- TRUE
+            if (identical(package, "S7")) {
+                if (!isTRUE(index$s7_attached)) index$s7_attached_at <- item$end
+                index$s7_attached <- TRUE
+            }
         }
     }
-    index$document_context_key <- digest::digest(list(index$package, workspace$startup_packages, imports), algo = "xxhash64")
+    fixed <- character()
+    for (import in data$namespace_bindings) {
+        pkg <- index$namespace_indices[[import$package]]
+        # NAMESPACE imports bind exports only. Lazy data lives on the search
+        # path, but is not part of import() or importFrom().
+        exports <- if (is.null(pkg$namespace_exports)) pkg$exports else pkg$namespace_exports
+        keep <- which(import$targets %in% exports)
+        if (length(attachments)) fixed <- union(fixed, import$names[keep])
+        for (i in keep) {
+            target <- import$targets[[i]]
+            value <- pkg$roots[[target]]
+            if (is.null(value)) value <- member_value(function_key = target, metadata = import$package)
+            index$attached_roots[import$names[[i]]] <- list(value)
+        }
+    }
+    if (length(attachments)) {
+        index$s7_attachments <- attachments
+        index$s7_attachment_names <- setdiff(s7_names, fixed)
+    }
+    index$document_context_key <- digest::digest(list(index$package, workspace$startup_packages, data$namespace_bindings, document$attachment_exclusions, imports), algo = "xxhash64")
     index
 }
 
@@ -794,11 +898,10 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
     history <- member_history_at(history, at)
     position <- member_history_position(history, at)
     if (!position) {
-        return(if (is.null(index$attached_roots[[name]])) {
-            member_value(reason = "not_yet_bound")
-        } else {
-            index$attached_roots[[name]]
-        })
+        peer <- member_package_declaration(name, index, budget, depth, trail)
+        if (!is.null(peer)) return(peer)
+        attached <- member_attached_root(index, name, at)
+        return(if (is.null(attached)) member_value(reason = "not_yet_bound") else attached)
     }
     item <- history[[position]]
     id <- paste(c("binding", name, item$end), collapse = ":")
@@ -838,18 +941,21 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
         value <- member_resolve_document(name, index, env, budget, depth + 1L, c(trail, id))
         for (i in seq.int(first, position)) {
             write <- history[[i]]
-            if (!identical(name, write$writer) && identical(value$type, "list")) next
-            if (is.null(write$field) || !member_plain_container(value)) {
+            if (!identical(name, write$writer) && (identical(value$type, "list") ||
+                        (isTRUE(value$s7) && !member_s7_reference(value)))) next
+            env$.__member_position__ <- write$start
+            if (!is.null(write$setter) && length(member_s7_dispatch_args(value)) &&
+                    identical(member_s7_method(write$setter, index, env), "method<-")) next
+            if (is.null(write$field) || (!isTRUE(write$slot) && !member_plain_container(value))) {
                 value <- member_value(reason = "unknown_mutation")
                 break
             }
             if (!is.null(budget$origin_name)) write <- member_binding_declaration(write, budget)
-            env$.__member_position__ <- write$start
             env[write$writer] <- list(value)
             rhs <- member_infer(write$expr, index, env, depth = depth + 1L, trail = c(trail, id), budget = budget)
             if (isTRUE(budget$exhausted)) return(member_value(reason = "budget"))
             value <- member_write_container(value, write$field, rhs, write$writer,
-                if (identical(budget$origin_name, write$field)) write$origin, index, env, isTRUE(write$subset))
+                if (identical(budget$origin_name, write$field)) write$origin, index, env, isTRUE(write$subset), slot = isTRUE(write$slot))
             if (is.null(value)) return(member_value(reason = "unknown_mutation"))
             env[write$writer] <- NULL
         }
@@ -865,16 +971,21 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
 }
 
 member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name = NULL, accessor = "$", context = NULL,
-    path = NULL, source = NULL, key_helper = NULL, s4_new = FALSE) {
+    path = NULL, source = NULL, key_helper = NULL, s4_new = FALSE, s7_update_list = NULL) {
     result <- NULL
     # Find the cursor once, including formal defaults. Replaying a lexical
     # scope must not recursively visit every earlier RHS or sibling method.
     visit <- function(node, env, path, ast_path = integer(), formal_types = NULL) {
-        if (s4_new && is.call(node) && (identical(path, 1L) || identical(path, c(1L, 3L)))) {
+        if ((s4_new || !is.null(s7_update_list)) && is.call(node) && (identical(path, 1L) || identical(path, c(1L, 3L)))) {
             head <- node[[1L]]
             qualified <- member_head(head, "::") && identical(head[[3L]], as.name(sentinel))
             if (identical(head, as.name(sentinel)) || qualified) {
-                if (qualified) node[[1L]][[3L]] <- as.name("new") else node[[1L]] <- as.name("new")
+                helper <- as.name(if (s4_new) "new" else "set_props")
+                if (qualified) node[[1L]][[3L]] <- helper else node[[1L]] <- helper
+                if (!is.null(s7_update_list)) {
+                    result <<- member_s7_update_receiver(node, name, s7_update_list, index, env, budget)
+                    return(invisible(NULL))
+                }
                 if (identical(member_s4_method(node, index, env), "new")) {
                     target <- member_s4_arguments(node)$Class
                     if (!is.character(target)) {
@@ -1035,6 +1146,12 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
                     for (name in assigned) {
                         value <- NULL
                         old <- member_lookup(env, name)
+                        setter <- if (is.null(field)) member_s7_method_setter(lhs)
+                        if (!is.null(setter) && identical(name, member_name(lhs[[2L]])) &&
+                                identical(member_s7_method(setter, index, env), "method<-")) {
+                            generic <- member_infer(lhs[[2L]], index, env, budget = budget)
+                            if (length(member_s7_dispatch_args(generic))) next
+                        }
                         aliases <- member_aliases(attr(env, "member_aliases"), name)
                         direct <- !is.null(field) && identical(name, member_name(lhs[[2L]]))
                         if (direct || length(aliases)) {
@@ -1043,9 +1160,10 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
                                 value <- member_write_container(object, field,
                                     member_infer(child[[3L]], index, env, budget = budget), name,
                                     if (identical(budget$origin_name, field)) attr(lhs, "member_origin", exact = TRUE),
-                                    index, env, member_head(lhs, "[["))
+                                    index, env, member_head(lhs, "[["), slot = member_head(lhs, "@"))
                             }
-                            if (identical(object$type, "environment") && member_plain_container(object)) {
+                            if ((identical(object$type, "environment") && member_plain_container(object)) ||
+                                    (isTRUE(object$s7) && member_s7_reference(object))) {
                                 for (alias in aliases) {
                                     env[alias] <- list(if (is.null(value)) member_value(reason = "unknown_local_write") else value)
                                     lookup[[alias]] <- env[[alias]]
@@ -1069,7 +1187,12 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
             if (length(path)) {
                 selected <- node[[path[[1L]]]]
                 types <- if (is.call(node) && member_head(selected, "function")) {
-                    member_s4_method_formals(node, selected, index, env, budget)
+                    if (member_head(node, "<-") || member_head(node, "=")) {
+                        member_s7_method_formals(node, selected, index, env, budget)
+                    } else {
+                        s4 <- member_s4_method_formals(node, selected, index, env, budget)
+                        if (!is.null(s4)) s4 else member_s7_callback_formals(node, path[[1L]], root, ast_path, index, env, budget)
+                    }
                 }
                 visit(selected, env, path[-1L], c(ast_path, path[[1L]]), types)
             }
@@ -1267,7 +1390,7 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
     metadata <- workspace$member_metadata
     cache <- document$member_receivers
     view <- member_workspace_view(workspace, document)
-    revision <- member_document_cache_revision(document, metadata, view$key)
+    revision <- member_document_cache_revision(document, metadata, view$key, workspace)
     # Named [[ calls resolve the full subset expression in its lexical scope,
     # including local subset methods. Other member prefixes share the receiver.
     accessor <- cursor$accessor
@@ -1280,6 +1403,7 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
         cursor$operator, cursor$accessor, if (is.null(cursor$accessor) || named_subset) name, sep = ":")
     if (!is.null(key_helper)) key <- paste("slot", key_helper, key, sep = ":")
     if (isTRUE(cursor$s4_new)) key <- paste("constructor", key, sep = ":")
+    if (!is.null(cursor$s7_update_list)) key <- paste("property-tag", cursor$s7_update_list, key, sep = ":")
     if (origins) key <- paste("definition", origin_name, name, key, sep = ":")
     cached <- if (!is.null(revision)) cache$get(key) else NULL
     if (!is.null(cached)) {
@@ -1290,7 +1414,7 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
     } else {
         recovered <- member_recover_scope(document, point, cursor, data, budget)
         if (is.null(recovered)) return(NULL)
-        if (isTRUE(cursor$s4_new) && is.null(recovered$context)) {
+        if ((isTRUE(cursor$s4_new) || !is.null(cursor$s7_update_list)) && is.null(recovered$context)) {
             full <- s3_recover_call(document, list(point = point, cursor = cursor), recovered)
             if (!is.null(full)) {
                 recovered$context <- full
@@ -1312,7 +1436,7 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
         bindings$.__member_position__ <- recovered$start
         value <- member_cursor_value(recovered$parsed, recovered$sentinel, index, bindings, budget,
             if (is.null(cursor$accessor) || named_subset) name, cursor$accessor, recovered$context,
-            recovered$path, recovered$source, key_helper, isTRUE(cursor$s4_new))
+            recovered$path, recovered$source, key_helper, isTRUE(cursor$s4_new), cursor$s7_update_list)
         cached_value <- if (!is.null(revision)) member_receiver_cache_value(value, index, budget) else NULL
         if (!is.null(cached_value)) {
             # Raw storage accounts for closure environments and makes each

@@ -1054,6 +1054,10 @@ encode_semantic_tokens <- function(tokens) {
     list(data = data)
 }
 
+semantic_result_id <- function(parsed) {
+    if (is.null(parsed$semantic_result_id)) parsed$content_hash else parsed$semantic_result_id
+}
+
 #' The response to a textDocument/semanticTokens/full Request
 #'
 #' Returns semantic tokens for the entire document
@@ -1077,7 +1081,7 @@ semantic_tokens_full_reply <- function(id, uri, workspace, document) {
         result <- list(data = semantic_data$encoded)
     }
     if (!is.null(parse_data$content_hash)) {
-        result$resultId <- parse_data$content_hash
+        result$resultId <- semantic_result_id(parse_data)
     }
     if (!is.null(document$pending_semantic_result)) document$pending_semantic_result <- NULL
 
@@ -1193,18 +1197,20 @@ semantic_tokens_delta_reply <- function(id, uri, workspace, document,
     } else if (is.null(parse_data$semantic_data)) {
         return(semantic_tokens_full_reply(id, uri, workspace, document))
     } else {
-        current <- list(resultId = parse_data$content_hash, data = parse_data$semantic_data$encoded)
+        current <- list(resultId = semantic_result_id(parse_data), data = parse_data$semantic_data$encoded)
         if (!is.null(pending)) document$pending_semantic_result <- NULL
     }
 
     previous <- NULL
     if (!is.null(previous_result_id) && identical(pending$resultId, previous_result_id)) {
         previous <- pending$data
-    } else if (!is.null(previous_result_id) && identical(parse_data$content_hash, previous_result_id)) {
+    } else if (!is.null(previous_result_id) && identical(semantic_result_id(parse_data), previous_result_id)) {
         previous <- parse_data$semantic_data$encoded
     } else if (!is.null(previous_result_id) && workspace$parse_cache$has(previous_result_id)) {
         cached <- workspace$parse_cache$get(previous_result_id)
-        previous <- cached$semantic_data$encoded
+        if (is.null(cached$semantic_result_id) || identical(cached$semantic_result_id, previous_result_id)) {
+            previous <- cached$semantic_data$encoded
+        }
     }
 
     if (is.null(previous)) {

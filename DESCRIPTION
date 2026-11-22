@@ -44,6 +44,7 @@ Suggests:
     purrr (>= 0.3.3),
     testthat (>= 3.3.0),
     withr (>= 2.3.0),
+    rlang,
     rmarkdown (>= 2.0),
     roxygen2 (>= 7.0.0),
     S7,

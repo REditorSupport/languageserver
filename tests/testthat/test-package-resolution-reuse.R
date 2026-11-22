@@ -345,8 +345,34 @@ test_that("Completed shared member catalogs populate another workspace", {
     expect_identical(document$loaded_packages, c(startup_packages, "R6", "callr"))
 })
 
+test_that("A completed bounded public S7 snapshot is reused until its installation changes", {
+    fixture <- package_reuse_fixture(members = TRUE)
+    package_reuse_document(fixture, "first")
+    package_reuse_start(fixture)
+    package_reuse_finish(fixture, transform = function(result, process) {
+        if (isTRUE(process$args$prepare)) {
+            model <- result$members$callr
+            model$dataset_only <- model$namespace_attempted <- TRUE
+            model$preparation_error <- "Namespace exceeds snapshot budget"
+            model$bounded_s7_exports <- "Point"
+            model$roots$Point <- member_s7_value(type = "function", s7_generator = list(kind = "class", name = "Point"))
+            result$members$callr <- model
+        }
+        result
+    })
+    expect_true(member_bounded_s7_snapshot(fixture$workspace$member_metadata$catalog("callr")))
+    workers <- function() sum(vapply(fixture$state$processes, function(process) isTRUE(process$args$prepare), logical(1L)))
+    package_reuse_document(fixture, "second")
+    package_reuse_start(fixture)
+    expect_identical(workers(), 1L)
+    fixture$state$installation <- "reinstalled"
+    package_reuse_document(fixture, "third")
+    package_reuse_start(fixture)
+    expect_identical(workers(), 2L)
+})
+
 test_that("Failed and incomplete metadata results do not satisfy later fresh documents", {
-    for (failure in c("missing_member", "failed_member", "partial_member", "failed_s3", "missing_s3")) {
+    for (failure in c("missing_member", "failed_member", "partial_member", "datasets_after_budget", "failed_s3", "missing_s3")) {
         fixture <- package_reuse_fixture(members = TRUE, s3 = TRUE)
         package_reuse_document(fixture, "first")
         package_reuse_start(fixture)
@@ -355,6 +381,10 @@ test_that("Failed and incomplete metadata results do not satisfy later fresh doc
                 if (failure == "missing_member") result$members$callr <- NULL
                 if (failure == "failed_member") result$members$callr$error <- "fixture metadata failure"
                 if (failure == "partial_member") result$members$callr$dataset_only <- TRUE
+                if (failure == "datasets_after_budget") {
+                    result$members$callr$dataset_only <- result$members$callr$namespace_attempted <- TRUE
+                    result$members$callr$preparation_error <- "Namespace exceeds snapshot budget"
+                }
             }
             if (isTRUE(process$args$prepare_s3)) {
                 if (failure == "failed_s3") result$s3$callr$error <- "fixture S3 failure"
@@ -366,7 +396,7 @@ test_that("Failed and incomplete metadata results do not satisfy later fresh doc
         package_reuse_start(fixture)
         expect_equal(length(fixture$state$processes), 3L, info = failure)
         expect_identical(fixture$state$processes[[3L]]$args$prepare,
-            failure %in% c("missing_member", "failed_member", "partial_member"), info = failure)
+            failure %in% c("missing_member", "failed_member", "partial_member", "datasets_after_budget"), info = failure)
         package_reuse_finish(fixture, fixture$state$processes[3L])
     }
 })

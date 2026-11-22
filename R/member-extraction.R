@@ -216,6 +216,7 @@ member_package_index <- function(input) {
     index$definitions <- input$definitions
     index$locations <- input$locations
     index$exports <- input$exports
+    index$namespace_exports <- input$namespace_exports
     index$generic_external <- input$generic_external
     index$subset_registry <- input$subset_registry
     index$subset_registry_complete <- isTRUE(input$subset_registry_complete)

@@ -5,7 +5,7 @@ member_origin_tree <- function(data, syntax = NULL) {
     token <- data$token
     callees <- which(token == "SYMBOL_FUNCTION_CALL")
     names <- reference_symbol_names(data$text[callees])
-    classes <- callees[names %in% c("R6Class", "setClass", "setRefClass", "new_class")]
+    classes <- callees[names %in% c("R6Class", "setClass", "setRefClass", "new_class", "deprecated_class")]
     lists <- callees[names %in% c("list", "list2", "data.frame", "c", "representation")]
     operators <- which(token %in% c("'$'", "LBB"))
     if (!length(lists) && !length(classes) && !length(operators)) return(list())
@@ -42,13 +42,13 @@ member_origin_tree <- function(data, syntax = NULL) {
 }
 
 member_source_origins <- function(parsed, data, uri, row_offset = 0L, col_offset = 0L,
-    tree = NULL, item = NULL, edit = NULL) {
+    tree = NULL, edit = NULL) {
     if (is.null(tree)) tree <- member_origin_tree(if (is.null(data)) utils::getParseData(parsed) else data)
     if (!length(tree)) return(parsed)
     syntax <- tree$syntax
     token <- syntax$token
     needed <- tree$needed
-    roots <- if (is.null(item)) tree$roots else tree$roots[item]
+    roots <- tree$roots
     if (anyNA(roots) || length(roots) != length(parsed) || !any(needed[roots])) return(parsed)
     origin <- function(i) {
         first <- syntax$line1[[i]]
@@ -168,8 +168,23 @@ member_declaration_expr <- function(document, i, budget) {
     }
     key <- as.character(i)
     if (exists(key, memo, inherits = FALSE)) return(memo[[key]])
-    if (!is.null(memo$tree)) {
-        expr <- member_source_origins(as.expression(list(node)), NULL, document$uri, tree = memo$tree, item = i)
+    tree <- memo$tree
+    if (!is.null(tree)) {
+        if (!length(tree)) return(node)
+        if (isTRUE(document$parse_data$member_data$has_blocks)) {
+            # Block children are indexed individually. Join the item to its
+            # syntax by physical range rather than the ordinal of a root.
+            syntax <- tree$syntax
+            rows <- .Call("syntax_enclosing_c", syntax, as.integer(item$start + 1L), PACKAGE = "languageserver")
+            rows <- unique(c(rows, syntax$parent_row[rows]))
+            rows <- rows[rows > 0L]
+            tree$roots <- rows[syntax$line1[rows] == item$start[[1L]] + 1L &
+                syntax$col1[rows] == item$start[[2L]] + 1L & syntax$line2[rows] == item$end[[1L]] + 1L &
+                syntax$col2[rows] == item$end[[2L]]][1L]
+        } else {
+            tree$roots <- tree$roots[i]
+        }
+        expr <- member_source_origins(as.expression(list(node)), NULL, document$uri, tree = tree)
     } else {
         start <- item$start
         end <- item$end
@@ -192,7 +207,10 @@ member_binding_declaration <- function(entry, budget) {
     i <- if (is.null(source)) member_history_position(document$parse_data$member_data$items, entry$end) else source$item
     if (!i) return(entry)
     expr <- member_declaration_expr(document, i, budget)
-    if (member_head(expr, "<-") || member_head(expr, "=")) {
+    if (member_head(expr, ":=")) {
+        # The binding resolver still verifies the operator before naming its RHS.
+        entry$expr <- expr
+    } else if (member_head(expr, "<-") || member_head(expr, "=")) {
         entry$expr <- expr[[3L]]
         if (!is.null(entry$field)) entry$origin <- attr(expr[[2L]], "member_origin", exact = TRUE)
     }

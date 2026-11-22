@@ -453,3 +453,175 @@ test_that("S7 setters never retain a stale default member shape", {
     expect_length(s7_labels(c(code, "Box()@items$"), list(S7 = snapshot)), 0L)
     expect_length(s7_labels(c(code, "set_props(Box(), items=list(new=2))@items$"), list(S7 = snapshot)), 0L)
 })
+
+test_that("S7 class deprecation distinguishes a recommendation from an alias", {
+    skip_if_not_installed("S7")
+    skip_if_not("deprecated_class" %in% getNamespaceExports("S7"))
+    metadata <- list(S7 = member_prepare_package("S7"))
+    # deprecated_class() examples in the S7 evolution guide and reference.
+    code <- c("library(S7)", "Pet := new_class(properties = list(name = class_character))",
+        'Dog := deprecated_class(new = Pet, when = "2.0.0", properties = list(age = class_integer))',
+        'Hound := deprecated_class(new = Pet, when = "3.0.0", alias = TRUE)',
+        "Puppy := new_class(parent = Hound, properties = list(trained = class_logical))")
+    scope <- new.env(parent = asNamespace("S7"))
+    eval(parse(text = code[-1L]), scope)
+    for (name in c("Pet", "Dog", "Hound", "Puppy")) {
+        ctor <- scope[[name]]
+        object <- suppressWarnings(ctor())
+        expect_identical(s7_labels(c(code, paste0(name, "()@")), metadata), sort(S7::prop_names(object)))
+        result <- s7_signature(s7_fixture(c(code, paste0(name, "(")), metadata))
+        expect_identical(result$signatures[[1L]]$label, get_signature(name, member_s7_function(formals(ctor))))
+    }
+    installed <- member_index_freeze(member_package_index(member_namespace_input(scope,
+                package = "s7pets", exports = c("Hound", "Dog"))))
+    expect_identical(s7_labels("s7pets::Hound()@", list(s7pets = installed)), "name")
+    expect_identical(s7_labels("s7pets::Dog()@", list(s7pets = installed)), "age")
+    for (args in c("alias = unknown", "alias = TRUE, properties = list(wrong = class_list)")) {
+        invalid <- sprintf('Bad := deprecated_class(new = Pet, when = "3.0.0", %s)', args)
+        expect_length(s7_labels(c(code, invalid, "Bad()@"), metadata), 0L)
+    }
+})
+
+test_that("S7 renamed properties follow constructor and set_props values", {
+    skip_if_not_installed("S7")
+    skip_if_not("deprecated_property" %in% getNamespaceExports("S7"))
+    metadata <- list(S7 = member_prepare_package("S7"))
+    code <- c("library(S7)", "Person := new_class(properties = list(",
+        "  first_name = class_character,",
+        '  deprecated_property("firstName", new = "first_name", when = "1.1.0")',
+        "))", 'hadley <- Person(firstName = "Hadley")')
+    scope <- new.env(parent = asNamespace("S7"))
+    suppressWarnings(eval(parse(text = code[-1L]), scope))
+    expect_value <- function(expr) {
+        actual <- suppressWarnings(eval(parse(text = expr), scope))
+        hover <- s7_hover(s7_fixture(c(code, expr), metadata))
+        expect_identical(hover$contents, sprintf("```r\n%s\n```", deparse(actual)))
+    }
+    expect_value("hadley@first_name")
+    expect_value('Person(firstName = "John", first_name = "Hadley")@firstName')
+    expect_value('set_props(hadley, firstName = "John", first_name = "Sam")@firstName')
+    expect_value('set_props(hadley, first_name = "Sam", firstName = "John")@first_name')
+    keys <- c("library(S7)", "Card := new_class(properties = list(contact = class_list))",
+        'card <- Card(contact = list(name = "Hadley"))', 'property <- "contact"')
+    expect_identical(s7_labels(c(keys, "prop(card, property)$"), metadata), "name")
+    expect_length(s7_labels(c(keys, "prop(card, contact)$"), metadata), 0L)
+})
+
+test_that("S7 wrapped S3 property defaults follow the installed public formals", {
+    skip_if_not_installed("S7")
+    metadata <- list(S7 = member_prepare_package("S7"))
+    # new_S3_class() documents a Date constructor/default and optional attributes.
+    code <- c("library(S7)",
+        'S3_Date <- new_S3_class("Date", function(.data = integer()) .Date(.data),',
+        '  default = quote(.Date(integer())), attributes = "names")',
+        'Calendar <- new_class("Calendar", properties = list(start = S3_Date))')
+    scope <- new.env(parent = asNamespace("S7"))
+    if ("attributes" %in% names(formals(S7::new_S3_class))) {
+        eval(parse(text = code[-1L]), scope)
+        signature <- s7_signature(s7_fixture(c(code, "Calendar("), metadata))
+        expect_identical(signature$signatures[[1L]]$label, get_signature("Calendar", member_s7_function(formals(scope$Calendar))))
+    } else {
+        expect_error(eval(parse(text = code[-1L]), scope), "unused argument")
+        index <- member_generic_index("")
+        index$s7_capabilities <- metadata$S7$s7_capabilities
+        expect_null(member_infer(quote(S7::new_S3_class("Date", attributes = "names")), index)$s7_descriptor)
+    }
+})
+
+test_that("S7 property introspection follows the actual class and table schema", {
+    skip_if_not_installed("S7")
+    metadata <- list(S7 = member_prepare_package("S7"))
+    code <- c("library(S7)",
+        'Point <- new_class("Point", properties = list(x = class_numeric, y = class_numeric))',
+        "p <- Point(x = 3, y = 4)")
+    scope <- new.env(parent = asNamespace("S7"))
+    eval(parse(text = code[-1L]), scope)
+    expect_identical(s7_labels(c(code, "S7_class(p)()@"), metadata), sort(S7::prop_names(scope$p)))
+    expect_identical(s7_labels(c(code, "props(p)$"), metadata), sort(names(S7::props(scope$p))))
+    expect_identical(s7_labels(c(code, 'props(p, "y")$'), metadata), "y")
+    expect_length(s7_labels(c(code, "props(p, input)$"), metadata), 0L)
+    if ("prop_info" %in% getNamespaceExports("S7")) {
+        # The release announcement inspects Point and its properties with prop_info().
+        expected <- sort(names(S7::prop_info(scope$Point)))
+        expect_identical(s7_labels(c(code, "prop_info(Point)$"), metadata), expected)
+        expect_identical(s7_labels(c(code, "prop_info(p)$"), metadata), expected)
+    }
+})
+
+test_that("S7 lazy conversion preserves the original subclass before dispatch", {
+    skip_if_not_installed("S7")
+    skip_if_not("convert_lazy" %in% getNamespaceExports("S7"))
+    metadata <- list(S7 = member_prepare_package("S7"))
+    # convert_lazy() reference examples use an ancestor with x and a subclass with y.
+    code <- c("library(S7)", "Foo1 := new_class(properties = list(x = class_integer))",
+        "Foo2 := new_class(Foo1, properties = list(y = class_double))",
+        "object <- Foo2(x = 1L, y = 2)")
+    scope <- new.env(parent = asNamespace("S7"))
+    eval(parse(text = code[-1L]), scope)
+    for (target in c("Foo1", "Foo2")) {
+        expr <- paste0("convert_lazy(object, ", target, ")")
+        actual <- eval(parse(text = expr), scope)
+        expect_identical(s7_labels(c(code, paste0(expr, "@")), metadata), sort(S7::prop_names(actual)))
+        expect_identical(s7_hover(s7_fixture(c(code, paste0(expr, "@y")), metadata))$contents, "```r\n2\n```")
+    }
+    expect_length(s7_labels(c(code, "convert_lazy(Foo1(), Foo2)@"), metadata), 0L)
+    expect_length(s7_labels(c(code, "convert_lazy <- function(...) NULL", "convert_lazy(object, Foo1)@"), metadata), 0L)
+})
+
+test_that("the namespace budget fallback retains public S7 shapes and lazy data", {
+    skip_if_not_installed("S7")
+    ns <- new.env(parent = asNamespace("S7"))
+    ns$Point <- S7::new_class("Point", properties = list(x = S7::class_double, y = S7::class_double))
+    ns$sample <- ns$Point(x = 3, y = 4)
+    ns$private <- ns$Point
+    makeActiveBinding("active", function() stop("active binding ran"), ns)
+    delayedAssign("deferred", stop("promise was forced"), assign.env = ns)
+    data <- list2env(list(table = data.frame(id = 1L)), parent = emptyenv())
+    exports <- c("Point", "sample", "active", "deferred")
+    input <- member_namespace_input(ns, "geometry", exports, data, lazydata_only = TRUE)
+    compact <- member_public_s7_input(input, ns)
+    expect_setequal(compact$namespace_exports, c("Point", "sample"))
+    expect_length(member_public_s7_input(input, ns, max_bytes = 1L)$s7_roots, 0L)
+
+    # Exercise the full preparation path when a namespace was read but its
+    # frozen index was too large. The fallback reuses the collected roots.
+    rm("deferred", envir = ns)
+    capture <- member_namespace_input
+    freeze <- member_index_freeze
+    testthat::local_mocked_bindings(
+        member_namespace_input = function(ns, lazydata = NULL, lazydata_only = FALSE) {
+            capture(scope, "geometry", exports, data, lazydata_only)
+        },
+        member_index_freeze = function(index) {
+            if (!isTRUE(index$namespace_attempted)) stop("Namespace exceeds snapshot budget")
+            freeze(index)
+        },
+        .package = "languageserver"
+    )
+    scope <- ns
+    withr::local_options(languageserver.package_cache_dir = FALSE)
+    withr::local_libpaths(.libPaths())
+    snapshot <- member_prepare_package("utils", identity = list(package = "geometry"))
+    expect_true(snapshot$namespace_attempted)
+    expect_identical(snapshot$preparation_error, "Namespace exceeds snapshot budget")
+    expect_setequal(snapshot$bounded_s7_exports, c("Point", "sample"))
+    cache <- MemberMetadataCache$new(16 * 1024^2)
+    cache$set("geometry", snapshot)
+    expect_true(member_bounded_s7_snapshot(snapshot))
+    expect_true(member_bounded_s7_snapshot(cache$catalog("geometry")))
+    incomplete <- snapshot
+    incomplete$roots$sample <- NULL
+    expect_false(member_bounded_s7_snapshot(incomplete))
+    failed <- snapshot
+    failed$preparation_error <- "namespace load failed"
+    expect_false(member_bounded_s7_snapshot(failed))
+    dependent <- snapshot
+    dependent$s7_dependencies <- list(optionalpkg = list())
+    expect_false(member_bounded_s7_snapshot(dependent, packages = "geometry"))
+    expect_true(member_bounded_s7_snapshot(dependent, packages = c("geometry", "optionalpkg")))
+    expect_setequal(names(snapshot$roots), c("Point", "sample", "table"))
+    metadata <- list(geometry = snapshot)
+    expect_identical(s7_labels("geometry::Point()@", metadata), sort(S7::prop_names(ns$sample)))
+    expect_identical(s7_labels("geometry::sample@", metadata), c("x", "y"))
+    expect_identical(names(snapshot$roots$table$fields), "id")
+})

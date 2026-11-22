@@ -1,12 +1,14 @@
 # S7 descriptors are read as inert data. Source declarations are summarized
 # from syntax; constructors, validators, getters and defaults are never called.
-member_s7_intrinsics <- c("new_class", "new_property", "new_union", "new_object", "prop", "set_props",
-    "as_class", "new_external_class", "new_S3_class", "deprecated_class", "deprecated_property", ":=")
+member_s7_intrinsics <- c("new_class", "new_property", "new_union", "new_object", "prop", "props", "S7_class", "set_props",
+    "as_class", "new_external_class", "new_S3_class", "deprecated_class", "deprecated_property",
+    "new_generic", "deprecated_generic", "method<-", "S4_contains", "convert_lazy", ":=")
 
 
-# Derive semantics in the metadata worker from the installed implementation.
-# Unknown implementations keep the older, conservative summaries. No probe
-# constructs an object or invokes package callbacks.
+# Read public interfaces in the metadata worker. Constructor forwarding,
+# overrides, class references, S4 parents and list updates do not have
+# distinguishing public formals. Keep the conservative fallback if their
+# implementations cannot be recognized, without instantiating a class.
 member_s7_capabilities <- function() {
     if (!"S7" %in% loadedNamespaces()) return(list())
     ns <- asNamespace("S7")
@@ -19,21 +21,23 @@ member_s7_capabilities <- function() {
         !is.null(fn) && symbol %in% all.names(body(fn))
     }
     args_fn <- read("constructor_args")
-    first <- function(name) names(formals(read(name)))[1L]
+    exports <- getNamespaceExports(ns)
+    supported <- intersect(member_s7_intrinsics, exports)
+    arguments <- stats::setNames(lapply(supported, function(name) names(formals(read(name)))), supported)
     list(forward = uses("new_constructor", "constructor_forward"),
         overrides = !is.null(args_fn) && !uses("constructor_args", "setdiff"),
         class_ref = uses("new_object", "get_class_ref"),
         lists = uses("set_props", "collect_dots"),
         s4 = uses("new_constructor", "is_S4_class"),
-        bind = uses(":=", "S7_eval_bare_"),
-        union = uses("|.S7_class", "new_union"),
-        exports = getNamespaceExports(ns),
-        object = first("set_props"), parent = first("new_object"))
+        bind = ":=" %in% exports,
+        union = !is.null(utils::getS3method("|", "S7_class", optional = TRUE, envir = ns)),
+        exports = exports, arguments = arguments,
+        object = arguments$set_props[1L], parent = arguments$new_object[1L])
 }
 
 member_s7_modes <- function(index) {
-    if (!is.null(index$s7_capabilities)) return(index$s7_capabilities)
-    member_lookup(index$namespace_indices, "S7")$s7_capabilities
+    installed <- member_lookup(index$namespace_indices, "S7")$s7_capabilities
+    if (!is.null(installed)) installed else index$s7_capabilities
 }
 
 # := is a declaration only when its binding belongs to S7. Other packages
@@ -57,6 +61,16 @@ member_s7_value <- function(..., s7 = FALSE, s7_descriptor = NULL, s7_generator 
     value
 }
 
+member_attached_root <- function(index, name, at) {
+    changes <- index$s7_attachments
+    if (length(changes) && !is.null(at) && !member_before(changes[[length(changes)]]$end, at) &&
+            name %in% index$s7_attachment_names) {
+        next_change <- member_history_position(changes, at) + 1L
+        return(changes[[next_change]]$previous[[name]])
+    }
+    member_lookup(index$attached_roots, name)
+}
+
 member_s7_method <- function(expr, index, bindings) {
     if (!is.call(expr)) return(NULL)
     head <- expr[[1L]]
@@ -68,11 +82,17 @@ member_s7_method <- function(expr, index, bindings) {
     if (is.null(name) || !name %in% member_s7_intrinsics || name %in% names(bindings)) return(NULL)
     at <- bindings$.__member_position__
     history <- member_lookup(index$document_bindings, name)
-    if (length(history) && (is.null(at) || any(vapply(history, function(item) member_before(item$end, at), logical(1L))))) return(NULL)
-    attached <- member_lookup(index$attached_roots, name)
-    if ((!is.null(attached$metadata) && !identical(attached$metadata, "S7")) ||
-            (is.null(index$document_bindings) && name %in% names(index$definitions) && !identical(index$package, "S7"))) return(NULL)
-    if (isTRUE(index$s7_attached) || name %in% index$intrinsics || identical(attached$metadata, "S7")) name else NULL
+    if (length(history) && (is.null(at) || member_history_position(history, at) > 0L)) return(NULL)
+    attached <- member_attached_root(index, name, at)
+    if (is.null(index$document_bindings) && name %in% names(index$definitions) && !identical(index$package, "S7")) return(NULL)
+    method <- if (!is.null(attached)) {
+        if (identical(attached$metadata, "S7") && isTRUE(attached$function_key %in% member_s7_intrinsics)) attached$function_key
+    } else if ((isTRUE(index$s7_attached) &&
+                (is.null(at) || is.null(index$s7_attached_at) || member_before(index$s7_attached_at, at))) ||
+            (is.null(index$document_bindings) && name %in% index$intrinsics)) {
+        name
+    }
+    if (!is.null(method) && (is.null(index$source_workspace) || !member_package_shadows(index, name))) method else NULL
 }
 
 # Exact matching precedes partial matching, and positional/partial matching
@@ -134,11 +154,11 @@ member_s7_type <- function(descriptor) {
     descriptor$name
 }
 
-member_s7_shape <- function(descriptor, bindings = list(), depth = 0L) {
+member_s7_shape <- function(descriptor, bindings = list(), depth = 0L, defaults = TRUE) {
     if (depth >= 32L) return(member_value(reason = "s7_recursion"))
     if (is.null(descriptor)) return(member_value(reason = "unknown_s7_class"))
     if (identical(descriptor$kind, "union")) {
-        shapes <- lapply(descriptor$classes, member_s7_shape, bindings, depth + 1L)
+        shapes <- lapply(descriptor$classes, member_s7_shape, bindings, depth + 1L, defaults)
         return(if (length(shapes)) Reduce(member_join, shapes) else member_value())
     }
     if (identical(descriptor$kind, "s4")) {
@@ -151,8 +171,8 @@ member_s7_shape <- function(descriptor, bindings = list(), depth = 0L) {
     }
     properties <- descriptor$properties
     slots <- lapply(properties, function(property) {
-        value <- member_s7_shape(property$class, bindings, depth + 1L)
-        if (!property$getter && !property$setter && !is.null(property$default)) {
+        value <- member_s7_shape(property$class, bindings, depth + 1L, defaults)
+        if (defaults && !property$getter && !property$setter && !is.null(property$default)) {
             value$binding_expr <- property$default
             value$binding_env <- bindings
         }
@@ -185,17 +205,19 @@ member_s7_generator <- function(descriptor, bindings = list(), depth = 0L) {
     constructor
 }
 
-member_s7_default <- function(descriptor) {
+member_s7_default <- function(descriptor, package = NULL) {
     if (identical(descriptor$kind, "union")) {
-        return(if (length(descriptor$classes)) member_s7_default(descriptor$classes[[1L]]))
+        return(if (length(descriptor$classes)) member_s7_default(descriptor$classes[[1L]], package))
     }
-    if (identical(descriptor$kind, "external") || isTRUE(descriptor$external)) {
-        ref <- call("::", as.name(descriptor$package), as.name(descriptor$name))
+    if (!is.null(descriptor$external_ref)) descriptor <- descriptor$external_ref
+    if (identical(descriptor$kind, "external")) {
+        ref <- if (identical(descriptor$package, package)) as.name(descriptor$name) else
+            call("::", as.name(descriptor$package), as.name(descriptor$name))
         return(as.call(list(as.call(list(quote(S7::as_class), ref)))))
     }
     if (identical(descriptor$kind, "s4")) return(as.call(list(call("::", as.name("methods"), as.name("new")), descriptor$name)))
     if (identical(descriptor$kind, "class")) {
-        ref <- if (is.null(descriptor$package)) as.name(descriptor$name) else
+        ref <- if (is.null(descriptor$package) || identical(descriptor$package, package)) as.name(descriptor$name) else
             call("::", as.name(descriptor$package), as.name(descriptor$name))
         return(as.call(list(ref)))
     }
@@ -204,7 +226,7 @@ member_s7_default <- function(descriptor) {
 
 member_s7_call <- function(expr, index, bindings, budget, method = member_s7_method(expr, index, bindings)) {
     if (is.null(method) || !method %in% member_s7_intrinsics) return(NULL)
-    if (method %in% c("new_external_class", "deprecated_class", "deprecated_property", ":=") &&
+    if (method %in% c("new_external_class", "deprecated_class", "deprecated_property", "convert_lazy", ":=") &&
             !method %in% member_s7_modes(index)$exports) return(member_value(reason = "unavailable_s7_api"))
     nesting <- budget$s7_depth
     if (is.null(nesting)) nesting <- 0L
@@ -213,8 +235,29 @@ member_s7_call <- function(expr, index, bindings, budget, method = member_s7_met
     on.exit(budget$s7_depth <- nesting)
     infer <- function(node) member_infer(node, index, bindings, budget = budget)
     modes <- member_s7_modes(index)
+    keys <- function(fallback) {
+        installed <- modes$arguments[[method]]
+        if (is.null(installed)) fallback else installed
+    }
+    if (method %in% c("new_generic", "deprecated_generic")) {
+        return(member_s7_generic(expr, method, index, bindings, budget))
+    }
+    if (method == "S4_contains") return(member_s4_contains_bridge(expr, index, bindings, budget))
+    if (method == "convert_lazy") {
+        args <- member_s7_arguments(expr, keys(c("from", "to", "...")))
+        object <- infer(args$from)
+        target <- infer(args$to)$s7_generator
+        # Only the identity branch precedes method dispatch. A conversion
+        # method can return arbitrary data, including when downcasting.
+        parent <- if (isTRUE(object$s7) && is.null(object$s7_generator)) object$s7_descriptor
+        while (!is.null(target) && identical(parent$kind, "class")) {
+            if (identical(target$name, parent$name) && identical(target$package, parent$package)) return(object)
+            parent <- parent$parent
+        }
+        return(member_value())
+    }
     if (method == "as_class") {
-        args <- member_s7_arguments(expr, c("x", "arg"))
+        args <- member_s7_arguments(expr, keys(c("x", "arg")))
         if (is.null(args)) return(member_value())
         value <- infer(args$x)
         descriptor <- member_s7_spec(value, index, bindings, budget)
@@ -222,13 +265,13 @@ member_s7_call <- function(expr, index, bindings, budget, method = member_s7_met
                 member_s7_generator(descriptor, bindings) else member_s7_value(s7_descriptor = descriptor))
     }
     if (method == "new_external_class") {
-        args <- member_s7_arguments(expr, c("package", "name", "version"))
+        args <- member_s7_arguments(expr, keys(c("package", "name", "version")))
         if (is.null(args) || !is.character(args$package) || length(args$package) != 1L ||
                 !is.character(args$name) || length(args$name) != 1L) return(member_value())
         return(member_s7_value(type = "S7_external_class", s7_descriptor = c(list(kind = "external"), args)))
     }
     if (method == "new_S3_class") {
-        args <- member_s7_arguments(expr, c("class", "constructor", "validator", "default"))
+        args <- member_s7_arguments(expr, keys(c("class", "constructor", "validator", "default")))
         if (is.null(args) || !is.character(args$class) || !length(args$class)) return(member_value())
         constructor <- infer(args$constructor)$function_expr
         default <- args$default
@@ -237,12 +280,23 @@ member_s7_call <- function(expr, index, bindings, budget, method = member_s7_met
                     constructor = constructor, custom = TRUE, s3 = TRUE, default = default)))
     }
     if (method == "deprecated_class") {
-        args <- as.list(expr)[-1L]
-        args[c("when", "new", "method")] <- NULL
-        return(member_s7_call(as.call(c(list(quote(S7::new_class)), args)), index, bindings, budget, "new_class"))
+        matched <- member_s7_match(as.list(expr)[-1L], keys(c("name", "...", "when", "new", "method", "alias")))
+        args <- matched$args
+        if (is.null(matched) || !is.character(args$name) || is.null(args$when)) return(member_value())
+        if ("alias" %in% names(args)) {
+            alias <- infer(args$alias)$literal
+            if (isTRUE(alias) && !length(matched$dots)) {
+                target <- infer(args$new)
+                if (!is.null(target$s7_generator)) return(target)
+            }
+            if (!isFALSE(alias)) return(member_value())
+        }
+        definition <- as.call(c(list(quote(S7::new_class), name = args$name), matched$dots))
+        attr(definition, "class_origin") <- attr(expr, "class_origin", exact = TRUE)
+        return(member_s7_call(definition, index, bindings, budget, "new_class"))
     }
     if (method == "deprecated_property") {
-        args <- member_s7_arguments(expr, c("old", "new", "when", "method", "class", "default", "validator"))
+        args <- member_s7_arguments(expr, keys(c("old", "new", "when", "method", "class", "default", "validator")))
         if (is.null(args) || !is.character(args$old) || length(args$old) != 1L) return(member_value())
         default <- args$default
         if (member_head(default, "quote")) default <- default[[2L]]
@@ -258,7 +312,7 @@ member_s7_call <- function(expr, index, bindings, budget, method = member_s7_met
         return(member_s7_value(type = "S7_union", s7_descriptor = list(kind = "union", classes = classes)))
     }
     if (method == "new_property") {
-        args <- member_s7_arguments(expr, c("class", "getter", "setter", "validator", "default", "name"))
+        args <- member_s7_arguments(expr, keys(c("class", "getter", "setter", "validator", "default", "name")))
         if (is.null(args)) return(member_value())
         class <- if (is.null(args$class)) list(kind = "any") else member_s7_spec(infer(args$class), index, bindings, budget, resolve = FALSE)
         default <- args$default
@@ -270,14 +324,20 @@ member_s7_call <- function(expr, index, bindings, budget, method = member_s7_met
                     setter = !is.null(setter) && !identical(setter$type, "NULL"), name = member_name(args$name))))
     }
     if (method == "new_class") {
-        args <- member_s7_arguments(expr, c("name", "parent", "package", "properties", "abstract", "constructor", "validator"))
+        args <- member_s7_arguments(expr, keys(c("name", "parent", "package", "properties", "abstract", "constructor", "validator")))
         if (is.null(args) || !is.character(args$name) || length(args$name) != 1L || !nzchar(args$name)) return(member_value())
         parent <- if (is.null(args$parent)) NULL else member_s7_spec(infer(args$parent), index, bindings, budget)
         if (!is.null(args$parent) && (is.null(parent) || identical(parent$kind, "external"))) return(member_value(reason = "unknown_s7_parent"))
         if (identical(parent$kind, "s4") && !isTRUE(modes$s4)) return(member_value(reason = "unsupported_s7_parent"))
         abstract <- if (is.null(args$abstract)) FALSE else infer(args$abstract)$literal
         if (!is.logical(abstract) || length(abstract) != 1L || is.na(abstract)) return(member_value(reason = "dynamic_s7_abstract"))
-        package <- if (is.null(args$package)) index$package else if (is.character(args$package)) args$package
+        package <- if ("package" %in% names(args)) {
+            if (is.character(args$package)) args$package
+        } else if (is.null(index$document_bindings)) {
+            index$package
+        } else {
+            index$document_package
+        }
         own <- character()
         properties <- if (is.null(parent$properties)) list() else parent$properties
         if (!is.null(args$properties)) {
@@ -305,14 +365,14 @@ member_s7_call <- function(expr, index, bindings, budget, method = member_s7_met
         if (custom && is.null(constructor)) return(member_value(reason = "dynamic_s7_constructor"))
         if (!custom) {
             root <- is.null(parent) || identical(parent$name, "S7_object") || isTRUE(parent$abstract) || identical(parent$kind, "s4")
-            forward <- !root && isTRUE(modes$forward) && ((isTRUE(parent$custom) && (identical(parent$kind, "class") || isTRUE(parent$s3))) || isTRUE(parent$external) ||
+            forward <- !root && isTRUE(modes$forward) && ((isTRUE(parent$custom) && (identical(parent$kind, "class") || isTRUE(parent$s3))) || !is.null(parent$external_ref) ||
                     (!is.null(package) && !is.null(parent$package) && !identical(package, parent$package)))
             formals <- if (root) list() else if (forward) alist(... = ) else as.list(parent$constructor[[2L]])
             args_own <- if (root) names(properties) else if (isTRUE(modes$overrides)) own else setdiff(own, names(parent$properties))
             for (name in args_own) {
                 property <- properties[[name]]
                 if (property$getter && !property$setter) next
-                default <- if (!is.null(property$default)) property$default else member_s7_default(property$class)
+                default <- if (!is.null(property$default)) property$default else member_s7_default(property$class, package)
                 formals[name] <- list(if (is.null(default) && is.null(property$class)) quote(expr = ) else default)
             }
             constructor <- member_s7_function(formals)
@@ -325,9 +385,35 @@ member_s7_call <- function(expr, index, bindings, budget, method = member_s7_met
         return(member_s7_generator(descriptor, bindings))
     }
     if (method == "prop") {
-        args <- member_s7_arguments(expr, c("object", "name"))
+        args <- member_s7_arguments(expr, keys(c("object", "name")))
         if (is.null(args)) return(member_value())
-        return(member_slot(infer(args$object), member_name(args$name), index, bindings, budget))
+        name <- if (is.character(args$name)) args$name else infer(args$name)$literal
+        if (!is.character(name) || length(name) != 1L || is.na(name)) return(member_value())
+        return(member_slot(infer(args$object), name, index, bindings, budget))
+    }
+    if (method == "S7_class") {
+        args <- member_s7_arguments(expr, keys("object"))
+        object <- infer(args$object)
+        if (isTRUE(object$s7) && is.null(object$s7_generator) && identical(object$s7_descriptor$kind, "class")) {
+            return(member_s7_generator(object$s7_descriptor, bindings))
+        }
+        return(NULL)
+    }
+    if (method == "props") {
+        args <- member_s7_arguments(expr, keys(c("object", "names")))
+        object <- infer(args$object)
+        if (!isTRUE(object$s7)) return(member_value())
+        selected <- names(object$slot_types)
+        if ("names" %in% names(args)) {
+            value <- infer(args$names)
+            if (!isTRUE(value$known_literal)) return(member_value())
+            selected <- value$literal
+        }
+        if (is.null(selected)) selected <- character()
+        if (!is.character(selected) || length(selected) > 256L || anyNA(selected) ||
+                any(!selected %in% names(object$slot_types))) return(member_value())
+        fields <- stats::setNames(lapply(selected, function(name) member_slot(object, name, index, bindings, budget)), selected)
+        return(member_value(type = "list", fields = fields, elements = fields))
     }
     if (method %in% c("set_props", "new_object")) {
         first <- if (method == "set_props") modes$object else modes$parent
@@ -362,14 +448,47 @@ member_s7_call <- function(expr, index, bindings, budget, method = member_s7_met
             if (any(!nzchar(keys))) return(member_value(reason = "unnamed_s7_properties"))
             updates <- lapply(updates, infer)
         }
-        if (anyDuplicated(names(updates)) || any(!names(updates) %in% names(value$slot_types))) return(member_value(reason = "unknown_s7_property"))
-        for (name in names(updates)) {
-            property <- value$s7_descriptor$properties[[name]]
-            if (!property$getter && !property$setter) value$slots[name] <- updates[name]
-        }
-        return(value)
+        return(member_s7_update_slots(value, updates, constructing = method == "new_object"))
     }
     NULL
+}
+
+# A deprecated alias can forward to another alias. Follow only declarations
+# available in the descriptor; a computed property's accessor stays opaque.
+member_s7_storage_property <- function(properties, name) {
+    seen <- character()
+    while (!is.null(alias <- properties[[name]]$alias)) {
+        if (!is.character(alias) || length(alias) != 1L || is.na(alias) ||
+                alias %in% seen || length(seen) >= 32L) return(NULL)
+        seen <- c(seen, name)
+        name <- alias
+    }
+    if (!is.null(properties[[name]])) name
+}
+
+member_s7_update_slots <- function(value, updates, constructing = FALSE) {
+    if (!length(updates)) return(value)
+    properties <- value$s7_descriptor$properties
+    keys <- names(updates)
+    if (is.null(keys) || anyDuplicated(keys) || any(!keys %in% names(properties))) {
+        return(member_value(reason = "unknown_s7_property"))
+    }
+    # new_object stores ordinary properties first, then applies setters.
+    if (constructing) keys <- keys[order(vapply(properties[keys], function(p) p$setter, logical(1L)))]
+    for (key in keys) {
+        name <- member_s7_storage_property(properties, key)
+        if (is.null(name)) return(member_value(reason = "unknown_s7_property"))
+        property <- properties[[name]]
+        if (property$setter) {
+            # A user setter may change sibling properties too.
+            value$slots <- lapply(properties, function(p) member_s7_shape(p$class, defaults = FALSE))
+        } else if (property$getter) {
+            return(member_value(reason = "readonly_s7_property"))
+        } else {
+            value$slots[name] <- updates[key]
+        }
+    }
+    value
 }
 
 member_s7_construct <- function(callee, actuals, index, bindings, budget) {
@@ -400,7 +519,7 @@ member_s7_construct <- function(callee, actuals, index, bindings, budget) {
     provided <- names(matched$args)
     for (name in intersect(setdiff(names(descriptor$constructor[[2L]]), c(provided, "...")), names(descriptor$properties))) {
         property <- descriptor$properties[[name]]
-        if (is.null(property$default)) next
+        if (is.null(property$default) || !is.null(property$alias)) next
         default <- descriptor$constructor[[2L]][[name]]
         if (!identical(default, quote(expr = ))) matched$args[name] <- list(
             member_value(binding_expr = default, binding_env = callee$closure))
@@ -424,11 +543,8 @@ member_s7_construct <- function(callee, actuals, index, bindings, budget) {
                     (!isTRUE(descriptor$modes$overrides) || !name %in% names(matched$args))) value$slots[name] <- inherited$slots[name]
         }
     }
-    for (name in intersect(names(matched$args), names(value$slots))) {
-        property <- descriptor$properties[[name]]
-        if (!property$getter && !property$setter) value$slots[name] <- matched$args[name]
-    }
-    value
+    updates <- intersect(names(descriptor$properties), names(matched$args))
+    member_s7_update_slots(value, matched$args[updates], constructing = TRUE)
 }
 
 # Read only known descriptor attributes/list records, never S7 accessors.
@@ -492,6 +608,10 @@ member_s7_runtime_descriptor <- function(value, depth = 0L, modes = list(), budg
 }
 
 member_s7_slot <- function(value, name, index, bindings, budget = NULL) {
+    properties <- value$s7_descriptor$properties
+    if (is.null(value$s7_generator) && !is.null(member_lookup(properties, name)$alias)) {
+        name <- member_s7_storage_property(properties, name)
+    }
     property <- member_lookup(value$slots, name)
     if (is.null(property)) return(member_value(reason = "unknown_s7_property"))
     spec <- property$s7_descriptor
@@ -501,11 +621,6 @@ member_s7_slot <- function(value, name, index, bindings, budget = NULL) {
         descriptor <- member_s7_external(spec, index, scope, budget)
         if (!is.null(descriptor)) return(member_s7_shape(descriptor, bindings))
         return(member_value(type = spec$name, reason = "unresolved_s7_external"))
-    }
-    alias <- value$s7_descriptor$properties[[name]]$alias
-    if (is.character(alias) && length(alias) == 1L && !identical(alias, name)) {
-        property <- member_lookup(value$slots, alias)
-        if (is.null(property)) return(member_value())
     }
     if (is.null(property$binding_expr)) return(property)
     if (is.null(budget)) {
@@ -537,9 +652,7 @@ member_s7_spec <- function(value, index, bindings, budget, resolve = TRUE) {
         if (!resolve) return(descriptor)
         resolved <- member_s7_external(descriptor, index, bindings, budget)
         if (!is.null(resolved)) {
-            resolved$external <- TRUE
-            resolved$package <- descriptor$package
-            resolved$name <- descriptor$name
+            resolved$external_ref <- descriptor
             return(resolved)
         }
         return(descriptor)
@@ -564,25 +677,32 @@ member_s7_spec <- function(value, index, bindings, budget, resolve = TRUE) {
 }
 
 member_s7_external <- function(descriptor, index, bindings, budget) {
-    if (is.null(budget)) budget <- new.env(parent = emptyenv())
+    if (is.null(budget)) {
+        budget <- new.env(parent = emptyenv())
+        budget$remaining <- 20000L
+    }
     key <- paste(descriptor$package, descriptor$name, sep = "::")
     trail <- budget$s7_external
     if (key %in% trail || length(trail) >= 32L) return(NULL)
     budget$s7_external <- c(trail, key)
     on.exit(budget$s7_external <- trail)
-    local <- identical(descriptor$package, index$package)
+    document <- !is.null(index$document_bindings)
+    local <- identical(descriptor$package, if (document) index$document_package else index$package)
     same <- local || identical(descriptor$package, bindings$.__s7_package__)
     target <- if (local) index else member_namespace_index(index, descriptor$package)
     if (is.null(target)) target <- member_lookup(index$s7_dependencies, descriptor$package)
-    if (is.null(target) && same && !is.null(index$document_bindings)) target <- index
+    if (is.null(target) && same && document) target <- index
     if (is.null(target) || (!same && !descriptor$name %in% target$exports)) return(NULL)
     if (!is.null(descriptor$version)) {
-        installed <- target$identity$version
+        installed <- if (!identical(target, index) || !document) target$identity$version
         ok <- tryCatch(!is.null(installed) && utils::compareVersion(installed, descriptor$version) >= 0L,
             error = function(e) FALSE)
         if (!ok) return(NULL)
     }
-    value <- member_lookup(target$package_roots, descriptor$name)
+    value <- if (!document || !identical(target, index)) {
+        public <- member_lookup(target$roots, descriptor$name)
+        if (!is.null(public)) public else member_lookup(target$package_roots, descriptor$name)
+    }
     if (is.null(value) && same) value <- member_infer(as.name(descriptor$name), target, bindings, budget = budget)
     if (identical(value$s7_descriptor$kind, "external")) return(member_s7_external(value$s7_descriptor, target, bindings, budget))
     if (identical(value$s7_descriptor$kind, "class")) value$s7_descriptor else NULL

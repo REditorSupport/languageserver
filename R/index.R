@@ -1,5 +1,5 @@
 # Older summaries can contain stale definitions copied from an earlier valid file.
-index_cache_version <- 8L
+index_cache_version <- 10L
 
 #' Recognize a package without recursively searching a workspace
 #' @noRd
@@ -324,6 +324,7 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
     definitions <- list()
     functions <- list()
     source_specs <- list()
+    named_bind <- FALSE
     if (!is.null(parse_data)) {
         definitions <- as.list(parse_data$definitions)
         functions <- as.list(parse_data$functions)
@@ -340,8 +341,12 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
         function_names <- collections::queue()
         for (i in seq_along(expression_list)) {
             expr <- expression_list[[i]]
-            if (!(member_head(expr, "<-") || member_head(expr, "=")) ||
-                    length(expr) != 3L || !is.symbol(expr[[2L]])) next
+            if (!(member_head(expr, "<-") || member_head(expr, "="))) {
+                if (!named_bind) named_bind <- member_head(expr, ":=") ||
+                    (member_head(expr, "{") && ":=" %in% member_syntax_names(expr))
+                next
+            }
+            if (length(expr) != 3L || !is.symbol(expr[[2L]])) next
             symbol <- as.character(expr[[2L]])
             value <- expr[[3L]]
             srcref <- if (length(srcrefs) >= i) srcrefs[[i]] else NULL
@@ -389,7 +394,7 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
     size <- if (is.data.frame(metadata) && nrow(metadata)) metadata$size[[1L]] else NA_real_
     mtime <- if (is.data.frame(metadata) && nrow(metadata)) metadata$mtime[[1L]] else as.POSIXct(NA)
     classes <- if (!is.null(parse_data)) parse_data$class_data$declarations else if (
-        length(expressions) && any(grepl("R6Class|setClass|setRefClass|new_class|set(Generic|GroupGeneric|Method|ReplaceMethod)|\\\\", content))) {
+        length(expressions) && (named_bind || any(grepl("R6Class|setClass|setRefClass|(new|deprecated)_(class|generic)|\\bmethod[[:space:]]*[(`]|set(Generic|GroupGeneric|Method|ReplaceMethod)|\\\\", content)))) {
         data <- utils::getParseData(expressions)
         if (any(tabbed) && identical(text, enc2utf8(content))) {
             # R expands tabs in parser columns. Full provider parses use physical character offsets.
@@ -422,6 +427,9 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
 #' Check that cached source calls still resolve to the same files
 #' @noRd
 index_source_candidates_current <- function(summary) {
+    imports <- attr(summary$class_declarations, "namespace_imports", exact = TRUE)
+    if (!is.null(imports) && !identical(imports, as.list(member_namespace_imports(summary$uri)))) return(FALSE)
+    if (!class_s7_exports_current(summary$class_declarations)) return(FALSE)
     candidates <- summary$source_candidates
     if (!length(candidates)) return(TRUE)
     current_exists <- vapply(candidates, function(uri) {
@@ -669,7 +677,8 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                 info <- file.info(request$path)
                 if (!nrow(info) || is.na(info$size[[1L]]) ||
                         !identical(as.numeric(info$size[[1L]]), summary$size) ||
-                        !identical(as.numeric(info$mtime[[1L]]), summary$mtime)) {
+                        !identical(as.numeric(info$mtime[[1L]]), summary$mtime) ||
+                        !index_source_candidates_current(summary)) {
                     self$pending <- union(self$pending, request$uri)
                     next
                 }
@@ -1046,7 +1055,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                 version = index_cache_version,
                 root = self$root,
                 summaries = unname(Filter(function(summary) {
-                    !isFALSE(summary$cacheable)
+                    !isFALSE(summary$cacheable) && !isTRUE(attr(summary$class_declarations, "attachment_rules", exact = TRUE))
                 }, self$summaries$values()))
             )
             saved <- tryCatch({

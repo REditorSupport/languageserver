@@ -22,6 +22,7 @@ Document <- R6::R6Class(
         is_rmarkdown = NULL,
         regions = NULL,
         loaded_packages = NULL,
+        attachment_exclusions = NULL,
         requested_packages = NULL,
         member_refresh = FALSE,
         member_receivers = NULL,
@@ -169,7 +170,7 @@ Document <- R6::R6Class(
         update_parse_data = function(parse_data) {
             self$semantic_edit_line <- NULL
             pending <- self$pending_semantic_result$result
-            if (!is.null(pending) && identical(pending$resultId, parse_data$content_hash) &&
+            if (!is.null(pending) && identical(pending$resultId, semantic_result_id(parse_data)) &&
                     identical(pending$data, parse_data$semantic_data$encoded)) {
                 # The accepted snapshot can now serve as the delta base.
                 self$pending_semantic_result <- NULL
@@ -674,7 +675,7 @@ parse_cache_content <- function(content, normalized = normalize_parse_content(co
 }
 
 parse_document <- function(uri, content, is_rmarkdown = FALSE,
-    content_hash = NULL, include_xml = TRUE) {
+    content_hash = NULL, include_xml = TRUE, attachment_exclusions = NULL) {
     # Provider indexes need R's token table even if the worker's startup
     # profile disabled parse data for ordinary user code.
     if (!isTRUE(getOption("keep.parse.data"))) {
@@ -803,10 +804,24 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
     if (is_rmarkdown && length(literate$member_packages)) {
         env$member_data$packages <- union(env$member_data$packages, literate$member_packages)
     }
+    namespace_imports <- member_namespace_imports(uri)
+    env$member_data$document_package <- attr(namespace_imports, "package")
+    if (length(namespace_imports)) {
+        used <- member_syntax_names(expr)
+        setters <- member_s7_intrinsics[endsWith(member_s7_intrinsics, "<-")]
+        used <- union(used, setters[sub("<-$", "", setters) %in% used])
+        imported <- member_import_bindings(namespace_imports, used)
+        env$member_data$namespace_bindings <- imported
+        env$member_data$packages <- union(env$member_data$packages, vapply(imported, `[[`, "", "package"))
+    }
+    env$member_data$attachment_exclusions <- attachment_exclusions
+    env$member_data$namespace_imports <- namespace_imports
+    env$member_data$package_classes <- !is.null(env$member_data$document_package) &&
+        (length(namespace_imports) > 0L || "S7" %in% env$member_data$packages || "S7" %in% env$packages)
     env$completion_data <- completion_parse_data(data, env$syntax_data)
     overlay <- !is.null(recovery) || (is_rmarkdown && length(literate$incomplete_lines) > 0L)
-    classes <- class_source_declarations(env$syntax_data, content, uri, incomplete_lines)
-    env$definitions <- class_binding_definitions(env$definitions, classes)
+    classes <- class_source_declarations(env$syntax_data, content, uri, incomplete_lines, namespace_imports, attachment_exclusions)
+    env$definitions <- class_binding_definitions(env$definitions, classes, env)
     env$semantic_data <- semantic_parse_data(data, content, env$syntax_data, assignments,
         encode = !overlay, classes = classes)
     env$range_data <- range_provider_parse_data(data, content, env$syntax_data)
@@ -836,6 +851,11 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
         env$semantic_data <- merge_partial_tokens(env$semantic_data, literate$partial_tokens, literate$incomplete_lines)
         env$range_data$strings <- merge_partial_strings(env$range_data$strings, literate$partial_strings, literate$incomplete_lines)
     }
+    # The same source can acquire different token kinds after NAMESPACE or
+    # attachment rules change. Delta requests must distinguish those parses.
+    if (length(attr(classes, "source_exports", exact = TRUE))) {
+        env$semantic_result_id <- digest::digest(list(content_hash, env$semantic_data$encoded), algo = "xxhash64")
+    }
     env$source_specs <- index_source_specs(expr)
     env$s4_declarations <- s4_declarations(expr, content, incomplete_lines)
     env$reference_index <- reference_parse_data(
@@ -848,7 +868,7 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
     env$class_data <- tryCatch(class_parse_data(uri, content, xml(),
             env$syntax_data, env$definitions), error = function(e) NULL)
     env$class_data$declarations <- classes
-    if (length(classes)) env$class_data$bytes <- sum(env$class_data$bytes, as.numeric(utils::object.size(classes)))
+    if (length(classes) || length(attributes(classes))) env$class_data$bytes <- sum(env$class_data$bytes, as.numeric(utils::object.size(classes)))
     # These original-id lookup tables are used only while constructing
     # worker indexes. Providers use the compact physical syntax tree.
     env$syntax_data[c("id_row", "id_first", "id_next", "id_function_scope", "scope_row",
@@ -1104,7 +1124,10 @@ parse_task <- function(self, uri, document, delay = 0, retry = TRUE) {
     }
     if (workspace$parse_cache$has(content_hash)) {
         cached_entry <- workspace$parse_cache$get(content_hash)
-        if (identical(cached_entry$cache_uri, uri)) {
+        if (identical(cached_entry$cache_uri, uri) &&
+                identical(cached_entry$member_data$attachment_exclusions, document$attachment_exclusions) &&
+                identical(cached_entry$member_data$namespace_imports, member_namespace_imports(uri)) &&
+                class_s7_exports_current(cached_entry$class_data$declarations)) {
             logger$info("parse_task: cache hit for", uri)
             cached_env <- list2env(cached_entry, parent = .GlobalEnv)
             if (!is.null(cached_env$navigation_data)) {
@@ -1124,7 +1147,7 @@ parse_task <- function(self, uri, document, delay = 0, retry = TRUE) {
             content = content,
             is_rmarkdown = document$is_rmarkdown,
             content_hash = content_hash,
-            include_xml = FALSE
+            include_xml = FALSE, attachment_exclusions = document$attachment_exclusions
         ),
         callback = function(result) parse_callback(self, uri, version, result, source_content),
         error = function(e) {
@@ -1216,6 +1239,11 @@ resolve_callback <- function(self, uri, version, packages) {
         if (!is.null(packages$s3) && !is.null(workspace$s3_metadata)) {
             for (package in names(packages$s3)) workspace$s3_metadata$set(package, packages$s3[[package]], protect)
         }
+        if (identical(doc$requested_packages$packages, packages$requested$packages) &&
+                !identical(doc$attachment_exclusions, packages$attachment_exclusions)) {
+            doc$attachment_exclusions <- packages$attachment_exclusions
+            if (is.function(self$text_sync)) self$text_sync(uri, doc, parse = TRUE)
+        }
         packages <- packages$packages
     }
     logger$info("resolve_callback called:", list(uri = uri, version = version))
@@ -1247,7 +1275,8 @@ resolve_member_task <- function(self, uri, document, packages, namespace_package
     if (!shared && !is.null(metadata)) {
         for (package in metadata$keys()) {
             catalog <- if (is.function(metadata$catalog)) metadata$catalog(package) else metadata$get(package)
-            if (!isTRUE(catalog$dataset_only) && is.null(catalog$error) && !is.null(catalog$identity)) {
+            if (is.null(catalog$error) && !is.null(catalog$identity) &&
+                    ((!isTRUE(catalog$dataset_only) && is.null(catalog$preparation_error)) || member_bounded_s7_snapshot(catalog))) {
                 known[package] <- list(catalog$identity)
             }
         }

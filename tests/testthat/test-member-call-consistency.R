@@ -127,3 +127,98 @@ test_that("S7 literal property calls complete only a proven property key", {
     expect_match(member_consistency_probe(code, 'S7::prop(d, "na|me")', "hover", snapshot)[[1L]], "character")
     expect_length(member_consistency_probe(code, 'S7::prop("na|", "anything")', "labels", snapshot), 0L)
 })
+
+test_that("S7 generic signatures and method receivers follow their declarations", {
+    skip_if_not_installed("S7")
+    snapshot <- list(S7 = member_prepare_package("S7"))
+    # Single/multiple dispatch from vignette("S7") and vignette("generics-methods").
+    code <- c("library(S7)",
+        'Pet <- new_class("Pet", properties = list(name = class_character))',
+        'Dog <- new_class("Dog", parent = Pet, properties = list(breed = class_character))',
+        'Language <- new_class("Language", properties = list(label = class_character))',
+        'speak <- new_generic("speak", c("pet", "language"))',
+        "method(speak, list(Dog, Language)) <- function(pet, language) pet@name")
+    probe <- function(line, provider, source = code) member_consistency_probe(source, line, provider, snapshot)
+    expect_identical(probe("speak(|)", "signature")[[1L]]$label, "speak(pet, language, ...)")
+    expect_identical(probe("speak(Dog(), lan|)", "labels"), "language")
+    expect_match(probe("spe|ak", "hover")[[1L]], "speak(pet, language, ...)", fixed = TRUE)
+    method <- "method(speak, list(Dog, Language)) <- function(pet, language, ...) "
+    expect_identical(probe(paste0(method, "pet@|"), "labels"), c("breed", "name"))
+    expect_identical(probe(paste0(method, "language@|"), "labels"), "label")
+    expect_match(probe(paste0(method, "pet@na|me"), "hover")[[1L]], "character")
+    expect_length(probe(paste0(method, "{ pet <- NULL; pet@| }"), "labels"), 0L)
+    expect_length(probe(paste0(method, "function(pet) pet@|"), "labels"), 0L)
+    masked <- c(code, "`method<-` <- function(generic, signature, value) NULL")
+    expect_length(probe(paste0(method, "pet@|"), "labels", masked), 0L)
+    expect_length(probe("speak(|)", "signature", c(masked, code[[6L]])), 0L)
+    expect_length(probe("speak(Dog(), Language())@|", "labels"), 0L)
+    external <- c(code, 'draw <- new_external_generic("optionalpkg", "draw", "item")',
+        "method(draw, Pet) <- function(item) item@name")
+    expect_identical(probe("method(draw, Dog) <- function(item) item@|", "labels", external), c("breed", "name"))
+    expect_length(probe("draw(|)", "signature", external), 0L)
+    local <- c("library(S7)", "run <- function() {",
+        'Dog <- new_class("Dog", properties = list(breed = class_character))',
+        'speak <- new_generic("speak", "dog")',
+        "method(speak, Dog) <- function(dog) dog@breed")
+    expect_identical(probe("method(speak, list(Dog)) <- function(dog) dog@| }", "labels", local), "breed")
+    if (isTRUE(snapshot$S7$s7_capabilities$bind)) {
+        # The evolution vignette changes the interface and then renames a generic.
+        code <- c(code, 'describe := new_generic("item", function(item, ..., verbose = FALSE) S7_dispatch())',
+            "method(describe, Dog) <- function(item, ..., verbose = FALSE) item@name",
+            'old_name := deprecated_generic(new = describe, when = "2.0.0")')
+        expect_identical(probe("describe(|)", "signature")[[1L]]$label, "describe(item, ..., verbose = FALSE)")
+        expect_identical(probe("old_name(|)", "signature")[[1L]]$label, "old_name(item, ..., verbose = FALSE)")
+        expect_identical(probe("method(old_name, Dog) <- function(item, ...) item@|", "labels"), c("breed", "name"))
+
+        premature <- c('speak := S7::new_generic("x")', "library(S7)")
+        expect_length(probe("speak(|)", "signature", premature), 0L)
+        late <- member_generic_index("")
+        late$package <- "other"
+        late$exports <- ":="
+        late$definitions <- list(`:=` = quote(function(...) NULL))
+        masks <- c(snapshot, list(other = member_index_freeze(late)))
+        shadow <- c("library(S7)", 'before := new_generic("x")', "library(other)", 'after := new_generic("y")')
+        expect_identical(member_consistency_probe(shadow, "before(|)", "signature", masks)[[1L]]$label, "before(x, ...)")
+        expect_length(member_consistency_probe(shadow, "after(|)", "signature", masks), 0L)
+    }
+})
+
+test_that("S7 package generics preserve their callable and property interfaces", {
+    skip_if_not_installed("S7")
+    ns <- new.env(parent = asNamespace("S7"))
+    ns$describe <- S7::new_generic("describe", "pet", function(pet, ..., verbose = FALSE) S7::S7_dispatch())
+    pkg <- member_index_freeze(member_package_index(member_namespace_input(ns,
+                package = "genericsfixture", exports = "describe")))
+    snapshots <- list(genericsfixture = pkg, S7 = member_prepare_package("S7"))
+    code <- c('Dog <- S7::new_class("Dog", properties = list(name = S7::class_character))',
+        "library(genericsfixture)")
+    probe <- function(line, provider, source = code) member_consistency_probe(source, line, provider, snapshots)
+    expected <- get_signature("describe", member_function_syntax(ns$describe))
+    expect_identical(probe("genericsfixture::describe(|)", "signature")[[1L]]$label, expected)
+    expect_identical(probe("describe(|)", "signature")[[1L]]$label, expected)
+    expect_identical(probe("describe@|", "labels"), sort(names(attr(S7::S7_class(ns$describe), "properties", exact = TRUE))))
+    expect_identical(probe("S7::method(describe, Dog) <- function(pet, ...) pet@|", "labels"), "name")
+})
+
+test_that("S7 validation and property callbacks see the declared instance types", {
+    skip_if_not_installed("S7")
+    snapshots <- list(S7 = member_prepare_package("S7"))
+    # Range and its dynamic length property from vignette("classes-objects").
+    code <- c("library(S7)", 'Range <- new_class("Range", properties = list(start = class_double, end = class_double))')
+    probe <- function(line, source = code) member_consistency_probe(source, line, "labels", snapshots)
+    expect_identical(probe('Child <- new_class("Child", parent = Range, validator = function(self) self@|)'), c("end", "start"))
+    prefix <- 'Child <- new_class("Child", parent = Range, properties = list(window = new_property(Range, '
+    expect_identical(probe(paste0(prefix, "getter = function(self) self@|)))")), c("end", "start", "window"))
+    expect_identical(probe(paste0(prefix, "setter = function(self, value) value@|)))")), c("end", "start"))
+    named_setter <- tryCatch(S7::new_property(setter = function(self, name, value) self), error = function(e) NULL)
+    if (!is.null(named_setter)) {
+        expect_identical(probe(paste0(prefix, "setter = function(self, name, value) value@|)))")), c("end", "start"))
+        expect_length(probe(paste0(prefix, "setter = function(self, name, value) name@|)))")), 0L)
+    }
+    expect_identical(probe("new_property(Range, validator = function(value) value@|)"), c("end", "start"))
+    expect_length(probe("new_property(Range, getter = function(self) self@|)"), 0L)
+    expect_length(probe(paste0(prefix, "getter = function(self) (function(self) self@|)(NULL))))")), 0L)
+    if (isTRUE(snapshots$S7$s7_capabilities$bind)) {
+        expect_identical(probe("Child := new_class(parent = Range, validator = function(self) self@|)"), c("end", "start"))
+    }
+})
