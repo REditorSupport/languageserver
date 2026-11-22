@@ -169,14 +169,23 @@ class_s7_scope <- function(syntax, calls, call_names, imports, masked, attachmen
     list(owns = owns, exports = as.list(snapshots, all.names = TRUE), used_exclusions = used_exclusions)
 }
 
-# Only unconditional statements in the outer lexical scope establish names
-# for other files. A bracket argument, function, quote or conditional stops
-# the walk, even when its argument is wrapped in braces.
-class_top_level_statement <- function(syntax, row) {
+# S7 ownership needs unconditional statements. For other class systems,
+# declarations in control-flow bodies can also describe workspace types.
+class_top_level_statement <- function(syntax, row, allow_control = FALSE) {
     parent <- syntax$parent_row[[row]]
     while (parent) {
-        if (syntax$token[[syntax$children[[syntax$child_start[[parent]]]]]] != "'{'") return(FALSE)
-        parent <- syntax$parent_row[[parent]]
+        head <- syntax$token[[syntax$children[[syntax$child_start[[parent]]]]]]
+        if (head != "'{'") {
+            if (!allow_control || !head %in% c("IF", "FOR", "WHILE", "REPEAT")) return(FALSE)
+            parts <- syntax_children(syntax, parent)
+            parts <- parts[syntax$token[parts] != "COMMENT"]
+            previous <- match(row, parts, nomatch = 0L) - 1L
+            # An if/loop body follows its header, or the else/repeat keyword.
+            if (previous < 1L || !syntax$token[[parts[[previous]]]] %in%
+                    c("')'", "ELSE", "forcond", "REPEAT")) return(FALSE)
+        }
+        row <- parent
+        parent <- syntax$parent_row[[row]]
     }
     TRUE
 }
@@ -257,16 +266,14 @@ class_source_declarations <- function(syntax, content, uri, incomplete_lines = i
                                 "name" %in% names(call$values))) next
                 }
                 expr <- parent
-            } else if (!any(syntax$token[siblings] == "'{'")) {
-                next
             }
         }
         if (type == "S7Method" && expr == row) next
         # Only statements in the outer lexical scope declare workspace classes.
         if (length(syntax$function_scope) && syntax$function_scope[[row]] > 0L) next
-        if (!class_top_level_statement(syntax, expr)) next
         binding_name <- if (type == "S7Method") "method<-" else helper
         check_owner <- class_helper_packages[[helper]] == "S7"
+        if (!class_top_level_statement(syntax, expr, allow_control = !check_owner)) next
         if (is.null(call$package) && (is_masked(binding_name, symbol) || (check_owner && !s7_owns(binding_name, symbol)))) {
             if (binding) masked[[class_token_text(syntax$text[[binding]])]] <- at(expr)
             next
