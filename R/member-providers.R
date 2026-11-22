@@ -344,13 +344,16 @@ member_call_arguments <- function(uri, workspace, document, point, token, call =
         }
     }
     items <- lapply(seq_along(args), function(i) {
-        list(label = args[[i]], kind = CompletionItemKind$Variable,
+        name <- args[[i]]
+        spelling <- quote_completion_name(name)
+        item <- list(label = name, kind = CompletionItemKind$Variable,
             detail = symbol$signature, sortText = sprintf("%s%03d", sort_prefixes$arg, i),
-            documentation = if (!is.null(symbol$description)) list(kind = "markdown", value = symbol$description),
-            insertText = paste0(quote_completion_name(args[[i]]), " = "),
+            insertText = paste0(spelling, " = "),
             insertTextFormat = InsertTextFormat$PlainText,
-            textEdit = if (!is.null(tag_range)) text_edit(tag_range, quote_completion_name(args[[i]])),
-            data = c(list(type = "member", parameter = args[[i]]), identity))
+            data = c(list(type = "member", parameter = name), identity))
+        if (!is.null(tag_range)) item$textEdit <- text_edit(tag_range, spelling)
+        if (!is.null(symbol$description)) item$documentation <- list(kind = "markdown", value = symbol$description)
+        item
     })
     if (!length(active) || is.na(active) || !active %in% names(symbol$formals) || active == "...") return(items)
     line <- document$line0(point$row)

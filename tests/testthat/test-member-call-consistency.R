@@ -44,6 +44,25 @@ test_that("member completion matches supplied arguments and the active default",
     expect_identical(labels("obj$draw(1, |, 'slow')"), c("mode", "flag", "fast", "slow"))
 })
 
+test_that("S7 constructor arguments use plain insertion until an equals sign is present", {
+    skip_if_not_installed("S7", "1.0.0")
+    metadata <- list(S7 = member_prepare_package("S7"))
+    code <- c("library(S7)", "Range := new_class(",
+        "  properties = list(start = class_double, end = class_double),",
+        "  validator = function(self) if (self@end < self@start) 'invalid range'",
+        ")")
+    items <- function(line) member_consistency_probe(code, line, "items", metadata)
+    expect_identical(vapply(items("x <- Range(|)"), `[[`, "", "insertText"), c("start = ", "end = "))
+    start <- items("x <- Range(st|)")[[1L]]
+    end <- items("x <- Range(start = 1, en|)")[[1L]]
+    expect_identical(c(start$insertText, end$insertText), c("start = ", "end = "))
+    # A JSON null edit makes VS Code discard the entire completion list.
+    expect_false("textEdit" %in% names(start))
+    expect_false("textEdit" %in% names(end))
+    edit <- items("x <- Range(st|art = 1)")[[1L]]$textEdit
+    expect_identical(edit, text_edit(range(position(length(code), 11L), position(length(code), 16L)), "start"))
+})
+
 test_that("documented callables preserve signatures, spelling and help across extraction", {
     code <- c("#' Draw a picture.", "#' @param mode Choose the speed.",
         "draw <- function(mode=c('fast','slow')) NULL", 'obj <- list("two words"=draw)')
