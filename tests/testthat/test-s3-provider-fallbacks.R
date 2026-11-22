@@ -58,8 +58,8 @@ test_that("S3 index summaries retain navigation spans for large functions", {
 test_that("namespace snapshots separate qualified S3 registrations from unrelated directives", {
     root <- withr::local_tempdir()
     path <- file.path(root, "NAMESPACE")
-    directives <- c('export("render")', '{ { S3method("render", box) }',
-        "S3method(stats::predict, box, predict_box) }", "S3method(opaque(), , missing)")
+    directives <- c('export("render")', 'S3method("render", box)',
+        "S3method(stats::predict, box, predict_box)", "S3method(opaque(), , missing)")
     writeLines(directives, path)
     expect_identical(s3_namespace_source(root), list(
         list(generic = "render", package = NULL, class = "box", method = "render.box"),

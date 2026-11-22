@@ -1020,7 +1020,7 @@ s3_namespace_snapshot <- function(root, owner = NULL) {
     cache <- if (!is.null(owner)) analysis_cache(owner, "namespace-declarations", max_bytes = 1024^2, max_entries = 32L)
     cached <- analysis_cache_get(cache, paste(path, key, sep = ":"))
     if (cached$hit) return(cached$value)
-    code <- tryCatch(top_level_statements(parse(text = text, keep.source = FALSE)), error = function(e) NULL)
+    code <- tryCatch(parse(text = text, keep.source = FALSE), error = function(e) NULL)
     records <- list()
     for (expr in code) {
         if (!member_head(expr, "S3method") || length(expr) < 3L) next

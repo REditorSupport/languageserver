@@ -556,7 +556,7 @@ member_source_input <- function(root) {
         "list2", "arg_match0", "arg_match", "try_fetch",
         "is_character", "is_list", "is_bool", "abort"
     ), S7 = member_s7_intrinsics, methods = member_methods_intrinsics)
-    for (expr in top_level_statements(parse(file.path(root, "NAMESPACE")))) {
+    for (expr in parse(file.path(root, "NAMESPACE"))) {
         if (member_head(expr, "import") || member_head(expr, "importFrom")) {
             provider <- member_name(expr[[2L]])
             allowed <- member_lookup(providers, provider)
