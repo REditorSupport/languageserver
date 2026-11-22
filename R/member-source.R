@@ -2,6 +2,18 @@
 # paths, so they survive worker serialization without retaining XML pointers.
 member_source_key <- function(path) paste(c("root", path), collapse = ":")
 
+# R's wholeSrcref starts at the beginning of the parse input, even for a
+# nested block. The first child reference locates the opening brace itself.
+member_brace_ref <- function(node) {
+    ref <- attr(node, "wholeSrcref", exact = TRUE)
+    children <- attr(node, "srcref", exact = TRUE)
+    if (!is.null(ref) && length(children) && !is.null(children[[1L]])) {
+        start <- c(1L, 2L, 5L, 7L)
+        ref[start] <- children[[1L]][start]
+    }
+    ref
+}
+
 member_function_parts <- function(data) {
     parts <- new.env(hash = TRUE, parent = emptyenv())
     functions <- data$parent[data$token %in% c("FUNCTION", r"('\\')")]
@@ -155,7 +167,7 @@ member_source_index <- function(expr, parts) {
             # Keep only their physical child indexes for cursor recovery.
             scope <- member_scope_index(node)
             bytes <<- bytes + as.numeric(utils::object.size(as.list(scope$histories)))
-            whole <- attr(node, "wholeSrcref")
+            whole <- member_brace_ref(node)
             if (!is.null(whole)) ref <- whole
             for (i in seq_along(scope$assigned)) {
                 if (any(scope$reads[[i]] %in% c("function", "{"))) {

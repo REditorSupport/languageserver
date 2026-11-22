@@ -161,3 +161,21 @@ test_that("queued workspace symbols use a complete unchanged multi-root snapshot
     expect_null(server$replies[[1L]]$error)
     expect_setequal(vapply(server$replies[[1L]]$result, `[[`, "", "name"), c("snapshot_symbol_1", "snapshot_symbol_2"))
 })
+
+test_that("workspace symbol search merges unindexed documents and canonical file URIs", {
+    symbol_snapshot_settings()
+    root <- withr::local_tempdir()
+    path <- file.path(root, "alias.R")
+    writeLines("target <- 1", path)
+    workspace <- Workspace$new(root)
+    workspace$index$update_path(path)
+    alias <- sub("/alias.R$", "/%61lias.R", path_to_uri(path))
+    for (uri in c(alias, path_to_uri(file.path(root, "unsaved.R")))) {
+        content <- if (uri == alias) "target <- 1" else "target2 <- 2"
+        doc <- Document$new(uri, version = 1L, content = content)
+        doc$parse_data <- parse_document(uri, content)
+        workspace$documents$set(uri, doc)
+    }
+    result <- workspace$get_definitions_for_query("target")
+    expect_equal(sort(map_chr(result, "name")), c("target", "target2"))
+})

@@ -365,7 +365,8 @@ references_reply <- function(id, uri, workspace, document, point,
             for (doc_uri in doc_uris) {
                 if (for_rename) {
                     doc <- workspace$documents$get(doc_uri, NULL)
-                    if (!rename_document_complete(doc, uri, token, scope_key)) return(rename_incomplete_error(id))
+                    problem <- rename_lexical_document_error(id, doc, uri, token, scope_key)
+                    if (!is.null(problem)) return(problem)
                     indexed <- doc$parse_data$reference_index
                 } else {
                     indexed <- workspace$get_parse_data(doc_uri)$reference_index
@@ -436,7 +437,8 @@ references_reply <- function(id, uri, workspace, document, point,
         if (for_rename) {
             for (doc_uri in doc_uris) {
                 doc <- workspace$documents$get(doc_uri, NULL)
-                if (!rename_document_complete(doc, uri, token, NULL)) return(rename_incomplete_error(id))
+                problem <- rename_lexical_document_error(id, doc, uri, token, NULL)
+                if (!is.null(problem)) return(problem)
             }
         }
         doc_results <- lapply(doc_uris, function(doc_uri) {

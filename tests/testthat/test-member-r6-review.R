@@ -238,7 +238,7 @@ test_that("A bound R6 method carries its contexts and no level bookkeeping", {
     expect_identical(names(bound$closure$private$fields), names(instance$r6_private$fields))
     expect_identical(bound$closure$super$r6_class$name, "B")
     expect_identical(sort(names(bound$closure$super$fields)),
-        sort(c("initialize", "run", "direct", "viaP", "dflt", "setflag", "setpriv", "plain", "up", "own",
+        sort(c("clone", "initialize", "run", "direct", "viaP", "dflt", "setflag", "setpriv", "plain", "up", "own",
                 "h1", "h2", "sec")))
     expect_identical(bound$closure$super$fields$sec$r6_owner$name, "B")
     # An inherited method gets the super of its declaring class, not of the receiver's class.
@@ -286,7 +286,7 @@ test_that("Joined R6 receivers of different classes keep the results of shared m
     expect_identical(join("up()"), character())
     expect_identical(r6_review_cursor_labels(paste0(r6_review_family,
                 "o <- if (runif(1) > 0.5) C$new(1) else B$new(1)\no$")),
-        c("dflt", "direct", "flag", "initialize", "own", "plain", "run", "setflag", "setpriv", "up", "v", "viaP", "w", "x"))
+        c("clone", "dflt", "direct", "flag", "initialize", "own", "plain", "run", "setflag", "setpriv", "up", "v", "viaP", "w", "x"))
 })
 
 test_that("R6 initializers and branch writes bind the contexts of the declaring class", {
@@ -333,7 +333,7 @@ A <- R6::R6Class("A", public = list(
   run = function() super$run()
 ))
 '
-    expect_identical(r6_review_cursor_labels(paste0(outer_super_code, "A$new()$")), "run")
+    expect_identical(r6_review_cursor_labels(paste0(outer_super_code, "A$new()$")), c("clone", "run"))
     expect_identical(r6_review_cursor_labels(paste0(outer_super_code, "A$new()$run()$")), character())
     # A bare call of a non-portable method has contexts but no receiver.
     code <- 'P <- R6::R6Class("P", portable = FALSE, public = list(
@@ -759,10 +759,13 @@ test_that("Generated R6 clone methods are stored as a stub and nothing else is",
     expect_identical(labels("r6reviewfixture::Wrapped$new()$clone()$"), "wrapped")
     expect_identical(labels("r6reviewfixture::plain_inst$clone()$"), character())
     expect_identical(labels("r6reviewfixture::custom_deep_inst$clone()$"), "custom_deep")
+    # R6 gives a cloneable subclass its own generated clone(), even when
+    # the parent generator replaced its clone with a custom implementation.
+    Sub <- R6::R6Class("Sub", inherit = CustomDeep, public = list(y = function() self$clone()))
     expect_identical(labels(paste0(
         'Sub <- R6::R6Class("Sub", inherit = r6reviewfixture::CustomDeep, public = list(y = function() self$clone()))\n',
         "Sub$new()$y()$"
-    )), "custom_deep")
+    )), ls(Sub$new()$y()))
     expect_identical(labels("r6reviewfixture::Fixed$new()$"), "read")
     # A binary package built against another R6 version carries that version's
     # `clone_method` on the generator and in `public_methods$clone`.
@@ -2403,10 +2406,10 @@ test_that("R6 super table comparison preserves data-shadowed ancestor slot order
         "prv_w <- function(cond) prv_fn_reg(cond)$w()\n",
         "prv_v <- function(cond) prv_fn_reg(cond)$v()\n"
     )
-    expect_identical(r6_review_cursor_labels(paste0(w1_both, "pub_u(ucond)$")), c("m", "z"))
+    expect_identical(r6_review_cursor_labels(paste0(w1_both, "pub_u(ucond)$")), c("clone", "m", "z"))
     expect_identical(r6_review_cursor_labels(paste0(w1_both, "pub_w(ucond)$")), "pm")
     expect_identical(r6_review_cursor_labels(paste0(w1_both, "pub_v(ucond)$")), "ok")
-    expect_identical(r6_review_cursor_labels(paste0(w1_both, "prv_u(ucond)$")), c("pm", "pz"))
+    expect_identical(r6_review_cursor_labels(paste0(w1_both, "prv_u(ucond)$")), c("clone", "pm", "pz"))
     expect_identical(r6_review_cursor_labels(paste0(w1_both, "prv_w(ucond)$")), "ppm")
     expect_identical(r6_review_cursor_labels(paste0(w1_both, "prv_v(ucond)$")), "ok")
     # 4-level R6 hierarchy (`G -> M -> P -> L`) where every class declares `[a, b]` in the same order,
@@ -2561,8 +2564,8 @@ test_that("R6 super table comparison preserves data-shadowed ancestor slot order
         "f_v_ab <- function(cond) f_ab(cond)$v()\n",
         "f_v_ba <- function(cond) f_ba(cond)$v()\n"
     )
-    expect_identical(names(resolve_val(paste0(w1_3l, "f_ab(TRUE)$u()$"))$fields), c("m", "z"))
-    expect_identical(names(resolve_val(paste0(w1_3l, "f_ab(FALSE)$u()$"))$fields), c("z", "m"))
+    expect_identical(names(resolve_val(paste0(w1_3l, "f_ab(TRUE)$u()$"))$fields), c("clone", "m", "z"))
+    expect_identical(names(resolve_val(paste0(w1_3l, "f_ab(FALSE)$u()$"))$fields), c("clone", "z", "m"))
     for (q in c(
         "f_u_ab(unknown_cond)$", "f_u_ba(unknown_cond)$",
         "f_w_ab(unknown_cond)$", "f_w_ba(unknown_cond)$",

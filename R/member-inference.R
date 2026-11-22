@@ -238,6 +238,9 @@ member_join <- function(a, b) {
     if (isTRUE(a$s7) && isTRUE(b$s7)) value$s7 <- TRUE
     if (identical(a$r6_class, b$r6_class)) value$r6_class <- a$r6_class
     if (identical(a$r6_role, b$r6_role)) value$r6_role <- a$r6_role
+    if (!is.null(a$r6_class_locked) && !is.null(b$r6_class_locked)) {
+        value$r6_class_locked <- if (identical(a$r6_class_locked, b$r6_class_locked)) a$r6_class_locked else NA
+    }
     if (identical(a$r6_owner, b$r6_owner)) value$r6_owner <- a$r6_owner
     if (identical(a$r6_member_kind, b$r6_member_kind)) value$r6_member_kind <- a$r6_member_kind
     if (identical(a$r6_locked, b$r6_locked)) value$r6_locked <- a$r6_locked
@@ -560,6 +563,12 @@ member_slot <- function(value, name, index, bindings, budget = NULL) {
 
 # Closures retain their receiver when selected from the object's stored fields.
 member_stored_field <- function(lhs, value) {
+    if (identical(value$r6_role, "clone")) {
+        if (is.null(value$receiver_value)) {
+            value$receiver_value <- if (is.null(lhs$r6_self)) lhs else lhs$r6_self
+        }
+        return(value)
+    }
     value <- member_r6_member_info(value, lhs)
     if (!is.null(value$receiver_name)) {
         receiver <- if (is.null(lhs$r6_self)) lhs else lhs$r6_self
@@ -978,6 +987,14 @@ member_infer <- function(
         # through it. Reviewed package metadata wrappers have their own rules.
         if (member_head(node, "assign") || member_head(node, "eval") || member_head(node, "source")) {
             env <- lapply(env, function(x) unknown)
+        }
+        control <- member_r6_control_receiver(node)
+        if (!is.null(control)) {
+            generator <- infer(as.name(control), env)
+            if (!is.null(generator$r6_class_locked)) {
+                updated <- member_r6_apply_control(generator, node, index, env, budget)
+                for (alias in c(control, member_aliases(attr(env, "member_aliases"), control))) env[[alias]] <- updated
+            }
         }
         value <- infer(node, env)
         list(
@@ -1759,6 +1776,11 @@ member_infer <- function(
         return(member_s4_construct(callee$s4_generator, actuals, index, bindings, budget))
     }
     if (!is.null(callee$refclass_instance)) return(callee$refclass_instance)
+    if (identical(callee$r6_role, "clone")) {
+        args <- bind_arguments(callee$function_expr, actuals, list())
+        if (is.null(args) || is.null(callee$receiver_value)) return(unknown)
+        return(member_r6_clone_result(callee$receiver_value, args$deep))
+    }
     if (!is.null(callee$result_shape)) {
         return(member_r6_construct(callee, actuals, index, budget, depth, trail))
     }
@@ -1815,7 +1837,9 @@ member_infer <- function(
 # Apply only statically described registration effects to a document context.
 # The registration call itself is never evaluated. Unknown name/factory stops.
 member_registration_effect <- function(expr, index, bindings, budget = NULL) {
-    if (!is.call(expr)) {
+    # A registration needs an actual name and factory. Resolving the callee
+    # of an argument-free method chain can otherwise consume the request budget.
+    if (!is.call(expr) || length(expr) < 2L) {
         return(bindings)
     }
     callee <- member_infer(expr[[1L]], index, bindings, budget = budget)

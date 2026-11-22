@@ -307,8 +307,8 @@ test_that("R6 self, super and private refer to their declared method contexts", 
         "child=function(option=FALSE) self),", "private=list(secret=function(key=1) NULL),",
         "active=list(current=function() self$child()))")
     fixture <- member_provider_fixture(code)
-    for (case in list(list(row = 4L, col = 7L, expected = c("base", "child", "current", "parent_active", "run", "test")),
-            list(row = 5L, col = 8L, expected = c("inherited", "parent_active", "run")))) {
+    for (case in list(list(row = 4L, col = 7L, expected = c("base", "child", "clone", "current", "parent_active", "run", "test")),
+            list(row = 5L, col = 8L, expected = c("clone", "inherited", "parent_active", "run")))) {
         items <- member_completion(fixture$uri, fixture$workspace, fixture$document, case[c("row", "col")], TRUE, 200L)
         expect_identical(vapply(items, `[[`, character(1L), "label"), case$expected)
     }
@@ -363,7 +363,7 @@ test_that("Multiline members and R6 method context work on the first LSP request
         "test=function() {self$},", "child=function(flag=TRUE) self))")
     edit(code, 5L)
     result <- respond_completion(client, path, c(2L, 22L), retry = FALSE)
-    expect_setequal(vapply(result$items, `[[`, character(1L), "label"), c("run", "test", "child"))
+    expect_setequal(vapply(result$items, `[[`, character(1L), "label"), c("run", "test", "child", "clone"))
     code[[3L]] <- "test=function() super$run(),"
     edit(code, 6L)
     expect_identical(respond_hover(client, path, c(2L, 24L), retry = FALSE)$contents[[1L]], "```r\nrun(value = 1)\n```")

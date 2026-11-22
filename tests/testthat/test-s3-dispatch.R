@@ -23,6 +23,19 @@ s3_result <- function(fixture, row = fixture$document$nline - 1L, col = nchar(fi
     resolve_s3_call(fixture$uri, fixture$workspace, fixture$document, list(row = row, col = col))
 }
 
+test_that("S3 calls in arguments of compound callees retain their dispatched method", {
+    for (callee in c("box$render", "pkg::render", "(factory())")) {
+        line <- paste0(callee, "(NULL, draw(1L, TRUE))")
+        f <- s3_fixture(c("draw <- function(x, ...) UseMethod('draw')",
+                "draw.integer <- function(x, option) x", line), packages = character())
+        col <- regexpr("TRUE", line, fixed = TRUE)[[1L]]
+        expect_identical(s3_result(f, 2L, col)$method$name, "draw.integer")
+        hints <- inlay_hint_reply(1L, f$uri, f$workspace, f$document,
+            range(position(2L, 0L), position(2L, nchar(line))))$result
+        expect_true("option =" %in% vapply(hints, `[[`, "", "label"))
+    }
+})
+
 test_that("S3 dispatch shares local generics and methods across standalone groups", {
     code <- c("run <- function() {", "{ draw <- function(x, ...) { { UseMethod('draw') } }",
         "  { draw.integer <- function(x, size = 3L, ...) x }", "}",
@@ -236,6 +249,27 @@ test_that("S3 dispatch follows native and magrittr pipe input", {
         if (grepl("|>", call, fixed = TRUE) && getRversion() < "4.1.0") next
         fixture <- s3_fixture(c(base, call))
         expect_identical(s3_result(fixture)$classes, "data.frame", info = call)
+    }
+})
+
+test_that("magrittr's implicit argument belongs only to the outer RHS call", {
+    base <- c("draw <- function(x, ...) UseMethod('draw')",
+        "draw.integer <- function(x, ...) x", "draw.character <- function(x, ...) x")
+    cases <- c(
+        '"s" %>% draw(1L)' = "draw.character",
+        '"s" %>% draw(1L, .)' = "draw.integer",
+        '"s" %>% list(NULL, draw(1L))' = "draw.integer",
+        '"s" %>% base::list(NULL, draw(1L))' = "draw.integer",
+        '"s" %>% box$render(NULL, draw(.))' = "draw.character",
+        '"s" %>% list(draw(1L, .))' = "draw.integer",
+        '"s" %>% { draw(1L) }' = "draw.integer",
+        '"s" %>% { . <- 1L; draw(.) }' = "draw.integer",
+        '"s" %>% list(1L %>% draw(.))' = "draw.integer"
+    )
+    for (line in names(cases)) {
+        start <- regexpr("draw(", line, fixed = TRUE)[[1L]] + 4L
+        f <- s3_fixture(c(base, line), packages = character())
+        expect_identical(s3_result(f, 3L, start)$method$name, unname(cases[[line]]), info = line)
     }
 })
 

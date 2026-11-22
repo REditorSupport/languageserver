@@ -1,5 +1,14 @@
-# The package-definition and S3-implementation providers expose the same
-# generated source to virtual-document clients and file-based clients.
+# Publish generated source using the client's negotiated content provider.
+package_body_location <- function(pkgname, symbol, code, store) {
+    target <- package_body_definition(pkgname, symbol, code, store$scheme)
+    text <- attr(target, "text_document_content")
+    if (!is.null(text)) {
+        if (!store$set(target$uri, text)) return(package_body_definition(pkgname, symbol, code))
+        attr(target, "text_document_content") <- NULL
+    }
+    target
+}
+
 package_body_definition <- function(pkgname, symbol, code, scheme = NULL) {
     text <- c(
         "# Generated from function body. Editing this file has no effect.",

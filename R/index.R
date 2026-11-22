@@ -1,5 +1,5 @@
-# Older summaries can contain stale definitions copied from an earlier valid file.
-index_cache_version <- 12L
+# Older summaries omit literal string targets and inner assignment-chain names.
+index_cache_version <- 13L
 
 #' Recognize a package without recursively searching a workspace
 #' @noRd
@@ -351,28 +351,31 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
                 if (!named_bind) named_bind <- member_head(expr, ":=")
                 next
             }
-            if (length(expr) != 3L || !is.symbol(expr[[2L]])) next
-            symbol <- as.character(expr[[2L]])
-            value <- expr[[3L]]
+            chain <- assignment_chain(expr)
+            if (is.null(chain)) next
+            value <- chain$value
             srcref <- if (length(srcrefs) >= i) srcrefs[[i]] else NULL
             if (is.null(srcref)) next
             def_type <- get_expr_type(value)
             if (def_type == "function") {
                 fun <- null_function
                 tryCatch(formals(fun) <- value[[2L]], error = function(e) NULL)
-                if (!exists(symbol, envir = functions_store, inherits = FALSE)) {
-                    function_names$push(symbol)
+                fun <- utils::removeSource(fun)
+                for (symbol in chain$targets) {
+                    if (!exists(symbol, envir = functions_store, inherits = FALSE)) {
+                        function_names$push(symbol)
+                    }
+                    assign(symbol, fun, envir = functions_store)
                 }
-                assign(symbol, utils::removeSource(fun), envir = functions_store)
             }
-            if (!exists(symbol, envir = definitions_store, inherits = FALSE)) {
-                definition_names$push(symbol)
+            range <- expr_range(srcref)
+            for (symbol in chain$targets) {
+                if (!exists(symbol, envir = definitions_store, inherits = FALSE)) {
+                    definition_names$push(symbol)
+                }
+                assign(symbol, list(name = symbol, type = def_type, range = range),
+                    envir = definitions_store)
             }
-            assign(symbol, list(
-                name = symbol,
-                type = def_type,
-                range = expr_range(srcref)
-            ), envir = definitions_store)
         }
         materialize <- function(store, names) {
             if (!names$size()) return(list())
@@ -381,6 +384,7 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
         }
         definitions <- materialize(definitions_store, definition_names)
         functions <- materialize(functions_store, function_names)
+        functions[noncallable_definitions(definitions, names(functions))] <- NULL
     }
 
     sources <- unique(Filter(Negate(is.null), lapply(source_specs, function(spec) {

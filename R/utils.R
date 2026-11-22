@@ -689,7 +689,7 @@ xdoc_top_level_index <- function(x, syntax = NULL, navigation = NULL) {
         all_nodes <- xml_find_all_(x, "descendant::*")
         if (length(all_nodes) == length(syntax$id)) {
             rank <- syntax$order_rank
-            roots <- syntax$roots[syntax$token[syntax$roots] == "expr"]
+            roots <- syntax$roots[syntax$token[syntax$roots] %in% c("expr", "expr_or_assign_or_help")]
             definitions <- all_nodes[rank[navigation$node]]
             names <- syntax$text[navigation$name]
             return(list(
@@ -705,7 +705,7 @@ xdoc_top_level_index <- function(x, syntax = NULL, navigation = NULL) {
         }
     }
     nodes <- xml_children(x)
-    nodes <- nodes[xml_name(nodes) == "expr"]
+    nodes <- nodes[xml_name(nodes) %in% c("expr", "expr_or_assign_or_help")]
     # An explicit descendant axis avoids libxml2 repeatedly merging terminal
     # node sets for //*, which becomes quadratic in long, flat scripts.
     tokens <- xml_find_all_(x, "descendant-or-self::*[@line1 and not(*)]")
@@ -766,12 +766,11 @@ xdoc_find_enclosing_scopes <- function(x, line, col, top = FALSE) {
         "(@line2 > {line} or (@line2 = {line} and @col2 >= {col}-1))"
     )
     condition <- glue(condition, line = line, col = col)
+    expression <- "*[self::expr or self::expr_or_assign_or_help]"
+    enclosing <- paste0("descendant-or-self::", expression, "[", condition, "]")
 
     if (is.null(index)) {
-        xpath <- paste0(
-            "/exprlist/expr[", condition,
-            "]/descendant-or-self::expr[", condition, "]"
-        )
+        xpath <- paste0("/exprlist/", expression, "[", condition, "]/", enclosing)
         scopes <- xml_find_all_(x, xpath)
     } else {
         selected <-
@@ -779,8 +778,7 @@ xdoc_find_enclosing_scopes <- function(x, line, col, top = FALSE) {
                 index$line1 == line & index$col1 <= col) &
             (index$line2 > line |
                 index$line2 == line & index$col2 >= col - 1L)
-        scopes <- xml_find_all_(index$nodes[selected],
-            paste0("descendant-or-self::expr[", condition, "]"))
+        scopes <- xml_find_all_(index$nodes[selected], enclosing)
     }
 
     if (top) {

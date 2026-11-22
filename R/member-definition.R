@@ -19,6 +19,17 @@ member_origin_tree <- function(data, syntax = NULL) {
     accesses <- parent[operators]
     writes <- accesses[parent[accesses] %in% assignments]
     class_calls <- parent[parent[classes]]
+    # A literal R6 registration owns its name token. Confirm the receiver
+    # and argument match on the AST before consuming the candidate below.
+    control_calls <- parent[intersect(parent[callees[names == "set"]], accesses)]
+    if (any(token[operators] == "LBB")) {
+        strings <- which(token == "STR_CONST")
+        set_strings <- strings[data$text[strings] %in% c('"set"', "'set'")]
+        if (length(set_strings)) {
+            access <- intersect(parent[parent[set_strings]], accesses)
+            control_calls <- unique(c(control_calls, parent[access]))
+        }
+    }
     property_calls <- parent[parent[properties]]
     property_name <- if (length(property_calls)) {
         positions <- integer(length(token))
@@ -34,7 +45,8 @@ member_origin_tree <- function(data, syntax = NULL) {
         positions[class_calls] <- classes
         positions
     }
-    targets <- unique(c(calls, writes, class_calls, which(property_name > 0L)))
+    targets <- unique(c(calls, writes, class_calls, control_calls, which(property_name > 0L)))
+    targets <- targets[targets > 0L]
     if (!length(targets)) return(list())
     needed <- logical(length(token))
     current <- targets
@@ -47,7 +59,8 @@ member_origin_tree <- function(data, syntax = NULL) {
     named <- write <- logical(length(token))
     named[calls] <- TRUE
     write[writes] <- TRUE
-    list(syntax = syntax, needed = needed, named = named, write = write, class_token = class_token,
+    controls <- if (length(control_calls)) seq_along(token) %in% control_calls
+    list(syntax = syntax, needed = needed, named = named, write = write, class_token = class_token, controls = controls,
         property_name = property_name,
         placeholders = parent[token == "PLACEHOLDER"],
         roots = syntax$roots[token[syntax$roots] %in% c("expr", "expr_or_assign_or_help")])
@@ -96,6 +109,16 @@ member_source_origins <- function(parsed, data, uri, row_offset = 0L, col_offset
             attr(node, "member_origins") <- tags
         }
         positions <- which(kinds %in% expr_tokens)
+        if (!is.null(tree$controls) && tree$controls[[row]] && length(positions) == length(node) &&
+                !is.null(member_r6_control_receiver(node))) {
+            args <- as.list(node)[-1L]
+            arg <- member_s7_match(stats::setNames(as.list(seq_along(args)), names(args)),
+                c("which", "name", "value", "overwrite"))$args$name
+            if (!is.null(arg) && is.character(args[[arg]])) {
+                key <- syntax_children(syntax, children[[positions[[arg + 1L]]]])
+                if (length(key) == 1L && token[[key]] == "STR_CONST") attr(node, "member_origin") <- origin(key)
+            }
+        }
         if (tree$write[[row]]) {
             if (member_head(node, "$")) {
                 attr(node, "member_origin") <- origin(utils::tail(children, 1L))
@@ -220,7 +243,9 @@ member_binding_declaration <- function(entry, budget) {
     i <- if (is.null(source)) member_history_position(document$parse_data$member_data$items, entry$end) else source$item
     if (!i) return(entry)
     expr <- member_declaration_expr(document, i, budget)
-    if (member_head(expr, ":=")) {
+    if (identical(entry$setter, "r6_control")) {
+        entry$expr <- expr
+    } else if (member_head(expr, ":=")) {
         # The binding resolver still verifies the operator before naming its RHS.
         entry$expr <- expr
     } else if (member_head(expr, "<-") || member_head(expr, "=")) {
@@ -258,7 +283,16 @@ member_definition_location <- function(uri, workspace, document, point, audit = 
     }
     if (is.null(origin) && !is.null(resolved$value$function_key) && !is.null(resolved$value$metadata)) {
         owner <- member_package_context(resolved$index, resolved$value$metadata)
-        origin <- member_lookup(owner$locations, resolved$value$function_key)
+        key <- resolved$value$function_key
+        origin <- member_lookup(owner$locations, key)
+        if (isTRUE(origin) && !isTRUE(resolved$value$possible_receiver) && !isTRUE(resolved$budget$exhausted)) {
+            fn <- member_lookup(owner$definitions, key)
+            if (member_head(fn, "function")) {
+                # Only explicit Go to Definition materializes this body. References
+                # and rename require a physical source identity in result.
+                return(list(result = NULL, package = owner$package, key = key, body = fn))
+            }
+        }
     }
     result <- NULL
     if (is.list(origin) && !is.null(origin$uri)) {

@@ -59,14 +59,15 @@ member_s7_method_setter <- function(lhs) {
 # Keep a bounded history of exact source registrations. A union registers
 # the same method for each constituent class. An opaque registration can
 # replace any earlier entry, while a later exact registration is still known.
-member_s7_register_signature <- function(generic, setter, rhs, index, bindings, budget) {
+member_s7_register_signature <- function(generic, setter, rhs, index, bindings, budget, source = NULL) {
     if (!length(member_s7_dispatch_args(generic))) {
         return(member_s7_s3_generic(generic, member_name(setter[[2L]]), index, bindings))
     }
     if (is.null(generic$s7_methods)) return(generic)
     fn <- if (member_head(rhs, "function")) rhs else member_infer(rhs, index, bindings, budget = budget)$function_expr
     params <- if (member_head(fn, "function")) fn[[2L]]
-    if (!length(generic$s7_methods) && !length(setdiff(names(params), c(generic$s7_dispatch_args, "...")))) return(generic)
+    if (!isTRUE(budget$s7_implementation) && !length(generic$s7_methods) &&
+            !length(setdiff(names(params), c(generic$s7_dispatch_args, "...")))) return(generic)
     args <- member_s7_arguments(setter, setdiff(member_s7_modes(index)$arguments[["method<-"]], "value"))
     signature <- member_infer(args$signature, index, bindings, budget = budget)
     specs <- if (identical(signature$type, "list")) signature$elements else list(signature)
@@ -77,6 +78,7 @@ member_s7_register_signature <- function(generic, setter, rhs, index, bindings, 
     }
     # A removal or an unknown RHS masks the preceding method for this tuple.
     record <- list(types = types, formals = params)
+    if (!is.null(source) && member_head(rhs, "function")) record$source <- source
     generic$s7_methods <- c(utils::tail(generic$s7_methods, 63L), list(record))
     generic
 }
@@ -120,6 +122,7 @@ member_s7_call_signature <- function(generic, call, index, bindings, budget) {
         if (identical(arg, quote(expr = ))) return(NULL)
         value <- member_infer(arg, index, bindings, budget = budget)
         if (!is.null(value$reason) || !is.null(value$s4_class)) return(NULL)
+        if (isTRUE(budget$s7_implementation) && (isTRUE(value$possible_receiver) || length(value$possible_returns))) return(NULL)
         # structure() can retain its known base payload while changing the
         # dispatch class. Use the explicit class vector before its storage.
         if (length(value$classes)) return(value$classes[[1L]])
@@ -132,9 +135,9 @@ member_s7_call_signature <- function(generic, call, index, bindings, budget) {
     for (method in rev(generic$s7_methods)) {
         if (!all(mapply(`%in%`, keys, method$types))) next
         params <- names(method$formals)
-        if (identical(utils::head(params, length(dispatch)), dispatch) &&
-                length(setdiff(params, c(dispatch, "...")))) {
-            generic$function_expr <- member_s7_function(method$formals)
+        if (identical(utils::head(params, length(dispatch)), dispatch)) {
+            if (isTRUE(budget$s7_implementation)) generic$s7_implementation <- method$source
+            if (length(setdiff(params, c(dispatch, "...")))) generic$function_expr <- member_s7_function(method$formals)
         }
         break
     }

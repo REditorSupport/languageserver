@@ -274,6 +274,7 @@ detect_s3class <- function(scopes, token_text, document, uri) {
             # recognized generic prefix rather than splitting off the last word.
             for (n in rev(seq_len(length(parts) - 1L))) {
                 generic <- paste(parts[seq_len(n)], collapse = ".")
+                if (!nzchar(generic)) next
                 standard <- any(vapply(intersect(startup_packages, loadedNamespaces()), function(pkg) {
                     fn <- get0(generic, asNamespace(pkg), inherits = FALSE)
                     is.function(fn) && (generic %in% .S3PrimitiveGenerics ||

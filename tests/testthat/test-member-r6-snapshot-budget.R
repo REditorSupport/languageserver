@@ -460,7 +460,7 @@ test_that("Document R6 chain size is linear in depth", {
         expect_linear_chain_growth(sizes)
     }
     code <- r6_budget_code(r6_budget_chain_code(5L, 8L, TRUE), "Chain5$new()$")
-    expect_identical(r6_budget_labels(code), paste0("m", 1:8))
+    expect_identical(r6_budget_labels(code), c("clone", paste0("m", 1:8)))
     expect_identical(r6_budget_labels(paste0(code, "m3()$")), "level1")
 })
 
@@ -568,7 +568,7 @@ test_that("Document R6 super chains resolve over two and three levels", {
             r6_budget_super_extracted[[query]], info = query)
     }
     expect_identical(r6_budget_labels(r6_budget_code(r6_budget_super_code, "Child$new()$")),
-        c("keep", "keep_via_super", "read", "run"))
+        c("clone", "keep", "keep_via_super", "read", "run"))
 })
 
 test_that("Installed R6 super chains resolve over two and three levels", {
@@ -639,7 +639,7 @@ test_that("Document R6 methods reach private methods and parent initializers", {
             r6_budget_private_extracted[[query]], info = query)
     }
     expect_identical(r6_budget_labels(r6_budget_code(r6_budget_private_code, "Derived$new()$")),
-        c("chain", "config", "extra", "initialize", "to_private", "via_private"))
+        c("chain", "clone", "config", "extra", "initialize", "to_private", "via_private"))
 })
 
 test_that("Installed R6 methods reach private methods and parent initializers", {
@@ -705,8 +705,8 @@ test_that("Document R6 family resolves through self, private and super from outs
         "Child$new()$extra$" = "child_ready",
         "Child$new()$chain()$run()$" = "grand",
         "Child$new()$chain()$via_private()$" = "done",
-        "Child$" = "new",
-        "Child$new()$" = c("chain", "config", "current", "extra", "initialize", "keep", "keep_via_super",
+        "Child$" = c("debug", "is_locked", "lock", "new", "set", "undebug", "unlock"),
+        "Child$new()$" = c("chain", "clone", "config", "current", "extra", "initialize", "keep", "keep_via_super",
             "parent_only", "parent_via_super", "read", "run", "state_of", "to_private", "via_private"),
         "obj <- Child$new()\nfn <- obj$run\nfn()$" = "grand",
         "obj <- Child$new()\nfn <- obj$via_private\nfn()$" = "done",
@@ -730,9 +730,9 @@ test_that("Document R6 family resolves through self, private and super from outs
 test_that("Document R6 family resolves self, private and super at a cursor inside a method", {
     child <- list(
         "private$@@" = c("first", "helper", "hop", "parent_secret", "payload", "second", "state"),
-        "super$@@" = c("chain", "current", "first", "helper", "initialize", "keep", "parent_only",
+        "super$@@" = c("chain", "clone", "current", "first", "helper", "initialize", "keep", "parent_only",
             "parent_secret", "read", "run", "second", "state_of", "via_private"),
-        "self$@@" = c("chain", "config", "current", "extra", "initialize", "keep", "keep_via_super",
+        "self$@@" = c("chain", "clone", "config", "current", "extra", "initialize", "keep", "keep_via_super",
             "parent_only", "parent_via_super", "probe", "read", "run", "state_of", "to_private", "via_private"),
         "super$run()$@@" = "grand",
         "super$keep()$@@" = "grand_keep",
@@ -750,9 +750,9 @@ test_that("Document R6 family resolves self, private and super at a cursor insid
     }
     parent <- list(
         "private$@@" = c("first", "helper", "parent_secret", "payload", "second", "state"),
-        "super$@@" = c("chain", "current", "first", "helper", "initialize", "keep", "read", "run",
+        "super$@@" = c("chain", "clone", "current", "first", "helper", "initialize", "keep", "read", "run",
             "second", "state_of", "via_private"),
-        "self$@@" = c("chain", "config", "current", "initialize", "keep", "parent_only", "probe", "read",
+        "self$@@" = c("chain", "clone", "config", "current", "initialize", "keep", "parent_only", "probe", "read",
             "run", "state_of", "via_private"),
         "super$run()$@@" = "grand",
         "super$read()$@@" = "grand_helper",
@@ -852,9 +852,9 @@ test_that("new fields on unlocked receivers are kept and locked receivers reject
             "))"
         ))
     }
-    expect_identical(probe("lock_objects = FALSE, "), c("added", "probe"))
-    expect_identical(probe("lock_objects = FALSE, portable = FALSE, "), c("added", "probe"))
-    expect_identical(probe(""), "probe")
+    expect_identical(probe("lock_objects = FALSE, "), c("added", "clone", "probe"))
+    expect_identical(probe("lock_objects = FALSE, portable = FALSE, "), c("added", "clone", "probe"))
+    expect_identical(probe(""), c("clone", "probe"))
 })
 
 test_that("non-portable bare references to a replaced object keep their previous behaviour", {

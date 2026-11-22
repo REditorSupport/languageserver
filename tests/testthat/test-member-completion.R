@@ -261,7 +261,7 @@ test_that("R6 fluent APIs expose public inheritance without initialization", {
     )
     expect_identical(
         member_labels(paste0(code, "Child$new()$child()$")),
-        c("base", "child", "danger", "field", "initialize")
+        c("base", "child", "clone", "danger", "field", "initialize")
     )
     expect_identical(member_labels(paste0(code, "Child$new()$base()$")), "done")
     expect_length(member_labels(paste0(code, "Child$new()$danger$")), 0L)
@@ -278,23 +278,23 @@ test_that("R6 initialization exposes finite copied methods without executing cod
         "}, ready=function() self))\n"
     )
     expect_identical(member_labels(paste0(declarations, "Client$new(unknown)$")),
-        c("GET", "SET", "initialize", "ready"))
+        c("GET", "SET", "clone", "initialize", "ready"))
     expect_identical(member_labels(paste0(declarations, "Client$new(unknown)$ready()$")),
-        c("GET", "SET", "initialize", "ready"))
+        c("GET", "SET", "clone", "initialize", "ready"))
     expect_false(file.exists(marker))
 
     for (body in c("for (name in names(unknown)) self[[name]] <- unknown[[name]]",
             "methods <- list(run=function() NULL); for (name in unknown) self[[name]] <- methods[[name]]",
             "methods <- list(run=function() NULL); for (name in names(methods)) self[[name]] <- opaque()")) {
         code <- sprintf("Client <- R6::R6Class(\"Client\", lock_objects=FALSE, public=list(initialize=function() {%s}, ready=1))\nClient$new()$", body)
-        expect_identical(member_labels(code), c("initialize", "ready"))
+        expect_identical(member_labels(code), c("clone", "initialize", "ready"))
     }
     code <- paste0("Client <- R6::R6Class(\"Client\", lock_objects=FALSE, public=list(initialize=function(flag) {",
         "if (flag) {methods <- list(run=function() NULL); for (name in names(methods)) self[[name]] <- methods[[name]]}",
         "}, ready=1))\n")
-    expect_identical(member_labels(paste0(code, "Client$new(unknown)$")), c("initialize", "ready"))
-    expect_identical(member_labels(paste0(code, "Client$new(FALSE)$")), c("initialize", "ready"))
-    expect_identical(member_labels(paste0(code, "Client$new(TRUE)$")), c("initialize", "ready", "run"))
+    expect_identical(member_labels(paste0(code, "Client$new(unknown)$")), c("clone", "initialize", "ready"))
+    expect_identical(member_labels(paste0(code, "Client$new(FALSE)$")), c("clone", "initialize", "ready"))
+    expect_identical(member_labels(paste0(code, "Client$new(TRUE)$")), c("clone", "initialize", "ready", "run"))
 })
 
 test_that("Internal package R6 generators are available to exported factories", {
@@ -327,14 +327,14 @@ test_that("R6 initialization respects locking and ignores initializer return val
         for (body in c("self$extra <- 1",
                 "methods <- list(extra=function() NULL); for (name in names(methods)) self[[name]] <- methods[[name]]")) {
             code <- sprintf('Client <- R6::R6Class("Client"%s, public=list(initialize=function() {%s}, ready=1))\nClient$new()$', locking, body)
-            expect_identical(member_labels(code), c("initialize", "ready"))
+            expect_identical(member_labels(code), c("clone", "initialize", "ready"))
         }
     }
     for (body in c("self$extra <- 1; return(private)",
             "self$extra <- 1; return(invisible(NULL))", "self$extra <- 1; return(list(secret=1))",
             "self$extra <- 1; self <- private; return(self)", "return({self$extra <- 1; NULL})")) {
         code <- sprintf('Client <- R6::R6Class("Client", lock_objects=FALSE, public=list(initialize=function() {%s}), private=list(secret=1))\nClient$new()$', body)
-        expect_identical(member_labels(code), c("extra", "initialize"), info = body)
+        expect_identical(member_labels(code), c("clone", "extra", "initialize"), info = body)
     }
     for (body in c("self$run <- function(value=2) NULL; return(private)",
             "alias <- self; alias$run <- function(value=2) NULL; return(NULL)")) {
@@ -344,7 +344,7 @@ test_that("R6 initialization respects locking and ignores initializer return val
     code <- paste0('Client <- R6::R6Class("Client", lock_objects=FALSE, public=list(initialize=function(flag) {',
         "self$common <- 1; if(flag) {self$early <- 1; return(private)}; self$late <- 1; return(NULL)",
         "}), private=list(secret=1))\nClient$new(unknown)$")
-    expect_identical(member_labels(code), c("common", "initialize"))
+    expect_identical(member_labels(code), c("clone", "common", "initialize"))
     code <- paste0('Client <- R6::R6Class("Client", lock_objects=FALSE, public=list(initialize=function() {',
         "value <- if(TRUE) 42 else 0; self$answer <- value; return(private)",
         "}), private=list(secret=1))\nClient$new()$answer")

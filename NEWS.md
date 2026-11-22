@@ -1,5 +1,13 @@
 # languageserver (development)
 
+- Index chained assignment aliases and quoted operator names in package
+  sources. Local navigation now finds parameters of functions assigned with
+  `=`, and workspace symbol search handles open files without definitions.
+
+- Follow R6 clones and S7 validator properties in editor requests. Go to
+  Definition can open a generated body for installed methods such as
+  `pl$scan_csv()` when the package has no source location.
+
 - Follow declarations and reassignments across standalone `{ ... }` blocks
   in workspace symbols, references, rename, member completion and S3 dispatch.
   Extract Function and Inline Variable also recognize statements grouped this way.

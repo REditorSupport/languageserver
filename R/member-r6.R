@@ -15,7 +15,26 @@ member_is_r6_call <- function(expr, index, bindings) {
         isTRUE(index$r6_attached)
 }
 
-member_r6_shape <- function(expr, index, bindings, budget, depth = 0L, trail = character()) {
+# The public controls of a source-declared generator. Keep their formals
+# independent of the class being inferred. Calling a control in the editor
+# must never mutate a generator or register a debugger.
+member_r6_generator_controls <- local({
+    signatures <- list(
+        set = quote(function(which = NULL, name = NULL, value, overwrite = FALSE) NULL),
+        lock = quote(function() TRUE), unlock = quote(function() FALSE),
+        is_locked = quote(function() .result), debug = quote(function(name) .result),
+        undebug = quote(function(name) .result)
+    )
+    methods <- lapply(names(signatures), function(name) {
+        member_value(type = "function", function_expr = signatures[[name]],
+            closure = if (name %in% c("is_locked", "debug", "undebug")) {
+                list(.result = member_value(type = if (name == "is_locked") "logical" else "character"))
+            })
+    })
+    stats::setNames(methods, names(signatures))
+})
+
+member_r6_shape <- function(expr, index, bindings, budget, depth = 0L, trail = character(), runtime = FALSE) {
     infer <- function(expr) {
         member_infer(expr, index, bindings,
             budget = budget, depth = depth + 1L, trail = trail)
@@ -60,17 +79,7 @@ member_r6_shape <- function(expr, index, bindings, budget, depth = 0L, trail = c
                 origin <- attr(node, "member_origins", exact = TRUE)[[as.character(match(name, names(values)))]]
                 if (!is.null(origin)) value$origin <- origin
             }
-            value$r6_owner <- class
-            value$r6_member_kind <- paste(section,
-                if (!is.null(value$function_expr) || "function" %in% value$type) "method" else "field")
-            if (!is.null(value$function_expr)) {
-                value$r6_owner_level <- level
-                value$receiver_name <- "self"
-                value$closure$self <- NULL
-                if (section == "public") value$closure$private <- NULL
-                value$closure$super <- NULL
-                if ("super" %in% member_syntax_names(value$function_expr)) value$r6_uses_super <- TRUE
-            }
+            value <- member_r6_declared_field(value, class, section, level)
             if (section == "public") {
                 fields[name] <- list(value)
                 bindings_public[name] <- if (is.null(value$function_expr)) "data" else "method"
@@ -108,12 +117,27 @@ member_r6_shape <- function(expr, index, bindings, budget, depth = 0L, trail = c
     if (length(declared_private)) instance$r6_declared_private <- declared_private
     instance$r6_locked <- locked
     instance$r6_bindings <- bindings_public
-    instance$r6_cloneable <- !isFALSE(args$cloneable) &&
-        !isFALSE(inherited$r6_cloneable)
+    has_parent <- !is.null(args$inherit) && !identical(args$inherit, quote(NULL))
+    cloneable <- if (is.null(args$cloneable)) TRUE else infer(args$cloneable)$literal
+    instance$r6_cloneable <- isTRUE(cloneable) &&
+        (!has_parent || isTRUE(inherited$r6_cloneable))
+    if (!runtime) {
+        if (!instance$r6_cloneable && !(isFALSE(cloneable) && isFALSE(inherited$r6_cloneable))) {
+            instance$fields$clone <- NULL
+            instance$r6_bindings <- instance$r6_bindings[names(instance$r6_bindings) != "clone"]
+        } else if (instance$r6_cloneable) {
+            instance$fields$clone <- member_value(type = "function", function_expr = quote(function(deep = FALSE) NULL),
+                r6_class = class, r6_role = "clone")
+            instance$r6_bindings["clone"] <- "method"
+            # Give the generated method a stable position across branches.
+            # Declaration order of the user's own fields distinguishes some
+            # inherited method tables when receivers are joined.
+            instance$r6_declared <- c(clone = TRUE, instance$r6_declared)
+        }
+    }
     # new() forwards its arguments to the public (possibly inherited)
     # initialize method. Preserve defaults as syntax, without evaluating them.
-    unknown_parent <- !is.null(args$inherit) && !identical(args$inherit, quote(NULL)) &&
-        is.null(inherited$r6_class)
+    unknown_parent <- has_parent && is.null(inherited$r6_class)
     initialize <- fields$initialize
     has_initializer <- !is.null(initialize) &&
         (!length(initialize$type) || "function" %in% initialize$type)
@@ -127,11 +151,128 @@ member_r6_shape <- function(expr, index, bindings, budget, depth = 0L, trail = c
     )), r6_class = class, r6_role = "generator")
     generator$fields$new$r6_initialize <- fields$initialize
     if (member_head(initialize$function_expr, "function")) generator$fields$new$origin <- initialize$origin
+    if (!runtime) {
+        generator$fields <- c(generator$fields, member_r6_generator_controls)
+        locked <- if (is.null(args$lock_class)) FALSE else infer(args$lock_class)$literal
+        generator$r6_class_locked <- if (is.logical(locked) && length(locked) == 1L) locked else NA
+    }
     generator
+}
+
+# Direct generator controls are writes to a reference object. Only apply them
+# to a source-declared generator after identifying its receiver at the call.
+member_r6_control_receiver <- function(expr) {
+    if (!is.call(expr) || !is.call(expr[[1L]])) return(NULL)
+    head <- expr[[1L]]
+    if (length(head) != 3L || !is.symbol(head[[2L]]) ||
+            !(member_head(head, "$") || (member_head(head, "[[") && is.character(head[[3L]]))) ||
+            !isTRUE(member_name(head[[3L]]) %in% c("set", "lock", "unlock"))) return(NULL)
+    as.character(head[[2L]])
+}
+
+member_r6_conditional_controls <- function(expr) {
+    if (!is.call(expr) || !is.symbol(expr[[1L]]) ||
+            !as.character(expr[[1L]]) %in% c("if", "for", "while", "repeat") ||
+            !any(c("set", "lock", "unlock") %in% member_syntax_names(expr))) return(character())
+    receivers <- character()
+    member_walk(expr, function(node) {
+        control <- member_r6_control_receiver(node)
+        if (!is.null(control)) receivers <<- union(receivers, control)
+    }, descend_functions = FALSE)
+    receivers
+}
+
+member_r6_apply_control <- function(generator, expr, index, bindings, budget) {
+    if (is.null(generator$r6_class_locked)) return(generator)
+    uncertain <- member_value(reason = "unknown_r6_registration")
+    if (is.null(expr)) return(uncertain)
+    method <- member_name(expr[[1L]][[3L]])
+    if (method != "set") {
+        if (length(expr) == 1L) generator$r6_class_locked <- method == "lock"
+        return(generator)
+    }
+    if (isTRUE(generator$r6_class_locked)) return(generator)
+    if (any(vapply(as.list(expr)[-1L], identical, logical(1L), quote(...)))) return(uncertain)
+    args <- member_s7_arguments(expr, c("which", "name", "value", "overwrite"))
+    if (is.null(args) || !"value" %in% names(args)) return(generator)
+    if (!isFALSE(generator$r6_class_locked) || !is.character(args$name) ||
+            !is.character(args$which)) return(uncertain)
+    name <- args$name
+    section <- args$which
+    if (length(name) != 1L || is.na(name) || !nzchar(name) || length(section) != 1L ||
+            !section %in% c("public", "private", "active")) return(generator)
+    instance <- generator$fields$new$result_shape
+    own <- name %in% c(names(instance$r6_declared), instance$r6_declared_private)
+    if (own && (is.null(args$overwrite) || isFALSE(args$overwrite))) return(generator)
+    if (own && !isTRUE(args$overwrite)) return(uncertain)
+    if (section == "public" && name == "initialize") return(uncertain)
+    value <- member_infer(args$value, index, bindings, budget = budget)
+    callable <- !is.null(value$function_expr)
+    if (!callable && !isTRUE(value$known_literal)) return(uncertain)
+    target <- if (section == "private") instance$r6_private else instance
+    kind <- if (section == "active") "active" else if (callable) "method" else "data"
+    if (section == "active" && !callable) return(generator)
+    # Even overwrite=TRUE cannot replace a field in another storage group.
+    if (own && ((section == "private") != (name %in% instance$r6_declared_private) ||
+                !identical(unname(target$r6_bindings[name]), kind))) return(generator)
+    if (section == "active") value <- member_value(reason = "active_property")
+    value <- member_r6_declared_field(value, instance$r6_class, section, instance$r6_level)
+    if (identical(budget$origin_name, name)) value$origin <- attr(expr, "member_origin", exact = TRUE)
+    if (section == "private") {
+        instance$r6_private$fields[name] <- list(value)
+        instance$r6_private$r6_bindings[name] <- kind
+        instance$r6_declared_private <- union(instance$r6_declared_private, name)
+    } else {
+        instance$fields[name] <- list(value)
+        instance$r6_bindings[name] <- kind
+        instance$r6_declared[name] <- callable
+    }
+    generator$fields$new$result_shape <- instance
+    generator
+}
+
+member_r6_declared_field <- function(value, class, section, level) {
+    value$r6_owner <- class
+    value$r6_member_kind <- if (section == "active") "active binding" else paste(section,
+        if (!is.null(value$function_expr) || "function" %in% value$type) "method" else "field")
+    if (!is.null(value$function_expr)) {
+        value$r6_owner_level <- level
+        value$receiver_name <- "self"
+        value$closure$self <- NULL
+        if (section == "public") value$closure$private <- NULL
+        value$closure$super <- NULL
+        if ("super" %in% member_syntax_names(value$function_expr)) value$r6_uses_super <- TRUE
+    }
+    value
 }
 
 member_r6_is_method <- function(value) {
     !is.null(value$function_expr) || identical(value$reason, "active_property")
+}
+
+member_r6_clone_result <- function(instance, deep) {
+    instance$r6_identity <- NULL
+    if (isTRUE(deep$known_literal)) {
+        value <- deep$literal
+        if (length(value) != 1L || !is.atomic(value) || is.na(as.logical(value))) return(member_value(type = ".never"))
+        if (!as.logical(value)) return(instance)
+    }
+    # The default copier returns every non-environment field unchanged. A
+    # custom deep_clone can replace methods too, including on a nested object.
+    unchanged <- function(field) {
+        !is.null(field$function_expr) || identical(field$reason, "active_property") ||
+            (length(field$type) > 0L && all(field$type %in% c("NULL", "logical", "integer", "double",
+                        "complex", "character", "raw", "list", "pairlist", "function")))
+    }
+    fields <- instance$fields
+    if (is.null(instance$r6_private$fields$deep_clone) &&
+            all(vapply(c(fields, instance$r6_private$fields), unchanged, logical(1L)))) return(instance)
+    active <- names(instance$r6_bindings)[instance$r6_bindings == "active"]
+    fields[setdiff(names(fields), active)] <- list(member_value(reason = "deep_clone"))
+    cloned <- member_value(type = "environment", fields = fields, r6_class = instance$r6_class, r6_role = "instance")
+    cloned$r6_locked <- instance$r6_locked
+    cloned$r6_bindings <- instance$r6_bindings
+    cloned
 }
 
 member_r6_private_value <- function(fields, class, locked, bindings) {
@@ -867,10 +1008,7 @@ member_r6_context <- function(expr, index, bindings, budget) {
         bare <- function(fields) lapply(fields, member_r6_bind, instance)
         scope <- utils::modifyList(bare(private$fields), utils::modifyList(bare(instance$fields), scope))
         scope$.__enclos_env__ <- member_value(type = "environment", r6_class = instance$r6_class, r6_role = "enclosure")
-        if (isTRUE(instance$r6_cloneable)) {
-            scope$clone <- member_value(function_expr = quote(function(deep = FALSE) NULL),
-                r6_class = instance$r6_class, r6_role = "clone")
-        }
+        if (!is.null(instance$fields$clone)) scope$clone <- member_stored_field(instance, instance$fields$clone)
     }
     scope
 }
@@ -926,7 +1064,7 @@ member_r6_runtime_shape <- function(generator, index, trail = list()) {
             active = convert(active), inherit = if (is.null(inherited)) NULL else as.name(".__r6_parent__"),
             lock_objects = get_plain("lock_objects"), cloneable = get_plain("cloneable")
         ))
-    shape <- member_r6_shape(expr, index, bindings, NULL)
+    shape <- member_r6_shape(expr, index, bindings, NULL, runtime = TRUE)
     shape$fields$new$r6_package <- index$package
     shape
 }

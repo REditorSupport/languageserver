@@ -21,7 +21,12 @@ definition_reply <- function(id, uri, workspace, document, point,
 
     if (isTRUE(lsp_settings$get("member_completion"))) {
         member <- member_definition_location(uri, workspace, document, point)
-        if (!is.null(member)) return(Response$new(id, result = member$result))
+        if (!is.null(member)) {
+            if (!is.null(member$body)) {
+                member$result <- package_body_location(member$package, member$key, deparse(member$body), text_document_content)
+            }
+            return(Response$new(id, result = member$result))
+        }
         parsed <- document$parse_data
         row <- member_navigation_token(parsed, point)
         if (row && parsed$syntax_data$token[[row]] %in% c("SYMBOL_SUB", "STR_CONST")) {

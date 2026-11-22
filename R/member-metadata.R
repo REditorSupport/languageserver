@@ -790,6 +790,7 @@ member_namespace_input <- function(
             if (!identical(record[[1L]], "value") || typeof(fn) != "closure") next
             if (is.null(function_match)) function_match <- member_function_identity_index(functions)
             key <- function_match(fn)
+            named_method <- !is.null(key)
             if (is.null(key)) key <- paste(name, field, sep = "$")
             stub_fn <- (is.environment(value) && "R6ClassGenerator" %in% attr(value, "class", exact = TRUE) &&
                     member_r6_generated_clone(fn, value)) ||
@@ -797,7 +798,16 @@ member_namespace_input <- function(
                         isTRUE(fields[[field]]$r6_bound) && member_r6_generated_clone(fn))
             fn_syntax <- member_function_syntax(if (stub_fn) member_r6_clone_stub() else fn)
             definitions[key] <- list(fn_syntax)
-            if (!stub_fn && is.null(locations[[key]])) locations[[key]] <- member_function_origin(fn)
+            if (!stub_fn && is.null(locations[[key]])) {
+                origin <- member_function_origin(fn)
+                # TRUE identifies a complete namespace function captured by identity.
+                # Registry paths and synthetic delegation keys cannot overwrite a
+                # syntactic namespace name in the shared definitions table.
+                if (is.null(origin) && named_method && identical(make.names(key), key)) origin <- TRUE
+                locations[[key]] <- origin
+            } else if (stub_fn && isTRUE(locations[[key]])) {
+                locations[[key]] <- NULL
+            }
             # A static factory may also be addressed by its environment path.
             definitions[paste(name, field, sep = "$")] <- list(as.name(key))
             if (identical(key, paste(name, field, sep = "$"))) definitions[key] <- list(fn_syntax)

@@ -27,6 +27,27 @@ test_that("equivalent quoted spellings share navigation and reference identities
     }
 })
 
+test_that("string-literal declarations prevent caller-only workspace renames", {
+    fixture <- provider_fixture(c("'name' <- function(x) x", "name(1)", "f <- function(name) name"))
+    fixture$workspace$get_definition <- function(symbol, ...) {
+        location(fixture$uri, fixture$document$parse_data$definitions[[symbol]]$range)
+    }
+    use <- list(row = 1L, col = 2L)
+    for (indexed in c(TRUE, FALSE)) {
+        if (!indexed) fixture$document$parse_data$reference_index <- NULL
+        prepared <- prepare_rename_reply(1L, fixture$uri, fixture$workspace, fixture$document, use)
+        renamed <- rename_reply(1L, fixture$uri, fixture$workspace, fixture$document, use, "another")
+        expect_match(prepared$error$message, "string-literal assignment")
+        expect_match(renamed$error$message, "string-literal assignment")
+        expect_null(renamed$result$changes)
+        if (indexed) {
+            local <- rename_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+                list(row = 2L, col = 22L), "another")
+            expect_length(local$result$changes[[fixture$uri]], 2L)
+        }
+    }
+})
+
 test_that("multiline quoted identifiers convert each endpoint on its own line", {
     text <- paste0(intToUtf8(0x1f600), "b`")
     fixture <- provider_fixture(c("`a", paste0(text, " <- 1"), "`a", text))

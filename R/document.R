@@ -402,6 +402,36 @@ is_top_level <- function(arg_env, ...) {
 null_function <- utils::removeSource(local(function() NULL, baseenv()))
 any_args_function <- utils::removeSource(local(function(...) NULL, baseenv()))
 
+# Assignment chains share their final value. Only literal targets bind names
+# here; replacement calls and expressions inside the value have separate scope.
+assignment_chain <- function(expr) {
+    targets <- character()
+    quoted <- character()
+    repeat {
+        if (length(expr) != 3L || identical(expr[[3L]], quote(expr = ))) break
+        target <- member_name(expr[[2L]])
+        if (is.null(target) || is.na(target) || !nzchar(target)) break
+        targets <- c(targets, target)
+        if (is.character(expr[[2L]])) quoted <- c(quoted, target)
+        expr <- expr[[3L]]
+        if (!is.call(expr) || !(identical(expr[[1L]], quote(`<-`)) ||
+                    identical(expr[[1L]], quote(`=`)))) break
+    }
+    if (length(targets)) list(targets = targets, value = expr, quoted = quoted)
+}
+
+parse_assignment <- function(expr, action) {
+    chain <- assignment_chain(expr)
+    if (is.null(chain)) return()
+    if (length(chain$quoted)) action$update(quoted_bindings = chain$quoted)
+    for (target in chain$targets) action$assign(symbol = target, value = chain$value)
+    action$parse(chain$value)
+}
+
+noncallable_definitions <- function(definitions, names) {
+    names[!vapply(definitions[names], function(def) identical(def$type, "function"), logical(1L))]
+}
+
 parser_hooks <- list(
     "{" = function(expr, action) {
         children <- as.list(expr)[-1L]
@@ -451,18 +481,8 @@ parser_hooks <- list(
     "repeat" = function(expr, action) {
         action$parse(expr[[2L]])
     },
-    "<-" = function(expr, action) {
-        if (length(expr) == 3L && is.symbol(expr[[2L]])) {
-            action$assign(symbol = as.character(expr[[2L]]), value = expr[[3L]])
-            action$parse(expr[[3L]])
-        }
-    },
-    "=" = function(expr, action) {
-        if (length(expr) == 3L && is.symbol(expr[[2L]])) {
-            action$assign(symbol = as.character(expr[[2L]]), value = expr[[3L]])
-            action$parse(expr[[3L]])
-        }
-    },
+    "<-" = parse_assignment,
+    "=" = parse_assignment,
     "assign" = function(expr, action) {
         call <- match.call(base::assign, expr)
         if (is.character(call$x) && is_top_level(call$pos, -1L, -1) && is_top_level(call$envir)) {
@@ -785,6 +805,14 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
         env$functions_store, env$function_names)
     env$signatures <- materialize(
         env$signatures_store, env$function_names)
+    rebound <- intersect(env$functs, env$nonfuncts)
+    if (length(rebound)) {
+        masked <- noncallable_definitions(env$definitions, rebound)
+        env$functs <- env$functs[!env$functs %in% masked]
+        env$nonfuncts <- env$nonfuncts[!env$nonfuncts %in% setdiff(rebound, masked)]
+        env$functions[masked] <- NULL
+        env$signatures[masked] <- NULL
+    }
     env$outline_data <- outline_parse_data(env$syntax_data)
     env$outline_data$nested_functions <- as.list(env$outline_store, all.names = TRUE)
     rm(list = c(

@@ -6,7 +6,8 @@ test_that("Call hierarchy works in single file", {
     writeLines(c(
         "foo <- function(x) { x + 1 }",
         "bar <- function(x) { foo(x) + 1 }",
-        "fun <- function(x) { foo(x) + bar(x) + 1 }"
+        "fun <- function(x) { foo(x) + bar(x) + 1 }",
+        "stats::lm(y ~ x)"
     ), single_file)
 
     client %>% did_open(single_file)
@@ -26,6 +27,10 @@ test_that("Call hierarchy works in single file", {
         start = list(line = 0, character = 0),
         end = list(line = 0, character = 28)
     ))
+
+    package_item <- client %>% respond_prepare_call_hierarchy(single_file, c(3, 8))
+    expect_identical(package_item[[1L]]$name, "lm")
+    expect_length(client %>% respond_call_hierarchy_outgoing_calls(package_item[[1L]], retry = FALSE), 0L)
 
     result <- client %>% respond_prepare_call_hierarchy(
         single_file, c(1, 22), retry_when = function(result) length(result) == 0)

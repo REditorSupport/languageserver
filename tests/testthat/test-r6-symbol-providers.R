@@ -605,3 +605,76 @@ test_that("Completion replies offer R6 constructor arguments and resolve them co
         expect_null(resolved$labelDetails)
     }
 })
+
+test_that("R6 generator controls and generated clones retain their actual signatures", {
+    code <- 'C <- R6::R6Class("C", public = list(field = 1, read = function() self$field))'
+    generator <- R6::R6Class("C")
+    for (name in c("debug", "undebug", "set", "lock", "unlock", "is_locked")) {
+        fixture <- r6_symbol_fixture(c(code, sprintf("C$%s(", name)))
+        sig <- r6_symbol_signature(fixture)$signatures[[1L]]$label
+        expect_identical(sig, get_signature(name, member_function_syntax(generator[[name]])))
+    }
+    hover <- function(code, expr, token) {
+        fixture <- r6_symbol_fixture(c(code, expr))
+        r6_symbol_hover(fixture, fixture$document$nline - 1L, token)$contents
+    }
+    expect_match(hover(code, "C$new()$clone()", "clone")[[1L]], "clone(deep = FALSE)", fixed = TRUE)
+    for (deep in c("", "deep = TRUE")) {
+        cloned <- c(code, "obj <- C$new()", "copy <- obj$clone", paste0("other <- copy(", deep, ")"))
+        expect_match(hover(cloned, "other$read()", "read")[[1L]], "read()", fixed = TRUE)
+    }
+    stored <- c(code, "obj <- C$new()", "tools <- list(copy = obj$clone)", "other <- tools$copy()")
+    expect_match(hover(stored, "other$read()", "read")[[1L]], "read()", fixed = TRUE)
+    child <- c(code, 'D <- R6::R6Class("D", inherit = C, public = list(copy = function() super$clone()))')
+    expect_match(hover(child, "D$new()$copy()$read()", "read")[[1L]], "read()", fixed = TRUE)
+    for (option in c("FALSE", "flag")) {
+        parent <- sprintf('C <- R6::R6Class("C", cloneable = %s, public = list(field = 1))', option)
+        expect_null(hover(c(parent, 'D <- R6::R6Class("D", inherit = C)'), "D$new()$clone()", "clone"))
+    }
+    custom <- sub("public =", "private = list(deep_clone = function(name, value) stop()), public =", code)
+    contents <- hover(c(custom, "other <- C$new()$clone(deep = TRUE)"), "other$field", "field")
+    expect_false(any(grepl("1", contents, fixed = TRUE)))
+})
+
+test_that("R6 set controls affect subsequent constructions and respect generator locks", {
+    decl <- 'C <- R6::R6Class("C", public = list(before = 1), lock_class = TRUE)'
+    body <- c("alias <- C", 'alias$set("public", "ignored", 1)', "alias$unlock()", "old <- C$new()",
+        'alias$set("public", "read", function() self$before)',
+        'alias$set(name = "clone", which = "public", value = function(deep = FALSE) list(custom = TRUE), overwrite = TRUE)',
+        "alias$lock()", 'C$set("public", "ignored", 1)')
+    probe <- function(code, query) {
+        fixture <- r6_symbol_fixture(c(code, query))
+        items <- member_completion(fixture$uri, fixture$workspace, fixture$document,
+            list(row = fixture$document$nline - 1L, col = nchar(query)), FALSE, 200L)
+        vapply(items, `[[`, "", "label")
+    }
+    for (prefix in list(c(decl, body), c("f <- function() {", decl, body))) {
+        expect_identical(probe(prefix, "C$new()$"), c("before", "clone", "read"))
+        expect_identical(probe(prefix, "C$new()$clone()$"), "custom")
+        expect_identical(probe(prefix, "old$clone()$"), c("before", "clone"))
+    }
+    fixture <- r6_symbol_fixture(c(decl, body, "C$new()$read()"))
+    result <- definition_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+        list(row = fixture$document$nline - 1L, col = 9L))$result
+    expect_identical(result$uri, fixture$uri)
+    expect_equal(result$range, range(position(5L, 20L), position(5L, 26L)))
+    expect_length(probe(c(decl, "C$unlock()", 'C$set("public", key, function() NULL, overwrite = TRUE)'),
+            "C$new()$clone()$"), 0L)
+    conditional <- c(decl, "C$unlock()", 'if (flag) C$set("public", "clone", function() list(custom = TRUE), overwrite = TRUE)')
+    for (prefix in list(conditional, c("f <- function() {", conditional))) {
+        expect_length(probe(prefix, "C$new()$clone()$"), 0L)
+    }
+})
+
+test_that("opaque deep copies retain environment locks and active bindings", {
+    index <- member_generic_index("")
+    generator <- member_infer(quote(R6::R6Class("C", public = list(read = function() 1, field = 1),
+                active = list(computed = function() stop()), private = list(deep_clone = function(name, value) value))),
+        index)
+    instance <- member_r6_clone_result(generator$fields$new$result_shape, member_literal(TRUE))
+    expect_false(member_r6_writable(instance, "new_name"))
+    expect_false(member_r6_writable(instance, "read"))
+    expect_false(member_r6_writable(instance, "computed"))
+    expect_true(member_r6_writable(instance, "field"))
+    expect_identical(instance$fields$computed$reason, "active_property")
+})

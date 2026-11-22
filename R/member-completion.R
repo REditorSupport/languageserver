@@ -148,6 +148,14 @@ member_index_bindings <- function(items) {
                 record(name, quote(.__unknown_branch_write__), item, write = TRUE)
                 if (!is.null(aliases[[name]])) rm(list = name, envir = aliases)
             }
+            control <- member_r6_control_receiver(expr)
+            if (!is.null(control)) {
+                record(control, expr, item, write = TRUE, setter = "r6_control")
+            } else {
+                for (name in member_r6_conditional_controls(expr)) {
+                    record(name, NULL, item, write = TRUE, setter = "r6_control")
+                }
+            }
         }
     }
     as.list(bindings)
@@ -1006,8 +1014,16 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
         for (i in seq.int(first, position)) {
             write <- history[[i]]
             env$.__member_position__ <- write$start
+            if (identical(write$setter, "r6_control")) {
+                if (!is.null(budget$origin_name) && !is.null(write$expr)) write <- member_binding_declaration(write, budget)
+                value <- member_r6_apply_control(value, write$expr, index, env, budget)
+                next
+            }
             if (!is.null(write$setter) && identical(member_s7_method(write$setter, index, env), "method<-")) {
-                generic <- member_s7_register_signature(value, write$setter, write$expr, index, env, budget)
+                source <- if (isTRUE(budget$s7_implementation) && is.null(write$declaration)) {
+                    list(uri = budget$document$uri, start = write$start, end = write$end)
+                }
+                generic <- member_s7_register_signature(value, write$setter, write$expr, index, env, budget, source)
                 if (isTRUE(budget$exhausted)) return(member_value(reason = "budget"))
                 if (!is.null(generic)) {
                     if (cache_methods && !member_head(write$expr, "function")) cache_methods <- FALSE
@@ -1237,6 +1253,17 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
                     visit(child, env, sequence$path[-1L], c(sequence$ast_path, sequence$path[[1L]]))
                     break
                 }
+                control <- member_r6_control_receiver(child)
+                changed <- if (is.null(control)) member_r6_conditional_controls(child) else control
+                for (receiver in changed) {
+                    generator <- member_infer(as.name(receiver), index, env, budget = budget)
+                    if (!is.null(generator$r6_class_locked)) {
+                        updated <- member_r6_apply_control(generator, if (!is.null(control)) child, index, env, budget)
+                        for (alias in c(receiver, member_aliases(attr(env, "member_aliases"), receiver))) {
+                            env[[alias]] <- lookup[[alias]] <- updated
+                        }
+                    }
+                }
                 preserved <- character()
                 if ((member_head(child, "<-") || member_head(child, "=")) && is.symbol(child[[2L]])) {
                     assigned <- as.character(child[[2L]])
@@ -1420,7 +1447,7 @@ member_recover_scope <- function(document, point, cursor, data, budget = NULL) {
                 return(node)
             }
             if (member_head(node, "{")) {
-                ref <- attr(node, "wholeSrcref")
+                ref <- member_brace_ref(node)
                 if (!is.null(ref) && (!member_before(c(ref[[1L]] - 1L, ref[[5L]] - 1L), at) ||
                             !member_before(at, c(ref[[3L]] - 1L, ref[[6L]])))) return(node)
                 refs <- attr(node, "srcref")
@@ -1504,6 +1531,7 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
         budget$declarations <- new.env(parent = emptyenv())
         budget$document <- document
         budget$documents <- workspace$documents
+        budget$s7_implementation <- isTRUE(cursor$s7_implementation)
     }
     metadata <- workspace$member_metadata
     cache <- document$member_receivers
@@ -1523,6 +1551,7 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
     if (isTRUE(cursor$s4_new)) key <- paste("constructor", key, sep = ":")
     if (!is.null(cursor$s7_update_list)) key <- paste("property-tag", cursor$s7_update_list, key, sep = ":")
     if (origins) key <- paste("definition", origin_name, name, key, sep = ":")
+    if (isTRUE(cursor$s7_implementation)) key <- paste0("implementation:", key)
     cached <- if (!is.null(revision)) cache$get(key) else NULL
     if (!is.null(cached)) {
         cached <- unserialize(cached)
