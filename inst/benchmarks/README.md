@@ -258,12 +258,21 @@ Parsing, worker startup, and editor transport are outside the timed requests.
 
 | Workload | Base | Original PR | Follow-up |
 | --- | ---: | ---: | ---: |
-| 150 data.table `:=` inlay hints | 2.9 | 244.0 | 3.0 |
-| Same hints with S7 attached | 3.0 | 309.3 | 3.4 |
-| S7 signature help inside a 340-statement function | 1.5 | 28.3 | 1.6 |
-| First signature lookup across 96 method registrations | 1.8 | 23.2 | 23.5 |
-| Signature help after an edit to the call in that file | 2.0 | 25.6 | 2.0 |
-| Build navigation index for 1,200 quoted property reads | 41.0 | 51.8 | 45.4 |
+| 150 data.table `:=` calls to `round`, inlay hints | 3.1 | 258.3 | 3.3 |
+| Same hints with S7 attached | 3.3 | 324.9 | 3.8 |
+| Mixed file, exported `fifelse` | 2.0 | 150.7 | 2.9 |
+| Mixed file, qualified `data.table::shift` | 2.8 | 359.9 | 4.0 |
+| Mixed file, a source-defined helper | 2.4 | 226.2 | 3.5 |
+| S7 signature help inside a 340-statement function | 1.7 | 29.6 | 1.7 |
+| First signature lookup across 96 method registrations | 1.8 | 26.1 | 24.3 |
+| Signature help after an edit to the call in that file | 2.1 | 27.0 | 2.1 |
+| Build navigation index for 1,200 quoted property reads | 41.6 | 64.5 | 46.2 |
+
+All inlay viewports contain 150 statements. The `fifelse` and source-defined
+helper cases reach the server's limit of 200 hints. Verified ordinary
+functions can reuse their parameter names. Shadowed and method-dependent
+calls still resolve in their lexical context. Tooltip resolution retrieves
+contextual documentation for the requested hint.
 
 The base returns the generic signature. Both PR versions return the selected
 method's extra parameter. The first lookup still resolves the registration

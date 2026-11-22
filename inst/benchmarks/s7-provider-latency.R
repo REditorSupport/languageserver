@@ -45,21 +45,26 @@ prices <- ns$Workspace$new(NULL)
 prices$load_packages("data.table")
 prices$member_metadata$set("data.table", ns$member_prepare_package("data.table"))
 prices$loaded_packages <- union(prices$startup_packages, "data.table")
-lines <- c("library(data.table)", sprintf("prices[, col%03d := round(price, 2)]", seq_len(150L)))
-price_hints <- function(label, lines) {
+price_hints <- function(label, prefix, rhs, expected) {
+    lines <- c(prefix, sprintf("prices[, col%03d := %s]", seq_len(150L), rhs))
     doc <- open_document(prices, lines, "prices")
-    first <- match("prices[, col001 := round(price, 2)]", lines) - 1L
-    viewport <- ns$range(ns$position(first, 0L), ns$position(length(lines), 0L))
+    viewport <- ns$range(ns$position(length(prefix), 0L), ns$position(length(lines), 0L))
+    labels <- head(rep(expected, 150L), 200L)
     measure(label, function() ns$inlay_hint_reply(1L, doc$uri, prices, doc, viewport)$result,
-        function(hints) stopifnot(identical(vapply(hints, `[[`, "", "label"), rep("digits =", 150L))),
+        function(hints) stopifnot(identical(vapply(hints, `[[`, "", "label"), labels)),
         function() doc$member_receivers$clear())
 }
-price_hints("150 data.table RHS inlay hints", lines)
+price_hints("150 data.table RHS inlay hints", "library(data.table)", "round(price, 2)", "digits =")
 prices$load_packages("S7")
 s7 <- ns$member_prepare_package("S7")
 prices$member_metadata$set("S7", s7)
 prices$loaded_packages <- union(prices$loaded_packages, "S7")
-price_hints("Same hints with S7 attached", c("library(S7)", lines))
+mixed <- c("library(S7)", "library(data.table)")
+price_hints("Same hints with S7 attached", mixed, "round(price, 2)", "digits =")
+price_hints("Mixed file, exported fifelse", mixed, "fifelse(ok, price, 0)", c("test =", "yes =", "no ="))
+price_hints("Mixed file, qualified shift", mixed, "data.table::shift(price, 2, 0)", "fill =")
+price_hints("Mixed file, source-defined helper", c(mixed, "calc <- function(input, digits) input"),
+    "calc(price, 2)", c("input =", "digits ="))
 
 workspace <- ns$Workspace$new(NULL)
 workspace$load_packages("S7")

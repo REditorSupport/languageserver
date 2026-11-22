@@ -53,6 +53,56 @@ test_that("S7 named bindings expose the remaining formals at the factory call", 
     expect_identical(masked$parameters, c("name", "dispatch_args", "fun"))
 })
 
+test_that("mixed named bindings reuse ordinary exported and unshadowed function formals", {
+    skip_if_not_installed("S7", "1.0.0")
+    previous <- lsp_settings$get("s3_dispatch")
+    withr::defer(lsp_settings$set("s3_dispatch", previous))
+    lsp_settings$set("s3_dispatch", FALSE)
+    ws <- Workspace$new(NULL)
+    ws$load_packages("S7")
+    ws$loaded_packages <- c(ws$startup_packages, "S7")
+    ws$member_metadata$set("S7", member_prepare_package("S7"))
+    uri <- "file:///mixed-bind-hints.R"
+    code <- c("library(S7)", "prices[, a := calc(price, 2)]",
+        "calc <- function(input, digits) input",
+        "prices[, b := valid_eventually(price, update)]",
+        "prices[, c := S7::valid_eventually(price, update)]",
+        "prices[, d := calc(price, 2)]",
+        'g := new_generic("x", function(x) x)',
+        "f <- function() { round <- function(name, measure, precision) NULL; item := round(10, 2) }",
+        "prices[, e := base::round(price, 2)]")
+    doc <- Document$new(uri, language = "r", version = 1L, content = code)
+    ws$documents$set(uri, doc)
+    parsed <- parse_document(uri, code)
+    parsed$version <- 1L
+    ws$update_parse_data(uri, parsed)
+    checked <- integer()
+    original <- inlay_call_context
+    testthat::local_mocked_bindings(inlay_call_context = function(workspace, document, opening, member, symbols, generic) {
+        checked <<- c(checked, opening$line)
+        original(workspace, document, opening, member, symbols, generic)
+    })
+    hints <- inlay_hint_reply(1L, uri, ws, doc, range(position(0L, 0L), position(length(code), 0L)))$result
+    expect_identical(checked, c(1L, 6L, 7L))
+    at <- function(row) vapply(Filter(function(x) x$position$line == row, hints), `[[`, "", "label")
+    expect_identical(at(3L), c("object =", "fun ="))
+    expect_identical(at(4L), at(3L))
+    expect_identical(at(5L), c("input =", "digits ="))
+    expect_identical(at(6L), c("dispatch_args =", "fun ="))
+    expect_identical(at(7L), c("measure =", "precision ="))
+    resolve <- function(hint) inlay_hint_resolve_reply(1L, ws, hint)$result
+    source_hint <- Filter(function(x) x$position$line == 5L, hints)[[1L]]
+    expect_true(isTRUE(source_hint$data$deferred))
+    expect_match(resolve(source_hint)$tooltip$value, "calc(input, digits)", fixed = TRUE)
+    primitive <- Filter(function(x) x$position$line == 8L, hints)[[1L]]
+    expect_null(primitive$data$opening)
+    ordinary <- resolve(primitive)$tooltip
+    expect_true(nzchar(ordinary$value))
+    doc$set_content(2L, c("", code))
+    expect_identical(resolve(source_hint), source_hint)
+    expect_identical(resolve(primitive)$tooltip, ordinary)
+})
+
 test_that("package imports supply S7 constructors and properties only where visible", {
     skip_if_not_installed("S7", "1.0.0")
     root <- withr::local_tempdir()
