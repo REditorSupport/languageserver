@@ -1,5 +1,5 @@
 # Older summaries can contain stale definitions copied from an earlier valid file.
-index_cache_version <- 11L
+index_cache_version <- 12L
 
 #' Recognize a package without recursively searching a workspace
 #' @noRd

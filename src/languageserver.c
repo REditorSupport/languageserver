@@ -63,7 +63,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"fuzzy_find_c", (DL_FUNC) &fuzzy_find_c, 2},
     {"completion_parse_index_c", (DL_FUNC) &completion_parse_index_c, 8},
     {"completion_select_c", (DL_FUNC) &completion_select_c, 4},
-    {"member_binding_c", (DL_FUNC) &member_binding_c, 3},
+    {"member_binding_c", (DL_FUNC) &member_binding_c, 4},
     {"member_syntax_names_c", (DL_FUNC) &member_syntax_names_c, 1},
     {"member_function_key_c", (DL_FUNC) &member_function_key_c, 1},
     {"source_calls_c", (DL_FUNC) &source_calls_c, 1},

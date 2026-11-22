@@ -138,7 +138,7 @@ member_binding_cacheable <- function(value, depth = 0L) {
 member_local_binding <- function(expr, bindings, referenced = member_syntax_names(expr), lookup = NULL) {
     # Keep only lexical dependencies. Copying every earlier local into every
     # deferred binding makes a flat method quadratic in retained state.
-    internal <- c("$<-", "[[<-", "@<-", ".__member_position__", ".__member_properties__", ".__s4_classes__",
+    internal <- c("$<-", "[[<-", "@<-", member_s7_setters, ".__member_position__", ".__member_properties__", ".__s4_classes__",
         ".__s7_package__", ".__s7_constructing__")
     captured <- if (is.null(lookup)) {
         bindings[intersect(names(bindings), c(referenced, internal))]

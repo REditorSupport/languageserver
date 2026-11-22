@@ -831,7 +831,8 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
         (length(namespace_imports) > 0L || "S7" %in% env$member_data$packages || "S7" %in% env$packages)
     env$completion_data <- completion_parse_data(data, env$syntax_data)
     overlay <- !is.null(recovery) || (is_rmarkdown && length(literate$incomplete_lines) > 0L)
-    classes <- class_source_declarations(env$syntax_data, content, uri, incomplete_lines, namespace_imports, attachment_exclusions)
+    classes <- class_source_declarations(env$syntax_data, content, uri, incomplete_lines, namespace_imports, attachment_exclusions,
+        navigation = env$navigation_data)
     env$definitions <- class_binding_definitions(env$definitions, classes, env)
     env$semantic_data <- semantic_parse_data(data, content, env$syntax_data, assignments,
         encode = !overlay, classes = classes)
@@ -1053,8 +1054,8 @@ drain_pending_replies <- function(self, uri, version, max_replies = Inf, first =
             }
             if (index_context_waiting(self, self$get_workspace(uri), document, point,
                     hover = identical(method, "textDocument/hover"), call = call)) return(FALSE)
-            if (identical(method, "textDocument/completion") &&
-                    member_metadata_waiting(self, uri, document, point)) return(FALSE)
+            if (!identical(method, "textDocument/hover") && member_metadata_waiting(self, uri, document, point,
+                    call = if (is.null(call)) document$detect_call(point) else call)) return(FALSE)
             if (s3_metadata_waiting(self, uri, document, point,
                     hover = identical(method, "textDocument/hover"), call = call)) return(FALSE)
         }

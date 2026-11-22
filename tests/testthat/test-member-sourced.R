@@ -67,6 +67,33 @@ test_that("member lookup follows visible literal source calls and the current ta
     expect_null(signature(2L))
 })
 
+test_that("sourced accessor registrations control an S7 environment's field completions", {
+    skip_if_not_installed("S7", "1.0.0")
+    root <- index_normalize_path(withr::local_tempdir())
+    workspace <- Workspace$new(root)
+    workspace$member_metadata$set("S7", member_prepare_package("S7"))
+    open <- function(file, lines, version = 1L) {
+        uri <- path_to_uri(file.path(root, file))
+        doc <- Document$new(uri, language = "r", version = version, content = lines)
+        doc$did_open()
+        workspace$documents$set(uri, doc)
+        data <- parse_document(uri, lines)
+        data$version <- version
+        workspace$update_parse_data(uri, data)
+        doc
+    }
+    declaration <- c("library(S7)", "Counter := new_class(class_environment)")
+    open("class.R", declaration)
+    caller <- open("main.R", c('source("class.R")', "counter <- Counter()", "counter$n <- 1L", "counter$n"))
+    labels <- function() {
+        items <- member_completion(caller$uri, workspace, caller, list(row = 3L, col = 9L), TRUE, 20L)
+        vapply(items, `[[`, "", "label")
+    }
+    expect_identical(labels(), "n")
+    open("class.R", c(declaration, "method(`$`, Counter) <- function(x, name) 5L"), 2L)
+    expect_length(labels(), 0L)
+})
+
 test_that("an incomplete edit updates proven source edges and retains the last valid fallback", {
     root <- index_normalize_path(withr::local_tempdir())
     paths <- file.path(root, c("main.R", "first.R", "second.R", "third.R"))

@@ -1,6 +1,6 @@
 # S4 slot declarations are separate from dollar members. Read syntax and class
 # metadata only: never call new(), initialize(), validity or slot accessors.
-member_methods_intrinsics <- c("setRefClass", "setMethod", "setReplaceMethod", "signature", "setClass", "setClassUnion", "representation", "prototype", "new", "slot")
+member_methods_intrinsics <- c("setRefClass", "setMethod", "setReplaceMethod", "signature", "setClass", "setClassUnion", "getClass", "representation", "prototype", "new", "slot")
 
 member_s4_unshadowed <- function(name, index, bindings) {
     if (name %in% names(bindings)) return(FALSE)
@@ -206,10 +206,12 @@ member_s4_shape <- function(name, index, bindings, package = NULL, trail = chara
         })))
     }
     slots <- defaults <- origins <- list()
+    s7_parent <- NULL
     if (!is.null(descriptor$bridge)) {
         bridge <- descriptor$bridge
         parent <- member_infer(bridge$expr, index, bridge$bindings, budget = budget)$s4_contains
         if (is.null(parent)) return(member_value(reason = "unknown_s4_parent"))
+        s7_parent <- parent
         inherited <- member_s7_shape(parent, bridge$bindings)
         slots <- inherited$slot_types
         defaults <- inherited$slots
@@ -229,6 +231,10 @@ member_s4_shape <- function(name, index, bindings, package = NULL, trail = chara
         }
         inherited <- member_s4_shape(parent, index, bindings, package, trail, budget)
         if (is.null(inherited$slot_types)) return(member_value(reason = "unknown_s4_parent"))
+        bridge <- inherited$s4_class$s7_parent
+        if (!is.null(bridge)) {
+            s7_parent <- if (is.null(s7_parent) || identical(s7_parent, bridge)) bridge else FALSE
+        }
         slots <- utils::modifyList(slots, inherited$slot_types)
         origins[names(inherited$slot_origins)] <- inherited$slot_origins
         if (!is.null(inherited$slots)) defaults <- utils::modifyList(defaults, inherited$slots)
@@ -245,6 +251,7 @@ member_s4_shape <- function(name, index, bindings, package = NULL, trail = chara
     owner <- if (is.null(descriptor$package)) package else descriptor$package
     result <- member_value(type = name, s4_class = list(name = name, package = owner), slot_types = slots, slots = defaults)
     result$s4_class$origin <- descriptor$class_origin
+    result$s4_class$s7_parent <- s7_parent
     if (length(origins)) result$slot_origins <- origins
     result
 }
@@ -429,6 +436,16 @@ member_s4_dependencies <- function(classes, references = list()) {
 member_s4_call <- function(expr, index, bindings, budget) {
     method <- member_s4_method(expr, index, bindings)
     if (is.null(method)) return(NULL)
+    if (method == "getClass") {
+        args <- tryCatch(match.call(methods::getClass, expr), error = function(e) NULL)
+        if (length(args) != 2L || !is.character(args$Class) || length(args$Class) != 1L ||
+                is.na(args$Class) || !nzchar(args$Class)) return(NULL)
+        descriptor <- member_s7_s4_spec(list(name = args$Class), index, bindings, budget)
+        if (is.null(descriptor)) return(NULL)
+        definition <- member_s4_shape("classRepresentation", index, bindings, "methods", budget = budget)
+        definition$s7_descriptor <- descriptor
+        return(definition)
+    }
     if (method == "setClass") {
         recipe <- member_s4_recipe(expr, index, bindings)
         return(if (is.null(recipe)) member_value() else member_value(

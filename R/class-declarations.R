@@ -56,6 +56,20 @@ class_literal_row <- function(syntax, row, kinds) {
     if (length(children) == 1L && syntax$token[children] %in% kinds) children else 0L
 }
 
+class_s7_property_formals <- list(new_property = c("class", "getter", "setter", "validator", "default", "name"),
+    deprecated_property = c("old", "new", "when", "method", "class", "default", "validator"))
+
+# An unnamed property takes its name from the descriptor. A deprecated
+# property can also refer to a replacement by its literal property name.
+class_s7_property_literals <- function(syntax, call) {
+    keys <- class_s7_property_formals[[call$name]]
+    if (is.null(keys) || (!is.null(call$package) && call$package != "S7")) return(NULL)
+    args <- class_matched_arguments(call, keys)
+    if (call$name == "deprecated_property" && is.null(args$when)) return(NULL)
+    list(name = class_literal_row(syntax, if (call$name == "new_property") args$name else args$old, "STR_CONST"),
+        replacement = class_literal_row(syntax, args$new, "STR_CONST"))
+}
+
 # Hierarchy names refer to the characters inside a registry name literal.
 # Keep escape sequences in their written source positions.
 class_literal_range <- function(selection, text) {
@@ -76,7 +90,7 @@ class_s7_exports <- local({
     cache <- NULL
     function(pkg) {
         factories <- names(class_helper_packages)[class_helper_packages == "S7"]
-        keys <- c(":=", setdiff(factories, "method"), "method<-", "S4_contains")
+        keys <- c(":=", setdiff(factories, "method"), "method<-", "S4_contains", "prop", names(class_s7_property_formals))
         possible <- stats::setNames(rep(NA, length(keys)), keys)
         if (!grepl("^[[:alpha:]][[:alnum:].]*$", pkg)) return(possible)
         dir <- find.package(pkg, lib.loc = .libPaths(), quiet = TRUE)
@@ -190,10 +204,24 @@ class_top_level_statement <- function(syntax, row, allow_control = FALSE) {
     TRUE
 }
 
+# Recover the RHS of an unconditional assignment before this use. The
+# declaration index also uses this for a named method implementation.
+class_binding_value <- function(syntax, navigation, token) {
+    found <- navigation_definitions(list(syntax_data = syntax, navigation_data = navigation),
+        syntax$line1[[token]], syntax$col1[[token]], class_token_text(syntax$text[[token]]), token = token, last = TRUE)
+    if (!length(found) || syntax$order_rank[[found]] >= syntax$order_rank[[token]] ||
+            !class_top_level_statement(syntax, found)) return(0L)
+    parts <- syntax_children(syntax, found)
+    parts <- parts[syntax$token[parts] != "COMMENT"]
+    if (length(parts) != 3L || !syntax$text[[parts[[2L]]]] %in% c("<-", "=", "->")) return(0L)
+    parts[[if (syntax$token[[parts[[2L]]]] == "RIGHT_ASSIGN") 1L else 3L]]
+}
+
 class_source_declarations <- function(syntax, content, uri, incomplete_lines = integer(),
-    namespace_imports = member_namespace_imports(uri), attachment_exclusions = NULL) {
+    namespace_imports = member_namespace_imports(uri), attachment_exclusions = NULL, navigation = NULL) {
     calls <- which(syntax$token == "SYMBOL_FUNCTION_CALL")
     call_names <- reference_symbol_names(syntax$text[calls])
+    has_bridge <- "S4_contains" %in% call_names
     helpers <- which(call_names %in% names(class_call_helpers))
     binds <- if (":=" %in% syntax$text) which(syntax$token == "LEFT_ASSIGN" & syntax$text == ":=")
     if (length(binds)) {
@@ -204,7 +232,8 @@ class_source_declarations <- function(syntax, content, uri, incomplete_lines = i
     assignments <- syntax$token %in% c("LEFT_ASSIGN", "EQ_ASSIGN", "RIGHT_ASSIGN")
     variables <- which(syntax$token == "SYMBOL")
     variable_names <- reference_symbol_names(syntax$text[variables])
-    helper_names <- variables[variable_names %in% c(names(class_call_helpers), ":=", "method<-", "S4_contains", "library", "require")]
+    helper_names <- variables[variable_names %in% c(names(class_call_helpers), names(class_s7_property_formals),
+            ":=", "method<-", "S4_contains", "prop", "library", "require")]
     shadowed <- integer()
     for (token in helper_names) {
         i <- syntax$parent_row[syntax$parent_row[token]]
@@ -225,6 +254,10 @@ class_source_declarations <- function(syntax, content, uri, incomplete_lines = i
     }
     document <- Document$new(uri, content = content)
     at <- function(row) navigation_range(document, syntax, row)
+    binding_value <- function(token) {
+        if (is.null(navigation)) navigation <<- navigation_parse_data(syntax)
+        class_binding_value(syntax, navigation, token)
+    }
     formals <- list(R6 = names(formals(R6::R6Class)), RefClass = names(formals(methods::setRefClass)),
         S4 = names(formals(methods::setClass)),
         S7 = c("name", "parent", "package", "properties", "abstract", "constructor", "validator"),
@@ -257,7 +290,22 @@ class_source_declarations <- function(syntax, content, uri, incomplete_lines = i
                 lhs <- if (syntax$token[siblings[[2L]]] == "RIGHT_ASSIGN") 3L else 1L
                 named_bind <- identical(syntax$text[[siblings[[2L]]]], ":=")
                 if (type == "S7Method") {
-                    if (named_bind || siblings[[lhs]] != row || !syntax$function_close[[siblings[[4L - lhs]]]]) next
+                    if (named_bind || siblings[[lhs]] != row) next
+                    impl <- siblings[[4L - lhs]]
+                    if (!syntax$function_close[[impl]]) {
+                        # The compatibility vignette assigns the existing prop
+                        # function as the $ method. A NULL RHS removes a method.
+                        parts <- syntax_children(syntax, impl)
+                        parts <- parts[syntax$token[parts] != "COMMENT"]
+                        bare <- class_literal_row(syntax, impl, "SYMBOL")
+                        known <- identical(class_token_text(syntax$text[parts]), c("S7", "::", "prop")) ||
+                            (bare && class_token_text(syntax$text[[bare]]) == "prop" && s7_owns("prop", bare))
+                        if (!known && bare) {
+                            bound <- binding_value(bare)
+                            known <- bound && syntax$function_close[[bound]] > 0L
+                        }
+                        if (!known) next
+                    }
                 } else {
                     if (siblings[[4L - lhs]] != row) next
                     binding <- class_literal_row(syntax, siblings[[lhs]], "SYMBOL")
@@ -322,6 +370,7 @@ class_source_declarations <- function(syntax, content, uri, incomplete_lines = i
             kind <- SymbolKind$Function
         }
         member_rows <- member_values <- integer()
+        replacements <- integer()
         members <- list()
         for (section in switch(type, R6 = c("public", "private", "active"), S4 = c("slots", "representation"),
                 RefClass = c("fields", "methods"), S7 = "properties")) {
@@ -332,17 +381,29 @@ class_source_declarations <- function(syntax, content, uri, incomplete_lines = i
             if (is.null(entries) || !entries$name %in% accepted) next
             owner <- if (entries$name == "representation") "methods" else "base"
             if (!is.null(entries$package) && entries$package != owner) next
-            for (i in which(entries$tags > 0L & entries$values > 0L)) {
+            for (i in which(entries$values > 0L & (entries$tags > 0L | type == "S7"))) {
                 tag <- entries$tags[[i]]
                 value <- entries$values[[i]]
+                if (type == "S7") {
+                    descriptor <- syntax_call_arguments(syntax, value)
+                    if (!is.null(descriptor) && descriptor$name %in% names(class_s7_property_formals) &&
+                            (!is.null(descriptor$package) || s7_owns(descriptor$name, value))) {
+                        literal_names <- class_s7_property_literals(syntax, descriptor)
+                        if (!tag && length(literal_names$name)) tag <- literal_names$name
+                        if (isTRUE(literal_names$replacement > 0L)) replacements <- c(replacements, literal_names$replacement)
+                    }
+                    if (!tag) next
+                }
                 parts <- syntax_children(syntax, value)
                 is_function <- any(syntax$token[parts] == "FUNCTION" | syntax$text[parts] == "\\")
                 member_kind <- if (section %in% c("active", "properties")) SymbolKind$Property else if (
                     section == "methods" || (section %in% c("public", "private") && is_function)) SymbolKind$Method else SymbolKind$Field
                 detail <- if (type == "S4") "slot" else if (type == "S7") "property" else section
                 selection <- at(tag)
-                members[[length(members) + 1L]] <- document_symbol(names(entries$values)[[i]], member_kind,
-                    range(selection$start, at(value)$end), selection, detail = detail)
+                member_name <- class_token_text(syntax$text[[tag]])
+                start <- if (entries$tags[[i]]) selection$start else at(value)$start
+                members[[length(members) + 1L]] <- document_symbol(member_name, member_kind,
+                    range(start, at(value)$end), selection, detail = detail)
                 member_rows <- c(member_rows, tag)
                 member_values <- c(member_values, value)
             }
@@ -355,6 +416,11 @@ class_source_declarations <- function(syntax, content, uri, incomplete_lines = i
             # generator. A same-spelled binding and registered class can
             # be different declarations in the same document.
             kinds <- switch(type, S7 = "SYMBOL", S4 = "STR_CONST", c("STR_CONST", "SYMBOL"))
+            bridge <- if (has_bridge && type == "S4") class_literal_row(syntax, ancestry, "SYMBOL") else 0L
+            if (bridge) {
+                target <- binding_value(bridge)
+                if (target && identical(syntax_call_arguments(syntax, target)$name, "S4_contains")) ancestry <- target
+            }
             simple <- class_literal_row(syntax, ancestry, kinds)
             if (simple) {
                 parents <- class_token_text(syntax$text[[simple]])
@@ -366,7 +432,7 @@ class_source_declarations <- function(syntax, content, uri, incomplete_lines = i
                 } else if (length(values$values) == 1L) {
                     get_class <- type == "S7" && identical(values$name, "getClass") && identical(values$package, "methods")
                     contains <- type == "S4" && identical(values$name, "S4_contains") &&
-                        (identical(values$package, "S7") || (is.null(values$package) && s7_owns("S4_contains", symbol)))
+                        (identical(values$package, "S7") || (is.null(values$package) && s7_owns("S4_contains", ancestry)))
                     if (get_class || contains) {
                         formal <- if (get_class) "Class" else "class"
                         arg <- class_matched_arguments(values, formal)[[formal]]
@@ -387,6 +453,10 @@ class_source_declarations <- function(syntax, content, uri, incomplete_lines = i
             name_row = name_row, literal_row = literal,
             binding = binding > 0L, named_bind = named_bind, children = members, member_rows = member_rows, member_values = member_values,
             parents = parents, parent_lookup = parent_lookup)
+        if (length(replacements)) {
+            declarations[[length(declarations)]]$property_replacements <- replacements
+            declarations[[length(declarations)]]$property_parent <- class_literal_row(syntax, args$parent, "SYMBOL")
+        }
     }
     # S7's bind operator supplies name= to any function call. Its result
     # need not be a class or generic, and indexing it never evaluates the RHS.

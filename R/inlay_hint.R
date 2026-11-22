@@ -399,7 +399,7 @@ indexed_inlay_hint_reply <- function(id, uri, workspace, indexed, request_range,
         symbol <- FALSE
         if (!member && member_enabled) {
             if (is.null(candidates)) candidates <- inlay_symbol_candidates(workspace, document)
-            symbol <- candidates(function_name, package, calls$line[[call_index]])
+            symbol <- isTRUE(calls$named_bind[call_index]) || candidates(function_name, package, calls$line[[call_index]])
         }
         if ((member || symbol || generic) && !is.null(calls$opening_line)) {
             opening <- position(calls$opening_line[[call_index]], calls$opening_col[[call_index]])

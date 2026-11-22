@@ -219,6 +219,95 @@ test_that("S7 package generics preserve their callable and property interfaces",
     expect_identical(probe("S7::method(describe, Dog) <- function(pet, ...) pet@|", "labels"), "name")
 })
 
+test_that("S7 conversion methods receive a callable target class", {
+    skip_if_not_installed("S7", "1.0.0")
+    metadata <- list(S7 = member_prepare_package("S7"))
+    code <- c("library(S7)", "Foo1 := new_class(properties = list(x = class_integer))",
+        "Foo2 := new_class(Foo1, properties = list(y = class_double))")
+    method <- "method(convert, list(Foo2, Foo1)) <- function(from, to, ...) "
+    probe <- function(line, source = code) member_consistency_probe(source, paste0(method, line), "labels", metadata)
+    expect_identical(probe("from@|"), c("x", "y"))
+    expect_identical(probe("to(x|)"), "x")
+    expect_identical(probe("to@na|"), "name")
+    expect_identical(probe("to@|", c(code, 'convert := new_generic(c("from", "to"))')), "x")
+})
+
+test_that("S7_data exposes tracked base data across construction and replacement", {
+    skip_if_not_installed("S7", "1.0.0")
+    metadata <- list(S7 = member_prepare_package("S7"))
+    code <- c("library(S7)", "MyDF := new_class(parent = class_data.frame)")
+    probe <- function(line, source = code) member_consistency_probe(source, line, "labels", metadata)
+    expect_identical(probe("S7_data(MyDF(data.frame(x = 1, y = 2)))$|"), c("x", "y"))
+    edits <- c(code, "Child := new_class(MyDF, properties = list(label = class_character))",
+        'x <- Child(data.frame(before = 1), label = "current")', "alias <- x", "S7_data(x) <- data.frame(after = 2)")
+    expect_identical(probe("S7::S7_data(x)$|", edits), "after")
+    expect_identical(probe("S7_data(alias)$|", edits), "before")
+    expect_identical(probe("x@|", edits), "label")
+    expect_length(probe("S7_data(x)$|", c(edits, "S7_data(x) <- unknown()")), 0L)
+    expect_length(probe("S7_data(x)$|", c(edits, "S7_data <- function(x) unknown()")), 0L)
+    masked <- c(edits, "mask <- function(v) {", "`S7_data<-` <- function(object, value) NULL",
+        "inner <- function() { S7_data(v) <- data.frame(wrong = 1); v }", "inner()", "}")
+    expect_length(probe("S7_data(mask(x))$|", masked), 0L)
+    custom <- c(code, 'Replacement <- new_S3_class("data.frame", constructor = function(.data = list()) data.frame(other = 1))',
+        "Different := new_class(Replacement)")
+    expect_length(probe("S7_data(Different(data.frame(wrong = 1)))$|", custom), 0L)
+    lists <- c("library(S7)", "Record := new_class(class_list)", "x <- Record(list(a = 1))",
+        "f <- function(x) {", "  S7_data(x) <- list(b = 2)", "  x", "}")
+    expect_identical(probe("S7_data(f(x))$|", lists), "b")
+    expect_identical(probe("S7_data(x)$|", lists), "a")
+})
+
+test_that("S7 method registrations type the receiver of a visible S3 generic", {
+    skip_if_not_installed("S7")
+    metadata <- list(S7 = member_prepare_package("S7"))
+    code <- c("library(S7)", 'Dog <- new_class("Dog", properties = list(age = class_integer))')
+    method <- "method(print, Dog) <- function(x, ...) x@|"
+    expect_identical(member_consistency_probe(code, method, "labels", metadata), "age")
+    after <- c(code, "method(print, Dog) <- function(x, ...) x@age")
+    expect_identical(member_consistency_probe(after, method, "labels", metadata), "age")
+    masked <- c(after, "print <- function(x, ...) NULL")
+    expect_length(member_consistency_probe(masked, method, "labels", metadata), 0L)
+    local <- c(code, 'draw <- function(data, ...) UseMethod("draw")')
+    expect_identical(member_consistency_probe(local, "method(draw, Dog) <- function(data, ...) data@|",
+            "labels", metadata), "age")
+})
+
+test_that("S7 source methods complete arguments for an exact dispatch signature", {
+    skip_if_not_installed("S7", "1.0.0")
+    metadata <- list(S7 = member_prepare_package("S7"))
+    code <- c("library(S7)", 'simple_print := new_generic("x")',
+        "method(simple_print, class_double) <- function(x, ..., digits = 3) {}",
+        "method(simple_print, class_character) <- function(x, ..., max_length = 100) {}")
+    probe <- function(line, source = code, provider = "labels") member_consistency_probe(source, line, provider, metadata)
+    expect_identical(probe("simple_print(1, dig|)"), "digits")
+    expect_identical(probe('simple_print("cat", max|)'), "max_length")
+    expect_identical(probe('simple_print("cat", |)', provider = "signature")[[1L]]$label,
+        "simple_print(x, ..., max_length = 100)")
+    expect_length(probe('simple_print(structure(1, class = "Other"), dig|)'), 0L)
+    s3 <- c(code, 'method(simple_print, new_S3_class("Other")) <- function(x, ..., width = 1) {}',
+        'v <- base::structure(1, class = c("Other", "parent"))')
+    expect_identical(probe("simple_print(v, |)", s3), "width")
+    # S7 uses the same dispatch key for a package class and an S3 object
+    # bearing its qualified name.
+    qualified <- c(code, 'Box := new_class(package = "shapes")',
+        "method(simple_print, Box) <- function(x, ..., contents = TRUE) {}")
+    expect_identical(probe('simple_print(structure(1, class = "shapes::Box"), |)', qualified), "contents")
+    expect_length(probe('simple_print(structure(1, class = "other::Box"), dig|)', qualified), 0L)
+    expect_length(probe("simple_print(unknown, dig|)"), 0L)
+    expect_length(probe("simple_print(1, dig|)", c(code, "alias <- simple_print", "method(alias, class_double) <- NULL")), 0L)
+    updated <- c(code, "method(simple_print, class_numeric) <- function(x, ..., scale = 1) {}")
+    expect_identical(probe("simple_print(c(100, NA), sc|)", updated), "scale")
+    expect_length(probe("simple_print(1, dig|)", updated), 0L)
+    expect_length(probe("simple_print(1, dig|)", c(code, "method(simple_print, opaque) <- function(x, ...) {}")), 0L)
+    local <- c("library(S7)", "f <- function() {", code[-1L], 'value <- "text"')
+    expect_identical(probe("simple_print(value, max|) }", local), "max_length")
+
+    pair <- c("library(S7)", "Dog := new_class()", "French := new_class()", 'speak := new_generic(c("x", "y"))',
+        "method(speak, list(Dog, French)) <- function(x, y, volume = 1) {}", "dog <- Dog()")
+    expect_identical(probe("speak(dog, French(), vol|)", pair), "volume")
+    expect_length(probe("speak(French(), dog, vol|)", pair), 0L)
+})
+
 test_that("S7 validation and property callbacks see the declared instance types", {
     skip_if_not_installed("S7")
     snapshots <- list(S7 = member_prepare_package("S7"))

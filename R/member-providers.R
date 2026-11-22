@@ -11,6 +11,15 @@ member_symbol_info <- function(label, value, key, index) {
     if (!is.null(key) && key %in% index$native_factories) {
         fn <- member_returned_function(fn)$fn
     }
+    if (isTRUE(value$s7_bound_name) && member_head(fn, "function")) {
+        params <- as.list(fn[[2L]])
+        keys <- names(params)
+        # The injected name= uses the same exact/partial matching as a real R call.
+        dots <- match("...", keys, nomatch = length(keys) + 1L)
+        i <- match("name", keys, nomatch = 0L)
+        if (!i) i <- pmatch("name", keys[seq_len(dots - 1L)], nomatch = 0L)
+        if (i) fn[2L] <- list(as.pairlist(params[-i]))
+    }
     display <- quote_completion_name(label)
     signature <- if (member_head(fn, "function")) get_signature(display, fn) else NULL
     delegated <- member_lookup(index$delegation, key)
@@ -274,7 +283,8 @@ member_call_symbol <- function(uri, workspace, document, location) {
         # Keep unresolved member calls out of bare-name and S3 lookup.
         return(if (is.null(symbol)) list() else symbol)
     }
-    if (!is.null(symbol$value$s7_generator) || !is.null(symbol$value$s7_dispatch_args) ||
+    if ((isTRUE(symbol$value$s7_bound_name) && !is.null(symbol$signature)) ||
+            !is.null(symbol$value$s7_generator) || !is.null(symbol$value$s7_dispatch_args) ||
             isTRUE(symbol$value$s4_constructor) || identical(symbol$value$r6_role, "constructor") ||
             !is.null(symbol$value$r6_owner) || !is.null(symbol$value$refclass_instance) || isTRUE(symbol$value$extracted_callable)) return(symbol)
     NULL

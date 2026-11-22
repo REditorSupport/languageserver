@@ -590,7 +590,8 @@ reference_member_literal_candidate <- function(syntax, row) {
     if (syntax$token[[second]] != "'('" || syntax$child_end[[first]] < syntax$child_start[[first]]) return(FALSE)
     callee <- syntax$children[[syntax$child_end[[first]]]]
     if (syntax$token[[callee]] == "COMMENT") return(TRUE)
-    syntax$token[[callee]] == "SYMBOL_FUNCTION_CALL" && reference_symbol_names(syntax$text[[callee]]) %in% c("slot", "prop")
+    syntax$token[[callee]] == "SYMBOL_FUNCTION_CALL" && reference_symbol_names(syntax$text[[callee]]) %in%
+        c(names(member_key_formals), "new_property", "deprecated_property")
 }
 
 reference_literal_needs_workspace <- function(document, point) {

@@ -1,3 +1,55 @@
+test_that("S7 named bindings expose the remaining formals at the factory call", {
+    skip_if_not_installed("S7", "1.0.0")
+    workspace <- Workspace$new(NULL)
+    workspace$load_packages("S7")
+    workspace$member_metadata$set("S7", member_prepare_package("S7"))
+    uri <- "file:///s7-named-bind.R"
+    probe <- function(line, prefix = "library(S7)", callee = "new_generic") {
+        lines <- c(prefix, line)
+        doc <- Document$new(uri, version = 1L, content = lines)
+        doc$loaded_packages <- "S7"
+        workspace$documents$set(uri, doc)
+        parsed <- parse_document(uri, lines)
+        parsed$version <- 1L
+        workspace$update_parse_data(uri, parsed)
+        opening <- regexpr(paste0(callee, "("), line, fixed = TRUE)
+        point <- list(row = length(prefix), col = as.integer(opening) + nchar(callee))
+        sig <- signature_reply(1L, uri, workspace, doc, point)$result$signatures[[1L]]$label
+        items <- completion_reply(1L, uri, workspace, doc, point, list())$result$items
+        params <- Filter(function(x) isTRUE(x$data$type %in% c("parameter", "member")), items)
+        bounds <- range(position(point$row, 0L), position(point$row, nchar(line)))
+        hints <- inlay_hint_reply(1L, uri, workspace, doc, bounds)$result
+        list(parameters = extract_parameter_names(sig), arguments = vapply(params, `[[`, "", "label"),
+            hints = vapply(hints, `[[`, "", "label"))
+    }
+    for (line in c('describe := new_generic("x", function(x) x)', "describe := S7::new_generic(",
+            'f <- function() { describe := new_generic("x", function(x) x) }')) {
+        result <- probe(line)
+        expect_identical(result$parameters, c("dispatch_args", "fun"))
+        expect_true("dispatch_args" %in% result$arguments)
+        expect_false("name" %in% result$arguments)
+        if (endsWith(line, "(")) next
+        expect_true(all(c("dispatch_args =", "fun =") %in% result$hints))
+    }
+    # S7 supplies name to user factories too, including when it is not first.
+    prefix <- c("library(S7)", "factory <- function(x, name, flag = FALSE) NULL")
+    result <- probe("item := factory(1, TRUE)", prefix, "factory")
+    expect_identical(result$parameters, c("x", "flag"))
+    expect_true("flag =" %in% result$hints)
+    factory_params <- function(parameters) {
+        prefix <- c("library(S7)", paste0("factory <- function(", parameters, ") NULL"))
+        probe("item := factory()", prefix, "factory")$parameters
+    }
+    expect_identical(factory_params("namely, value"), "value")
+    expect_identical(factory_params("..., namely, value"), c("...", "namely", "value"))
+    expect_identical(factory_params("named, ..., name"), c("named", "..."))
+    for (line in c('item <- new_generic("item", "x")', 'item := identity(new_generic("item", "x"))')) {
+        expect_identical(probe(line)$parameters, c("name", "dispatch_args", "fun"))
+    }
+    masked <- probe('item := new_generic("item", "x")', c("library(S7)", "`:=` <- function(lhs, rhs) rhs"))
+    expect_identical(masked$parameters, c("name", "dispatch_args", "fun"))
+})
+
 test_that("package imports supply S7 constructors and properties only where visible", {
     skip_if_not_installed("S7", "1.0.0")
     root <- withr::local_tempdir()

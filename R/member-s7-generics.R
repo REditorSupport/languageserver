@@ -36,6 +36,8 @@ member_s7_generic <- function(expr, method, index, bindings, budget) {
     }
     value$function_expr <- fn
     value$s7_dispatch_args <- dispatch
+    # A custom generic can transform its arguments before S7_dispatch().
+    if (is.null(args$fun) && method == "new_generic") value$s7_methods <- list()
     value
 }
 
@@ -44,13 +46,97 @@ member_s7_generic <- function(expr, method, index, bindings, budget) {
 member_s7_method_setter <- function(lhs) {
     if (!is.call(lhs) || length(lhs) < 3L || !is.symbol(lhs[[2L]])) return(NULL)
     head <- lhs[[1L]]
-    if (identical(head, as.name("method"))) return(quote(`method<-`()))
-    if (identical(head, quote(S7::method))) return(quote(S7::`method<-`()))
+    if (identical(head, as.name("method"))) {
+        lhs[[1L]] <- as.name("method<-")
+    } else if (identical(head, quote(S7::method))) {
+        lhs[[1L]] <- quote(S7::`method<-`)
+    } else {
+        return(NULL)
+    }
+    lhs
+}
+
+# Keep a bounded history of exact source registrations. A union registers
+# the same method for each constituent class. An opaque registration can
+# replace any earlier entry, while a later exact registration is still known.
+member_s7_register_signature <- function(generic, setter, rhs, index, bindings, budget) {
+    if (!length(member_s7_dispatch_args(generic))) {
+        return(member_s7_s3_generic(generic, member_name(setter[[2L]]), index, bindings))
+    }
+    if (is.null(generic$s7_methods)) return(generic)
+    fn <- if (member_head(rhs, "function")) rhs else member_infer(rhs, index, bindings, budget = budget)$function_expr
+    params <- if (member_head(fn, "function")) fn[[2L]]
+    if (!length(generic$s7_methods) && !length(setdiff(names(params), c(generic$s7_dispatch_args, "...")))) return(generic)
+    args <- member_s7_arguments(setter, setdiff(member_s7_modes(index)$arguments[["method<-"]], "value"))
+    signature <- member_infer(args$signature, index, bindings, budget = budget)
+    specs <- if (identical(signature$type, "list")) signature$elements else list(signature)
+    types <- lapply(specs, function(spec) member_s7_dispatch_keys(member_s7_spec(spec, index, bindings, budget), budget))
+    if (is.null(args$signature) || length(types) != length(generic$s7_dispatch_args) || any(!lengths(types))) {
+        generic$s7_methods <- list()
+        return(generic)
+    }
+    # A removal or an unknown RHS masks the preceding method for this tuple.
+    record <- list(types = types, formals = params)
+    generic$s7_methods <- c(utils::tail(generic$s7_methods, 63L), list(record))
+    generic
+}
+
+member_s7_dispatch_keys <- function(descriptor, budget, depth = 0L) {
+    budget$remaining <- budget$remaining - 1L
+    if (budget$remaining < 0L || depth > 32L) return(NULL)
+    if (identical(descriptor$kind, "any")) return(NA_character_)
+    if (identical(descriptor$kind, "union")) {
+        keys <- lapply(descriptor$classes, member_s7_dispatch_keys, budget, depth + 1L)
+        return(if (all(lengths(keys) > 0L)) unique(unlist(keys, use.names = FALSE)))
+    }
+    if (identical(descriptor$kind, "class")) {
+        return(paste(c(descriptor$package, descriptor$name), collapse = "::"))
+    }
+    if (identical(descriptor$kind, "base") && length(descriptor$name)) return(descriptor$name[[1L]])
     NULL
+}
+
+member_s7_cursor_call <- function(document, point, cursor, recovered) {
+    full <- recovered$context
+    if (is.null(full)) full <- s3_recover_call(document, list(point = point, cursor = cursor), recovered)
+    path <- member_cursor_path(full, recovered$sentinel, NULL)
+    if (length(path) < 2L || utils::tail(path, 1L) != 1L) return(NULL)
+    node <- full[[utils::head(path, -1L)]]
+    if (is.call(node)) node else NULL
+}
+
+member_s7_call_signature <- function(generic, call, index, bindings, budget) {
+    dispatch <- generic$s7_dispatch_args
+    args <- member_s7_match(as.list(call)[-1L], c(dispatch, "..."))$args
+    if (!all(dispatch %in% names(args))) return(generic)
+    keys <- lapply(args[dispatch], function(arg) {
+        if (identical(arg, quote(expr = ))) return(NULL)
+        value <- member_infer(arg, index, bindings, budget = budget)
+        if (!is.null(value$reason) || !is.null(value$s4_class)) return(NULL)
+        # structure() can retain its known base payload while changing the
+        # dispatch class. Use the explicit class vector before its storage.
+        if (length(value$classes)) return(value$classes[[1L]])
+        # A declared method receiver or property may hold a subclass.
+        if (isTRUE(value$s7_exact_class)) return(member_s7_dispatch_keys(value$s7_descriptor, budget))
+        if (!isTRUE(value$s7) && isTRUE(value$known_literal) && !is.object(value$literal)) return(typeof(value$literal))
+        NULL
+    })
+    if (any(lengths(keys) != 1L)) return(generic)
+    for (method in rev(generic$s7_methods)) {
+        if (!all(mapply(`%in%`, keys, method$types))) next
+        params <- names(method$formals)
+        if (identical(utils::head(params, length(dispatch)), dispatch) &&
+                length(setdiff(params, c(dispatch, "...")))) {
+            generic$function_expr <- member_s7_function(method$formals)
+        }
+        break
+    }
+    generic
 }
 
 member_s7_dispatch_args <- function(value) {
     if (!is.null(value$s7_dispatch_args)) return(value$s7_dispatch_args)
+    if (!is.null(value$s7_s3_formal)) return(value$s7_s3_formal)
     # An external registration needs only the signature recorded in the
     # descriptor. The target package can be absent from the library.
     if (identical(value$type, "S7_external_generic")) {
@@ -61,6 +147,29 @@ member_s7_dispatch_args <- function(value) {
     NULL
 }
 
+# S7 can register a method on an ordinary S3 generic such as print().
+# Use the verified function body to identify the dispatch argument.
+member_s7_s3_generic <- function(generic, symbol, index, bindings) {
+    fn <- generic$function_expr
+    if (is.null(fn) && !is.null(generic$function_key)) {
+        owner <- if (is.null(generic$metadata)) index else member_namespace_index(index, generic$metadata)
+        fn <- member_definition(owner$definitions, generic$function_key)
+    }
+    if (is.null(fn) && is.null(generic$type) && member_s4_unshadowed(symbol, index, bindings) &&
+            (is.null(index$source_workspace) || !member_package_shadows(index, symbol))) {
+        record <- member_binding(baseenv(), symbol)
+        if (identical(record[[1L]], "value") && typeof(record[[2L]]) == "closure") {
+            fn <- member_function_syntax(record[[2L]])
+        }
+    }
+    formal <- s3_generic_descriptor(fn)$formal
+    if (is.null(formal)) return(NULL)
+    if (is.null(generic$type)) generic <- member_value(type = "function")
+    generic$function_expr <- fn
+    generic$s7_s3_formal <- formal
+    generic
+}
+
 member_s7_method_formals <- function(expr, fn, index, bindings, budget) {
     lhs <- expr[[2L]]
     setter <- member_s7_method_setter(lhs)
@@ -68,15 +177,29 @@ member_s7_method_formals <- function(expr, fn, index, bindings, budget) {
     args <- member_s7_arguments(lhs, setdiff(member_s7_modes(index)$arguments[["method<-"]], "value"))
     if (is.null(args$generic) || !identical(args$generic, lhs[[2L]])) return(NULL)
     infer <- function(node) member_infer(node, index, bindings, budget = budget)
-    dispatch <- member_s7_dispatch_args(infer(args$generic))
+    generic <- infer(args$generic)
+    dispatch <- member_s7_dispatch_args(generic)
+    if (is.null(dispatch)) dispatch <- member_s7_s3_generic(generic, member_name(args$generic), index, bindings)$s7_s3_formal
     if (!length(dispatch) || !identical(names(fn[[2L]])[seq_along(dispatch)], dispatch)) return(NULL)
     signature <- infer(args$signature)
     specs <- if (identical(signature$type, "list")) signature$elements else list(signature)
     if (length(specs) != length(dispatch)) return(NULL)
-    stats::setNames(lapply(specs, function(spec) {
+    shapes <- lapply(specs, function(spec) {
         descriptor <- member_s7_spec(spec, index, bindings, budget)
         member_s7_shape(descriptor, bindings, defaults = FALSE)
-    }), dispatch)
+    })
+    # convert() dispatches on the class supplied as to, and passes that
+    # class object itself to the method. Its from argument is an instance.
+    convert <- (identical(generic$metadata, "S7") && identical(generic$function_key, "convert")) ||
+        (identical(generic$type, "S7_external_generic") && identical(generic$fields$package$literal, "S7") &&
+                identical(generic$fields$name$literal, "convert"))
+    if (convert && identical(dispatch, c("from", "to"))) {
+        target <- specs[[2L]]
+        descriptor <- member_s7_spec(target, index, bindings, budget)
+        shapes[[2L]] <- switch(descriptor$kind %s3_or% "", class = member_s7_generator(descriptor, bindings),
+            base = target, member_value())
+    }
+    stats::setNames(shapes, dispatch)
 }
 
 # Identify the callback by argument matching. Only an inline property within
