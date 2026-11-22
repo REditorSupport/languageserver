@@ -73,18 +73,10 @@ member_scope_field_writes <- function(children, assigned, writes) {
     fields
 }
 
-member_scope_index <- function(node, flatten = TRUE) {
-    children <- as.list(node)[-1L]
-    scope <- member_statement_index(children)
+member_scope_index <- function(node) {
+    scope <- member_statement_index(as.list(node)[-1L])
     refs <- attr(node, "srcref")
     if (length(refs) == length(node)) scope$refs <- lapply(refs[-1L], as.integer)
-    # Cursor recovery needs the physical children, but assignments in a
-    # preceding standalone block participate in the same binding history.
-    if (flatten) {
-        statements <- as.expression(children)
-        flat <- top_level_statements(statements)
-        if (!identical(flat, statements)) scope$flat <- member_statement_index(as.list(flat))
-    }
     scope
 }
 
@@ -108,9 +100,11 @@ member_statement_index <- function(children) {
         any(names %in% c("setClass", "setClassUnion"))
     }, logical(1L)))
     histories <- split(which(nzchar(tracked)), tracked[nzchar(tracked)])
-    list(assigned = assigned, reads = reads, writes = writes, mandatory = mandatory,
-        histories = list2env(histories, hash = TRUE, parent = emptyenv()),
-        s3_names = grep(".", names(histories), fixed = TRUE, value = TRUE))
+    scope <- list(assigned = assigned, reads = reads, writes = writes, mandatory = mandatory,
+        histories = list2env(histories, hash = TRUE, parent = emptyenv()))
+    dotted <- grep(".", names(histories), fixed = TRUE, value = TRUE)
+    if (length(dotted)) scope$s3_names <- dotted
+    scope
 }
 
 # Deferred scope indexes are immutable and bounded to the accepted document.
@@ -159,18 +153,23 @@ member_source_index <- function(expr, parts) {
         if (member_head(node, "{")) {
             # Adjacent standalone blocks share one flattened binding history.
             # Keep only their physical child indexes for cursor recovery.
-            scope <- member_scope_index(node, flatten = !in_block)
+            scope <- member_scope_index(node)
             bytes <<- bytes + as.numeric(utils::object.size(as.list(scope$histories)))
-            if (!is.null(scope$flat)) bytes <<- bytes + as.numeric(utils::object.size(as.list(scope$flat$histories)))
-            scopes[[key]] <- scope
             whole <- attr(node, "wholeSrcref")
             if (!is.null(whole)) ref <- whole
             for (i in seq_along(scope$assigned)) {
                 if (any(scope$reads[[i]] %in% c("function", "{"))) {
                     child <- node[[i + 1L]]
-                    walk(child, c(path, i + 1L), scope$refs[[i]], in_block = member_head(child, "{"))
+                    nested <- member_head(child, "{")
+                    if (nested && length(child) > 1L && !in_block && is.null(scope$flat)) {
+                        flat <- top_level_statements(as.expression(as.list(node)[-1L]))
+                        scope$flat <- member_statement_index(as.list(flat))
+                        bytes <<- bytes + as.numeric(utils::object.size(as.list(scope$flat$histories)))
+                    }
+                    walk(child, c(path, i + 1L), scope$refs[[i]], in_block = nested)
                 }
             }
+            scopes[[key]] <- scope
             return(ref)
         }
         for (i in seq_along(node)) {

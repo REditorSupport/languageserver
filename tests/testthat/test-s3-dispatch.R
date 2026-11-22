@@ -40,8 +40,8 @@ test_that("S3 scopes skip unrelated dotted locals and retain a local method mask
         sprintf("unrelated.%d <- 0L", seq_len(300L)),
         "{ draw.integer <- 0L }", "draw(1L)"
     ), keep.source = FALSE))))
-    source <- list(scopes = list(root = member_scope_index(body)))
-    sequence <- member_cursor_sequence(body, length(body), integer(), source,
+    source <- member_source_index(body, NULL)
+    sequence <- member_cursor_sequence(body, length(body), 1L, source,
         narrow = TRUE, name = "draw", call_reads = TRUE)
     expect_identical(sequence$selected, c(301L, 302L))
     code <- c("draw <- function(x, ...) UseMethod('draw')", "draw.integer <- function(x, ...) x",
