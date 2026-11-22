@@ -56,6 +56,23 @@ member_s4_arguments <- function(expr, first = "Class") {
     args
 }
 
+# S4_contains() exposes an S7 class's stored properties to an S4 child.
+# Keep the class descriptor with the inferred value so an intermediate name
+# works too, without registering a class or inspecting methods' live registry.
+member_s4_contains_bridge <- function(expr, index, bindings, budget) {
+    if (!"S4_contains" %in% member_s7_modes(index)$exports) return(member_value())
+    args <- member_s7_arguments(expr, c("class", "env"))
+    if (is.null(args$class) || !is.null(args$env)) return(member_value())
+    generator <- member_infer(args$class, index, bindings, budget = budget)
+    class <- generator$s7_generator
+    if (is.null(class) || any(vapply(class$properties, function(p) p$getter || p$setter, logical(1L)))) {
+        return(member_value())
+    }
+    value <- member_value(type = "character")
+    value$s4_contains <- class
+    value
+}
+
 member_s4_recipe <- function(expr, index, bindings) {
     if (member_head(expr, "<-") || member_head(expr, "=")) expr <- expr[[3L]]
     method <- member_s4_method(expr, index, bindings)
@@ -73,6 +90,12 @@ member_s4_recipe <- function(expr, index, bindings) {
     contains <- member_s4_strings(args$contains, index, bindings)
     complete <- is.null(args$contains) || length(contains) > 0L || identical(args$contains, character()) ||
         (member_s4_literal_call(args$contains, "c", index, bindings) && length(args$contains) == 1L)
+    bridge <- NULL
+    if (!complete && (is.symbol(args$contains) ||
+                identical(member_s7_method(args$contains, index, bindings), "S4_contains"))) {
+        bridge <- list(expr = args$contains, bindings = bindings)
+        complete <- TRUE
+    }
     declaration <- function(node, legacy = FALSE) {
         if (is.null(node) || identical(node, character())) return()
         values <- if (is.character(node)) {
@@ -120,6 +143,7 @@ member_s4_recipe <- function(expr, index, bindings) {
     }
     recipe <- list(name = name, slots = slots, origins = origins, contains = setdiff(contains, "VIRTUAL"),
         virtual = "VIRTUAL" %in% contains, defaults = defaults, complete = complete)
+    recipe$bridge <- bridge
     recipe$class_origin <- attr(expr, "class_origin", exact = TRUE)
     recipe
 }
@@ -182,6 +206,15 @@ member_s4_shape <- function(name, index, bindings, package = NULL, trail = chara
         })))
     }
     slots <- defaults <- origins <- list()
+    if (!is.null(descriptor$bridge)) {
+        bridge <- descriptor$bridge
+        parent <- member_infer(bridge$expr, index, bridge$bindings, budget = budget)$s4_contains
+        if (is.null(parent)) return(member_value(reason = "unknown_s4_parent"))
+        inherited <- member_s7_shape(parent, bridge$bindings)
+        slots <- inherited$slot_types
+        defaults <- inherited$slots
+        for (key in names(parent$properties)) origins[[key]] <- parent$properties[[key]]$origin
+    }
     for (parent in descriptor$contains) {
         # R's built-in storage classes contribute the data part of an S4
         # extension, rather than a user-defined slot inheritance recipe.

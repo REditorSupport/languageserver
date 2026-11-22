@@ -312,15 +312,9 @@ LanguageServer <- R6::R6Class("LanguageServer",
             poll_backend_configuration(self)
             self$report_workspace_progress()
             for (workspace in self$workspaces$values()) {
-                if (!isTRUE(workspace$poll_namespace_file(throttle = TRUE)) ||
-                        !diagnostics_needs_workspace_globals()) {
-                    next
-                }
+                if (!isTRUE(workspace$poll_namespace_file(throttle = TRUE))) next
                 for (doc in workspace$documents$values()) {
-                    if (!isTRUE(doc$is_open)) {
-                        next
-                    }
-                    schedule_diagnostics(self, doc$uri, doc, delay = 0)
+                    refresh_namespace_document(self, doc, isTRUE(doc$is_open) && diagnostics_needs_workspace_globals())
                 }
             }
         },

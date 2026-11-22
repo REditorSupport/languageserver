@@ -143,6 +143,15 @@ workspace_did_change_configuration <- function(self, params) {
     }
 }
 
+refresh_namespace_document <- function(self, doc, diagnostics = FALSE) {
+    if (!is.null(doc$parse_data) && !identical(doc$parse_data$member_data$namespace_imports,
+            member_namespace_imports(doc$uri))) {
+        self$text_sync(doc$uri, doc, parse = TRUE, run_diagnostics = diagnostics)
+    } else if (diagnostics) {
+        schedule_diagnostics(self, doc$uri, doc, delay = 0)
+    }
+}
+
 #' `workspace/didChangeWatchedFiles` notification handler
 #'
 #' Handler to the `workspace/didChangeWatchedFiles` [Notification].
@@ -153,6 +162,17 @@ workspace_did_change_watched_files <- function(self, params) {
         path <- path_from_uri(uri)
         backend_watched_configuration(self, path)
         workspace <- self$get_workspace(uri)
+        # The workspace root has a NAMESPACE poller; nested packages receive
+        # their manifest changes through the client's file watcher.
+        if (basename(path) == "NAMESPACE" && !identical(dirname(path), workspace$root)) {
+            directory <- index_normalize_path(file.path(dirname(path), "R"))
+            for (doc in workspace$documents$values()) {
+                if (identical(index_normalize_path(dirname(path_from_uri(doc$uri))), directory)) {
+                    refresh_namespace_document(self, doc, isTRUE(doc$is_open) && diagnostics_needs_workspace_globals())
+                }
+            }
+            next
+        }
 
         if (workspace$documents$has(uri)) {
             doc <- workspace$documents$get(uri)

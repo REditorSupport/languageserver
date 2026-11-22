@@ -280,10 +280,10 @@ member_elements <- function(value) {
     NULL
 }
 
-# Dollar names are literal; a double-bracket name must be a string literal.
+# Dollar and slot names are literal; a double-bracket name must be a string literal.
 member_write_field <- function(lhs) {
     if (!is.call(lhs) || length(lhs) != 3L || !is.symbol(lhs[[2L]])) return(NULL)
-    if (!member_head(lhs, "$") && !(member_head(lhs, "[[") && is.character(lhs[[3L]]))) return(NULL)
+    if (!member_head(lhs, "$") && !member_head(lhs, "@") && !(member_head(lhs, "[[") && is.character(lhs[[3L]]))) return(NULL)
     field <- member_name(lhs[[3L]])
     if (length(field) && !is.na(field) && nzchar(field)) field
 }
@@ -316,7 +316,20 @@ member_operator_masked <- function(operator, index, bindings) {
         (!identical(index$package, "base") && !is.null(member_lookup(index$definitions, operator)))
 }
 
-member_write_container <- function(object, field, value, name, origin, index, bindings, subset = FALSE) {
+# Environment-backed S7 subclasses inherit reference semantics through their
+# parent chain. Use the descriptor rather than the user-defined class name.
+member_s7_reference <- function(object) {
+    desc <- object$s7_descriptor
+    while (identical(desc$kind, "class")) desc <- desc$parent
+    identical(desc$kind, "base") && identical(desc$name, "environment")
+}
+
+member_write_container <- function(object, field, value, name, origin, index, bindings, subset = FALSE, slot = FALSE) {
+    if (slot) {
+        if (!isTRUE(object$s7) || !is.null(object$s7_generator) ||
+                member_operator_masked("@<-", index, bindings)) return(NULL)
+        return(member_s7_update_slots(object, stats::setNames(list(value), field)))
+    }
     setter <- if (subset) "[[<-" else "$<-"
     if (!member_plain_container(object) || member_operator_masked(setter, index, bindings)) return(NULL)
     value <- member_write_value(value, name, origin)
@@ -453,7 +466,7 @@ member_shape_key <- function(value, depth = 0L) {
         fields = lapply(value$fields, member_shape_key, depth + 1L),
         slots = lapply(value$slots, member_shape_key, depth + 1L),
         slot_types = value$slot_types, s4_class = value$s4_class,
-        s4_generator = value$s4_generator,
+        s4_generator = value$s4_generator, s4_contains = value$s4_contains,
         s7 = value$s7, s7_descriptor = value$s7_descriptor,
         r6_private = member_shape_key(value$r6_private, depth + 1L),
         # Class-shape instances omit `r6_super` and build it on demand; key the
@@ -509,7 +522,7 @@ member_assigned_names <- function(node) {
 member_function_closure <- function(expr, bindings) {
     if (!length(bindings)) return(list())
     # Replacement syntax implicitly invokes a lexical setter.
-    internal <- intersect(names(bindings), c("$<-", "[[<-", ".__member_position__", ".__member_properties__",
+    internal <- intersect(names(bindings), c("$<-", "[[<-", "@<-", ".__member_position__", ".__member_properties__",
             ".__s4_classes__", ".__s7_package__", ".__s7_constructing__"))
     if (length(internal) == length(bindings)) return(bindings)
     referenced <- setdiff(member_syntax_names(expr), names(expr[[2L]]))
@@ -893,7 +906,16 @@ member_infer <- function(
                 field <- if (subset) direct else member_name(lhs[[3L]])
                 object <- member_lookup(env, name)
                 surface <- if (member_head(lhs, "@")) "slots" else "fields"
-                if (surface == "fields" && member_plain_container(object)) {
+                if (surface == "slots" && isTRUE(object$s7)) {
+                    reference <- member_s7_reference(object)
+                    object <- if (!is.null(direct)) member_write_container(object, direct, value, name, NULL,
+                        index, env, slot = TRUE)
+                    if (is.null(object)) object <- unknown
+                    env[name] <- list(object)
+                    if (reference) {
+                        for (alias in member_aliases(attr(env, "member_aliases"), name)) env[alias] <- list(object)
+                    }
+                } else if (surface == "fields" && member_plain_container(object)) {
                     reference <- identical(object$type, "environment")
                     object <- if (!is.null(direct)) member_write_container(object, direct, value, name,
                         if (identical(budget$origin_name, direct)) attr(lhs, "member_origin", exact = TRUE), index, env, subset)
@@ -1146,7 +1168,8 @@ member_infer <- function(
             }
             return(value)
         }
-        if (key %in% names(index$document_bindings) || key %in% names(index$attached_roots)) {
+        if (key %in% names(index$document_bindings) || key %in% names(index$attached_roots) ||
+                (!is.null(index$source_workspace) && index$source_workspace$index$has_definition(key, index$source_uri))) {
             value <- member_resolve_document(key, index, bindings, budget, depth, trail)
             if (!is.null(value)) {
                 return(value)
@@ -1498,7 +1521,9 @@ member_infer <- function(
             return(out)
         }
         if (head == "data.frame") {
-            return(member_value(type = "data.frame", classes = "data.frame", fields = actuals[nzchar(names(actuals))]))
+            keys <- names(actuals)
+            columns <- nzchar(keys) & !keys %in% names(formals(base::data.frame))
+            return(member_value(type = "data.frame", classes = "data.frame", fields = actuals[columns]))
         }
         if (head == "length") {
             x <- arg(1L)
@@ -1691,11 +1716,13 @@ member_infer <- function(
         return(member_possible_result(values))
     }
     if (identical(callee$metadata, "S7") && callee$function_key %in% member_s7_intrinsics) {
-        return(member_s7_call(expr, index, bindings, budget, callee$function_key))
+        result <- member_s7_call(expr, index, bindings, budget, callee$function_key)
+        if (!is.null(result)) return(result)
     }
     if (!is.null(callee$s7_generator)) {
         return(member_s7_construct(callee, actuals, index, bindings, budget))
     }
+    if (!is.null(callee$s7_dispatch_args)) return(unknown)
     if (!is.null(callee$s4_generator)) {
         return(member_s4_construct(callee$s4_generator, actuals, index, bindings, budget))
     }

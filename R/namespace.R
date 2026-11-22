@@ -387,7 +387,8 @@ GlobalEnv <- R6::R6Class("GlobalEnv",
 
         get_formals = function(funct, exported_only = TRUE) {
             source <- private$source(funct, is_function = TRUE)
-            if (!is.null(source)) formals(private$parse_snapshot[[source]]$functions[[funct]])
+            fn <- if (!is.null(source)) private$parse_snapshot[[source]]$functions[[funct]]
+            if (is.function(fn)) formals(fn)
         },
 
         get_documentation = function(topic) {

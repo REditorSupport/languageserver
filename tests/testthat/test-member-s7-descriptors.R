@@ -9,7 +9,7 @@ test_that("S7 descriptors retain quoted S3 defaults and external class identity"
     expect_identical(date$s7_descriptor$default, quote(as.Date("1970-01-01")))
     expect_identical(names(date$s7_descriptor$constructor[[2L]]), "days")
     scope <- list(date = date)
-    record <- infer(quote(S7::new_class("Record", properties = list(day = date))), scope)
+    record <- infer(quote(S7::new_class("Record", package = "records", properties = list(day = date))), scope)
     expect_identical(record$function_expr[[2L]]$day, quote(as.Date("1970-01-01")))
     expect_identical(infer(quote(S7::as_class(date)), scope)$s7_descriptor, date$s7_descriptor)
     expect_identical(infer(quote(S7::as_class(unknown)), scope)$type, NULL)
@@ -28,6 +28,13 @@ test_that("S7 descriptors retain quoted S3 defaults and external class identity"
     hidden <- infer(quote(S7::as_class(ref)), list(ref = ref))
     expect_identical(hidden$s7_descriptor, ref$s7_descriptor)
     expect_null(hidden$s7_generator)
+    owner$roots <- list(Old = record)
+    owner$exports <- "Old"
+    alias <- infer(quote(S7::new_external_class("records", "Old")))
+    resolved <- infer(quote(S7::as_class(ref)), list(ref = alias))
+    expect_identical(resolved$s7_generator$name, "Record")
+    expect_identical(member_s7_default(resolved$s7_generator), quote(S7::as_class(records::Old)()))
+    expect_identical(member_s7_default(resolved$s7_generator, "records"), quote(S7::as_class(Old)()))
     index$s7_capabilities <- list(exports = character())
     expect_identical(infer(quote(S7::new_external_class("records", "Record")))$reason, "unavailable_s7_api")
 })
@@ -97,4 +104,32 @@ test_that("Recursive and excessively wide S7 descriptor input stays bounded", {
     bad$constructor <- function(x) x
     bad$default <- function() stop("never called")
     expect_identical(member_s7_runtime_descriptor(bad)$default, as.name(".__unknown_s7_default__"))
+})
+
+test_that("S7 behavior follows the prepared namespace when another receiver index is selected", {
+    index <- member_generic_index("")
+    index$s7_capabilities <- list()
+    index$namespace_indices <- list(S7 = list(s7_capabilities = list(bind = TRUE)))
+    index$s7_attached <- TRUE
+    index$document_bindings <- list()
+    expect_identical(member_s7_bind(quote(Foo := factory()), index, list()), quote(Foo <- factory(name = "Foo")))
+    index$attached_roots <- list(new_class = member_value(function_key = "prop", metadata = "S7"))
+    expect_identical(member_s7_method(quote(new_class(x, "age")), index, list()), "prop")
+    index$attached_roots$new_class <- member_literal(1L)
+    expect_null(member_s7_method(quote(new_class(x, "age")), index, list()))
+})
+
+test_that("external class lookup uses the declaring package for visibility", {
+    index <- member_generic_index("")
+    installed <- member_infer(quote(S7::new_class("Old")), index)
+    source <- member_infer(quote(S7::new_class("Current")), index)
+    index$package <- "records"
+    index$exports <- character()
+    index$package_roots <- list(Hidden = installed)
+    index$document_bindings <- list()
+    index$document_package <- "consumer"
+    descriptor <- list(kind = "external", package = "records", name = "Hidden")
+    expect_null(member_s7_external(descriptor, index, list(Hidden = source), NULL))
+    index$document_package <- "records"
+    expect_identical(member_s7_external(descriptor, index, list(Hidden = source), NULL)$name, "Current")
 })

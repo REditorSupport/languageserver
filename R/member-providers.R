@@ -274,7 +274,8 @@ member_call_symbol <- function(uri, workspace, document, location) {
         # Keep unresolved member calls out of bare-name and S3 lookup.
         return(if (is.null(symbol)) list() else symbol)
     }
-    if (!is.null(symbol$value$s7_generator) || isTRUE(symbol$value$s4_constructor) || identical(symbol$value$r6_role, "constructor") ||
+    if (!is.null(symbol$value$s7_generator) || !is.null(symbol$value$s7_dispatch_args) ||
+            isTRUE(symbol$value$s4_constructor) || identical(symbol$value$r6_role, "constructor") ||
             !is.null(symbol$value$r6_owner) || !is.null(symbol$value$refclass_instance) || isTRUE(symbol$value$extracted_callable)) return(symbol)
     NULL
 }

@@ -115,6 +115,28 @@ member_navigation_syntax <- function(parsed) {
                     kind = "field", value = class$member_values[missing]))
         }
     }
+    # Candidate property names in S7 updates. Preserve the exact outer
+    # callee site for both dots and the documented single named-list form.
+    updates <- which(tok == "SYMBOL_FUNCTION_CALL" & s$text %in% c("set_props", "`set_props`"))
+    if (length(updates)) {
+        caller <- integer(length(tok))
+        nested <- logical(length(tok))
+        for (helper in updates) {
+            row <- s$parent_row[[s$parent_row[[helper]]]]
+            if (!row) next
+            args <- syntax_call_arguments(s, row)
+            if (is.null(args) || (!is.null(args$package) && args$package != "S7")) next
+            caller[args$tags] <- helper
+            for (arg in args$values[args$tags == 0L & args$values > 0L]) {
+                values <- syntax_call_arguments(s, arg)
+                if (!identical(values$name, "list") || (!is.null(values$package) && values$package != "base")) next
+                caller[values$tags] <- helper
+                nested[values$tags] <- TRUE
+            }
+        }
+        index$update_call <- caller[index$row]
+        index$update_list <- nested[index$row]
+    }
     index <- index[order(index$row), , drop = FALSE]
     index$group <- member_navigation_groups(s, index)
     attr(index, "literal_calls") <- member_navigation_literal_calls(s, index)
@@ -478,7 +500,40 @@ member_navigation_origin <- function(workspace, origin) {
     location(origin$uri, rng)
 }
 
+# Check the replacement key in the call's lexical scope. Only a dot argument
+# (or an entry of the single accepted list) can name a property.
+member_s7_update_receiver <- function(node, name, nested, index, env, budget) {
+    if (!identical(member_s7_method(node, index, env), "set_props")) return(NULL)
+    modes <- member_s7_modes(index)
+    args <- member_s7_match(as.list(node)[-1L], modes$arguments$set_props)
+    if (is.null(args)) return(NULL)
+    if (nested) {
+        if (!isTRUE(modes$lists) || length(args$dots) != 1L || any(nzchar(names(args$dots)))) return(NULL)
+        values <- args$dots[[1L]]
+        if (!is.call(values)) return(NULL)
+        if (!identical(values[[1L]], quote(base::list))) {
+            owner <- index$attached_roots$list$metadata
+            if (!member_head(values, "list") || member_operator_masked("list", index, env) ||
+                    (!is.null(owner) && !identical(owner, "base"))) return(NULL)
+        }
+        if (!name %in% names(values)[-1L]) return(NULL)
+    } else if (!name %in% names(args$dots)) {
+        return(NULL)
+    }
+    object <- member_infer(args$args[[modes$object]], index, env, budget = budget)
+    if (isTRUE(object$s7) && is.null(object$s7_generator)) object
+}
+
 member_navigation_constructor_tag <- function(workspace, doc, rec) {
+    if (isTRUE(rec$update_call > 0L)) {
+        parsed <- doc$parse_data
+        point <- member_navigation_point(parsed$syntax_data, rec$update_call)
+        loc <- class_navigation_symbol(doc, parsed, point)$location
+        if (is.null(loc)) return(NULL)
+        loc$cursor$s7_update_list <- rec$update_list
+        value <- member_resolve_cursor(doc$uri, workspace, doc, loc$point, loc$cursor, rec$name, origins = TRUE)$value
+        return(member_navigation_origin(workspace, value$s7_descriptor$properties[[rec$name]]$origin))
+    }
     point <- member_navigation_point(doc$parse_data$syntax_data, rec$row)
     origin <- member_constructor_parameter_origin(doc$uri, workspace, doc, point, rec$name)
     member_navigation_origin(workspace, origin)
@@ -501,7 +556,7 @@ member_navigation_at <- function(workspace, document, point) {
     rng <- navigation_range(document, s, row)
     field <- member_navigation_field_tag(workspace, document, rec)
     formal <- rec$kind == "tag" && !field
-    property <- if (formal) member_navigation_constructor_tag(workspace, document, rec)
+    property <- if (formal || isTRUE(rec$update_call > 0L)) member_navigation_constructor_tag(workspace, document, rec)
     if (!is.null(property)) formal <- FALSE
     def <- if (!is.null(property)) {
         property
@@ -994,6 +1049,15 @@ member_navigation_rename_conflict <- function(workspace, uris, refs, old, new) {
         for (i in hits) {
             row <- index$row[[i]]
             if (index$kind[[i]] %in% c("field", "tag")) {
+                if (!is.null(index$update_call) && index$update_call[[i]] && !index$update_list[[i]]) {
+                    metadata <- workspace$member_metadata
+                    pkg <- if (is.function(metadata$catalog)) metadata$catalog("S7") else metadata$get("S7")
+                    formals <- pkg$s7_capabilities$arguments$set_props
+                    before <- seq_len(match("...", formals, nomatch = 1L) - 1L)
+                    if (new %in% formals || any(startsWith(formals[before], new))) {
+                        return("The new property name would match a set_props() parameter")
+                    }
+                }
                 same_name <- member_navigation_indices(index, new)
                 if (any(s$parent_row[index$row[same_name]] == s$parent_row[[row]])) {
                     return("Another member of this object already has the new name")

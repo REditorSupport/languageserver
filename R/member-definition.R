@@ -5,7 +5,7 @@ member_origin_tree <- function(data, syntax = NULL) {
     token <- data$token
     callees <- which(token == "SYMBOL_FUNCTION_CALL")
     names <- reference_symbol_names(data$text[callees])
-    classes <- callees[names %in% c("R6Class", "setClass", "setRefClass", "new_class")]
+    classes <- callees[names %in% c("R6Class", "setClass", "setRefClass", "new_class", "deprecated_class")]
     lists <- callees[names %in% c("list", "list2", "data.frame", "c", "representation")]
     operators <- which(token %in% c("'$'", "LBB"))
     if (!length(lists) && !length(classes) && !length(operators)) return(list())
@@ -192,7 +192,10 @@ member_binding_declaration <- function(entry, budget) {
     i <- if (is.null(source)) member_history_position(document$parse_data$member_data$items, entry$end) else source$item
     if (!i) return(entry)
     expr <- member_declaration_expr(document, i, budget)
-    if (member_head(expr, "<-") || member_head(expr, "=")) {
+    if (member_head(expr, ":=")) {
+        # The binding resolver still verifies the operator before naming its RHS.
+        entry$expr <- expr
+    } else if (member_head(expr, "<-") || member_head(expr, "=")) {
         entry$expr <- expr[[3L]]
         if (!is.null(entry$field)) entry$origin <- attr(expr[[2L]], "member_origin", exact = TRUE)
     }

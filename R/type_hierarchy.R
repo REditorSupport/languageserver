@@ -297,20 +297,26 @@ detect_s3class <- function(scopes, token_text, document, uri) {
     NULL
 }
 
+class_parent_lookup <- function(child) {
+    if (!is.null(child$parent_lookup)) return(child$parent_lookup)
+    list(types = if (child$type == "S7") c("S7", "S4") else child$type,
+        registry = child$type %in% c("S4", "RefClass"))
+}
+
 # An ordinary assignment to the generator name can shadow its declaration.
 # Check the lexical definition in each file visible to the child, including
 # shallow source summaries for files that have not been opened.
-class_hierarchy_parent_bindings <- function(workspace, uri, type, name) {
+class_hierarchy_parent_bindings <- function(workspace, uri, lookup, name) {
     sources <- class_workspace_sources(workspace, reference_source_scope(workspace, uri))
     candidates <- list()
     for (source in sources) {
         declarations <- class_source_records(source)
-        if (type %in% c("S4", "RefClass")) {
+        if (lookup$registry) {
             # contains= names a registered class, independent of any ordinary
             # variable (including the generator binding) with that name.
-            declarations <- Filter(function(x) x$type == type && x$class_name == name, declarations)
+            declarations <- Filter(function(x) x$type %in% lookup$types && x$class_name == name, declarations)
         } else {
-            declarations <- Filter(function(x) x$type == type && x$binding && x$name == name, declarations)
+            declarations <- Filter(function(x) x$type %in% lookup$types && x$binding && x$name == name, declarations)
             bound <- source$definitions[[name]]
             if (!is.null(bound) && !any(vapply(declarations, function(x) equal_range(x$range, bound$range), logical(1L)))) {
                 return(list(known = TRUE, candidates = list()))
@@ -343,7 +349,7 @@ class_hierarchy_relatives <- function(workspace, item, parents) {
         if (!length(cls$parents)) return(list())
         legacy <- workspace$get_parse_data(cls$uri)$class_data$supertypes
         found <- lapply(unique(cls$parents), function(name) {
-            found <- class_hierarchy_parent_bindings(workspace, cls$uri, cls$type, name)
+            found <- class_hierarchy_parent_bindings(workspace, cls$uri, class_parent_lookup(cls), name)
             if (length(found$candidates) == 1L) return(class_hierarchy_item(found$candidates[[1L]]))
             if (found$known || !is.environment(legacy)) return(NULL)
             # Preserve the source reference in inherit= for external parents.
@@ -355,9 +361,12 @@ class_hierarchy_relatives <- function(workspace, item, parents) {
     }
 
     uris <- reference_source_scope(workspace, cls$uri, callers = TRUE)
-    parent_name <- if (cls$type %in% c("S4", "RefClass")) cls$class_name else cls$name
-    children <- Filter(function(x) x$type == cls$type && parent_name %in% x$parents,
-        class_workspace_declarations(workspace, uris))
+    children <- Filter(function(child) {
+        if (!length(child$parents)) return(FALSE)
+        lookup <- class_parent_lookup(child)
+        name <- if (lookup$registry) cls$class_name else cls$name
+        cls$type %in% lookup$types && name %in% child$parents
+    }, class_workspace_declarations(workspace, uris))
     scopes <- new.env(hash = TRUE, parent = emptyenv())
     related <- Filter(function(child) {
         # Package members share one scope. Scripts have their own source graph,
@@ -365,12 +374,15 @@ class_hierarchy_relatives <- function(workspace, item, parents) {
         index <- workspace$index
         scope <- if (isTRUE(index$enabled)) index$package_root_for_uri(child$uri)
         if (is.null(scope)) scope <- if (isTRUE(index$enabled)) child$uri else "workspace"
-        if (!exists(scope, scopes, inherits = FALSE)) {
-            candidates <- class_hierarchy_parent_bindings(workspace, child$uri, cls$type, parent_name)$candidates
-            scopes[[scope]] <- length(candidates) == 1L && candidates[[1L]]$uri == cls$uri &&
+        lookup <- class_parent_lookup(child)
+        parent_name <- if (lookup$registry) cls$class_name else cls$name
+        key <- paste(c(lookup$registry, lookup$types, scope), collapse = ":")
+        if (!exists(key, scopes, inherits = FALSE)) {
+            candidates <- class_hierarchy_parent_bindings(workspace, child$uri, lookup, parent_name)$candidates
+            scopes[[key]] <- length(candidates) == 1L && candidates[[1L]]$uri == cls$uri &&
                 equal_range(candidates[[1L]]$selectionRange, cls$selectionRange)
         }
-        scopes[[scope]]
+        scopes[[key]]
     }, children)
     lapply(related, class_hierarchy_item)
 }

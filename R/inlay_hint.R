@@ -519,7 +519,7 @@ inlay_symbol_candidates <- function(workspace, document) {
         if (is.null(catalog)) return(FALSE)
         value <- if (qualified) member_lookup(catalog$namespace_roots, paste(pkg, name, sep = "::"))
         if (is.null(value)) value <- member_lookup(catalog$roots, name)
-        !is.null(value) && (!is.null(value$s7_generator) || !is.null(value$s4_generator) ||
+        !is.null(value) && (!is.null(value$s7_generator) || !is.null(value$s7_dispatch_args) || !is.null(value$s4_generator) ||
                 !is.null(value$refclass_instance) || !is.null(value$r6_role) || !is.null(value$r6_owner) ||
                 isTRUE(value$extracted_callable))
     }

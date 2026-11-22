@@ -275,8 +275,9 @@ MemberMetadataCache <- R6::R6Class(
             snapshot$cache <- NULL
             # Selection, imports and dispatch need only this compact catalog.
             # Keep it in the snapshot budget without decoding function bodies.
-            fields <- c("package", "identity", "generation", "roots", "exports", "namespace_roots", "classes", "class_scope", "symbol_scope",
+            fields <- c("package", "identity", "generation", "roots", "exports", "namespace_exports", "namespace_roots", "classes", "class_scope", "symbol_scope",
                 "s4_classes", "s4_dependencies", "s7_dependencies", "s7_capabilities", "dataset_only", "namespace_attempted",
+                "bounded_s7_exports", "error", "preparation_error",
                 "subset_registry", "subset_registry_complete")
             entry <- list(
                 compressed = memCompress(serialize(snapshot, NULL), "gzip"),
@@ -1149,7 +1150,7 @@ extract_depends_packages <- function(desc_file) {
     setdiff(dep_pkgs[nzchar(dep_pkgs)], "R")
 }
 
-extract_namespace_imports <- function(namespace_file) {
+extract_namespace_imports <- function(namespace_file, unconditional = FALSE) {
     packages <- character()
     objects <- list()
     directives <- list()
@@ -1179,6 +1180,7 @@ extract_namespace_imports <- function(namespace_file) {
             return(invisible(NULL))
         }
         if (op == "if") {
+            if (unconditional) return(invisible(NULL))
             cond <- tryCatch(
                 isTRUE(eval(expr[[2L]], baseenv())),
                 error = function(e) NA

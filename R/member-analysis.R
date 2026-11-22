@@ -102,7 +102,10 @@ member_source_prefix <- function(content, start, end, prefix) {
     digest::digest(list(prefix, start, end, lines), algo = "xxhash64")
 }
 
-member_document_cache_revision <- function(document, metadata, source_revision = NULL) {
+member_document_cache_revision <- function(document, metadata, source_revision = NULL, workspace = NULL) {
+    if (isTRUE(document$parse_data$member_data$package_classes) && isTRUE(workspace$index$enabled)) {
+        source_revision <- list(source_revision, workspace$s3_revision, workspace$index$revision)
+    }
     revision <- if (is.null(metadata)) 0L else if (is.function(metadata$revision)) metadata$revision() else NULL
     identity <- list(metadata = if (is.function(metadata$identity)) metadata$identity() else metadata,
         revision = revision, sources = source_revision)
@@ -122,7 +125,7 @@ member_binding_cacheable <- function(value, depth = 0L) {
     if (depth > 8L || !is.null(value$origin) || !is.null(value$function_expr) || !is.null(value$closure) ||
             !is.null(value$binding_expr) || !is.null(value$binding_env) ||
             !is.null(value$r6_class) || !is.null(value$r6_identity) || !is.null(value$r6_role) ||
-            !is.null(value$s7_descriptor) || !is.null(value$s7_generator) || !is.null(value$s4_generator) ||
+            !is.null(value$s7_descriptor) || !is.null(value$s7_generator) || !is.null(value$s4_generator) || !is.null(value$s4_contains) ||
             (!is.null(value$function_key) && is.null(value$metadata)) ||
             (isTRUE(value$known_literal) && (!is.atomic(value$literal) || is.object(value$literal)))) return(FALSE)
     children <- c(value$fields, value$slots, value$elements, value$possible_returns,
@@ -135,7 +138,7 @@ member_binding_cacheable <- function(value, depth = 0L) {
 member_local_binding <- function(expr, bindings, referenced = member_syntax_names(expr), lookup = NULL) {
     # Keep only lexical dependencies. Copying every earlier local into every
     # deferred binding makes a flat method quadratic in retained state.
-    internal <- c("$<-", "[[<-", ".__member_position__", ".__member_properties__", ".__s4_classes__",
+    internal <- c("$<-", "[[<-", "@<-", ".__member_position__", ".__member_properties__", ".__s4_classes__",
         ".__s7_package__", ".__s7_constructing__")
     captured <- if (is.null(lookup)) {
         bindings[intersect(names(bindings), c(referenced, internal))]

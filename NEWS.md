@@ -1,5 +1,10 @@
 # languageserver (development)
 
+- Recognize S7 1.0 class and generic declarations made with `:=` in scripts
+  and package sources. Completion and hover follow stored property updates,
+  S4 subclasses and typed method arguments. Signature help shows the generic
+  after method registration.
+
 - Speed up parsing and document refactorings in large R files, Fix All with
   many diagnostics, and edits to Quarto or R Markdown documents. Member
   completion in long functions and S3 dispatch across many files also take

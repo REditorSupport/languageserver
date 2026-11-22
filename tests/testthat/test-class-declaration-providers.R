@@ -245,3 +245,210 @@ test_that("S4 and reference class hierarchy select registered literal contents a
         expect_identical(find_type_subtypes(f$workspace, parent), list(child))
     }
 })
+
+test_that("S7 vignette bindings, dispatch registrations and inherited properties keep their source locations", {
+    skip_if_not_installed("S7", "1.0.0")
+    root <- index_normalize_path(withr::local_tempdir())
+    workspace <- Workspace$new(root)
+    fixture <- function(name, code) {
+        path <- file.path(root, name)
+        writeLines(code, path)
+        f <- class_provider_fixture(code, path_to_uri(path), workspace)
+        workspace$index$update_content(f$uri, code, parse_data = f$document$parse_data)
+        f
+    }
+    parent <- fixture("pet.R", c("library(S7)", "Pet := new_class(properties = list(name = class_character))"))
+    child <- fixture("dog.R", c('source("pet.R")', "library(S7)", "Dog := new_class(Pet)",
+            'speak := new_generic("x")', "method(speak, list(Dog)) <- function(x) x@name",
+            'dog <- Dog(name = "Rex")', "speak(dog)", "dog@name"))
+    workspace$member_metadata$set("S7", member_index_thaw(member_prepare_package("S7")))
+    point <- function(line, name) list(row = line - 1L, col = regexpr(name, child$document$content[[line]], fixed = TRUE)[[1L]])
+    outline <- document_symbol_reply(1L, child$uri, workspace, child$document,
+        list(hierarchicalDocumentSymbolSupport = TRUE))$result
+    expect_equal(map_chr(outline, "name"), c("Dog", "speak", "speak", "dog"))
+    expect_equal(map_int(outline, "kind"), c(SymbolKind$Class, SymbolKind$Function, SymbolKind$Method, SymbolKind$Field))
+    search <- workspace_symbol_reply(1L, list(workspace), "speak")$result
+    expect_equal(map_int(search, "kind"), c(SymbolKind$Function, SymbolKind$Method))
+    expect_null(workspace$get_namespace(WORKSPACE, uri = child$uri)$get_formals("speak"))
+    current <- class_source_records(child$document$parse_data)
+    shallow <- index_shallow_summary(path_from_uri(child$uri), child$document$content, root)
+    expect_equal(shallow$class_declarations, current)
+    expect_equal(shallow$definitions, child$document$parse_data$definitions)
+    expect_equal(find_type_supertypes(workspace, class_hierarchy_item(current[[1L]]))[[1L]]$uri, parent$uri)
+    expect_equal(type_definition_reply(1L, child$uri, workspace, child$document, point(8L, "dog"))$result$range,
+        current[[1L]]$selectionRange)
+    refs <- function(line, name) references_reply(1L, child$uri, workspace, child$document, point(line, name))$result
+    expect_equal(map_int(lapply(refs(7L, "speak"), function(x) x$range$start), "line"), c(3L, 4L, 6L))
+    property <- parent$document$parse_data$class_data$declarations[[1L]]$children[[1L]]
+    expect_equal(definition_reply(1L, child$uri, workspace, child$document, point(8L, "name"))$result,
+        list(uri = parent$uri, range = property$selectionRange))
+    edits <- rename_reply(1L, child$uri, workspace, child$document, point(8L, "name"), "label")$result$changes
+    expect_equal(edits[[parent$uri]][[1L]]$range, property$selectionRange)
+    expect_equal(map_int(lapply(edits[[child$uri]], function(x) x$range$start), "line"), c(4L, 5L, 7L))
+    expect_equal(map_chr(edits[[child$uri]], "newText"), rep("label", 3L))
+})
+
+test_that("S7 named declarations verify helper ownership and preserve ordinary reassignments", {
+    skip_if_not_installed("S7", "1.0.0")
+    code <- c('Ordinary <- new_class("Ordinary")', "NoImport := S7::new_class()", "library(S7, quietly = TRUE)",
+        "local({ Private := new_class() })", 'Duplicate := new_class(name = "Other")',
+        'g <- S7::new_generic("g", "x")', "method(g, class_character) <- NULL",
+        "method(g, class_character)", "x := new_class()", "x <- 1L",
+        "ordinary <- 1L", "ordinary := new_class()", "`method<-` <- function(...) NULL",
+        "method(g, class_character) <- function(x) x", "`:=` <- function(...) NULL",
+        "Unrelated := S7::new_class()", "obj[entry := S7::new_class()]")
+    f <- class_provider_fixture(code)
+    records <- f$document$parse_data$class_data$declarations
+    expect_equal(map_chr(records, "name"), c("g", "x", "ordinary"))
+    expect_equal(f$document$parse_data$definitions$x$type, "integer")
+    expect_equal(f$document$parse_data$definitions$ordinary$type, "S7")
+    expect_equal(map_chr(document_symbol_reply(1L, f$uri, f$workspace, f$document,
+                list(hierarchicalDocumentSymbolSupport = TRUE))$result, "name"),
+        c("Ordinary", "g", "x", "ordinary", "method<-", ":="))
+})
+
+test_that("the shallow package index respects S7 NAMESPACE imports and exclusions", {
+    skip_if_not_installed("S7", "1.0.0")
+    package <- index_normalize_path(withr::local_tempdir())
+    dir.create(file.path(package, "R"))
+    writeLines("Package: shapes", file.path(package, "DESCRIPTION"))
+    namespace <- file.path(package, "NAMESPACE")
+    writeLines(c("import(S7)", 'import(rlang, except = ":=")'), namespace)
+    path <- file.path(package, "R", "api.R")
+    code <- c("Shape := new_class()", 'area := new_generic("x")', "method(area, Shape) <- function(x) 0")
+    writeLines(code, path)
+    summary <- index_shallow_summary(path, code, package)
+    expect_equal(map_chr(summary$class_declarations, "name"), c("Shape", "area", "area"))
+    expect_true(index_source_candidates_current(summary))
+    writeLines('importFrom(S7, new_class, new_generic, "method<-")', namespace)
+    expect_false(index_source_candidates_current(summary))
+    latest <- index_shallow_summary(path, code, package)
+    expect_equal(map_chr(latest$class_declarations, "type"), "S7Method")
+    writeLines('importFrom(S7, ":=", new_class, new_generic)', namespace)
+    expect_equal(map_chr(index_shallow_summary(path, code, package)$class_declarations, "name"), c("Shape", "area"))
+})
+
+test_that("S7 evolution examples retain class properties and generic outlines", {
+    skip_if_not_installed("S7", "1.0.0")
+    code <- c("library(S7)", 'Retired := deprecated_class(properties = list(size = class_double), when = "2.0.0")',
+        'Old := deprecated_class(new = Retired, when = "2.0.0", alias = TRUE)',
+        'measure := new_generic("x")', 'old_measure := deprecated_generic(new = measure, when = "1.1.0")')
+    f <- class_provider_fixture(code)
+    d <- f$document$parse_data$class_data$declarations
+    expect_equal(map_chr(d, "name"), c("Retired", "Old", "measure", "old_measure"))
+    expect_equal(map_chr(d[[1L]]$children, "name"), "size")
+    expect_equal(map_int(d, "kind"), c(SymbolKind$Class, SymbolKind$Function, SymbolKind$Function, SymbolKind$Function))
+    expect_equal(d[[2L]]$type, "S7Alias")
+})
+
+test_that("source named binding follows the installed S7 export", {
+    skip_if_not_installed("S7")
+    has_bind <- ":=" %in% getNamespaceExports("S7")
+    f <- class_provider_fixture(c("library(S7)", "Named := new_class()"))
+    expect_identical("Named" %in% names(f$document$parse_data$definitions), has_bind)
+})
+
+test_that("S7's observed attachment exclusions retain named declarations in either attachment order", {
+    skip_if_not_installed("S7", "1.0.0")
+    skip_if_not_installed("rlang")
+    collect <- function(lines, rules) {
+        parsed <- parse(text = lines, keep.source = TRUE)
+        syntax <- syntax_parse_data(utils::getParseData(parsed))
+        class_source_declarations(syntax, lines, "file:///mixed.R", attachment_exclusions = rules)
+    }
+    rules <- list(rlang = ":=")
+    docs <- c("library(S7)", "library(rlang)", "Dog := new_class()")
+    expect_length(collect(docs, NULL), 0L)
+    classes <- collect(docs, rules)
+    expect_equal(map_chr(classes, "name"), "Dog")
+    expect_true(attr(classes, "attachment_rules"))
+    expect_equal(map_chr(collect(docs[c(2L, 1L, 3L)], rules), "name"), "Dog")
+    expect_length(collect(docs[-1L], rules), 0L)
+    expect_length(collect(c(docs[1:2], "`:=` <- function(...) NULL", docs[[3L]]), rules), 0L)
+})
+
+test_that("S7 property navigation links direct and named-list updates to their receiver", {
+    skip_if_not_installed("S7", "1.0.0")
+    lines <- c("library(S7)", "Point := new_class(properties = list(x = class_double))",
+        "p <- Point()", "set_props(p, x = 2)", "S7::set_props(p, base::list(x = 3))",
+        "Other := new_class(properties = list(x = class_double))",
+        "set_props(Other(), x = 4)", "set_props <- function(...) NULL", "set_props(p, x = 5)", "p@x")
+    f <- class_provider_fixture(lines)
+    f$workspace$member_metadata$set("S7", member_index_thaw(member_prepare_package("S7")))
+    point <- function(i) list(row = i - 1L, col = regexpr("x", lines[[i]], fixed = TRUE)[[1L]])
+    declaration <- f$document$parse_data$class_data$declarations[[1L]]$children[[1L]]$selectionRange
+    for (i in 4:5) {
+        definition <- definition_reply(1L, f$uri, f$workspace, f$document, point(i))$result
+        expect_equal(definition$range, declaration)
+    }
+    edits <- rename_reply(1L, f$uri, f$workspace, f$document, point(10L), "height")$result$changes[[f$uri]]
+    expect_equal(map_int(lapply(edits, function(x) x$range$start), "line"), c(1L, 3L, 4L, 9L))
+    expect_match(rename_reply(1L, f$uri, f$workspace, f$document, point(10L), ".check")$error$message,
+        "would match a set_props", fixed = TRUE)
+})
+
+test_that("the S7 compatibility hierarchy distinguishes registry names from generator bindings", {
+    skip_if_not_installed("S7", "1.0.0")
+    parent <- class_provider_fixture(c('Point <- methods::setClass("RegisteredPoint", slots = c(x = "numeric"))',
+            'RegisteredPoint <- S7::new_class("Unrelated")'))
+    child <- class_provider_fixture(c("library(S7)",
+            "Colored := new_class(Point)", 'Scaled := new_class(parent = methods::getClass("RegisteredPoint"))',
+            'methods::setClass("Replica", contains = S4_contains(Colored))',
+            'methods::setClass("OtherReplica", contains = S7::S4_contains(Colored))',
+            'S4_contains <- function(x) "Other"',
+            'methods::setClass("Masked", contains = S4_contains(Colored))',
+            'methods::setClass("Dynamic", contains = S7::S4_contains(choose()))',
+            'Unknown := new_class(parent = methods::getClass("RegisteredPoint", where = elsewhere))'),
+        "file:///cross-system-classes.R", parent$workspace)
+    nodes <- lapply(child$document$parse_data$class_data$declarations, class_hierarchy_item)
+    base <- class_hierarchy_item(parent$document$parse_data$class_data$declarations[[1L]])
+    up <- function(item) find_type_supertypes(child$workspace, item)
+    down <- function(item) find_type_subtypes(child$workspace, item)
+    expect_equal(up(nodes[[1L]]), list(base))
+    expect_equal(up(nodes[[2L]]), list(base))
+    expect_equal(down(base), nodes[1:2])
+    expect_equal(up(nodes[[3L]]), nodes[1L])
+    expect_equal(up(nodes[[4L]]), nodes[1L])
+    expect_equal(down(nodes[[1L]]), nodes[3:4])
+    for (node in nodes[5:7]) expect_length(up(node), 0L)
+})
+
+test_that("S7 names arbitrary factories as ordinary workspace bindings", {
+    skip_if_not_installed("S7", "1.0.0")
+    root <- index_normalize_path(withr::local_tempdir())
+    dir.create(file.path(root, "R"))
+    writeLines(c("Package: factoryfixture", "Version: 0.0.1", "Imports: S7"), file.path(root, "DESCRIPTION"))
+    writeLines("import(S7)", file.path(root, "NAMESPACE"))
+    workspace <- Workspace$new(root)
+    workspace$member_metadata$set("S7", member_index_thaw(member_prepare_package("S7")))
+    path <- file.path(root, "R", "factory.R")
+    code <- c("make <- function(name) list(label = name)", "widget := make()",
+        "{ boxed := list() }", "object[hidden := make()]", "if (flag) { conditional := make() }",
+        'duplicate := make(name = "explicit")', "atomic := 1", "widget_again := make()", "widget_again <- 1L",
+        "`:=` <- function(lhs, rhs) NULL", "masked := make()")
+    writeLines(code, path)
+    source <- class_provider_fixture(code, path_to_uri(path), workspace)
+    cached <- index_shallow_summary(path, code, root)
+    live <- source$document$parse_data$definitions
+    expect_equal(cached$definitions, live)
+    expect_equal(live$widget$type, "variable")
+    expect_equal(live$boxed$type, "variable")
+    expect_equal(live$widget_again$type, "integer")
+    expect_false(any(c("hidden", "conditional", "duplicate", "atomic", "masked") %in% names(live)))
+    workspace$index$set_summary(cached)
+    peer <- file.path(root, "R", "use.R")
+    use <- c("widget", "widget$label")
+    writeLines(use, peer)
+    user <- class_provider_fixture(use, path_to_uri(peer), workspace)
+    symbol <- workspace_symbol_reply(1L, list(workspace), "widget")$result
+    symbol <- Filter(function(x) x$name == "widget", symbol)
+    expect_equal(symbol[[1L]]$location$range, live$widget$range)
+    expect_equal(symbol[[1L]]$kind, get_document_symbol_kind("variable"))
+    outline <- document_symbol_reply(1L, source$uri, workspace, source$document, list(hierarchicalDocumentSymbolSupport = TRUE))$result
+    expect_true("widget" %in% map_chr(outline, "name"))
+    target <- definition_reply(1L, user$uri, workspace, user$document, list(row = 0L, col = 2L))$result
+    expect_equal(target$uri, source$uri)
+    expect_equal(target$range, live$widget$range)
+    items <- member_completion(user$uri, workspace, user$document, list(row = 1L, col = 7L), TRUE, 200L)
+    expect_identical(map_chr(items, "label"), "label")
+})

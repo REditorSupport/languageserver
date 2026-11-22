@@ -130,14 +130,15 @@ package_resolution_cacheable <- function(result, request) {
     # Hooks can attach additional packages beyond DESCRIPTION dependencies.
     # Such results remain useful, but need a new isolated worker next time.
     if (!all(result$packages %in% request$installations$packages)) return(FALSE)
-    catalog_ok <- function(catalog) {
+    catalog_ok <- function(catalog, members = FALSE) {
         is.list(catalog) && identical(catalog$schema, 1L) && is.null(catalog$error) &&
-            is.null(catalog$preparation_error) && !isTRUE(catalog$dataset_only)
+            ((is.null(catalog$preparation_error) && !isTRUE(catalog$dataset_only)) ||
+                    (members && member_bounded_s7_snapshot(catalog, request$installations$packages)))
     }
     if (isTRUE(request$prepare)) {
         required <- unique(c(setdiff(result$packages, startup_packages), request$namespace_packages))
         if (!all(required %in% names(result$members)) ||
-                !all(vapply(result$members, catalog_ok, logical(1L)))) return(FALSE)
+                !all(vapply(result$members, catalog_ok, logical(1L), members = TRUE))) return(FALSE)
     }
     if (isTRUE(request$prepare_s3)) {
         required <- unique(c(startup_packages, result$packages, request$namespace_packages,

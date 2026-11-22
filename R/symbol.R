@@ -182,7 +182,7 @@ document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
             selection <- def$range
             cls <- class_by_name[[name]]
             if (!is.null(cls)) {
-                kind <- SymbolKind$Class
+                kind <- cls$kind
                 selection <- cls$selectionRange
                 children <- cls$children
             } else if (length(nested[[i]])) {
@@ -252,7 +252,7 @@ document_symbol_reply <- function(id, uri, workspace, document, capabilities) {
             name <- names(defns)[[i]]
             symbol_information(
                 name = name,
-                kind = if (is.null(class_by_name[[name]])) get_document_symbol_kind(def$type) else SymbolKind$Class,
+                kind = if (is.null(class_by_name[[name]])) get_document_symbol_kind(def$type) else class_by_name[[name]]$kind,
                 location = location(
                     uri = uri,
                     range = def$range

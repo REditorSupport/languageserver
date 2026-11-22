@@ -305,7 +305,10 @@ member_snapshot <- function(env, max_depth = 4L, max_bindings = 5000L, s7_modes 
                 stored <- attr(value, storage, exact = TRUE)
                 if (!is.null(stored)) slots[name] <- list(describe(stored, depth + 1L))
             }
-            return(list(kind = "s7_instance", descriptor = descriptor, slots = slots))
+            return(list(kind = "s7_instance", descriptor = descriptor, slots = slots,
+                signature = if (typeof(value) == "closure" && "S7_generic" %in% attr(value, "class", exact = TRUE)) {
+                    member_s7_function(formals(value))
+                }))
         }
         descriptor <- member_s7_runtime_descriptor(value, modes = s7_modes)
         if (!is.null(descriptor)) return(list(kind = "s7", descriptor = descriptor))
@@ -498,6 +501,10 @@ member_snapshot_shape <- function(snapshot, package = "") {
         if (identical(record$kind, "s7_instance")) {
             value <- member_s7_shape(record$descriptor)
             for (name in names(record$slots)) value$slots[name] <- list(decode(record$slots[[name]], trail))
+            if (!is.null(record$signature)) {
+                value$function_expr <- record$signature
+                value$s7_dispatch_args <- value$slots$dispatch_args$literal
+            }
             return(value)
         }
         if (identical(record$kind, "s7")) {
@@ -614,6 +621,24 @@ member_public_roots <- function(index, input) {
     c(roots, lazy)
 }
 
+member_s7_namespace_root <- function(value, modes, ns, name, package) {
+    descriptor <- member_s7_runtime_descriptor(value, modes = modes)
+    if (!is.null(descriptor)) {
+        return(if (identical(descriptor$kind, "class")) member_s7_generator(descriptor) else
+                member_s7_value(type = "S7_descriptor", s7_descriptor = descriptor))
+    }
+    if (!"S7_object" %in% attr(value, "class", exact = TRUE)) return(NULL)
+    if (is.null(member_s7_instance_descriptor(value, modes))) return(NULL)
+    holder <- new.env(parent = emptyenv())
+    holder$object <- value
+    shape <- member_snapshot_shape(member_snapshot(holder, s7_modes = modes, lookup_scope = ns))$fields$object
+    if (!is.null(shape$s7_dispatch_args)) {
+        shape$function_key <- name
+        shape$metadata <- package
+    }
+    shape
+}
+
 member_namespace_input <- function(
     ns, package = unname(getNamespaceName(ns)),
     exports = getNamespaceExports(ns), lazydata = member_namespace_lazydata(ns),
@@ -639,21 +664,11 @@ member_namespace_input <- function(
         record <- member_binding(ns, name, materialize = TRUE)
         value <- record[[2L]]
         if (!identical(record[[1L]], "value")) next
-        descriptor <- member_s7_runtime_descriptor(value, modes = s7_modes)
-        if (!is.null(descriptor)) {
-            s7_roots[name] <- list(if (identical(descriptor$kind, "class")) {
-                member_s7_generator(descriptor)
-            } else {
-                member_s7_value(type = "S7_descriptor", s7_descriptor = descriptor)
-            })
-        } else if ("S7_object" %in% attr(value, "class", exact = TRUE)) {
-            descriptor <- member_s7_instance_descriptor(value, s7_modes)
-            if (!is.null(descriptor)) {
-                holder <- new.env(parent = emptyenv())
-                holder$object <- value
-                s7_roots[name] <- list(member_snapshot_shape(member_snapshot(
-                    holder, s7_modes = s7_modes, lookup_scope = ns
-                ))$fields$object)
+        root <- member_s7_namespace_root(value, s7_modes, ns, name, package)
+        if (!is.null(root)) {
+            s7_roots[name] <- list(root)
+            if (identical(package, "S7") && is.null(s7_modes$generic_class) && !is.null(root$s7_dispatch_args)) {
+                s7_modes$generic_class <- root$s7_descriptor
             }
         }
         if (isS4(value) && any(c("classRepresentation", "ClassUnionRepresentation") %in%
@@ -837,7 +852,7 @@ member_index_freeze <- function(index) {
         any(vapply(value$package_roots, function(root) !is.null(root$r6_class), logical(1L)))
     value$symbol_scope <- value$class_scope ||
         any(vapply(value$definitions, function(expr) any(member_syntax_names(expr) %in% member_s7_intrinsics), logical(1L))) ||
-        any(vapply(value$package_roots, function(root) !is.null(root$s7_generator), logical(1L)))
+        any(vapply(value$package_roots, function(root) !is.null(root$s7_generator) || !is.null(root$s7_dispatch_args), logical(1L)))
     value$generation <- digest::digest(value, algo = "sha256")
     value$schema <- 1L
     if (as.numeric(utils::object.size(value)) > 32 * 1024^2) stop("Namespace exceeds snapshot budget")
@@ -1016,6 +1031,54 @@ member_prepare_r6_roots <- function(index, input, ns) {
     invisible(index)
 }
 
+# A package over the full metadata budget can still publish a small set of
+# classes. The frozen index holds a root by local, exported and qualified
+# name, so reserve only a fraction of its 32 MiB limit for these shapes.
+member_public_s7_input <- function(input, ns, known = NULL, max_bytes = 4 * 1024^2) {
+    if (!length(input$s7_capabilities)) return(input)
+    targets <- input$namespace_export_targets
+    candidates <- sort(unique(unname(targets)), method = "radix")
+    if (!is.null(known)) candidates <- intersect(candidates, names(known))
+    for (name in utils::head(candidates, 10000L)) {
+        root <- if (!is.null(known)) {
+            known[[name]]
+        } else {
+            # If normal collection stopped before reading the namespace, use
+            # only values already materialized by the package.
+            record <- member_binding(ns, name)
+            if (!identical(record[[1L]], "value") || !is.object(record[[2L]])) next
+            member_s7_namespace_root(record[[2L]], input$s7_capabilities, ns, name, input$package)
+        }
+        if (is.null(root) || identical(root$s7_descriptor$kind, "s4")) next
+        bytes <- as.numeric(utils::object.size(root))
+        if (bytes > max_bytes) next
+        input$s7_roots[name] <- list(root)
+        max_bytes <- max_bytes - bytes
+    }
+    input$namespace_exports <- names(targets)[targets %in% names(input$s7_roots)]
+    input$exports <- union(input$exports, input$namespace_exports)
+    input$s7_dependencies <- member_s7_dependencies(input$s7_roots, input$package, input$s7_capabilities)
+    input
+}
+
+# A bounded namespace result is final for this installation when the worker
+# successfully froze its public S7 exports. A startup or dataset-only fallback
+# still has no such evidence and can be upgraded on the next request.
+member_bounded_s7_snapshot <- function(catalog, packages = NULL) {
+    exports <- catalog$bounded_s7_exports
+    if (!isTRUE(catalog$dataset_only) || !isTRUE(catalog$namespace_attempted) || !is.null(catalog$error) ||
+            is.null(catalog$identity) || !length(exports) || !all(exports %in% names(catalog$roots)) ||
+            !isTRUE(grepl("^Namespace exceeds .* budget$", catalog$preparation_error))) return(FALSE)
+    # External class snapshots can come from a suggested package loaded by a
+    # hook. Reuse them only if its installation participates in the key.
+    dependencies <- setdiff(c(names(catalog$s7_dependencies), names(catalog$s4_dependencies)), catalog$package)
+    if (!length(dependencies)) return(TRUE)
+    if (is.null(packages) && is.list(catalog$identity$context)) {
+        packages <- vapply(catalog$identity$context$packages, `[[`, character(1L), "package")
+    }
+    all(dependencies %in% packages)
+}
+
 member_prepare_package <- function(package, lib_paths = .libPaths(), context = NULL, identity = NULL) {
     .libPaths(lib_paths)
     ns <- asNamespace(package)
@@ -1035,19 +1098,38 @@ member_prepare_package <- function(package, lib_paths = .libPaths(), context = N
             index$dataset_only <- TRUE
             index$namespace_attempted <- TRUE
             index$preparation_error <- preparation_error
+            if (length(input$s7_roots)) {
+                index$bounded_s7_exports <- intersect(input$namespace_exports, names(index$roots))
+            }
         }
         index$identity <- identity
         member_index_freeze(index)
     }
-    snapshot <- tryCatch(prepare(member_namespace_input(ns)), error = function(e) {
+    input <- NULL
+    snapshot <- tryCatch({
+        input <- member_namespace_input(ns)
+        prepare(input)
+    }, error = function(e) {
         message <- conditionMessage(e)
+        if (!grepl("^Namespace exceeds .* budget$", message)) stop(e)
         lazydata <- member_namespace_lazydata(ns)
-        if (!grepl("^Namespace exceeds .* budget$", message) || !is.environment(lazydata) ||
-                !length(ls(lazydata, all.names = TRUE))) stop(e)
-        # A large normal namespace must not hide its lightweight public data.
-        prepare(member_namespace_input(ns, lazydata = lazydata, lazydata_only = TRUE), message)
+        data <- member_namespace_input(ns, lazydata = lazydata, lazydata_only = TRUE)
+        public <- member_public_s7_input(data, ns, input$s7_roots)
+        if (length(public$s7_roots)) {
+            # Very large datasets or external dependencies can use the remaining
+            # budget. Preserve the established dataset fallback in that case.
+            result <- tryCatch(prepare(public, message), error = function(err) {
+                if (!grepl("^Namespace exceeds .* budget$", conditionMessage(err))) stop(err)
+                NULL
+            })
+            if (!is.null(result)) return(result)
+        }
+        if (!length(data$lazydata_roots)) stop(e)
+        prepare(data, message)
     })
-    package_metadata_cache_write(cache_path, identity, snapshot)
+    if (!length(snapshot$bounded_s7_exports) || member_bounded_s7_snapshot(snapshot)) {
+        package_metadata_cache_write(cache_path, identity, snapshot)
+    }
     snapshot
 }
 
@@ -1193,9 +1275,22 @@ member_resolve_packages <- function(pkgs, lib_paths, prepare = TRUE, namespace_p
         }
     }
     list(
-        packages = packages, members = snapshots,
+        packages = packages, members = snapshots, attachment_exclusions = member_attachment_exclusions(pkgs, packages),
         s3 = if (isTRUE(prepare_s3)) s3_prepare_packages(unique(c(packages, namespace_packages))) else NULL,
         requested = list(packages = normalize_package_request(pkgs),
             namespace_packages = normalize_package_request(unique(namespace_packages)))
     )
+}
+
+# Hooks may exclude another package's exports on attachment. Keep the
+# observed rules with the document; :: and NAMESPACE still see the exports.
+member_attachment_exclusions <- function(pkgs, attached) {
+    exclusions <- NULL
+    if ("S7" %in% attached) {
+        for (pkg in intersect(pkgs, attached)) {
+            excluded <- base::conflictRules(pkg)$exclude
+            if (length(excluded)) exclusions[[pkg]] <- excluded
+        }
+    }
+    exclusions
 }
