@@ -191,6 +191,53 @@ current. Unresolved sites are retried. Direct reads in an unchanged block can
 share receiver resolution within the first request. Large result sets still
 require one edit or location per matching use.
 
+## S7 release providers
+
+Install the base and candidate languageserver revisions in separate libraries.
+Use the same R and S7 installations for both. Run the benchmark from the
+candidate checkout so both revisions receive the same fixtures.
+
+```sh
+R_LIBS=/path/to/base:/path/to/S7-1.0.0 Rscript --vanilla inst/benchmarks/s7-providers.R baseline 15
+R_LIBS=/path/to/candidate:/path/to/S7-1.0.0 Rscript --vanilla inst/benchmarks/s7-providers.R candidate 15
+```
+
+The following run used R 4.6.1 on arm64 macOS with S7 1.0.0. Figures are
+median / p90 wall times in milliseconds for 15 samples per revision, with
+five samples for the namespace index. Cold completion starts with an accepted
+parse and clears the receiver cache. Warm batches reuse that document. Each
+sample checks its result.
+
+| Workload | Base `7ad3e4e` (ms) | Candidate (ms) |
+| --- | ---: | ---: |
+| Build S7 namespace member index | 98.21 / 104.72 | 105.70 / 107.95 |
+| Parse 200 functions plus S7 declarations | 39.76 / 41.63 | 41.14 / 43.40 |
+| Cold ordinary list completion | 0.63 / 0.67 | 0.68 / 0.80 |
+| 10 warm ordinary list completions | 4.92 / 5.09 | 4.93 / 5.13 |
+| Cold attached S7 property completion | 1.56 / 1.61 | 1.64 / 1.80 |
+| 10 warm attached S7 completions | 9.18 / 10.83 | 9.87 / 11.49 |
+| Cold property completion from a package import | 0.52 / 0.55 (empty) | 1.21 / 1.30 (2 properties) |
+| Cold property completion on a method parameter | 0.96 / 1.01 (empty) | 1.76 / 1.94 (2 properties) |
+| Index one file declaring a class, generic and method | 2.71 / 3.42 | 3.71 / 4.63 |
+| Index 8 S7 files and 120 ordinary package files | 278.34 / 308.46 | 273.97 / 292.21 |
+| 10 ordinary workspace symbol searches | 0.73 / 0.91 | 0.78 / 0.79 |
+| 10 S7 workspace symbol searches | 0.71 / 0.86 (0 results) | 1.44 / 1.48 (16 per query) |
+
+The individual S7 file took an additional 1.00 ms to index at the median.
+Run-to-run variation in the mixed-file index exceeded the difference between
+revisions. Earlier paired runs on this machine measured 262–276 ms on the
+base, and 267–289 ms on the candidate.
+
+For the oversized-namespace case, install ggplot2 and replace `15` with
+`ggplot2` in each command. Each invocation starts a fresh R process and
+disables the disk cache. On ggplot2 4.0.4, five alternating samples per
+revision gave median worker preparation times of 1.743 s and 1.747 s (p90
+1.776 s and 1.767 s). The base snapshot held 11 datasets in 253,424 bytes.
+The candidate also retained 31 exported S7 values, using about 12.5 MB of
+the 32 MiB snapshot budget. The benchmark checks that completion on
+`ggplot2::class_ggplot()@` returns the 12 property names from the installed
+`S7::prop_names()` API.
+
 ## Member metadata workers
 
 Run these against separately installed revisions, without concurrent tests or
