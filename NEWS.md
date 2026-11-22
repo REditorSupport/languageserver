@@ -1,5 +1,9 @@
 # languageserver (development)
 
+- Follow declarations and reassignments across standalone `{ ... }` blocks
+  in workspace symbols, references, rename, member completion and S3 dispatch.
+  Extract Function and Inline Variable also recognize statements grouped this way.
+
 - Recognize S7 1.0 class and generic declarations made with `:=` in scripts
   and package sources. Completion and hover follow stored property updates,
   S4 subclasses and typed method arguments. Signature help shows the generic

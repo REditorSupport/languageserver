@@ -72,8 +72,7 @@ s3_generic_descriptor <- function(fn) {
     if (!member_head(fn, "function")) {
         return(NULL)
     }
-    body <- fn[[3L]]
-    if (member_head(body, "{") && length(body) == 2L) body <- body[[2L]]
+    body <- unwrap_single_statement(fn[[3L]])
     if (member_head(body, "return") && length(body) == 2L) body <- body[[2L]]
     if (!member_head(body, "UseMethod") || length(body) < 2L ||
             !is.character(body[[2L]]) || length(body[[2L]]) != 1L) {

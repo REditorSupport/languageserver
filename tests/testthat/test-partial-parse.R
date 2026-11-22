@@ -9,6 +9,43 @@ test_that("partial structure preserves physical ranges across an isolated syntax
     expect_identical(parsed$syntax_data$line1[parsed$partial_complete_roots], c(2L, 4L))
 })
 
+test_that("complete statements in verified standalone braces survive a sibling's syntax error", {
+    uri <- "file:///partial-braces.R"
+    content <- c("{", "  {", "    f <- function(arg) {", "      saved <- arg", "      saved * 2",
+        "    }", "  }", "  pkg::", "  draw <- function(x) UseMethod('draw')",
+        "  methods::setGeneric('display', function(x) standardGeneric('display'))", "}")
+    fixture <- provider_fixture(content)
+    parsed <- fixture$document$parse_data
+    expect_true(parsed$parse_error)
+    expect_identical(parsed$partial_incomplete_lines, 7L)
+    expect_true(partial_root_contains(parsed, list(row = 3L, col = 6L)))
+    inline <- refactor_code_actions(fixture$uri, fixture$workspace, fixture$document,
+        list(start = list(row = 3L, col = 6L), end = list(row = 3L, col = 11L)), list("refactor.inline"))
+    expect_length(inline, 1L)
+    ids <- member_complete_item_ids(parsed)
+    expect_identical(vapply(parsed$member_data$items[ids], function(item) item$start[[1L]], integer(1L)),
+        c(2L, 8L, 9L))
+
+    disk <- index_shallow_summary(path_from_uri(uri), content, tempdir())
+    expect_identical(s3_index_summary(content, uri, parse_data = parsed)$index$functions$draw, disk$s3$index$functions$draw)
+    expect_identical(disk$s3$index$functions$draw$name, "draw")
+    expect_identical(parsed$s4_declarations, disk$s4_declarations)
+    expect_length(disk$s4_declarations$display, 1L)
+})
+
+test_that("scope proofs stop at damaged delimiters, functions, calls and conditions", {
+    for (head in c("{", "if (flag) {", "local({", "f <- function() {")) {
+        end <- if (head == "local({") "})" else "}"
+        content <- c(head, "  inside <- 1", "  pkg::", end)
+        parsed <- parse_document("file:///partial.R", content)
+        expect_identical(partial_root_contains(parsed, list(row = 1L, col = 3L)), head == "{", info = head)
+    }
+    expr <- parse(text = c("{", "{", "  hidden <- 1", "}", "}"), keep.source = TRUE)
+    for (gap in c(0L, 1L, 2L, 3L, 4L)) {
+        expect_length(top_level_statements(expr, gap), 0L)
+    }
+})
+
 test_that("line directives keep definitions in physical coordinates on edit and repair", {
     source <- c('#line 1000 "elsewhere.R"', "first <- function(x) x", "second <- first(1)")
     for (edit in c("", "pkg::", "pkg::median")) {

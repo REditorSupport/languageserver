@@ -39,11 +39,6 @@ s4_declarations <- function(expressions, content, incomplete_lines = integer()) 
         head <- expr[[1L]]
         if (is.symbol(head)) {
             helper <- as.character(head)
-            if (helper == "{") {
-                refs <- attr(expr, "srcref")
-                for (i in seq_along(refs)[-1L]) visit(expr[[i]], refs[[i]])
-                return()
-            }
             if (helper %in% c("<-", "=", "<<-") && length(expr) == 3L && is.symbol(expr[[2L]])) {
                 target <- as.character(expr[[2L]])
                 if (target %in% s4_registration_helpers) shadowed <<- union(shadowed, target)
@@ -71,11 +66,10 @@ s4_declarations <- function(expressions, content, incomplete_lines = integer()) 
         if (is.null(groups[[name]])) groups[[name]] <- collections::queue()
         groups[[name]]$push(list(kind = if (is_method) "method" else "generic", range = expr_range(ref)))
     }
+    expressions <- top_level_statements(expressions, incomplete_lines)
     refs <- attr(expressions, "srcref")
     for (i in seq_along(refs)) {
         ref <- refs[[i]]
-        if (length(incomplete_lines) &&
-                findInterval(ref[[1L]] - 2L, incomplete_lines) != findInterval(ref[[3L]] - 1L, incomplete_lines)) next
         visit(expressions[[i]], ref)
     }
     lapply(as.list(groups, all.names = TRUE), function(group) group$as_list())

@@ -262,17 +262,15 @@ class_source_declarations <- function(syntax, content, uri, incomplete_lines = i
             }
         }
         if (type == "S7Method" && expr == row) next
+        # Only statements in the outer lexical scope declare workspace classes.
+        if (length(syntax$function_scope) && syntax$function_scope[[row]] > 0L) next
+        if (!class_top_level_statement(syntax, expr)) next
         binding_name <- if (type == "S7Method") "method<-" else helper
         check_owner <- class_helper_packages[[helper]] == "S7"
         if (is.null(call$package) && (is_masked(binding_name, symbol) || (check_owner && !s7_owns(binding_name, symbol)))) {
             if (binding) masked[[class_token_text(syntax$text[[binding]])]] <- at(expr)
             next
         }
-        # A class declared inside a function is not a workspace binding.
-        if (length(syntax$function_scope) && syntax$function_scope[[row]] > 0L) next
-        enclosing <- syntax$parent_row[[expr]]
-        if (enclosing && !any(syntax$token[syntax_children(syntax, enclosing)] == "'{'")) next
-        if (check_owner && enclosing && !class_top_level_statement(syntax, expr)) next
         alias <- FALSE
         if (helper %in% c("deprecated_class", "deprecated_generic")) {
             # The wrappers forward the class or generic arguments. 'when' and

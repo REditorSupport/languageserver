@@ -813,18 +813,15 @@ test_that("language-valued R6 fields stay data in installed and document classes
     expect_length(r6_budget_labels(r6_budget_code(r6_budget_language_code, "QF$new()$expr()$")), 0L)
 })
 
-test_that("a local assigned in a compound statement is not replaced by the field", {
-    # Pre-existing base behaviour, unchanged by the size fix: the runtime value
-    # is `local`; completion suggests nothing (and never `field`).
-    expect_length(r6_budget_labels(r6_budget_code(
-        "C <- R6::R6Class(\"C\", portable = FALSE, public = list(",
-        "  x = list(field = TRUE), y = NULL,",
-        "  probe = function() {",
-        "    { x <- list(local = TRUE); self$y <- list(updated = TRUE) }",
-        "    x$@@",
-        "  }",
-        "))"
-    )), 0L)
+test_that("R6 method locals shadow fields across standalone braces", {
+    statements <- "x <- list(local = TRUE); self$y <- list(updated = TRUE)"
+    for (body in c(statements, paste("{", statements, "}"))) {
+        expect_identical(r6_budget_labels(r6_budget_code(
+            'C <- R6::R6Class("C", portable = FALSE, public = list(',
+            "  x = list(field = TRUE), y = NULL,",
+            "  probe = function() {", body, "    x$@@", "  }", "))"
+        )), "local")
+    }
 })
 
 test_that("a method extracted before a receiver-mutating branch stays callable", {

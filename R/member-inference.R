@@ -5,6 +5,11 @@ member_head <- function(x, name) {
     !missing(x) && is.call(x) && is.symbol(x[[1L]]) && identical(as.character(x[[1L]]), name)
 }
 
+unwrap_single_statement <- function(body) {
+    while (member_head(body, "{") && length(body) == 2L) body <- body[[2L]]
+    body
+}
+
 member_name <- function(x) {
     if (missing(x)) {
         return(NULL)
@@ -839,8 +844,7 @@ member_infer <- function(
             # surface. Other loops retain the conservative invalidation below.
             if (member_head(node, "for") && member_head(node[[3L]], "names") && length(node[[3L]]) == 2L &&
                     intrinsic("names") && !"names" %in% names(env)) {
-                body <- node[[4L]]
-                if (member_head(body, "{") && length(body) == 2L) body <- body[[2L]]
+                body <- unwrap_single_statement(node[[4L]])
                 variable <- member_name(node[[2L]])
                 if (member_head(body, "<-") && member_head(body[[2L]], "[[") &&
                         member_head(body[[3L]], "[[") && length(body[[2L]]) == 3L && length(body[[3L]]) == 3L &&
@@ -1825,7 +1829,7 @@ member_registration_effect <- function(expr, index, bindings, budget = NULL) {
 member_generic_index <- function(code) {
     index <- new.env(parent = emptyenv())
     index$definitions <- list()
-    for (expr in str2expression(code)) {
+    for (expr in top_level_statements(str2expression(code))) {
         if (member_head(expr, "<-") && is.symbol(expr[[2L]])) {
             index$definitions[as.character(expr[[2L]])] <- list(expr[[3L]])
         }

@@ -12,6 +12,71 @@ test_that("reference index distinguishes lexical and package scopes", {
     expect_true("package:pkg:value" %in% value_keys)
 })
 
+test_that("grouping file statements preserves the bindings used by references and rename", {
+    lines <- c(
+        "value <- 1; local({ value <- 2; value })",
+        "local({ value <- 3; value })",
+        "{ value <- value + 1 }",
+        "f <- function(value) { { value }; value }",
+        "value"
+    )
+    for (wrapped in c(FALSE, TRUE)) {
+        content <- lines
+        if (wrapped) {
+            content[[1L]] <- paste("{ {", content[[1L]])
+            content[[5L]] <- paste(content[[5L]], "} }")
+        }
+        f <- provider_fixture(content)
+        parsed <- f$document$parse_data
+        index <- parsed$reference_index
+        global <- reference_indices(index, "value", "global:value")
+        expect_equal(index$line[global], c(0L, 2L, 2L, 4L))
+        others <- setdiff(reference_indices(index, "value"), global)
+        expect_equal(unname(lengths(split(others, index$definition_key[others]))), c(2L, 2L, 3L))
+        point <- list(row = 4L, col = 2L)
+        hits <- references_reply(1L, f$uri, f$workspace, f$document, point)$result
+        edits <- rename_reply(1L, f$uri, f$workspace, f$document, point, "renamed")$result$changes[[f$uri]]
+        highlights <- document_highlight_reply(1L, f$uri, f$workspace, f$document, point)$result
+        for (items in list(hits, edits, highlights)) {
+            expect_equal(sort(map_int(items, c("range", "start", "line"))), c(0L, 2L, 2L, 4L))
+        }
+    }
+})
+
+test_that("a top-level loop variable remains visible across nested braces", {
+    f <- provider_fixture(c("{ { for (counter in 1:2) counter } }", "counter"))
+    point <- list(row = 0L, col = 28L)
+    hits <- references_reply(1L, f$uri, f$workspace, f$document, point)$result
+    expect_equal(map_int(hits, c("range", "start", "line")), c(0L, 0L, 1L))
+})
+
+test_that("same-line formals and local calls cannot adopt a braced global binding", {
+    content <- "{ value <- 1; local({value <- 2; value}); function(value) value; value }"
+    index <- parse_document("file:///blocks.R", content)$reference_index
+    keys <- index$definition_key[reference_indices(index, "value")]
+    expect_equal(keys[c(1L, 6L)], rep("global:value", 2L))
+    expect_identical(keys[[2L]], keys[[3L]])
+    expect_identical(keys[[4L]], keys[[5L]])
+    expect_length(unique(keys), 3L)
+})
+
+test_that("scope completion keeps local calls inside their top-level statement", {
+    content <- c("{", "  { local({ private_value <- 1; private_value }) }",
+        "  private_value", "}", "private_value")
+    f <- provider_fixture(content)
+    parsed <- f$document$parse_data
+    standalone <- completion_parse_data(utils::getParseData(parse(text = content, keep.source = TRUE)))
+    expect_identical(standalone, parsed$completion_data)
+    for (records in list(standalone, NULL)) {
+        parsed$completion_data <- records
+        for (line in c(1L, 2L, 4L)) {
+            point <- list(row = line, col = nchar(content[[line + 1L]]) - if (line == 1L) 5L else 1L)
+            choices <- scope_completion(f$uri, f$workspace, "private_", point)
+            expect_identical("private_value" %in% map_chr(choices, "label"), line == 1L)
+        }
+    }
+})
+
 test_that("reference indexing uses syntax for spaced member and namespace operators", {
     fixture <- provider_fixture(c(
         "value <- function() NULL",

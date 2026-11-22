@@ -43,8 +43,7 @@ member_constructor <- function(fn) {
     if (!member_head(body, "{")) {
         return(NULL)
     }
-    statements <- as.list(body)[-1L]
-    if (!length(statements)) return(NULL)
+    statements <- top_level_statements(as.expression(list(body)))
     last <- statements[[length(statements)]]
     if (member_head(last, "return") && length(last) == 2L) last <- last[[2L]]
     target <- member_name(last)
@@ -110,12 +109,8 @@ member_returned_function <- function(fn) {
     if (!member_head(fn, "function")) {
         return(NULL)
     }
-    body <- fn[[3L]]
-    statements <- if (member_head(body, "{")) as.list(body)[-1L] else list(body)
-    if (!length(statements)) {
-        return(NULL)
-    }
-    last <- utils::tail(statements, 1L)[[1L]]
+    statements <- as.list(top_level_statements(as.expression(list(fn[[3L]]))))
+    last <- statements[[length(statements)]]
     if (member_head(last, "return") && length(last) == 2L) last <- last[[2L]]
     if (member_head(last, "function")) {
         return(list(fn = last, prelude = statements[-length(statements)]))
@@ -694,8 +689,7 @@ member_prepare_returns <- function(index, max_nodes = 40000L, max_bytes = 1024^2
         state$remaining <- state$remaining - used
         if (!is.null(item$generic) && !budget$exhausted) {
             candidate <- result
-            body <- fn[[3L]]
-            if (member_head(body, "{") && length(body) == 2L) body <- body[[2L]]
+            body <- unwrap_single_statement(fn[[3L]])
             simple <- is.symbol(body) || member_head(body, "$") || member_head(body, "@")
             if (!length(candidate$type) && simple && state$remaining > 0L) {
                 class <- substring(key, nchar(item$generic) + 2L)

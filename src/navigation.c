@@ -422,7 +422,16 @@ SEXP syntax_index_c(SEXP data, SEXP order) {
             pending_scope[pending_n++] = row;
             row = ancestor;
         }
-        while (pending_n) scope_rows[pending_scope[--pending_n]] = scope_rows[row];
+        while (pending_n) {
+            int child = pending_scope[--pending_n], first_child = id_first[ids[row]];
+            /* At file scope each statement has its own completion range.
+             * A standalone brace groups those statements without extending
+             * bindings from, for example, a local() call to its siblings. */
+            int open_block = scope_rows[row] == row && first_child >= 0 &&
+                syntax_named(tokens, first_child, "'{'");
+            scope_rows[child] = open_block ? child : scope_rows[row];
+            row = child;
+        }
     }
 
     UNPROTECT(1);

@@ -797,10 +797,21 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
 
     env$packages <- basename(find.package(env$packages, quiet = TRUE))
     env$navigation_data <- navigation_parse_data(env$syntax_data)
+    verified <- NULL
+    if (length(incomplete_lines)) {
+        first <- env$syntax_data$first_child[env$syntax_data$roots]
+        if (any(env$syntax_data$token[first] == "'{'")) {
+            blocks <- which(vapply(expr, member_head, logical(1L), "{"))
+            braces <- expr[blocks]
+            attr(braces, "srcref") <- attr(expr, "srcref")[blocks]
+            verified <- top_level_statements(braces, incomplete_lines)
+        }
+    }
     # Cursor recovery also tracks unfinished member accesses and their package
     # hints. Keep its original source and bounded recovery on a syntax error.
     env$member_data <- member_document_index(content, expr, data, recovery$incomplete_lines,
-        defer_small_scopes = is_rmarkdown && length(incomplete_lines) > 0L, value_source = value_source)
+        defer_small_scopes = is_rmarkdown && length(incomplete_lines) > 0L, value_source = value_source,
+        verified = verified)
     if (is_rmarkdown && length(literate$member_packages)) {
         env$member_data$packages <- union(env$member_data$packages, literate$member_packages)
     }
@@ -833,12 +844,7 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
             env$literate_replacements <- restore_parse_tabs(projected[rows], originals,
                 which(grepl("\t", originals, fixed = TRUE)))
         }
-        roots <- env$syntax_data$roots
-        roots <- roots[env$syntax_data$token[roots] %in% c("expr", "expr_or_assign_or_help")]
-        # findInterval counts uncertain lines through each boundary.
-        env$partial_complete_roots <- roots[
-            findInterval(env$syntax_data$line1[roots] - 2L, incomplete_lines) ==
-                findInterval(env$syntax_data$line2[roots] - 1L, incomplete_lines)]
+        env$partial_complete_roots <- partial_complete_roots(env$syntax_data, incomplete_lines, verified)
     }
     if (!is.null(recovery)) {
         partial_semantic <- semantic_parse_data(recovery$token_data, content,

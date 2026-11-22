@@ -127,6 +127,14 @@ linked_editing_range_reply <- function(id, uri, workspace, document, point) {
             assign(symbol, list(), envir = indexed$ranges)
             next
         }
+        # A standalone block can contain several statements on the same line.
+        # Only the function in this documented definition owns its @param tags.
+        start <- document$from_lsp_position(definition$range$start)
+        end <- document$from_lsp_position(definition$range$end)
+        in_definition <- function(line1, col1, line2, col2) {
+            (line1 > start$row + 1L | (line1 == start$row + 1L & col1 > start$col)) &
+                (line2 < end$row + 1L | (line2 == end$row + 1L & col2 <= end$col))
+        }
         formal_rows <- integer()
         formal_nodes <- NULL
         if (!is.null(definition$method) && !is.null(syntax)) {
@@ -134,23 +142,11 @@ linked_editing_range_reply <- function(id, uri, workspace, document, point) {
             formal_rows <- children[syntax$token[children] == "SYMBOL_FORMALS"]
             if (!length(formal_rows)) next
         } else if (!is.null(syntax) && !is.null(parse_data$navigation_data)) {
-            enclosing <- .Call("syntax_enclosing_c", syntax,
-                as.integer(c(definition_row + 1L, definition$range$start$character + 1L)),
-                PACKAGE = "languageserver")
-            functions <- navigation_definitions(parse_data, definition_row + 1L,
-                definition$range$start$character + 1L, symbol, "signature")
-            if (length(enclosing)) {
-                context <- enclosing[[1L]]
-                selected <- syntax$line1[functions] >= syntax$line1[[context]] &
-                    syntax$line2[functions] <= syntax$line2[[context]] &
-                    (syntax$line1[functions] != syntax$line1[[context]] |
-                            syntax$col1[functions] >= syntax$col1[[context]]) &
-                    (syntax$line2[functions] != syntax$line2[[context]] |
-                            syntax$col2[functions] <= syntax$col2[[context]])
-                functions <- functions[selected]
-            }
+            functions <- navigation_definitions(parse_data, start$row + 1L, start$col + 1L, symbol, "signature")
+            functions <- functions[in_definition(syntax$line1[functions], syntax$col1[functions],
+                    syntax$line2[functions], syntax$col2[functions])]
             if (!length(functions)) next
-            children <- syntax_children(syntax, functions[[length(functions)]])
+            children <- syntax_children(syntax, functions[[1L]])
             formal_rows <- children[syntax$token[children] == "SYMBOL_FORMALS"]
             if (!length(formal_rows)) next
         } else {
@@ -161,12 +157,14 @@ linked_editing_range_reply <- function(id, uri, workspace, document, point) {
                 row = definition_row + 1L,
                 token_quote = xml_single_quote(symbol)
             )
-            scopes <- xdoc_find_enclosing_scopes(xdoc, definition_row + 1L,
-                definition$range$start$character + 1L)
+            scopes <- xdoc_find_enclosing_scopes(xdoc, start$row + 1L, start$col + 1L)
             context <- if (length(scopes)) scopes[[1L]] else xdoc
             function_nodes <- xml_find_all_(context, xpath)
+            function_nodes <- function_nodes[in_definition(as.integer(xml_attr(function_nodes, "line1")),
+                    as.integer(xml_attr(function_nodes, "col1")), as.integer(xml_attr(function_nodes, "line2")),
+                    as.integer(xml_attr(function_nodes, "col2")))]
             if (!length(function_nodes)) next
-            function_node <- function_nodes[[length(function_nodes)]]
+            function_node <- function_nodes[[1L]]
             formal_nodes <- xml_find_all_(function_node, "SYMBOL_FORMALS")
             if (!length(formal_nodes)) next
         }

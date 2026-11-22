@@ -329,9 +329,15 @@ refactor_selection_context <- function(uri, workspace, document, item_range) {
         # XML selection already covers their full ranges; also check that no
         # original source between them was omitted during recovery.
         missing <- parse_data$partial_incomplete_lines
-        if (is.null(statements) || !identical(xml_name(statements$container), "exprlist") ||
-                is.null(missing) || any(missing >= selected_range$start$row & missing <= selected_range$end$row)) {
+        if (is.null(statements) || is.null(missing) ||
+                any(missing >= selected_range$start$row & missing <= selected_range$end$row)) {
             return(NULL)
+        }
+        if (xml_name(statements$container) != "exprlist") {
+            # A verified endpoint proves the parent of these contiguous
+            # siblings too. Any gap between them was excluded above.
+            span <- refactor_node_range(statements$nodes[[1L]])
+            if (!partial_root_contains(parse_data, span$start, span$end)) return(NULL)
         }
     }
     list(
@@ -892,9 +898,12 @@ refactor_extract_function_action <- function(uri, workspace, document,
         return(NULL)
     }
     if (length(bindings$outputs)) {
-        final_assignment <- refactor_assignment_parts(
-            selection$nodes[[length(selection$nodes)]]
-        )
+        last <- selection$nodes[[length(selection$nodes)]]
+        # A brace expression returns the value of its last statement.
+        while (refactor_sequence_container(last)) {
+            last <- xml_find_first_(last, "expr[last()]")
+        }
+        final_assignment <- refactor_assignment_parts(last)
         if (is.null(final_assignment) ||
                 !identical(final_assignment$name, bindings$outputs[[1L]])) {
             return(NULL)
@@ -1033,6 +1042,32 @@ refactor_inline_eager_use <- function(use, eager, base_operator) {
     TRUE
 }
 
+# Test execution order across standalone brace statements. A block used as an
+# assignment value, call argument or conditional body cannot be stepped over.
+refactor_inline_sequence <- function(assignment, read, literal) {
+    container <- xml_parent(assignment)
+    read_parent <- xml_parent(read)
+    if (!identical(container, read_parent)) {
+        read_range <- refactor_node_range(read)
+        while (xml_name(container) != "exprlist" &&
+                !refactor_range_contains(refactor_node_range(container), read_range)) {
+            if (!literal && xml_find_lgl_(assignment, "boolean(following-sibling::expr)")) return(FALSE)
+            assignment <- container
+            container <- xml_parent(assignment)
+            if (!refactor_sequence_container(container)) return(FALSE)
+        }
+        if (!literal) {
+            while (!identical(read_parent, container)) {
+                if (xml_find_lgl_(read, "boolean(preceding-sibling::expr)")) return(FALSE)
+                read <- read_parent
+                read_parent <- xml_parent(read)
+                if (!refactor_sequence_container(read_parent)) return(FALSE)
+            }
+        }
+    }
+    literal || identical(xml_find_first_(assignment, "following-sibling::expr[1]"), read)
+}
+
 refactor_inline_variable_action <- function(uri, workspace, document,
     item_range, client_capabilities = NULL) {
     if (is.null(workspace) || !check_r_region(document, item_range$start)) {
@@ -1107,7 +1142,7 @@ refactor_inline_variable_action <- function(uri, workspace, document,
 
     # Constants can cross statements. A saved expression can read mutable
     # state, including through an environment alias or an active binding.
-    # Keep such reads in the same block, before any intervening computation.
+    # Keep such reads before any intervening computation.
     base_operator <- function(operator) {
         if (is.null(parse_data$syntax_data)) return(FALSE)
         name <- xml_text(operator)
@@ -1118,10 +1153,8 @@ refactor_inline_variable_action <- function(uri, workspace, document,
         is.null(owner) || identical(owner, "base")
     }
     literal <- refactor_inline_literal(assignment$value, base_operator)
+    if (!refactor_inline_sequence(assignment$node, read_statement$statement, literal)) return(NULL)
     if (!literal) {
-        next_statement <- xml_find_first_(assignment$node, "following-sibling::expr[1]")
-        if (!length(next_statement) || inherits(next_statement, "xml_missing") ||
-                !refactor_same_node(next_statement, read_statement$statement)) return(NULL)
         use <- xml_parent(read_node)
         target <- refactor_assignment_parts(read_statement$statement)
         eager <- if (is.null(target)) read_statement$statement else target$value

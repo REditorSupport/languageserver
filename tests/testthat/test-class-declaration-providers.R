@@ -7,6 +7,33 @@ class_provider_fixture <- function(lines, uri = "file:///class-providers.R", wor
     list(uri = uri, document = document, workspace = workspace)
 }
 
+test_that("standalone groups expose class declarations only in workspace statement position", {
+    for (declaration in c('methods::setClass("Visible")', 'methods::setRefClass("Visible")',
+            'Visible <- R6::R6Class("Visible")', 'methods::setGeneric("Visible", function(x) x)')) {
+        hidden <- gsub("Visible", "Hidden", declaration)
+        branch <- gsub("Visible", "Conditional", declaration)
+        for (visible in c(declaration, sprintf("{ { %s } }", declaration))) {
+            code <- c(visible, sprintf("quote({ %s })", hidden), sprintf("local({ %s })", hidden),
+                sprintf("if (flag) %s", branch), sprintf("if (flag) { %s }", branch))
+            f <- class_provider_fixture(code)
+            expect_identical(map_chr(f$document$parse_data$class_data$declarations, "name"), "Visible")
+            symbols <- document_symbol_reply(1L, f$uri, f$workspace, f$document,
+                list(hierarchicalDocumentSymbolSupport = TRUE))$result
+            # The ordinary variable index also lists explicit assignments in if branches.
+            expect_identical(map_chr(symbols, "name"),
+                if (startsWith(declaration, "Visible <-")) c("Visible", "Conditional") else "Visible")
+            if (symbols[[1L]]$kind == SymbolKind$Class) {
+                point <- list(row = 0L, col = regexpr("Visible", visible, fixed = TRUE)[[1L]])
+                xml <- list(get_parse_data = function(...) list(xml_doc = parse_data_xml(f$document$parse_data)))
+                for (workspace in list(f$workspace, xml)) {
+                    item <- prepare_type_hierarchy_reply(1L, f$uri, workspace, f$document, point)$result
+                    expect_identical(item[[1L]]$name, "Visible")
+                }
+            }
+        }
+    }
+})
+
 test_that("class outlines and workspace search agree on direct declarations", {
     lines <- c(
         'C <- R6::R6Class("C", public = list(class = 1, box = list(nested = list(phantom = 2)),',

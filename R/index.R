@@ -1,5 +1,5 @@
 # Older summaries can contain stale definitions copied from an earlier valid file.
-index_cache_version <- 10L
+index_cache_version <- 11L
 
 #' Recognize a package without recursively searching a workspace
 #' @noRd
@@ -187,6 +187,12 @@ index_source_specs <- function(expr) {
     result
 }
 
+#' Open unconditional brace statements while preserving individual source ranges
+#' @noRd
+top_level_statements <- function(expressions, incomplete_lines = NULL) {
+    .Call("top_level_statements_c", expressions, incomplete_lines, PACKAGE = "languageserver")
+}
+
 #' Resolve a static source path without evaluating project code
 #' @noRd
 index_source_candidates <- function(spec, from_path, workspace_root) {
@@ -276,7 +282,7 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
     path <- index_normalize_path(path)
     workspace_root <- index_normalize_path(workspace_root)
     if (is.null(metadata)) metadata <- file.info(path)
-    expressions <- NULL
+    expressions <- statements <- NULL
     incomplete_lines <- NULL
     parse_error <- isTRUE(parse_data$parse_error)
     if (is.null(parse_data)) {
@@ -330,8 +336,8 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
         functions <- as.list(parse_data$functions)
         source_specs <- parse_data$source_specs
     } else if (!is.null(expressions)) {
-        srcrefs <- attr(expressions, "srcref")
-        expression_list <- as.list(expressions)
+        statements <- top_level_statements(expressions)
+        srcrefs <- attr(statements, "srcref")
         source_specs <- index_source_specs(expressions)
         # Record replacement values in hash tables and append each name once.
         # Growing named lists both copies the list and scans its names.
@@ -339,11 +345,10 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
         functions_store <- new.env(hash = TRUE, parent = emptyenv())
         definition_names <- collections::queue()
         function_names <- collections::queue()
-        for (i in seq_along(expression_list)) {
-            expr <- expression_list[[i]]
+        for (i in seq_along(statements)) {
+            expr <- statements[[i]]
             if (!(member_head(expr, "<-") || member_head(expr, "="))) {
-                if (!named_bind) named_bind <- member_head(expr, ":=") ||
-                    (member_head(expr, "{") && ":=" %in% member_syntax_names(expr))
+                if (!named_bind) named_bind <- member_head(expr, ":=")
                 next
             }
             if (length(expr) != 3L || !is.symbol(expr[[2L]])) next
@@ -415,7 +420,8 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
         functions = functions,
         s4_declarations = if (is.null(parse_data)) s4_declarations(expressions, content, incomplete_lines) else
             parse_data$s4_declarations,
-        s3 = s3_index_summary(content, path_to_uri(path), expressions, parse_data, incomplete_lines = incomplete_lines),
+        s3 = s3_index_summary(content, path_to_uri(path), if (length(incomplete_lines)) expressions else statements,
+            parse_data, incomplete_lines = incomplete_lines),
         sources = sources,
         source_candidates = source_candidates,
         source_candidate_exists = source_candidate_exists,

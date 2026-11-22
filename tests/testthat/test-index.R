@@ -113,6 +113,29 @@ test_that("shallow collectors preserve declaration order and last replacement", 
     expect_equal(summary$definitions$right$range$start$line, 305L)
 })
 
+test_that("shallow indexing follows standalone brace statements with their source ranges", {
+    root <- withr::local_tempdir()
+    path <- file.path(root, "blocks.R")
+    content <- c(
+        "value <- 0", "{", "\t{ work <- function(x = 'a\tb') x; 2 -> value }",
+        "  local({ hidden <- 1 })", "  if (flag) { conditional <- 2 }",
+        "  outer <- function() { nested <- 3 }", "}", "later <- TRUE"
+    )
+    writeLines(content, path)
+    parsed <- parse_document(path_to_uri(path), content)
+    for (lines in list(content, c(content, "pkg::"))) {
+        shallow <- index_shallow_summary(path, lines, root)
+        expect_identical(names(shallow$definitions), c("value", "work", "outer", "later"))
+        expect_identical(shallow$definitions, parsed$definitions[names(shallow$definitions)])
+        expect_identical(formals(shallow$functions$work), pairlist(x = "a\tb"))
+    }
+})
+
+test_that("statement flattening preserves empty values and opaque call arguments", {
+    expressions <- parse(text = "{ { one; NULL }; {}; quote({ two; three }) }", keep.source = FALSE)
+    expect_identical(top_level_statements(expressions), expression(one, NULL, {}, quote({two; three})))
+})
+
 test_that("source discovery tolerates missing call arguments", {
     local_index_settings(index_persistent_cache = FALSE)
     root <- withr::local_tempdir()

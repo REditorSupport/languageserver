@@ -18,6 +18,20 @@ test_that("linked editing connects roxygen parameters and R formals", {
     expect_equal(reply$result$ranges[[2L]]$start$line, 1L)
 })
 
+test_that("linked editing keeps the documented function inside nested standalone braces", {
+    fixture <- provider_fixture(c("{ {", "  #' @param x A value.",
+        "  f <- function(x) x; local({ f <- function(other) other })", "} }"))
+    parsed <- fixture$document$parse_data
+    for (indexed in c(TRUE, FALSE)) {
+        if (!indexed) parsed$syntax_data <- NULL
+        parsed$linked_editing_cache <- NULL
+        result <- linked_editing_range_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+            position(1L, 12L))$result
+        expect_equal(result$ranges, list(range(position(2L, 16L), position(2L, 17L)),
+                range(position(1L, 12L), position(1L, 13L))))
+    }
+})
+
 test_that("linked editing works through the language server", {
     skip_on_cran()
     client <- language_client()
