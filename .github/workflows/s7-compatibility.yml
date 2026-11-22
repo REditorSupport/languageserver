@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        s7: [stable, development]
+        s7: ["0.2.2", "1.0.0"]
     env:
       NOT_CRAN: true
       TESTTHAT_CPUS: 1
@@ -33,18 +33,15 @@ jobs:
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
           extra-packages: any::remotes
-      - name: Install stable S7
-        if: matrix.s7 == 'stable'
-        run: remotes::install_version("S7", version = "0.2.2", upgrade = "never")
-        shell: Rscript {0}
-      - name: Install pinned S7 1.0 development revision
-        if: matrix.s7 == 'development'
-        run: remotes::install_github("RConsortium/S7@021846758e5d4520a56330d477066c25bd46d4f9", upgrade = "never")
+      - name: Install released S7
+        env:
+          S7_VERSION: ${{ matrix.s7 }}
+        run: remotes::install_version("S7", version = Sys.getenv("S7_VERSION"), upgrade = "never")
         shell: Rscript {0}
       - name: Install languageserver
         run: R CMD INSTALL .
       - name: Test member providers
         run: |
           message("Testing S7 ", packageVersion("S7"))
-          testthat::test_local(filter = "^member-", load_package = "installed", reporter = "summary")
+          testthat::test_local(filter = "^member-|s7|class-declaration", load_package = "installed", reporter = "summary")
         shell: Rscript {0}
