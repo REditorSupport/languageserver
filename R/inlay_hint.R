@@ -367,6 +367,8 @@ indexed_inlay_hint_reply <- function(id, uri, workspace, indexed, request_range,
     candidates <- NULL
     use_s3 <- !is.null(document) && isTRUE(lsp_settings$get("s3_dispatch"))
     call_indices <- sort(unique(arguments$call[visible]))
+    named_bind <- member_enabled && any(calls$named_bind[call_indices]) &&
+        inlay_s7_bind_possible(workspace, document)
     visible_by_call <- list2env(split(visible, arguments$call[visible]),
         parent = emptyenv())
 
@@ -399,7 +401,8 @@ indexed_inlay_hint_reply <- function(id, uri, workspace, indexed, request_range,
         symbol <- FALSE
         if (!member && member_enabled) {
             if (is.null(candidates)) candidates <- inlay_symbol_candidates(workspace, document)
-            symbol <- isTRUE(calls$named_bind[call_index]) || candidates(function_name, package, calls$line[[call_index]])
+            symbol <- candidates(function_name, package, calls$line[[call_index]],
+                named_bind && isTRUE(calls$named_bind[call_index]))
         }
         if ((member || symbol || generic) && !is.null(calls$opening_line)) {
             opening <- position(calls$opening_line[[call_index]], calls$opening_col[[call_index]])
@@ -480,17 +483,43 @@ indexed_inlay_hint_reply <- function(id, uri, workspace, indexed, request_range,
     Response$new(id, result = hints[seq_len(hint_count)])
 }
 
+# Most uses of := in data.table expressions need only ordinary formals.
+# The full lexical lookup still verifies masking and ordering at each S7 call.
+inlay_s7_bind_possible <- function(workspace, document) {
+    data <- document$parse_data$member_data
+    view <- member_workspace_view(workspace, document)
+    imports <- if (is.null(view$bindings)) data$imports else view$imports
+    packages <- unique(c(workspace$startup_packages, vapply(imports, function(item) {
+        if (length(item$expr) < 2L) return("")
+        member_name(item$expr[[2L]]) %s3_or% ""
+    }, character(1L))))
+    binding <- function(package, target) {
+        if (package == "S7" && target == ":=") return(TRUE)
+        metadata <- workspace$member_metadata
+        catalog <- if (is.function(metadata$catalog)) metadata$catalog(package) else if (is.function(metadata$get)) metadata$get(package, NULL)
+        root <- member_lookup(catalog$roots, target)
+        identical(root$metadata, "S7") && identical(root$function_key, ":=")
+    }
+    for (package in packages) if (binding(package, ":=")) return(TRUE)
+    for (import in data$namespace_bindings) {
+        for (target in import$targets[import$names == ":="]) if (binding(import$package, target)) return(TRUE)
+    }
+    FALSE
+}
+
 # A bare call can be a class constructor, a local alias or a method visible
 # inside a class. Test the compact parse and package catalogs before trying
 # receiver inference for every ordinary call in a viewport.
 inlay_symbol_candidates <- function(workspace, document) {
     parsed <- document$parse_data
+    data <- parsed$member_data
     metadata <- workspace$member_metadata
-    packages <- unique(vapply(parsed$member_data$imports, function(item) {
+    packages <- unique(vapply(data$imports, function(item) {
         if (length(item$expr) < 2L) return("")
         member_name(item$expr[[2L]]) %s3_or% ""
     }, character(1L)))
     view <- member_workspace_view(workspace, document)
+    histories <- if (is.null(view$bindings)) data$bindings else view$bindings
     scope <- member_symbol_required(workspace, document) || length(view$bindings) > 0L
     classes <- parsed$class_data$declarations
     # The names of inherited non-portable R6 and RefClass methods can be
@@ -499,7 +528,9 @@ inlay_symbol_candidates <- function(workspace, document) {
     first <- vapply(inherited, function(cls) cls$range$start$line, integer(1L))
     last <- vapply(inherited, function(cls) cls$range$end$line, integer(1L))
     metadata_keys <- if (!is.null(metadata)) metadata$keys()
+    package_peers <- isTRUE(data$package_classes) && isTRUE(workspace$index$enabled)
     decisions <- new.env(hash = TRUE, parent = emptyenv())
+    import_aliases <- NULL
     local <- parsed$inlay_member_candidate_names
     if (is.null(local) && scope) {
         nav <- parsed$navigation_data
@@ -513,24 +544,43 @@ inlay_symbol_candidates <- function(workspace, document) {
         local <- unique(c(reference_symbol_names(syntax$text[rows]), members))
         if (is.environment(parsed)) parsed$inlay_member_candidate_names <- local
     }
-    catalog_candidate <- function(pkg, name, qualified) {
+    catalog_candidate <- function(pkg, name, qualified, bound = FALSE) {
         if (!pkg %in% metadata_keys) return(FALSE)
         catalog <- if (is.function(metadata$catalog)) metadata$catalog(pkg) else metadata$get(pkg)
         if (is.null(catalog)) return(FALSE)
+        # A missing member callable cannot supply an adjusted signature.
+        # Reexports and external class snapshots retain the full lookup.
+        if (bound && (name %in% catalog$exports || length(catalog$s7_dependencies))) return(TRUE)
         value <- if (qualified) member_lookup(catalog$namespace_roots, paste(pkg, name, sep = "::"))
         if (is.null(value)) value <- member_lookup(catalog$roots, name)
+        if (bound) return(!is.null(value))
         !is.null(value) && (!is.null(value$s7_generator) || !is.null(value$s7_dispatch_args) || !is.null(value$s4_generator) ||
                 !is.null(value$refclass_instance) || !is.null(value$r6_role) || !is.null(value$r6_owner) ||
                 isTRUE(value$extracted_callable))
     }
-    function(name, package, line) {
+    function(name, package, line, bound = FALSE) {
         if (identical(name, "new") && (is.null(package) || package == "methods")) return(TRUE)
         if (is.null(package) && any(first <= line & line <= last)) return(TRUE)
-        if (!scope && is.null(package)) return(FALSE)
+        if (bound && (is.null(parsed$navigation_data) || isTRUE(parsed$parse_error) ||
+                    !identical(document$version, parsed$version))) return(TRUE)
+        if (!scope && is.null(package) && !bound) return(FALSE)
         key <- paste(package %s3_or% "", name, sep = "::")
+        if (bound) key <- paste0("bound:", key)
         cached <- decisions[[key]]
         if (!is.null(cached)) return(cached)
-        candidate <- if (!is.null(package)) {
+        candidate <- if (bound) {
+            # A same-named local function or formal can mask the workspace
+            # signature. Nonportable R6 methods also enclose synthetic bindings.
+            if (is.null(import_aliases)) {
+                renamed <- lapply(data$namespace_bindings, function(x) x$names[x$names != x$targets])
+                import_aliases <<- as.character(unlist(renamed, use.names = FALSE))
+            }
+            source <- is.null(package) && (isTRUE(data$class_scope) || name %in% local || name %in% import_aliases ||
+                    length(parsed$navigation_data$by_name[[name]]) || length(histories[[name]]) ||
+                    (package_peers && workspace$index$has_definition(name, document$uri)))
+            source || any(vapply(metadata_keys, catalog_candidate, logical(1L), name = name,
+                    qualified = !is.null(package), bound = TRUE))
+        } else if (!is.null(package)) {
             catalog_candidate(package, name, TRUE)
         } else {
             name %in% local || any(vapply(view$bindings[[name]], function(item) {

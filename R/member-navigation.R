@@ -85,13 +85,17 @@ member_navigation_syntax <- function(parsed) {
     # verifies package identity and formal matching at the use site.
     helper_names <- names(member_key_formals)
     helpers <- which(tok == "SYMBOL_FUNCTION_CALL" & s$text %in% c(helper_names, paste0("`", helper_names, "`")))
-    for (helper in helpers) {
+    props_rhs <- integer(length(helpers))
+    for (i in seq_along(helpers)) {
+        helper <- helpers[[i]]
         call_row <- s$parent_row[[s$parent_row[[helper]]]]
         if (!call_row) next
         call <- syntax_call_arguments(s, call_row)
         if (is.null(call)) next
         key <- member_key_formals[[call$name]]
-        replacement <- call$name != "slot" && member_replacement_rhs(s, call_row) > 0L
+        rhs <- if (call$name == "slot") 0L else member_replacement_rhs(s, call_row)
+        replacement <- rhs > 0L
+        if (replacement && call$name == "props" && (is.null(call$package) || call$package == "S7")) props_rhs[[i]] <- rhs
         if (replacement && call$name != "prop") next
         args <- class_matched_arguments(call, c("object", key, if (replacement) "check"))
         arg <- args[[key]]
@@ -130,26 +134,27 @@ member_navigation_syntax <- function(parsed) {
     }
     # Candidate property names in S7 updates. Preserve the exact outer
     # callee site for both dots and the documented single named-list form.
-    updates <- which(tok == "SYMBOL_FUNCTION_CALL" & s$text %in% c("set_props", "`set_props`", "props", "`props`"))
-    if (length(updates)) {
+    updates <- which(tok == "SYMBOL_FUNCTION_CALL" & s$text %in% c("set_props", "`set_props`"))
+    replacements <- which(props_rhs > 0L)
+    if (length(updates) || length(replacements)) {
         caller <- integer(length(tok))
         nested <- logical(length(tok))
-        replacement <- character(length(tok))
+        if (length(replacements)) {
+            replacement <- character(length(tok))
+            for (i in replacements) {
+                values <- syntax_call_arguments(s, props_rhs[[i]])
+                if (!identical(values$name, "list") || (!is.null(values$package) && values$package != "base")) next
+                caller[values$tags] <- helpers[[i]]
+                nested[values$tags] <- TRUE
+                replacement[values$tags] <- if (is.null(values$package)) "list" else "base::list"
+            }
+            index$replacement_list <- replacement[index$row]
+        }
         for (helper in updates) {
             row <- s$parent_row[[s$parent_row[[helper]]]]
             if (!row) next
             args <- syntax_call_arguments(s, row)
             if (is.null(args) || (!is.null(args$package) && args$package != "S7")) next
-            if (args$name == "props") {
-                rhs <- member_replacement_rhs(s, row)
-                if (!rhs) next
-                values <- syntax_call_arguments(s, rhs)
-                if (!identical(values$name, "list") || (!is.null(values$package) && values$package != "base")) next
-                caller[values$tags] <- helper
-                nested[values$tags] <- TRUE
-                replacement[values$tags] <- if (is.null(values$package)) "list" else "base::list"
-                next
-            }
             caller[args$tags] <- helper
             for (arg in args$values[args$tags == 0L & args$values > 0L]) {
                 values <- syntax_call_arguments(s, arg)
@@ -160,7 +165,6 @@ member_navigation_syntax <- function(parsed) {
         }
         index$update_call <- caller[index$row]
         index$update_list <- nested[index$row]
-        index$replacement_list <- replacement[index$row]
     }
     index <- index[order(index$row), , drop = FALSE]
     index$group <- member_navigation_groups(s, index)
@@ -340,12 +344,22 @@ member_navigation_point <- function(s, row) {
 member_replacement_rhs <- function(s, row) {
     parent <- s$parent_row[[row]]
     if (!parent) return(0L)
-    parts <- syntax_children(s, parent)
-    parts <- parts[s$token[parts] != "COMMENT"]
-    if (length(parts) != 3L) return(0L)
-    op <- s$text[[parts[[2L]]]]
-    lhs <- if (op == "->") 3L else 1L
-    if (op %in% c("=", "<-", "->") && parts[[lhs]] == row) parts[[4L - lhs]] else 0L
+    # Only an edge of the parent expression can be the assignment target.
+    # Inspect the indexed edges directly: one brace can contain many reads.
+    first <- s$child_start[[parent]]
+    last <- s$child_end[[parent]]
+    kids <- s$children
+    while (first < last && s$token[[kids[[first]]]] == "COMMENT") first <- first + 1L
+    while (last > first && s$token[[kids[[last]]]] == "COMMENT") last <- last - 1L
+    left <- kids[[first]]
+    right <- kids[[last]]
+    if (last - first < 2L || (row != left && row != right)) return(0L)
+    op <- first + 1L
+    while (op < last && s$token[[kids[[op]]]] == "COMMENT") op <- op + 1L
+    operator <- s$text[[kids[[op]]]]
+    if (row == left && operator %in% c("<-", "=")) return(right)
+    if (row == right && operator == "->") return(left)
+    0L
 }
 
 # Determine whether this tag declares a member or supplies a named argument to

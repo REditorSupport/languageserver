@@ -301,11 +301,61 @@ test_that("S7 source methods complete arguments for an exact dispatch signature"
     expect_length(probe("simple_print(1, dig|)", c(code, "method(simple_print, opaque) <- function(x, ...) {}")), 0L)
     local <- c("library(S7)", "f <- function() {", code[-1L], 'value <- "text"')
     expect_identical(probe("simple_print(value, max|) }", local), "max_length")
+    # A complete call retains its indexed arguments even when its enclosing
+    # function exceeds the text recovery limit.
+    long_scope <- c(code, "f <- function() {", paste0("  # ", strrep("x", 65536L)))
+    expect_identical(probe("simple_print(1, dig|) }", long_scope), "digits")
+    expect_identical(probe('simple_print("cat", max|'), "max_length")
 
     pair <- c("library(S7)", "Dog := new_class()", "French := new_class()", 'speak := new_generic(c("x", "y"))',
         "method(speak, list(Dog, French)) <- function(x, y, volume = 1) {}", "dog <- Dog()")
     expect_identical(probe("speak(dog, French(), vol|)", pair), "volume")
     expect_length(probe("speak(French(), dog, vol|)", pair), 0L)
+})
+
+test_that("S7 method dispatch keys survive edits after their declarations", {
+    skip_if_not_installed("S7", "1.0.0")
+    workspace <- Workspace$new(NULL)
+    workspace$member_metadata$set("S7", member_prepare_package("S7"))
+    uri <- "file:///s7-method-edit.R"
+    doc <- Document$new(uri, language = "r", version = 0L, content = "")
+    workspace$documents$set(uri, doc)
+    replayed <- 0L
+    register <- member_s7_register_signature
+    testthat::local_mocked_bindings(member_s7_register_signature = function(...) {
+        replayed <<- replayed + 1L
+        register(...)
+    }, .package = "languageserver")
+    probe <- function(declarations, line) {
+        doc$set_content(doc$version + 1L, c(declarations, line))
+        parsed <- parse_document(uri, doc$content)
+        parsed$version <- doc$version
+        workspace$update_parse_data(uri, parsed)
+        point <- list(row = length(declarations), col = nchar(line) - 1L)
+        signature_reply(1L, uri, workspace, doc, point)$result$signatures[[1L]]$label
+    }
+    code <- c("library(S7)", 'g := new_generic("x")', "Target <- class_double",
+        "method(g, Target) <- function(x, ..., digits = 3) NULL")
+    expect_identical(probe(code, "g(1, )"), "g(x, ..., digits = 3)")
+    before <- replayed
+    expect_gt(before, 0L)
+    expect_identical(probe(code, "g(1, di)"), "g(x, ..., digits = 3)")
+    expect_identical(replayed, before)
+    cache <- doc$member_binding_cache
+    methods <- Filter(Negate(is.null), lapply(cache$keys(), function(key) {
+        analysis_cache_get(cache, key)$value$s7_method_types
+    }))
+    expect_identical(methods, list(list(list("double"))))
+
+    code[[3L]] <- "Target <- class_character"
+    expect_identical(probe(code, "g(1, )"), "g(x, ...)")
+    expect_gt(replayed, before)
+    code[[4L]] <- "method(g, Target) <- function(x, ..., width = 2) NULL"
+    expect_identical(probe(code, 'g("text", )'), "g(x, ..., width = 2)")
+    alias <- c(code, "alias <- g", "method(alias, Target) <- function(x, ..., size = 7) NULL")
+    expect_identical(probe(alias, 'g("text", )'), "g(x, ..., size = 7)")
+    expect_identical(probe(alias, 'g("text", si)'), "g(x, ..., size = 7)")
+    expect_identical(probe(c(alias, "method(alias, Target) <- NULL"), 'g("text", )'), "g(x, ...)")
 })
 
 test_that("S7 validation and property callbacks see the declared instance types", {

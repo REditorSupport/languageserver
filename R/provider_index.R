@@ -58,9 +58,12 @@ range_provider_parse_data <- function(data, content, syntax = NULL) {
         result
     }
     context <- ifelse(index$pipe > 0L, index$pipe, index$call)
-    binds <- data$parent[data$token == "LEFT_ASSIGN" & data$text == ":="]
-    bound_calls <- if (length(binds)) which(data$parent[index$call] %in% binds)
-    if (length(bound_calls)) context[bound_calls] <- match(data$parent[index$call[bound_calls]], data$id)
+    bound_calls <- integer()
+    if (":=" %in% data$text) {
+        binds <- data$parent[data$token == "LEFT_ASSIGN" & data$text == ":="]
+        bound_calls <- which(data$parent[index$call] %in% binds)
+        context[bound_calls] <- match(data$parent[index$call[bound_calls]], data$id)
+    }
     empty$calls <- list(
         name = data$text[index[["function"]]],
         package = text_at(index$package),

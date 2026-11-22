@@ -73,6 +73,10 @@ member_metadata_waiting <- function(self, uri, document, point, cursor = NULL, n
     if (is.null(recovered)) return(FALSE)
     referenced <- member_source_names(recovered$parsed, recovered$source, recovered$path, name, cursor$accessor)
     referenced <- union(name, referenced)
+    # A literal function already supplies its own formals. Keep walking
+    # other functions when their return values may supply the constructor.
+    # A direct RHS of := can still depend on S7's implicit name argument.
+    callee <- if (bare_call && is.null(call$package) && is.null(cursor$accessor) && !":=" %in% referenced) name
     expressions <- list(recovered$parsed)
     seen <- character()
     for (pass in seq_len(16L)) {
@@ -84,6 +88,10 @@ member_metadata_waiting <- function(self, uri, document, point, cursor = NULL, n
             position <- member_history_position(history, recovered$start)
             if (position) {
                 expression <- history[[position]]$expr
+                if (identical(name, callee)) {
+                    if (member_head(expression, "function")) next
+                    callee <- if (is.symbol(expression)) member_name(expression)
+                }
                 referenced <- union(referenced, member_syntax_names(expression))
                 expressions[[length(expressions) + 1L]] <- expression
             }

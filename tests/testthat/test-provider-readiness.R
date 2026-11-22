@@ -386,6 +386,23 @@ test_that("the first S7 constructor argument requests wait for the member worker
     expect_identical(server$replies[[3L]]$result$signatures[[1L]]$label, "Range(start = numeric(0), end = numeric(0))")
 })
 
+test_that("only a factory's returned constructor waits for S7 metadata", {
+    skip_if_not_installed("S7")
+    fixture <- readiness_fixture(c("library(S7)",
+            'make <- function(value) new_class("Box", properties = list(x = class_double))',
+            "Box <- make(1)", "make(1)", "Box(1)", "alias <- make", "alias(1)"))
+    doc <- fixture$document
+    doc$requested_packages <- member_package_request(doc$parse_data)
+    waiting <- function(row, col) {
+        point <- list(row = row, col = col)
+        member_metadata_waiting(fixture$server, fixture$uri, doc, point,
+            call = doc$detect_call(point, signature = TRUE))
+    }
+    expect_false(waiting(3L, 5L))
+    expect_true(waiting(4L, 4L))
+    expect_false(waiting(6L, 6L))
+})
+
 test_that("verified S7 constructors use member readiness independently of S3 catalogs", {
     skip_if_not_installed("S7")
     snapshot <- member_prepare_package("S7")

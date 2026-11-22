@@ -96,3 +96,17 @@ test_that("R6 initialization keeps writes made before explicit and conditional r
     result <- member_definition_location(fixture$uri, fixture$workspace, fixture$document, list(row = 2L, col = 9L))$result
     expect_equal(result, list(uri = fixture$uri, range = range(position(1L, 4L), position(1L, 9L))))
 })
+
+test_that("finding literal property reads inspects the edges of the enclosing block", {
+    content <- c("read <- function(x) {", rep('  prop(x, "size")', 12L), "}")
+    parsed <- parse_document("file:///literal-reads.R", content)
+    s <- parsed$syntax_data
+    block <- s$parent_row[which(s$token == "'{'")[[1L]]]
+    original <- syntax_children
+    testthat::local_mocked_bindings(syntax_children = function(index, row) {
+        if (row == block) stop("entire block copied for a property read")
+        original(index, row)
+    })
+    index <- member_navigation_syntax(parsed)
+    expect_identical(sum(index$name == "size" & index$kind == "read"), 12L)
+})

@@ -238,6 +238,50 @@ the 32 MiB snapshot budget. The benchmark checks that completion on
 `ggplot2::class_ggplot()@` returns the 12 property names from the installed
 `S7::prop_names()` API.
 
+### S7 documentation-example performance (PR #879)
+
+Use separate installed libraries for base `6c66f3b`, original PR `973071d`
+and the performance follow-up. Run the same benchmark script from the
+follow-up checkout for all three. It requires S7 and data.table.
+
+```sh
+R_LIBS=/path/to/base/lib Rscript --vanilla inst/benchmarks/s7-provider-latency.R base 9
+R_LIBS=/path/to/pr/lib Rscript --vanilla inst/benchmarks/s7-provider-latency.R pr 9
+R_LIBS=/path/to/fixed/lib Rscript --vanilla inst/benchmarks/s7-provider-latency.R fixed 9
+```
+
+These are median wall times in milliseconds on arm64 macOS, R 4.6.1,
+S7 1.0.0 and data.table 1.18.6.1. Each revision ran in four fresh R
+processes, interleaved with the other revisions. The table reports the
+median of the four process medians. Each timed request checks its result.
+Parsing, worker startup, and editor transport are outside the timed requests.
+
+| Workload | Base | Original PR | Follow-up |
+| --- | ---: | ---: | ---: |
+| 150 data.table `:=` inlay hints | 2.9 | 244.0 | 3.0 |
+| Same hints with S7 attached | 3.0 | 309.3 | 3.4 |
+| S7 signature help inside a 340-statement function | 1.5 | 28.3 | 1.6 |
+| First signature lookup across 96 method registrations | 1.8 | 23.2 | 23.5 |
+| Signature help after an edit to the call in that file | 2.0 | 25.6 | 2.0 |
+| Build navigation index for 1,200 quoted property reads | 41.0 | 51.8 | 45.4 |
+
+The base returns the generic signature. Both PR versions return the selected
+method's extra parameter. The first lookup still resolves the registration
+history. Later edits to the call can reuse verified dispatch keys; changes
+to the declarations or their metadata invalidate that result. Package peers
+and sourced files can also invalidate the cache. Property-index allocations
+recorded by `Rprofmem()` were 1.21, 45.62 and 1.22 MiB respectively.
+Doubling the read count to 2,400 increased those figures to 2.41, 179.13
+and 2.44 MiB.
+
+As controls, the 128-file mixed workspace index took 269, 269 and 268 ms.
+Parsing the base checkout's 90 R source files (42,482 lines) took 2.72,
+2.90 and 2.75 seconds with identical result hashes from `parse-corpus.R`.
+The expanded ggplot2 member snapshot retained 2.50 MB serialized in the
+follow-up versus 2.42 MB on the base in a worker that also loaded data.table,
+dplyr and shiny. The additional dispatch metadata is still present after
+the lookup optimizations.
+
 ## Member metadata workers
 
 Run these against separately installed revisions, without concurrent tests or

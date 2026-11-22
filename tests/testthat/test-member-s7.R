@@ -303,6 +303,10 @@ test_that("S7 environment-backed classes retain ordinary fields through aliases"
     expect_identical(s7_labels(c(code, "method(print, Counter) <- function(x, ...) x$n", "counter$"), metadata), "n")
     expect_identical(s7_labels(c(code[1:2], "f <- function() {", code[3:6], "counter", "}", "f()$"), metadata), "n")
     expect_length(s7_labels(c(code, "`$.Counter` <- function(x, name) 99L", "counter$"), metadata), 0L)
+    # Success on the first write cannot bypass a replacement method defined
+    # before the second write in the same receiver history.
+    expect_length(s7_labels(c(code[1:4], "`$<-.Counter` <- function(x, name, value) x",
+                "counter$other <- 2L", "counter$"), metadata), 0L)
     expect_length(s7_labels(c(code, "method(`$`, Counter) <- function(x, name) 99L", "counter$"), metadata), 0L)
 
     # A registration from a different package may intercept an inherited
@@ -318,6 +322,19 @@ test_that("S7 environment-backed classes retain ordinary fields through aliases"
     subclass <- c(code[[1L]], "S7MemberEnvironmentBase := new_class(class_environment)",
         "Counter := new_class(S7MemberEnvironmentBase)", code[3:6])
     expect_length(s7_labels(c(subclass, "counter$"), metadata), 0L)
+
+    # A later metadata revision can introduce a previously unseen method
+    # while the cursor remains on the same line in the same document.
+    fixture <- s7_fixture(c(subclass, "counter$"))
+    workspace <- list(member_metadata = MemberMetadataCache$new(32 * 1024^2))
+    workspace$member_metadata$set("S7", metadata$S7)
+    read <- function() {
+        items <- member_completion(fixture$uri, workspace, fixture$document, fixture$point, TRUE, 20L)
+        vapply(items, `[[`, "", "label")
+    }
+    expect_identical(read(), "n")
+    workspace$member_metadata$set("other", metadata$other)
+    expect_length(read(), 0L)
 })
 
 test_that("S7 accessor registrations are inspected without forcing user bindings", {

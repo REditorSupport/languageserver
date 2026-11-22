@@ -97,6 +97,13 @@ member_s7_dispatch_keys <- function(descriptor, budget, depth = 0L) {
 }
 
 member_s7_cursor_call <- function(document, point, cursor, recovered) {
+    path <- recovered$path
+    if (length(path) >= 2L && path[[length(path)]] == 1L) {
+        # The indexed scope already contains the complete call, including
+        # arguments to the right of the cursor and native pipe expansion.
+        node <- recovered$parsed[[path[-length(path)]]]
+        if (member_head(node, recovered$sentinel)) return(node)
+    }
     full <- recovered$context
     if (is.null(full)) full <- s3_recover_call(document, list(point = point, cursor = cursor), recovered)
     path <- member_cursor_path(full, recovered$sentinel, NULL)

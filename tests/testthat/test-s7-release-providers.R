@@ -36,6 +36,9 @@ test_that("S7 named bindings expose the remaining formals at the factory call", 
     result <- probe("item := factory(1, TRUE)", prefix, "factory")
     expect_identical(result$parameters, c("x", "flag"))
     expect_true("flag =" %in% result$hints)
+    shadow <- probe("f <- function() { round <- function(name, measure, precision) NULL; item := round(10, 2) }",
+        callee = "round")
+    expect_true(all(c("measure =", "precision =") %in% shadow$hints))
     factory_params <- function(parameters) {
         prefix <- c("library(S7)", paste0("factory <- function(", parameters, ") NULL"))
         probe("item := factory()", prefix, "factory")$parameters

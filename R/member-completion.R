@@ -348,6 +348,16 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL, incompl
         syntax_names <- member_syntax_names(expr)
         check_accessors <- !accessor_registrations && ("registerS3method" %in% syntax_names ||
                 any(c("method", "method<-") %in% syntax_names) && any(c("$", "$<-", "[[", "[[<-") %in% syntax_names))
+        if (check_accessors) {
+            # A common method formal or a $ read in a method body is not a
+            # registration. Inspect just the matching calls, including nested ones.
+            for (call in .Call("member_accessor_registrations_c", expr, PACKAGE = "languageserver")) {
+                if (member_s7_accessor_registration(call)) {
+                    accessor_registrations <- TRUE
+                    break
+                }
+            }
+        }
         if (!is.null(parts) && any(syntax_names %in% c("function", "{"))) {
             first <- item$start[[1L]] + 1L
             after <- item$end[[1L]] + 2L
@@ -364,12 +374,11 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL, incompl
         symbol_scope <- symbol_scope || any(syntax_names %in% c("R6Class", "setClass", "setRefClass", member_s7_intrinsics))
         # The syntax names already cover nested calls. Walk the expression
         # only when it could contain a qualified name or a member assignment.
-        if (check_accessors || any(c("::", ":::") %in% syntax_names) ||
+        if (any(c("::", ":::") %in% syntax_names) ||
                 (!symbol_scope && any(c("$", "@", "[[") %in% syntax_names) &&
                         any(c("<-", "=") %in% syntax_names))) {
             member_walk(expr, function(node) {
                 if (!is.call(node)) return()
-                if (check_accessors && !accessor_registrations) accessor_registrations <<- member_s7_accessor_registration(node)
                 if (!symbol_scope && (member_head(node, "<-") || member_head(node, "=")) &&
                         is.symbol(node[[2L]]) && is.call(node[[3L]]) &&
                         (member_head(node[[3L]], "$") || member_head(node[[3L]], "@") || member_head(node[[3L]], "[["))) {
@@ -959,11 +968,12 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
     if (memo && exists(memo_key, index$document_cache, inherits = FALSE)) return(index$document_cache[[memo_key]])
     cache <- if (is.null(budget$origin_name)) index$document_binding_cache
     persistent_key <- if (memo && !is.null(cache) && !is.null(item$cache_prefix) &&
-            !member_head(item$expr, "function")) {
+            (!is.null(item$setter) || !member_head(item$expr, "function"))) {
         paste(index$package, index$document_context_key, id, item$cache_prefix, sep = ":")
     }
     cached <- analysis_cache_get(cache, persistent_key)
-    if (cached$hit) {
+    method_types <- cached$value$s7_method_types
+    if (cached$hit && is.null(method_types)) {
         value <- cached$value
         index$document_cache[[memo_key]] <- value
         return(value)
@@ -983,6 +993,16 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
         first <- item$first_write
         env$.__member_position__ <- history[[first]]$start
         value <- member_resolve_document(name, index, env, budget, depth + 1L, c(trail, id))
+        # Only exact dispatch keys survive an edit. The generic and method
+        # formals come from the current source, including their lexical scope.
+        cache_methods <- !is.null(persistent_key) && !is.null(value$s7_methods) && !length(value$s7_methods)
+        if (cache_methods && length(method_types)) {
+            recent <- seq.int(position - length(method_types) + 1L, position)
+            value$s7_methods <- Map(function(types, i) list(types = types, formals = history[[i]]$expr[[2L]]),
+                method_types, recent)
+            index$document_cache[[memo_key]] <- value
+            return(value)
+        }
         for (i in seq.int(first, position)) {
             write <- history[[i]]
             env$.__member_position__ <- write$start
@@ -990,10 +1010,12 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
                 generic <- member_s7_register_signature(value, write$setter, write$expr, index, env, budget)
                 if (isTRUE(budget$exhausted)) return(member_value(reason = "budget"))
                 if (!is.null(generic)) {
+                    if (cache_methods && !member_head(write$expr, "function")) cache_methods <- FALSE
                     value <- generic
                     next
                 }
             }
+            cache_methods <- FALSE
             if (!identical(name, write$writer) && (identical(value$type, "list") ||
                         (isTRUE(value$s7) && !member_s7_reference(value)))) next
             if (!is.null(write$setter) && isTRUE(value$s7)) {
@@ -1020,6 +1042,11 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
                 if (identical(budget$origin_name, write$field)) write$origin, index, env, isTRUE(write$subset), slot = isTRUE(write$slot))
             if (is.null(value)) return(member_value(reason = "unknown_mutation"))
             env[write$writer] <- NULL
+        }
+        if (cache_methods && length(value$s7_methods) && !isTRUE(budget$exhausted) && !isTRUE(budget$transient)) {
+            # In a method-only history the retained registrations are a
+            # contiguous suffix following the last opaque registration.
+            analysis_cache_set(cache, persistent_key, list(s7_method_types = lapply(value$s7_methods, `[[`, "types")))
         }
     }
     cached <- if (memo) member_receiver_cache_value(value, index, budget) else NULL

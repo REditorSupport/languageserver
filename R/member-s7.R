@@ -94,14 +94,21 @@ member_s7_environment_storage <- function(value, operator, index, bindings) {
                 !is.null(member_attached_root(index, key, at)) || member_package_shadows(index, key) ||
                 (key %in% names(index$definitions) && !(key == fallback && identical(index$package, "S7")))) return(NULL)
     }
-    packages <- index$namespace_indices
-    s7 <- if (identical(index$package, "S7")) index else packages$S7
-    standard <- member_lookup(s7$subset_registry, fallback)
-    if (!isTRUE(s7$subset_registry_complete) || is.null(standard) || !startsWith(standard, "namespace:S7:")) return(NULL)
-    for (pkg in packages) {
-        registered <- member_lookup(pkg$subset_registry, fallback)
-        if (isFALSE(pkg$subset_registry_complete) || any(keys %in% names(pkg$subset_registry)) ||
-                (!is.null(registered) && !identical(registered, standard))) return(NULL)
+    # A request replays every write at its own lexical position. The same
+    # namespace catalogs apply throughout, including when a lazy index is decoded.
+    if (!identical(index$s7_environment_accessors[[operator]], keys)) {
+        packages <- index$namespace_indices
+        s7 <- if (identical(index$package, "S7")) index else packages$S7
+        standard <- member_lookup(s7$subset_registry, fallback)
+        if (!isTRUE(s7$subset_registry_complete) || is.null(standard) || !startsWith(standard, "namespace:S7:")) return(NULL)
+        for (pkg in packages) {
+            registered <- member_lookup(pkg$subset_registry, fallback)
+            if (isFALSE(pkg$subset_registry_complete) || any(keys %in% names(pkg$subset_registry)) ||
+                    (!is.null(registered) && !identical(registered, standard))) return(NULL)
+        }
+        # Retain at most one verified class hierarchy per operator on a
+        # document request's private index. Package snapshots stay immutable.
+        if (is.environment(index$document_cache)) index$s7_environment_accessors[[operator]] <- keys
     }
     if (is.null(value$s7_storage)) member_value(type = "environment", fields = list()) else value$s7_storage
 }

@@ -131,17 +131,18 @@ member_subset_registry <- function(ns, package) {
         return(list(methods = character(), complete = FALSE))
     }
     table <- record[[2L]]
-    keys <- package_metadata_sort(ls(table, all.names = TRUE, sorted = FALSE))
+    keys <- ls(table, all.names = TRUE, sorted = FALSE)
     keys <- keys[startsWith(keys, "[.") | startsWith(keys, "[[.") | startsWith(keys, "[[<-.") |
             startsWith(keys, "$.") | startsWith(keys, "$<-.")]
     if (length(keys) > 5000L) return(list(methods = character(), complete = FALSE))
-    methods <- stats::setNames(vapply(keys, function(key) {
-        # For S7 environment storage a competing accessor is enough to rule
-        # out default access. Only the standard S7 delegation needs its identity.
-        if (!startsWith(key, "[.") && !startsWith(key, "[[.") && !endsWith(key, ".S7_object")) return("opaque")
-        s7_accessor <- key %in% c("$.S7_object", "$<-.S7_object", "[[.S7_object", "[[<-.S7_object") &&
-            "S7" %in% loadedNamespaces()
-        registered <- if (s7_accessor) member_s7_registered_accessor(table, key) else member_binding(table, key)
+    keys <- package_metadata_sort(keys)
+    # A competing accessor's name is enough to rule out default S7 environment
+    # access. Inspect identities only for subset reads and the S7 delegation.
+    methods <- stats::setNames(rep.int("opaque", length(keys)), keys)
+    inspect <- startsWith(keys, "[.") | startsWith(keys, "[[.") | endsWith(keys, ".S7_object")
+    s7_accessors <- if ("S7" %in% loadedNamespaces()) c("$.S7_object", "$<-.S7_object", "[[.S7_object", "[[<-.S7_object")
+    methods[inspect] <- vapply(keys[inspect], function(key) {
+        registered <- if (key %in% s7_accessors) member_s7_registered_accessor(table, key) else member_binding(table, key)
         if (!identical(registered[[1L]], "value") || typeof(registered[[2L]]) != "closure") return("opaque")
         fn <- registered[[2L]]
         if (key %in% c("[.data.frame", "[[.data.frame")) {
@@ -160,7 +161,7 @@ member_subset_registry <- function(ns, package) {
             if (!identical(original[[1L]], "value") || !identical(original[[2L]], fn)) return("opaque")
         }
         paste0("namespace:", provider, ":", digest::digest(member_function_syntax(fn), algo = "xxhash64"))
-    }, character(1L)), keys)
+    }, character(1L))
     list(methods = methods, complete = TRUE)
 }
 
