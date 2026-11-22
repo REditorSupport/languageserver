@@ -466,6 +466,16 @@ test_that("Pending providers rotate between documents and methods within a dispa
     expect_equal(server$pending_replies$get(uris[[1L]])$first$size(), 1L)
 })
 
+test_that("the test server startup expression preserves library and log paths on one line", {
+    paths <- file.path("C:/R libraries", paste0("package-", seq_len(12L)), "O'Brien\\library")
+    log_path <- file.path(withr::local_tempdir(), "O'Brien server.log")
+    script <- language_client_script(paths, log_path)
+    expect_false(grepl("\n", script, fixed = TRUE))
+    exprs <- parse(text = script, keep.source = FALSE)
+    expect_identical(eval(exprs[[1L]][[2L]], baseenv()), c(paths, .libPaths()))
+    expect_identical(exprs[[3L]]$debug, normalizePath(log_path, "/", mustWork = FALSE))
+})
+
 test_that("run configures boolean and file debug modes", {
     old_debug <- lsp_settings$get("debug")
     old_log_file <- lsp_settings$get("log_file")

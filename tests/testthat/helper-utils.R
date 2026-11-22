@@ -25,23 +25,23 @@ flatten_document_symbols <- function(symbols) {
     }), recursive = FALSE, use.names = FALSE)
 }
 
-language_client <- function(working_dir = withr::local_tempdir(.local_envir = parent.frame()), workspace_folders = NULL, diagnostics = FALSE, capabilities = NULL, lib_paths = NULL) {
-
-    if (nzchar(Sys.getenv("R_LANGSVR_LOG"))) {
-        script <- sprintf(
-            "options(languageserver.formatting_style = NULL); languageserver::run(debug = '%s')",
-            normalizePath(Sys.getenv("R_LANGSVR_LOG"), "/", mustWork = FALSE))
-    } else {
-        script <- "options(languageserver.formatting_style = NULL); languageserver::run()"
+language_client_script <- function(lib_paths, log_path) {
+    run <- "languageserver::run()"
+    if (nzchar(log_path)) {
+        run <- sprintf("languageserver::run(debug = %s)", deparse1(normalizePath(log_path, "/", mustWork = FALSE)))
     }
+    script <- c("options(languageserver.formatting_style = NULL)", run)
     if (!is.null(lib_paths)) {
         # Apply explicit test paths after inherited startup profiles, which
         # can otherwise restore the check worker's original library paths.
-        # Retain the server's dependency paths rather than copying a worker's
-        # temporary proxy library into a standalone R process.
-        script <- paste0(".libPaths(c(", paste(deparse(lib_paths), collapse = "\n"), ", .libPaths())); ", script)
+        # Keep the entire -e argument on one line on Windows.
+        script <- c(sprintf(".libPaths(c(%s, .libPaths()))", deparse1(lib_paths)), script)
     }
+    paste(script, collapse = "; ")
+}
 
+language_client <- function(working_dir = withr::local_tempdir(.local_envir = parent.frame()), workspace_folders = NULL, diagnostics = FALSE, capabilities = NULL, lib_paths = NULL) {
+    script <- language_client_script(lib_paths, Sys.getenv("R_LANGSVR_LOG"))
     client <- LanguageClient$new(
         file.path(R.home("bin"), "R"), c("--no-echo", "-e", script))
 
