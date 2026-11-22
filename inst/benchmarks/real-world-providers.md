@@ -45,6 +45,10 @@ These are local elapsed medians except where identified as CPU time. Startup inc
 
 Cold cross-file References for the `allow_null` parameter in ggplot2 returned four locations in 14.52 seconds on the baseline and 14.37 seconds on the branch in an isolated repeat (three fresh stdio sessions per revision). Under concurrent test load the medians were 16.47 and 17.11 seconds. A source function's formal may have named callers throughout the workspace. Some Polars chains also remain slow, including `pl$concat(s, s2, rechunk = FALSE)$n_chunks()`. On a cold wire probe for attached `pl$scan_csv`, the first F12 returned empty in 49 ms. While metadata was pending, outline and semantic tokens took 1 and 2 ms. A retry found the generated body 10.73 seconds after process launch and the next request took 7 ms. Source-less fields and dtype constants often have no definition target. String-literal assignment targets participate in indexing and search. Rename declines edits that would update callers without their quoted declaration.
 
+### Source-preserving R6 cache check
+
+A coverage-instrumented installation exposed a cache regression in the initial patch. Synthetic R6 signatures retained a reference to the server implementation's source file. Serializing an instance then took 57,888,042 bytes, exceeding the 4 MiB receiver cache. Dropping that source reference reduced the instance to 4,735 bytes (4,978 bytes for the cache entry) and a generator to 12,791 bytes. Seven repeated member lookups took a median of 380 ms on the initial patch and at most 1 ms each after the fix. The regression test checks cache admission and navigation to the user's initializer and method.
+
 ## Replaying the source checks
 
 Unpack the listed package versions into a directory containing one subdirectory per package. The current CRAN release lives under `src/contrib/<package>_<version>.tar.gz` and superseded releases under `src/contrib/Archive/<package>/`. Verify each downloaded archive against the manifest before comparing revisions. Install both server revisions in separate R libraries and run the same scripts and source tree for both.

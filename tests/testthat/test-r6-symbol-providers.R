@@ -636,6 +636,29 @@ test_that("R6 generator controls and generated clones retain their actual signat
     expect_false(any(grepl("1", contents, fixed = TRUE)))
 })
 
+test_that("source-preserved R6 caches contain only the user's source locations", {
+    code <- c('C <- R6::R6Class("C", public = list(', "  initialize = function(value = 1) NULL,",
+        "  read = function() self))", "obj <- C$new()", "C$new", "obj$read")
+    fixture <- r6_symbol_fixture(code)
+    doc <- fixture$document
+    for (row in c(4L, 5L)) {
+        point <- list(row = row, col = nchar(code[[row + 1L]]))
+        doc$member_receivers$clear()
+        resolved <- member_resolve_cursor(fixture$uri, fixture$workspace, doc, point, member_cursor(doc, point))
+        methods <- if (row == 4L) resolved$value$fields else resolved$value$fields["clone"]
+        for (method in methods) {
+            fn <- method$function_expr
+            expect_true(member_head(fn, "function"))
+            expect_true(length(fn) == 3L || is.null(fn[[4L]]))
+        }
+        expect_identical(doc$member_receivers$size(), 1L)
+        expect_lt(doc$member_receivers$bytes(), 100 * 1024)
+        target <- definition_reply(1L, fixture$uri, fixture$workspace, doc, point)$result
+        expect_identical(target$uri, fixture$uri)
+        expect_equal(target$range$start$line, if (row == 4L) 1L else 2L)
+    }
+})
+
 test_that("R6 set controls affect subsequent constructions and respect generator locks", {
     decl <- 'C <- R6::R6Class("C", public = list(before = 1), lock_class = TRUE)'
     body <- c("alias <- C", 'alias$set("public", "ignored", 1)', "alias$unlock()", "old <- C$new()",

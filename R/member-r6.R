@@ -19,12 +19,12 @@ member_is_r6_call <- function(expr, index, bindings) {
 # independent of the class being inferred. Calling a control in the editor
 # must never mutate a generator or register a debugger.
 member_r6_generator_controls <- local({
-    signatures <- list(
+    signatures <- lapply(list(
         set = quote(function(which = NULL, name = NULL, value, overwrite = FALSE) NULL),
         lock = quote(function() TRUE), unlock = quote(function() FALSE),
         is_locked = quote(function() .result), debug = quote(function(name) .result),
         undebug = quote(function(name) .result)
-    )
+    ), member_strip_srcref)
     methods <- lapply(names(signatures), function(name) {
         member_value(type = "function", function_expr = signatures[[name]],
             closure = if (name %in% c("is_locked", "debug", "undebug")) {
@@ -33,6 +33,10 @@ member_r6_generator_controls <- local({
     })
     stats::setNames(methods, names(signatures))
 })
+
+# A quoted function carries a reference to this entire file when the package
+# keeps source. Synthetic methods become part of serialized receiver caches.
+member_r6_clone_signature <- member_strip_srcref(quote(function(deep = FALSE) NULL))
 
 member_r6_shape <- function(expr, index, bindings, budget, depth = 0L, trail = character(), runtime = FALSE) {
     infer <- function(expr) {
@@ -126,7 +130,7 @@ member_r6_shape <- function(expr, index, bindings, budget, depth = 0L, trail = c
             instance$fields$clone <- NULL
             instance$r6_bindings <- instance$r6_bindings[names(instance$r6_bindings) != "clone"]
         } else if (instance$r6_cloneable) {
-            instance$fields$clone <- member_value(type = "function", function_expr = quote(function(deep = FALSE) NULL),
+            instance$fields$clone <- member_value(type = "function", function_expr = member_r6_clone_signature,
                 r6_class = class, r6_role = "clone")
             instance$r6_bindings["clone"] <- "method"
             # Give the generated method a stable position across branches.
@@ -141,7 +145,7 @@ member_r6_shape <- function(expr, index, bindings, budget, depth = 0L, trail = c
     initialize <- fields$initialize
     has_initializer <- !is.null(initialize) &&
         (!length(initialize$type) || "function" %in% initialize$type)
-    constructor <- if (has_initializer || unknown_parent) quote(function(...) NULL) else quote(function() NULL)
+    constructor <- member_function_syntax(if (has_initializer || unknown_parent) any_args_function else null_function)
     if (member_head(fields$initialize$function_expr, "function")) {
         constructor[[2L]] <- fields$initialize$function_expr[[2L]]
     }
