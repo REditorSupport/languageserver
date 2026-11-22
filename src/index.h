@@ -5,5 +5,6 @@
 
 SEXP source_calls_c(SEXP expressions);
 SEXP member_assignment_calls_c(SEXP expressions);
+SEXP top_level_statements_c(SEXP expressions, SEXP gaps);
 
 #endif

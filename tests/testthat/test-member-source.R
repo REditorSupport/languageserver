@@ -47,6 +47,41 @@ test_that("Scoped histories select the same statements as conservative backwards
     }
 })
 
+test_that("completed standalone blocks retain local members across writes and rebinding", {
+    content <- c("f <- function() {", "obj <- new.env()", "{", "  alias <- obj",
+        "  { alias$field <- list(first = 1L) }", "}", "original <- obj$field",
+        "{ obj <- list(second = 2L) }", "original$first", "{ obj$second }", "}")
+    f <- provider_fixture(content)
+    check <- function(row, field) {
+        at <- list(row = row, col = regexpr("$", content[[row + 1L]], fixed = TRUE)[[1L]])
+        value <- member_resolve_cursor(f$uri, f$workspace, f$document, at, member_cursor(f$document, at))$value
+        expect_identical(names(value$fields), field)
+    }
+    for (indexed in c(TRUE, FALSE)) {
+        if (!indexed) {
+            f$document$member_receivers$clear()
+            f$document$parse_data$member_data$items[[1L]]$source <- NULL
+        }
+        check(8L, "first")
+        check(9L, "second")
+    }
+})
+
+test_that("member requests select dependencies through sibling and nested blocks", {
+    code <- c("run <- function() {", "{", "  unused <- unneededPkg::make()",
+        "  obj <- list(visible = 1L)", "}", "{", "  value <- obj", "  { value$visible }",
+        "  value <- list(later = 2L)", "}", "}")
+    f <- provider_fixture(code)
+    at <- list(row = 7L, col = regexpr("$", code[[8L]], fixed = TRUE)[[1L]])
+    cursor <- member_cursor(f$document, at)
+    recovered <- member_recover_scope(f$document, at, cursor, f$document$parse_data$member_data)
+    reads <- member_source_names(recovered$parsed, recovered$source, recovered$path)
+    expect_true("obj" %in% reads)
+    expect_false("unneededPkg" %in% reads)
+    member <- member_resolve_cursor(f$uri, f$workspace, f$document, at, cursor)
+    expect_identical(names(member$value$fields), "visible")
+})
+
 test_that("Scoped dependencies follow field writes at the point of each read", {
     statements <- c("x <- list()", "other <- list()", "other$skip <- 9", "x$first <- 5",
         "value <- x$first", "x$second <- 8", "message(value)", "x <- list(fresh = 3)",

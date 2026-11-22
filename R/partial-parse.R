@@ -204,6 +204,26 @@ parse_provider_projection <- function(content, expr = NULL) {
     expr
 }
 
+# Keep whole, gap-free roots for edits spanning a block. Member providers also
+# need the exact leaf spans for unconditional statements inside a block.
+partial_complete_roots <- function(syntax, gaps, statements) {
+    expr_tokens <- c("expr", "expr_or_assign_or_help")
+    roots <- syntax$roots[syntax$token[syntax$roots] %in% expr_tokens]
+    complete <- roots[findInterval(syntax$line1[roots] - 2L, gaps) ==
+            findInterval(syntax$line2[roots] - 1L, gaps)]
+    refs <- attr(statements, "srcref")
+    if (!length(refs)) return(complete)
+    # A standalone statement has its own effective file-scope range. Match
+    # both ends, in physical code-point coordinates, against the recovered AST.
+    rows <- which(syntax$scope_row == seq_along(syntax$token) - 1L & syntax$token %in% expr_tokens)
+    spans <- vapply(refs, function(ref) as.integer(ref[c(7L, 5L, 8L, 6L)]), integer(4L))
+    start <- function(line, col) as.double(line) * syntax$maxcol + col
+    rows <- rows[match(start(spans[1L, ], spans[2L, ]), start(syntax$line1[rows], syntax$col1[rows]))]
+    exact <- which(!is.na(rows) & syntax$line2[rows] == spans[3L, ] & syntax$col2[rows] == spans[4L, ])
+    rows <- union(complete, rows[exact])
+    rows[order(syntax$order_rank[rows])]
+}
+
 # A gap at top level or between statements in a brace block can be removed.
 # Reject gaps that would join an operand, call argument or control-flow body
 # to code following the error (e.g. x <- / pkg:: / unrelated()).

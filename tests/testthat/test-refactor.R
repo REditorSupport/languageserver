@@ -924,6 +924,40 @@ test_that("global blocks keep workspace bindings and require a ready index for e
     }
 })
 
+test_that("extracting nested standalone blocks preserves their final assignment", {
+    content <- c("f <- function(arg) {", "  {", "    { arg + 1 -> value }", "    # final assignment above",
+        "  }", "  value * 2", "}")
+    fixture <- provider_fixture(content)
+    selected <- list(start = list(row = 1L, col = 2L), end = list(row = 4L, col = 3L))
+    actions <- refactor_code_actions(fixture$uri, fixture$workspace, fixture$document,
+        selected, list("refactor.extract"))
+    action <- refactor_action_with_title(actions, "Extract selection to function")
+    edited <- refactor_apply_edits(content, action$edit$changes[[fixture$uri]])
+    expect_match(edited, "value <- extracted_function(arg)", fixed = TRUE)
+    expect_identical(eval(parse(text = edited))(3), 8)
+})
+
+test_that("inline follows adjacent evaluations through standalone braces only", {
+    inline <- function(body) {
+        content <- c("f <- function(arg) {", body, "}")
+        fixture <- provider_fixture(content)
+        row <- which(grepl("saved <-", content, fixed = TRUE)) - 1L
+        actions <- refactor_code_actions(fixture$uri, fixture$workspace, fixture$document,
+            refactor_test_range(content, row, "saved"), list("refactor.inline"))
+        if (length(actions)) refactor_apply_edits(content, actions[[1L]]$edit$changes[[fixture$uri]])
+    }
+    sides <- c("  {", "    {", "      saved <- arg", "    }", "  }", "  {", "    saved * 2", "  }")
+    edited <- inline(sides)
+    expect_match(edited, "(arg) * 2", fixed = TRUE)
+    expect_identical(eval(parse(text = edited))(3), 6)
+    # Intervening work either before leaving or after entering a block.
+    for (after in c(3L, 5L, 6L)) expect_null(inline(append(sides, "    arg <- 0", after = after)))
+    for (open in c("  if (arg) {", "  result <- {", "  delayed <- function() {")) {
+        expect_null(inline(c(open, "    saved <- 1", "  }", "  saved")))
+    }
+    expect_null(inline(c("  saved <- arg", "  if (arg) {", "    saved", "  }")))
+})
+
 test_that("extract never moves unbraced lambda bodies or defaults outside their function", {
     skip_if(getRversion() < "4.1")
     for (line in c("f <- \\(x) (x + 1) * 2", "f <- \\(x = x + 1) x")) {

@@ -912,6 +912,11 @@ scope_completion <- function(uri, workspace, token, point,
                 uri, workspace, token, point, snippet_support, limit, character()))
         }
         enclosing_scopes <- xdoc_find_enclosing_scopes(xdoc, row, col)
+        # Scope candidates outside a function come from the containing
+        # top-level statement. Skip bare braces that merely group siblings.
+        enclosing_scopes <- xml_find_all_(enclosing_scopes, paste0(
+            "self::*[not(OP-LEFT-BRACE) or ancestor::*[self::expr or self::expr_or_assign_or_help]",
+            "[not(OP-LEFT-BRACE)]]"))
 
         in_lexical_scope <- function(nodes) {
             vapply(nodes, function(node) {

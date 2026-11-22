@@ -139,14 +139,48 @@ reference_parse_data <- function(data, content, completion_data, uri,
     )
     definitions$name <- reference_symbol_names(definitions$name)
 
+    names <- reference_symbol_names(data$text[rows])
+    definition_positions <- paste(
+        definitions$name, definitions$definition_line1, definitions$definition_col1,
+        definitions$definition_line2, definitions$definition_col2, sep = ":"
+    )
+    occurrence_positions <- paste(
+        names, data$line1[rows], data$col1[rows], data$line2[rows], data$col2[rows], sep = ":"
+    )
+    definition_at <- match(definition_positions, occurrence_positions, nomatch = 0L)
+    is_definition <- logical(length(rows))
+    is_definition[definition_at] <- TRUE
+
     global_lines <- vapply(global_definitions, function(definition) {
         as.integer(definition$range$start$line + 1L)
     }, integer(1L))
-    is_global <- definitions$name %in% names(global_lines) &
-        definitions$line == unname(global_lines[definitions$name])
+    global <- match(definitions$name, names(global_lines))
+    is_global <- !is.na(global) & definitions$line == unname(global_lines[global])
+    if (!is.null(syntax$scope_row)) {
+        found <- which(definition_at > 0L)
+        tokens <- rows[definition_at[found]]
+        outer <- syntax$function_scope[tokens] == 0L
+        # The workspace retains only the last definition of each name. Earlier
+        # assignments and loop variables in bare braces bind the same name.
+        parents <- syntax$parent_row[tokens]
+        statement <- syntax$parent_row[parents]
+        direct <- statement == syntax$scope_row[tokens] + 1L & outer
+        known <- !is.na(global[found]) | syntax$token[parents] == "forcond"
+        # Keep declarations recognized by the document parser in control flow.
+        # On a shared line the name must actually fall inside that definition.
+        check <- which(outer & !direct & is_global[found])
+        is_global[found] <- direct & known
+        for (i in check) {
+            token <- tokens[[i]]
+            line <- data$line1[[token]]
+            def <- global_definitions[[global[[found[[i]]]]]]$range
+            col <- code_point_to_unit(content[[line]], data$col1[[token]] - 1L)
+            is_global[found[[i]]] <- col >= def$start$character &&
+                (line - 1L < def$end$line || col < def$end$character)
+        }
+    }
     local <- which(!is_global)
 
-    names <- reference_symbol_names(data$text[rows])
     definition_keys <- paste0("global:", names)
     definition_kinds <- rep("global", length(rows))
     if (length(local)) {
@@ -171,24 +205,6 @@ reference_parse_data <- function(data, content, completion_data, uri,
         definition_keys[resolved] <- local_keys[selected[resolved]]
         definition_kinds[resolved] <- definitions$kind[local[selected[resolved]]]
     }
-
-    definition_positions <- paste(
-        definitions$name,
-        definitions$definition_line1,
-        definitions$definition_col1,
-        definitions$definition_line2,
-        definitions$definition_col2,
-        sep = ":"
-    )
-    occurrence_positions <- paste(
-        names,
-        data$line1[rows],
-        data$col1[rows],
-        data$line2[rows],
-        data$col2[rows],
-        sep = ":"
-    )
-    is_definition <- occurrence_positions %in% definition_positions
 
     cols <- as.integer(data$col1[rows] - 1L)
     end_cols <- as.integer(data$col2[rows])

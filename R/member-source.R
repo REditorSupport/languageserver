@@ -74,7 +74,13 @@ member_scope_field_writes <- function(children, assigned, writes) {
 }
 
 member_scope_index <- function(node) {
-    children <- as.list(node)[-1L]
+    scope <- member_statement_index(as.list(node)[-1L])
+    refs <- attr(node, "srcref")
+    if (length(refs) == length(node)) scope$refs <- lapply(refs[-1L], as.integer)
+    scope
+}
+
+member_statement_index <- function(children) {
     assigned <- vapply(children, function(child) {
         if ((member_head(child, "<-") || member_head(child, "=")) && is.symbol(child[[2L]])) {
             as.character(child[[2L]])
@@ -94,10 +100,11 @@ member_scope_index <- function(node) {
         any(names %in% c("setClass", "setClassUnion"))
     }, logical(1L)))
     histories <- split(which(nzchar(tracked)), tracked[nzchar(tracked)])
-    refs <- attr(node, "srcref")
-    list(assigned = assigned, reads = reads, writes = writes, mandatory = mandatory,
-        histories = list2env(histories, hash = TRUE, parent = emptyenv()),
-        refs = if (length(refs) == length(node)) lapply(refs[-1L], as.integer) else NULL)
+    scope <- list(assigned = assigned, reads = reads, writes = writes, mandatory = mandatory,
+        histories = list2env(histories, hash = TRUE, parent = emptyenv()))
+    dotted <- grep(".", names(histories), fixed = TRUE, value = TRUE)
+    if (length(dotted)) scope$s3_names <- dotted
+    scope
 }
 
 # Deferred scope indexes are immutable and bounded to the accepted document.
@@ -123,7 +130,7 @@ member_source_index <- function(expr, parts) {
     functions <- new.env(hash = TRUE, parent = emptyenv())
     contexts <- new.env(hash = TRUE, parent = emptyenv())
     bytes <- 0
-    walk <- function(node, path, ref = NULL) {
+    walk <- function(node, path, ref = NULL, in_block = FALSE) {
         if (!is.call(node)) return(NULL)
         key <- member_source_key(path)
         children <- list()
@@ -144,16 +151,25 @@ member_source_index <- function(expr, parts) {
             return(ref)
         }
         if (member_head(node, "{")) {
+            # Adjacent standalone blocks share one flattened binding history.
+            # Keep only their physical child indexes for cursor recovery.
             scope <- member_scope_index(node)
             bytes <<- bytes + as.numeric(utils::object.size(as.list(scope$histories)))
-            scopes[[key]] <- scope
             whole <- attr(node, "wholeSrcref")
             if (!is.null(whole)) ref <- whole
             for (i in seq_along(scope$assigned)) {
                 if (any(scope$reads[[i]] %in% c("function", "{"))) {
-                    walk(node[[i + 1L]], c(path, i + 1L), scope$refs[[i]])
+                    child <- node[[i + 1L]]
+                    nested <- member_head(child, "{")
+                    if (nested && length(child) > 1L && !in_block && is.null(scope$flat)) {
+                        flat <- top_level_statements(as.expression(as.list(node)[-1L]))
+                        scope$flat <- member_statement_index(as.list(flat))
+                        bytes <<- bytes + as.numeric(utils::object.size(as.list(scope$flat$histories)))
+                    }
+                    walk(child, c(path, i + 1L), scope$refs[[i]], in_block = nested)
                 }
             }
+            scopes[[key]] <- scope
             return(ref)
         }
         for (i in seq_along(node)) {
@@ -195,15 +211,27 @@ member_source_names <- function(parsed, source, path, name = NULL, accessor = "$
     node <- parsed
     ast_path <- integer()
     referenced <- character()
+    narrow <- !is.null(name) || !is.null(accessor)
     while (length(path)) {
         summary <- source$scopes[[member_source_key(ast_path)]]
         if (!is.null(summary)) {
-            target <- path[[1L]] - 1L
-            reads <- if (target <= length(summary$reads)) summary$reads[[target]] else character()
-            selected <- if (is.null(name) && is.null(accessor)) seq_len(target - 1L) else
-                member_scope_slice(summary, target, union(name, reads))
+            flattened <- !is.null(summary$flat)
+            if (flattened) {
+                sequence <- member_cursor_sequence(node, path, ast_path, source, narrow, name)
+                selected <- sequence$selected
+                if (!narrow) selected <- selected[selected < sequence$target]
+                summary <- sequence$summary
+                ast_path <- c(sequence$ast_path, sequence$path[[1L]])
+                path <- sequence$path[-1L]
+                node <- sequence$children[[sequence$target]]
+            } else {
+                target <- path[[1L]] - 1L
+                reads <- if (target <= length(summary$reads)) summary$reads[[target]] else character()
+                selected <- if (narrow) member_scope_slice(summary, target, union(name, reads)) else seq_len(target - 1L)
+            }
             selected <- selected[selected <= length(summary$reads)]
             referenced <- c(referenced, unlist(summary$reads[selected], use.names = FALSE))
+            if (flattened) next
         }
         # R6 context includes members outside the cursor method. Their source
         # package roots must remain available when constructing that context.
@@ -246,6 +274,59 @@ member_scope_slice <- function(scope, target, needed) {
         head <- head + 1L
     }
     which(selected)
+}
+
+# Gather the preceding statements through consecutive brace children. Stop
+# at the original cursor expression so calls, branches and function bodies
+# retain their own traversal and their physical source paths.
+member_brace_prefix <- function(children, target, path, ast_path) {
+    prefix <- list()
+    repeat {
+        if (target > 1L) prefix[[length(prefix) + 1L]] <- children[seq_len(target - 1L)]
+        child <- children[[target]]
+        if (length(path) == 1L || !member_head(child, "{")) break
+        ast_path <- c(ast_path, path[[1L]])
+        path <- path[-1L]
+        target <- path[[1L]] - 1L
+        children <- as.list(child)[-1L]
+    }
+    before <- top_level_statements(as.expression(do.call(c, prefix)))
+    list(children = c(as.list(before), list(child)), target = target, path = path, ast_path = ast_path)
+}
+
+member_cursor_sequence <- function(node, path, ast_path, source, narrow, name = NULL, call_reads = FALSE) {
+    children <- if (is.expression(node)) as.list(node) else as.list(node)[-1L]
+    target <- path[[1L]] - if (is.expression(node)) 0L else 1L
+    summary <- source$scopes[[member_source_key(ast_path)]]
+    if (!is.null(summary$flat) || (is.null(summary) && target > 1L)) {
+        sequence <- member_brace_prefix(children, target, path, ast_path)
+        children <- sequence$children
+        path <- sequence$path
+        ast_path <- sequence$ast_path
+        target <- length(children)
+        physical <- source$scopes[[member_source_key(ast_path)]]
+        reads <- if (narrow && sequence$target <= length(physical$reads)) physical$reads[[sequence$target]]
+        summary <- summary$flat
+        if (narrow && is.null(summary)) {
+            # Partial parses have no accepted scope index.
+            summary <- member_statement_index(children)
+            reads <- summary$reads[[target]]
+        }
+    } else {
+        reads <- if (narrow && target <= length(summary$reads)) summary$reads[[target]]
+    }
+    selected <- if (narrow && !is.null(summary)) {
+        if (call_reads) {
+            # The recovered call can include arguments beyond the cursor.
+            # S3 also reads the queried generic's method bindings implicitly.
+            methods <- summary$s3_names
+            if (length(methods)) methods <- methods[startsWith(methods, paste0(name, "."))]
+            reads <- c(member_syntax_names(children[[target]]), methods, "UseMethod", "class<-")
+        }
+        member_scope_slice(summary, target, union(name, reads))
+    } else seq_len(target)
+    list(children = children, target = target, summary = summary, selected = selected,
+        path = path, ast_path = ast_path)
 }
 
 member_cursor_path <- function(node, sentinel, accessor) {

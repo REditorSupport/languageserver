@@ -23,6 +23,33 @@ s3_result <- function(fixture, row = fixture$document$nline - 1L, col = nchar(fi
     resolve_s3_call(fixture$uri, fixture$workspace, fixture$document, list(row = row, col = col))
 }
 
+test_that("S3 dispatch shares local generics and methods across standalone groups", {
+    code <- c("run <- function() {", "{ draw <- function(x, ...) { { UseMethod('draw') } }",
+        "  { draw.integer <- function(x, size = 3L, ...) x }", "}",
+        "{", sprintf("  unused.%d <- 1L", seq_len(300L)), "}",
+        "{ obj <- 1L", "  { draw(obj, ) }", "}", "}")
+    f <- s3_fixture(code)
+    row <- match("  { draw(obj, ) }", code) - 1L
+    call <- s3_result(f, row, 14L)
+    expect_identical(call$method$name, "draw.integer")
+    expect_identical(call$signature, "draw(x, size = 3L, ...)")
+})
+
+test_that("S3 scopes skip unrelated dotted locals and retain a local method mask", {
+    body <- as.call(c(list(as.name("{")), as.list(parse(text = c(
+        sprintf("unrelated.%d <- 0L", seq_len(300L)),
+        "{ draw.integer <- 0L }", "draw(1L)"
+    ), keep.source = FALSE))))
+    source <- member_source_index(body, NULL)
+    sequence <- member_cursor_sequence(body, length(body), 1L, source,
+        narrow = TRUE, name = "draw", call_reads = TRUE)
+    expect_identical(sequence$selected, c(301L, 302L))
+    code <- c("draw <- function(x, ...) UseMethod('draw')", "draw.integer <- function(x, ...) x",
+        "run <- function() {", "{ draw.integer <- 0L }", "draw(1L, )", "}")
+    f <- s3_fixture(code)
+    expect_null(s3_result(f, 4L, 9L))
+})
+
 test_that("S3 signatures retain recovered calls in their own literate R cell", {
     prefix <- c("```{r}", "render <- function(x, ...) UseMethod('render')",
         "render.widget <- function(x, columns = NULL, ...) NULL")

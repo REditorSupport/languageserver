@@ -154,7 +154,7 @@ member_index_bindings <- function(items) {
 # Start bounded member recovery at the first uncertain top-level statement.
 # Earlier expressions came from the original text. Retain the recovery
 # window's line/byte limits and never cut a semicolon-separated source line.
-member_recovery_start <- function(content, data, incomplete_lines) {
+member_recovery_start <- function(content, data, incomplete_lines, verified_blocks = FALSE) {
     if (!length(incomplete_lines) || !length(data$id)) return(1L)
     roots <- which(data$parent == 0L & data$token %in% c("expr", "expr_or_assign_or_help"))
     begin <- data$line1[roots]
@@ -163,8 +163,13 @@ member_recovery_start <- function(content, data, incomplete_lines) {
     if (stop_line <= 1L) return(1L)
     prefix <- which(begin < stop_line)
     bytes <- c(0, cumsum(as.double(nchar(content, type = "bytes"))))
-    unsupported <- which(end[prefix] >= stop_line | end[prefix] - begin[prefix] > 128L |
-            bytes[end[prefix] + 1L] - bytes[begin[prefix]] > 65536)
+    oversized <- end[prefix] - begin[prefix] > 128L | bytes[end[prefix] + 1L] - bytes[begin[prefix]] > 65536
+    if (verified_blocks && any(oversized)) {
+        # Large standalone blocks already have an original AST for their
+        # statements. The line and byte limits apply to reparsing uncertain input.
+        oversized <- oversized & !data$id[roots[prefix]] %in% data$parent[data$token == "'{'"]
+    }
+    unsupported <- which(end[prefix] >= stop_line | oversized)
     if (length(unsupported)) stop_line <- begin[[prefix[[unsupported[[1L]]]]]]
     # An earlier expression can end on the first line of the next expression.
     i <- findInterval(stop_line - 1L, begin)
@@ -175,48 +180,68 @@ member_recovery_start <- function(content, data, incomplete_lines) {
     stop_line
 }
 
+# Bounded line recovery can miss the beginning of a valid function inside a
+# block, or recover its body as separate expressions. Keep the verified AST
+# for every such range and retain cursor recovery in the remaining gaps.
+member_merge_verified_items <- function(items, verified) {
+    refs <- attr(verified, "srcref")
+    confirmed <- lapply(seq_along(verified), function(i) {
+        ref <- refs[[i]]
+        list(expr = verified[[i]], start = c(ref[[7L]] - 1L, ref[[5L]] - 1L),
+            end = c(ref[[8L]] - 1L, ref[[6L]]))
+    })
+    if (!length(items)) return(confirmed)
+    bounds <- function(items) vapply(items, function(item) c(item$start, item$end), integer(4L))
+    recovered <- bounds(items)
+    original <- bounds(confirmed)
+    stride <- as.double(max(recovered[c(2L, 4L), ], original[c(2L, 4L), ])) + 1
+    start <- function(x) x[1L, ] * stride + x[2L, ]
+    end <- function(x) x[3L, ] * stride + x[4L, ]
+    # The first confirmed item ending after an old start is its only possible
+    # first overlap. Confirmed statement ranges are disjoint and ordered.
+    next_item <- findInterval(start(recovered), end(original)) + 1L
+    keep <- next_item > length(confirmed) | start(original)[next_item] >= end(recovered)
+    c(items[keep], confirmed)[order(c(start(recovered)[keep], start(original)))]
+}
+
 member_document_index <- function(content, parsed = NULL, syntax = NULL, incomplete_lines = NULL,
-    defer_small_scopes = FALSE, value_source = NULL) {
+    defer_small_scopes = FALSE, value_source = NULL, verified = NULL) {
     complete <- !is.null(parsed) && is.null(incomplete_lines)
     recovery_start <- 1L
-    if (!complete && !is.null(parsed)) recovery_start <- member_recovery_start(content, syntax, incomplete_lines)
+    if (!complete && !is.null(parsed)) {
+        recovery_start <- member_recovery_start(content, syntax, incomplete_lines, length(verified) > 0L)
+        if (recovery_start > 1L && length(verified)) {
+            refs <- attr(verified, "srcref")
+            later <- vapply(refs, `[[`, integer(1L), 8L) >= recovery_start
+            verified <- verified[later]
+            attr(verified, "srcref") <- refs[later]
+        }
+    }
     recovered_packages <- character()
     items <- list()
     has_blocks <- FALSE
-    append <- function(expr, start, end, outer = NULL) {
-        # Braces in statement position share their caller's scope. Split only
-        # these unconditional blocks, never an argument, function or branch.
-        refs <- if (member_head(expr, "{") && length(expr) > 1L) attr(expr, "srcref", exact = TRUE)
-        if (length(refs) && length(refs) == length(expr)) {
-            offset <- start[[1L]] - refs[[1L]][[7L]]
-            if (is.null(outer)) {
-                has_blocks <<- TRUE
-                outer <- list(start = start, end = end)
-            }
-            for (j in seq.int(2L, length(expr))) {
-                ref <- refs[[j]]
-                append(expr[[j]], c(offset + ref[[7L]], ref[[5L]] - 1L),
-                    c(offset + ref[[8L]], ref[[6L]]), outer)
-            }
-        } else {
-            i <- length(items) + 1L
-            item <- list(expr = expr, start = start, end = end)
-            item$outer <- outer
-            items[[i]] <<- item
-        }
-    }
-    if (complete || recovery_start > 1L) {
-        refs <- attr(parsed, "srcref")
-        for (i in seq_along(parsed)) {
+    append <- function(parsed, offset = 0L) {
+        statements <- top_level_statements(parsed)
+        if (!identical(statements, parsed)) has_blocks <<- TRUE
+        refs <- attr(statements, "srcref")
+        for (i in seq_along(statements)) {
             ref <- refs[[i]]
             # first_parsed/last_parsed are physical, including across #line.
-            if (!complete && ref[[7L]] >= recovery_start) break
-            append(parsed[[i]], c(ref[[7L]] - 1L, ref[[5L]] - 1L), c(ref[[8L]] - 1L, ref[[6L]]))
+            items[[length(items) + 1L]] <<- list(expr = statements[[i]],
+                start = c(offset + ref[[7L]] - 1L, ref[[5L]] - 1L),
+                end = c(offset + ref[[8L]] - 1L, ref[[6L]]))
         }
+    }
+    if (complete) {
+        append(parsed)
+    } else if (recovery_start > 1L) {
+        refs <- attr(parsed, "srcref")
+        prefix <- vapply(refs, `[[`, integer(1L), 7L) < recovery_start
+        append(structure(parsed[prefix], srcref = refs[prefix]))
     }
     prefix_bytes <- 0
     if (!complete) {
-        if (length(items)) {
+        if (length(items) || length(verified)) {
             # Incomplete buffers use cursor recovery, not function-part indexes.
             # The reused source references need their lines but not a duplicate
             # full parse table in every worker snapshot.
@@ -234,12 +259,7 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL, incompl
                 parsed <- restore_tabbed_parse(parsed, utils::getParseData(parsed), text,
                     value_source[rows])$expr
             }
-            refs <- attr(parsed, "srcref")
-            for (i in seq_along(parsed)) {
-                ref <- refs[[i]]
-                append(parsed[[i]], c(start + ref[[7L]] - 2L, ref[[5L]] - 1L),
-                    c(start + ref[[8L]] - 2L, ref[[6L]]))
-            }
+            append(parsed, start - 1L)
         }
         while (end <= length(content)) {
             if (end == start && end > batch_end) {
@@ -293,6 +313,7 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL, incompl
             start <- end + 1L
             end <- end + 1L
         }
+        if (length(verified)) items <- member_merge_verified_items(items, verified)
     }
     s4 <- list()
     imports <- list()
@@ -1098,35 +1119,21 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
             return(invisible(NULL))
         }
         if (member_head(node, "{") || is.expression(node)) {
-            children <- if (is.expression(node)) as.list(node) else as.list(node)[-1L]
-            target <- path[[1L]] - if (is.expression(node)) 0L else 1L
-            summary <- source$scopes[[member_source_key(ast_path)]]
-            selected <- seq_len(target)
-            if (!is.null(accessor) || !is.null(name)) {
-                if (is.null(summary) && target > 1L) {
-                    # Recovery has no accepted-parse index. Only the prefix
-                    # through this cursor can contribute lexical bindings.
-                    prefix <- as.call(c(list(as.name("{")), children[seq_len(target)]))
-                    summary <- member_scope_index(prefix)
-                }
-                if (!is.null(summary)) {
-                    reads <- if (target <= length(summary$reads)) summary$reads[[target]] else character()
-                    selected <- member_scope_slice(summary, target, union(name, reads))
-                }
-            }
+            sequence <- member_cursor_sequence(node, path, ast_path, source, !is.null(accessor) || !is.null(name), name)
+            summary <- sequence$summary
             # Hash current values for dependency capture, while retaining
             # ordinary lists as immutable snapshots consumed by inference.
             lookup <- list2env(env, hash = TRUE, parent = emptyenv())
-            for (i in selected) {
-                child <- children[[i]]
+            for (i in sequence$selected) {
+                child <- sequence$children[[i]]
                 if (member_head(child, ":=")) {
                     bound <- member_s7_bind(child, index, env)
                     if (!is.null(bound)) child <- bound
                 }
                 env <- member_s4_effect(child, index, env)
                 if (!is.null(env$.__s4_classes__)) lookup$.__s4_classes__ <- env$.__s4_classes__
-                if (i == target) {
-                    visit(child, env, path[-1L], c(ast_path, path[[1L]]))
+                if (i == sequence$target) {
+                    visit(child, env, sequence$path[-1L], c(sequence$ast_path, sequence$path[[1L]]))
                     break
                 }
                 preserved <- character()

@@ -102,3 +102,23 @@ test_that("Static S3 return summaries retry long method bodies and honor externa
     expect_null(external$generic_returns$convert)
     expect_identical(external$method_results$convert.long$type, "public_box")
 })
+
+test_that("constructors and closure factories follow nested standalone statements", {
+    constructor <- member_constructor(quote(function() {
+        { obj <- new.env(); { obj$field <- 1L } }
+        if (flag) { obj$conditional <- 2L }
+        local({ obj$private <- 3L })
+        { class(obj) <- "box"; { return(obj) } }
+    }))
+    expect_identical(constructor$type, "box")
+    expect_named(constructor$fields, "field")
+
+    factory <- member_returned_function(quote(function(original) {
+        { captured <- 1L; { wrapper <- function() captured } }
+        { formals(wrapper) <- formals(original); { return(wrapper) } }
+    }))
+    expect_identical(factory$fn, quote(function() captured))
+    expect_identical(factory$prelude, list(quote(captured <- 1L)))
+    expect_identical(factory$copied, "original")
+    expect_null(member_returned_function(quote(function() { function() 1L; {} })))
+})

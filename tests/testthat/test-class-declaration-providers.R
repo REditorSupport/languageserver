@@ -7,6 +7,43 @@ class_provider_fixture <- function(lines, uri = "file:///class-providers.R", wor
     list(uri = uri, document = document, workspace = workspace)
 }
 
+test_that("classes in standalone groups and control-flow bodies are discoverable", {
+    path <- withr::local_tempfile(fileext = ".R")
+    for (wrap in c("%s", "{ %s }", "{ { %s } }")) {
+        group <- function(statement) sprintf(wrap, statement)
+        code <- c(group('methods::setClass("S4Base")'), group('R6Base <- R6::R6Class("R6Base")'),
+            paste("if (flag)", group('methods::setClass("S4Child", contains = "S4Base", slots = c(s4field = "integer"))'),
+                "else", group('R6Child <- R6::R6Class("R6Child", inherit = R6Base, public = list(r6field = 0))')),
+            paste("for (i in xs)", group('methods::setRefClass("Ref")')),
+            paste("while (flag)", group('methods::setGeneric("run", function(x) x)')),
+            paste("repeat", group('methods::setMethod("run", "S4Child", function(x) x)')),
+            'quote({ if (flag) { methods::setClass("Quoted") } })',
+            'local({ methods::setClass("Private") })',
+            'function() { if (flag) { methods::setClass("Local") } }',
+            'if ({ methods::setClass("Condition"); flag }) NULL',
+            paste("if (flag)", group('S7Conditional <- S7::new_class("S7Conditional")')))
+        writeLines(code, path)
+        f <- class_provider_fixture(code, path_to_uri(path))
+        records <- f$document$parse_data$class_data$declarations
+        expect_identical(map_chr(records, "name"), c("S4Base", "R6Base", "S4Child", "R6Child", "Ref", "run", "run"))
+        expect_equal(index_shallow_summary(path, code, dirname(path))$class_declarations, records)
+        symbols <- document_symbol_reply(1L, f$uri, f$workspace, f$document,
+            list(hierarchicalDocumentSymbolSupport = TRUE))$result
+        expect_true(all(c("S4Child", "R6Child", "s4field", "r6field") %in%
+                map_chr(flatten_document_symbols(symbols), "name")))
+        xml <- list(get_parse_data = function(...) list(xml_doc = parse_data_xml(f$document$parse_data)))
+        for (name in c("S4Child", "R6Child")) {
+            point <- list(row = 2L, col = regexpr(name, code[[3L]], fixed = TRUE)[[1L]])
+            legacy <- prepare_type_hierarchy_reply(1L, f$uri, xml, f$document, point)$result[[1L]]
+            expect_identical(legacy$name, name)
+            item <- prepare_type_hierarchy_reply(1L, f$uri, f$workspace, f$document, point)$result[[1L]]
+            expect_identical(item$name, name)
+            parent <- type_hierarchy_supertypes_reply(1L, f$workspace, item)$result
+            expect_identical(map_chr(parent, "name"), sub("Child", "Base", name))
+        }
+    }
+})
+
 test_that("class outlines and workspace search agree on direct declarations", {
     lines <- c(
         'C <- R6::R6Class("C", public = list(class = 1, box = list(nested = list(phantom = 2)),',

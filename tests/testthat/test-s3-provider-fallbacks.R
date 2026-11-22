@@ -69,6 +69,17 @@ test_that("namespace snapshots separate qualified S3 registrations from unrelate
     expect_length(s3_namespace_source(root), 0L)
 })
 
+test_that("disk S3 summaries retain physical method spans and exclude incomplete outer blocks", {
+    lines <- c("{", "  draw <- function(x) { { UseMethod('draw') } }",
+        "  { draw.integer <- function(x) x }", "}", "{", "  hidden <- 1", "}")
+    parsed <- parse(text = lines, keep.source = TRUE)
+    summary <- s3_index_summary(lines, "file:///blocks.R", parsed, incomplete_lines = 6L)
+    expect_equal(names(summary$index$histories), c("draw", "draw.integer"))
+    expect_identical(summary$index$functions$draw, list(name = "draw", formal = "x"))
+    expect_identical(summary$items[[2L]]$start, c(2L, 4L))
+    expect_identical(summary$items[[2L]]$end, c(2L, nchar(lines[[3L]]) - 2L))
+})
+
 test_that("invalid S3 catalogs cannot replace a usable cached generic", {
     cache <- S3MetadataCache$new()
     empty <- cache$bytes()

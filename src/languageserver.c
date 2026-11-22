@@ -68,6 +68,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"member_function_key_c", (DL_FUNC) &member_function_key_c, 1},
     {"source_calls_c", (DL_FUNC) &source_calls_c, 1},
     {"member_assignment_calls_c", (DL_FUNC) &member_assignment_calls_c, 1},
+    {"top_level_statements_c", (DL_FUNC) &top_level_statements_c, 2},
     {"syntax_xml_c", (DL_FUNC) &syntax_xml_c, 1},
     {"syntax_index_c", (DL_FUNC) &syntax_index_c, 2},
     {"member_complete_items_c", (DL_FUNC) &member_complete_items_c, 3},

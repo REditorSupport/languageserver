@@ -541,7 +541,7 @@ member_snapshot_shape <- function(snapshot, package = "") {
 member_source_input <- function(root) {
     definitions <- locations <- expressions <- list()
     for (path in package_metadata_sort(list.files(file.path(root, "R"), "\\.[Rr]$", full.names = TRUE))) {
-        code <- parse(path, keep.source = FALSE)
+        code <- top_level_statements(parse(path, keep.source = FALSE))
         expressions[[length(expressions) + 1L]] <- code
         for (expr in code) {
             if (!member_head(expr, "<-") || length(expr) != 3L) next

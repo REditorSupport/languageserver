@@ -77,7 +77,8 @@ typedef enum {
     TOKEN_RIGHT_ASSIGN,
     TOKEN_EQ_ASSIGN,
     TOKEN_FORCOND,
-    TOKEN_DOLLAR
+    TOKEN_DOLLAR,
+    TOKEN_BRACE
 } completion_token_kind;
 
 static completion_token_kind classify_token(SEXP value) {
@@ -98,6 +99,7 @@ static completion_token_kind classify_token(SEXP value) {
     if (strcmp(token, "EQ_ASSIGN") == 0) return TOKEN_EQ_ASSIGN;
     if (strcmp(token, "forcond") == 0) return TOKEN_FORCOND;
     if (strcmp(token, "'$'") == 0) return TOKEN_DOLLAR;
+    if (strcmp(token, "'{'") == 0) return TOKEN_BRACE;
     return TOKEN_OTHER;
 }
 
@@ -156,39 +158,26 @@ static int is_function_expr(
     return 0;
 }
 
-static int top_row(
-    int row,
-    const int *parent,
-    const int *row_by_id,
-    int max_id
-) {
-    int parent_id = parent[row];
-    while (parent_id != 0) {
-        if (parent_id < 0 || parent_id > max_id || row_by_id[parent_id] < 0) {
-            return -1;
-        }
-        row = row_by_id[parent_id];
-        parent_id = parent[row];
-    }
-    return row;
-}
-
 static int scope_row(
     int row,
     const int *id,
     const int *parent,
     const int *row_by_id,
     int max_id,
-    const int *function_scope
+    const int *function_scope,
+    const int *first_child,
+    const completion_token_kind *kind
 ) {
-    int ancestor = row;
+    int ancestor = row, statement = row;
     while (parent[ancestor] > 0) {
         int parent_id = parent[ancestor];
         if (parent_id > max_id || row_by_id[parent_id] < 0) return -1;
         ancestor = row_by_id[parent_id];
         if (function_scope[id[ancestor]]) return ancestor;
+        int first = first_child[parent_id];
+        if (first < 0 || kind[first] != TOKEN_BRACE) statement = ancestor;
     }
-    return top_row(row, parent, row_by_id, max_id);
+    return parent[ancestor] == 0 ? statement : -1;
 }
 
 static SEXP row_vector(const int *rows, int size) {
@@ -539,7 +528,7 @@ SEXP completion_parse_index_c(
             name_expr, id_ptr, first_child, next_sibling, kind);
         if (name_row < 0) continue;
         int range_row = shared_scope ? shared_scope[name_row] : scope_row(name_row, id_ptr, parent_ptr, row_by_id,
-            max_id, function_scope);
+            max_id, function_scope, first_child, kind);
         if (range_row < 0) continue;
 
         if (is_function_expr(value_expr, id_ptr, first_child, next_sibling, kind)) {
@@ -558,7 +547,7 @@ SEXP completion_parse_index_c(
         while (child >= 0) {
             if (kind[child] == TOKEN_SYMBOL) {
                 int range_row = shared_scope ? shared_scope[child] : scope_row(child, id_ptr, parent_ptr, row_by_id,
-                    max_id, function_scope);
+                    max_id, function_scope, first_child, kind);
                 if (range_row >= 0) {
                     symbol_name[symbol_count] = child;
                     symbol_range[symbol_count++] = range_row;

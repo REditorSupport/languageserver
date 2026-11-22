@@ -471,7 +471,8 @@ s3_scoped_call <- function(document, location, context) {
     pipe_lhs <- NULL
     scope <- context$root
     ast <- integer()
-    for (step in path) {
+    while (length(path)) {
+        step <- path[[1L]]
         if (is.call(node) && member_name(node[[1L]]) %in% c("%>%", "%<>%", "%T>%") && step == 3L) {
             if (!is.null(s3_get_value(member_name(node[[1L]]), scope, context, source_only = TRUE))) return(NULL)
             pipe_lhs <- node[[2L]]
@@ -480,18 +481,13 @@ s3_scoped_call <- function(document, location, context) {
             scope <- new.env(parent = scope)
             for (name in names(node[[2L]])) assign(name, s3_unknown("formal"), scope)
         } else if (member_head(node, "{") || is.expression(node)) {
-            children <- if (is.expression(node)) as.list(node) else as.list(node)[-1L]
-            target <- step - if (is.expression(node)) 0L else 1L
-            summary <- recovered$source$scopes[[member_source_key(ast)]]
-            selected <- if (!is.null(summary)) {
-                member_scope_slice(
-                    summary, target,
-                    member_syntax_names(children[[target]])
-                )
-            } else {
-                seq_len(target)
-            }
-            for (i in selected[selected < target]) context$infer(children[[i]], scope)
+            sequence <- member_cursor_sequence(node, path, ast, recovered$source,
+                narrow = TRUE, name = location$call$token, call_reads = TRUE)
+            for (i in sequence$selected[sequence$selected < sequence$target]) context$infer(sequence$children[[i]], scope)
+            node <- sequence$children[[sequence$target]]
+            ast <- c(sequence$ast_path, sequence$path[[1L]])
+            path <- sequence$path[-1L]
+            next
         }
         if (is.call(node) && step == 1L && ((member_head(node[[step]], "::") || member_head(
             node[[step]],
@@ -516,6 +512,7 @@ s3_scoped_call <- function(document, location, context) {
         }
         node <- node[[step]]
         ast <- c(ast, step)
+        path <- path[-1L]
     }
     NULL
 }
@@ -674,14 +671,9 @@ s3_index_summary <- function(content, uri, expressions = NULL, parse_data = NULL
             items <- items[member_complete_item_ids(parse_data)]
         }
     } else if (!is.null(expressions)) {
+        expressions <- top_level_statements(expressions, incomplete_lines)
         refs <- attr(expressions, "srcref")
-        ids <- seq_along(expressions)
-        if (length(incomplete_lines)) {
-            first <- vapply(refs, `[[`, integer(1L), 1L)
-            last <- vapply(refs, `[[`, integer(1L), 3L)
-            ids <- ids[findInterval(first - 2L, incomplete_lines) == findInterval(last - 1L, incomplete_lines)]
-        }
-        items <- lapply(ids, function(i) {
+        items <- lapply(seq_along(expressions), function(i) {
             ref <- refs[[i]]
             list(
                 expr = expressions[[i]], start = c(ref[[1L]] - 1L, ref[[5L]] - 1L),
