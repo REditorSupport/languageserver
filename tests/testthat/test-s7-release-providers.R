@@ -165,3 +165,96 @@ test_that("a nested package manifest refreshes its accepted source imports", {
     workspace_did_change_watched_files(server, event)
     expect_identical(calls$pop(), uri)
 })
+
+test_that("S7 member providers follow unconditional braced attachments and declarations in order", {
+    skip_if_not_installed("S7", "1.0.0")
+    uri <- "file:///s7-block.R"
+    workspace <- Workspace$new(NULL)
+    workspace$member_metadata$set("S7", member_prepare_package("S7"))
+    mask <- member_generic_index("")
+    mask$package <- "mask"
+    mask$exports <- "new_class"
+    mask$definitions <- list(new_class = quote(function(...) NULL))
+    workspace$member_metadata$set("mask", member_index_freeze(mask))
+
+    inspect <- function(lines, version = 1L) {
+        doc <- Document$new(uri, version = version, content = lines)
+        parsed <- parse_document(uri, lines)
+        parsed$version <- version
+        doc$update_parse_data(parsed)
+        workspace$documents$set(uri, doc)
+        doc
+    }
+    labels <- function(doc, line) {
+        items <- member_completion(uri, workspace, doc, list(row = line, col = 8L), TRUE, 100L)
+        vapply(items, `[[`, "", "label")
+    }
+    code <- c("{", "  library(S7)", "  { Point := new_class(properties = list(x = class_double)) }",
+        "  Point()@x", "}", "Point()@x", "Point()")
+    doc <- inspect(code)
+    expect_identical(doc$parse_data$packages, "S7")
+    expect_identical(labels(doc, 5L), "x")
+    signature <- signature_reply(1L, uri, workspace, doc, list(row = 6L, col = 6L))$result
+    expect_identical(signature$signatures[[1L]]$label, "Point(x = numeric(0))")
+    inside <- member_completion(uri, workspace, doc, list(row = 3L, col = 10L), TRUE, 100L)
+    expect_identical(vapply(inside, `[[`, "", "label"), "x")
+    property <- definition_reply(1L, uri, workspace, doc, list(row = 5L, col = 8L))$result
+    x <- regexpr("x =", code[[3L]], fixed = TRUE)[[1L]] - 1L
+    expect_equal(property, list(uri = uri, range = range(position(2L, x), position(2L, x + 1L))))
+
+    # Adding an unrelated syntax error retains the prior, complete brace
+    # block and its source positions for consumers and other files.
+    partial <- inspect(c("bad <- )", code))
+    expect_identical(labels(partial, 6L), "x")
+    complete <- member_complete_item_ids(partial$parse_data)
+    expect_identical(vapply(partial$parse_data$member_data$items[complete], function(item) item$start[[1L]], 0L),
+        c(2L, 3L, 4L, 6L, 7L))
+
+    declaration <- "Point := new_class(properties = list(x = class_double))"
+    doc <- inspect(c("library(S7)", "{ library(mask) }", declaration, "Point()@x"))
+    expect_length(labels(doc, 3L), 0L)
+    doc <- inspect(c("library(S7)", declaration, "{ library(mask) }", "Point()@x"))
+    expect_identical(labels(doc, 3L), "x")
+    doc <- inspect(c("require <- function(...) TRUE", '{ { base::require(quietly = TRUE, package = "S7") } }',
+            declaration, "Point()@x"))
+    expect_identical(labels(doc, 3L), "x")
+    doc <- inspect(c("library(S7)", '{ base::library(mask, include.only = "new_class") }', declaration, "Point()@x"))
+    expect_length(labels(doc, 3L), 0L)
+    doc <- inspect(c("library(S7)", '{ library(mask, exclude = "other") }', declaration, "Point()@x"))
+    doc$attachment_exclusions <- list(mask = "new_class")
+    expect_length(labels(doc, 3L), 0L)
+    for (scope in c('{ base::library(S7, exclude = "new_class") }', "if (condition) { library(S7) }", "f <- function() { library(S7) }",
+            "{ library <- function(...) TRUE; library(S7) }", "quote({ library(S7) })")) {
+        expect_length(labels(inspect(c(scope, declaration, "Point()@x")), 2L), 0L)
+    }
+})
+
+test_that("sourced complete blocks in a partially parsed file keep their property origins", {
+    skip_if_not_installed("S7", "1.0.0")
+    root <- index_normalize_path(withr::local_tempdir())
+    workspace <- Workspace$new(root)
+    workspace$member_metadata$set("S7", member_prepare_package("S7"))
+    open <- function(name, code) {
+        path <- file.path(root, name)
+        writeLines(code, path)
+        uri <- path_to_uri(path)
+        doc <- Document$new(uri, version = 1L, content = code)
+        doc$is_open <- TRUE
+        workspace$documents$set(uri, doc)
+        parsed <- parse_document(uri, code)
+        parsed$version <- doc$version
+        workspace$update_parse_data(uri, parsed)
+        doc
+    }
+    declaration <- '{ base::require(S7); { "\U0001f4cd"; Point := new_class(properties = list(x = class_double)) } }'
+    api <- open("api.R", c("bad <- )", declaration, "other <- list(key = 1)"))
+    caller <- open("main.R", c('source("api.R")', "Point()@x", "other$key"))
+    for (i in 1:2) {
+        key <- c("x", "key")[[i]]
+        pos <- list(row = i, col = nchar(caller$line0(i)))
+        location <- definition_reply(1L, caller$uri, workspace, caller, pos)$result
+        start <- regexpr(paste(key, "="), api$line0(i), fixed = TRUE)[[1L]] - 1L
+        if (i == 1L) start <- start + 1L # The supplementary character occupies two UTF-16 code units.
+        expect_equal(location, list(uri = api$uri, range = range(position(i, start), position(i, start + nchar(key)))))
+    }
+})

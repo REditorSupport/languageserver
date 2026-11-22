@@ -122,9 +122,9 @@ class_s7_scope <- function(syntax, calls, call_names, imports, masked, attachmen
     }
     events <- calls[call_names %in% c("library", "require", "attach", "detach")]
     event_rows <- syntax$parent_row[syntax$parent_row[events]]
-    direct <- which(event_rows > 0L & syntax$parent_row[pmax(1L, event_rows)] == 0L)
-    events <- events[direct]
-    event_rows <- event_rows[direct]
+    top_level <- vapply(event_rows, function(row) row > 0L && class_top_level_statement(syntax, row), logical(1L))
+    events <- events[top_level]
+    event_rows <- event_rows[top_level]
     order <- order(syntax$order_rank[event_rows])
     ranks <- syntax$order_rank[event_rows[order]]
     attached <- stats::setNames(rep(FALSE, length(api)), names(api))
@@ -136,7 +136,7 @@ class_s7_scope <- function(syntax, calls, call_names, imports, masked, attachmen
                     (is.null(call$package) && !masked(call$name, events[[i]])))) {
             fn <- if (call$name == "library") base::library else base::require
             args <- class_matched_arguments(call, names(formals(fn)))
-            if (all(names(args) %in% c("package", "quietly", "verbose", "warn.conflicts", "logical.return", "character.only"))) {
+            if (all(names(args) %in% member_attachment_arguments)) {
                 token <- class_literal_row(syntax, args$package, c("SYMBOL", "STR_CONST"))
                 if (token && (is.null(args$character.only) || syntax$token[[token]] == "STR_CONST")) {
                     package <- class_token_text(syntax$text[[token]])

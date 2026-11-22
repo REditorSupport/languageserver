@@ -42,13 +42,13 @@ member_origin_tree <- function(data, syntax = NULL) {
 }
 
 member_source_origins <- function(parsed, data, uri, row_offset = 0L, col_offset = 0L,
-    tree = NULL, item = NULL, edit = NULL) {
+    tree = NULL, edit = NULL) {
     if (is.null(tree)) tree <- member_origin_tree(if (is.null(data)) utils::getParseData(parsed) else data)
     if (!length(tree)) return(parsed)
     syntax <- tree$syntax
     token <- syntax$token
     needed <- tree$needed
-    roots <- if (is.null(item)) tree$roots else tree$roots[item]
+    roots <- tree$roots
     if (anyNA(roots) || length(roots) != length(parsed) || !any(needed[roots])) return(parsed)
     origin <- function(i) {
         first <- syntax$line1[[i]]
@@ -168,8 +168,23 @@ member_declaration_expr <- function(document, i, budget) {
     }
     key <- as.character(i)
     if (exists(key, memo, inherits = FALSE)) return(memo[[key]])
-    if (!is.null(memo$tree)) {
-        expr <- member_source_origins(as.expression(list(node)), NULL, document$uri, tree = memo$tree, item = i)
+    tree <- memo$tree
+    if (!is.null(tree)) {
+        if (!length(tree)) return(node)
+        if (isTRUE(document$parse_data$member_data$has_blocks)) {
+            # Block children are indexed individually. Join the item to its
+            # syntax by physical range rather than the ordinal of a root.
+            syntax <- tree$syntax
+            rows <- .Call("syntax_enclosing_c", syntax, as.integer(item$start + 1L), PACKAGE = "languageserver")
+            rows <- unique(c(rows, syntax$parent_row[rows]))
+            rows <- rows[rows > 0L]
+            tree$roots <- rows[syntax$line1[rows] == item$start[[1L]] + 1L &
+                syntax$col1[rows] == item$start[[2L]] + 1L & syntax$line2[rows] == item$end[[1L]] + 1L &
+                syntax$col2[rows] == item$end[[2L]]][1L]
+        } else {
+            tree$roots <- tree$roots[i]
+        }
+        expr <- member_source_origins(as.expression(list(node)), NULL, document$uri, tree = tree)
     } else {
         start <- item$start
         end <- item$end

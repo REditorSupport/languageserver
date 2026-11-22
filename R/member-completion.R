@@ -45,6 +45,33 @@ member_cell_packages <- function(content, data, terminals) {
     member_incomplete_packages(text)
 }
 
+member_attachment_arguments <- c("package", "quietly", "verbose", "warn.conflicts", "logical.return", "character.only")
+
+# Normalize explicitly qualified attachment calls for the same import history
+# as a bare library/require. Keep the original item for expression recovery.
+member_attachment_item <- function(item) {
+    expr <- item$expr
+    if (!is.call(expr)) return(NULL)
+    head <- expr[[1L]]
+    if (identical(head, quote(base::library)) || identical(head, quote(base::require))) {
+        head <- head[[3L]]
+        item$qualified <- TRUE
+    } else if (!identical(head, as.name("library")) && !identical(head, as.name("require"))) {
+        return(NULL)
+    }
+    fn <- if (identical(head, as.name("library"))) base::library else base::require
+    args <- tryCatch(match.call(fn, expr), error = function(e) NULL)
+    if (!is.null(args) && is.null(args$package)) return(NULL)
+    package <- member_name(args$package)
+    if (is.null(package) || is.na(package) || !nzchar(package) || (is.symbol(args$package) &&
+            !is.null(args$character.only) && !identical(args$character.only, FALSE))) package <- NULL
+    if (is.null(package) || !all(names(as.list(args)[-1L]) %in% member_attachment_arguments)) {
+        item$uncertain <- TRUE
+    }
+    item$expr <- as.call(list(head, package))
+    item
+}
+
 # Ordered bindings can be built for a document or a workspace source sequence.
 member_index_bindings <- function(items) {
     bindings <- new.env(hash = TRUE, parent = emptyenv())
@@ -155,8 +182,28 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL, incompl
     if (!complete && !is.null(parsed)) recovery_start <- member_recovery_start(content, syntax, incomplete_lines)
     recovered_packages <- character()
     items <- list()
-    append <- function(expr, start, end) {
-        items[[length(items) + 1L]] <<- list(expr = expr, start = start, end = end)
+    has_blocks <- FALSE
+    append <- function(expr, start, end, outer = NULL) {
+        # Braces in statement position share their caller's scope. Split only
+        # these unconditional blocks, never an argument, function or branch.
+        refs <- if (member_head(expr, "{") && length(expr) > 1L) attr(expr, "srcref", exact = TRUE)
+        if (length(refs) && length(refs) == length(expr)) {
+            offset <- start[[1L]] - refs[[1L]][[7L]]
+            if (is.null(outer)) {
+                has_blocks <<- TRUE
+                outer <- list(start = start, end = end)
+            }
+            for (j in seq.int(2L, length(expr))) {
+                ref <- refs[[j]]
+                append(expr[[j]], c(offset + ref[[7L]], ref[[5L]] - 1L),
+                    c(offset + ref[[8L]], ref[[6L]]), outer)
+            }
+        } else {
+            i <- length(items) + 1L
+            item <- list(expr = expr, start = start, end = end)
+            item$outer <- outer
+            items[[i]] <<- item
+        }
     }
     if (complete || recovery_start > 1L) {
         refs <- attr(parsed, "srcref")
@@ -325,7 +372,8 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL, incompl
             args <- tryCatch(match.call(methods::setMethod, expr), error = function(e) NULL)
             if (identical(args$f, "initialize")) initializers[[length(initializers) + 1L]] <- item
         }
-        if (member_head(expr, "library") || member_head(expr, "require")) imports[[length(imports) + 1L]] <- item
+        import <- member_attachment_item(item)
+        if (!is.null(import)) imports[[length(imports) + 1L]] <- import
         if (is.call(expr) && length(expr) == 2L && is.character(expr[[2L]]) &&
                 (member_head(expr, "source") || identical(expr[[1L]], quote(base::source))) &&
                 (is.null(names(expr)) || names(expr)[[2L]] %in% c("", "file"))) {
@@ -338,7 +386,7 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL, incompl
         }
     }
     source_bytes <- if (complete) member_compact_source(parsed, parts) else prefix_bytes
-    list(items = items, bindings = member_index_bindings(items), imports = imports, sources = sources, effects = effects, s4 = s4, refclasses = refclasses, initializers = initializers,
+    list(items = items, has_blocks = has_blocks, bindings = member_index_bindings(items), imports = imports, sources = sources, effects = effects, s4 = s4, refclasses = refclasses, initializers = initializers,
         content_key = digest::digest(fingerprint_source, algo = "xxhash64"),
         source_bytes = source_bytes, deferred_parts = if (defer_small_scopes) parts,
         packages = packages, class_scope = class_scope, symbol_scope = symbol_scope,
@@ -765,20 +813,34 @@ member_context_index <- function(workspace, uri, document, at, parsed = NULL,
     attachments <- list()
     for (item in if (is.null(view$bindings)) data$imports else view$imports) {
         if (!member_before(item$end, at)) next
+        if (!isTRUE(item$qualified) &&
+                member_history_position(bindings[[member_name(item$expr[[1L]])]], item$start)) next
         imports <- c(imports, if (is.null(item$cache_prefix)) paste(item$start, item$end, collapse = ":") else item$cache_prefix)
         expr <- item$expr
         if (length(expr) < 2L) next
         if (member_head(expr, "library") || member_head(expr, "require")) {
             package <- member_name(expr[[2L]])
-            if (!is.null(package) && package %in% names(index$namespace_indices)) {
-                excluded <- if (isTRUE(index$s7_attached)) document$attachment_exclusions[[package]]
-                roots <- index$namespace_indices[[package]]$roots
-                if (length(excluded)) roots <- roots[setdiff(names(roots), excluded)]
-                package_index <- index$namespace_indices[[package]]
-                if (length(s7_names) && any(setdiff(s7_names, excluded) %in% package_index$exports)) {
+            package_index <- member_lookup(index$namespace_indices, package)
+            excluded <- if (isTRUE(index$s7_attached) && !isTRUE(item$uncertain)) {
+                member_lookup(document$attachment_exclusions, package)
+            }
+            if (length(s7_names)) {
+                # Selective or dynamic attachments cannot establish ownership.
+                # Invalidate any overlapping S7 names at this source position.
+                changed <- if (is.null(package_index) && isTRUE(item$uncertain)) s7_names else
+                    intersect(setdiff(s7_names, excluded), package_index$exports)
+                if (length(changed)) {
                     attachments[[length(attachments) + 1L]] <- list(end = item$end,
                         previous = index$attached_roots[intersect(s7_names, names(index$attached_roots))])
+                    if (isTRUE(item$uncertain)) {
+                        index$attached_roots[changed] <- rep(list(member_value(reason = "uncertain_attachment")), length(changed))
+                    }
                 }
+            }
+            if (isTRUE(item$uncertain)) next
+            if (!is.null(package_index)) {
+                roots <- package_index$roots
+                if (length(excluded)) roots <- roots[setdiff(names(roots), excluded)]
                 index$attached_roots[names(roots)] <- roots
                 if (!is.null(package_index$s4_classes)) {
                     index$attached_s4[names(package_index$s4_classes)] <- package_index$s4_classes

@@ -348,6 +348,33 @@ test_that("source named binding follows the installed S7 export", {
     expect_identical("Named" %in% names(f$document$parse_data$definitions), has_bind)
 })
 
+test_that("unconditional brace blocks preserve S7 attachment order in both indexes", {
+    skip_if_not_installed("S7", "1.0.0")
+    root <- withr::local_tempdir()
+    path <- file.path(root, "blocks.R")
+    lines <- c(
+        "if (enabled) { library(S7) }", "f <- function() { library(S7) }",
+        "Before := new_class()",
+        "{", "  library(S7)", "  Point := new_class()", "}",
+        "if (enabled) { detach('package:S7') }", "After := new_class()",
+        "{ { detach('package:S7') } }", "Detached := S7::new_class()",
+        "{ base::require(S7, quietly = TRUE) }", "Restored := new_class()",
+        "{ attach(list(`:=` = function(...) NULL)); Masked := S7::new_class() }"
+    )
+    writeLines(lines, path)
+    full <- parse_document(path_to_uri(path), lines)
+    shallow <- index_shallow_summary(path, lines, root)
+    expected <- c("Point", "After", "Restored")
+    for (records in list(full$class_data$declarations, shallow$class_declarations)) {
+        expect_identical(map_chr(records, "name"), expected)
+        expect_identical(map_chr(records, "type"), rep("S7", length(expected)))
+    }
+    for (definitions in list(full$definitions, shallow$definitions)) {
+        expect_true(all(expected %in% names(definitions)))
+        expect_false(any(c("Before", "Detached", "Masked") %in% names(definitions)))
+    }
+})
+
 test_that("S7's observed attachment exclusions retain named declarations in either attachment order", {
     skip_if_not_installed("S7", "1.0.0")
     skip_if_not_installed("rlang")
@@ -365,6 +392,9 @@ test_that("S7's observed attachment exclusions retain named declarations in eith
     expect_equal(map_chr(collect(docs[c(2L, 1L, 3L)], rules), "name"), "Dog")
     expect_length(collect(docs[-1L], rules), 0L)
     expect_length(collect(c(docs[1:2], "`:=` <- function(...) NULL", docs[[3L]]), rules), 0L)
+    nested <- c(docs[[1L]], "{ { library(rlang) } }", docs[[3L]])
+    expect_length(collect(nested, NULL), 0L)
+    expect_equal(map_chr(collect(nested, rules), "name"), "Dog")
 })
 
 test_that("S7 property navigation links direct and named-list updates to their receiver", {

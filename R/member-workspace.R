@@ -17,6 +17,13 @@ member_complete_item_ids <- function(parsed) {
     }
     if (!is.null(parsed$complete_member_items)) return(parsed$complete_member_items)
     syntax <- parsed$syntax_data
+    # A nested statement is proven unconditional only when its enclosing
+    # top-level block was verified by the recovery parser.
+    if (isTRUE(parsed$member_data$has_blocks)) {
+        items <- lapply(items, function(item) {
+            if (is.null(item$outer)) item else list(expr = NULL, start = item$outer$start, end = item$outer$end)
+        })
+    }
     ids <- .Call("member_complete_items_c", items, syntax, roots, PACKAGE = "languageserver")
     if (is.null(ids)) {
         spans <- paste(syntax$line1[roots] - 1L, syntax$col1[roots] - 1L,
@@ -76,9 +83,8 @@ member_workspace_view <- function(workspace, document) {
                 item$cache_prefix <- NULL
             }
             items$push(item)
-            if (member_head(item$expr, "library") || member_head(item$expr, "require")) {
-                imports$push(item)
-            }
+            import <- member_attachment_item(item)
+            if (!is.null(import)) imports$push(import)
             if (next_source > length(source_items) || i != source_items[[next_source]]) next
             source <- sources[[next_source]]
             next_source <- next_source + 1L
