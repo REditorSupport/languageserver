@@ -18,6 +18,8 @@ Document <- R6::R6Class(
         semantic_edit_line = NULL,
         glue_edit_line = NULL,
         pending_semantic_result = NULL,
+        glue_semantic_cache = NULL,
+        last_glue_semantic_result = NULL,
         inlay_hint_data = NULL,
         inlay_hint_formals = NULL,
         is_rmarkdown = NULL,
@@ -59,6 +61,8 @@ Document <- R6::R6Class(
         did_close = function() {
             self$is_open <- FALSE
             self$pending_semantic_result <- NULL
+            self$glue_semantic_cache <- NULL
+            self$last_glue_semantic_result <- NULL
         },
 
         set_content = function(version, content, change = NULL) {
@@ -174,6 +178,7 @@ Document <- R6::R6Class(
         },
 
         update_parse_data = function(parse_data) {
+            self$glue_semantic_cache <- NULL
             self$semantic_edit_line <- NULL
             self$glue_edit_line <- NULL
             pending <- self$pending_semantic_result$result
@@ -897,16 +902,13 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
         glue_template_index(env$syntax_data, original)
     }
     partial <- if (!is.null(recovery)) partial_glue_template_index(recovery$token_data, original)
-    ranges <- rbind(templates$ranges, partial$ranges)
     fragments <- c(templates$fragments, partial$fragments)
     unmapped <- c(templates$unmapped, partial$unmapped)
     if (is_rmarkdown) {
-        ranges <- rbind(ranges, literate$partial_glue)
         fragments <- c(fragments, literate$glue_fragments)
         unmapped <- c(unmapped, literate$unmapped_glue)
     }
     env$glue_templates <- glue_order_fragments(fragments, unmapped)
-    if (!is.null(ranges)) env$semantic_data <- semantic_glue_templates(env$semantic_data, ranges)
     # The same source can acquire different token kinds after NAMESPACE or
     # attachment rules change. Delta requests must distinguish those parses.
     if (length(attr(classes, "source_exports", exact = TRUE))) {

@@ -225,6 +225,30 @@ This support uses ordinary quoted strings, the default delimiters and the
 standard transformer. Doubled braces are literal. Rename requires a definite
 binding and a source range that can be edited as one piece.
 
+Editors with LSP semantic highlighting enabled can color R expressions inside
+these templates in R files and executable R Markdown or Quarto cells. For
+example, `glue::glue("Total {sum(x, 1)}")` uses the editor theme's function,
+variable and number colors while keeping `Total ` in the string color.
+Highlighting covers one interpolation level. A quoted string inside the
+embedded expression keeps its ordinary R string color.
+To disable interpolation highlighting, set `r.lsp.glue_highlighting` to
+`false` or put `options(languageserver.glue_highlighting = FALSE)` in `.Rprofile`.
+
+To highlight a wrapper that uses the same `{…}` dialect, register the spelling
+of the call and its template argument. This `.Rprofile` example highlights the
+first unnamed argument of `my_glue()` and the named `template` argument of
+`reports::render()`. It also disables highlighting for the qualified
+`stringr::str_glue()` spelling. Bare and package-qualified registrations are
+independent. These registrations apply to semantic highlighting only.
+
+```r
+options(languageserver.glue_highlight_functions = list(
+    my_glue = 1L,
+    "reports::render" = "template",
+    "stringr::str_glue" = FALSE
+))
+```
+
 Inside the file argument of `source()` or `sys.source()`, completion offers
 matching files and directories from the workspace root and the script's
 directory. Document links also recognize static paths assembled with
@@ -357,6 +381,8 @@ settings | default | description
 `r.lsp.index_batch_size` | `20` | maximum number of shallow summaries built in one idle batch
 `r.lsp.index_time_budget_ms` | `25` | approximate event-loop budget for each shallow-index batch
 `r.lsp.index_persistent_cache` | `true` | persist validated summaries for full indexes; lazy indexes stay in memory
+`r.lsp.glue_highlighting` | `true` | highlight embedded R in recognized templates using semantic tokens
+`r.lsp.glue_highlight_functions` | `{}` | map an exact function spelling to a 1-based unnamed argument, a named argument, or `false` to disable that spelling
 `r.lsp.server_capabilities` | `{}` | override server capabilities defined in [capabilities.R](https://github.com/REditorSupport/languageserver/blob/master/R/capabilities.R). See FAQ below.
 `r.lsp.link_file_size_limit` | 16384 | maximum file size (in bytes) that supports document links
 

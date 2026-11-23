@@ -130,7 +130,8 @@ glue_reference_facts <- function(document, name = NULL, call_row = NULL) {
     if (is.null(catalog)) return(list())
     groups <- if (is.null(name)) seq_along(catalog$groups) else union(catalog$uncertain,
         get0(name, catalog$by_name, inherits = FALSE, ifnotfound = integer()))
-    if (isTRUE(call_row > 0L)) groups <- intersect(groups, catalog$call_group[[call_row]])
+    call_row <- call_row[!is.na(call_row) & call_row > 0L]
+    if (length(call_row)) groups <- intersect(groups, catalog$call_group[call_row])
     selected <- as.integer(unlist(catalog$groups[groups], use.names = FALSE))
     fragments <- document$parse_data$glue_templates
     lapply(selected, function(i) {

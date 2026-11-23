@@ -384,35 +384,9 @@ roxygen_comment_spans <- function(comment_text, base_col0) {
     )
 }
 
-# Keep the lexical string spans available to cursor providers, but let the
-# editor grammar color a template's literal text and embedded R expressions.
-semantic_glue_templates <- function(tokens, ranges) {
-    if (is.null(ranges) || !nrow(ranges)) return(tokens)
-    stride <- as.double(max(tokens$cols, ranges$col1, ranges$col2)) + 1
-    first <- ranges$line1 * stride + ranges$col1
-    last <- ranges$line2 * stride + ranges$col2
-    ordered <- order(first)
-    first <- first[ordered]
-    last <- last[ordered]
-    strings <- which(tokens$types == SemanticTokenTypes$string)
-    at <- tokens$lines[strings] * stride + tokens$cols[strings]
-    i <- findInterval(at, first)
-    omit <- strings[i > 0L & at < last[pmax.int(i, 1L)]]
-    if (!length(omit)) return(tokens)
-    fields <- c("lines", "cols", "lengths", "types", "modifiers")
-    result <- lapply(tokens[fields], `[`, -omit)
-    result$encoded <- .Call("encode_semantic_tokens_c", result$lines, result$cols, result$lengths,
-        result$types, result$modifiers, PACKAGE = "languageserver")
-    attr(result, "glue_strings") <- lapply(tokens[c("lines", "cols", "lengths")], `[`, omit)
-    result
-}
-
 #' Check whether an LSP column on a line falls inside a semantic comment or string
 #' @noRd
 semantic_in_comment_or_string <- function(semantic, row, col, strict_comment_start = FALSE) {
-    templates <- attr(semantic, "glue_strings", exact = TRUE)
-    if (!is.null(templates) && any(templates$lines == row & templates$cols <= col &
-                templates$cols + templates$lengths > col)) return(TRUE)
     on_line <- which(semantic$lines == row)
     if (!length(on_line)) return(FALSE)
     types <- semantic$types[on_line]
@@ -860,9 +834,16 @@ get_token_type <- function(token_name) {
 #' @noRd
 extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
     parse_data <- workspace$get_parse_data(uri)
-    if (!is.null(parse_data$semantic_data)) {
-        data <- parse_data$semantic_data
-        if (!is.null(range)) data <- semantic_data_for_range(data, range)
+    if (is.null(parse_data)) return(list())
+    data <- if (!is.null(parse_data$semantic_data)) {
+        view <- semantic_interpolation_view(workspace, document, parse_data, semantic_interpolation_config(parse_data))
+        semantic_interpolation_data(parse_data, view, workspace, document, range)
+    } else {
+        xdoc <- parse_data_xml(parse_data)
+        if (is.null(xdoc)) return(list())
+        semantic_legacy_interpolation(workspace, document, parse_data, range)
+    }
+    if (!is.null(data)) {
         if (!length(data$lines)) return(list())
         return(lapply(seq_along(data$lines), function(i) {
             list(
@@ -875,11 +856,6 @@ extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
         }))
     }
 
-    xdoc <- parse_data_xml(workspace$get_parse_data(uri))
-    if (is.null(xdoc)) {
-        return(list())
-    }
-
     # Older parse snapshots can carry XML alone. Recover declaration roles
     # only when the snapshot contains an actual class helper.
     classes <- parse_data$class_data$declarations
@@ -888,19 +864,6 @@ extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
             normalize_parse_content(document$content)
         expr <- parse_provider_projection(source)
         if (!is.null(expr)) classes <- class_source_declarations(syntax_parse_data(utils::getParseData(expr)), source, uri)
-    }
-    template_starts <- character()
-    if (any(grepl("glue", document$content, fixed = TRUE))) {
-        if (!isTRUE(getOption("keep.parse.data"))) {
-            saved <- options(keep.parse.data = TRUE)
-            on.exit(options(saved), add = TRUE)
-        }
-        source <- if (isTRUE(document$is_rmarkdown)) literate_provider_content(document$content, document$regions)$content else
-            normalize_parse_content(document$content)
-        syntax <- parse_data$syntax_data
-        if (is.null(syntax)) syntax <- syntax_parse_data(utils::getParseData(parse_provider_projection(source)))
-        rows <- glue_template_rows(syntax, source)
-        if (length(rows)) template_starts <- paste(syntax$line1[rows], syntax$col1[rows])
     }
     roles <- new.env(parent = emptyenv(), hash = TRUE)
     for (cls in classes) {
@@ -936,8 +899,6 @@ extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
         col1 <- as.integer(xml_attr(token_node, "col1"))
         line2 <- as.integer(xml_attr(token_node, "line2"))
         col2 <- as.integer(xml_attr(token_node, "col2"))
-
-        if (token_name == "STR_CONST" && length(template_starts) && paste(line1, col1) %in% template_starts) next
 
         # Skip if outside range (if range was specified)
         if (!is.null(end_pos) && line1 > end_pos$row + 1) {
@@ -1109,7 +1070,7 @@ semantic_tokens_full_reply <- function(id, uri, workspace, document) {
     parse_data <- workspace$get_parse_data(uri)
     if (is.null(parse_data)) return(NULL)
     if (!is.null(parse_data$version) && parse_data$version != document$version) {
-        result <- semantic_pending_full(parse_data, document)
+        result <- semantic_pending_full(parse_data, document, workspace)
         if (is.null(result)) return(NULL)
         return(Response$new(id, result = result))
     }
@@ -1118,11 +1079,9 @@ semantic_tokens_full_reply <- function(id, uri, workspace, document) {
     if (is.null(semantic_data)) {
         tokens <- extract_semantic_tokens(uri, workspace, document)
         result <- encode_semantic_tokens(tokens)
+        if (!is.null(parse_data$content_hash)) result$resultId <- digest::digest(result$data, algo = "xxhash64")
     } else {
-        result <- list(data = semantic_data$encoded)
-    }
-    if (!is.null(parse_data$content_hash)) {
-        result$resultId <- semantic_result_id(parse_data)
+        result <- semantic_interpolation_full(parse_data, workspace, document)
     }
     if (!is.null(document$pending_semantic_result)) document$pending_semantic_result <- NULL
 
@@ -1134,7 +1093,8 @@ semantic_tokens_full_reply <- function(id, uri, workspace, document) {
 
 # A simple final-line edit cannot change the classification of a completed
 # preceding R statement. Reuse those tokens while the structural worker runs.
-semantic_tokens_after_tail_edit <- function(parsed, document, request_range = NULL) {
+semantic_tokens_after_tail_edit <- function(parsed, document, request_range = NULL, workspace = NULL,
+    config = semantic_interpolation_config(parsed)) {
     line <- document$semantic_edit_line
     syntax <- parsed$syntax_data
     if (is.null(line) || is.null(syntax) || is.null(parsed$semantic_data) || isTRUE(parsed$has_line_directive)) return(NULL)
@@ -1148,9 +1108,22 @@ semantic_tokens_after_tail_edit <- function(parsed, document, request_range = NU
     # unary plus. Other edits can change lexical context or require recovery.
     simple <- "^[[:blank:]]*([[:alpha:].][[:alnum:]_.]*(:{1,3}[[:alnum:]_.]*)?|[+][0-9]*)[[:blank:]]*(#.*)?$"
     if (nchar(text, type = "bytes") > 256L || !grepl(simple, text)) return(NULL)
+    previous <- parsed$semantic_data
+    if (!is.null(config)) {
+        # Both versions of this line must be free of declarations and calls.
+        # The accepted prefix then has the same bindings and physical ranges.
+        old_line <- document$parsed_content[[line + 1L]]
+        if (nchar(old_line, type = "bytes") > 256L || !grepl(simple, old_line)) return(NULL)
+        original <- document$clone(deep = FALSE)
+        original$content <- document$parsed_content
+        original$version <- parsed$version
+        view <- semantic_interpolation_view(workspace, original, parsed, config)
+        document$glue_semantic_cache <- view
+        previous <- semantic_interpolation_data(parsed, view, workspace, original, request_range)
+    }
     end <- request_range$end
     if (!is.null(end) && (end$line < line || (end$line == line && end$character == 0L))) {
-        return(semantic_data_for_range(parsed$semantic_data, request_range)$encoded)
+        return(if (is.null(config)) semantic_data_for_range(previous, request_range)$encoded else previous$encoded)
     }
 
     if (!isTRUE(getOption("keep.parse.data"))) {
@@ -1164,14 +1137,13 @@ semantic_tokens_after_tail_edit <- function(parsed, document, request_range = NU
         utils::getParseData(expr)
     tokens <- semantic_parse_data(data, text, encode = is.null(request_range))
     if (is.null(request_range)) {
-        previous <- parsed$semantic_data
         n <- .Call("range_line_bounds_c", previous$lines, line, line, PACKAGE = "languageserver")[[1L]] - 1L
         before <- if (n == length(previous$lines)) previous$encoded else previous$encoded[seq_len(n * 5L)]
         last_line <- if (n) previous$lines[[n]] else 0L
         suffix <- tokens$encoded
         if (length(suffix)) suffix[[1L]] <- line - last_line
     } else {
-        prefix <- semantic_data_for_range(parsed$semantic_data, list(start = request_range$start, end = position(line, 0L)))
+        prefix <- semantic_data_for_range(previous, list(start = request_range$start, end = position(line, 0L)))
         before <- prefix$encoded
         tokens$lines <- tokens$lines + line
         suffix <- semantic_data_for_range(tokens, request_range)$encoded
@@ -1182,14 +1154,18 @@ semantic_tokens_after_tail_edit <- function(parsed, document, request_range = NU
     c(before, suffix)
 }
 
-semantic_pending_full <- function(parsed, document) {
+semantic_pending_full <- function(parsed, document, workspace = NULL) {
     if (is.null(document$semantic_edit_line)) return(NULL)
     pending <- document$pending_semantic_result
-    if (!is.null(pending) && identical(pending$version, document$version)) return(pending$result)
-    encoded <- semantic_tokens_after_tail_edit(parsed, document)
+    config <- semantic_interpolation_config(parsed)
+    context <- semantic_interpolation_context(workspace, document, config)
+    if (!is.null(pending) && identical(pending$version, document$version) && identical(pending$context, context)) return(pending$result)
+    encoded <- semantic_tokens_after_tail_edit(parsed, document, workspace = workspace, config = config)
     if (is.null(encoded)) return(NULL)
-    result <- list(data = encoded, resultId = get_content_hash(parse_cache_content(document$content)))
-    document$pending_semantic_result <- list(version = document$version, result = result)
+    id <- get_content_hash(parse_cache_content(document$content))
+    if (!is.null(config)) id <- digest::digest(list(id, encoded), algo = "xxhash64")
+    result <- list(data = encoded, resultId = id)
+    document$pending_semantic_result <- list(version = document$version, context = context, result = result)
     result
 }
 
@@ -1203,7 +1179,7 @@ semantic_tokens_range_reply <- function(id, uri, workspace, document, range) {
     parse_data <- workspace$get_parse_data(uri)
     if (is.null(parse_data)) return(NULL)
     if (!is.null(parse_data$version) && parse_data$version != document$version) {
-        encoded <- semantic_tokens_after_tail_edit(parse_data, document, range)
+        encoded <- semantic_tokens_after_tail_edit(parse_data, document, range, workspace)
         if (is.null(encoded)) return(NULL)
         return(Response$new(id, result = list(data = encoded)))
     }
@@ -1213,7 +1189,8 @@ semantic_tokens_range_reply <- function(id, uri, workspace, document, range) {
         tokens <- extract_semantic_tokens(uri, workspace, document, range = range)
         result <- encode_semantic_tokens(tokens)
     } else {
-        selected <- semantic_data_for_range(semantic_data, range)
+        view <- semantic_interpolation_view(workspace, document, parse_data, semantic_interpolation_config(parse_data))
+        selected <- semantic_interpolation_data(parse_data, view, workspace, document, range)
         result <- list(data = selected$encoded)
     }
 
@@ -1232,22 +1209,27 @@ semantic_tokens_delta_reply <- function(id, uri, workspace, document,
         return(NULL)
     }
     pending <- document$pending_semantic_result$result
+    last_glue <- document$last_glue_semantic_result
     if (!is.null(parse_data$version) && parse_data$version != document$version) {
-        current <- semantic_pending_full(parse_data, document)
+        current <- semantic_pending_full(parse_data, document, workspace)
         if (is.null(current)) return(NULL)
     } else if (is.null(parse_data$semantic_data)) {
         return(semantic_tokens_full_reply(id, uri, workspace, document))
     } else {
-        current <- list(resultId = semantic_result_id(parse_data), data = parse_data$semantic_data$encoded)
+        current <- semantic_interpolation_full(parse_data, workspace, document)
         if (!is.null(pending)) document$pending_semantic_result <- NULL
     }
 
     previous <- NULL
-    if (!is.null(previous_result_id) && identical(pending$resultId, previous_result_id)) {
+    if (!is.null(previous_result_id) && identical(current$resultId, previous_result_id)) {
+        previous <- current$data
+    } else if (!is.null(previous_result_id) && identical(last_glue$resultId, previous_result_id)) {
+        previous <- last_glue$data
+    } else if (!is.null(previous_result_id) && identical(pending$resultId, previous_result_id)) {
         previous <- pending$data
     } else if (!is.null(previous_result_id) && identical(semantic_result_id(parse_data), previous_result_id)) {
         previous <- parse_data$semantic_data$encoded
-    } else if (!is.null(previous_result_id) && workspace$parse_cache$has(previous_result_id)) {
+    } else if (!is.null(previous_result_id) && !is.null(workspace$parse_cache) && workspace$parse_cache$has(previous_result_id)) {
         cached <- workspace$parse_cache$get(previous_result_id)
         if (is.null(cached$semantic_result_id) || identical(cached$semantic_result_id, previous_result_id)) {
             previous <- cached$semantic_data$encoded
