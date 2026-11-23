@@ -364,7 +364,8 @@ literate_provider_content <- function(content, regions = parse_literate_regions(
     incomplete_lines <- integer()
     inlay_lines <- integer()
     member_packages <- character()
-    partial_tokens <- partial_strings <- partial_glue <- list()
+    partial_tokens <- partial_strings <- list()
+    glue_fragments <- unmapped_glue <- list()
     for (cell in regions$cells) {
         if (!cell$executable || !identical(tolower(cell$engine), "r")) next
         rows <- as.integer(seq_safe(cell$body_start, cell$body_end))
@@ -388,8 +389,9 @@ literate_provider_content <- function(content, regions = parse_literate_regions(
             result[rows] <- recovered$content
             incomplete_lines <- c(incomplete_lines, rows[recovered$incomplete_lines + 1L] - 1L)
             inlay_lines <- c(inlay_lines, rows[recovered$inlay_fallback_lines + 1L] - 1L)
-            templates <- partial_glue_template_ranges(recovered$token_data, text, rows[[1L]] - 1L)
-            if (!is.null(templates)) partial_glue[[length(partial_glue) + 1L]] <- templates
+            templates <- partial_glue_template_index(recovered$token_data, original[rows], rows[[1L]] - 1L)
+            glue_fragments <- c(glue_fragments, templates$fragments)
+            unmapped_glue <- c(unmapped_glue, templates$unmapped)
             tokens <- semantic_parse_data(recovered$token_data, text,
                 only_lines = recovered$incomplete_lines, encode = FALSE)
             tokens$encoded <- NULL
@@ -414,7 +416,7 @@ literate_provider_content <- function(content, regions = parse_literate_regions(
     list(content = result, original_content = parse_cache_content(original, source), incomplete_lines = incomplete_lines,
         inlay_fallback_lines = inlay_lines, member_packages = member_packages,
         partial_tokens = stack_fields(partial_tokens), partial_strings = stack_fields(partial_strings),
-        partial_glue = do.call(rbind, partial_glue))
+        glue_fragments = glue_fragments, unmapped_glue = unmapped_glue)
 }
 
 # Read just the lines needed by a cursor provider. Keep the original cursor

@@ -1,7 +1,15 @@
 # languageserver (development)
 
-- Let editor grammars highlight embedded R in ordinary quoted templates passed
-  to `glue()`, `glue_data()`, `str_glue()`, and `str_glue_data()` (#777).
+- Use completion, hover, signature help, Go to Definition, Find References,
+  document highlights, and Rename inside `{…}` in quoted templates passed to
+  `glue()`, `glue_data()`, `str_glue()`, and `str_glue_data()`. Typing the
+  opening `{` can trigger completion. Navigation recognizes named glue
+  arguments and statically known data columns (#633, #882).
+
+- Highlight interpolated R with semantic tokens in R files and executable
+  R Markdown and Quarto cells. Set `r.lsp.glue_highlighting` to `false` to
+  turn this off, or register a wrapper and its template argument with
+  `r.lsp.glue_highlight_functions` to highlight it (#777, #886).
 
 - Index chained assignment aliases and quoted operator names in package
   sources. Local navigation now finds parameters of functions assigned with

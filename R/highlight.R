@@ -18,6 +18,15 @@ document_highlight_reply <- function(id, uri, workspace, document, point) {
         return(Response$new(id))
     }
 
+    if (length(document$parse_data$glue_templates)) {
+        embedded <- glue_reference_site(workspace, document, point)
+        if (!is.null(embedded)) {
+            hits <- glue_site_locations(workspace, document, embedded)
+            return(Response$new(id, result = lapply(Filter(function(x) identical(x$uri, uri), hits),
+                        function(loc) list(range = loc$range, kind = DocumentHighlightKind$Text))))
+        }
+    }
+
     member <- member_navigation_at(workspace, document, point)
     if (!is.null(member)) {
         if (!is.null(member$definition) && member$formal) {
@@ -25,6 +34,9 @@ document_highlight_reply <- function(id, uri, workspace, document, point) {
             matches <- Filter(function(x) identical(x$uri, uri), matches)
         } else {
             matches <- member_navigation_occurrences(workspace, member$definition, member$name, uri)
+            if (!is.null(member$definition$range) && length(document$parse_data$glue_templates)) {
+                matches <- glue_member_locations(workspace, member$definition, member$name, uri, matches)
+            }
         }
         if (!length(matches)) return(Response$new(id))
         return(Response$new(id, result = lapply(matches, function(ref) {
@@ -60,6 +72,11 @@ document_highlight_reply <- function(id, uri, workspace, document, point) {
                 tags <- member_navigation_occurrences(workspace, formal, detected$token, uri,
                     formal = TRUE, declarations = FALSE)
                 result <- c(result, lapply(tags, function(x) list(range = x$range, kind = DocumentHighlightKind$Read)))
+            }
+            if (length(parse_data$glue_templates)) {
+                locations <- lapply(result, function(x) location(uri, x$range))
+                result <- lapply(glue_overlay_locations(workspace, document, detected$token, definition_key,
+                        locations), function(loc) list(range = loc$range, kind = DocumentHighlightKind$Text))
             }
             return(Response$new(id, result = result))
         }

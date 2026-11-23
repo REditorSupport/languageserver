@@ -67,7 +67,7 @@ member_origin_tree <- function(data, syntax = NULL) {
 }
 
 member_source_origins <- function(parsed, data, uri, row_offset = 0L, col_offset = 0L,
-    tree = NULL, edit = NULL) {
+    tree = NULL, edit = NULL, source_document = NULL) {
     if (is.null(tree)) tree <- member_origin_tree(if (is.null(data)) utils::getParseData(parsed) else data)
     if (!length(tree)) return(parsed)
     syntax <- tree$syntax
@@ -88,6 +88,9 @@ member_source_origins <- function(parsed, data, uri, row_offset = 0L, col_offset
             shift <- edit$inserted - (edit$end - edit$start)
             start <- start - shift
             if (last == edit$row) end <- end - shift
+        }
+        if (!is.null(source_document)) {
+            return(location(uri, range(source_document$to_lsp_position(first, start), source_document$to_lsp_position(last, end))))
         }
         result <- list(uri = uri, range = c(first, start, end))
         if (first != last) result$end_row <- last

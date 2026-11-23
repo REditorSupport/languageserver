@@ -127,6 +127,13 @@ prepare_rename_reply <- function(id, uri, workspace, document, point) {
         ))
     }
 
+    site <- glue_reference_site(workspace, document, point)
+    if (!is.null(site)) {
+        checked <- glue_rename_references(id, workspace, document, point, site, NULL)
+        if (!is.null(checked$error)) return(checked)
+        if (!length(checked$result)) return(ResponseErrorMessage$new(id, "RequestCancelled", "Cannot rename the symbol"))
+        return(Response$new(id, result = site$range))
+    }
     member <- member_navigation_at(workspace, document, point)
     if (!is.null(member)) {
         checked <- member_navigation_references(id, workspace, document, member, TRUE, TRUE)
@@ -154,6 +161,10 @@ prepare_rename_reply <- function(id, uri, workspace, document, point) {
             doc <- workspace$documents$get(doc_uri, NULL)
             problem <- rename_lexical_document_error(id, doc, uri, token, key)
             if (!is.null(problem)) return(problem)
+            if (!is.null(key)) {
+                problem <- glue_rename_problem(workspace, doc, token$token, key)
+                if (!is.null(problem)) return(ResponseErrorMessage$new(id, "RequestFailed", problem))
+            }
         }
         Response$new(
             id,
@@ -287,7 +298,12 @@ rename_reply <- function(id, uri, workspace, document, point, newName) {
         return(Response$new(id))
     }
 
-    refs <- references_reply(id, uri, workspace, document, point, for_rename = TRUE, new_name = newName)
+    site <- glue_reference_site(workspace, document, point)
+    if (!is.null(site)) {
+        refs <- glue_rename_references(id, workspace, document, point, site, newName)
+    } else {
+        refs <- references_reply(id, uri, workspace, document, point, for_rename = TRUE, new_name = newName)
+    }
     if (!is.null(refs$error)) return(refs)
     uris <- vapply(refs$result, function(ref) ref$uri, character(1L))
     groups <- split(seq_along(uris), factor(uris, levels = unique(uris)))
@@ -296,6 +312,8 @@ rename_reply <- function(id, uri, workspace, document, point, newName) {
         lapply(refs$result[indices], function(ref) {
             quote <- attr(ref, "spelling", exact = TRUE)
             text <- if (length(quote) && nzchar(quote)) encodeString(newName, quote = quote) else replacement
+            fragment <- attr(ref, "fragment", exact = TRUE)
+            if (!is.null(fragment)) text <- glue_encode_text(fragment, text)
             text_edit(range = ref$range, new_text = text)
         })
     })

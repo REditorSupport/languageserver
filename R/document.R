@@ -16,7 +16,10 @@ Document <- R6::R6Class(
         parse_failure = NULL,
         parsed_content = NULL,
         semantic_edit_line = NULL,
+        glue_edit_line = NULL,
         pending_semantic_result = NULL,
+        glue_semantic_cache = NULL,
+        last_glue_semantic_result = NULL,
         inlay_hint_data = NULL,
         inlay_hint_formals = NULL,
         is_rmarkdown = NULL,
@@ -58,6 +61,8 @@ Document <- R6::R6Class(
         did_close = function() {
             self$is_open <- FALSE
             self$pending_semantic_result <- NULL
+            self$glue_semantic_cache <- NULL
+            self$last_glue_semantic_result <- NULL
         },
 
         set_content = function(version, content, change = NULL) {
@@ -71,6 +76,13 @@ Document <- R6::R6Class(
                     (snapshot_current || identical(self$semantic_edit_line, as.integer(row))) &&
                     length(content) == length(self$content) && row == change$range$end$line &&
                     (row == last || (row == last - 1L && !nzchar(content[[last + 1L]])))) as.integer(row)
+            # Track only a single physically edited line since the accepted
+            # parse. The completion provider must still verify the entire line.
+            track_glue <- length(self$parse_data$glue_templates) || !is.null(self$glue_edit_line) ||
+                identical(change$text, "{") || identical(change$text, "{}")
+            self$glue_edit_line <- if (track_glue && length(row) == 1L &&
+                    row == change$range$end$line && length(content) == length(self$content) &&
+                    (snapshot_current || identical(self$glue_edit_line, as.integer(row)))) as.integer(row)
             self$completion_outline <- NULL
             self$member_workspace_view <- NULL
             self$member_source_cache <- NULL
@@ -168,7 +180,9 @@ Document <- R6::R6Class(
         },
 
         update_parse_data = function(parse_data) {
+            self$glue_semantic_cache <- NULL
             self$semantic_edit_line <- NULL
+            self$glue_edit_line <- NULL
             pending <- self$pending_semantic_result$result
             if (!is.null(pending) && identical(pending$resultId, semantic_result_id(parse_data)) &&
                     identical(pending$data, parse_data$semantic_data$encoded)) {
@@ -887,11 +901,16 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
         env$range_data$strings <- merge_partial_strings(env$range_data$strings, literate$partial_strings, literate$incomplete_lines)
     }
     templates <- if (any(env$range_data$calls$name %in% names(glue_template_packages))) {
-        glue_template_ranges(env$syntax_data, content)
+        glue_template_index(env$syntax_data, original)
     }
-    if (!is.null(recovery)) templates <- rbind(templates, partial_glue_template_ranges(recovery$token_data, content))
-    if (is_rmarkdown) templates <- rbind(templates, literate$partial_glue)
-    if (!is.null(templates)) env$semantic_data <- semantic_glue_templates(env$semantic_data, templates)
+    partial <- if (!is.null(recovery)) partial_glue_template_index(recovery$token_data, original)
+    fragments <- c(templates$fragments, partial$fragments)
+    unmapped <- c(templates$unmapped, partial$unmapped)
+    if (is_rmarkdown) {
+        fragments <- c(fragments, literate$glue_fragments)
+        unmapped <- c(unmapped, literate$unmapped_glue)
+    }
+    env$glue_templates <- glue_order_fragments(fragments, unmapped)
     # The same source can acquire different token kinds after NAMESPACE or
     # attachment rules change. Delta requests must distinguish those parses.
     if (length(attr(classes, "source_exports", exact = TRUE))) {
@@ -1066,6 +1085,15 @@ drain_pending_replies <- function(self, uri, version, max_replies = Inf, first =
         if (!queue$size()) return(FALSE)
         item <- queue$peek()
         if (!is.null(version) && !is.null(item$version) && item$version > version) return(FALSE)
+        if (!is.null(document) && identical(item$version, document$version) &&
+                method %in% c("textDocument/completion", "textDocument/hover", "textDocument/signatureHelp", "textDocument/definition")) {
+            point <- document$from_lsp_position(item$params$position)
+            opener <- identical(method, "textDocument/completion") && identical(item$params$context$triggerCharacter, "{")
+            if (glue_request_pending(document, point, opener)) return(FALSE)
+            workspace <- self$get_workspace(uri)
+            context <- glue_cursor_context(document, point, workspace)
+            if (!is.null(context)) return(!glue_request_waiting(self, uri, workspace, context, method))
+        }
         if (method %in% c("textDocument/typeDefinition", "textDocument/implementation") && !is.null(document) &&
                 identical(item$version, document$version)) {
             point <- document$from_lsp_position(item$params$position)

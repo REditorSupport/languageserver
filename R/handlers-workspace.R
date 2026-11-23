@@ -94,7 +94,13 @@ workspace_did_change_configuration <- function(self, params) {
     previous_backends <- backend_settings_identity()
     previous_s3 <- isTRUE(lsp_settings$get("s3_dispatch"))
     previous_members <- isTRUE(lsp_settings$get("member_completion"))
+    previous_highlighting <- glue_highlight_config()
     lsp_settings$update_from_workspace(settings)
+    if (!identical(previous_highlighting, glue_highlight_config()) &&
+            isTRUE(self$ClientCapabilities$workspace$semanticTokens$refreshSupport)) {
+        self$deliver(self$request("workspace/semanticTokens/refresh", NULL),
+            callback = function(self, result, error = NULL) invisible(NULL))
+    }
 
     if (!previous_members && isTRUE(lsp_settings$get("member_completion"))) {
         for (workspace in self$workspaces$values()) {
