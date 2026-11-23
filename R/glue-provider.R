@@ -9,7 +9,8 @@ glue_fragment_document <- function(document, fragment) {
         parsed$glue_document_cache <- cache
     }
     inner <- cache$get(key)
-    if (is.null(inner) || !identical(inner$uri, document$uri) || !identical(inner$version, document$version)) {
+    if (is.null(inner) || !identical(inner$uri, document$uri) || !identical(inner$version, document$version) ||
+            !identical(inner$content, fragment$content)) {
         # A .qmd host still contains an ordinary R expression at this point.
         inner <- Document$new("untitled:glue-expression.R", "r", document$version, fragment$content)
         inner$uri <- document$uri
@@ -62,7 +63,10 @@ glue_provider_workspace <- function(workspace, context) {
 glue_host_range <- function(context, inner_range) {
     point <- function(position) {
         p <- glue_source_point(context$fragment, context$document$from_lsp_position(position))
-        if (!is.null(p)) context$host$to_lsp_position(p$row, p$col)
+        if (!is.null(p)) {
+            source <- if (is.null(context$source)) context$host else context$source
+            source$to_lsp_position(p$row, p$col)
+        }
     }
     start <- point(inner_range$start)
     end <- point(inner_range$end)
@@ -210,9 +214,10 @@ glue_completion_edits <- function(items, context, token) {
     end <- inner$detect_token(context$point)$range$end$col
     default <- range(inner$to_lsp_position(context$point$row, max(0L, start)),
         inner$to_lsp_position(context$point$row, end))
+    default <- glue_host_range(context, default)
     Filter(Negate(is.null), lapply(items, function(item) {
         edit <- item$textEdit
-        span <- glue_host_range(context, if (is.null(edit)) default else edit$range)
+        span <- if (is.null(edit)) default else glue_host_range(context, edit$range)
         if (is.null(span) || span$start$line != span$end$line) return(NULL)
         inserted <- if (!is.null(edit)) edit$newText else if (!is.null(item$insertText)) item$insertText else item$label
         if (identical(item$insertTextFormat, InsertTextFormat$Snippet)) {
@@ -228,8 +233,14 @@ glue_completion_edits <- function(items, context, token) {
         item$textEdit <- text_edit(span, inserted)
         item$insertText <- NULL
         if (!is.null(item$data$completion_position)) {
-            item$data$completion_position <- context$host_point
-            item$data$completion_version <- context$host$version
+            if (is.null(context$source)) {
+                item$data$completion_position <- context$host_point
+                item$data$completion_version <- context$host$version
+            } else {
+                item$data$completion_position <- context$source_point
+                item$data$completion_version <- context$source$version
+                item$data$glue_identifier_edit <- TRUE
+            }
         }
         item
     }))
@@ -331,6 +342,15 @@ glue_request_waiting <- function(self, uri, workspace, context, method) {
 
 glue_cursor_request <- function(self, id, params, method, workspace, document, point) {
     uri <- document$uri
+    if (identical(method, "textDocument/completion") && !is.null(document$glue_edit_line)) {
+        verified <- glue_identifier_context(workspace, document, point)
+        if (!is.null(verified) && !source_context_waiting(workspace, document)) {
+            reply <- glue_completion_reply(id, uri, workspace, verified, self$ClientCapabilities$textDocument$completion)
+            reply$result$isIncomplete <- TRUE
+            self$deliver(reply)
+            return(TRUE)
+        }
+    }
     pending <- glue_request_pending(document, point)
     context <- if (!pending) glue_cursor_context(document, point, workspace)
     if (!pending && is.null(context)) return(FALSE)
@@ -395,4 +415,46 @@ glue_capture_members <- function(workspace, context) {
         data$member_data$bindings[[name]] <- c(list(entry), cache$originals[[name]])
     }
     data$glue_member_cache <- cache
+}
+
+# A bare identifier has no declarations or nested calls. When its spelling is
+# the sole change to a mapped template, all enclosing syntax and lexical facts
+# remain valid. Read binding positions against their original source, and
+# construct all completion edits against the current source and version.
+glue_identifier_context <- function(workspace, document, point) {
+    if (is.null(document$glue_edit_line) || point$row != document$glue_edit_line) return(NULL)
+    parsed <- document$parse_data
+    if (!length(parsed$glue_templates) || identical(parsed$version, document$version) ||
+            point$row >= length(document$parsed_content)) return(NULL)
+    line <- document$line0(point$row)
+    previous <- document$parsed_content[[point$row + 1L]]
+    # Bound synchronous verification independently of buffer and line size.
+    if (max(nchar(c(line, previous), type = "bytes")) > 65536L) return(NULL)
+    before <- substr(line, 1L, point$col)
+    prefix <- regexpr("[A-Za-z0-9._]+$", before, perl = TRUE)[[1L]]
+    start <- if (prefix > 0L) prefix - 1L else point$col
+    anchor <- list(row = point$row, col = start)
+    fragment <- glue_fragment_at(parsed, anchor)
+    if (is.null(fragment) || !isTRUE(fragment$complete) || !fragment$call_row || !is.null(fragment$boundaries) ||
+            fragment$start$col != start || fragment$start$row != point$row || fragment$end$row != point$row) return(NULL)
+    simple <- "^([A-Za-z][A-Za-z0-9._]*)?$"
+    if (!grepl(simple, fragment$content)) return(NULL)
+    suffix <- substring(previous, fragment$end$col + 1L)
+    end <- nchar(line) - nchar(suffix)
+    if (end < point$col || end - start > 1024L || !endsWith(line, suffix) ||
+            !startsWith(line, substr(previous, 1L, start))) return(NULL)
+    name <- substr(line, start + 1L, end)
+    if (!grepl(simple, name)) return(NULL)
+
+    original <- document$clone(deep = FALSE)
+    original$content <- document$parsed_content
+    original$version <- parsed$version
+    bindings <- glue_context_at(workspace, original, fragment)
+    if (bindings$shadowed) return(NULL)
+    fragment$content <- name
+    fragment$length <- end - start
+    fragment$end$col <- end
+    list(host = original, host_point = anchor, source = document, source_point = point,
+        fragment = fragment, bindings = bindings, document = glue_fragment_document(document, fragment),
+        point = list(row = 0L, col = point$col - start))
 }

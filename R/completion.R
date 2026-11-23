@@ -1582,10 +1582,28 @@ completion_item_resolve_reply <- function(id, workspace, params, capabilities) {
         document <- workspace$documents$get(params$data$context_uri, NULL)
         package <- params$data$package
         package_symbol <- !is.null(package) && !package %in% c("", WORKSPACE)
+        verified <- NULL
+        if (isTRUE(params$data$glue_identifier_edit)) {
+            current <- !is.null(document) && identical(document$version, params$data$completion_version)
+            if (current && !identical(document$version, document$parse_data$version)) {
+                verified <- glue_identifier_context(workspace, document, params$data$completion_position)
+                current <- !is.null(verified)
+            }
+            if (!current) {
+                params$data <- NULL
+                return(Response$new(id, params))
+            }
+        }
         if (!is.null(document) && identical(document$version, params$data$completion_version) &&
-                (package_symbol || identical(document$version, document$parse_data$version))) {
+                (package_symbol || !is.null(verified) || identical(document$version, document$parse_data$version))) {
             point <- params$data$completion_position
-            context <- if (!isTRUE(params$data$glue_host_scope)) glue_cursor_context(document, point, workspace)
+            context <- if (!isTRUE(params$data$glue_host_scope)) {
+                if (!is.null(verified)) verified else glue_cursor_context(document, point, workspace)
+            } else if (!is.null(verified)) {
+                document <- verified$host
+                point <- verified$host_point
+                NULL
+            }
             info_workspace <- workspace
             if (!is.null(context)) {
                 info_workspace <- glue_provider_workspace(workspace, context)

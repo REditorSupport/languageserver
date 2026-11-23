@@ -105,3 +105,26 @@ test_that("provisional calls retain enough callee information for lexical comple
         expect_identical(fragment$package, if (startsWith(line, "glue::")) "glue")
     }
 })
+
+test_that("batch mapping and the scanner agree on single-line boundaries", {
+    lines <- c('"\U0001f600"; glue("\u03b1 {\u03b2 + 1}")', 'glue("empty {}")', 'glue("{{literal}}")',
+        'glue("inner {\'}\'}")', 'glue("{\\u0078}")', 'glue("before {x # }")')
+    together <- parse_document("file:///batch.R", lines)$glue_templates
+    for (i in seq_along(lines)) {
+        # Keep the same physical rows and run the single-call path.
+        separate <- parse_document("file:///single.R", c(rep("", i - 1L), lines[[i]]))$glue_templates
+        found <- Filter(function(f) f$start$row == i - 1L, together)
+        expect_length(found, length(separate))
+        for (j in seq_along(separate)) {
+            expected <- separate[[j]]
+            actual <- found[[j]]
+            expect_identical(actual$content, expected$content)
+            for (col in seq.int(0L, nchar(expected$content))) {
+                at <- list(row = 0L, col = col)
+                host <- glue_source_point(expected, at)
+                expect_identical(glue_source_point(actual, at), host)
+                expect_identical(glue_inner_point(actual, host), at)
+            }
+        }
+    }
+})

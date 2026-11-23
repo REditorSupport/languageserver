@@ -16,6 +16,7 @@ Document <- R6::R6Class(
         parse_failure = NULL,
         parsed_content = NULL,
         semantic_edit_line = NULL,
+        glue_edit_line = NULL,
         pending_semantic_result = NULL,
         inlay_hint_data = NULL,
         inlay_hint_formals = NULL,
@@ -71,6 +72,11 @@ Document <- R6::R6Class(
                     (snapshot_current || identical(self$semantic_edit_line, as.integer(row))) &&
                     length(content) == length(self$content) && row == change$range$end$line &&
                     (row == last || (row == last - 1L && !nzchar(content[[last + 1L]])))) as.integer(row)
+            # Track only a single physically edited line since the accepted
+            # parse. The completion provider must still verify the entire line.
+            self$glue_edit_line <- if (length(self$parse_data$glue_templates) && length(row) == 1L &&
+                    row == change$range$end$line && length(content) == length(self$content) &&
+                    (snapshot_current || identical(self$glue_edit_line, as.integer(row)))) as.integer(row)
             self$completion_outline <- NULL
             self$member_workspace_view <- NULL
             self$member_source_cache <- NULL
@@ -169,6 +175,7 @@ Document <- R6::R6Class(
 
         update_parse_data = function(parse_data) {
             self$semantic_edit_line <- NULL
+            self$glue_edit_line <- NULL
             pending <- self$pending_semantic_result$result
             if (!is.null(pending) && identical(pending$resultId, semantic_result_id(parse_data)) &&
                     identical(pending$data, parse_data$semantic_data$encoded)) {

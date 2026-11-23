@@ -160,3 +160,52 @@ test_that("named callable bindings mask the argument list of a caller function",
     signature <- f$query("signatureHelp", 2L, "format(", 7L)
     expect_match(signature$signatures[[1L]]$label, "local_argument")
 })
+
+test_that("verified single-name edits complete in the current buffer before its next parse", {
+    f <- glue_cursor_fixture(c(
+        "format <- function(local_total) {",
+        '  glue::glue("🦊 {lo} done", local_note = 3)', "}"))
+    doc <- f$document
+    at <- f$pos(2L, "{lo", 3L)
+    doc$apply_content_changes(2L, list(list(range = range(at, at), text = "cal_")))
+    reply <- f$query("completion", 2L, "local_", 6L)
+    expect_true(reply$isIncomplete)
+    expect_null(f$server$reply$error)
+    labels <- vapply(reply$items, `[[`, "", "label")
+    expect_true(all(c("local_total", "local_note") %in% labels))
+    item <- reply$items[[match("local_total", labels)]]
+    expect_equal(item$textEdit$range, range(f$pos(2L, "{local_", 1L), f$pos(2L, "{local_", 7L)))
+    expect_identical(item$data$completion_version, 2L)
+    completion_item_resolve(f$server, 2L, item)
+    expect_identical(f$server$reply$result$textEdit, item$textEdit)
+    expect_identical(f$server$pending_replies$get(f$uri)[["textDocument/completion"]]$size(), 0L)
+    expect_null(f$query("definition", 2L, "local_", 5L))
+    expect_identical(f$server$pending_replies$get(f$uri)[["textDocument/definition"]]$size(), 1L)
+    doc$apply_content_changes(3L, list(list(range = item$textEdit$range, text = "loc")))
+    completion_item_resolve(f$server, 2L, item)
+    expect_null(f$server$reply$result$data)
+    expect_true(f$query("completion", 2L, "{loc", 4L)$isIncomplete)
+})
+
+test_that("unrelated changes, moved braces and escaped source cannot reuse glue identifier scope", {
+    lines <- c("local_total <- 1", 'glue::glue("{lo}", local_note = 3)')
+    for (change in c("moved", "named", "delimiter", "escape", "crossline", "full")) {
+        f <- glue_cursor_fixture(lines)
+        doc <- f$document
+        r <- function(line, text) range(f$pos(line, text, 0L), f$pos(line, text, nchar(text)))
+        changes <- switch(change,
+            moved = list(list(range = r(2L, "{lo}"), text = "prefix {loc}")),
+            named = list(list(range = r(2L, "local_note"), text = "other_note"), list(range = r(2L, "lo}"), text = "loc}")),
+            delimiter = list(list(range = r(2L, "{lo}"), text = "{{loc}}")),
+            escape = list(list(range = r(2L, "lo}"), text = "lo\\x63}")),
+            crossline = list(list(range = r(1L, "local_total"), text = "other"), list(range = r(2L, "lo}"), text = "loc}")),
+            full = list(list(text = paste(c(lines[[1L]], 'glue::glue("{loc}", local_note = 3)'), collapse = "\n"))))
+        doc$apply_content_changes(2L, changes)
+        point <- doc$from_lsp_position(f$pos(2L, if (change == "escape") "lo\\" else "loc", 2L))
+        expect_null(glue_identifier_context(f$workspace, doc, point), info = change)
+    }
+    f <- glue_cursor_fixture(c("outside <- 1", 'glue::glue_data(list(inside = 2), "{i}")'))
+    at <- f$pos(2L, "{i}", 2L)
+    f$document$apply_content_changes(2L, list(list(range = range(at, at), text = "n")))
+    expect_true("inside" %in% vapply(f$query("completion", 2L, "{in}", 3L)$items, `[[`, "", "label"))
+})
