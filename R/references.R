@@ -310,15 +310,25 @@ indexed_reference_locations <- function(index, uri, selected) {
 
 #' @noRd
 references_reply <- function(id, uri, workspace, document, point,
-    include_declaration = TRUE, for_rename = FALSE, new_name = NULL) {
+    include_declaration = TRUE, for_rename = FALSE, new_name = NULL, glue_site = TRUE) {
 
     if (!check_r_region(document, point)) {
         return(Response$new(id, result = list()))
     }
 
+    if (glue_site && !for_rename && length(document$parse_data$glue_templates)) {
+        embedded <- glue_reference_site(workspace, document, point)
+        if (!is.null(embedded)) return(Response$new(id, result = glue_site_locations(workspace, document,
+                    embedded, include_declaration)))
+    }
     member <- member_navigation_at(workspace, document, point)
     if (!is.null(member)) {
-        return(member_navigation_references(id, workspace, document, member, include_declaration, for_rename, new_name))
+        reply <- member_navigation_references(id, workspace, document, member, include_declaration, for_rename, new_name)
+        if (!for_rename && !isTRUE(member$formal) && length(member$definition$range)) {
+            uris <- member_navigation_uris(workspace, member$definition, uri)
+            reply$result <- glue_member_locations(workspace, member$definition, member$name, uris, reply$result, include_declaration)
+        }
+        return(reply)
     }
     site <- s4_reference_site(document$parse_data, point)
     sources <- if (!is.null(site)) s4_reference_sources(workspace, site$name)
@@ -387,12 +397,13 @@ references_reply <- function(id, uri, workspace, document, point,
                 if (!isTRUE(include_declaration)) {
                     selected <- selected[!indexed$is_definition[selected]]
                 }
-                if (length(selected)) {
-                    result <- c(
-                        result,
-                        indexed_reference_locations(indexed, doc_uri, selected)
-                    )
+                locations <- indexed_reference_locations(indexed, doc_uri, selected)
+                if (!for_rename) {
+                    doc <- workspace$documents$get(doc_uri, NULL)
+                    if (length(doc$parse_data$glue_templates)) locations <- glue_overlay_locations(workspace, doc,
+                        token$token, definition_key, locations, include_declaration)
                 }
+                result <- c(result, locations)
             }
             formal <- if (startsWith(definition_key, "local:")) {
                 member_navigation_formal_owner(parse_data, uri, token$token, definition_key)
@@ -429,6 +440,11 @@ references_reply <- function(id, uri, workspace, document, point,
                     formal = TRUE, declarations = FALSE)
                 if (!for_rename) tags <- lapply(tags, function(x) location(x$uri, x$range))
                 result <- c(result, tags)
+                if (!for_rename) for (doc_uri in setdiff(uris, doc_uris)) {
+                    doc <- workspace$documents$get(doc_uri, NULL)
+                    if (length(doc$parse_data$glue_templates)) result <- c(result, glue_overlay_locations(
+                        workspace, doc, token$token, definition_key, list(), include_declaration))
+                }
                 if (for_rename) attr(result, "rename_formal") <- formal
             }
             return(Response$new(id, result = result))
@@ -598,6 +614,7 @@ reference_member_literal_candidate <- function(syntax, row) {
 
 reference_literal_needs_workspace <- function(document, point) {
     parsed <- document$parse_data
+    if (length(parsed$glue_templates) && !is.null(glue_fragment_at(parsed, point))) return(TRUE)
     row <- member_navigation_token(parsed, point)
     if (!row || parsed$syntax_data$token[[row]] != "STR_CONST") return(FALSE)
     if (!is.null(s4_definition_literal(parsed, row))) return(TRUE)
@@ -605,6 +622,14 @@ reference_literal_needs_workspace <- function(document, point) {
 }
 
 reference_request_documents <- function(workspace, doc, point) {
+    embedded <- glue_reference_site(workspace, doc, point)
+    if (!is.null(embedded)) {
+        if (length(embedded$key) && !startsWith(embedded$key, "global:") &&
+                !isTRUE(embedded$target$formal) && !identical(embedded$target$kind, "field")) return(doc$uri)
+        target <- embedded$target$uri
+        return(unique(c(reference_source_scope(workspace, doc$uri),
+                    if (length(target)) reference_source_scope(workspace, target, callers = TRUE))))
+    }
     member <- member_navigation_at(workspace, doc, point)
     s4 <- if (is.null(member)) s4_reference_target(workspace, doc, point)
     definition <- if (!is.null(member)) {
