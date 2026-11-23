@@ -36,6 +36,7 @@ Imports:
     xmlparsedata (>= 1.0.3)
 Suggests:
     covr (>= 4.0.0),
+    glue,
     lintr (>= 3.3.0-1),
     magrittr (>= 1.5),
     methods,
