@@ -229,6 +229,8 @@ Editors with LSP semantic highlighting enabled can color R expressions inside
 these templates in R files and executable R Markdown or Quarto cells. For
 example, `glue::glue("Total {sum(x, 1)}")` uses the editor theme's function,
 variable and number colors while keeping `Total ` in the string color.
+Highlighting covers one interpolation level. A quoted string inside the
+embedded expression keeps its ordinary R string color.
 To disable interpolation highlighting, set `r.lsp.glue_highlighting` to
 `false` or put `options(languageserver.glue_highlighting = FALSE)` in `.Rprofile`.
 

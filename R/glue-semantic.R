@@ -121,14 +121,15 @@ glue_semantic_project <- function(fragment, inner) {
 # means there are no named, data-mask, or preceding interpolation bindings.
 # Registered wrappers have no native fragment record. Recovered calls and
 # shadowed names always go through the normal binding checks.
-glue_semantic_direct_calls <- function(workspace, document, row) {
+glue_semantic_native_calls <- function(workspace, document, row) {
     parsed <- document$parse_data
     native <- parsed$glue_templates
     all <- vapply(native, `[[`, 0L, "call_row")
     uncertain <- vapply(attr(native, "unmapped", exact = TRUE), `[[`, 0L, "call_row")
     single <- all[!duplicated(all) & !duplicated(all, fromLast = TRUE) & !all %in% uncertain]
     s <- parsed$syntax_data
-    i <- which(row > 0L & row %in% single)
+    native <- row > 0L & row %in% single
+    i <- which(native)
     i <- i[s$child_end[row[i]] - s$child_start[row[i]] == 3L]
     head <- s$children[s$child_start[row[i]]]
     name <- s$text[s$children[s$child_end[head]]]
@@ -140,7 +141,7 @@ glue_semantic_direct_calls <- function(workspace, document, row) {
         if (any(index$is_definition[reference_indices(index, nm)]) ||
                 (length(owner) && !identical(owner, glue_template_packages[[nm]]))) keep[bare & name == nm] <- FALSE
     }
-    seq_along(row) %in% i[keep]
+    list(single = native, unmasked = seq_along(row) %in% i[keep])
 }
 
 # Restrict resolution to free value reads that could be host parameters. The
@@ -181,22 +182,34 @@ glue_semantic_parameters <- function(mapped, workspace, document, fragments, key
     declarations <- split(seq_along(formal_names), formal_names)
     targets <- list()
     plain <- attr(classified, "plain_reads", exact = TRUE)[key]
-    direct <- if (any(plain)) plain & glue_semantic_direct_calls(workspace, document, row) else rep(FALSE, length(row))
+    native <- if (any(plain)) glue_semantic_native_calls(workspace, document, row)
+    simple <- if (is.null(native)) rep(FALSE, length(row)) else plain & native$single
+    masks <- vector("list", length(row))
     offset <- cumsum(c(0L, vapply(classified[key], nrow, 0L)))[seq_along(key)]
     for (nm in names(reads)) {
         ids <- reads[[nm]]
         ids <- ids[enclosed(at[ids], declarations[[nm]])]
-        fast <- ids[direct[ids]]
-        if (length(fast)) {
+        flat <- ids[simple[ids]]
+        if (length(flat)) {
+            # A single flat expression has no inner binding. Its value reads
+            # need only the mask and the host lexical scope, once per name
+            # and call; the decoded syntax is already classified above.
+            inherit <- native$unmasked[flat]
+            for (j in which(!inherit)) {
+                f <- flat[[j]]
+                if (is.null(masks[[f]])) masks[[f]] <- glue_call_bindings(workspace, document, fragments[[f]])
+                mask <- masks[[f]]
+                inherit[[j]] <- !isTRUE(mask$open) && !isTRUE(mask$shadowed) && is.null(mask$targets[[nm]])
+            }
+            proven <- flat[inherit]
             index <- parsed$reference_index
             site <- reference_indices(index, nm)
-            if (!any(index$is_definition[site] & index$definition_kind[site] != "formal")) {
-                # Every source declaration of this name is a formal, and the
-                # call is in one of its scopes. No per-call lookup is needed.
-                hits <- lapply(variables[key[fast]], function(reads) reads[names(reads) == nm])
-                mapped[rep.int(offset[fast], lengths(hits)) + unlist(hits, use.names = FALSE), 4L] <- SemanticTokenTypes$parameter
-                ids <- ids[!direct[ids]]
+            if (length(proven) && any(index$is_definition[site] & index$definition_kind[site] != "formal")) {
+                proven <- proven[vapply(row[proven], function(r) isTRUE(glue_lexical_target(document, nm, r)$formal), logical(1L))]
             }
+            hits <- lapply(variables[key[proven]], function(reads) reads[names(reads) == nm])
+            mapped[rep.int(offset[proven], lengths(hits)) + unlist(hits, use.names = FALSE), 4L] <- SemanticTokenTypes$parameter
+            ids <- ids[!simple[ids]]
         }
         calls <- unique(row[ids])
         if (!length(calls)) next

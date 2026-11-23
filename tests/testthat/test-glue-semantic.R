@@ -154,3 +154,18 @@ test_that("simple calls color a repeated formal without per-call scope resolutio
     spans <- glue_semantic_spans(overlay, lines)
     expect_identical(spans$type[spans$spelling == "x"], rep("parameter", 41L))
 })
+
+test_that("simple mask lookups reuse decoded value spans with multiple enclosing formals", {
+    lines <- c("f <- function(x, y) {", '  glue::glue_data(list(x = 2), "{sum(x, y)}")',
+        '  glue::glue("{sum(x, y)}", y = x)', "}")
+    f <- provider_fixture(lines)
+    p <- f$document$parse_data
+    testthat::local_mocked_bindings(glue_reference_occurrences = function(...) stop("unexpected general lookup"))
+    overlay <- semantic_glue_overlay(p$semantic_data, p$glue_templates, lines, f$workspace, f$document)
+    spans <- glue_semantic_spans(overlay, lines)
+    for (i in 1L:2L) {
+        at <- which(overlay$lines == i & spans$spelling == "sum")
+        types <- spans$type[at + c(2L, 4L)]
+        expect_identical(types, if (i == 1L) c("variable", "parameter") else c("parameter", "variable"))
+    }
+})
