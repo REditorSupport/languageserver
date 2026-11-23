@@ -82,30 +82,6 @@ source_file_syntax <- function(syntax, row, call = syntax_call_arguments(syntax,
     class_matched_arguments(call, names(formals(fn)))$file
 }
 
-# Match the arguments as received by the callee, including pipe insertion
-# and direct placeholders. The original argument rows remain available.
-syntax_pipe_arguments <- function(syntax, row, call) {
-    parent <- syntax$parent_row[[row]]
-    if (parent) {
-        parts <- syntax_children(syntax, parent)
-        parts <- parts[syntax$token[parts] != "COMMENT"]
-        if (length(parts) == 3L && parts[[3L]] == row && syntax$text[[parts[[2L]]]] %in% c("|>", "%>%", "%T>%", "%<>%")) {
-            native <- syntax$text[[parts[[2L]]]] == "|>"
-            placeholder <- vapply(call$values, function(arg) {
-                if (!arg) return(FALSE)
-                only <- syntax_children(syntax, arg)
-                length(only) == 1L && if (native) syntax$token[[only]] == "PLACEHOLDER" else syntax$text[[only]] == "."
-            }, logical(1L))
-            if (any(placeholder)) {
-                call$values[placeholder] <- parts[[1L]]
-            } else {
-                call$values <- c(stats::setNames(parts[[1L]], ""), call$values)
-            }
-        }
-    }
-    call
-}
-
 # Test the source-site scope before interpreting a bare helper as a base call.
 source_base_binding <- function(workspace, document, name, row, col, current = TRUE) {
     parsed <- document$parse_data

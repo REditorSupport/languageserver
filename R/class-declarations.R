@@ -41,6 +41,30 @@ syntax_call_arguments <- function(syntax, row) {
         values = value, tags = tag)
 }
 
+# Match the arguments as received by the callee, including pipe insertion
+# and direct placeholders. The original argument rows remain available.
+syntax_pipe_arguments <- function(syntax, row, call) {
+    parent <- syntax$parent_row[[row]]
+    if (parent) {
+        parts <- syntax_children(syntax, parent)
+        parts <- parts[syntax$token[parts] != "COMMENT"]
+        if (length(parts) == 3L && parts[[3L]] == row && syntax$text[[parts[[2L]]]] %in% c("|>", "%>%", "%T>%", "%<>%")) {
+            native <- syntax$text[[parts[[2L]]]] == "|>"
+            placeholder <- vapply(call$values, function(arg) {
+                if (!arg) return(FALSE)
+                only <- syntax_children(syntax, arg)
+                length(only) == 1L && if (native) syntax$token[[only]] == "PLACEHOLDER" else syntax$text[[only]] == "."
+            }, logical(1L))
+            if (any(placeholder)) {
+                call$values[placeholder] <- parts[[1L]]
+            } else {
+                call$values <- c(stats::setNames(parts[[1L]], ""), call$values)
+            }
+        }
+    }
+    call
+}
+
 class_matched_arguments <- function(call, formals) {
     fn <- function() NULL
     formals(fn) <- as.pairlist(stats::setNames(rep(list(quote(expr = )), length(formals)), formals))
