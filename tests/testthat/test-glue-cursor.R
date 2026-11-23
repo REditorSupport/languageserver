@@ -119,16 +119,32 @@ test_that("an opener reuses only the verified template and its original bindings
     }
     for (line in c('"here"', 'ordinary("here")', 'other::glue("here")', 'glue:::glue("here")',
             'glue::glue(text = "here")', 'glue::glue("here", .literal = TRUE)',
-            'glue::glue_data("here", "{x}")', 'glue::glue(r"(here)")', 'glue::glue("{paste(\'here\')}")',
+            'glue::glue_data("here", "{x}")', 'ordinary(r"(here)")', 'glue::glue("{paste(\'here\')}")',
             'glue::glue("{if (TRUE) { here }}")')) {
         expect_null(insert(line), info = line)
     }
     expect_null(insert(c("glue <- function(...) NULL", 'glue("here")')))
     expect_null(insert('glue::glue("here")', text = "{{}}"))
+    expect_identical(insert('glue::glue(r"{here}", field = 2)')$bindings$names, "field")
+    expect_null(insert('glue::glue(r"{here}")', near = "here}"))
+    expect_null(insert('glue::glue(r"{here" text}")'))
     lines <- c("other <- 1", 'glue::glue("here", field = 2)')
     expect_identical(insert(lines, text = "{")$bindings$names, "field")
     expect_null(insert(lines, extra = list(list(range = range(position(0L, 0L), position(0L, 5L)), text = "edited"))))
     expect_null(insert(lines, extra = list(list(range = range(position(1L, 21L), position(1L, 26L)), text = "other"))))
+})
+
+test_that("raw glue templates resolve and complete names at their physical ranges", {
+    f <- glue_cursor_fixture(c('str1 <- "hello"', 'glue::glue(r"{value = {str1}}")', 'glue::glue(r"(value = {str1})")'))
+    declaration <- range(f$pos(1L, "str1", 0L), f$pos(1L, "str1", 4L))
+    for (line in 2:3) {
+        use <- range(f$pos(line, "str1", 0L), f$pos(line, "str1", 4L))
+        expect_equal(f$query("definition", line, "str1")$range, declaration)
+        expect_equal(f$query("hover", line, "str1")$range, use)
+        items <- f$query("completion", line, "str1", 3L)$items
+        item <- Filter(function(x) x$label == "str1", items)[[1L]]
+        expect_equal(item$textEdit$range, use)
+    }
 })
 
 test_that("cursor requests resolve the inner call and the host lexical scope", {
@@ -202,6 +218,25 @@ test_that("completion edits re-encode quoted R and signatures stay inside the se
     expect_match(f$server$reply$result$signatures[[1L]]$label, "^choose\\(")
     expect_length(f$query("signatureHelp", 4L, "name")$signatures, 0L)
     expect_null(f$query("definition", 5L, "name"))
+})
+
+test_that("raw completion edits preserve quotes and cannot close the literal", {
+    values <- c("auto", "auto)", 'auto)"', "auto)'")
+    f <- glue_cursor_fixture(c(paste0("choose <- function(mode = ", deparse(values), ") mode"),
+            'glue::glue(r"({choose(aut)})")', 'glue::glue(r"({choose(if (TRUE)aut)})")',
+            'glue::glue(R"--[{choose(if (TRUE)aut)}]--")', "glue::glue(r'({choose(aut)})')"))
+    expect_match(f$query("signatureHelp", 2L, "choose(", 7L)$signatures[[1L]]$label, "^choose\\(mode")
+    for (line in 2:5) {
+        choices <- Filter(function(x) x$label %in% values, f$query("completion", line, "aut", 3L)$items)
+        expect_setequal(vapply(choices, "[[", "", "label"), values)
+        for (item in choices) {
+            doc <- f$document$clone()
+            doc$apply_content_changes(2L, list(list(range = item$textEdit$range, text = item$textEdit$newText)))
+            body <- str2lang(doc$content[[line]])[[2L]]
+            arg <- str2lang(substr(body, 2L, nchar(body) - 1L))[[2L]]
+            expect_identical(if (is.call(arg)) arg[[3L]] else arg, item$label)
+        }
+    }
 })
 
 test_that("embedded navigation and signature help use an unsaved sourced function", {

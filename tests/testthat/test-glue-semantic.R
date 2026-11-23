@@ -52,6 +52,19 @@ test_that("glue tokens follow physical escaped and UTF-16 boundaries", {
     expect_true(all(overlay$lengths > 0L))
 })
 
+test_that("raw glue literals retain their delimiters and highlight only real interpolations", {
+    lines <- c('glue::glue(r"{value = {str1}}")', 'glue::glue(r"(value = {str1})")',
+        'glue::glue(R"--[\\x7bvalue\\x7d {paste("\\n", str1)}]--")', 'glue::glue(r"{value = {str1}")')
+    f <- glue_semantic_fixture(lines)
+    tokens <- semantic_glue_overlay(f$raw, f$fragments, lines)
+    spans <- glue_semantic_spans(tokens, lines)
+    expect_identical(spans$spelling[spans$type == "string"], c('r"{value = ', '}"', 'r"(value = ', ')"',
+            'R"--[\\x7bvalue\\x7d ', '"\\n"', ']--"', 'r"{value = {str1}"'))
+    expect_identical(spans$spelling[spans$type == "variable"], rep("str1", 3L))
+    braces <- spans$type == "operator" & spans$spelling %in% c("{", "}")
+    expect_identical(spans$spelling[braces], rep(c("{", "}"), 3L))
+})
+
 test_that("glue classification preserves multiline scopes, comments, and range boundaries", {
     lines <- c('"ordinary prefix"', 'glue("begin {', "  function(arg) {", "", "    arg[[1]] + 2 # ignore } here",
         "  }", '} end")', '"ordinary suffix"')

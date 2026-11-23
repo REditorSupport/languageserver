@@ -40,7 +40,7 @@ test_that("custom glue registrations color only the selected direct literal", {
     selectors <- list(notice = 2L, "pkg::notify" = "fmt")
     expect_null(f$document$parse_data$glue_templates)
     fragments <- glue_highlight_test_fragments(f, selectors)
-    expect_identical(vapply(fragments, "[[", "", "content"), c("second", "third", "piped", "quoted"))
+    expect_identical(vapply(fragments, "[[", "", "content"), c("second", "third", "raw", "piped", "quoted"))
     expect_null(glue_highlight_test_fragments(f, selectors, enabled = FALSE))
     expect_null(glue_fragment_at(f$document$parse_data, fragments[[1L]]$start))
 })

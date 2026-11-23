@@ -4,15 +4,43 @@ test_that("only template arguments of the standard glue and stringr functions co
         'str_glue_data("{f}", .x = data)', 'data %>% stringr::str_glue_data("{g}")',
         'other::glue("{skip}")', 'glue:::glue("{skip}")', 'obj$glue("{skip}")',
         'glue_sql("{skip}")', 'glue("{skip}", .open = "[")', 'glue("{skip}", .transformer = f)',
-        'glue("{skip}", .literal = FALSE)', 'glue(r"({raw})")', 'paste("{skip}")')
+        'glue("{skip}", .literal = FALSE)', 'glue(r"({h})")', 'paste("{skip}")')
     parsed <- parse_document("file:///glue.R", code)
-    expect_identical(vapply(parsed$glue_templates, "[[", "", "content"), letters[1:7])
+    expect_identical(vapply(parsed$glue_templates, "[[", "", "content"), letters[1:8])
     for (fragment in parsed$glue_templates) {
         expect_true(fragment$complete)
         expect_identical(parsed$syntax_data$token[[fragment$call_row]], "expr")
     }
     expect_null(glue_fragment_at(parsed, list(row = 0L, col = 6L)))
     expect_null(glue_fragment_at(list(), list(row = 0L, col = 0L)))
+})
+
+test_that("raw templates map their verbatim bodies to physical source ranges", {
+    lines <- c('glue::glue(r"{value = {str1}}")', 'glue::glue(r"(value = {str1})")',
+        "stringr::str_glue(R'--[\\u007b prose \\q {{literal}} \U0001f600 {str1}]--')",
+        'glue(r"---(first {paste("a\\nb",', '\tstr1)} last)---")',
+        'glue(r"{plain}", computed())', 'glue(r"{computed {x}}", computed())',
+        'glue(r"{a {split}", "Name} and {joined}")')
+    parsed <- parse_document("file:///raw.R", lines)
+    fragments <- parsed$glue_templates
+    expect_identical(lapply(fragments, "[[", "content"),
+        list("str1", "str1", "str1", c('paste("a\\nb",', "\tstr1)"), "joined"))
+    for (i in 1L:3L) {
+        start <- regexpr("str1", lines[[i]], fixed = TRUE)[[1L]] - 1L
+        fragment <- fragments[[i]]
+        expect_identical(fragment$start, list(row = i - 1L, col = start))
+        expect_identical(fragment$end, list(row = i - 1L, col = start + 4L))
+        expect_identical(glue_fragment_at(parsed, fragment$end), fragment)
+        expect_null(glue_fragment_at(parsed, list(row = i - 1L, col = start - 1L)))
+    }
+    inner <- list(row = 1L, col = 1L)
+    host <- list(row = 4L, col = 1L)
+    expect_identical(glue_source_point(fragments[[4L]], inner), host)
+    expect_identical(glue_inner_point(fragments[[4L]], host), inner)
+    unmapped <- attr(fragments, "unmapped")
+    expect_length(unmapped, 2L)
+    expect_null(unmapped[[1L]]$content)
+    expect_identical(unmapped[[2L]]$content, "splitName")
 })
 
 test_that("glue balances nested braces, ignores literal braces and respects R quotes and comments", {
@@ -126,5 +154,30 @@ test_that("batch mapping and the scanner agree on single-line boundaries", {
                 expect_identical(glue_inner_point(actual, host), at)
             }
         }
+    }
+})
+
+test_that("unfinished raw glue templates recover the current expression within its file or cell", {
+    cases <- list('glue::glue(r"{value = {str1', 'glue::glue(r"(value = {str1',
+        c("f <- function() {", "  glue::glue(", "\f  R'--[value =", "  {str1"))
+    for (code in cases) {
+        parsed <- parse_document("file:///typing.R", code)
+        fragment <- parsed$glue_templates[[1L]]
+        expect_identical(fragment$content, "str1")
+        expect_false(fragment$complete)
+        expect_true(fragment$lexical_prefix)
+        expect_identical(fragment$end, list(row = length(code) - 1L, col = nchar(code[[length(code)]])))
+    }
+
+    fence <- strrep("\u0060", 3L)
+    code <- c(paste0(fence, "{r}"), 'glue::glue(r"--(', "value = {str1", fence, "{outside}",
+        paste0(fence, "{r}"), 'glue("{next_value}")', fence)
+    fragments <- parse_document("file:///raw.qmd", code, is_rmarkdown = TRUE)$glue_templates
+    expect_identical(vapply(fragments, "[[", "", "content"), c("str1", "next_value"))
+    expect_identical(vapply(fragments, function(f) f$end$row, integer(1L)), c(2L, 6L))
+    expect_identical(vapply(fragments, "[[", logical(1L), "complete"), c(FALSE, TRUE))
+
+    for (tail in list(rep("body", 64L), strrep("x", 16384L))) {
+        expect_length(parse_document("file:///large.R", c('glue(r"({str1}', tail))$glue_templates, 0L)
     }
 })

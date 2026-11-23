@@ -97,7 +97,7 @@ glue_highlight_native <- function(workspace, document, parsed, config, lines) {
     if (all(keep)) fragments else glue_order_fragments(fragments[keep], NULL)
 }
 
-glue_registered_template_calls <- function(syntax, content, config, lines) {
+glue_registered_template_calls <- function(syntax, config, lines) {
     # A backticked syntactic callee has the same R name as its unquoted form.
     spellings <- c(config$callees, paste0("`", config$callees, "`"))
     symbols <- which(syntax$token == "SYMBOL_FUNCTION_CALL" & syntax$text %in% spellings)
@@ -130,7 +130,6 @@ glue_registered_template_calls <- function(syntax, content, config, lines) {
         literal <- class_literal_row(syntax, value, "STR_CONST")
         if (!literal) return(NULL)
         if (!is.null(lines) && (syntax$line2[[literal]] < lines[[1L]] + 1L || syntax$line1[[literal]] > lines[[2L]] + 1L)) return(NULL)
-        if (!substr(content[[syntax$line1[[literal]]]], syntax$col1[[literal]], syntax$col1[[literal]]) %in% c("'", '"')) return(NULL)
         list(row = row, literals = literal, all_direct = TRUE, separator = FALSE)
     })
     Filter(Negate(is.null), calls)
@@ -147,7 +146,7 @@ glue_highlight_fragments <- function(workspace, document, parsed, config = glue_
         if (!any(candidates %in% c(config$callees, paste0("`", config$callees, "`")))) return(native)
     }
     syntax <- parsed$syntax_data
-    registered <- glue_registered_template_calls(syntax, document$content, config, lines)
+    registered <- glue_registered_template_calls(syntax, config, lines)
     if (!length(registered)) return(native)
     custom <- glue_template_index(syntax, document$content, calls = registered)$fragments
     glue_highlight_lines(glue_order_fragments(c(native, custom), NULL), lines)

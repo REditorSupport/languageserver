@@ -43,6 +43,21 @@ test_that("glue rename escapes the outer quote and respects named RHS order", {
     expect_identical(edited[[1L]], lines[[1L]])
 })
 
+test_that("rename preserves an R name containing both raw terminators and a backslash", {
+    lines <- c('str1 <- "hello"', 'glue::glue(r"{value = {str1}}")', 'glue::glue(r"(value = {str1})")')
+    name <- 'x)"x}"x\\z'
+    edited <- glue_rename_lines(lines, 1L, 24L, name)
+    expr <- parse(text = edited)
+    expect_identical(expr[[1L]][[2L]], as.name(name))
+    for (i in 2:3) {
+        body <- expr[[i]][[2L]]
+        expect_identical(str2lang(substring(body, nchar("value = {") + 1L, nchar(body) - 1L)), as.name(name))
+        if (requireNamespace("glue", quietly = TRUE)) {
+            expect_identical(as.character(eval(expr[c(1L, i)], new.env())), "value = hello")
+        }
+    }
+})
+
 test_that("glue rename refuses capture, uneditable expressions and unknown masks", {
     cases <- list(
         list(c("x <- 42", 'glue::glue("{x}", taken = 7)'), "taken"),
