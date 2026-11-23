@@ -22,3 +22,23 @@ test_that("dynamic glue environments block lexical lookup and source mutation in
     targets <- lapply(frags, function(x) glue_context_at(f$workspace, f$document, x, "x")$target)
     expect_identical(vapply(targets, "[[", "", "kind"), c("unknown", "lexical", "unknown", "named"))
 })
+
+test_that("function lookup skips proven non-functions and stops at dynamic glue bindings", {
+    f <- provider_fixture(c("f <- function(x) x + 10L", 'glue::glue("{f(3)} {f}", f = 4)',
+            'glue::glue("{f(3)}", f = (function(y) y), f = 4)', "d <- list(sum = 4)",
+            'glue::glue_data(d, "{sum(3)}")', 'glue::glue("{f(3)}", f = unknown())',
+            'glue::glue("{alias(3)}", original = f, alias = original)',
+            'demo <- function() { f <- 4; glue::glue("{f(3)}") }'))
+    fragments <- f$document$parse_data$glue_templates
+    lookup <- function(i, name, call = TRUE) glue_context_at(f$workspace, f$document, fragments[[i]], name, call)
+    expect_identical(lookup(1, "f")$target$key, "global:f")
+    expect_identical(lookup(2, "f", FALSE)$target$kind, "named")
+    earlier <- lookup(3, "f")$target
+    expect_identical(earlier$kind, "named")
+    expect_identical(earlier$range$start$character, regexpr("f =", f$document$content[[3L]], fixed = TRUE)[[1L]] - 1L)
+    expect_identical(lookup(4, "sum")$target$key, "package:base:sum")
+    expect_identical(lookup(5, "f")$target$kind, "unknown")
+    expect_true(lookup(5, "f")$blocked)
+    expect_identical(lookup(6, "alias")$target$callable$key, "global:f")
+    expect_identical(lookup(7, "f")$target$key, "global:f")
+})

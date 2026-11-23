@@ -209,3 +209,64 @@ test_that("unrelated changes, moved braces and escaped source cannot reuse glue 
     f$document$apply_content_changes(2L, list(list(range = range(at, at), text = "n")))
     expect_true("inside" %in% vapply(f$query("completion", 2L, "{in}", 3L)$items, `[[`, "", "label"))
 })
+
+test_that("mid-token glue edits replace whole backticked names from scope, mask and member providers", {
+    f <- glue_cursor_fixture(c(
+        "obj <- list(`first name` = 1, first_value = 2)",
+        "f <- function(`first name`) {",
+        '  glue::glue("🦊 {`firZZ name`} tail")',
+        '  glue::glue("🦊 {`firZZ name`} tail", `first name` = 7)',
+        '  glue::glue("🦊 {obj$`firZZ name`} tail")',
+        '  glue::glue("🦊 {obj$firZZ_value} tail")',
+        '  glue::glue("{(function() { `first name` <- function(inner) inner; `firZZ name` })()}", `first name` = 7)', "}"))
+    for (line in 3:6) {
+        reply <- f$query("completion", line, "firZZ", 3L)
+        quoted <- line < 6L
+        name <- if (quoted) "first name" else "first_value"
+        items <- Filter(function(x) x$label %in% c(name, quote_completion_name(name)), reply$items)
+        expect_length(items, 1L)
+        item <- items[[1L]]
+        if (line == 4L) expect_identical(item$detail, "[glue]")
+        if (line %in% 3:4) expect_identical(item$filterText, "`first name`")
+        previous <- if (quoted) "`firZZ name`" else "firZZ_value"
+        replacement <- if (quoted) "`first name`" else "first_value"
+        edit <- item$textEdit
+        expect_equal(edit$range, range(f$pos(line, previous, 0L), f$pos(line, previous, nchar(previous))))
+        doc <- f$document$clone()
+        doc$apply_content_changes(2L, list(list(range = edit$range, text = edit$newText)))
+        expect_identical(doc$content[[line]], sub(previous, replacement, f$document$content[[line]], fixed = TRUE))
+    }
+    inner <- f$query("completion", 7L, "firZZ", 3L)$items
+    items <- Filter(function(x) x$label %in% c("first name", "`first name`"), inner)
+    expect_length(items, 1L)
+    expect_identical(items[[1L]]$kind, CompletionItemKind$Function)
+    expect_identical(items[[1L]]$textEdit$newText, "`first name`($0)")
+})
+
+test_that("embedded call navigation and argument help look past non-callable glue values", {
+    f <- glue_cursor_fixture(c("format_score <- function(value, digits = 1) value + 10",
+            'glue::glue("{format_score(3, digits=1)} {format_score}", format_score=4)',
+            "d <- list(sum=4)", 'glue::glue_data(d, "{sum(3)} {sum}")', "base::sum(3)",
+            'glue::glue("{alias(3)}", alias=format_score)', 'glue::glue("{format_score(3)}", format_score=factory())'))
+    expect_equal(f$query("definition", 2L, "{format_score(", 3L)$range$start, f$pos(1L, "format_score", 0L))
+    expect_equal(f$query("definition", 2L, "{format_score}", 3L)$range$start, f$pos(2L, "format_score=", 0L))
+    expect_match(paste(f$query("hover", 2L, "{format_score(", 3L)$contents, collapse = " "), "format_score\\(value, digits = 1\\)")
+    expect_match(f$query("signatureHelp", 2L, "3,", 2L)$signatures[[1L]]$label, "format_score\\(value, digits = 1\\)")
+    labels <- vapply(f$query("completion", 2L, "digits=", 3L)$items, "[[", "", "label")
+    expect_true("digits" %in% labels)
+    expect_equal(f$query("definition", 4L, "{sum(", 2L), f$query("definition", 5L, "sum", 1L))
+    expect_equal(f$query("definition", 4L, "{sum}", 2L)$range$start, f$pos(3L, "sum", 0L))
+    expect_match(f$query("signatureHelp", 6L, "alias(", 6L)$signatures[[1L]]$label, "^alias\\(value, digits = 1\\)")
+    expect_null(f$query("definition", 7L, "{format_score(", 3L))
+    expect_length(f$query("signatureHelp", 7L, "score(", 6L)$signatures, 0L)
+})
+
+test_that("embedded closure callees distinguish scalar locals from unknown formals", {
+    f <- glue_cursor_fixture(c("jump <- function(distance) distance",
+            'glue::glue("{(function() { jump <- 4; jump(distance = 2) })()}")',
+            'glue::glue("{(function(jump) jump(distance = 2))(something())}")'))
+    expect_equal(f$query("definition", 2L, "jump(distance", 2L)$range$start, f$pos(1L, "jump", 0L))
+    expect_match(f$query("signatureHelp", 2L, "jump(distance", 5L)$signatures[[1L]]$label, "^jump\\(distance\\)")
+    expect_null(f$query("definition", 3L, "jump(distance", 2L))
+    expect_length(f$query("signatureHelp", 3L, "jump(distance", 5L)$signatures, 0L)
+})
