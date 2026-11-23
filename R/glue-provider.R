@@ -17,7 +17,7 @@ glue_fragment_document <- function(document, fragment) {
         data <- parse_document(document$uri, fragment$content, include_xml = FALSE)
         data$version <- document$version
         inner$update_parse_data(data)
-        cache$set(key, inner, additional_bytes = as.numeric(object.size(as.list(data))))
+        cache$set(key, inner, additional_bytes = as.numeric(utils::object.size(as.list(data))))
     }
     inner$requested_packages <- document$requested_packages
     inner$loaded_packages <- document$loaded_packages
@@ -86,15 +86,37 @@ glue_symbol_target <- function(workspace, context) {
             navigation_after_dollar(syntax, row)) return(NULL)
     detected <- reference_token_at(inner, data, p)
     if (nzchar(detected$accessor) || !nzchar(detected$token)) return(NULL)
+    if (syntax$token[[row]] == "SYMBOL_FUNCTION_CALL") return(glue_cursor_callee(workspace, context, detected$token, row))
     if (length(navigation_definitions(data, p$row + 1L, p$col + 1L, detected$token, token = row, last = TRUE))) {
         return(list(kind = "inner"))
     }
     glue_context_at(workspace, context$host, context$fragment, detected$token)$target
 }
 
+glue_cursor_callee <- function(workspace, context, name, row) {
+    if (length(row) && row) {
+        target <- glue_call_target(workspace, context$document, list(call_row = row), name, list(), lexical_only = TRUE)
+        if (!is.null(target)) {
+            if (identical(target$kind, "lexical")) target$kind <- "inner"
+            return(target)
+        }
+    }
+    glue_context_at(workspace, context$host, context$fragment, name, function_position = TRUE)$target
+}
+
 glue_target_source <- function(workspace, context, target) {
+    name <- target$name
+    inner <- identical(target$kind, "inner")
+    if (length(target$callable)) target <- target$callable
+    if (identical(target$kind, "package")) {
+        signature <- workspace$get_signature(target$name, target$package, uri = context$host$uri)
+        if (is.null(signature)) return(NULL)
+        if (!identical(name, target$name)) signature <- paste0(quote_completion_name(name), substring(signature, regexpr("(", signature, fixed = TRUE)))
+        return(list(text = signature, signature = signature, params = workspace$get_formals(target$name, target$package, uri = context$host$uri),
+                documentation = workspace$get_documentation(target$name, target$package, isf = TRUE, uri = context$host$uri)))
+    }
     if (is.null(target$range)) return(NULL)
-    doc <- if (identical(target$uri, context$host$uri)) context$host else workspace$documents$get(target$uri, NULL)
+    doc <- if (inner) context$document else if (identical(target$uri, context$host$uri)) context$host else workspace$documents$get(target$uri, NULL)
     if (is.null(doc)) return(NULL)
     data <- doc$parse_data
     syntax <- data$syntax_data
@@ -107,7 +129,7 @@ glue_target_source <- function(workspace, context, target) {
         if (closing > 0L) {
             header <- get_range_text(doc$content, syntax$line1[[value]], syntax$col1[[value]],
                 syntax$line2[[closing]], syntax$col2[[closing]])
-            info <- analysis_function_header(doc, header, quote_completion_name(target$name))
+            info <- analysis_function_header(doc, header, quote_completion_name(name))
             signature <- info$signature
             params <- info$formals
         } else {
@@ -130,7 +152,7 @@ glue_target_source <- function(workspace, context, target) {
 
 glue_hover_reply <- function(id, uri, workspace, context) {
     target <- glue_symbol_target(workspace, context)
-    if (!is.null(target) && !identical(target$kind, "inner")) {
+    if (!is.null(target) && (!identical(target$kind, "inner") || length(target$range))) {
         source <- glue_target_source(workspace, context, target)
         if (is.null(source)) return(Response$new(id))
         token <- reference_token_at(context$document, context$document$parse_data, context$point)
@@ -148,6 +170,17 @@ glue_hover_reply <- function(id, uri, workspace, context) {
 
 glue_definition_reply <- function(id, uri, workspace, context, rootPath, text_document_content) {
     target <- glue_symbol_target(workspace, context)
+    if (identical(target$kind, "inner") && length(target$range)) {
+        return(Response$new(id, location(uri, glue_host_range(context, target$range))))
+    }
+    if (identical(target$kind, "package")) {
+        view <- glue_provider_workspace(workspace, context)
+        # Use the normal virtual-document and tempfile paths with the package
+        # chosen in function position, even if the host has a same-name value.
+        lookup <- view$get_definition
+        view$get_definition <- function(symbol, pkgname = NULL, ...) lookup(symbol, target$package, ...)
+        return(symbol_definition_reply(id, uri, view, context$document, context$point, rootPath, text_document_content = text_document_content))
+    }
     if (!is.null(target) && !identical(target$kind, "inner")) {
         result <- if (!is.null(target$range)) location(target$uri, target$range)
         return(Response$new(id, result))
@@ -167,20 +200,23 @@ glue_signature_reply <- function(id, uri, workspace, context, capabilities) {
     view <- glue_provider_workspace(workspace, context)
     if (nzchar(call$token) && identical(call$accessor, "") && !is.null(call$opening)) {
         p <- call$opening
-        declared <- navigation_definitions(inner$parse_data, p$row + 1L, p$col + 1L, call$token, "signature", last = TRUE)
-        if (!length(declared)) {
-            target <- glue_context_at(workspace, context$host, context$fragment, call$token)$target
-            if (!is.null(target) && !(identical(target$kind, "unknown") && isTRUE(context$fragment$lexical_prefix))) {
-                source <- glue_target_source(workspace, context, target)
-                if (is.null(source$signature)) return(Response$new(id, list(signatures = list())))
-                none <- signature_no_active_parameter_support(capabilities)
-                active <- detect_active_parameter(inner$content, p$row, p$col, context$point$row,
-                    context$point$col, source$signature, none)
-                result <- list(signatures = list(local_signature_information(source$signature, source$documentation)),
-                    activeSignature = 0)
-                if (!is.null(active) || none) result["activeParameter"] <- list(active)
-                return(Response$new(id, result))
-            }
+        row <- navigation_token(inner$parse_data, p$row + 1L, p$col + 1L)
+        target <- glue_cursor_callee(workspace, context, call$token, row)
+        if (identical(target$kind, "package")) {
+            call$package <- target$package
+            call$accessor <- "::"
+            return(signature_reply(id, uri, view, inner, context$point, capabilities, call = call, embedded = TRUE))
+        }
+        if (!is.null(target) && !(identical(target$kind, "unknown") && isTRUE(context$fragment$lexical_prefix))) {
+            source <- glue_target_source(workspace, context, target)
+            if (is.null(source$signature)) return(Response$new(id, list(signatures = list())))
+            none <- signature_no_active_parameter_support(capabilities)
+            active <- detect_active_parameter(inner$content, p$row, p$col, context$point$row,
+                context$point$col, source$signature, none)
+            result <- list(signatures = list(local_signature_information(source$signature, source$documentation)),
+                activeSignature = 0)
+            if (!is.null(active) || none) result["activeParameter"] <- list(active)
+            return(Response$new(id, result))
         }
     }
     signature_reply(id, uri, view, inner, context$point, capabilities, call = call, embedded = TRUE)
@@ -209,9 +245,16 @@ glue_completion_candidates <- function(workspace, context, token, snippet, limit
 
 glue_completion_edits <- function(items, context, token) {
     inner <- context$document
-    # With a qualified name the replacement starts after the namespace.
-    start <- context$point$col - nchar(token$token)
-    end <- inner$detect_token(context$point)$range$end$col
+    if (isTRUE(token$quoted)) {
+        # The decoded prefix can omit spaces, escapes and both backticks.
+        # Use the lexer span even for host/mask candidates without a textEdit.
+        start <- token$range$start$col
+        end <- token$range$end$col
+    } else {
+        # With a qualified name the replacement starts after the namespace.
+        start <- context$point$col - nchar(token$token)
+        end <- inner$detect_token(context$point)$range$end$col
+    }
     default <- range(inner$to_lsp_position(context$point$row, max(0L, start)),
         inner$to_lsp_position(context$point$row, end))
     default <- glue_host_range(context, default)
@@ -232,6 +275,9 @@ glue_completion_edits <- function(items, context, token) {
         }
         item$textEdit <- text_edit(span, inserted)
         item$insertText <- NULL
+        if (isTRUE(token$quoted) && is.null(item$filterText)) {
+            item$filterText <- if (is.null(item$data$package) && startsWith(item$label, "`")) item$label else encodeString(item$label, quote = "`")
+        }
         if (!is.null(item$data$completion_position)) {
             if (is.null(context$source)) {
                 item$data$completion_position <- context$host_point
@@ -276,17 +322,19 @@ glue_completion_reply <- function(id, uri, workspace, context, capabilities) {
         nmax <- lsp_settings$get("max_completions")
         snippet <- snippet && !completion_has_call_parens(inner, token)
         candidates <- glue_completion_candidates(workspace, context, token$token, snippet, nmax)
-        keep <- vapply(items, function(item) {
+        group <- vapply(items, function(item) {
             type <- item$data$type
-            if (isTRUE(type %in% c("parameter", "argument_value", "member", "s3_parameter"))) return(TRUE)
-            !isTRUE(candidates$blocked) && !item$label %in% candidates$masked
-        }, logical(1L))
-        items <- c(candidates$items, items[keep])
+            # Declarations inside the R expression precede its glue environment.
+            declared <- identical(item$data$uri, uri) && isTRUE(type %in% c("function", "nonfunction"))
+            if (declared || identical(type, "scope")) return(1L)
+            if (isTRUE(type %in% c("parameter", "argument_value", "member", "s3_parameter"))) return(2L)
+            if (!isTRUE(candidates$blocked) && !item$label %in% candidates$masked) 2L else 0L
+        }, integer(1L))
+        items <- c(items[group == 1L], candidates$items, items[group == 2L])
         call <- inner$detect_call(point)
         if (!is.null(call$opening) && nzchar(call$token) && is.null(call$package)) {
-            target <- glue_context_at(workspace, context$host, context$fragment, call$token)$target
-            local <- navigation_definitions(inner$parse_data, point$row + 1L, point$col + 1L, call$token, "signature", last = TRUE)
-            if (!is.null(target) && !length(local)) {
+            target <- glue_cursor_callee(workspace, context, call$token, row)
+            if (!is.null(target) && !identical(target$kind, "package")) {
                 # A masked function may have different formals from the workspace
                 # function of the same name. Its defaults are read as syntax.
                 items <- Filter(function(item) !isTRUE(item$data$type %in% c("argument_value", "parameter", "s3_parameter")), items)
@@ -303,8 +351,7 @@ glue_completion_reply <- function(id, uri, workspace, context, capabilities) {
             }
         }
         if (length(items)) {
-            labels <- vapply(items, `[[`, character(1L), "label")
-            items <- items[!duplicated(labels)]
+            items <- items[!duplicated(completion_matching_names(items))]
         }
         if (length(items) > nmax) {
             selected <- completion_select_indices(completion_matching_names(items),
