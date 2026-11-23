@@ -110,7 +110,7 @@ member_source_origins <- function(parsed, data, uri, row_offset = 0L, col_offset
         }
         positions <- which(kinds %in% expr_tokens)
         if (!is.null(tree$controls) && tree$controls[[row]] && length(positions) == length(node) &&
-                !is.null(member_r6_control_receiver(node))) {
+                !is.null(member_r6_control(node))) {
             args <- as.list(node)[-1L]
             arg <- member_s7_match(stats::setNames(as.list(seq_along(args)), names(args)),
                 c("which", "name", "value", "overwrite"))$args$name
@@ -244,7 +244,7 @@ member_binding_declaration <- function(entry, budget) {
     if (!i) return(entry)
     expr <- member_declaration_expr(document, i, budget)
     if (identical(entry$setter, "r6_control")) {
-        entry$expr <- expr
+        entry$expr <- member_r6_control(expr)$call
     } else if (member_head(expr, ":=")) {
         # The binding resolver still verifies the operator before naming its RHS.
         entry$expr <- expr

@@ -915,9 +915,24 @@ member_infer <- function(
             bound <- member_s7_bind(node, index, env)
             if (!is.null(bound)) node <- bound
         }
-        if (member_head(node, "<-") || member_head(node, "=")) {
+        assignment <- member_head(node, "<-") || member_head(node, "=")
+        # Arbitrary reflection can mutate local bindings. Do not retain types
+        # through it. Reviewed package metadata wrappers have their own rules.
+        if (!assignment && (member_head(node, "assign") || member_head(node, "eval") || member_head(node, "source"))) {
+            env <- lapply(env, function(x) unknown)
+        }
+        value <- infer(if (assignment) node[[3L]] else node, env)
+        control <- member_r6_control(node)
+        if (!is.null(control)) {
+            receiver <- control$receiver
+            generator <- infer(as.name(receiver), env)
+            if (!is.null(generator$r6_class_locked)) {
+                updated <- member_r6_apply_control(generator, control$call, index, env, budget)
+                for (alias in c(receiver, member_aliases(attr(env, "member_aliases"), receiver))) env[[alias]] <- updated
+            }
+        }
+        if (assignment) {
             lhs <- node[[2L]]
-            value <- infer(node[[3L]], env)
             if (is.symbol(lhs)) {
                 name <- as.character(lhs)
                 attr(env, "member_aliases") <- member_alias_assignment(attr(env, "member_aliases"), name, node[[3L]])
@@ -983,20 +998,6 @@ member_infer <- function(
             }
             return(list(value = value, env = env, returns = member_value(type = ".never"), falls = TRUE))
         }
-        # Arbitrary reflection can mutate local bindings. Do not retain types
-        # through it. Reviewed package metadata wrappers have their own rules.
-        if (member_head(node, "assign") || member_head(node, "eval") || member_head(node, "source")) {
-            env <- lapply(env, function(x) unknown)
-        }
-        control <- member_r6_control_receiver(node)
-        if (!is.null(control)) {
-            generator <- infer(as.name(control), env)
-            if (!is.null(generator$r6_class_locked)) {
-                updated <- member_r6_apply_control(generator, node, index, env, budget)
-                for (alias in c(control, member_aliases(attr(env, "member_aliases"), control))) env[[alias]] <- updated
-            }
-        }
-        value <- infer(node, env)
         list(
             value = value, env = env, returns = member_value(type = ".never"),
             falls = !identical(value$type, ".never")

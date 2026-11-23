@@ -689,6 +689,47 @@ test_that("R6 set controls affect subsequent constructions and respect generator
     }
 })
 
+test_that("assigning an R6 control result updates the generator before binding the result", {
+    registered <- c('C <- R6::R6Class("C")', "old <- C$new()",
+        'result <- C$set("public", "run", function(x) x)')
+    calls <- c("C$new()$run()", "old$run()", "result$run()")
+    labels <- function(fixture, row) {
+        line <- fixture$document$line0(row)
+        point <- list(row = row, col = max(gregexpr("$", line, fixed = TRUE)[[1L]]))
+        items <- completion_reply(1L, fixture$uri, fixture$workspace, fixture$document, point, list())$result$items
+        items <- Filter(function(item) identical(item$data$type, "member"), items)
+        vapply(items, `[[`, "", "label")
+    }
+    for (local in c(FALSE, TRUE)) {
+        code <- if (local) c("build <- function() {", registered, calls, "}") else c(registered, calls)
+        fixture <- r6_symbol_fixture(code)
+        row <- match(calls[[1L]], code) - 1L
+        expect_true("run" %in% labels(fixture, row))
+        expect_false("run" %in% labels(fixture, row + 1L))
+        expect_false(any(c("new", "run") %in% labels(fixture, row + 2L)))
+        target <- definition_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+            list(row = row, col = 9L))$result
+        expect_identical(target$uri, fixture$uri)
+        expect_equal(target$range, range(position(row - 1L, 26L), position(row - 1L, 31L)))
+    }
+    factory <- r6_symbol_fixture(c("build <- function() {", registered, "C$new()", "}", "build()$run()"))
+    expect_true("run" %in% labels(factory, 6L))
+
+    rebound <- r6_symbol_fixture(c('C <- R6::R6Class("C", lock_class = TRUE)', "alias <- C",
+            "unlocked = C$unlock()", 'C <- C$set("public", "run", function() 1)',
+            "alias$new()$run()", "C$new()$run()"))
+    expect_true("run" %in% labels(rebound, 4L))
+    expect_false("run" %in% labels(rebound, 5L))
+
+    guarded <- r6_symbol_fixture(c('C <- R6::R6Class("C", public = list(original = 1))',
+            'later <- function() C$set("public", "delayed", 1)',
+            'expr <- quote(C$set("public", "quoted", 1))', "C$new()$original",
+            'if (flag) result <- C$set("public", "clone", function() list(other = 1), overwrite = TRUE)',
+            "C$new()$clone()$original"))
+    expect_identical(labels(guarded, 3L), c("clone", "original"))
+    expect_false("original" %in% labels(guarded, 5L))
+})
+
 test_that("opaque deep copies retain environment locks and active bindings", {
     index <- member_generic_index("")
     generator <- member_infer(quote(R6::R6Class("C", public = list(read = function() 1, field = 1),

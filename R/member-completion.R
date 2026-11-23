@@ -126,18 +126,22 @@ member_index_bindings <- function(items) {
     }
     for (item in items) {
         expr <- item$expr
-        if (member_head(expr, "<-") || member_head(expr, "=") || member_head(expr, ":=")) {
+        control <- member_r6_control(expr)
+        if (!is.null(control)) record(control$receiver, control$call, item, write = TRUE, setter = "r6_control")
+        head <- if (is.call(expr)) expr[[1L]]
+        named_bind <- identical(head, quote(`:=`))
+        if (identical(head, quote(`<-`)) || identical(head, quote(`=`)) || named_bind) {
             lhs <- expr[[2L]]
-            rhs <- if (member_head(expr, ":=")) expr else expr[[3L]]
+            rhs <- if (named_bind) expr else expr[[3L]]
             name <- member_name(lhs)
             if (!is.null(name) && nzchar(name)) {
                 record(name, rhs, item)
             } else if (is.call(lhs)) {
                 name <- member_write_root(lhs)
                 if (!is.null(name) && nzchar(name)) {
-                    field <- if (!member_head(expr, ":=")) member_write_field(lhs)
+                    field <- if (!named_bind) member_write_field(lhs)
                     setter <- if (is.null(field)) member_s7_method_setter(lhs)
-                    if (is.null(field) && is.null(setter) && !member_head(expr, ":=")) setter <- member_s7_property_setter(lhs)
+                    if (is.null(field) && is.null(setter) && !named_bind) setter <- member_s7_property_setter(lhs)
                     record(name, if (is.null(field) && is.null(setter)) quote(.__unknown_mutation__) else rhs, item,
                         write = TRUE, field = field, subset = member_head(lhs, "[["),
                         setter = setter, slot = member_head(lhs, "@"))
@@ -148,10 +152,7 @@ member_index_bindings <- function(items) {
                 record(name, quote(.__unknown_branch_write__), item, write = TRUE)
                 if (!is.null(aliases[[name]])) rm(list = name, envir = aliases)
             }
-            control <- member_r6_control_receiver(expr)
-            if (!is.null(control)) {
-                record(control, expr, item, write = TRUE, setter = "r6_control")
-            } else {
+            if (is.null(control)) {
                 for (name in member_r6_conditional_controls(expr)) {
                     record(name, NULL, item, write = TRUE, setter = "r6_control")
                 }
@@ -1253,12 +1254,12 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
                     visit(child, env, sequence$path[-1L], c(sequence$ast_path, sequence$path[[1L]]))
                     break
                 }
-                control <- member_r6_control_receiver(child)
-                changed <- if (is.null(control)) member_r6_conditional_controls(child) else control
+                control <- member_r6_control(child)
+                changed <- if (is.null(control)) member_r6_conditional_controls(child) else control$receiver
                 for (receiver in changed) {
                     generator <- member_infer(as.name(receiver), index, env, budget = budget)
                     if (!is.null(generator$r6_class_locked)) {
-                        updated <- member_r6_apply_control(generator, if (!is.null(control)) child, index, env, budget)
+                        updated <- member_r6_apply_control(generator, control$call, index, env, budget)
                         for (alias in c(receiver, member_aliases(attr(env, "member_aliases"), receiver))) {
                             env[[alias]] <- lookup[[alias]] <- updated
                         }

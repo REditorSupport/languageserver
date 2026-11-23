@@ -94,7 +94,8 @@ member_scope_index <- function(node) {
 
 member_statement_index <- function(children) {
     assigned <- vapply(children, function(child) {
-        if ((member_head(child, "<-") || member_head(child, "=")) && is.symbol(child[[2L]])) {
+        if (is.call(child) && length(child) == 3L && is.symbol(child[[2L]]) &&
+                (identical(child[[1L]], quote(`<-`)) || identical(child[[1L]], quote(`=`)))) {
             as.character(child[[2L]])
         } else {
             ""
@@ -108,9 +109,12 @@ member_statement_index <- function(children) {
     })
     fields <- member_scope_field_writes(children, assigned, writes)
     tracked <- ifelse(nzchar(assigned), assigned, fields)
-    mandatory <- which(!nzchar(tracked) | assigned %in% c("$<-", "[[<-") | startsWith(assigned, "$.") | startsWith(assigned, "[[.") | vapply(reads, function(names) {
-        any(names %in% c("setClass", "setClassUnion"))
-    }, logical(1L)))
+    # A registration can affect a later receiver even if its return value is unused.
+    registrations <- vapply(seq_along(reads), function(i) {
+        any(reads[[i]] %in% c("setClass", "setClassUnion")) || !is.null(member_r6_control(children[[i]]))
+    }, logical(1L))
+    mandatory <- which(!nzchar(tracked) | assigned %in% c("$<-", "[[<-") |
+            startsWith(assigned, "$.") | startsWith(assigned, "[[.") | registrations)
     histories <- split(which(nzchar(tracked)), tracked[nzchar(tracked)])
     scope <- list(assigned = assigned, reads = reads, writes = writes, mandatory = mandatory,
         histories = list2env(histories, hash = TRUE, parent = emptyenv()))

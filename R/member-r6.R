@@ -163,15 +163,25 @@ member_r6_shape <- function(expr, index, bindings, budget, depth = 0L, trail = c
     generator
 }
 
-# Direct generator controls are writes to a reference object. Only apply them
-# to a source-declared generator after identifying its receiver at the call.
-member_r6_control_receiver <- function(expr) {
-    if (!is.call(expr) || !is.call(expr[[1L]])) return(NULL)
+# A direct control call mutates its receiver before an assignment binds its
+# return value. Stop at other calls: their arguments may never be forced.
+member_r6_control <- function(expr) {
+    if (!is.call(expr)) return(NULL)
     head <- expr[[1L]]
-    if (length(head) != 3L || !is.symbol(head[[2L]]) ||
+    if (length(expr) == 3L && (identical(head, quote(`<-`)) || identical(head, quote(`=`)))) {
+        if (!is.call(expr[[3L]])) return(NULL)
+        expr <- expr[[3L]]
+        head <- expr[[1L]]
+    }
+    while (identical(head, quote(`(`)) && length(expr) == 2L) {
+        if (!is.call(expr[[2L]])) return(NULL)
+        expr <- expr[[2L]]
+        head <- expr[[1L]]
+    }
+    if (!is.call(head) || length(head) != 3L || !is.symbol(head[[2L]]) ||
             !(member_head(head, "$") || (member_head(head, "[[") && is.character(head[[3L]]))) ||
             !isTRUE(member_name(head[[3L]]) %in% c("set", "lock", "unlock"))) return(NULL)
-    as.character(head[[2L]])
+    list(receiver = as.character(head[[2L]]), call = expr)
 }
 
 member_r6_conditional_controls <- function(expr) {
@@ -180,8 +190,8 @@ member_r6_conditional_controls <- function(expr) {
             !any(c("set", "lock", "unlock") %in% member_syntax_names(expr))) return(character())
     receivers <- character()
     member_walk(expr, function(node) {
-        control <- member_r6_control_receiver(node)
-        if (!is.null(control)) receivers <<- union(receivers, control)
+        control <- member_r6_control(node)
+        if (!is.null(control)) receivers <<- union(receivers, control$receiver)
     }, descend_functions = FALSE)
     receivers
 }
