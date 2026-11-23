@@ -25,14 +25,111 @@ glue_cursor_fixture <- function(lines, filename = "example.R", files = list(), e
         stopifnot(i > 0L)
         doc$to_lsp_position(line - 1L, i - 1L + after)
     }
-    query <- function(method, line, text, after = 1L) {
+    query <- function(method, line, text, after = 1L, context = NULL) {
         server$reply <- NULL
         methods[[paste0("textDocument/", method)]](server, 1L,
-            list(textDocument = list(uri = uri), position = pos(line, text, after)))
+            list(textDocument = list(uri = uri), position = pos(line, text, after), context = context))
         server$reply$result
     }
     list(workspace = workspace, document = doc, uri = uri, pos = pos, query = query, server = server)
 }
+
+test_that("a glue opener starts an incomplete list at the mapped insertion point", {
+    expect_true("{" %in% unlist(CompletionOptions$triggerCharacters))
+    f <- glue_cursor_fixture(c("local_total <- 42",
+            'glue::glue("🦊 {}")', 'glue::glue_data(list(field = 1), "{}")',
+            'glue::glue_data(unknown, "{}", field = 2)', 'glue::glue("{{{}}}")',
+            'glue::glue("{'))
+    trigger <- list(triggerKind = 2L, triggerCharacter = "{")
+    old <- lsp_settings$get("max_completions")
+    withr::defer(lsp_settings$set("max_completions", old))
+    lsp_settings$set("max_completions", 6L)
+    for (line in c(2L, 5L, 6L)) {
+        after <- if (line == 5L) 3L else 1L
+        reply <- f$query("completion", line, "{", after, trigger)
+        expect_true(reply$isIncomplete)
+        expect_lte(length(reply$items), 6L)
+        names <- vapply(reply$items, `[[`, "", "label")
+        expect_true("local_total" %in% names)
+        pos <- f$pos(line, "{", after)
+        item <- reply$items[[match("local_total", names)]]
+        expect_identical(item$textEdit$range, range(pos, pos))
+    }
+    both <- f$query("completion", 3L, "{", context = trigger)
+    expect_true(all(c("field", "local_total") %in% vapply(both$items, `[[`, "", "label")))
+    masked <- f$query("completion", 4L, "{", context = trigger)
+    expect_identical(vapply(masked$items, `[[`, "", "label"), "field")
+    expect_true(masked$isIncomplete)
+})
+
+test_that("brace triggers outside an interpolation opener yield no R completions", {
+    f <- glue_cursor_fixture(c("local_total <- 42", "f <- function(x) { x }",
+            '"text {literal}"', 'glue::glue("{{literal}}")', 'glue::glue("{if (TRUE) { 1 }}")',
+            'glue::glue("{paste(\'{\')}")', 'glue::glue("{x}", x = "{literal}")',
+            'other::glue("{}")', 'f <- function() { glue <- function(...) 1; glue("{}") }',
+            'glue::glue("{}", .open = "[")'))
+    trigger <- list(triggerKind = 2L, triggerCharacter = "{")
+    for (i in list(list(2L, "{"), list(3L, "{"), list(4L, "{"), list(4L, "{{"),
+            list(5L, "TRUE) {"), list(6L, "paste(\'{"), list(7L, 'x = "{'),
+            list(8L, "{"), list(9L, 'glue("{'), list(10L, "{"))) {
+        reply <- f$query("completion", i[[1]], i[[2]], nchar(i[[2L]]), trigger)
+        expect_identical(reply, list(isIncomplete = FALSE, items = list()), info = i[[2L]])
+    }
+})
+
+test_that("an inserted glue opener and its growing identifier complete before the next parse", {
+    f <- glue_cursor_fixture(c("local_total <- 42", 'glue::glue("Heading', 'prefix ")'))
+    doc <- f$document
+    pos <- f$pos(3L, "prefix ", 7L)
+    doc$apply_content_changes(2L, list(list(range = range(pos, pos), text = "{}")))
+    trigger <- list(triggerKind = 2L, triggerCharacter = "{")
+    reply <- f$query("completion", 3L, "{", context = trigger)
+    expect_true(reply$isIncomplete)
+    expect_true("local_total" %in% vapply(reply$items, `[[`, "", "label"))
+    pos <- f$pos(3L, "{")
+    doc$apply_content_changes(3L, list(list(range = range(pos, pos), text = "local_to")))
+    reply <- f$query("completion", 3L, "local_to", 8L, list(triggerKind = 3L))
+    expect_true("local_total" %in% vapply(reply$items, `[[`, "", "label"))
+})
+
+test_that("a brace trigger replays against its accepted version for concatenated template inputs", {
+    f <- glue_cursor_fixture(c("local_total <- 42", 'glue::glue("label ",', '  "prefix ")'))
+    pos <- f$pos(3L, "prefix ", 7L)
+    f$document$apply_content_changes(2L, list(list(range = range(pos, pos), text = "{}")))
+    expect_null(f$query("completion", 3L, "{", context = list(triggerKind = 2L, triggerCharacter = "{")))
+    parsed <- parse_document(f$uri, f$document$content, include_xml = FALSE)
+    parsed$version <- 2L
+    f$workspace$update_parse_data(f$uri, parsed)
+    drain_pending_replies(f$server, f$uri, 2L)
+    reply <- f$server$reply$result
+    expect_true(reply$isIncomplete)
+    expect_true("local_total" %in% vapply(reply$items, `[[`, "", "label"))
+})
+
+test_that("an opener reuses only the verified template and its original bindings", {
+    insert <- function(lines, near = "here", text = "{}", extra = NULL) {
+        f <- glue_cursor_fixture(lines, env = parent.frame())
+        n <- length(lines)
+        pos <- f$pos(n, near, nchar(near))
+        changes <- c(list(list(range = range(pos, pos), text = text)), extra)
+        f$document$apply_content_changes(2L, changes)
+        point <- f$document$from_lsp_position(pos)
+        point$col <- point$col + 1L
+        glue_identifier_context(f$workspace, f$document, point)
+    }
+    for (line in c('"here"', 'ordinary("here")', 'other::glue("here")', 'glue:::glue("here")',
+            'glue::glue(text = "here")', 'glue::glue("here", .literal = TRUE)',
+            'glue::glue_data("here", "{x}")', 'glue::glue(r"(here)")', 'glue::glue("{paste(\'here\')}")',
+            'glue::glue("{if (TRUE) { here }}")')) {
+        expect_null(insert(line), info = line)
+    }
+    expect_null(insert(c("glue <- function(...) NULL", 'glue("here")')))
+    expect_null(insert('glue::glue("here")', text = "{{}}"))
+    lines <- c("other <- 1", 'glue::glue("here", field = 2)')
+    expect_identical(insert(lines, text = "{")$bindings$names, "field")
+    expect_null(insert(lines, extra = list(list(range = range(position(0L, 0L), position(0L, 5L)), text = "edited"))))
+    expect_null(insert(lines, extra = list(list(range = range(position(1L, 21L), position(1L, 26L)), text = "other"))))
+})
 
 test_that("cursor requests resolve the inner call and the host lexical scope", {
     f <- glue_cursor_fixture(c(

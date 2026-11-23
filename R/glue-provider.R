@@ -292,7 +292,7 @@ glue_completion_edits <- function(items, context, token) {
     }))
 }
 
-glue_completion_reply <- function(id, uri, workspace, context, capabilities) {
+glue_completion_reply <- function(id, uri, workspace, context, capabilities, opener = FALSE) {
     view <- glue_provider_workspace(workspace, context)
     inner <- context$document
     point <- context$point
@@ -322,8 +322,18 @@ glue_completion_reply <- function(id, uri, workspace, context, capabilities) {
         nmax <- lsp_settings$get("max_completions")
         snippet <- snippet && !completion_has_call_parens(inner, token)
         candidates <- glue_completion_candidates(workspace, context, token$token, snippet, nmax)
+        # Start the suggestion session before an identifier has been typed.
+        # The ordinary R provider consults workspace names only for a prefix.
+        if (opener && !candidates$blocked) {
+            items <- c(items, workspace_completion(workspace, "", package = WORKSPACE, snippet_support = snippet,
+                    limit = nmax, uri = uri), constant_completion(""))
+        }
+        single_word <- identical(context$fragment$content, token$token)
         group <- vapply(items, function(item) {
             type <- item$data$type
+            # The fragment lexer also offers the unfinished identifier itself.
+            # VS Code ranks that no-op exact match above useful prefix matches.
+            if (single_word && identical(item$kind, CompletionItemKind$Text) && identical(item$label, token$token)) return(0L)
             # Declarations inside the R expression precede its glue environment.
             declared <- identical(item$data$uri, uri) && isTRUE(type %in% c("function", "nonfunction"))
             if (declared || identical(type, "scope")) return(1L)
@@ -362,16 +372,17 @@ glue_completion_reply <- function(id, uri, workspace, context, capabilities) {
         }
     }
     reply$result$items <- glue_completion_edits(items, context, token)
+    if (opener) reply$result$isIncomplete <- length(reply$result$items) > 0L
     reply
 }
 
 # Before the debounce finishes the current text is authoritative. An earlier
 # snapshot can identify an affected template, but cannot supply its offsets.
-glue_request_pending <- function(document, point) {
+glue_request_pending <- function(document, point, opener = FALSE) {
     if (identical(document$version, document$parse_data$version) || !check_r_region(document, point)) return(FALSE)
     parsed <- document$parse_data
     if (length(parsed$glue_templates) && !is.null(glue_fragment_at(parsed, point))) return(TRUE)
-    if (!enclosed_by_quotes(document, point)) return(FALSE)
+    if (!opener && !enclosed_by_quotes(document, point)) return(FALSE)
     isTRUE(document$detect_call(point, signature = TRUE)$token %in% names(glue_template_packages))
 }
 
@@ -389,17 +400,24 @@ glue_request_waiting <- function(self, uri, workspace, context, method) {
 
 glue_cursor_request <- function(self, id, params, method, workspace, document, point) {
     uri <- document$uri
-    if (identical(method, "textDocument/completion") && !is.null(document$glue_edit_line)) {
+    completion <- identical(method, "textDocument/completion")
+    opener <- completion && identical(params$context$triggerCharacter, "{")
+    if (completion && !is.null(document$glue_edit_line)) {
         verified <- glue_identifier_context(workspace, document, point)
-        if (!is.null(verified) && !source_context_waiting(workspace, document)) {
-            reply <- glue_completion_reply(id, uri, workspace, verified, self$ClientCapabilities$textDocument$completion)
-            reply$result$isIncomplete <- TRUE
+        if (!is.null(verified) && (!opener || verified$point$col == 0L) && !source_context_waiting(workspace, document)) {
+            reply <- glue_completion_reply(id, uri, workspace, verified, self$ClientCapabilities$textDocument$completion, opener)
+            reply$result$isIncomplete <- length(reply$result$items) > 0L || !opener
             self$deliver(reply)
             return(TRUE)
         }
     }
-    pending <- glue_request_pending(document, point)
+    pending <- glue_request_pending(document, point, opener)
     context <- if (!pending) glue_cursor_context(document, point, workspace)
+    if (opener && !pending && (is.null(context) || context$point$row != 0L || context$point$col != 0L ||
+                substr(document$line0(point$row), point$col, point$col) != "{")) {
+        self$deliver(Response$new(id, list(isIncomplete = FALSE, items = list())))
+        return(TRUE)
+    }
     if (!pending && is.null(context)) return(FALSE)
     if (pending || glue_request_waiting(self, uri, workspace, context, method)) {
         enqueue_latest_reply(self, uri, method, list(id = id, version = document$version, params = params))
@@ -408,7 +426,7 @@ glue_cursor_request <- function(self, id, params, method, workspace, document, p
         return(TRUE)
     }
     reply <- switch(method,
-        "textDocument/completion" = glue_completion_reply(id, uri, workspace, context, self$ClientCapabilities$textDocument$completion),
+        "textDocument/completion" = glue_completion_reply(id, uri, workspace, context, self$ClientCapabilities$textDocument$completion, opener),
         "textDocument/hover" = glue_hover_reply(id, uri, workspace, context),
         "textDocument/signatureHelp" = glue_signature_reply(id, uri, workspace, context, self$ClientCapabilities),
         "textDocument/definition" = glue_definition_reply(id, uri, workspace, context,
@@ -464,6 +482,47 @@ glue_capture_members <- function(workspace, context) {
     data$glue_member_cache <- cache
 }
 
+# Verify an inserted "{name}" or "{name" against a directly quoted template
+# in the accepted syntax. Rescan that literal to distinguish escaped braces,
+# strings within R expressions and nested blocks from a new interpolation.
+glue_inserted_fragment <- function(document, point, start, previous, line, name) {
+    parsed <- document$parse_data
+    before <- start - 1L
+    if (before < 0L || !startsWith(line, substr(previous, 1L, before))) return(NULL)
+    width <- nchar(line) - nchar(previous)
+    if (width < 1L || width > 1026L) return(NULL)
+    insert <- substr(line, start, before + width)
+    if (!insert %in% c(paste0("{", name), paste0("{", name, "}")) ||
+            substring(line, start + width) != substring(previous, start)) return(NULL)
+    s <- parsed$syntax_data
+    literal <- navigation_token(parsed, point$row + 1L, start, prefer_start = "STR_CONST")
+    if (!length(literal) || !literal || s$token[[literal]] != "STR_CONST") return(NULL)
+    value <- s$parent_row[[literal]]
+    if (!value) return(NULL)
+    row <- s$parent_row[[value]]
+    if (!row) return(NULL)
+    head <- s$children[[s$child_start[[row]]]]
+    if (s$child_start[[head]] > s$child_end[[head]]) return(NULL)
+    symbol <- s$children[[s$child_end[[head]]]]
+    if (s$token[[symbol]] != "SYMBOL_FUNCTION_CALL") return(NULL)
+    calls <- glue_template_calls(s, document$parsed_content, symbol)
+    if (!length(calls) || !calls[[1L]]$all_direct || !identical(calls[[1L]]$literals, literal)) return(NULL)
+    first <- s$line1[[literal]]
+    last <- s$line2[[literal]]
+    if (last - first > 32L || sum(nchar(document$parsed_content[first:last], type = "bytes")) > 16384L) return(NULL)
+    lines <- glue_literal_lines(s, literal, document$parsed_content)
+    i <- point$row - first + 2L
+    offset <- before - if (i == 1L) s$col1[[literal]] - 1L else 0L
+    text <- lines[[i]]
+    if ((i == 1L && offset < 1L) || (i == length(lines) && offset >= nchar(text))) return(NULL)
+    lines[[i]] <- paste0(substr(text, 1L, offset), insert, substring(text, offset + 1L))
+    decoded <- glue_decode_literal(lines, first - 1L, s$col1[[literal]])
+    if (!is.null(decoded)) for (fragment in glue_scan_call(list(decoded), row)) {
+        if (fragment$start$row == point$row && fragment$start$col == start && identical(fragment$content, name)) return(fragment)
+    }
+    NULL
+}
+
 # A bare identifier has no declarations or nested calls. When its spelling is
 # the sole change to a mapped template, all enclosing syntax and lexical facts
 # remain valid. Read binding positions against their original source, and
@@ -471,7 +530,7 @@ glue_capture_members <- function(workspace, context) {
 glue_identifier_context <- function(workspace, document, point) {
     if (is.null(document$glue_edit_line) || point$row != document$glue_edit_line) return(NULL)
     parsed <- document$parse_data
-    if (!length(parsed$glue_templates) || identical(parsed$version, document$version) ||
+    if (is.null(parsed$syntax_data) || identical(parsed$version, document$version) ||
             point$row >= length(document$parsed_content)) return(NULL)
     line <- document$line0(point$row)
     previous <- document$parsed_content[[point$row + 1L]]
@@ -482,16 +541,24 @@ glue_identifier_context <- function(workspace, document, point) {
     start <- if (prefix > 0L) prefix - 1L else point$col
     anchor <- list(row = point$row, col = start)
     fragment <- glue_fragment_at(parsed, anchor)
-    if (is.null(fragment) || !isTRUE(fragment$complete) || !fragment$call_row || !is.null(fragment$boundaries) ||
-            fragment$start$col != start || fragment$start$row != point$row || fragment$end$row != point$row) return(NULL)
     simple <- "^([A-Za-z][A-Za-z0-9._]*)?$"
-    if (!grepl(simple, fragment$content)) return(NULL)
-    suffix <- substring(previous, fragment$end$col + 1L)
-    end <- nchar(line) - nchar(suffix)
-    if (end < point$col || end - start > 1024L || !endsWith(line, suffix) ||
-            !startsWith(line, substr(previous, 1L, start))) return(NULL)
-    name <- substr(line, start + 1L, end)
-    if (!grepl(simple, name)) return(NULL)
+    if (!is.null(fragment) && isTRUE(fragment$complete) && fragment$call_row && is.null(fragment$boundaries) &&
+            fragment$start$col == start && fragment$start$row == point$row && fragment$end$row == point$row) {
+        if (!grepl(simple, fragment$content)) return(NULL)
+        suffix <- substring(previous, fragment$end$col + 1L)
+        end <- nchar(line) - nchar(suffix)
+        if (end < point$col || end - start > 1024L || !endsWith(line, suffix) ||
+                !startsWith(line, substr(previous, 1L, start))) return(NULL)
+        name <- substr(line, start + 1L, end)
+        if (!grepl(simple, name)) return(NULL)
+    } else {
+        end <- point$col
+        name <- substr(line, start + 1L, end)
+        if (!grepl(simple, name)) return(NULL)
+        fragment <- glue_inserted_fragment(document, point, start, previous, line, name)
+        if (is.null(fragment)) return(NULL)
+        anchor$col <- start - 1L
+    }
 
     original <- document$clone(deep = FALSE)
     original$content <- document$parsed_content

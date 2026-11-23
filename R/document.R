@@ -78,7 +78,9 @@ Document <- R6::R6Class(
                     (row == last || (row == last - 1L && !nzchar(content[[last + 1L]])))) as.integer(row)
             # Track only a single physically edited line since the accepted
             # parse. The completion provider must still verify the entire line.
-            self$glue_edit_line <- if (length(self$parse_data$glue_templates) && length(row) == 1L &&
+            track_glue <- length(self$parse_data$glue_templates) || !is.null(self$glue_edit_line) ||
+                identical(change$text, "{") || identical(change$text, "{}")
+            self$glue_edit_line <- if (track_glue && length(row) == 1L &&
                     row == change$range$end$line && length(content) == length(self$content) &&
                     (snapshot_current || identical(self$glue_edit_line, as.integer(row)))) as.integer(row)
             self$completion_outline <- NULL
@@ -1086,7 +1088,8 @@ drain_pending_replies <- function(self, uri, version, max_replies = Inf, first =
         if (!is.null(document) && identical(item$version, document$version) &&
                 method %in% c("textDocument/completion", "textDocument/hover", "textDocument/signatureHelp", "textDocument/definition")) {
             point <- document$from_lsp_position(item$params$position)
-            if (glue_request_pending(document, point)) return(FALSE)
+            opener <- identical(method, "textDocument/completion") && identical(item$params$context$triggerCharacter, "{")
+            if (glue_request_pending(document, point, opener)) return(FALSE)
             workspace <- self$get_workspace(uri)
             context <- glue_cursor_context(document, point, workspace)
             if (!is.null(context)) return(!glue_request_waiting(self, uri, workspace, context, method))

@@ -225,6 +225,22 @@ This support uses ordinary quoted strings, the default delimiters and the
 standard transformer. Doubled braces are literal. Rename requires a definite
 binding and a source range that can be edited as one piece.
 
+Typing the opening `{` of a glue expression can open the completion list in
+editors that support trigger characters. In VS Code, typing letters in an
+existing expression follows the editor's string suggestion setting. To have
+the list reopen automatically in R files, add this to VS Code's `settings.json`:
+
+```json
+{
+    "[r]": {
+        "editor.quickSuggestions": { "strings": "on" }
+    }
+}
+```
+
+This enables automatic suggestions throughout R strings. Use the `[rmd]`
+language block for R Markdown files. **Trigger Suggest** also works on demand.
+
 Editors with LSP semantic highlighting enabled can color R expressions inside
 these templates in R files and executable R Markdown or Quarto cells. For
 example, `glue::glue("Total {sum(x, 1)}")` uses the editor theme's function,

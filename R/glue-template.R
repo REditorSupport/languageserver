@@ -1,8 +1,7 @@
 glue_template_packages <- c(glue = "glue", glue_data = "glue", str_glue = "stringr", str_glue_data = "stringr")
 
 # Identify directly quoted, unnamed template arguments of the supported glue functions.
-glue_template_calls <- function(syntax, content) {
-    functions <- which(syntax$token == "SYMBOL_FUNCTION_CALL")
+glue_template_calls <- function(syntax, content, functions = which(syntax$token == "SYMBOL_FUNCTION_CALL")) {
     functions <- functions[syntax$text[functions] %in% names(glue_template_packages)]
     if (!length(functions)) return(list())
     calls <- lapply(functions, function(symbol) {

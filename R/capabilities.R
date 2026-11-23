@@ -19,7 +19,7 @@ TextDocumentSyncOptions <- list(
 CompletionOptions <- list(
     resolveProvider = TRUE,
     completionItem = list(labelDetailsSupport = TRUE),
-    triggerCharacters = list(".", ":", "$", "@", "'", "\"")
+    triggerCharacters = list(".", ":", "$", "@", "'", "\"", "{")
 )
 
 SignatureHelpOptions <- list(
