@@ -144,6 +144,17 @@ glue_data_fields <- function(workspace, document, row, at) {
     list(open = open, targets = stats::setNames(targets, keys[fields]))
 }
 
+# Call-position lookup skips locally bound non-functions and follows static aliases.
+glue_bare_call_shadowed <- function(workspace, document, row, name, owner) {
+    if (!is.null(glue_lexical_target(document, name, row))) {
+        target <- glue_call_target(workspace, document, list(call_row = row), name, list(open = FALSE))
+        if (length(target$callable)) target <- target$callable
+        if (!is.null(target) && (!identical(target$kind, "package") || !identical(target$name, name))) return(TRUE)
+        owner <- target$package
+    }
+    length(owner) > 0L && !identical(owner, glue_template_packages[[name]])
+}
+
 glue_call_bindings <- function(workspace, document, fragment) {
     syntax <- document$parse_data$syntax_data
     row <- fragment$call_row
@@ -152,15 +163,7 @@ glue_call_bindings <- function(workspace, document, fragment) {
     if (is.null(call) || !call$name %in% names(glue_template_packages)) return(list(open = TRUE))
     if (is.null(call$package)) {
         owner <- if (is.function(workspace$guess_namespace)) workspace$guess_namespace(call$name, isf = TRUE, uri = document$uri)
-        if (!is.null(glue_lexical_target(document, call$name, row))) {
-            target <- glue_call_target(workspace, document, list(call_row = row), call$name, list(open = FALSE))
-            if (length(target$callable)) target <- target$callable
-            if (!is.null(target) && (!identical(target$kind, "package") || !identical(target$name, call$name))) {
-                return(list(open = TRUE, shadowed = TRUE))
-            }
-            owner <- target$package
-        }
-        if (length(owner) && !identical(owner, glue_template_packages[[call$name]])) return(list(open = TRUE, shadowed = TRUE))
+        if (glue_bare_call_shadowed(workspace, document, row, call$name, owner)) return(list(open = TRUE, shadowed = TRUE))
     }
     piped <- syntax_pipe_arguments(syntax, row, call)
     keys <- names(call$values)

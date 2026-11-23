@@ -1,6 +1,6 @@
 glue_template_packages <- c(glue = "glue", glue_data = "glue", str_glue = "stringr", str_glue_data = "stringr")
 
-# Only unnamed, directly quoted template arguments have an embedded grammar.
+# Identify directly quoted, unnamed template arguments of the supported glue functions.
 glue_template_calls <- function(syntax, content) {
     functions <- which(syntax$token == "SYMBOL_FUNCTION_CALL")
     functions <- functions[syntax$text[functions] %in% names(glue_template_packages)]
@@ -37,16 +37,12 @@ glue_template_calls <- function(syntax, content) {
     Filter(Negate(is.null), calls)
 }
 
-# Preserve the grammar's whole-literal suppression, including doubled braces.
-glue_template_rows <- function(syntax, content, calls = glue_template_calls(syntax, content)) {
-    rows <- as.integer(unlist(lapply(calls, "[[", "literals"), use.names = FALSE))
-    if (!length(rows)) return(integer())
+glue_literals_have_open <- function(syntax, content, rows) {
     spelling <- syntax$text[rows]
     for (i in which(startsWith(spelling, "["))) {
         spelling[[i]] <- paste(glue_literal_lines(syntax, rows[[i]], content), collapse = "\n")
     }
-    rows <- rows[grepl("{", spelling, fixed = TRUE)]
-    rows[order(syntax$order_rank[rows])]
+    any(grepl("{", spelling, fixed = TRUE))
 }
 
 glue_literal_lines <- function(syntax, row, content) {
@@ -54,18 +50,6 @@ glue_literal_lines <- function(syntax, row, content) {
     lines[[length(lines)]] <- substr(lines[[length(lines)]], 1L, syntax$col2[[row]])
     lines[[1L]] <- substring(lines[[1L]], syntax$col1[[row]])
     lines
-}
-
-# Physical UTF-16 ranges can be merged across the structural parse and the
-# recovery trees of individual R Markdown cells, whose rows and ids are local.
-glue_template_ranges <- function(syntax, content, rows, offset) {
-    if (!length(rows)) return(NULL)
-    line1 <- syntax$line1[rows]
-    line2 <- syntax$line2[rows]
-    col1 <- syntax$col1[rows] - 1L
-    col2 <- syntax$col2[rows]
-    data.frame(line1 = line1 + offset - 1L, col1 = syntax_unit_columns(content, line1, col1, col1)$start,
-        line2 = line2 + offset - 1L, col2 = syntax_unit_columns(content, line2, col2, col2)$end)
 }
 
 # Decode an isolated quoted literal without evaluating R. Store physical offsets
@@ -252,10 +236,8 @@ glue_scan_call <- function(literals, call_row, provisional = FALSE) {
     result
 }
 
-glue_template_index <- function(syntax, content, offset = 0L, provisional = FALSE) {
-    calls <- glue_template_calls(syntax, content)
-    highlighted <- glue_template_rows(syntax, content, calls)
-    ranges <- glue_template_ranges(syntax, content, highlighted, offset)
+glue_template_index <- function(syntax, content, offset = 0L, provisional = FALSE,
+    calls = glue_template_calls(syntax, content)) {
     # A generated report can contain thousands of calls. Accumulate per-call
     # results and flatten once to avoid repeatedly copying all previous spans.
     unmapped <- fragments <- vector("list", length(calls))
@@ -272,7 +254,7 @@ glue_template_index <- function(syntax, content, offset = 0L, provisional = FALS
         call_row <- if (provisional) 0L else call$row
         unknown <- list(call_row = call_row, content = NULL, complete = FALSE)
         if (!call$all_direct || (length(call$literals) > 1L && call$separator)) {
-            if (any(call$literals %in% highlighted)) unmapped[[i]] <- list(unknown)
+            if (glue_literals_have_open(syntax, content, call$literals)) unmapped[[i]] <- list(unknown)
             next
         }
         literals <- lapply(call$literals, function(row) {
@@ -293,11 +275,11 @@ glue_template_index <- function(syntax, content, offset = 0L, provisional = FALS
                 })
             }
             fragments[[i]] <- found
-        } else if (any(call$literals %in% highlighted)) {
+        } else if (glue_literals_have_open(syntax, content, call$literals)) {
             unmapped[[i]] <- list(unknown)
         }
     }
-    list(ranges = ranges, fragments = unlist(fragments, recursive = FALSE, use.names = FALSE),
+    list(fragments = unlist(fragments, recursive = FALSE, use.names = FALSE),
         unmapped = unlist(unmapped, recursive = FALSE, use.names = FALSE))
 }
 

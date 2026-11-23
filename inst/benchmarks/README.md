@@ -671,9 +671,15 @@ allocation, serialized parse size, and memory retained by the source map.
 R_LIBS=/path/to/library Rscript --vanilla inst/benchmarks/glue-parse.R candidate 200,1000,3000 5 > parse.csv
 R_LIBS=/path/to/library Rscript --vanilla inst/benchmarks/glue-providers.R references.csv 200,1000 3 references
 R_LIBS=/path/to/library Rscript --vanilla inst/benchmarks/glue-providers.R rename.csv 200,1000 3 rename
+R_LIBS=/path/to/library Rscript --vanilla inst/benchmarks/glue-semantic.R semantic.csv 200,1000 5
 python3 inst/benchmarks/typing.py /path/to/library --lines 1000 --rounds 4 --wait-parse --fresh-rounds --warm-request --pause .012
 python3 inst/benchmarks/typing.py /path/to/library --lines 1000 --rounds 4 --wait-parse --fresh-rounds --warm-request --pause .012 --glue --glue-every 25
 ```
+
+The semantic-token benchmark times the first full and one-line range requests
+on separate fresh documents, then measures range requests after a full result.
+Fixtures include ordinary R, repeated and distinct interpolations, a locally
+shadowed `glue` function, and a registered wrapper.
 
 Set `--glue-every 1` for the dense typing fixture. Add `--burst` to send a new
 edit and request before the last reply has arrived. For comparisons, record
