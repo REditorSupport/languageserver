@@ -13,6 +13,16 @@ glue_unmapped_name <- function(fragment, name) {
     !isTRUE(fragment$complete) && (any(grepl(name, lines, fixed = TRUE)) || any(grepl("\\", lines, fixed = TRUE)))
 }
 
+# An edited read may sit in a function declared inside the decoded string.
+# Consult its lexical scope only if the fragment declares the proposed name.
+glue_rename_inner_capture <- function(document, site, new) {
+    if (is.null(site$fragment) || !new %in% site$inner_bindings) return(FALSE)
+    inner <- glue_fragment_document(document, site$fragment)
+    pos <- glue_inner_point(site$fragment, document$from_lsp_position(site$range$start))
+    row <- member_navigation_token(inner$parse_data, pos)
+    row && !is.null(glue_lexical_target(inner, new, row))
+}
+
 glue_rename_problem <- function(workspace, doc, name, key, new_name = NULL, local_call = NULL,
     sites = glue_reference_occurrences(workspace, doc, name)) {
     fragments <- doc$parse_data$glue_templates
@@ -43,6 +53,12 @@ glue_rename_problem <- function(workspace, doc, name, key, new_name = NULL, loca
         if (!identical(site$key, key)) next
         if (!isTRUE(site$target$writable)) return(ambiguous)
         if (is.null(new_name) || identical(new_name, name)) next
+        if (!is.null(site$fragment) && grepl("^\\.\\.(\\.|[0-9]+)$", new_name)) {
+            return("The new name has special argument lookup inside a glue expression")
+        }
+        if (glue_rename_inner_capture(doc, site, new_name)) {
+            return("The new name is already bound in this embedded R scope")
+        }
         context <- glue_context_at(workspace, doc, site, new_name)
         # The existing lexical collision check covers ordinary R. This also
         # inspects names visible only at the embedded use (e.g. a formal).
@@ -51,11 +67,44 @@ glue_rename_problem <- function(workspace, doc, name, key, new_name = NULL, loca
         }
     }
     if (is.null(new_name) || identical(new_name, name)) return(NULL)
+    # A binding that hid the old spelling need not hide the new one. For
+    # fields, identify the data input independently of the visible old name.
+    # For lexical names, check the declaration's scope even when a named
+    # glue argument masked its old spelling.
+    field <- startsWith(key, "glue:field:")
+    lexical_scope <- NULL
     for (site in glue_reference_occurrences(workspace, doc, new_name)) {
-        if (isTRUE(site$argument_tag) || !could_bind(site)) next
-        if (local || is.null(site$key) || identical(site$target$kind, "lexical")) {
+        if (!in_call(site) || isTRUE(site$argument_tag) || identical(site$target$kind, "inner")) next
+        if (local) {
+            # A new named argument cannot affect promises created before it.
+            if (startsWith(key, "glue:named:") && is.finite(site$before)) {
+                layers <- glue_call_bindings(workspace, doc, site)
+                i <- match(key, vapply(layers$named, "[[", "", "key"))
+                if (!is.na(i) && site$before <= layers$tags[[i]]) next
+            }
             return("Renaming would capture an existing use of the new name in a glue expression")
         }
+        if (!is.null(site$key) && !identical(site$target$kind, "lexical")) next
+        if (field) {
+            layers <- glue_call_bindings(workspace, doc, site)
+            current <- layers$fields[[name]]
+            if (!identical(current$key, key)) {
+                if (!is.null(current) || !isTRUE(layers$open) ||
+                        !isTRUE(endsWith(as.character(layers$call$name), "_data"))) next
+            }
+        } else if (startsWith(key, "local:")) {
+            if (is.null(lexical_scope)) lexical_scope <- rename_target_scope(doc$parse_data, name, key)
+            if (is.null(lexical_scope)) next
+            if (lexical_scope) {
+                selection <- navigation_range(doc, doc$parse_data$syntax_data, lexical_scope)
+                point <- site$range$start
+                if (is.null(point) && length(site$fragment$start)) {
+                    point <- doc$to_lsp_position(site$fragment$start$row, site$fragment$start$col)
+                }
+                if (!is.null(point) && !lsp_range_contains(selection, point)) next
+            }
+        }
+        return("Renaming would capture an existing use of the new name in a glue expression")
     }
     NULL
 }

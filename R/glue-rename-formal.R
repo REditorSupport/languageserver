@@ -28,6 +28,28 @@ glue_rename_tagged_calls <- function(document, fact, old, new) {
     Filter(Negate(is.null), results)
 }
 
+# A runtime value may be callable or may let R continue into a lower frame.
+# Check the known lower functions by declaration identity. Their tag spelling
+# cannot be edited because the runtime value may accept different formals.
+glue_rename_possible_callee <- function(workspace, document, fragment, name, owner_uri, function_row) {
+    if (!isTRUE(fragment$call_row > 0L)) return(FALSE)
+    layers <- glue_call_bindings(workspace, document, fragment)
+    if (isTRUE(layers$shadowed)) return(FALSE)
+    effective <- glue_call_target(workspace, document, fragment, name, layers)
+    if (!identical(effective$kind, "unknown")) return(FALSE)
+    same <- function(value) {
+        if (!is.list(value)) return(FALSE)
+        if (length(value$callable)) value <- value$callable
+        identical(value$uri, owner_uri) && identical(value$value_row, function_row)
+    }
+    candidates <- layers$targets[names(layers$targets) == name]
+    for (candidate in candidates) {
+        value <- glue_callable_value(workspace, document, fragment, candidate)
+        if (is.list(value)) return(same(value))
+    }
+    same(glue_call_target(workspace, document, fragment, name, list()))
+}
+
 # Compare R's argument matching before and after the exact tag edits the
 # provider can make. A partial tag may stay as written if it still matches
 # the same parameter. A tag collected by ... must also keep that position.
@@ -59,9 +81,11 @@ glue_rename_formal_problem <- function(workspace, document, formal, old, new) {
             relevant <- startsWith(rep.int(old, length(tags)), tags) | startsWith(rep.int(new, length(tags)), tags)
             if (!any(relevant)) next
             target <- glue_formal_target(workspace, document, fact$fragment, list(name = old, call = call))
-            if (!identical(target$uri, formal$uri) || !equal_range(target$range, formal$range)) next
+            known <- identical(target$uri, formal$uri) && equal_range(target$range, formal$range)
+            if (!known && (!is.null(target$range) || !glue_rename_possible_callee(workspace, document, fact$fragment,
+                        call$name, formal$uri, syntax$parent_row[[declaration]]))) next
             before <- member_navigation_tag_positions(supplied, parameters)
-            supplied[supplied == old & call$tags > 0L] <- new
+            if (known) supplied[supplied == old & call$tags > 0L] <- new
             after <- member_navigation_tag_positions(supplied, renamed)
             if (is.null(before) || !identical(before, after)) {
                 return("Renaming would change argument matching inside a glue expression")

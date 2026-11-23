@@ -107,3 +107,76 @@ test_that("renaming a shared data field reaches ordinary member accesses and glu
     expect_match(reply$error$message, "cannot be renamed precisely")
     expect_null(reply$result)
 })
+
+test_that("rename preserves lexical scope inside and outside glue callback bodies", {
+    captured <- list(
+        list(c("x <- 5", 'glue::glue("{(function(y) x)(2)}")'), 0L, 1L),
+        list('glue::glue("{(function(y) x)(2)}", x=5)', 0L, 26L),
+        list(c("d <- list(value=2)", 'glue::glue_data(d, "{(function(y) value)(3)}")'), 0L, 11L))
+    for (case in captured) {
+        f <- provider_fixture(case[[1L]])
+        reply <- rename_reply(1, f$uri, f$workspace, f$document, list(row = case[[2L]], col = case[[3L]]), "y")
+        expect_match(reply$error$message, "scope")
+        expect_null(reply$result)
+    }
+    for (lines in list(c("x <- 5", 'glue::glue("{(function(y) y)(2) + x}")'),
+            'glue::glue("{(function(y) y)(2) + x}", x=5)')) {
+        expected <- gsub("x", "y", lines, fixed = TRUE)
+        point <- if (length(lines) > 1L) 1L else regexpr("x=5", lines, fixed = TRUE)[[1L]]
+        edited <- glue_rename_lines(lines, 0L, point, "y")
+        expect_identical(edited, expected)
+        if (requireNamespace("glue", quietly = TRUE)) {
+            expect_identical(eval(parse(text = edited), new.env()), eval(parse(text = lines), new.env()))
+        }
+    }
+})
+
+test_that("a renamed binding cannot capture a use hidden only under the old name", {
+    for (case in list(
+        list(c("d <- list(value=2)", 'glue::glue_data(d, "{value}:{letters[1]}", value=3)'), 10L),
+        list(c("x <- 5", 'glue::glue("{letters[1]}", x=3)'), 1L))) {
+        f <- provider_fixture(case[[1L]])
+        reply <- rename_reply(1, f$uri, f$workspace, f$document, list(row = 0L, col = case[[2L]]), "letters")
+        expect_match(reply$error$message, "capture")
+        expect_null(reply$result)
+    }
+    lines <- c("y <- 1", 'glue::glue("{first} {x}", first=y, x=3)')
+    expected <- c(lines[[1L]], 'glue::glue("{first} {y}", first=y, y=3)')
+    expect_identical(glue_rename_lines(lines, 1L, regexpr("x=3", lines[[2L]], fixed = TRUE)[[1L]], "y"), expected)
+    lines <- c("x <- 5", 'glue::glue("{x}")')
+    f <- provider_fixture(lines)
+    for (special in c("...", "..1", "..23")) {
+        reply <- rename_reply(1, f$uri, f$workspace, f$document, list(row = 0L, col = 1L), special)
+        expect_match(reply$error$message, "special argument")
+        expect_null(reply$result)
+    }
+})
+
+test_that("renaming numeric glue bindings and enclosing functions distinguishes calls from values", {
+    lines <- c("format_score <- function(x) x + 10", 'glue::glue("{format_score(3)} {format_score}", format_score=4)')
+    renamed <- glue_rename_lines(lines, 1L, regexpr("format_score=4", lines[[2L]], fixed = TRUE)[[1L]], "new_score")
+    expect_identical(renamed, c(lines[[1L]], 'glue::glue("{format_score(3)} {new_score}", new_score=4)'))
+    outer <- glue_rename_lines(lines, 0L, 2L, "new_score")
+    expect_identical(outer, c("new_score <- function(x) x + 10",
+            'glue::glue("{new_score(3)} {format_score}", format_score=4)'))
+    if (requireNamespace("glue", quietly = TRUE)) {
+        expected <- eval(parse(text = lines), new.env())
+        expect_identical(eval(parse(text = renamed), new.env()), expected)
+        expect_identical(eval(parse(text = outer), new.env()), expected)
+    }
+})
+
+test_that("an unknown callable cannot leave a host formal's glue argument tag stale", {
+    for (tag in c("long", "lo")) {
+        lines <- c("f <- function(long) long", "make <- function() 1",
+            sprintf('glue::glue("{f(%s=1)}", f=make())', tag))
+        f <- provider_fixture(lines)
+        reply <- rename_reply(1, f$uri, f$workspace, f$document, list(row = 0L, col = 16L), "total")
+        expect_match(reply$error$message, "argument matching")
+        expect_null(reply$result)
+    }
+    lines <- c("f <- function(long) long", "g <- function(long) long",
+        'glue::glue("{g(lo=1)}", g=make())')
+    expect_identical(glue_rename_lines(lines, 0L, 16L, "total"),
+        c("f <- function(total) total", lines[-1L]))
+})
