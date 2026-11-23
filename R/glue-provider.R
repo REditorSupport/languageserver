@@ -243,6 +243,18 @@ glue_completion_candidates <- function(workspace, context, token, snippet, limit
     list(items = items, masked = bindings$names, blocked = blocked)
 }
 
+# A raw terminator can straddle an edit boundary. Include just enough of
+# each neighboring line to catch a match that overlaps the replacement.
+glue_edit_closes_raw_string <- function(closer, text, document, span) {
+    width <- nchar(closer)
+    if (width == 1L) return(FALSE)
+    start <- document$from_lsp_position(span$start)
+    end <- document$from_lsp_position(span$end)
+    before <- substr(document$line0(start$row), max(1L, start$col - width + 2L), start$col)
+    after <- substr(document$line0(end$row), end$col + 1L, end$col + width - 1L)
+    grepl(closer, paste0(before, text, after), fixed = TRUE)
+}
+
 glue_completion_edits <- function(items, context, token) {
     inner <- context$document
     if (isTRUE(token$quoted)) {
@@ -258,6 +270,8 @@ glue_completion_edits <- function(items, context, token) {
     default <- range(inner$to_lsp_position(context$point$row, max(0L, start)),
         inner$to_lsp_position(context$point$row, end))
     default <- glue_host_range(context, default)
+    source <- if (is.null(context$source)) context$host else context$source
+    closer <- context$fragment$quote
     Filter(Negate(is.null), lapply(items, function(item) {
         edit <- item$textEdit
         span <- if (is.null(edit)) default else glue_host_range(context, edit$range)
@@ -269,9 +283,21 @@ glue_completion_edits <- function(items, context, token) {
             if (!endsWith(inserted, "($0)")) return(NULL)
             literal <- substr(inserted, 1L, nchar(inserted) - 4L)
             literal <- gsub("\\\\([\\\\$}])", "\\1", literal, perl = TRUE)
-            inserted <- paste0(escape_completion_snippet(glue_encode_text(context$fragment, literal)), "($0)")
+            literal <- glue_encode_text(context$fragment, literal)
+            if (glue_edit_closes_raw_string(closer, paste0(literal, "()"), source, span)) return(NULL)
+            inserted <- paste0(escape_completion_snippet(literal), "($0)")
         } else {
             inserted <- glue_encode_text(context$fragment, inserted)
+            if (glue_edit_closes_raw_string(closer, inserted, source, span)) {
+                if (!identical(item$kind, CompletionItemKind$Value) || !identical(inserted, encodeString(item$label, quote = '"'))) return(NULL)
+                # String argument choices can use the other quote. Escape the
+                # outer quote in the value itself so the raw closer cannot recur.
+                if (endsWith(closer, '"')) {
+                    inserted <- gsub('"', "\\x22", encodeString(item$label, quote = "'"), fixed = TRUE)
+                } else {
+                    inserted <- gsub("'", "\\x27", inserted, fixed = TRUE)
+                }
+            }
         }
         item$textEdit <- text_edit(span, inserted)
         item$insertText <- NULL
@@ -505,7 +531,7 @@ glue_inserted_fragment <- function(document, point, start, previous, line, name)
     if (s$child_start[[head]] > s$child_end[[head]]) return(NULL)
     symbol <- s$children[[s$child_end[[head]]]]
     if (s$token[[symbol]] != "SYMBOL_FUNCTION_CALL") return(NULL)
-    calls <- glue_template_calls(s, document$parsed_content, symbol)
+    calls <- glue_template_calls(s, symbol)
     if (!length(calls) || !calls[[1L]]$all_direct || !identical(calls[[1L]]$literals, literal)) return(NULL)
     first <- s$line1[[literal]]
     last <- s$line2[[literal]]
@@ -514,7 +540,14 @@ glue_inserted_fragment <- function(document, point, start, previous, line, name)
     i <- point$row - first + 2L
     offset <- before - if (i == 1L) s$col1[[literal]] - 1L else 0L
     text <- lines[[i]]
-    if ((i == 1L && offset < 1L) || (i == length(lines) && offset >= nchar(text))) return(NULL)
+    closer <- glue_raw_closer(lines[[1L]])
+    closing_width <- if (is.null(closer)) 1L else nchar(closer)
+    opening_width <- closing_width + !is.null(closer)
+    if ((i == 1L && offset < opening_width) || (i == length(lines) && offset > nchar(text) - closing_width)) return(NULL)
+    if (!is.null(closer)) {
+        changed <- range(document$to_lsp_position(point$row, before), document$to_lsp_position(point$row, before + width))
+        if (glue_edit_closes_raw_string(closer, insert, document, changed)) return(NULL)
+    }
     lines[[i]] <- paste0(substr(text, 1L, offset), insert, substring(text, offset + 1L))
     decoded <- glue_decode_literal(lines, first - 1L, s$col1[[literal]])
     if (!is.null(decoded)) for (fragment in glue_scan_call(list(decoded), row)) {

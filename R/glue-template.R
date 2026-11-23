@@ -1,7 +1,7 @@
 glue_template_packages <- c(glue = "glue", glue_data = "glue", str_glue = "stringr", str_glue_data = "stringr")
 
 # Identify directly quoted, unnamed template arguments of the supported glue functions.
-glue_template_calls <- function(syntax, content, functions = which(syntax$token == "SYMBOL_FUNCTION_CALL")) {
+glue_template_calls <- function(syntax, functions = which(syntax$token == "SYMBOL_FUNCTION_CALL")) {
     functions <- functions[syntax$text[functions] %in% names(glue_template_packages)]
     if (!length(functions)) return(list())
     calls <- lapply(functions, function(symbol) {
@@ -24,14 +24,9 @@ glue_template_calls <- function(syntax, content, functions = which(syntax$token 
         }
         rows <- vapply(values, function(value) class_literal_row(syntax, value, "STR_CONST"), integer(1L))
         if (!any(rows)) return(NULL)
-        direct <- rows[rows > 0L]
-        quotes <- substr(content[syntax$line1[direct]], syntax$col1[direct], syntax$col1[direct])
-        quoted <- quotes %in% c('"', "'")
-        if (!any(quoted)) return(NULL)
         list(row = row, symbol = symbol, name = call$name, package = call$package,
-            lexical_prefix = !endsWith(call$name, "_data") && !piped_text && !any(nzchar(keys)), literals = direct[quoted],
-            all_direct = !piped_text && length(direct) == length(rows) && all(quoted),
-            separator = any(keys == ".sep"))
+            lexical_prefix = !endsWith(call$name, "_data") && !piped_text && !any(nzchar(keys)),
+            literals = rows[rows > 0L], all_direct = !piped_text && all(rows > 0L), separator = any(keys == ".sep"))
     })
     Filter(Negate(is.null), calls)
 }
@@ -41,6 +36,8 @@ glue_literals_have_open <- function(syntax, content, rows) {
     for (i in which(startsWith(spelling, "["))) {
         spelling[[i]] <- paste(glue_literal_lines(syntax, rows[[i]], content), collapse = "\n")
     }
+    # The opening delimiter of a brace-delimited raw literal is outside its body.
+    spelling <- sub("^[rR][\"']-*\\{", "", spelling)
     any(grepl("{", spelling, fixed = TRUE))
 }
 
@@ -51,16 +48,32 @@ glue_literal_lines <- function(syntax, row, content) {
     lines
 }
 
-# Decode an isolated quoted literal without evaluating R. Store physical offsets
-# only when an escape changes width; ordinary text maps directly by code point.
+glue_raw_closer <- function(spelling) {
+    width <- attr(regexpr("^[rR][\"']-*[({\\[]", spelling, perl = TRUE), "match.length")
+    if (width < 0L) return(NULL)
+    close <- switch(substr(spelling, width, width), "(" = ")", "[" = "]", "{" = "}")
+    paste0(close, substr(spelling, 3L, width - 1L), substr(spelling, 2L, 2L))
+}
+
+# Decode an isolated literal without evaluating R. Raw strings map directly
+# from the end of their opener. Quoted strings can need offsets for R escapes.
 glue_decode_literal <- function(lines, row, col) {
     spelling <- paste(lines, collapse = "\n")
     quote <- substr(spelling, 1L, 1L)
-    body <- substr(spelling, 2L, nchar(spelling) - 1L)
+    raw <- quote %in% c("r", "R")
+    opener <- 1L
+    if (raw) {
+        quote <- glue_raw_closer(spelling)
+        if (is.null(quote) || !endsWith(spelling, quote)) return(NULL)
+        opener <- nchar(quote) + 1L
+    } else if (!quote %in% c('"', "'")) {
+        return(NULL)
+    }
+    body <- substr(spelling, opener + 1L, nchar(spelling) - nchar(quote))
     physical <- utf8ToInt(body)
     codes <- physical
     boundaries <- NULL
-    if (any(physical == 92L)) {
+    if (!raw && any(physical == 92L)) {
         pattern <- "\\\\(?:[0-7]{1,3}|x[[:xdigit:]]{1,2}|u(?:\\{[[:xdigit:]]{1,4}\\}|[[:xdigit:]]{1,4})|U(?:\\{[[:xdigit:]]{1,8}\\}|[[:xdigit:]]{1,8})|[\\s\\S])"
         escapes <- gregexpr(pattern, body, perl = TRUE)[[1L]]
         if (escapes[[1L]] < 0L) return(NULL)
@@ -84,7 +97,7 @@ glue_decode_literal <- function(lines, row, col) {
         boundaries <- c(which(kept) - 1L, length(physical))
     }
     list(codes = codes, boundaries = boundaries, physical_lines = c(0L, which(physical == 10L)),
-        row = row, col = col, quote = quote)
+        row = row, col = col + opener - 1L, quote = quote)
 }
 
 glue_offset_point <- function(offset, starts, row = 0L, col = 0L) {
@@ -134,7 +147,8 @@ glue_straight_fragments <- function(syntax, content, calls, offset) {
     lines <- syntax$line1[rows]
     spelling <- substr(content[lines], syntax$col1[rows], syntax$col2[rows])
     plain <- !grepl("[{}\\\\]", spelling)
-    simple <- grepl("^[^{}\\\\]*\\{[^{}\\\\'\"#\u0060]*\\}[^{}\\\\]*$", spelling)
+    # Raw delimiters can themselves contain braces. Let the decoder strip them.
+    simple <- grepl("^['\"][^{}\\\\]*\\{[^{}\\\\'\"#\u0060]*\\}[^{}\\\\]*$", spelling)
     if (!any(simple)) return(list(calls = i[plain], fragments = vector("list", sum(plain))))
     ids <- i[simple]
     text <- spelling[simple]
@@ -225,8 +239,10 @@ glue_scan_call <- function(literals, call_row, provisional = FALSE) {
     if (depth) {
         k <- findInterval(opening - 1L, starts)
         if (k == length(literals) && !multiline_quote) {
-            result[[length(result) + 1L]] <- glue_make_fragment(literals[[k]], opening - starts[[k]],
+            fragment <- glue_make_fragment(literals[[k]], opening - starts[[k]],
                 n - starts[[k]], call_row, FALSE)
+            fragment$unclosed <- TRUE
+            result[[length(result) + 1L]] <- fragment
         } else {
             unmapped[[length(unmapped) + 1L]] <- list(call_row = call_row, content = NULL, complete = FALSE)
         }
@@ -236,7 +252,7 @@ glue_scan_call <- function(literals, call_row, provisional = FALSE) {
 }
 
 glue_template_index <- function(syntax, content, offset = 0L, provisional = FALSE,
-    calls = glue_template_calls(syntax, content)) {
+    calls = glue_template_calls(syntax)) {
     # A generated report can contain thousands of calls. Accumulate per-call
     # results and flatten once to avoid repeatedly copying all previous spans.
     unmapped <- fragments <- vector("list", length(calls))
@@ -291,10 +307,25 @@ partial_glue_template_index <- function(data, content, offset = 0L) {
         first <- min(data$line1)
         last <- min(length(content), max(data$line2))
         if (last >= first && last - first < 64L) {
-            lines <- content[seq.int(first, last)]
-            if (sum(nchar(lines, type = "bytes")) < 16384L) {
-                # Appending exactly one quote to the last physical line permits
-                # completion while typing the template, before the string closes.
+            lines <- content[seq.int(first, min(first + 63L, length(content)))]
+            lines <- lines[cumsum(as.double(nchar(lines, type = "bytes"))) < 16384L]
+            lexed <- last - first + 1L
+            if (lexed <= length(lines)) {
+                # R omits an unfinished string from its token table. Its raw
+                # opener must be the first source text after the last terminal.
+                # The body can continue through the final line of this file or cell.
+                terminal <- utils::tail(which(data$terminal), 1L)
+                raw <- NULL
+                if (length(terminal) && data$line2[[terminal]] == last) {
+                    rest <- lines[seq.int(lexed, length(lines))]
+                    rest[[1L]] <- substring(rest[[1L]], data$col2[[terminal]] + 1L)
+                    raw <- glue_raw_closer(trimws(paste(rest, collapse = "\n"), which = "left", whitespace = "[[:space:]]"))
+                }
+                if (is.null(raw)) {
+                    lines <- lines[seq_len(lexed)]
+                } else if (first + length(lines) - 1L < length(content)) {
+                    return(NULL)
+                }
                 # Reconstruct unmatched delimiters from lexer terminals, never
                 # from prose in the potentially unfinished string.
                 brackets <- data$text[data$terminal & data$token %in%
@@ -310,7 +341,8 @@ partial_glue_template_index <- function(data, content, offset = 0L) {
                     }
                 }
                 if (length(closers) > 32L) return(NULL)
-                for (suffix in paste0(c("", '"', "'"), paste(closers, collapse = ""))) {
+                endings <- if (is.null(raw)) c("", '"', "'") else raw
+                for (suffix in paste0(endings, paste(closers, collapse = ""))) {
                     repaired <- lines
                     repaired[[length(lines)]] <- paste0(lines[[length(lines)]], suffix)
                     expr <- parse_provider_projection(normalize_parse_content(repaired))
@@ -385,6 +417,16 @@ glue_fragment_at <- function(parsed, point) {
 # Re-encode provider replacements for the original quote style. In particular
 # a backslash introduced by a rename or completion must survive the outer lexer.
 glue_encode_text <- function(fragment, text) {
+    if (nchar(fragment$quote) > 1L) {
+        # A raw literal needs verbatim R source. If a backticked identifier
+        # contains the raw terminator, spell its bracket as an inner R escape.
+        close <- fragment$quote
+        if (grepl(close, text, fixed = TRUE) && startsWith(text, "`") && endsWith(text, "`")) {
+            bracket <- sprintf("\\x%02x", utf8ToInt(substr(close, 1L, 1L)))
+            text <- gsub(close, paste0(bracket, substring(close, 2L)), text, fixed = TRUE)
+        }
+        return(text)
+    }
     text <- gsub("\\", "\\\\", text, fixed = TRUE)
     gsub(fragment$quote, paste0("\\", fragment$quote), text, fixed = TRUE)
 }

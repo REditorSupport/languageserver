@@ -96,6 +96,8 @@ glue_semantic_braces <- function(fragments, content) {
         match <- regexpr("^\\\\(?:175|x7[dD]|[uU](?:0*7[dD]|\\{0*7[dD]\\}))", closing[escaped], perl = TRUE)
         right[escaped] <- pmax.int(0L, attr(match, "match.length"))
     }
+    # An unclosed interpolation can end directly against a raw string's } delimiter.
+    right[vapply(fragments, function(f) isTRUE(f$unclosed), logical(1L))] <- 0L
     list(first = first, last = last, from = from, to = to, left = left, right = right)
 }
 

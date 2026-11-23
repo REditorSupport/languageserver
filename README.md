@@ -221,9 +221,11 @@ calls. In `glue::glue("{x}", x = value)`, Go to Definition on the interpolated
 interpolated uses. With `glue_data()`, the server can also identify columns
 declared in a list or data frame.
 
-This support uses ordinary quoted strings, the default delimiters and the
-standard transformer. Doubled braces are literal. Rename requires a definite
-binding and a source range that can be edited as one piece.
+Both ordinary quoted strings and R raw strings support interpolation with
+the default glue delimiters and transformer. For example,
+`glue::glue(r"{value = {str1}}")` resolves `str1` in the same way as
+`glue::glue("value = {str1}")`. Doubled braces are literal. Rename requires
+a definite binding and a source range that can be edited as one piece.
 
 Typing the opening `{` of a glue expression can open the completion list in
 editors that support trigger characters. In VS Code, typing letters in an

@@ -23,7 +23,7 @@ test_that("semantic tokens follow glue configuration, edits and UTF-16 positions
     lines <- c("Prose {value}", "```{r}", expression,
         paste0('glue::glue("', intToUtf8(0x1f98a), " total {", expression, '} done {{literal}}")'),
         'f <- function() { glue <- function(...) NULL; glue("shadow {value}") }',
-        'custom("{skip}", "configured {value}")',
+        'custom("{skip}", R"--[configured {value}]--")',
         'other::say(text = "label {value}", title = "{skip}")', "```")
     writeLines(lines, path, useBytes = TRUE)
     capabilities <- list(workspace = list(semanticTokens = list(refreshSupport = TRUE)),

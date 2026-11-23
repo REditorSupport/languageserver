@@ -1,7 +1,7 @@
 # languageserver (development)
 
 - Use completion, hover, signature help, Go to Definition, Find References,
-  document highlights, and Rename inside `{…}` in quoted templates passed to
+  document highlights, and Rename inside `{…}` in quoted or raw strings passed to
   `glue()`, `glue_data()`, `str_glue()`, and `str_glue_data()`. Typing the
   opening `{` can trigger completion. Navigation recognizes named glue
   arguments and statically known data columns (#633, #882).

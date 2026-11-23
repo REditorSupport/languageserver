@@ -5,13 +5,16 @@ glue_reference_starts <- function(result) {
 test_that("references and highlights share binding identity across glue and ordinary R", {
     f <- provider_fixture(c("score <- 1", "show <- function(score) {",
             '  glue::glue("\U0001f539 {score} {twice(score)}")', "}", "twice <- function(x) x * 2",
-            'glue::glue("text score {{score}} {score}")'))
+            'glue::glue("text score {{score}} {score}")', 'glue::glue(R"--[value = {score}]--")'))
     probe <- function(row, col, include = TRUE) {
         reply <- references_reply(1, f$uri, f$workspace, f$document, list(row = row, col = col), include)
         glue_reference_starts(reply$result)
     }
-    expect_identical(probe(0L, 1L), c("0:0", "5:34"))
-    expect_identical(probe(5L, 35L, FALSE), "5:34")
+    expect_identical(probe(0L, 1L), c("0:0", "5:34", "6:25"))
+    expect_identical(probe(5L, 35L, FALSE), c("5:34", "6:25"))
+    expect_identical(probe(6L, 26L), probe(0L, 1L))
+    highlights <- document_highlight_reply(1, f$uri, f$workspace, f$document, list(row = 6L, col = 26L))$result
+    expect_identical(glue_reference_starts(highlights), probe(6L, 26L))
     expect_identical(probe(2L, 19L), c("1:17", "2:18", "2:32"))
     for (point in list(list(row = 1L, col = 19L), list(row = 2L, col = 19L))) {
         hits <- document_highlight_reply(1, f$uri, f$workspace, f$document, point)$result
