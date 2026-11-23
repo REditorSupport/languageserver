@@ -77,24 +77,7 @@ source_path_context <- function(document, point, workspace) {
 source_file_syntax <- function(syntax, row, call = syntax_call_arguments(syntax, row)) {
     if (!isTRUE(call$name %in% c("source", "sys.source")) ||
             (!is.null(call$package) && !identical(call$package, "base"))) return(NULL)
-    parent <- syntax$parent_row[[row]]
-    if (parent) {
-        parts <- syntax_children(syntax, parent)
-        parts <- parts[syntax$token[parts] != "COMMENT"]
-        if (length(parts) == 3L && parts[[3L]] == row && syntax$text[[parts[[2L]]]] %in% c("|>", "%>%", "%T>%", "%<>%")) {
-            native <- syntax$text[[parts[[2L]]]] == "|>"
-            placeholder <- vapply(call$values, function(arg) {
-                if (!arg) return(FALSE)
-                only <- syntax_children(syntax, arg)
-                length(only) == 1L && if (native) syntax$token[[only]] == "PLACEHOLDER" else syntax$text[[only]] == "."
-            }, logical(1L))
-            if (any(placeholder)) {
-                call$values[placeholder] <- parts[[1L]]
-            } else {
-                call$values <- c(stats::setNames(parts[[1L]], ""), call$values)
-            }
-        }
-    }
+    call <- syntax_pipe_arguments(syntax, row, call)
     fn <- if (call$name == "source") base::source else base::sys.source
     class_matched_arguments(call, names(formals(fn)))$file
 }

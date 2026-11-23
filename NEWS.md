@@ -1,5 +1,8 @@
 # languageserver (development)
 
+- Let editor grammars highlight embedded R in ordinary quoted templates passed
+  to `glue()`, `glue_data()`, `str_glue()`, and `str_glue_data()` (#777).
+
 - Index chained assignment aliases and quoted operator names in package
   sources. Local navigation now finds parameters of functions assigned with
   `=`, and workspace symbol search handles open files without definitions.

@@ -384,9 +384,114 @@ roxygen_comment_spans <- function(comment_text, base_col0) {
     )
 }
 
+glue_template_packages <- c(glue = "glue", glue_data = "glue", str_glue = "stringr", str_glue_data = "stringr")
+
+# Only unnamed, directly quoted template arguments have an embedded grammar.
+glue_template_rows <- function(syntax, content) {
+    functions <- which(syntax$token == "SYMBOL_FUNCTION_CALL")
+    functions <- functions[syntax$text[functions] %in% names(glue_template_packages)]
+    if (!length(functions)) return(integer())
+    literals <- lapply(functions, function(symbol) {
+        head <- syntax$parent_row[[symbol]]
+        if (!head || !syntax$parent_row[[head]]) return(integer())
+        row <- syntax$parent_row[[head]]
+        call <- syntax_call_arguments(syntax, row)
+        if (!identical(call$name, syntax$text[[symbol]])) return(integer())
+        if (!is.null(call$package) && (call$package != glue_template_packages[[call$name]] ||
+                    !"NS_GET" %in% syntax$token[syntax_children(syntax, head)])) return(integer())
+        keys <- names(call$values)
+        # Any explicit syntax override can change how braces are interpreted.
+        if (any(keys %in% c(".open", ".close", ".comment", ".literal", ".transformer"))) return(integer())
+        values <- unname(call$values[!nzchar(keys)])
+        if (endsWith(call$name, "_data")) {
+            matched <- class_matched_arguments(syntax_pipe_arguments(syntax, row, call), c(".x", "..."))
+            values <- setdiff(values, matched$.x)
+        }
+        rows <- vapply(values, function(value) class_literal_row(syntax, value, "STR_CONST"), integer(1L))
+        rows <- rows[rows > 0L]
+        first <- syntax$line1[rows]
+        quote <- substr(content[first], syntax$col1[rows], syntax$col1[rows])
+        rows <- rows[quote %in% c('"', "'")]
+        spelling <- syntax$text[rows]
+        # getParseData abbreviates long strings. Inspect their physical source.
+        for (i in which(startsWith(spelling, "["))) {
+            row <- rows[[i]]
+            lines <- content[seq.int(syntax$line1[[row]], syntax$line2[[row]])]
+            last <- length(lines)
+            lines[[last]] <- substr(lines[[last]], 1L, syntax$col2[[row]])
+            lines[[1L]] <- substring(lines[[1L]], syntax$col1[[row]])
+            spelling[[i]] <- paste(lines, collapse = "\n")
+        }
+        rows[grepl("{", spelling, fixed = TRUE)]
+    })
+    rows <- as.integer(unlist(literals, use.names = FALSE))
+    rows[order(syntax$order_rank[rows])]
+}
+
+# Physical UTF-16 ranges can be merged across the structural parse and the
+# recovery trees of individual R Markdown cells, whose rows and ids are local.
+glue_template_ranges <- function(syntax, content, offset = 0L) {
+    rows <- glue_template_rows(syntax, content)
+    if (!length(rows)) return(NULL)
+    line1 <- syntax$line1[rows]
+    line2 <- syntax$line2[rows]
+    col1 <- syntax$col1[rows] - 1L
+    col2 <- syntax$col2[rows]
+    data.frame(line1 = line1 + offset - 1L, col1 = syntax_unit_columns(content, line1, col1, col1)$start,
+        line2 = line2 + offset - 1L, col2 = syntax_unit_columns(content, line2, col2, col2)$end)
+}
+
+partial_glue_template_ranges <- function(data, content, offset = 0L) {
+    candidates <- which(data$text %in% names(glue_template_packages))
+    if (!length(candidates)) return(NULL)
+    # R leaves call and argument nodes detached until the closing parenthesis
+    # is typed. Try a single closer on a small affected statement, preserving
+    # every source position. More ambiguous repairs use the recovered tree.
+    if (any(data$token[candidates] == "SYMBOL") && any(data$parent == 0L & data$token == "'('")) {
+        first <- min(data$line1)
+        last <- max(data$line2)
+        if (last - first < 64L) {
+            lines <- content[seq.int(first, last)]
+            if (sum(nchar(lines, type = "bytes")) < 16384L) {
+                expr <- parse_provider_projection(c(lines, ")"))
+                if (!is.null(expr)) {
+                    return(glue_template_ranges(syntax_parse_data(utils::getParseData(expr)), lines, offset + first - 1L))
+                }
+            }
+        }
+    }
+    glue_template_ranges(syntax_parse_data(data), content, offset)
+}
+
+# Keep the lexical string spans available to cursor providers, but let the
+# editor grammar color a template's literal text and embedded R expressions.
+semantic_glue_templates <- function(tokens, ranges) {
+    if (is.null(ranges) || !nrow(ranges)) return(tokens)
+    stride <- as.double(max(tokens$cols, ranges$col1, ranges$col2)) + 1
+    first <- ranges$line1 * stride + ranges$col1
+    last <- ranges$line2 * stride + ranges$col2
+    ordered <- order(first)
+    first <- first[ordered]
+    last <- last[ordered]
+    strings <- which(tokens$types == SemanticTokenTypes$string)
+    at <- tokens$lines[strings] * stride + tokens$cols[strings]
+    i <- findInterval(at, first)
+    omit <- strings[i > 0L & at < last[pmax.int(i, 1L)]]
+    if (!length(omit)) return(tokens)
+    fields <- c("lines", "cols", "lengths", "types", "modifiers")
+    result <- lapply(tokens[fields], `[`, -omit)
+    result$encoded <- .Call("encode_semantic_tokens_c", result$lines, result$cols, result$lengths,
+        result$types, result$modifiers, PACKAGE = "languageserver")
+    attr(result, "glue_strings") <- lapply(tokens[c("lines", "cols", "lengths")], `[`, omit)
+    result
+}
+
 #' Check whether an LSP column on a line falls inside a semantic comment or string
 #' @noRd
 semantic_in_comment_or_string <- function(semantic, row, col, strict_comment_start = FALSE) {
+    templates <- attr(semantic, "glue_strings", exact = TRUE)
+    if (!is.null(templates) && any(templates$lines == row & templates$cols <= col &
+                templates$cols + templates$lengths > col)) return(TRUE)
     on_line <- which(semantic$lines == row)
     if (!length(on_line)) return(FALSE)
     types <- semantic$types[on_line]
@@ -863,6 +968,19 @@ extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
         expr <- parse_provider_projection(source)
         if (!is.null(expr)) classes <- class_source_declarations(syntax_parse_data(utils::getParseData(expr)), source, uri)
     }
+    template_starts <- character()
+    if (any(grepl("glue", document$content, fixed = TRUE))) {
+        if (!isTRUE(getOption("keep.parse.data"))) {
+            saved <- options(keep.parse.data = TRUE)
+            on.exit(options(saved), add = TRUE)
+        }
+        source <- if (isTRUE(document$is_rmarkdown)) literate_provider_content(document$content, document$regions)$content else
+            normalize_parse_content(document$content)
+        syntax <- parse_data$syntax_data
+        if (is.null(syntax)) syntax <- syntax_parse_data(utils::getParseData(parse_provider_projection(source)))
+        rows <- glue_template_rows(syntax, source)
+        if (length(rows)) template_starts <- paste(syntax$line1[rows], syntax$col1[rows])
+    }
     roles <- new.env(parent = emptyenv(), hash = TRUE)
     for (cls in classes) {
         selections <- c(list(cls$selectionRange), lapply(cls$children, `[[`, "selectionRange"))
@@ -897,6 +1015,8 @@ extract_semantic_tokens <- function(uri, workspace, document, range = NULL) {
         col1 <- as.integer(xml_attr(token_node, "col1"))
         line2 <- as.integer(xml_attr(token_node, "line2"))
         col2 <- as.integer(xml_attr(token_node, "col2"))
+
+        if (token_name == "STR_CONST" && length(template_starts) && paste(line1, col1) %in% template_starts) next
 
         # Skip if outside range (if range was specified)
         if (!is.null(end_pos) && line1 > end_pos$row + 1) {
