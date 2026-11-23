@@ -96,7 +96,7 @@ test_that("Semantic tokens color only the interpolations in recognized template 
     expect_false(semantic_in_comment_or_string(semantic, 12L, 10L))
 
     kept <- c('"{keep}"', '"{data}"', '"before"', '"{nested}"', '"{pkg}"', '"{member}"', '"{private}"',
-        '"{sql}"', '"{plain}"', '"{custom}"', '"["', '"]"', '"{literal}"', 'r"({raw})"', '"{data again}"')
+        '"{sql}"', '"{plain}"', '"{custom}"', '"["', '"]"', '"{literal}"', 'r"(', ')"', '"{data again}"')
     withr::local_options(keep.parse.data = FALSE)
     for (xml in c(FALSE, TRUE)) {
         workspace <- if (xml) list(get_parse_data = function(uri) list(xml_doc = fixture$document$parse_data$xml_doc)) else
@@ -110,7 +110,7 @@ test_that("Semantic tokens color only the interpolations in recognized template 
         strings <- vapply(Filter(function(t) t$tokenType == SemanticTokenTypes$string, tokens), spelling, "")
         expect_true(all(kept %in% strings))
         variables <- vapply(Filter(function(t) t$tokenType == SemanticTokenTypes$variable, tokens), spelling, "")
-        expect_true(all(c("name", "later", "second", "first", "piped", "utf16") %in% variables))
+        expect_true(all(c("name", "later", "second", "first", "piped", "raw", "utf16") %in% variables))
         expect_false(any(c("keep", "nested", "private", "literal") %in% variables))
         full <- semantic_tokens_full_reply(1L, fixture$uri, workspace, fixture$document)$result$data
         range <- semantic_tokens_range_reply(2L, fixture$uri, workspace, fixture$document,
