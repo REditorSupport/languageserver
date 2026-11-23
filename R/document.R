@@ -887,11 +887,19 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
         env$range_data$strings <- merge_partial_strings(env$range_data$strings, literate$partial_strings, literate$incomplete_lines)
     }
     templates <- if (any(env$range_data$calls$name %in% names(glue_template_packages))) {
-        glue_template_ranges(env$syntax_data, content)
+        glue_template_index(env$syntax_data, original)
     }
-    if (!is.null(recovery)) templates <- rbind(templates, partial_glue_template_ranges(recovery$token_data, content))
-    if (is_rmarkdown) templates <- rbind(templates, literate$partial_glue)
-    if (!is.null(templates)) env$semantic_data <- semantic_glue_templates(env$semantic_data, templates)
+    partial <- if (!is.null(recovery)) partial_glue_template_index(recovery$token_data, original)
+    ranges <- rbind(templates$ranges, partial$ranges)
+    fragments <- c(templates$fragments, partial$fragments)
+    unmapped <- c(templates$unmapped, partial$unmapped)
+    if (is_rmarkdown) {
+        ranges <- rbind(ranges, literate$partial_glue)
+        fragments <- c(fragments, literate$glue_fragments)
+        unmapped <- c(unmapped, literate$unmapped_glue)
+    }
+    env$glue_templates <- glue_order_fragments(fragments, unmapped)
+    if (!is.null(ranges)) env$semantic_data <- semantic_glue_templates(env$semantic_data, ranges)
     # The same source can acquire different token kinds after NAMESPACE or
     # attachment rules change. Delta requests must distinguish those parses.
     if (length(attr(classes, "source_exports", exact = TRUE))) {
