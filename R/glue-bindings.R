@@ -136,7 +136,9 @@ glue_data_fields <- function(workspace, document, row, at) {
     }
     fields <- fields[!duplicated(keys[fields]) & !duplicated(keys[fields], fromLast = TRUE)]
     targets <- lapply(fields, function(i) {
-        glue_tag_target(document, "field", keys[[i]], ctor$tags[[i]], ctor$values[[i]], writable = !variable && !open)
+        field <- glue_tag_target(document, "field", keys[[i]], ctor$tags[[i]], ctor$values[[i]], writable = !open)
+        field$shared <- variable > 0L
+        field
     })
     list(open = open, targets = stats::setNames(targets, keys[fields]))
 }

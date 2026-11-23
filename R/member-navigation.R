@@ -926,10 +926,14 @@ member_navigation_references <- function(id, workspace, document, member, includ
     uris <- member_navigation_uris(workspace, target, document$uri)
     if (for_rename) {
         token <- list(token = member$name)
+        glue_uris <- character()
         for (uri in uris) {
-            if (!rename_document_complete(workspace$documents$get(uri), document$uri, token, "member")) {
+            doc <- workspace$documents$get(uri)
+            if (!rename_document_complete(doc, document$uri, token, "member")) {
                 return(rename_incomplete_error(id))
             }
+            fragments <- doc$parse_data$glue_templates
+            if (length(fragments) || length(attr(fragments, "unmapped", exact = TRUE))) glue_uris <- c(glue_uris, uri)
         }
         # A generated accessor can navigate to an implementation with a
         # different name (for example R6's new and initialize).
@@ -945,6 +949,7 @@ member_navigation_references <- function(id, workspace, document, member, includ
     if (for_rename && length(result)) {
         conflict <- member_navigation_rename_conflict(workspace, uris, result, member$name, new_name)
         if (!is.null(conflict)) return(ResponseErrorMessage$new(id, "RequestFailed", conflict))
+        if (length(glue_uris)) return(glue_member_rename(id, workspace, member, glue_uris, result, new_name))
     } else if (!for_rename) {
         result <- lapply(result, function(x) location(x$uri, x$range))
     }
