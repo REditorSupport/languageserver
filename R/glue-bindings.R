@@ -1,11 +1,12 @@
 # Locate a host declaration in the same lexical scope as an embedded read.
 # Completion records retain the scope bounds and the reference index supplies
 # the identity shared by highlights, references and rename.
-glue_lexical_target <- function(document, name, at) {
+glue_lexical_target <- function(document, name, at, skip = character()) {
     parsed <- document$parse_data
     index <- parsed$reference_index
     matches <- reference_indices(index, name)
     matches <- matches[index$is_definition[matches]]
+    if (length(skip)) matches <- matches[!index$definition_key[matches] %in% skip]
     if (!length(matches)) return(NULL)
     syntax <- parsed$syntax_data
     line <- syntax$line1[[at]]
@@ -151,10 +152,15 @@ glue_call_bindings <- function(workspace, document, fragment) {
     if (is.null(call) || !call$name %in% names(glue_template_packages)) return(list(open = TRUE))
     if (is.null(call$package)) {
         owner <- if (is.function(workspace$guess_namespace)) workspace$guess_namespace(call$name, isf = TRUE, uri = document$uri)
-        if (!is.null(glue_lexical_target(document, call$name, row)) ||
-                (length(owner) && !identical(owner, glue_template_packages[[call$name]]))) {
-            return(list(open = TRUE, shadowed = TRUE))
+        if (!is.null(glue_lexical_target(document, call$name, row))) {
+            target <- glue_call_target(workspace, document, list(call_row = row), call$name, list(open = FALSE))
+            if (length(target$callable)) target <- target$callable
+            if (!is.null(target) && (!identical(target$kind, "package") || !identical(target$name, call$name))) {
+                return(list(open = TRUE, shadowed = TRUE))
+            }
+            owner <- target$package
         }
+        if (length(owner) && !identical(owner, glue_template_packages[[call$name]])) return(list(open = TRUE, shadowed = TRUE))
     }
     piped <- syntax_pipe_arguments(syntax, row, call)
     keys <- names(call$values)
@@ -195,11 +201,101 @@ glue_call_bindings <- function(workspace, document, fragment) {
         tags = tags, named = named, fields = fields$targets, call = call)
 }
 
-glue_context_at <- function(workspace, document, fragment, name = NULL) {
+# R looks for a function, skipping bound non-functions in enclosing frames.
+# Bindings in one frame share an identity, so skipping a local name must also
+# skip older assignments to the same variable.
+glue_package_function <- function(workspace, document, name, package = NULL, value_lookup = FALSE) {
+    if (is.null(package) && is.function(workspace$guess_namespace)) {
+        package <- workspace$guess_namespace(name, isf = !value_lookup, uri = document$uri)
+    }
+    if (!length(package) && exists(name, baseenv(), mode = "function", inherits = FALSE)) package <- "base"
+    if (!length(package) || identical(package, WORKSPACE)) return(NULL)
+    if (identical(package, "base")) {
+        if (!exists(name, baseenv(), mode = "function", inherits = FALSE)) return(NULL)
+    } else {
+        ns <- if (is.function(workspace$get_namespace)) workspace$get_namespace(package, uri = document$uri)
+        if (is.null(ns) || !ns$exists_funct(name)) return(NULL)
+    }
+    list(kind = "package", name = name, package = package, key = paste("package", package, name, sep = ":"), writable = FALSE)
+}
+
+# Return FALSE for a proven non-function, NULL for an uncertain value, or
+# the callable source. A delayed named RHS is resolved in its earlier frame.
+glue_callable_value <- function(workspace, document, fragment, target, seen = character()) {
+    if (identical(target$kind, "package")) return(target)
+    if (length(seen) >= 12L || !length(target$key) || target$key %in% seen) return(NULL)
+    owner <- if (identical(target$uri, document$uri)) document else workspace$documents$get(target$uri, NULL)
+    s <- owner$parse_data$syntax_data
+    row <- target$value_row
+    if (is.null(s) || !isTRUE(row > 0L)) return(NULL)
+    repeat {
+        parts <- syntax_children(s, row)
+        parts <- parts[s$token[parts] != "COMMENT"]
+        if (length(parts) != 3L || s$token[[parts[[1L]]]] != "'('" || s$token[[parts[[3L]]]] != "')'") break
+        row <- parts[[2L]]
+    }
+    if (s$function_close[[row]]) {
+        target$value_row <- row
+        return(target)
+    }
+    if (class_literal_row(s, row, c("NUM_CONST", "STR_CONST", "NULL_CONST"))) return(FALSE)
+    if (length(parts) == 3L && identical(s$token[parts], c("SYMBOL_PACKAGE", "NS_GET", "SYMBOL"))) {
+        return(glue_package_function(workspace, owner, class_token_text(s$text[[parts[[3L]]]]),
+                class_token_text(s$text[[parts[[1L]]]])))
+    }
+    alias <- class_literal_row(s, row, "SYMBOL")
+    if (!alias) return(NULL)
+    name <- class_token_text(s$text[[alias]])
+    if (identical(target$kind, "named")) {
+        call <- syntax_call_arguments(s, fragment$call_row)
+        fragment$before <- match(target$row, call$tags)
+        source <- glue_context_at(workspace, owner, fragment, name, function_position = FALSE)$target
+    } else {
+        source <- glue_lexical_target(owner, name, row)
+        if (is.null(source)) source <- glue_workspace_target(workspace, owner, name)
+    }
+    if (is.null(source)) source <- glue_package_function(workspace, owner, name, value_lookup = TRUE)
+    if (is.null(source)) return(NULL)
+    glue_callable_value(workspace, owner, fragment, source, c(seen, target$key))
+}
+
+glue_call_target <- function(workspace, document, fragment, name, bindings, lexical_only = FALSE) {
+    unknown <- list(kind = "unknown", name = name, writable = FALSE)
+    candidates <- bindings$targets[names(bindings$targets) == name]
+    skipped <- character()
+    searched_workspace <- FALSE
+    repeat {
+        if (length(candidates)) {
+            target <- candidates[[1L]]
+            candidates <- candidates[-1L]
+        } else {
+            if (isTRUE(bindings$open)) return(unknown)
+            target <- glue_lexical_target(document, name, fragment$call_row, skipped)
+            if (is.null(target) && lexical_only) return(NULL)
+            if (is.null(target) && !searched_workspace) {
+                target <- glue_workspace_target(workspace, document, name)
+                searched_workspace <- TRUE
+            }
+            if (is.null(target) || target$key %in% skipped) return(glue_package_function(workspace, document, name))
+            skipped <- c(skipped, target$key)
+        }
+        value <- glue_callable_value(workspace, document, fragment, target)
+        if (is.null(value)) return(unknown)
+        if (!identical(value, FALSE)) {
+            if (identical(value$key, target$key)) return(value)
+            target$callable <- value
+            return(target)
+        }
+    }
+}
+
+glue_context_at <- function(workspace, document, fragment, name = NULL, function_position = isTRUE(fragment$function_position)) {
     context <- glue_call_bindings(workspace, document, fragment)
     candidates <- unique(names(context$targets))
     target <- if (length(name) && nzchar(name)) context$targets[[name]]
-    if (is.null(target) && length(name) && nzchar(name)) {
+    if (length(name) && nzchar(name) && function_position) {
+        target <- glue_call_target(workspace, document, fragment, name, context)
+    } else if (is.null(target) && length(name) && nzchar(name)) {
         if (isTRUE(context$open)) {
             target <- list(kind = "unknown", name = name, writable = FALSE)
         } else {
@@ -207,6 +303,6 @@ glue_context_at <- function(workspace, document, fragment, name = NULL) {
             if (is.null(target)) target <- glue_workspace_target(workspace, document, name)
         }
     }
-    list(names = as.character(candidates), target = target, blocked = isTRUE(context$open),
+    list(names = as.character(candidates), target = target, blocked = isTRUE(context$open) || identical(target$kind, "unknown"),
         shadowed = isTRUE(context$shadowed))
 }

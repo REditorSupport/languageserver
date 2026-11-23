@@ -91,7 +91,12 @@ glue_reference_tokens <- function(document, fragment) {
             if (!length(children)) break
             i <- children[[1L]]
         }
-        if (syntax$token[[i]] == "SYMBOL") mutations <- c(mutations, class_token_text(syntax$text[[i]]))
+        if (syntax$token[[i]] != "SYMBOL") next
+        name <- class_token_text(syntax$text[[i]])
+        local <- reference_key_at(index, member_navigation_point(syntax, i), name)
+        if (class_literal_row(syntax, lhs, "SYMBOL") && length(local) && startsWith(local, "local:") &&
+                !syntax$text[[op]] %in% c("<<-", "->>")) next
+        mutations <- c(mutations, name)
     }
     rows <- syntax$terminals[syntax$token[syntax$terminals] %in%
             c("SYMBOL", "SYMBOL_FUNCTION_CALL", "SYMBOL_FORMALS", "SYMBOL_SUB")]
@@ -106,14 +111,18 @@ glue_reference_tokens <- function(document, fragment) {
         i <- reference_index_at(index, pos, name)
         key <- if (i) index$definition_key[[i]]
         call <- if (kind == "SYMBOL_SUB") syntax_call_arguments(syntax, parent)
-        if (length(call) && glue_inner_callee_shadowed(syntax, index, parent, call$name)) call <- NULL
+        if (length(call) && glue_inner_callee_shadowed(syntax, index, parent, call$name)) call$inner_callee <- parent
         list(name = name, row = row, call = call, kind = kind,
             start = list(row = syntax$line1[[row]] - 1L, col = syntax$col1[[row]] - 1L),
             end = list(row = syntax$line2[[row]] - 1L, col = syntax$col2[[row]]),
             local_key = if (length(key) && startsWith(key, "local:")) key,
             definition = i > 0L && index$is_definition[[i]])
     })
-    list(tokens = Filter(Negate(is.null), terms), mutations = unique(mutations), parse_error = parse_error)
+    terms <- Filter(Negate(is.null), terms)
+    inner_names <- if (length(index$name)) unlist(lapply(terms, function(term) {
+        if (term$definition && length(term$local_key)) term$name
+    }), use.names = FALSE)
+    list(tokens = terms, mutations = unique(mutations), inner_bindings = union(mutations, inner_names), parse_error = parse_error)
 }
 
 glue_reference_facts <- function(document, name = NULL, call_row = NULL) {
@@ -147,9 +156,11 @@ glue_reference_facts <- function(document, name = NULL, call_row = NULL) {
     })
 }
 
-glue_occurrence <- function(name, target, selection, fragment, call_row, before = Inf, definition = FALSE, argument_tag = FALSE) {
+glue_occurrence <- function(name, target, selection, fragment, call_row, before = Inf, definition = FALSE,
+    argument_tag = FALSE, function_position = FALSE, inner_bindings = NULL) {
     list(name = name, key = target$key, target = target, range = selection, fragment = fragment,
-        call_row = call_row, before = before, definition = definition, argument_tag = argument_tag)
+        call_row = call_row, before = before, definition = definition, argument_tag = argument_tag,
+        function_position = function_position, inner_bindings = inner_bindings)
 }
 
 # A named argument to a call inside the interpolation belongs to that
@@ -157,7 +168,13 @@ glue_occurrence <- function(name, target, selection, fragment, call_row, before 
 glue_formal_target <- function(workspace, document, fragment, token) {
     call <- token$call
     if (!length(call) || !is.null(call$package)) return(NULL)
-    owner <- glue_context_at(workspace, document, fragment, call$name)$target
+    if (length(call$inner_callee)) {
+        inner <- glue_fragment_document(document, fragment)
+        candidate <- glue_call_target(workspace, inner, list(call_row = call$inner_callee), call$name, list(), lexical_only = TRUE)
+        if (!is.null(candidate)) return(NULL)
+    }
+    owner <- glue_context_at(workspace, document, fragment, call$name, function_position = TRUE)$target
+    if (length(owner$callable)) owner <- owner$callable
     if (is.null(owner$range)) return(NULL)
     host <- workspace$documents$get(owner$uri, NULL)
     if (is.null(host)) return(NULL)
@@ -230,9 +247,10 @@ glue_reference_occurrences <- function(workspace, document, name = NULL, call_ro
                 }
                 if (syntax$function_close[[value]]) nested <- TRUE
                 ctx <- list(call_row = first$call_row, before = before)
-                target <- if (nested) unknown(nm) else glue_context_at(workspace, document, ctx, nm)$target
+                function_position <- syntax$token[[site]] == "SYMBOL_FUNCTION_CALL"
+                target <- if (nested) unknown(nm) else glue_context_at(workspace, document, ctx, nm, function_position)$target
                 if (is.null(target)) next
-                result[[length(result) + 1L]] <- glue_occurrence(nm, target, use, NULL, first$call_row, before)
+                result[[length(result) + 1L]] <- glue_occurrence(nm, target, use, NULL, first$call_row, before, function_position = function_position)
             }
         }
         for (target in bindings$fields) {
@@ -259,16 +277,26 @@ glue_reference_occurrences <- function(workspace, document, name = NULL, call_ro
                         target <- glue_formal_target(workspace, document, fragment, term)
                     }
                 } else if (length(term$local_key)) {
-                    declaration <- Filter(function(x) isTRUE(x$definition) && identical(x$local_key, term$local_key), f$tokens)
-                    if (length(declaration)) target <- list(kind = "inner", name = nm,
-                        uri = document$uri, range = declaration[[1L]]$range, writable = FALSE,
-                        key = paste("glue", fragment$start$row, fragment$start$col, term$local_key, sep = ":"))
+                    key <- term$local_key
+                    if (term$kind == "SYMBOL_FUNCTION_CALL") {
+                        inner <- glue_fragment_document(document, fragment)
+                        candidate <- glue_call_target(workspace, inner, list(call_row = term$row), nm, list(), lexical_only = TRUE)
+                        key <- candidate$key
+                        if (is.null(candidate)) target <- glue_context_at(workspace, document, fragment, nm, function_position = TRUE)$target
+                    }
+                    if (length(key)) {
+                        declaration <- Filter(function(x) isTRUE(x$definition) && identical(x$local_key, key), f$tokens)
+                        if (length(declaration)) target <- list(kind = "inner", name = nm,
+                            uri = document$uri, range = declaration[[1L]]$range, writable = FALSE,
+                            key = paste("glue", fragment$start$row, fragment$start$col, key, sep = ":"))
+                    }
                 } else {
-                    target <- glue_context_at(workspace, document, fragment, nm)$target
+                    target <- glue_context_at(workspace, document, fragment, nm, function_position = term$kind == "SYMBOL_FUNCTION_CALL")$target
                 }
                 if (is.null(target)) target <- unknown(nm)
                 result[[length(result) + 1L]] <- glue_occurrence(nm, target, term$range, fragment,
-                    fragment$call_row, definition = term$definition, argument_tag = term$kind == "SYMBOL_SUB")
+                    fragment$call_row, definition = term$definition, argument_tag = term$kind == "SYMBOL_SUB",
+                    function_position = term$kind == "SYMBOL_FUNCTION_CALL", inner_bindings = f$inner_bindings)
             }
         }
     }
