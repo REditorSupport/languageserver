@@ -886,6 +886,12 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
         env$semantic_data <- merge_partial_tokens(env$semantic_data, literate$partial_tokens, literate$incomplete_lines)
         env$range_data$strings <- merge_partial_strings(env$range_data$strings, literate$partial_strings, literate$incomplete_lines)
     }
+    templates <- if (any(env$range_data$calls$name %in% names(glue_template_packages))) {
+        glue_template_ranges(env$syntax_data, content)
+    }
+    if (!is.null(recovery)) templates <- rbind(templates, partial_glue_template_ranges(recovery$token_data, content))
+    if (is_rmarkdown) templates <- rbind(templates, literate$partial_glue)
+    if (!is.null(templates)) env$semantic_data <- semantic_glue_templates(env$semantic_data, templates)
     # The same source can acquire different token kinds after NAMESPACE or
     # attachment rules change. Delta requests must distinguish those parses.
     if (length(attr(classes, "source_exports", exact = TRUE))) {

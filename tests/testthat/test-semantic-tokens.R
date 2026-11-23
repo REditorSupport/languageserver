@@ -74,6 +74,77 @@ test_that("Semantic tokens range works", {
     expect_true(all(decoded_lines == 0L))
 })
 
+test_that("Direct glue templates are left to the editor grammar in full and range responses", {
+    content <- c(
+        'glue("hello {name}", x = "{keep}", \'{later}\')',
+        'glue::glue_data("{data}", "{second}")',
+        'str_glue_data("{first}", .x = data)',
+        'data %>% stringr::str_glue_data("{piped}")',
+        'stringr::str_glue("before", paste("{nested}"))',
+        'other::glue("{pkg}"); obj$glue("{member}"); glue:::glue("{private}")',
+        'glue_sql("{sql}"); paste("{plain}")',
+        'glue("{custom}", .open = "[", .close = "]")',
+        'glue("{literal}", .literal = TRUE)',
+        'glue(r"({raw})")',
+        'df %>% glue_data("{data again}", .)',
+        'glue("multiline {', '   name}")',
+        '"\U0001f600"; glue("{utf16}")'
+    )
+    fixture <- provider_fixture(content)
+    semantic <- fixture$document$parse_data$semantic_data
+    omitted <- attr(semantic, "glue_strings")
+    expect_identical(omitted$lines, c(0L, 0L, 1L, 2L, 3L, 11L, 12L, 13L))
+    expect_identical(omitted$cols[c(1L, 3L, 7L, 8L)], c(5L, 26L, 0L, 11L))
+    expect_true(semantic_in_comment_or_string(semantic, 12L, 3L))
+    expect_false(semantic_in_comment_or_string(semantic, 12L, 10L))
+
+    kept <- c('"{keep}"', '"{data}"', '"before"', '"{nested}"', '"{pkg}"', '"{member}"', '"{private}"',
+        '"{sql}"', '"{plain}"', '"{custom}"', '"["', '"]"', '"{literal}"', 'r"({raw})"', '"{data again}"')
+    withr::local_options(keep.parse.data = FALSE)
+    for (xml in c(FALSE, TRUE)) {
+        workspace <- if (xml) list(get_parse_data = function(uri) list(xml_doc = fixture$document$parse_data$xml_doc)) else
+            fixture$workspace
+        tokens <- extract_semantic_tokens(fixture$uri, workspace, fixture$document)
+        strings <- Filter(function(token) token$tokenType == SemanticTokenTypes$string, tokens)
+        ascii <- Filter(function(token) token$line < 13L, strings)
+        expect_identical(vapply(ascii, function(token) {
+            substr(content[[token$line + 1L]], token$col + 1L, token$col + token$length)
+        }, character(1L)), kept)
+        full <- semantic_tokens_full_reply(1L, fixture$uri, workspace, fixture$document)$result$data
+        range <- semantic_tokens_range_reply(2L, fixture$uri, workspace, fixture$document,
+            range(position(0L, 0L), position(length(content), 0L)))$result$data
+        expect_identical(range, full)
+    }
+    if (getRversion() >= "4.1.0") {
+        piped <- parse_document(fixture$uri, 'df |> glue::glue_data("{piped}")')$semantic_data
+        expect_identical(attr(piped, "glue_strings")$cols, 22L)
+    }
+})
+
+test_that("Glue template coloring preserves source positions in large strings and recovered documents", {
+    expect_identical(glue_template_rows(NULL, character()), integer())
+    content <- c(paste0('glue("', strrep("x", 2000L), ' {value}")'), "", "other::")
+    parsed <- parse_document("file:///partial.R", content)
+    expect_true(parsed$parse_error)
+    expect_identical(attr(parsed$semantic_data, "glue_strings")$lines, 0L)
+    expect_false(any(parsed$semantic_data$types == SemanticTokenTypes$string))
+    for (text in list('glue("{done}"', c('x <- glue("{done}") +', "other::"))) {
+        parsed <- parse_document("file:///partial.R", text)
+        expect_identical(attr(parsed$semantic_data, "glue_strings")$lines, 0L)
+        expect_false(any(parsed$semantic_data$types == SemanticTokenTypes$string))
+    }
+    fence <- "```"
+    cell <- c("Prose.", paste0(fence, "{r}"), 'glue("{done}"', fence,
+        paste0(fence, "{r}"), 'paste("{plain}")', fence)
+    parsed <- parse_document("file:///report.qmd", cell, is_rmarkdown = TRUE)
+    expect_identical(attr(parsed$semantic_data, "glue_strings")$lines, 2L)
+    expect_identical(parsed$semantic_data$lines[parsed$semantic_data$types == SemanticTokenTypes$string], 5L)
+    # Legacy XML may be available while current text has no complete parse.
+    document <- Document$new("file:///stale.R", version = 2L, content = "glue(")
+    workspace <- list(get_parse_data = function(uri) list(xml_doc = xml2::read_xml(parsed$xml_data)))
+    expect_silent(extract_semantic_tokens(document$uri, workspace, document))
+})
+
 test_that("Semantic token range honors both range boundaries", {
     content <- sprintf("value_%02d <- %d", 1:10, 1:10)
     fixture <- provider_fixture(content)

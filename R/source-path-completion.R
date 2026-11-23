@@ -77,6 +77,14 @@ source_path_context <- function(document, point, workspace) {
 source_file_syntax <- function(syntax, row, call = syntax_call_arguments(syntax, row)) {
     if (!isTRUE(call$name %in% c("source", "sys.source")) ||
             (!is.null(call$package) && !identical(call$package, "base"))) return(NULL)
+    call <- syntax_pipe_arguments(syntax, row, call)
+    fn <- if (call$name == "source") base::source else base::sys.source
+    class_matched_arguments(call, names(formals(fn)))$file
+}
+
+# Match the arguments as received by the callee, including pipe insertion
+# and direct placeholders. The original argument rows remain available.
+syntax_pipe_arguments <- function(syntax, row, call) {
     parent <- syntax$parent_row[[row]]
     if (parent) {
         parts <- syntax_children(syntax, parent)
@@ -95,8 +103,7 @@ source_file_syntax <- function(syntax, row, call = syntax_call_arguments(syntax,
             }
         }
     }
-    fn <- if (call$name == "source") base::source else base::sys.source
-    class_matched_arguments(call, names(formals(fn)))$file
+    call
 }
 
 # Test the source-site scope before interpreting a bare helper as a base call.
