@@ -659,3 +659,25 @@ missing arguments, nested/overlapping scopes, cursor boundaries, literate and
 incomplete documents, serialization, edits, live settings/files, namespace
 replacement, and bounded worker cancellation. Benchmarks deliberately avoid
 fragile elapsed-time thresholds in automated tests.
+
+## Glue interpolation
+
+Use the same scripts with baseline and candidate packages installed in separate
+libraries. The parse benchmark includes ordinary R and 2% or 100% templates,
+with both repeated and distinct expressions. It reports elapsed time, R
+allocation, serialized parse size, and memory retained by the source map.
+
+```sh
+R_LIBS=/path/to/library Rscript --vanilla inst/benchmarks/glue-parse.R candidate 200,1000,3000 5 > parse.csv
+R_LIBS=/path/to/library Rscript --vanilla inst/benchmarks/glue-providers.R references.csv 200,1000 3 references
+R_LIBS=/path/to/library Rscript --vanilla inst/benchmarks/glue-providers.R rename.csv 200,1000 3 rename
+python3 inst/benchmarks/typing.py /path/to/library --lines 1000 --rounds 4 --wait-parse --fresh-rounds --warm-request --pause .012
+python3 inst/benchmarks/typing.py /path/to/library --lines 1000 --rounds 4 --wait-parse --fresh-rounds --warm-request --pause .012 --glue --glue-every 25
+```
+
+Set `--glue-every 1` for the dense typing fixture. Add `--burst` to send a new
+edit and request before the last reply has arrived. For comparisons, record
+returned completion items, reference locations or rename edits along with
+latency. On the 1,000-call dense reference and rename fixture, master at
+`d1d1e53` returns one location for the first query. With interpolation support
+the same query returns 45, including the declaration.

@@ -398,10 +398,16 @@ references_reply <- function(id, uri, workspace, document, point,
                     selected <- selected[!indexed$is_definition[selected]]
                 }
                 locations <- indexed_reference_locations(indexed, doc_uri, selected)
-                if (!for_rename) {
-                    doc <- workspace$documents$get(doc_uri, NULL)
-                    if (length(doc$parse_data$glue_templates)) locations <- glue_overlay_locations(workspace, doc,
-                        token$token, definition_key, locations, include_declaration)
+                doc <- workspace$documents$get(doc_uri, NULL)
+                fragments <- doc$parse_data$glue_templates
+                if (length(fragments) || length(attr(fragments, "unmapped", exact = TRUE))) {
+                    occurrences <- glue_reference_occurrences(workspace, doc, token$token)
+                    if (for_rename) {
+                        problem <- glue_rename_problem(workspace, doc, token$token, definition_key, new_name, sites = occurrences)
+                        if (!is.null(problem)) return(ResponseErrorMessage$new(id, "RequestFailed", problem))
+                    }
+                    locations <- glue_overlay_locations(workspace, doc, token$token, definition_key, locations,
+                        include_declaration, occurrences)
                 }
                 result <- c(result, locations)
             }
@@ -436,11 +442,16 @@ references_reply <- function(id, uri, workspace, document, point,
                         member_navigation_formal_conflict(workspace, uris, formal, token$token, new_name)) {
                     return(ResponseErrorMessage$new(id, "RequestFailed", "A named argument would match a different parameter"))
                 }
+                if (for_rename) for (doc_uri in union(uris, uri)) {
+                    doc <- workspace$documents$get(doc_uri, NULL)
+                    problem <- glue_rename_formal_problem(workspace, doc, formal, token$token, new_name)
+                    if (!is.null(problem)) return(ResponseErrorMessage$new(id, "RequestFailed", problem))
+                }
                 tags <- member_navigation_occurrences(workspace, formal, token$token, uris,
                     formal = TRUE, declarations = FALSE)
                 if (!for_rename) tags <- lapply(tags, function(x) location(x$uri, x$range))
                 result <- c(result, tags)
-                if (!for_rename) for (doc_uri in setdiff(uris, doc_uris)) {
+                for (doc_uri in setdiff(uris, doc_uris)) {
                     doc <- workspace$documents$get(doc_uri, NULL)
                     if (length(doc$parse_data$glue_templates)) result <- c(result, glue_overlay_locations(
                         workspace, doc, token$token, definition_key, list(), include_declaration))
