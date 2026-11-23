@@ -13,7 +13,9 @@ definition_xpath <- paste(
 #' @noRd
 definition_reply <- function(id, uri, workspace, document, point,
     rootPath = get_root_path_for_uri(uri, workspace$root),
-    context_uri = uri, text_document_content = NULL) {
+    context_uri = uri, text_document_content = NULL, embedded = FALSE) {
+    context <- if (!embedded) glue_cursor_context(document, point, workspace)
+    if (!is.null(context)) return(glue_definition_reply(id, uri, workspace, context, rootPath, text_document_content))
 
     if (!check_r_region(document, point)) {
         return(Response$new(id))

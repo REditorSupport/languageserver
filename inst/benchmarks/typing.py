@@ -16,6 +16,8 @@ parser.add_argument("--lines", type=int, default=20000)
 parser.add_argument("--providers", action="store_true")
 parser.add_argument("--semantic-edits", action="store_true",
     help="Measure didChange to semantic tokens for the viewport containing an incomplete R edit")
+parser.add_argument("--glue", action="store_true",
+    help="Measure completion while typing inside an interpolation in a template-heavy document")
 parser.add_argument("--wait-parse", action="store_true")
 parser.add_argument("--index", choices=("off", "auto"), default="off")
 parser.add_argument("--rounds", type=int, default=1)
@@ -26,10 +28,15 @@ parser.add_argument("--profile")
 args = parser.parse_args()
 if args.lines < 1 or args.rounds < 1 or min(args.pause, args.open_delay) < 0:
     parser.error("lines/rounds must be positive and delays nonnegative")
+if args.glue and args.semantic_edits:
+    parser.error("--glue measures completion and cannot be combined with --semantic-edits")
 
 root = Path(tempfile.mkdtemp(prefix="completion-fixture-"))
 file = root / "script.R"
-lines = [f"value_{i:05d} <- sum(c(1, 2, 3))" for i in range(args.lines)] + [""]
+expression = 'glue::glue("total {sum(c(1, 2, 3))}")' if args.glue else "sum(c(1, 2, 3))"
+prefix = 'glue::glue("{' if args.glue else ""
+last_line = prefix + '}")' if args.glue else ""
+lines = [f"value_{i:05d} <- {expression}" for i in range(args.lines)] + [last_line]
 file.write_text("\n".join(lines), encoding="utf-8")
 env = os.environ.copy()
 env["R_LIBS"] = os.pathsep.join(filter(None, (str(Path(args.library).resolve()), env.get("R_LIBS", ""))))
@@ -208,13 +215,13 @@ try:
         for token in tokens:
             pause(args.pause)
             version += 1
-            point = {"line": args.lines, "character": len(token)}
+            point = {"line": args.lines, "character": len(prefix) + len(token)}
             # Distinct source each round avoids replaying an identical cached parse.
             replacement = f"{token} # round {round_number}" if args.semantic_edits else token
             start = time.monotonic()
             send("textDocument/didChange", {"textDocument": {"uri": uri, "version": version},
-                "contentChanges": [{"range": {"start": {"line": args.lines, "character": 0},
-                    "end": {"line": args.lines, "character": len(previous)}}, "text": replacement}]}, False)
+                "contentChanges": [{"range": {"start": {"line": args.lines, "character": len(prefix)},
+                    "end": {"line": args.lines, "character": len(prefix) + len(previous)}}, "text": replacement}]}, False)
             if args.semantic_edits:
                 data = receive(send("textDocument/semanticTokens/range", viewport))["data"]
                 count = {"tokens": len(data) // 5, "unchanged_tokens_match": data[:len(reference)] == reference}

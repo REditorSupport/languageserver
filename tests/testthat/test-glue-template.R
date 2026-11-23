@@ -88,3 +88,20 @@ test_that("the active interpolation prefix is available in partial R source and 
     expect_identical(vapply(parsed$glue_templates, function(f) f$start$row, integer(1L)), c(2L, 8L))
     expect_identical(vapply(parsed$glue_templates, "[[", logical(1L), "complete"), c(FALSE, TRUE))
 })
+
+test_that("provisional calls retain enough callee information for lexical completion only", {
+    cases <- list('glue::glue("{tot' = TRUE, 'glue("{tot' = TRUE, 'str_glue("{tot' = TRUE,
+        'glue_data(data, "{tot' = FALSE, 'glue(tot = 1, "{tot' = FALSE,
+        'glue(.envir = other, "{tot' = FALSE)
+    for (line in names(cases)) {
+        parsed <- parse_document("file:///typing.R", c("total <- 1", line))
+        fragment <- parsed$glue_templates[[1L]]
+        expect_identical(fragment$lexical_prefix, cases[[line]])
+        expect_identical(fragment$call_row, 0L)
+        expect_false(fragment$complete)
+        expect_identical(fragment$call_start$row, 1L)
+        expect_identical(substr(line, fragment$call_start$col + 1L,
+                fragment$call_start$col + nchar(fragment$call_name)), fragment$call_name)
+        expect_identical(fragment$package, if (startsWith(line, "glue::")) "glue")
+    }
+})

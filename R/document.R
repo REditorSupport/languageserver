@@ -1074,6 +1074,14 @@ drain_pending_replies <- function(self, uri, version, max_replies = Inf, first =
         if (!queue$size()) return(FALSE)
         item <- queue$peek()
         if (!is.null(version) && !is.null(item$version) && item$version > version) return(FALSE)
+        if (!is.null(document) && identical(item$version, document$version) &&
+                method %in% c("textDocument/completion", "textDocument/hover", "textDocument/signatureHelp", "textDocument/definition")) {
+            point <- document$from_lsp_position(item$params$position)
+            if (glue_request_pending(document, point)) return(FALSE)
+            workspace <- self$get_workspace(uri)
+            context <- glue_cursor_context(document, point, workspace)
+            if (!is.null(context)) return(!glue_request_waiting(self, uri, workspace, context, method))
+        }
         if (method %in% c("textDocument/typeDefinition", "textDocument/implementation") && !is.null(document) &&
                 identical(item$version, document$version)) {
             point <- document$from_lsp_position(item$params$position)

@@ -29,7 +29,8 @@ glue_template_calls <- function(syntax, content) {
         quotes <- substr(content[syntax$line1[direct]], syntax$col1[direct], syntax$col1[direct])
         quoted <- quotes %in% c('"', "'")
         if (!any(quoted)) return(NULL)
-        list(row = row, literals = direct[quoted],
+        list(row = row, symbol = symbol, name = call$name, package = call$package,
+            lexical_prefix = !endsWith(call$name, "_data") && !piped_text && !any(nzchar(keys)), literals = direct[quoted],
             all_direct = !piped_text && length(direct) == length(rows) && all(quoted),
             separator = any(keys == ".sep"))
     })
@@ -216,15 +217,17 @@ glue_template_index <- function(syntax, content, offset = 0L, provisional = FALS
     calls <- glue_template_calls(syntax, content)
     highlighted <- glue_template_rows(syntax, content, calls)
     ranges <- glue_template_ranges(syntax, content, highlighted, offset)
-    unmapped <- list()
-    fragments <- list()
-    for (call in calls) {
+    # A generated report can contain thousands of calls. Accumulate per-call
+    # results and flatten once to avoid repeatedly copying all previous spans.
+    unmapped <- fragments <- vector("list", length(calls))
+    for (i in seq_along(calls)) {
+        call <- calls[[i]]
         # The value of a computed unnamed argument or separator can affect
         # delimiters in the following literal.
         call_row <- if (provisional) 0L else call$row
         unknown <- list(call_row = call_row, content = NULL, complete = FALSE)
         if (!call$all_direct || (length(call$literals) > 1L && call$separator)) {
-            if (any(call$literals %in% highlighted)) unmapped[[length(unmapped) + 1L]] <- unknown
+            if (any(call$literals %in% highlighted)) unmapped[[i]] <- list(unknown)
             next
         }
         literals <- lapply(call$literals, function(row) {
@@ -233,13 +236,24 @@ glue_template_index <- function(syntax, content, offset = 0L, provisional = FALS
         })
         if (!any(vapply(literals, is.null, logical(1L)))) {
             found <- glue_scan_call(literals, call_row, provisional)
-            fragments <- c(fragments, found)
-            unmapped <- c(unmapped, attr(found, "unmapped"))
+            unmapped[i] <- list(attr(found, "unmapped"))
+            if (provisional && length(found)) {
+                # The temporary call row belongs to a different tree. Preserve
+                # the physical callee and its argument shape for advisory
+                # completion while the user is typing the outer string.
+                callee <- list(row = syntax$line1[[call$symbol]] + offset - 1L, col = syntax$col1[[call$symbol]] - 1L)
+                found <- lapply(found, function(fragment) {
+                    c(fragment, list(lexical_prefix = call$lexical_prefix, call_start = callee,
+                            call_name = call$name, package = call$package))
+                })
+            }
+            fragments[[i]] <- found
         } else if (any(call$literals %in% highlighted)) {
-            unmapped[[length(unmapped) + 1L]] <- unknown
+            unmapped[[i]] <- list(unknown)
         }
     }
-    list(ranges = ranges, fragments = fragments, unmapped = unmapped)
+    list(ranges = ranges, fragments = unlist(fragments, recursive = FALSE, use.names = FALSE),
+        unmapped = unlist(unmapped, recursive = FALSE, use.names = FALSE))
 }
 
 # R detaches the unfinished call's lexer tokens until its closing parenthesis

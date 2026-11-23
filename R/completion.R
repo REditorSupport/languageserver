@@ -443,7 +443,11 @@ arg_completion <- function(uri, workspace, point, token, funct, package = NULL, 
         }
     }
 
-    completions <- .mapply(function(arg, sort_text) {
+    argument_name_items(token_args, token_data)
+}
+
+argument_name_items <- function(token_args, token_data) {
+    .mapply(function(arg, sort_text) {
         # XML formals already include source backticks; namespace formals do not.
         inserted <- if (is.null(token_data$uri)) quote_completion_name(arg) else arg
         data <- token_data
@@ -457,8 +461,6 @@ arg_completion <- function(uri, workspace, point, token, funct, package = NULL, 
             data = data
         )
     }, list(token_args, sprintf("%s%03d", sort_prefixes$arg, seq_along(token_args))), NULL)
-
-    completions
 }
 
 
@@ -1395,7 +1397,9 @@ basic_name_completion_reply <- function(id, workspace, document, point, capabili
 
 #' The response to a textDocument/completion request
 #' @noRd
-completion_reply <- function(id, uri, workspace, document, point, capabilities) {
+completion_reply <- function(id, uri, workspace, document, point, capabilities, embedded = FALSE) {
+    context <- if (!embedded) glue_cursor_context(document, point, workspace)
+    if (!is.null(context)) return(glue_completion_reply(id, uri, workspace, context, capabilities))
     if (!check_scope(uri, document, point) &&
             (!isTRUE(lsp_settings$get("member_completion")) || is.null(member_cursor(document, point)))) {
         paths <- source_path_completion(document, point, workspace)
@@ -1581,7 +1585,14 @@ completion_item_resolve_reply <- function(id, workspace, params, capabilities) {
         if (!is.null(document) && identical(document$version, params$data$completion_version) &&
                 (package_symbol || identical(document$version, document$parse_data$version))) {
             point <- params$data$completion_position
-            params <- completion_symbol_info(params$data$context_uri, workspace, document, point,
+            context <- if (!isTRUE(params$data$glue_host_scope)) glue_cursor_context(document, point, workspace)
+            info_workspace <- workspace
+            if (!is.null(context)) {
+                info_workspace <- glue_provider_workspace(workspace, context)
+                document <- context$document
+                point <- context$point
+            }
+            params <- completion_symbol_info(params$data$context_uri, info_workspace, document, point,
                 completion_token(document, point), list(params))[[1L]]
         }
     }

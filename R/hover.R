@@ -44,7 +44,9 @@ argument_hover_contents <- function(doc, sig, parameter) {
 #' When hovering on a symbol, if it is a function, return its help text
 #' if it exists in the current [Workspace].
 #' @noRd
-hover_reply <- function(id, uri, workspace, document, point) {
+hover_reply <- function(id, uri, workspace, document, point, embedded = FALSE) {
+    context <- if (!embedded) glue_cursor_context(document, point, workspace)
+    if (!is.null(context)) return(glue_hover_reply(id, uri, workspace, context))
     if (isTRUE(lsp_settings$get("member_completion"))) {
         location <- member_hover_location(document, point)
         if (is.null(location)) location <- member_argument_location(document, point)
