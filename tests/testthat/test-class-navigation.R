@@ -42,6 +42,53 @@ test_that("implementation preserves source aliases and rejects conflicting peer 
     expect_null(at())
 })
 
+test_that("implementation locates the exact current S7 registration for a source call", {
+    skip_if_not_installed("S7", "1.0.0")
+    old_s3 <- lsp_settings$get("s3_dispatch")
+    old_members <- lsp_settings$get("member_completion")
+    withr::defer({
+        lsp_settings$set("s3_dispatch", old_s3)
+        lsp_settings$set("member_completion", old_members)
+    })
+    lsp_settings$set("s3_dispatch", FALSE)
+    lsp_settings$set("member_completion", TRUE)
+    lines <- c("library(S7)", "Point := new_class()", 'draw := new_generic("x")',
+        "method(draw, Point) <- function(x) x", "draw(Point())",
+        "{ '\U0001f4cd'; method(draw, Point) <- function(x, y = 2) y }", "draw(Point())",
+        "draw(unknown)", "method(draw, class_any) <- function(x, ...) x",
+        "draw(1L)", "method(draw, Point) <- NULL", "draw(Point())")
+    root <- withr::local_tempdir()
+    ws <- Workspace$new(NULL)
+    ws$load_packages("S7")
+    ws$member_metadata$set("S7", member_prepare_package("S7"))
+    open <- function(name, text) {
+        uri <- path_to_uri(file.path(root, name))
+        d <- Document$new(uri, language = "r", version = 1L, content = text)
+        d$loaded_packages <- "S7"
+        p <- parse_document(uri, text)
+        p$version <- d$version
+        d$update_parse_data(p)
+        ws$documents$set(uri, d)
+        d
+    }
+    document <- open("entry.R", lines)
+    document$requested_packages <- member_package_request(document$parse_data)
+    pending <- list(member_task_manager = list(has = function(uri) TRUE),
+        get_workspace = function(uri) list(member_metadata = NULL))
+    expect_true(class_navigation_waiting(pending, ws, document, list(row = 4L, col = 1L), "textDocument/implementation"))
+    at <- function(row) implementation_reply(1L, document$uri, ws, document, list(row = row, col = 1L))$result
+    expect_equal(at(4L), unclass(location(document$uri, range(position(3L, 7L), position(3L, 11L)))))
+    expect_equal(at(6L), unclass(location(document$uri, range(position(5L, 15L), position(5L, 19L)))))
+    expect_null(at(7L))
+    expect_null(at(9L))
+    expect_null(at(11L))
+    lsp_settings$set("member_completion", FALSE)
+    expect_null(at(4L))
+    lsp_settings$set("member_completion", TRUE)
+    open("other.R", c("library(S7)", "method(draw, Point) <- function(x) 123"))
+    expect_null(at(4L))
+})
+
 test_that("implementation verifies installed method bindings and generated contents", {
     f <- class_navigation_fixture("stats::predict(stats::lm(mpg ~ wt, mtcars))")
     content <- TextDocumentContent$new()

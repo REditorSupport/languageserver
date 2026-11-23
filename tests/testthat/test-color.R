@@ -42,6 +42,21 @@ test_that("color presentations preserve opaque and translucent alpha", {
     expect_equal(translucent$result[[1L]]$label, "#ff000080")
 })
 
+test_that("document colors accept the case and spacing of R named colors", {
+    fixture <- provider_fixture(c('border <- "light grey"', 'fill <- "Light Goldenrod Yellow"',
+            'other <- c("sTEELbLUE", "TransParent", "not a color", r"(red)")'))
+    for (indexed in c(TRUE, FALSE)) {
+        if (!indexed) {
+            fixture$document$parse_data$range_data <- NULL
+            fixture$document$parse_data$colors_cache <- NULL
+        }
+        result <- document_color_reply(1L, fixture$uri, fixture$workspace, fixture$document)$result
+        expect_equal(lapply(result, "[[", "color"),
+            lapply(c("light grey", "Light Goldenrod Yellow", "sTEELbLUE"), get_color))
+        expect_equal(result[[2L]]$range, range(position(1L, 9L), position(1L, 31L)))
+    }
+})
+
 test_that("Document color works", {
     skip_on_cran()
     client <- language_client()

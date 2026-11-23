@@ -17,32 +17,37 @@ document_color_reply <- function(id, uri, workspace, document) {
     strings <- parse_data$range_data$strings
     xdoc <- if (is.null(strings)) parse_data_xml(parse_data) else NULL
     if (!is.null(strings) || !is.null(xdoc)) {
-        # String length: `@col2-@col1-1`
-        # Shortest color length: 3 (red, tan)
-        # Longest color length: 20 (lightgoldenrodyellow)
+        # Named colors can contain spaces, e.g. "light goldenrod yellow".
+        # Use the same single-line literal bounds as the shared string index.
         if (is.null(strings)) {
-            str_tokens <- xml_find_all_(xdoc, "//STR_CONST[@line1=@line2 and @col2>@col1+3 and @col2<@col1+22]")
+            str_tokens <- xml_find_all_(xdoc, "//STR_CONST[@line1=@line2 and @col2>@col1+3 and @col2<=@col1+256]")
             str_line1 <- as.integer(xml_attr(str_tokens, "line1"))
             str_col1 <- as.integer(xml_attr(str_tokens, "col1"))
             str_col2 <- as.integer(xml_attr(str_tokens, "col2"))
         } else {
-            keep <- strings$col2 > strings$col1 + 3L & strings$col2 < strings$col1 + 22L
+            keep <- strings$col2 > strings$col1 + 3L
             str_line1 <- strings$line[keep]
             str_col1 <- strings$col1[keep]
             str_col2 <- strings$col2[keep]
         }
         str_expr <- substr(document$content[str_line1], str_col1, str_col2)
-        str_texts <- tryCatch(as.character(str2expression(str_expr)),
-            error = function(e) NULL)
+        str_texts <- substring(str_expr, 2L, nchar(str_expr) - 1L)
+        escaped <- which(grepl("\\", str_texts, fixed = TRUE) & !grepl("^[rR]", str_expr))
+        if (length(escaped)) {
+            str_texts[escaped] <- tryCatch(as.character(str2expression(str_expr[escaped])),
+                error = function(e) "")
+        }
 
         if (length(str_texts)) {
             short_hex <- grepl("^#[0-9a-fA-F]{3,4}$", str_texts)
             if (any(short_hex) && is.null(tryCatch(grDevices::col2rgb("#abc"), error = function(e) NULL))) {
                 short_hex[] <- FALSE
             }
+            color_names <- chartr("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz",
+                gsub(" ", "", str_texts, fixed = TRUE))
             is_color <- !grepl("^[rR]", str_expr) &
                 (grepl("^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$", str_texts) |
-                        short_hex | str_texts %in% c("transparent", grDevices::colors()))
+                        short_hex | str_texts == "transparent" | color_names %in% grDevices::colors())
             color_texts <- str_texts[is_color]
             color_line1 <- str_line1[is_color]
             color_col1 <- str_col1[is_color]

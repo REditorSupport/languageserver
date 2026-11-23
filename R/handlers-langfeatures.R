@@ -89,6 +89,13 @@ member_metadata_waiting <- function(self, uri, document, point, cursor = NULL, n
             if (position) {
                 expression <- history[[position]]$expr
                 if (identical(name, callee)) {
+                    # A replacement registration stores the method body as its
+                    # RHS, but the callee is still the preceding S7 generic.
+                    setter <- history[[position]]$setter
+                    if (member_head(setter, "method<-") ||
+                            (is.call(setter) && identical(setter[[1L]], quote(S7::`method<-`)))) {
+                        referenced <- union(referenced, "method<-")
+                    }
                     if (member_head(expression, "function")) next
                     callee <- if (is.symbol(expression)) member_name(expression)
                 }
@@ -100,7 +107,7 @@ member_metadata_waiting <- function(self, uri, document, point, cursor = NULL, n
     packages <- intersect(request$namespace_packages, referenced)
     # An attached S7 factory is normally written without S7::. Its generated
     # formals still depend on the member worker, even when S3 is disabled.
-    if (uses_s7 && any(c("new_class", "new_generic", "deprecated_class", "deprecated_generic") %in% referenced)) {
+    if (uses_s7 && any(c("new_class", "new_generic", "deprecated_class", "deprecated_generic", "method<-") %in% referenced)) {
         packages <- union(packages, "S7")
     } else if (bare_call) {
         return(FALSE)

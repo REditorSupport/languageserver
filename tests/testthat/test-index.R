@@ -106,11 +106,47 @@ test_that("shallow collectors preserve declaration order and last replacement", 
     )
     summary <- index_shallow_summary(path, content, root)
     expect_identical(names(summary$definitions), c("first", symbols, "second", "right"))
-    expect_identical(names(summary$functions), c("first", "second"))
-    expect_identical(formals(summary$functions$first), pairlist(y = 2))
+    expect_identical(names(summary$functions), "second")
     expect_identical(summary$definitions$first$type, "double")
     expect_equal(summary$definitions$value1$range$start$line, 304L)
     expect_equal(summary$definitions$right$range$start$line, 305L)
+})
+
+test_that("full and shallow parses retain chained and quoted assignment targets", {
+    root <- withr::local_tempdir()
+    path <- file.path(root, "aliases.R")
+    content <- c(
+        "{", "\touter = '%op%' <- inner <- function(x = 'a\tb') x", "}",
+        "inner <- 3", "list(a = TRUE) -> right -> 'quoted right'",
+        "kept <- object$field <- 1", "object$field <- hidden <- 2",
+        "quoted <- quote(never <- 1)", "ignored <<- global <- 1"
+    )
+    writeLines(content, path)
+    parsed <- parse_document(path_to_uri(path), content)
+    expected <- c("outer", "%op%", "inner", "quoted right", "right", "kept", "quoted")
+    expect_false(parsed$parse_error)
+    expect_identical(names(parsed$definitions), expected)
+    expect_identical(parsed$definitions$outer$type, "function")
+    expect_identical(parsed$definitions[["%op%"]]$type, "function")
+    expect_identical(parsed$signatures[["%op%"]], get_signature("%op%", quote(function(x = "a\tb") x)))
+    expect_identical(parsed$definitions$inner$type, "double")
+    expect_identical(parsed$definitions$right$type, "list")
+    documents <- collections::dict()
+    documents$set(path, list(uri = path_to_uri(path), parse_data = parsed))
+    globals <- GlobalEnv$new(documents)
+    expect_null(globals$get_signature("inner"))
+    expect_false("inner" %in% globals$get_symbols(want_functs = TRUE))
+    expect_true("inner" %in% globals$get_symbols(want_functs = FALSE))
+    expect_equal(parsed$definitions$outer$range$start, position(1L, 1L))
+    expect_identical(parsed$definitions[["%op%"]]$range, parsed$definitions$outer$range)
+    expect_null(assignment_chain(quote(`<-`(, NULL))))
+    expect_null(assignment_chain(quote(`=`(missing, ))))
+    for (lines in list(content, c(content, "pkg::"))) {
+        shallow <- index_shallow_summary(path, lines, root)
+        expect_identical(shallow$definitions, parsed$definitions)
+        expect_identical(names(shallow$functions), c("outer", "%op%"))
+        expect_identical(formals(shallow$functions$outer), pairlist(x = "a\tb"))
+    }
 })
 
 test_that("shallow indexing follows standalone brace statements with their source ranges", {

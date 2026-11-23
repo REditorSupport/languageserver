@@ -2,6 +2,18 @@
 # paths, so they survive worker serialization without retaining XML pointers.
 member_source_key <- function(path) paste(c("root", path), collapse = ":")
 
+# R's wholeSrcref starts at the beginning of the parse input, even for a
+# nested block. The first child reference locates the opening brace itself.
+member_brace_ref <- function(node) {
+    ref <- attr(node, "wholeSrcref", exact = TRUE)
+    children <- attr(node, "srcref", exact = TRUE)
+    if (!is.null(ref) && length(children) && !is.null(children[[1L]])) {
+        start <- c(1L, 2L, 5L, 7L)
+        ref[start] <- children[[1L]][start]
+    }
+    ref
+}
+
 member_function_parts <- function(data) {
     parts <- new.env(hash = TRUE, parent = emptyenv())
     functions <- data$parent[data$token %in% c("FUNCTION", r"('\\')")]
@@ -82,7 +94,8 @@ member_scope_index <- function(node) {
 
 member_statement_index <- function(children) {
     assigned <- vapply(children, function(child) {
-        if ((member_head(child, "<-") || member_head(child, "=")) && is.symbol(child[[2L]])) {
+        if (is.call(child) && length(child) == 3L && is.symbol(child[[2L]]) &&
+                (identical(child[[1L]], quote(`<-`)) || identical(child[[1L]], quote(`=`)))) {
             as.character(child[[2L]])
         } else {
             ""
@@ -96,9 +109,12 @@ member_statement_index <- function(children) {
     })
     fields <- member_scope_field_writes(children, assigned, writes)
     tracked <- ifelse(nzchar(assigned), assigned, fields)
-    mandatory <- which(!nzchar(tracked) | assigned %in% c("$<-", "[[<-") | startsWith(assigned, "$.") | startsWith(assigned, "[[.") | vapply(reads, function(names) {
-        any(names %in% c("setClass", "setClassUnion"))
-    }, logical(1L)))
+    # A registration can affect a later receiver even if its return value is unused.
+    registrations <- vapply(seq_along(reads), function(i) {
+        any(reads[[i]] %in% c("setClass", "setClassUnion")) || !is.null(member_r6_control(children[[i]]))
+    }, logical(1L))
+    mandatory <- which(!nzchar(tracked) | assigned %in% c("$<-", "[[<-") |
+            startsWith(assigned, "$.") | startsWith(assigned, "[[.") | registrations)
     histories <- split(which(nzchar(tracked)), tracked[nzchar(tracked)])
     scope <- list(assigned = assigned, reads = reads, writes = writes, mandatory = mandatory,
         histories = list2env(histories, hash = TRUE, parent = emptyenv()))
@@ -155,7 +171,7 @@ member_source_index <- function(expr, parts) {
             # Keep only their physical child indexes for cursor recovery.
             scope <- member_scope_index(node)
             bytes <<- bytes + as.numeric(utils::object.size(as.list(scope$histories)))
-            whole <- attr(node, "wholeSrcref")
+            whole <- member_brace_ref(node)
             if (!is.null(whole)) ref <- whole
             for (i in seq_along(scope$assigned)) {
                 if (any(scope$reads[[i]] %in% c("function", "{"))) {

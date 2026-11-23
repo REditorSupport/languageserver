@@ -209,7 +209,10 @@ indexed_incoming_calls <- function(workspace, item) {
 }
 
 indexed_outgoing_calls <- function(workspace, item) {
-    doc <- workspace$documents$get(item$uri)
+    doc <- workspace$documents$get(item$uri, NULL)
+    # Package definitions can point to a generated file the client has never
+    # opened. There are no indexed calls to expand until it has a document.
+    if (is.null(doc)) return(list())
     parse_data <- workspace$get_parse_data(item$uri)
     index <- parse_data$reference_index
     if (is.null(index)) return(NULL)

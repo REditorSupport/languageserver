@@ -46,13 +46,12 @@ test_that("Parser collectors preserve replacement values and first-seen order", 
     expect_identical(parsed$objects,
         c("first", "second", "first", "first", "third", "third", "fourth",
             "fifth", "active", "ignored"))
-    expect_identical(parsed$functs, c("first", "first", "fourth", "ignored"))
+    expect_identical(parsed$functs, c("fourth", "ignored"))
     expect_identical(parsed$nonfuncts,
         c("second", "first", "third", "loop", "third", "fifth", "active"))
-    expect_identical(names(parsed$functions), c("first", "fourth", "ignored"))
+    expect_identical(names(parsed$functions), c("fourth", "ignored"))
     expect_identical(names(parsed$signatures), names(parsed$functions))
-    expect_identical(formals(parsed$functions$first), pairlist(y = 2))
-    expect_identical(parsed$signatures$first, "first(y = 2)")
+    expect_null(parsed$signatures$first)
     expect_identical(parsed$definitions$first$type, "double")
     expect_equal(parsed$definitions$first$range$start$line, 6L)
     expect_identical(names(parsed$documentation), "first")

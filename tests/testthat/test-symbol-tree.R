@@ -13,6 +13,15 @@ symbol_tree_reply <- function(fixture, hierarchical = TRUE) {
         list(hierarchicalDocumentSymbolSupport = hierarchical))$result
 }
 
+test_that("an open document without bindings does not interrupt workspace symbol search", {
+    fixture <- symbol_tree_fixture("library(R6)")
+    other <- symbol_tree_fixture("target <- function() 1", "file:///other.R")
+    fixture$workspace$documents$set(other$uri, other$document)
+    result <- workspace_symbol_reply(1L, list(fixture$workspace), "tgt")$result
+    expect_identical(map_chr(result, "name"), "target")
+    expect_identical(result[[1L]]$location$uri, other$uri)
+})
+
 test_that("the document outline nests named functions under each enclosing function", {
     fixture <- symbol_tree_fixture(c(
         "foo <- function() {",

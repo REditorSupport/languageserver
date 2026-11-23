@@ -468,14 +468,20 @@ s3_scoped_call <- function(document, location, context) {
         return(NULL)
     }
     node <- root
-    pipe_lhs <- NULL
+    pipe_rhs <- NULL
     scope <- context$root
     ast <- integer()
     while (length(path)) {
         step <- path[[1L]]
-        if (is.call(node) && member_name(node[[1L]]) %in% c("%>%", "%<>%", "%T>%") && step == 3L) {
+        if (step == 3L && is.call(node) && is.symbol(node[[1L]]) &&
+                member_name(node[[1L]]) %in% c("%>%", "%<>%", "%T>%")) {
             if (!is.null(s3_get_value(member_name(node[[1L]]), scope, context, source_only = TRUE))) return(NULL)
-            pipe_lhs <- node[[2L]]
+            # The placeholder is lexical throughout the RHS, but magrittr
+            # supplies an implicit first argument only to the outermost call.
+            input <- context$infer(node[[2L]], scope)
+            scope <- new.env(parent = scope)
+            assign(".", input, scope)
+            pipe_rhs <- c(ast, step)
         }
         if (member_head(node, "function")) {
             scope <- new.env(parent = scope)
@@ -494,7 +500,7 @@ s3_scoped_call <- function(document, location, context) {
             ":::"
         )) && identical(member_name(node[[step]][[3L]]), recovered$sentinel))) {
             node[[1L]][[3L]] <- as.name(location$call$token)
-            if (!is.null(pipe_lhs)) node <- s3_pipe_call(pipe_lhs, node)
+            if (identical(ast, pipe_rhs)) node <- s3_pipe_arguments(node)
             return(list(call = node, scope = scope))
         }
         if (is.call(node) && step == 1L && is.symbol(node[[step]]) &&
@@ -507,7 +513,7 @@ s3_scoped_call <- function(document, location, context) {
                     as.name(location$call$token)
                 ))
             }
-            if (!is.null(pipe_lhs)) node <- s3_pipe_call(pipe_lhs, node)
+            if (identical(ast, pipe_rhs)) node <- s3_pipe_arguments(node)
             return(list(call = node, scope = scope, root = root, path = ast))
         }
         node <- node[[step]]
@@ -763,11 +769,16 @@ s3_recover_call <- function(document, location, recovered) {
     NULL
 }
 
+s3_pipe_arguments <- function(call) {
+    args <- as.list(call)[-1L]
+    if (any(vapply(args, identical, logical(1L), quote(.)))) return(call)
+    as.call(c(list(call[[1L]], quote(.)), args))
+}
+
 s3_pipe_call <- function(lhs, call) {
     if (!is.call(call) || member_head(call, "{")) {
         return(NULL)
     }
-    direct <- any(vapply(as.list(call)[-1L], function(x) is.symbol(x) && identical(member_name(x), "."), logical(1L)))
     replace <- function(node) {
         if (is.symbol(node) && identical(member_name(node), ".")) {
             return(lhs)
@@ -775,9 +786,7 @@ s3_pipe_call <- function(lhs, call) {
         if (is.call(node)) for (i in seq_along(node)) node[i] <- list(replace(node[[i]]))
         node
     }
-    call <- replace(call)
-    if (!direct) call <- as.call(c(list(call[[1L]]), list(lhs), as.list(call)[-1L]))
-    call
+    replace(s3_pipe_arguments(call))
 }
 
 s3_catalog_ordinary_call <- function(catalog, token) {
@@ -933,7 +942,19 @@ s3_cached_callee <- function(workspace, document, location, packages) {
         if (is.null(namespace)) return(FALSE)
         found <- tryCatch(namespace$exists_funct(location$call$token,
                 exported_only = location$call$accessor != ":::"), error = function(e) FALSE)
-        if (isTRUE(found)) return(TRUE)
+        if (isTRUE(found)) {
+            # Startup generics can still provide ordinary help if their
+            # catalogs failed. For a requested package being prepared, a
+            # cached generic signature must not outrun its method catalog.
+            catalog <- workspace$s3_metadata$catalog(candidate)
+            if (candidate %in% startup_packages || (!is.null(catalog) && is.null(catalog$error))) return(TRUE)
+            binding <- s3_namespace_binding(getNamespace(candidate), location$call$token, materialize = FALSE)
+            if (!identical(binding[[1L]], "value") || !is.function(binding[[2L]])) return(FALSE)
+            fn <- binding[[2L]]
+            if (is.primitive(fn)) return(TRUE)
+            syntax <- as.call(list(as.name("function"), formals(fn), body(fn)))
+            return(is.null(s3_generic_descriptor(syntax)))
+        }
     }
     FALSE
 }
@@ -983,7 +1004,7 @@ s3_metadata_waiting <- function(self, uri, document, point = NULL, hover = FALSE
         if (!s3_may_dispatch(workspace, document, location, packages)) {
             history <- document$parse_data$member_data$s3$histories[[location$call$token]]
             if (is.null(package) && member_history_position(history, c(point$row, point$col))) return(FALSE)
-            if (s3_known_ordinary_call(workspace$s3_metadata, location$call$token, packages)) return(FALSE)
+            if (is.null(package) && s3_known_ordinary_call(workspace$s3_metadata, location$call$token, packages)) return(FALSE)
             # Unknown calls may belong to a generic in the package currently
             # being resolved. Preserve the wait until its catalog arrives.
         }

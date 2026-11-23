@@ -108,6 +108,16 @@ rename_incomplete_error <- function(id) {
     ResponseErrorMessage$new(id, "RequestFailed", "Incomplete R code may contain other uses of this symbol")
 }
 
+rename_lexical_document_error <- function(id, doc, uri, token, key) {
+    if (!rename_document_complete(doc, uri, token, key)) return(rename_incomplete_error(id))
+    # The lexical occurrence index does not include string literals on the
+    # left of an assignment. Editing only the callers would break the binding.
+    if ((is.null(key) || startsWith(key, "global:")) && token$token %in% doc$parse_data$quoted_bindings) {
+        return(ResponseErrorMessage$new(id, "RequestFailed", "Rename cannot update this string-literal assignment"))
+    }
+    NULL
+}
+
 prepare_rename_reply <- function(id, uri, workspace, document, point) {
     if (!check_r_region(document, point)) {
         return(ResponseErrorMessage$new(
@@ -142,7 +152,8 @@ prepare_rename_reply <- function(id, uri, workspace, document, point) {
         key <- reference_key_at(parsed$reference_index, token$range$start, token$token)
         for (doc_uri in workspace_reference_document_uris(workspace, defn$result$uri, uri, key)) {
             doc <- workspace$documents$get(doc_uri, NULL)
-            if (!rename_document_complete(doc, uri, token, key)) return(rename_incomplete_error(id))
+            problem <- rename_lexical_document_error(id, doc, uri, token, key)
+            if (!is.null(problem)) return(problem)
         }
         Response$new(
             id,

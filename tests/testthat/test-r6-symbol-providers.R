@@ -605,3 +605,140 @@ test_that("Completion replies offer R6 constructor arguments and resolve them co
         expect_null(resolved$labelDetails)
     }
 })
+
+test_that("R6 generator controls and generated clones retain their actual signatures", {
+    code <- 'C <- R6::R6Class("C", public = list(field = 1, read = function() self$field))'
+    generator <- R6::R6Class("C")
+    for (name in c("debug", "undebug", "set", "lock", "unlock", "is_locked")) {
+        fixture <- r6_symbol_fixture(c(code, sprintf("C$%s(", name)))
+        sig <- r6_symbol_signature(fixture)$signatures[[1L]]$label
+        expect_identical(sig, get_signature(name, member_function_syntax(generator[[name]])))
+    }
+    hover <- function(code, expr, token) {
+        fixture <- r6_symbol_fixture(c(code, expr))
+        r6_symbol_hover(fixture, fixture$document$nline - 1L, token)$contents
+    }
+    expect_match(hover(code, "C$new()$clone()", "clone")[[1L]], "clone(deep = FALSE)", fixed = TRUE)
+    for (deep in c("", "deep = TRUE")) {
+        cloned <- c(code, "obj <- C$new()", "copy <- obj$clone", paste0("other <- copy(", deep, ")"))
+        expect_match(hover(cloned, "other$read()", "read")[[1L]], "read()", fixed = TRUE)
+    }
+    stored <- c(code, "obj <- C$new()", "tools <- list(copy = obj$clone)", "other <- tools$copy()")
+    expect_match(hover(stored, "other$read()", "read")[[1L]], "read()", fixed = TRUE)
+    child <- c(code, 'D <- R6::R6Class("D", inherit = C, public = list(copy = function() super$clone()))')
+    expect_match(hover(child, "D$new()$copy()$read()", "read")[[1L]], "read()", fixed = TRUE)
+    for (option in c("FALSE", "flag")) {
+        parent <- sprintf('C <- R6::R6Class("C", cloneable = %s, public = list(field = 1))', option)
+        expect_null(hover(c(parent, 'D <- R6::R6Class("D", inherit = C)'), "D$new()$clone()", "clone"))
+    }
+    custom <- sub("public =", "private = list(deep_clone = function(name, value) stop()), public =", code)
+    contents <- hover(c(custom, "other <- C$new()$clone(deep = TRUE)"), "other$field", "field")
+    expect_false(any(grepl("1", contents, fixed = TRUE)))
+})
+
+test_that("source-preserved R6 caches contain only the user's source locations", {
+    code <- c('C <- R6::R6Class("C", public = list(', "  initialize = function(value = 1) NULL,",
+        "  read = function() self))", "obj <- C$new()", "C$new", "obj$read")
+    fixture <- r6_symbol_fixture(code)
+    doc <- fixture$document
+    for (row in c(4L, 5L)) {
+        point <- list(row = row, col = nchar(code[[row + 1L]]))
+        doc$member_receivers$clear()
+        resolved <- member_resolve_cursor(fixture$uri, fixture$workspace, doc, point, member_cursor(doc, point))
+        methods <- if (row == 4L) resolved$value$fields else resolved$value$fields["clone"]
+        for (method in methods) {
+            fn <- method$function_expr
+            expect_true(member_head(fn, "function"))
+            expect_true(length(fn) == 3L || is.null(fn[[4L]]))
+        }
+        expect_identical(doc$member_receivers$size(), 1L)
+        expect_lt(doc$member_receivers$bytes(), 100 * 1024)
+        target <- definition_reply(1L, fixture$uri, fixture$workspace, doc, point)$result
+        expect_identical(target$uri, fixture$uri)
+        expect_equal(target$range$start$line, if (row == 4L) 1L else 2L)
+    }
+})
+
+test_that("R6 set controls affect subsequent constructions and respect generator locks", {
+    decl <- 'C <- R6::R6Class("C", public = list(before = 1), lock_class = TRUE)'
+    body <- c("alias <- C", 'alias$set("public", "ignored", 1)', "alias$unlock()", "old <- C$new()",
+        'alias$set("public", "read", function() self$before)',
+        'alias$set(name = "clone", which = "public", value = function(deep = FALSE) list(custom = TRUE), overwrite = TRUE)',
+        "alias$lock()", 'C$set("public", "ignored", 1)')
+    probe <- function(code, query) {
+        fixture <- r6_symbol_fixture(c(code, query))
+        items <- member_completion(fixture$uri, fixture$workspace, fixture$document,
+            list(row = fixture$document$nline - 1L, col = nchar(query)), FALSE, 200L)
+        vapply(items, `[[`, "", "label")
+    }
+    for (prefix in list(c(decl, body), c("f <- function() {", decl, body))) {
+        expect_identical(probe(prefix, "C$new()$"), c("before", "clone", "read"))
+        expect_identical(probe(prefix, "C$new()$clone()$"), "custom")
+        expect_identical(probe(prefix, "old$clone()$"), c("before", "clone"))
+    }
+    fixture <- r6_symbol_fixture(c(decl, body, "C$new()$read()"))
+    result <- definition_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+        list(row = fixture$document$nline - 1L, col = 9L))$result
+    expect_identical(result$uri, fixture$uri)
+    expect_equal(result$range, range(position(5L, 20L), position(5L, 26L)))
+    expect_length(probe(c(decl, "C$unlock()", 'C$set("public", key, function() NULL, overwrite = TRUE)'),
+            "C$new()$clone()$"), 0L)
+    conditional <- c(decl, "C$unlock()", 'if (flag) C$set("public", "clone", function() list(custom = TRUE), overwrite = TRUE)')
+    for (prefix in list(conditional, c("f <- function() {", conditional))) {
+        expect_length(probe(prefix, "C$new()$clone()$"), 0L)
+    }
+})
+
+test_that("assigning an R6 control result updates the generator before binding the result", {
+    registered <- c('C <- R6::R6Class("C")', "old <- C$new()",
+        'result <- C$set("public", "run", function(x) x)')
+    calls <- c("C$new()$run()", "old$run()", "result$run()")
+    labels <- function(fixture, row) {
+        line <- fixture$document$line0(row)
+        point <- list(row = row, col = max(gregexpr("$", line, fixed = TRUE)[[1L]]))
+        items <- completion_reply(1L, fixture$uri, fixture$workspace, fixture$document, point, list())$result$items
+        items <- Filter(function(item) identical(item$data$type, "member"), items)
+        vapply(items, `[[`, "", "label")
+    }
+    for (local in c(FALSE, TRUE)) {
+        code <- if (local) c("build <- function() {", registered, calls, "}") else c(registered, calls)
+        fixture <- r6_symbol_fixture(code)
+        row <- match(calls[[1L]], code) - 1L
+        expect_true("run" %in% labels(fixture, row))
+        expect_false("run" %in% labels(fixture, row + 1L))
+        expect_false(any(c("new", "run") %in% labels(fixture, row + 2L)))
+        target <- definition_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+            list(row = row, col = 9L))$result
+        expect_identical(target$uri, fixture$uri)
+        expect_equal(target$range, range(position(row - 1L, 26L), position(row - 1L, 31L)))
+    }
+    factory <- r6_symbol_fixture(c("build <- function() {", registered, "C$new()", "}", "build()$run()"))
+    expect_true("run" %in% labels(factory, 6L))
+
+    rebound <- r6_symbol_fixture(c('C <- R6::R6Class("C", lock_class = TRUE)', "alias <- C",
+            "unlocked = C$unlock()", 'C <- C$set("public", "run", function() 1)',
+            "alias$new()$run()", "C$new()$run()"))
+    expect_true("run" %in% labels(rebound, 4L))
+    expect_false("run" %in% labels(rebound, 5L))
+
+    guarded <- r6_symbol_fixture(c('C <- R6::R6Class("C", public = list(original = 1))',
+            'later <- function() C$set("public", "delayed", 1)',
+            'expr <- quote(C$set("public", "quoted", 1))', "C$new()$original",
+            'if (flag) result <- C$set("public", "clone", function() list(other = 1), overwrite = TRUE)',
+            "C$new()$clone()$original"))
+    expect_identical(labels(guarded, 3L), c("clone", "original"))
+    expect_false("original" %in% labels(guarded, 5L))
+})
+
+test_that("opaque deep copies retain environment locks and active bindings", {
+    index <- member_generic_index("")
+    generator <- member_infer(quote(R6::R6Class("C", public = list(read = function() 1, field = 1),
+                active = list(computed = function() stop()), private = list(deep_clone = function(name, value) value))),
+        index)
+    instance <- member_r6_clone_result(generator$fields$new$result_shape, member_literal(TRUE))
+    expect_false(member_r6_writable(instance, "new_name"))
+    expect_false(member_r6_writable(instance, "read"))
+    expect_false(member_r6_writable(instance, "computed"))
+    expect_true(member_r6_writable(instance, "field"))
+    expect_identical(instance$fields$computed$reason, "active_property")
+})

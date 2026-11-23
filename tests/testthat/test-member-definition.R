@@ -82,6 +82,40 @@ test_that("namespace member navigation verifies preserved physical function sour
     expect_null(member_definition_test(fixture, 0L, "run"))
 })
 
+test_that("source-less registered methods open their own captured namespace bodies", {
+    scope <- new.env(parent = baseenv())
+    scope$first_run <- eval(str2lang("function(x) x + 1L"), scope)
+    scope$other_run <- eval(str2lang("function(x) x - 1L"), scope)
+    scope$api <- list(run = scope$first_run)
+    scope$other <- list(run = scope$other_run)
+    input <- member_namespace_input(scope, package = "methodfixture", exports = c("api", "other"))
+    index <- member_package_index(input)
+    index$roots <- member_public_roots(index, input)
+    index$namespace_roots <- stats::setNames(index$roots, paste0("methodfixture::", names(index$roots)))
+    fixture <- provider_fixture(c("run <- function(x) 0", "methodfixture::api$run(2)", "methodfixture::other$run(2)",
+            "target <- if (unknown) methodfixture::api else methodfixture::other", "target$run(2)"))
+    metadata <- MemberMetadataCache$new(32 * 1024^2)
+    metadata$set("methodfixture", member_index_freeze(index))
+    fixture$workspace$member_metadata <- metadata
+    go <- function(row, store = NULL) {
+        point <- list(row = row, col = regexpr("run", fixture$document$line0(row), fixed = TRUE)[[1L]])
+        definition_reply(1L, fixture$uri, fixture$workspace, fixture$document, point, getwd(),
+            text_document_content = store)$result
+    }
+    store <- TextDocumentContent$new()
+    targets <- lapply(1:2, go, store = store)
+    expect_false(identical(targets[[1L]]$uri, targets[[2L]]$uri))
+    expect_match(store$get(targets[[1L]]$uri), "x + 1L", fixed = TRUE)
+    expect_match(store$get(targets[[2L]]$uri), "x - 1L", fixed = TRUE)
+    expect_null(go(4L, store))
+    for (target in list(go(1L), go(1L, TextDocumentContent$new(max_bytes = 1L)))) {
+        expect_true(startsWith(target$uri, "file:"))
+        expect_match(paste(readLines(path_from_uri(target$uri)), collapse = "\n"), "x + 1L", fixed = TRUE)
+    }
+    point <- list(row = 1L, col = 20L)
+    expect_null(member_definition_location(fixture$uri, fixture$workspace, fixture$document, point)$result)
+})
+
 test_that("member definitions are available in unsaved untitled documents", {
     uri <- "untitled:Untitled-1"
     text <- c("obj <- list(fun = function(x) x)", "obj$fun(")

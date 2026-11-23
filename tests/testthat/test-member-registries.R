@@ -59,6 +59,10 @@ test_that("Source package registries expose prefixed methods and literal active 
             register("extra", identity, TRUE), register("opaque", unknown), unknown(), value)) {
         expect_identical(member_registration_effect(expr, index, scope), scope)
     }
+    budget <- member_request_budget()
+    remaining <- budget$remaining
+    expect_identical(member_registration_effect(quote(make_box()$read()), index, scope, budget), scope)
+    expect_identical(budget$remaining, remaining)
 })
 
 test_that("Static S3 return summaries retry long method bodies and honor external registration", {

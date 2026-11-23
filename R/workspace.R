@@ -828,11 +828,11 @@ Workspace <- R6::R6Class("Workspace",
         get_definitions_for_query = function(pattern) {
             if (!is.null(self$index) && isTRUE(self$index$enabled)) {
                 result <- self$index$definitions_for_query(pattern)
-                indexed_uris <- self$index$summaries$keys()
-                documents <- self$documents$values()
-                documents <- documents[!vapply(documents, function(doc) {
-                    index_canonical_uri(doc$uri) %in% indexed_uris
-                }, logical(1L))]
+                summaries <- self$index$summaries
+                remaining <- setdiff(self$documents$keys(), summaries$keys())
+                # Clients can spell a file URI differently from its index key.
+                remaining <- Filter(function(uri) !summaries$has(index_canonical_uri(uri)), remaining)
+                documents <- lapply(remaining, self$documents$get)
             } else {
                 result <- list()
                 documents <- self$documents$values()
@@ -841,6 +841,7 @@ Workspace <- R6::R6Class("Workspace",
                 parse_data <- doc$parse_data
                 if (is.null(parse_data)) next
                 records <- class_search_definitions(parse_data$definitions, parse_data$class_data$declarations)
+                if (!length(records)) next
                 matches <- fuzzy_find(names(records), pattern)
                 result <- c(result, lapply(
                     unname(records[matches]),

@@ -438,6 +438,20 @@ test_that("cached but unloaded namespaces still preserve pending masking", {
     expect_true(s3_metadata_waiting(fixture$server, fixture$uri, fixture$document, list(row = 2L, col = 15L)))
 })
 
+test_that("cached non-startup generics wait for their catalog while ordinary calls reply", {
+    fixture <- readiness_fixture(c("xml2::xml_url(node)", "xml2::xml_type(node)"))
+    fixture$document$requested_packages <- list(packages = character(), namespace_packages = "xml2")
+    fixture$workspace$get_namespace("xml2")
+    waiting <- function(row) {
+        s3_metadata_waiting(fixture$server, fixture$uri, fixture$document,
+            list(row = row, col = nchar(fixture$document$line0(row)) - 1L))
+    }
+    expect_true(waiting(0L))
+    expect_false(waiting(1L))
+    fixture$workspace$s3_metadata$set("xml2", s3_prepare_namespace("xml2"))
+    expect_false(waiting(0L))
+})
+
 test_that("generic providers do not wait for member-completion model preparation", {
     fixture <- readiness_fixture("print()")
     server <- fixture$server

@@ -110,16 +110,7 @@ s3_implementation_location <- function(method, workspace, store, verified) {
         target <- member_file_definition(verified$origin, workspace)
         if (!is.null(target)) return(target)
     }
-    target <- package_body_definition(method$package, method$name, verified$code, store$scheme)
-    text <- attr(target, "text_document_content")
-    if (!is.null(text)) {
-        if (store$set(target$uri, text)) {
-            attr(target, "text_document_content") <- NULL
-        } else {
-            target <- package_body_definition(method$package, method$name, verified$code)
-        }
-    }
-    target
+    package_body_location(method$package, method$name, verified$code, store)
 }
 
 s3_verified_method_body <- function(pkg, name, owner, hash, materialize, ns = asNamespace(pkg)) {
@@ -159,7 +150,44 @@ implementation_method <- function(workspace, document, point) {
     if (!is.null(result) && s3_implementation_unique(result, workspace, document, point)) result$method
 }
 
+class_s7_method_declarations <- function(parsed) {
+    Filter(function(cls) identical(cls$type, "S7Method"), parsed$class_data$declarations)
+}
+
+s7_implementation_reply <- function(id, workspace, document, point) {
+    if (!isTRUE(lsp_settings$get("member_completion")) || !check_r_region(document, point)) return(NULL)
+    parsed <- current_parse_data(document$uri, workspace, document)
+    declarations <- class_s7_method_declarations(parsed)
+    if (!length(declarations)) return(NULL)
+    symbol <- class_navigation_symbol(document, parsed, point)
+    if (is.null(symbol$call) || !is.null(symbol$call$package)) return(NULL)
+    cursor <- symbol$location$cursor
+    cursor$s7_implementation <- TRUE
+    resolved <- member_resolve_cursor(document$uri, workspace, document, symbol$location$point,
+        cursor, cursor$token, origins = TRUE)
+    if (is.null(resolved$value$s7_dispatch_args)) return(NULL)
+    source <- resolved$value$s7_implementation
+    # A type match alone cannot identify a source declaration. Match the
+    # selected registration's physical span against this version's catalog.
+    if (!identical(source$uri, document$uri) || isTRUE(resolved$budget$exhausted) ||
+            isTRUE(resolved$value$possible_receiver)) return(Response$new(id))
+    span <- range(document$to_lsp_position(source$start[[1L]], source$start[[2L]]),
+        document$to_lsp_position(source$end[[1L]], source$end[[2L]]))
+    selected <- Filter(function(cls) equal_range(cls$range, span), declarations)
+    if (length(selected) != 1L) return(Response$new(id))
+    selected <- selected[[1L]]
+    peers <- setdiff(workspace_document_uris(workspace, document$uri), document$uri)
+    competing <- class_workspace_declarations(workspace, peers)
+    ambiguous <- vapply(competing, function(cls) {
+        identical(cls$type, "S7Method") && identical(cls$class_name, selected$class_name)
+    }, logical(1L))
+    if (any(ambiguous)) return(Response$new(id))
+    Response$new(id, result = location(document$uri, selected$selectionRange))
+}
+
 implementation_reply <- function(id, uri, workspace, document, point, store = NULL, defer = NULL) {
+    s7 <- s7_implementation_reply(id, workspace, document, point)
+    if (!is.null(s7)) return(s7)
     method <- implementation_method(workspace, document, point)
     target <- if (!is.null(method)) s3_implementation_target(method, workspace, store)
     if (isTRUE(target$deferred)) {
@@ -243,14 +271,17 @@ check_implementation_requests <- function(self, cancel_id = NULL) {
 
 class_navigation_waiting <- function(self, workspace, document, point, method) {
     implementation <- identical(method, "textDocument/implementation")
-    enabled <- if (implementation) "s3_dispatch" else "member_completion"
-    if (!isTRUE(lsp_settings$get(enabled)) || !check_r_region(document, point)) return(FALSE)
+    members <- isTRUE(lsp_settings$get("member_completion"))
+    s3 <- implementation && isTRUE(lsp_settings$get("s3_dispatch"))
+    if ((!members && !s3) || !check_r_region(document, point)) return(FALSE)
     if (!identical(document$version, document$parse_data$version)) return(TRUE)
     if (identical(method, "textDocument/implementation")) {
         call <- class_navigation_symbol(document, document$parse_data, point)$call
         if (is.null(call)) return(FALSE)
-        return(index_context_waiting(self, workspace, document, point, call = call) ||
-                s3_metadata_waiting(self, document$uri, document, point, call = call))
+        s7 <- members && is.null(call$package) && length(class_s7_method_declarations(document$parse_data)) > 0L
+        return(((s3 || s7) && index_context_waiting(self, workspace, document, point, call = call)) ||
+                (s3 && s3_metadata_waiting(self, document$uri, document, point, call = call)) ||
+                (s7 && member_metadata_waiting(self, document$uri, document, point, call = call)))
     }
     location <- member_hover_location(document, point)
     if (is.null(location)) location <- class_navigation_symbol(document, document$parse_data, point)$location
@@ -270,6 +301,8 @@ class_navigation_request <- function(self, id, params, method) {
         enqueue_latest_reply(self, uri, method, list(id = id, version = document$version, params = params))
         manager <- if (identical(method, "textDocument/implementation")) self$resolve_task_manager else self$member_task_manager
         if (is.function(manager$promote)) manager$promote(uri)
+        if (identical(method, "textDocument/implementation") && length(class_s7_method_declarations(document$parse_data)) &&
+                is.function(self$member_task_manager$promote)) self$member_task_manager$promote(uri)
         return(invisible(NULL))
     }
     reply <- if (identical(method, "textDocument/implementation")) {

@@ -3,6 +3,17 @@ parse_type_hierarchy_xdoc <- function(code) {
     xml2::read_xml(xmlparsedata::xml_parse_data(parsed))
 }
 
+test_that("a leading dot can belong to a generic or an ordinary private function", {
+    fixture <- provider_fixture(c(".onLoad <- function(lib, pkg) {}",
+            '.draw <- function(x) UseMethod(".draw")', ".draw.widget <- function(x) x"))
+    at <- function(row) {
+        prepare_type_hierarchy_reply(1L, fixture$uri, fixture$workspace, fixture$document,
+            list(row = row, col = 2L))$result
+    }
+    expect_length(at(0L), 0L)
+    expect_identical(at(2L)[[1L]]$name, "widget")
+})
+
 test_that("worker class facts preserve member and inheritance outputs without XML", {
     code <- c('Base <- R6Class("Base", public = list(value = 1))',
         'Alias <- R6::R6Class("Child", inherit = "Base", public = list(run = function(x) { list(nested = x) }), private = list(secret = 2))',

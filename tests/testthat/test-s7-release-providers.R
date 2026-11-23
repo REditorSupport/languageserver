@@ -363,3 +363,29 @@ test_that("sourced complete blocks in a partially parsed file keep their propert
         expect_equal(location, list(uri = api$uri, range = range(position(i, start), position(i, start + nchar(key)))))
     }
 })
+
+test_that("S7 property navigation follows guards preceding nested braced branches", {
+    skip_if_not_installed("S7", "1.0.0")
+    ws <- Workspace$new(NULL)
+    ws$member_metadata$set("S7", member_prepare_package("S7"))
+    code <- c("library(S7)", "Range := new_class(", "  properties = list(start = class_double, end = class_double),",
+        "  validator = function(self) {", "    if (length(self@start) != 1) {",
+        '      "invalid start"', "    } else if (self@end < self@start) {", '      "invalid end"', "    }", "  })")
+    uri <- "file:///validate-range.R"
+    doc <- Document$new(uri, language = "r", content = code, version = 1L)
+    ws$documents$set(uri, doc)
+    parsed <- parse_document(uri, code)
+    parsed$version <- 1L
+    ws$update_parse_data(uri, parsed)
+    for (site in list(list(5L, "start"), list(7L, "end"), list(7L, "start"))) {
+        row <- site[[1L]]
+        name <- site[[2L]]
+        col <- regexpr(paste0("@", name), code[[row]], fixed = TRUE)[[1L]]
+        point <- list(row = row - 1L, col = col + 1L)
+        expect_identical(hover_reply(1L, uri, ws, doc, point)$result$contents, "```r\ndouble\n```")
+        definition <- definition_reply(1L, uri, ws, doc, point)$result
+        expect_identical(definition$uri, uri)
+        start <- regexpr(paste0(name, " ="), code[[3L]], fixed = TRUE)[[1L]] - 1L
+        expect_equal(definition$range$start, position(2L, start))
+    }
+})

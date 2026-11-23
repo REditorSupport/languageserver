@@ -571,7 +571,7 @@ SEXP syntax_enclosing_c(SEXP syntax, SEXP point) {
     }
     for (int i = root_end-1; i >= low; --i) {
         int row = navigation_row(INTEGER(roots)[i], n);
-        if (syntax_named(tokens, row, "expr") && syntax_contains(row, line, col, line1,col1,line2,col2)) {
+        if (syntax_expr(tokens, row) && syntax_contains(row, line, col, line1,col1,line2,col2)) {
             if (pending_n == capacity) Rf_error("invalid overlapping syntax roots");
             pending[pending_n++] = row;
         }
@@ -579,7 +579,7 @@ SEXP syntax_enclosing_c(SEXP syntax, SEXP point) {
     while (pending_n) {
         if (++visited > n) Rf_error("cyclic syntax children");
         int row = pending[--pending_n];
-        if (syntax_named(tokens, row, "expr")) {
+        if (syntax_expr(tokens, row)) {
             if (count == capacity) Rf_error("invalid overlapping syntax scopes");
             result[count++] = row+1;
         }

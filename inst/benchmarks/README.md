@@ -1,5 +1,8 @@
 # Provider performance
 
+The [real-world provider audit](real-world-providers.md) covers the top 100
+ranked CRAN packages and example code from the R6, S7 and Polars websites.
+
 The performance work targets both time spent preparing a document and the
 latency of interactive requests. The baseline is commit `9618b5b`. Measurements
 below were taken locally with R 4.6.1 on macOS arm64; they are reproducible
