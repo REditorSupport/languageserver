@@ -16,6 +16,16 @@ parser.add_argument("--lines", type=int, default=20000)
 parser.add_argument("--providers", action="store_true")
 parser.add_argument("--semantic-edits", action="store_true",
     help="Measure didChange to semantic tokens for the viewport containing an incomplete R edit")
+parser.add_argument("--glue", action="store_true",
+    help="Measure completion while typing inside an interpolation")
+parser.add_argument("--glue-every", type=int,
+    help="Use a glue template every N fixture assignments (0 for ordinary R; default 1 with --glue, otherwise 0)")
+parser.add_argument("--fresh-rounds", action="store_true",
+    help="Change a preceding comment before each round so repeated prefixes cannot hit earlier parse snapshots")
+parser.add_argument("--burst", action="store_true",
+    help="Send completion on each keystroke without waiting until the final result; --pause sets the typing interval")
+parser.add_argument("--warm-request", action="store_true",
+    help="Repeat each completed foreground completion at the same position and version")
 parser.add_argument("--wait-parse", action="store_true")
 parser.add_argument("--index", choices=("off", "auto"), default="off")
 parser.add_argument("--rounds", type=int, default=1)
@@ -26,10 +36,30 @@ parser.add_argument("--profile")
 args = parser.parse_args()
 if args.lines < 1 or args.rounds < 1 or min(args.pause, args.open_delay) < 0:
     parser.error("lines/rounds must be positive and delays nonnegative")
+if args.glue_every is None:
+    args.glue_every = 1 if args.glue else 0
+if args.glue_every < 0:
+    parser.error("--glue-every must be nonnegative")
+if args.semantic_edits and (args.glue or args.burst or args.warm_request or args.fresh_rounds):
+    parser.error("completion modes cannot be combined with --semantic-edits")
 
 root = Path(tempfile.mkdtemp(prefix="completion-fixture-"))
 file = root / "script.R"
-lines = [f"value_{i:05d} <- sum(c(1, 2, 3))" for i in range(args.lines)] + [""]
+
+
+def assignment(index):
+    expression = "sum(c(1, 2, 3))"
+    if args.glue_every and index % args.glue_every == 0:
+        expression = 'glue::glue("total {sum(c(1, 2, 3))}")'
+    return f"value_{index:05d} <- {expression}"
+
+
+prefix = 'glue::glue("{' if args.glue else ""
+last_line = prefix + '}")' if args.glue else ""
+lines = [assignment(i) for i in range(args.lines)] + [last_line]
+if args.fresh_rounds:
+    lines.insert(0, "# round 0")
+cursor_line = len(lines) - 1
 file.write_text("\n".join(lines), encoding="utf-8")
 env = os.environ.copy()
 env["R_LIBS"] = os.pathsep.join(filter(None, (str(Path(args.library).resolve()), env.get("R_LIBS", ""))))
@@ -186,8 +216,8 @@ try:
     version = 1
     pause(args.open_delay)
     if args.semantic_edits:
-        viewport = {**doc, "range": {"start": {"line": max(0, args.lines - 40), "character": 0},
-            "end": {"line": args.lines + 1, "character": 0}}}
+        viewport = {**doc, "range": {"start": {"line": max(0, cursor_line - 40), "character": 0},
+            "end": {"line": cursor_line + 1, "character": 0}}}
         reference = receive(send("textDocument/semanticTokens/range", viewport))["data"]
         if not reference:
             raise RuntimeError("The valid fixture must return semantic tokens")
@@ -195,7 +225,20 @@ try:
     else:
         tokens = ["v", "va", "val", "valu", "value", "value_", "value_0", "value_00"]
     for round_number in range(1, args.rounds + 1):
-        if args.wait_parse or round_number > 1:
+        if args.fresh_rounds:
+            version += 1
+            changes = [{"range": {"start": {"line": 0, "character": 0},
+                "end": {"line": 0, "character": len(f"# round {round_number - 1}")}},
+                "text": f"# round {round_number}"}]
+            # A barrier on the previous round's final prefix would prewarm the
+            # very snapshot we want to time at the end of this round's burst.
+            if previous:
+                changes.append({"range": {"start": {"line": cursor_line, "character": len(prefix)},
+                    "end": {"line": cursor_line, "character": len(prefix) + len(previous)}}, "text": ""})
+                previous = ""
+            send("textDocument/didChange", {"textDocument": {"uri": uri, "version": version},
+                "contentChanges": changes}, False)
+        if args.wait_parse or round_number > 1 or args.fresh_rounds:
             started = time.monotonic()
             receive(send("textDocument/documentSymbol", doc))
             print(json.dumps({"round": round_number, "prepare_ms": round(
@@ -208,20 +251,29 @@ try:
         for token in tokens:
             pause(args.pause)
             version += 1
-            point = {"line": args.lines, "character": len(token)}
+            point = {"line": cursor_line, "character": len(prefix) + len(token)}
             # Distinct source each round avoids replaying an identical cached parse.
             replacement = f"{token} # round {round_number}" if args.semantic_edits else token
             start = time.monotonic()
             send("textDocument/didChange", {"textDocument": {"uri": uri, "version": version},
-                "contentChanges": [{"range": {"start": {"line": args.lines, "character": 0},
-                    "end": {"line": args.lines, "character": len(previous)}}, "text": replacement}]}, False)
+                "contentChanges": [{"range": {"start": {"line": cursor_line, "character": len(prefix)},
+                    "end": {"line": cursor_line, "character": len(prefix) + len(previous)}}, "text": replacement}]}, False)
+            if args.burst and token != tokens[-1]:
+                send("textDocument/completion", {**doc, "position": point}, background=True)
+                previous = replacement
+                continue
             if args.semantic_edits:
                 data = receive(send("textDocument/semanticTokens/range", viewport))["data"]
                 count = {"tokens": len(data) // 5, "unchanged_tokens_match": data[:len(reference)] == reference}
             else:
                 result = receive(send("textDocument/completion", {**doc, "position": point}))
-                count = {"items": len(result.get("items", []))}
+                items = result.get("items", [])
+                count = {"items": len(items), "has_fixture_name": any(item["label"] == "value_00000" for item in items)}
             elapsed = (time.monotonic() - start) * 1000
+            if args.warm_request:
+                warm = time.monotonic()
+                receive(send("textDocument/completion", {**doc, "position": point}))
+                count["warm_ms"] = round((time.monotonic() - warm) * 1000, 2)
             if args.semantic_edits and args.wait_parse:
                 full = receive(send("textDocument/semanticTokens/full", doc))
                 count["full_ms"] = round((time.monotonic() - start) * 1000, 2)

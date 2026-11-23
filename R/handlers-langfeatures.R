@@ -154,6 +154,7 @@ text_document_completion  <- function(self, id, params) {
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     if (reply_parse_failure(self, id, document)) return(invisible(NULL))
     point <- document$from_lsp_position(params$position)
+    if (glue_cursor_request(self, id, params, "textDocument/completion", workspace, document, point)) return(invisible(NULL))
     if (isTRUE(params$context$triggerCharacter %in% c("'", "\""))) {
         key <- if (isTRUE(lsp_settings$get("member_completion"))) member_bracket_cursor(document, point)
         if (is.null(key) || point$col != key$start + 1L) {
@@ -230,6 +231,7 @@ text_document_hover  <- function(self, id, params) {
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     if (reply_parse_failure(self, id, document)) return(invisible(NULL))
     point <- document$from_lsp_position(params$position)
+    if (glue_cursor_request(self, id, params, "textDocument/hover", workspace, document, point)) return(invisible(NULL))
     if (identical(document$version, document$parse_data$version) &&
             (index_context_waiting(self, workspace, document, point, hover = TRUE) ||
                     s3_metadata_waiting(self, uri, document, point, hover = TRUE))) {
@@ -263,6 +265,7 @@ text_document_signature_help  <- function(self, id, params) {
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     if (reply_parse_failure(self, id, document)) return(invisible(NULL))
     point <- document$from_lsp_position(params$position)
+    if (glue_cursor_request(self, id, params, "textDocument/signatureHelp", workspace, document, point)) return(invisible(NULL))
     call <- document$detect_call(point, signature = TRUE)
     if (identical(document$version, document$parse_data$version) &&
             (index_context_waiting(self, workspace, document, point, call = call) ||
@@ -295,6 +298,7 @@ text_document_definition  <- function(self, id, params) {
     document <- workspace$documents$get(uri, NULL)
     if (is.null(document)) return(self$deliver(Response$new(id = id, result = NULL)))
     point <- document$from_lsp_position(params$position)
+    if (glue_cursor_request(self, id, params, "textDocument/definition", workspace, document, point)) return(invisible(NULL))
     member <- isTRUE(lsp_settings$get("member_completion")) && !is.null(member_hover_location(document, point))
     if (!identical(document$version, document$parse_data$version) ||
             index_context_waiting(self, workspace, document, point, hover = TRUE) ||

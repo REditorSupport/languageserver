@@ -67,6 +67,14 @@ detect_active_parameter <- function(content, start_row, start_col,
         isTRUE(no_active_parameter) && !is.null(signature), completion)
 }
 
+local_signature_information <- function(signature, doc) {
+    text <- if (is.character(doc)) doc else if (is.list(doc)) {
+        if (is.null(doc$markdown)) doc$description else doc$markdown
+    }
+    documentation <- if (is.null(doc)) "" else list(kind = "markdown", value = if (is.null(text)) "" else text)
+    list(label = signature, documentation = documentation, parameters = parse_signature_parameters(signature))
+}
+
 signature_no_active_parameter_support <- function(client_capabilities) {
     isTRUE(client_capabilities$textDocument$signatureHelp$signatureInformation$noActiveParameterSupport)
 }
@@ -78,7 +86,9 @@ signature_no_active_parameter_support <- function(client_capabilities) {
 #'
 #' @noRd
 signature_reply <- function(id, uri, workspace, document, point, client_capabilities = NULL,
-    call = NULL) {
+    call = NULL, embedded = FALSE) {
+    context <- if (!embedded) glue_cursor_context(document, point, workspace)
+    if (!is.null(context)) return(glue_signature_reply(id, uri, workspace, context, client_capabilities))
 
     no_active_parameter <- signature_no_active_parameter_support(client_capabilities)
 
@@ -136,12 +146,7 @@ signature_reply <- function(id, uri, workspace, document, point, client_capabili
                 declaration <- found[[1L]]
                 sig <- navigation_signature(document, parse_data, declaration, result$token)
                 doc <- navigation_documentation(document, parse_data, syntax$line1[[declaration]])
-                doc_string <- if (is.character(doc)) doc else if (is.list(doc)) {
-                    if (is.null(doc$markdown)) doc$description else doc$markdown
-                }
-                documentation <- if (is.null(doc)) "" else list(kind = "markdown", value = if (is.null(doc_string)) "" else doc_string)
-                SignatureInformation <- list(list(label = sig, documentation = documentation,
-                        parameters = parse_signature_parameters(sig)))
+                SignatureInformation <- list(local_signature_information(sig, doc))
                 activeSignature <- 0
             }
         }

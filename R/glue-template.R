@@ -29,7 +29,8 @@ glue_template_calls <- function(syntax, content) {
         quotes <- substr(content[syntax$line1[direct]], syntax$col1[direct], syntax$col1[direct])
         quoted <- quotes %in% c('"', "'")
         if (!any(quoted)) return(NULL)
-        list(row = row, literals = direct[quoted],
+        list(row = row, symbol = symbol, name = call$name, package = call$package,
+            lexical_prefix = !endsWith(call$name, "_data") && !piped_text && !any(nzchar(keys)), literals = direct[quoted],
             all_direct = !piped_text && length(direct) == length(rows) && all(quoted),
             separator = any(keys == ".sep"))
     })
@@ -124,11 +125,50 @@ glue_make_fragment <- function(literal, start, end, call_row, complete) {
         offsets <- NULL
     }
     text <- intToUtf8(codes)
-    list(content = strsplit(paste0(text, "\n"), "\n", fixed = TRUE)[[1L]],
-        start = first, end = last, call_row = call_row, complete = complete,
-        quote = literal$quote, boundaries = offsets, length = end - start,
-        inner_lines = c(0L, which(codes == 10L)),
-        source_lines = c(0L, physical[physical > from & physical <= to] - from))
+    glue_fragment_record(strsplit(paste0(text, "\n"), "\n", fixed = TRUE)[[1L]],
+        first, last, call_row, complete, literal$quote, end - start, offsets,
+        c(0L, which(codes == 10L)), c(0L, physical[physical > from & physical <= to] - from))
+}
+
+glue_fragment_record <- function(content, start, end, call_row, complete, quote, width,
+    boundaries = NULL, inner_lines = 0L, source_lines = 0L) {
+    fragment <- list(content = content, start = start, end = end, call_row = call_row, complete = complete, quote = quote)
+    if (is.null(boundaries) && length(inner_lines) == 1L && length(source_lines) == 1L) return(fragment)
+    c(fragment, list(boundaries = boundaries, length = width, inner_lines = inner_lines, source_lines = source_lines))
+}
+
+# A single unescaped expression on a single physical line needs only its
+# absolute endpoints. Classify those templates in a batch before running the
+# stateful scanner for quoting, comments, nesting, or stitched arguments.
+glue_straight_fragments <- function(syntax, content, calls, offset) {
+    literal <- vapply(calls, function(call) {
+        if (call$all_direct && length(call$literals) == 1L) call$literals else 0L
+    }, integer(1L))
+    i <- which(literal > 0L)
+    rows <- literal[i]
+    i <- i[syntax$line1[rows] == syntax$line2[rows]]
+    rows <- literal[i]
+    lines <- syntax$line1[rows]
+    spelling <- substr(content[lines], syntax$col1[rows], syntax$col2[rows])
+    plain <- !grepl("[{}\\\\]", spelling)
+    simple <- grepl("^[^{}\\\\]*\\{[^{}\\\\'\"#\u0060]*\\}[^{}\\\\]*$", spelling)
+    if (!any(simple)) return(list(calls = i[plain], fragments = vector("list", sum(plain))))
+    ids <- i[simple]
+    text <- spelling[simple]
+    from <- regexpr("{", text, fixed = TRUE) + 1L
+    to <- regexpr("}", text, fixed = TRUE) - 1L
+    inner <- substring(text, from, to)
+    cols <- syntax$col1[literal[ids]]
+    start <- cols + from - 2L
+    end <- cols + to - 1L
+    host <- lines[simple] + offset - 1L
+    quotes <- substr(text, 1L, 1L)
+    mapped <- lapply(seq_along(ids), function(j) {
+        list(glue_fragment_record(inner[[j]], list(row = host[[j]], col = start[[j]]),
+                list(row = host[[j]], col = end[[j]]), calls[[ids[[j]]]]$row, TRUE,
+                quotes[[j]], end[[j]] - start[[j]]))
+    })
+    list(calls = c(i[plain], ids), fragments = c(vector("list", sum(plain)), mapped))
 }
 
 # Scan glue's decoded input across all literal arguments. An expression belongs
@@ -216,15 +256,23 @@ glue_template_index <- function(syntax, content, offset = 0L, provisional = FALS
     calls <- glue_template_calls(syntax, content)
     highlighted <- glue_template_rows(syntax, content, calls)
     ranges <- glue_template_ranges(syntax, content, highlighted, offset)
-    unmapped <- list()
-    fragments <- list()
-    for (call in calls) {
+    # A generated report can contain thousands of calls. Accumulate per-call
+    # results and flatten once to avoid repeatedly copying all previous spans.
+    unmapped <- fragments <- vector("list", length(calls))
+    remaining <- seq_along(calls)
+    if (!provisional && length(calls) > 1L) {
+        straight <- glue_straight_fragments(syntax, content, calls, offset)
+        fragments[straight$calls] <- straight$fragments
+        remaining <- setdiff(remaining, straight$calls)
+    }
+    for (i in remaining) {
+        call <- calls[[i]]
         # The value of a computed unnamed argument or separator can affect
         # delimiters in the following literal.
         call_row <- if (provisional) 0L else call$row
         unknown <- list(call_row = call_row, content = NULL, complete = FALSE)
         if (!call$all_direct || (length(call$literals) > 1L && call$separator)) {
-            if (any(call$literals %in% highlighted)) unmapped[[length(unmapped) + 1L]] <- unknown
+            if (any(call$literals %in% highlighted)) unmapped[[i]] <- list(unknown)
             next
         }
         literals <- lapply(call$literals, function(row) {
@@ -233,13 +281,24 @@ glue_template_index <- function(syntax, content, offset = 0L, provisional = FALS
         })
         if (!any(vapply(literals, is.null, logical(1L)))) {
             found <- glue_scan_call(literals, call_row, provisional)
-            fragments <- c(fragments, found)
-            unmapped <- c(unmapped, attr(found, "unmapped"))
+            unmapped[i] <- list(attr(found, "unmapped"))
+            if (provisional && length(found)) {
+                # The temporary call row belongs to a different tree. Preserve
+                # the physical callee and its argument shape for advisory
+                # completion while the user is typing the outer string.
+                callee <- list(row = syntax$line1[[call$symbol]] + offset - 1L, col = syntax$col1[[call$symbol]] - 1L)
+                found <- lapply(found, function(fragment) {
+                    c(fragment, list(lexical_prefix = call$lexical_prefix, call_start = callee,
+                            call_name = call$name, package = call$package))
+                })
+            }
+            fragments[[i]] <- found
         } else if (any(call$literals %in% highlighted)) {
-            unmapped[[length(unmapped) + 1L]] <- unknown
+            unmapped[[i]] <- list(unknown)
         }
     }
-    list(ranges = ranges, fragments = fragments, unmapped = unmapped)
+    list(ranges = ranges, fragments = unlist(fragments, recursive = FALSE, use.names = FALSE),
+        unmapped = unlist(unmapped, recursive = FALSE, use.names = FALSE))
 }
 
 # R detaches the unfinished call's lexer tokens until its closing parenthesis
@@ -298,6 +357,10 @@ glue_order_fragments <- function(fragments, unmapped) {
 glue_source_point <- function(fragment, inner_point) {
     row <- inner_point$row + 1L
     col <- inner_point$col
+    if (is.null(fragment$inner_lines)) {
+        if (row != 1L || col < 0L || col > fragment$end$col - fragment$start$col) return(NULL)
+        return(list(row = fragment$start$row, col = fragment$start$col + col))
+    }
     if (row < 1L || row > length(fragment$inner_lines) || col < 0L) return(NULL)
     at <- fragment$inner_lines[[row]] + col
     if (at > fragment$length || (row < length(fragment$inner_lines) && at >= fragment$inner_lines[[row + 1L]])) return(NULL)
@@ -309,6 +372,10 @@ glue_inner_point <- function(fragment, host_point) {
     row <- host_point$row - fragment$start$row + 1L
     col <- host_point$col - if (row == 1L) fragment$start$col else 0L
     lines <- fragment$source_lines
+    if (is.null(lines)) {
+        if (row != 1L || col < 0L || host_point$col > fragment$end$col) return(NULL)
+        return(list(row = 0L, col = col))
+    }
     if (row < 1L || row > length(lines) || col < 0L) return(NULL)
     at <- lines[[row]] + col
     if (row < length(lines) && at >= lines[[row + 1L]]) return(NULL)

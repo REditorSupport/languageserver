@@ -213,6 +213,18 @@ selected method. Method call-count lenses use the same locations. Renaming
 a source parameter includes named arguments at calls the server can resolve.
 Rename requires an editable declaration and can decline an ambiguous edit.
 
+Completion, hover, signature help, Go to Definition, references, highlights
+and rename work inside `{…}` in directly quoted templates passed to `glue()`,
+`glue_data()`, `str_glue()` and `str_glue_data()`, including package-qualified
+calls. In `glue::glue("{x}", x = value)`, Go to Definition on the interpolated
+`x` selects the named argument. Renaming it updates the argument and its
+interpolated uses. With `glue_data()`, the server can also identify columns
+declared in a list or data frame.
+
+This support uses ordinary quoted strings, the default delimiters and the
+standard transformer. Doubled braces are literal. Rename requires a definite
+binding and a source range that can be edited as one piece.
+
 Inside the file argument of `source()` or `sys.source()`, completion offers
 matching files and directories from the workspace root and the script's
 directory. Document links also recognize static paths assembled with
