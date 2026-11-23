@@ -108,3 +108,33 @@ test_that("multiline delayed arguments contribute their physical names to refere
     expect_length(keys, 1L)
     expect_identical(keys[[1L]]$key, "global:amount")
 })
+
+test_that("call heads and their formal tags reference the callable beyond a scalar glue binding", {
+    f <- provider_fixture(c("render <- function(input) input", 'glue::glue("{render(input = 1)} {render}", render=4)',
+            'glue::glue("{alias(input = 1)}", alias = render)', 'glue::glue("{label}", render=2, label=render(input=3))',
+            'glue::glue("{render(input = 1)}", render=factory())', "d <- list(sum=4)", 'glue::glue_data(d, "{sum(1)} {sum}")'))
+    hits <- glue_reference_occurrences(f$workspace, f$document, "render")
+    heads <- Filter(function(x) x$function_position, hits)
+    expect_identical(vapply(heads, function(x) x$target$kind, ""), c("lexical", "lexical", "unknown"))
+    expect_identical(vapply(heads[1:2], "[[", "", "key"), rep("global:render", 2L))
+    fields <- glue_reference_occurrences(f$workspace, f$document, "sum")
+    expect_identical(vapply(fields, function(x) x$target$kind, ""), c("field", "package", "field"))
+    expect_identical(fields[[2L]]$key, "package:base:sum")
+    tags <- glue_reference_occurrences(f$workspace, f$document, "input")
+    embedded <- Filter(function(x) !is.null(x$fragment), tags)
+    expect_identical(vapply(embedded, function(x) x$target$kind, ""), c("lexical", "lexical", "unknown"))
+    expect_identical(embedded[[1L]]$key, embedded[[2L]]$key)
+    expect_true(embedded[[1L]]$target$formal)
+})
+
+test_that("call heads and tags in closures skip a scalar local and retain a dynamic formal's uncertainty", {
+    f <- provider_fixture(c("jump <- function(distance) distance",
+            'glue::glue("{(function() { jump <- 4; jump(distance = 2) })()}")',
+            'glue::glue("{(function(jump) jump(distance = 2))(something())}")'))
+    heads <- Filter(function(x) x$function_position, glue_reference_occurrences(f$workspace, f$document, "jump"))
+    expect_identical(vapply(heads, function(x) x$target$kind, ""), c("lexical", "unknown"))
+    expect_identical(heads[[1L]]$key, "global:jump")
+    tags <- glue_reference_occurrences(f$workspace, f$document, "distance")
+    expect_identical(vapply(tags, function(x) x$target$kind, ""), c("lexical", "unknown"))
+    expect_true(tags[[1L]]$target$formal)
+})
