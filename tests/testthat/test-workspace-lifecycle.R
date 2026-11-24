@@ -492,6 +492,91 @@ test_that("didChange invalidates the pending disk snapshot once per edit", {
     expect_true(index$complete())
 })
 
+test_that("closing external buffers releases parsed documents and per-URI state", {
+    root <- normalizePath(withr::local_tempdir(), winslash = "/")
+    outside <- withr::local_tempdir()
+    withr::local_dir(root)
+    paths <- file.path(outside, c(".vdoc.saved.r", ".vdoc.missing.r"))
+    writeLines("saved <- 1", paths[[1L]])
+    uris <- c(path_to_uri(paths), "untitled:external-buffer")
+    inside <- path_to_uri(file.path(root, "main.R"))
+
+    for (mode in c("auto", "full")) {
+        lifecycle_settings(index_mode = mode, index_persistent_cache = FALSE, diagnostics = TRUE,
+            member_completion = TRUE, diagnostics_backend = list(id = "externalfixture", run = function(request) list(),
+                document_types = "r", needs_workspace_globals = FALSE))
+        server <- LifecycleServer$new(root)
+        server$member_task_manager <- lifecycle_manager()
+        workspace <- server$get_workspace(inside)
+        private <- workspace$index$.__enclos_env__$private
+        lifecycle_parse(workspace, inside, "main <- 1")
+        for (uri in uris) {
+            text_document_did_open(server, list(textDocument = list(
+                uri = uri, languageId = "r", version = 1L, text = "external <- stats::median(1)")))
+            server$parse_task_manager$finish_one()
+            expect_identical(names(workspace$get_parse_data(uri)$definitions), "external")
+            expect_gt(workspace$index$diagnostics_generation(uri)$source, 0L)
+            workspace$index$source_closure(uri)
+            workspace$index$dependent_closure(uri)
+            expect_true(private$source_closures$has(uri))
+            expect_true(private$dependent_closures$has(uri))
+            expect_true(server$diagnostics_task_manager$tasks$has(uri))
+            expect_true(server$resolve_task_manager$tasks$has(uri))
+            expect_true(server$member_task_manager$tasks$has(uri))
+
+            server$messages <- list()
+            text_document_did_close(server, list(textDocument = list(uri = uri)))
+            expect_identical(vapply(server$messages, `[[`, "", "method"), "textDocument/publishDiagnostics")
+            expect_identical(lapply(server$messages, `[[`, "params"),
+                list(list(uri = uri, version = NULL, diagnostics = list())))
+            expect_false(server$diagnostics_task_manager$tasks$has(uri))
+            expect_false(server$resolve_task_manager$tasks$has(uri))
+            expect_false(server$member_task_manager$tasks$has(uri))
+            expect_false(private$source_closures$has(uri))
+            expect_false(private$dependent_closures$has(uri))
+            expect_false(server$pending_replies$has(uri))
+            expect_identical(server$get_workspace(uri), workspace)
+        }
+        expect_setequal(workspace$documents$keys(), inside)
+        for (cache in list(server$workspace_cache, private$diagnostics_generations, private$generations)) {
+            expect_length(intersect(cache$keys(), uris), 0L)
+        }
+    }
+})
+
+test_that("closing an external buffer before parsing cancels its waiting requests", {
+    lifecycle_settings(index_mode = "auto", index_persistent_cache = FALSE, diagnostics = FALSE)
+    server <- LifecycleServer$new(withr::local_tempdir())
+    uri <- path_to_uri(tempfile(fileext = ".r"))
+    params <- list(textDocument = list(uri = uri))
+    content <- 'color <- function() "red"'
+    text_document_did_open(server, list(textDocument = list(
+        uri = uri, languageId = "r", version = 1L, text = content)))
+    task <- server$parse_task_manager$tasks$get(uri)
+    server$handle_request(Request$new(1L, "textDocument/documentSymbol", params))
+    server$handle_request(Request$new(2L, "textDocument/documentColor", params))
+    queues <- server$pending_replies$get(uri)
+    expect_identical(queues[["textDocument/documentSymbol"]]$peek()$id, 1L)
+    expect_identical(queues[["textDocument/documentColor"]]$peek()$id, 2L)
+    expect_length(server$messages, 0L)
+
+    text_document_did_close(server, params)
+    expect_false(server$parse_task_manager$tasks$has(uri))
+    expect_false(server$pending_replies$has(uri))
+    workspace <- server$get_workspace(uri)
+    expect_false(workspace$documents$has(uri))
+    expect_identical(sort(vapply(server$messages, `[[`, integer(1L), "id")), 1:2)
+    expect_identical(vapply(server$messages, function(reply) reply$error$code, numeric(1L)),
+        rep(ErrorCodes$RequestCancelled, 2L))
+
+    # A worker result already in flight can arrive after the editor closed.
+    server$messages <- list()
+    task$.__enclos_env__$private$callback(parse_document(uri, content))
+    expect_false(workspace$documents$has(uri))
+    expect_identical(server$process_pending_replies(), 0L)
+    expect_length(server$messages, 0L)
+})
+
 test_that("closing package buffers restores disk content with indexing disabled", {
     lifecycle_settings(index_mode = "off", index_persistent_cache = FALSE, diagnostics = FALSE)
     root <- withr::local_tempdir()

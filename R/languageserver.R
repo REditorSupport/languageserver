@@ -380,6 +380,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             }
 
             path <- path_from_uri(uri)
+            if (!nzchar(path)) return(fallback)
             best_match <- NULL
             max_len <- -1
 
@@ -394,10 +395,8 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 }
             }
 
-            if (is.null(best_match)) {
-                self$workspace_cache$set(uri, fallback)
-                return(fallback)
-            }
+            # Clients can generate a fresh external URI for every request.
+            if (is.null(best_match)) return(fallback)
 
             self$workspace_cache$set(uri, best_match)
             best_match

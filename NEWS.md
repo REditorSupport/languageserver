@@ -1,5 +1,9 @@
 # languageserver (development)
 
+- Release temporary R documents outside the workspace when the editor closes
+  them. This prevents memory use and indexing time from growing as Quarto
+  opens successive virtual documents (#888).
+
 - Use completion, hover, signature help, Go to Definition, Find References,
   document highlights, and Rename inside `{…}` in quoted or raw strings passed to
   `glue()`, `glue_data()`, `str_glue()`, and `str_glue_data()`. Typing the
