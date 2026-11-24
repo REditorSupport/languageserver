@@ -176,54 +176,46 @@ text_document_did_close <- function(self, params) {
     # Discard buffer parses before queuing a refresh from disk.
     if (!is.null(self$parse_task_manager)) self$parse_task_manager$cancel(uri)
     path <- path_from_uri(uri)
-    
     workspace <- self$get_workspace(uri)
-    
-    is_from_workspace <- path_has_parent(path, workspace$root)
-    # Temporary and ordinary source documents lose their last subscription on
-    # close. Retained indexed/package sources can still serve other documents.
-    retained <- is_from_workspace && (isTRUE(workspace$index$enabled) || is_package(workspace$root))
-    if (!retained) {
-        if (!is.null(self$resolve_task_manager)) self$resolve_task_manager$cancel(uri)
-        if (!is.null(self$member_task_manager)) self$member_task_manager$cancel(uri)
-    }
-    if (is.function(workspace$index$finish_document)) workspace$index$finish_document(uri)
+    index <- workspace$index
+    is_from_workspace <- nzchar(path) && path_has_parent(path, workspace$root)
 
-    # remove diagnostics if file is not from workspace
-    if (!is_from_workspace) {
-        diagnostics_callback(self, uri, NULL, list())
+    if (!is_from_workspace && is.function(index$remove)) {
+        index$remove(uri)
+    } else if (is.function(index$finish_document)) {
+        index$finish_document(uri)
     }
 
-    # mark document as closed so that
-    # workspace_did_change_watched_files will not ignore it
-    if (workspace$documents$has(uri)) {
-        doc <- workspace$documents$get(uri)
-        doc$did_close()
-    }
-
-    if (!is.null(workspace$index) && isTRUE(workspace$index$enabled)) {
+    doc <- workspace$documents$get(uri, NULL)
+    if (!is.null(doc)) doc$did_close()
+    if (is_from_workspace && isTRUE(index$enabled)) {
         if (file.exists(path)) {
-            if (is.null(workspace$index$task_manager)) workspace$index$update_path(path)
-            else workspace$index$queue_path(path, force = TRUE)
+            if (is.null(index$task_manager)) index$update_path(path)
+            else index$queue_path(path, force = TRUE)
         } else {
-            workspace$index$remove(uri)
+            index$remove(uri)
         }
         self$prune_index_documents(workspace)
-    } else if (is_package(workspace$root) && is_from_workspace) {
+    } else if (is_from_workspace && is_package(workspace$root)) {
         # Package providers still retain full documents with indexing off.
         # Closing the editor discards unsaved content in this path too.
         if (is.function(self$load_index_document)) {
             self$load_index_document(workspace, uri, reload = TRUE)
         }
     } else {
-        diagnostics_callback(self, uri, NULL, list())
-        workspace$documents$remove(uri)
-        workspace$diagnostics_globals_cache <- NULL
-        workspace$type_hierarchy_cache$clear()
-        workspace$update_loaded_packages()
+        if (!is.null(self$diagnostics_task_manager)) self$diagnostics_task_manager$cancel(uri)
+        if (!is.null(self$resolve_task_manager)) self$resolve_task_manager$cancel(uri)
+        if (!is.null(self$member_task_manager)) self$member_task_manager$cancel(uri)
+        if (!is.null(doc)) {
+            diagnostics_callback(self, uri, NULL, list())
+            workspace$documents$remove(uri)
+            workspace$diagnostics_globals_cache <- NULL
+            workspace$type_hierarchy_cache$clear()
+            workspace$update_loaded_packages()
+        }
     }
 
-    pending <- self$pending_replies$get(uri, NULL)
+    pending <- self$pending_replies$pop(uri, NULL)
     for (queue in pending) {
         while (queue$size()) {
             item <- queue$pop()
@@ -232,7 +224,6 @@ text_document_did_close <- function(self, params) {
             ))
         }
     }
-    self$pending_replies$remove(uri)
 }
 
 #' `textDocument/willSaveWaitUntil` notification handler

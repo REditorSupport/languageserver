@@ -1574,6 +1574,15 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             uri <- index_canonical_uri(uri)
             private$discovered_files$pop(uri, NULL)
             self$finish_document(uri)
+            if (!self$contains_path(path_from_uri(uri))) {
+                # External buffers can acquire lookup and parse state while open.
+                # No disk snapshot in this index needs a generation after close.
+                private$source_closures$pop(uri, NULL)
+                private$dependent_closures$pop(uri, NULL)
+                private$diagnostics_generations$pop(uri, NULL)
+                private$generations$pop(uri, NULL)
+                return(invisible(NULL))
+            }
             self$invalidate(uri)
             if (private$awaiting_parses$has(uri)) private$awaiting_parses$remove(uri)
             previous <- self$summaries$get(uri, NULL)

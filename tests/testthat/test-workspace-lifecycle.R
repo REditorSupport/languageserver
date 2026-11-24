@@ -492,6 +492,48 @@ test_that("didChange invalidates the pending disk snapshot once per edit", {
     expect_true(index$complete())
 })
 
+test_that("closing external buffers releases parsed documents and per-URI state", {
+    root <- normalizePath(withr::local_tempdir(), winslash = "/")
+    outside <- withr::local_tempdir()
+    withr::local_dir(root)
+    paths <- file.path(outside, c(".vdoc.saved.r", ".vdoc.missing.r"))
+    writeLines("saved <- 1", paths[[1L]])
+    uris <- c(path_to_uri(paths), "untitled:external-buffer")
+    inside <- path_to_uri(file.path(root, "main.R"))
+
+    for (mode in c("auto", "full")) {
+        lifecycle_settings(index_mode = mode, index_persistent_cache = FALSE, diagnostics = TRUE,
+            diagnostics_backend = list(id = "externalfixture", run = function(request) list(),
+                document_types = "r", needs_workspace_globals = FALSE))
+        server <- LifecycleServer$new(root)
+        workspace <- server$get_workspace(inside)
+        lifecycle_parse(workspace, inside, "main <- 1")
+        for (uri in uris) {
+            text_document_did_open(server, list(textDocument = list(
+                uri = uri, languageId = "r", version = 1L, text = "external <- 1")))
+            server$parse_task_manager$finish_one()
+            expect_identical(names(workspace$get_parse_data(uri)$definitions), "external")
+            expect_gt(workspace$index$diagnostics_generation(uri)$source, 0L)
+            expect_true(server$diagnostics_task_manager$tasks$has(uri))
+
+            server$messages <- list()
+            text_document_did_close(server, list(textDocument = list(uri = uri)))
+            expect_identical(vapply(server$messages, `[[`, "", "method"), "textDocument/publishDiagnostics")
+            expect_identical(lapply(server$messages, `[[`, "params"),
+                list(list(uri = uri, version = NULL, diagnostics = list())))
+            expect_false(server$diagnostics_task_manager$tasks$has(uri))
+            expect_false(server$pending_replies$has(uri))
+            expect_identical(server$get_workspace(uri), workspace)
+        }
+        expect_setequal(workspace$documents$keys(), inside)
+        private <- workspace$index$.__enclos_env__$private
+        for (cache in list(server$workspace_cache, private$source_closures,
+                private$diagnostics_generations, private$generations)) {
+            expect_length(intersect(cache$keys(), uris), 0L)
+        }
+    }
+})
+
 test_that("closing package buffers restores disk content with indexing disabled", {
     lifecycle_settings(index_mode = "off", index_persistent_cache = FALSE, diagnostics = FALSE)
     root <- withr::local_tempdir()
