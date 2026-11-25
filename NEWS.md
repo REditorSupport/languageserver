@@ -4,6 +4,9 @@
   Map test or script globs to helper filenames with `r.lsp.project_helpers`
   (#253, #386, #508).
 
+- Speed up S3 metadata lookup on R versions before 4.6 so signature help can
+  show method-specific arguments sooner after startup.
+
 - Release temporary R documents outside the workspace when the editor closes
   them. This prevents memory use and indexing time from growing as Quarto
   opens successive virtual documents (#888).
