@@ -67,7 +67,12 @@ glue_reference_tokens <- function(document, fragment) {
     data <- if (!is.null(expr)) utils::getParseData(expr)
     simple <- !is.null(expr) && !any(data$token %in% c("FUNCTION", "'\\\\'", "LEFT_ASSIGN", "RIGHT_ASSIGN",
             "EQ_ASSIGN", "forcond")) && !any(grepl("\t", source, fixed = TRUE))
-    if (simple) {
+    # An embedded expression can introduce its own mask. The full parse
+    # distinguishes its column reads from references to enclosing glue names.
+    masked_call <- simple && !is.null(data) && (any(data$token == "'['") ||
+            any(reference_symbol_names(data$text[data$token == "SYMBOL_FUNCTION_CALL"]) %in% c(data_mask_base, data_mask_dplyr)))
+    mask <- NULL
+    if (simple && !masked_call) {
         syntax <- syntax_parse_data(data)
         index <- NULL
         parse_error <- FALSE
@@ -75,6 +80,7 @@ glue_reference_tokens <- function(document, fragment) {
         parsed <- glue_fragment_document(document, fragment)$parse_data
         syntax <- parsed$syntax_data
         index <- parsed$reference_index
+        mask <- parsed$data_mask
         parse_error <- parsed$parse_error
     }
     mutations <- index$name[index$is_definition & startsWith(as.character(index$definition_key), "global:")]
@@ -100,9 +106,11 @@ glue_reference_tokens <- function(document, fragment) {
     }
     rows <- syntax$terminals[syntax$token[syntax$terminals] %in%
             c("SYMBOL", "SYMBOL_FUNCTION_CALL", "SYMBOL_FORMALS", "SYMBOL_SUB")]
+    uncertain <- unlist(mask$fallback, use.names = FALSE)
+    if (length(mask$column)) rows <- rows[!rows %in% mask$column | rows %in% uncertain]
     terms <- lapply(rows, function(row) {
         kind <- syntax$token[[row]]
-        if (navigation_after_dollar(syntax, row)) return(NULL)
+        if (navigation_after_dollar(syntax, row) && !row %in% mask$env) return(NULL)
         parent <- syntax$parent_row[[row]]
         peers <- syntax_children(syntax, parent)
         if (any(syntax$token[peers] %in% c("'@'", "NS_GET", "NS_GET_INT"))) return(NULL)
@@ -112,7 +120,7 @@ glue_reference_tokens <- function(document, fragment) {
         key <- if (i) index$definition_key[[i]]
         call <- if (kind == "SYMBOL_SUB") syntax_call_arguments(syntax, parent)
         if (length(call) && glue_inner_callee_shadowed(syntax, index, parent, call$name)) call$inner_callee <- parent
-        list(name = name, row = row, call = call, kind = kind,
+        list(name = name, row = row, call = call, kind = kind, masked_fallback = row %in% uncertain,
             start = list(row = syntax$line1[[row]] - 1L, col = syntax$col1[[row]] - 1L),
             end = list(row = syntax$line2[[row]] - 1L, col = syntax$col2[[row]]),
             local_key = if (length(key) && startsWith(key, "local:")) key,
@@ -271,7 +279,7 @@ glue_reference_occurrences <- function(workspace, document, name = NULL, call_ro
                 nm <- term$name
                 if (!is.null(name) && !identical(name, nm)) next
                 target <- NULL
-                if (!fragment$complete || isTRUE(f$parse_error) || nm %in% mutations) {
+                if (!fragment$complete || isTRUE(f$parse_error) || isTRUE(term$masked_fallback) || nm %in% mutations) {
                     target <- unknown(nm)
                 } else if (term$kind == "SYMBOL_SUB") {
                     if (length(term$call) && !term$call$name %in% mutations) {

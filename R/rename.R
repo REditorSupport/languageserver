@@ -57,16 +57,19 @@ rename_lexical_conflict <- function(workspace, doc, selected, new, owner_uri, ow
     if (indexed_new && workspace$index$has_definition(new, uri = doc$uri)) return(TRUE)
     existing <- reference_indices(index, new)
     existing <- existing[!startsWith(index$definition_key[existing], "package:")]
-    if (!length(existing)) return(FALSE)
+    uncertain <- data_mask_uncertain_rows(parsed$data_mask, new)
+    if (!length(existing) && !length(uncertain)) return(FALSE)
     syntax <- parsed$syntax_data
     stride <- as.double(syntax$maxcol) + 1
     at <- function(i) as.double(index$line[i] + 1L) * stride + index$code_point_col[i] + 1L
     start <- function(rows) as.double(syntax$line1[rows]) * stride + syntax$col1[rows]
     end <- function(rows) as.double(syntax$line2[rows]) * stride + syntax$col2[rows]
+    uncertain <- start(uncertain)
     if (owner_scope) {
         position <- at(existing)
         existing <- existing[position >= start(owner_scope) & position <= end(owner_scope)]
-        if (!length(existing)) return(FALSE)
+        uncertain <- uncertain[uncertain >= start(owner_scope) & uncertain <= end(owner_scope)]
+        if (!length(existing) && !length(uncertain)) return(FALSE)
     }
 
     defs <- existing[index$is_definition[existing]]
@@ -87,7 +90,7 @@ rename_lexical_conflict <- function(workspace, doc, selected, new, owner_uri, ow
     }
     if (any(covered(at(selected), start(scopes), end(scopes)))) return(TRUE)
     reads <- existing[!index$is_definition[existing]]
-    if (!length(reads)) return(FALSE)
+    if (!length(reads) && !length(uncertain)) return(FALSE)
     first <- at(defs)
     formals <- index$token[defs] == "SYMBOL_FORMALS"
     first[formals] <- start(scopes[formals])
@@ -101,15 +104,77 @@ rename_lexical_conflict <- function(workspace, doc, selected, new, owner_uri, ow
     loop <- which(syntax$token[syntax$parent_row[rows]] == "forcond")
     first[loop] <- end(syntax$parent_row[rows[loop]])
 
-    any(!covered(at(reads), first, end(scopes)))
+    any(!covered(c(at(reads), uncertain), first, end(scopes)))
 }
 
 rename_incomplete_error <- function(id) {
     ResponseErrorMessage$new(id, "RequestFailed", "Incomplete R code may contain other uses of this symbol")
 }
 
+data_column_rename_error <- function(id) {
+    ResponseErrorMessage$new(id, "RequestFailed", "Cannot safely rename a data-masked column")
+}
+
+# A data.frame field can also be selected through its constructor tag or $.
+# Protect those entry points when the member edit would miss a masked read.
+data_column_member_conflict <- function(workspace, owner, target, row, name, uris) {
+    syntax <- owner$parse_data$syntax_data
+    if (!row || !syntax$token[[row]] %in% c("SYMBOL_SUB", "STR_CONST")) return(FALSE)
+    ctor <- syntax_call_arguments(syntax, syntax$parent_row[[row]])
+    if (!identical(ctor$name, "data.frame")) return(FALSE)
+    for (uri in uris) {
+        doc <- workspace$documents$get(uri)
+        parsed <- doc$parse_data
+        mask <- parsed$data_mask
+        if (!length(mask$column)) next
+        s <- parsed$syntax_data
+        candidates <- which(reference_symbol_names(s$text[mask$column]) == name)
+        if (!length(candidates)) next
+        if (any(mask$receiver[candidates] == 0L)) return(TRUE)
+        candidates <- candidates[!duplicated(mask$receiver[candidates])]
+        candidates <- candidates[order(s$order_rank[mask$receiver[candidates]], decreasing = TRUE)]
+        bracket <- mask$column[candidates] %in% mask$bracket
+        receivers <- mask$receiver[candidates]
+        symbols <- s$children[s$child_start[receivers]]
+        symbols[s$child_start[receivers] != s$child_end[receivers] | s$token[symbols] != "SYMBOL"] <- 0L
+        if (any(symbols %in% mask$column)) return(TRUE)
+        covered <- new.env(hash = TRUE, parent = emptyenv())
+        for (j in seq_along(candidates)) {
+            i <- candidates[[j]]
+            site <- list(row = mask$column[[i]], receiver = mask$receiver[[i]])
+            symbol <- symbols[[j]]
+            if (symbol) {
+                key <- paste0(as.integer(bracket[[j]]), s$text[[symbol]])
+                start <- covered[[key]]
+                if (length(start) && s$order_rank[[symbol]] > start) next
+            }
+            proof <- data_column_definition(workspace, doc, site, proof = TRUE)
+            if (is.null(proof) || equal_definition(proof$target, target)) return(TRUE)
+            # Proving a later read checked every mention of this receiver
+            # since its construction. Earlier reads in that interval have
+            # the same origin. Reassignments begin a separate proof.
+            if (symbol) covered[[key]] <- s$order_rank[[proof$constructor]]
+        }
+    }
+    FALSE
+}
+
+data_mask_uncertain_rows <- function(mask, name) {
+    c(mask$indirect_row[mask$indirect == name], mask$fallback[[name]])
+}
+
 rename_lexical_document_error <- function(id, doc, uri, token, key) {
     if (!rename_document_complete(doc, uri, token, key)) return(rename_incomplete_error(id))
+    for (row in data_mask_uncertain_rows(doc$parse_data$data_mask, token$token)) {
+        syntax <- doc$parse_data$syntax_data
+        # A nested .env can refer to an enclosing mask. For literal keys
+        # and ..name, a separately declared lexical binding rules out a hit.
+        nested <- syntax$token[[row]] == "SYMBOL" && navigation_after_dollar(syntax, row)
+        binding <- if (!nested && !is.null(key)) glue_lexical_target(doc, token$token, row)$key
+        if (nested || is.null(key) || identical(binding, key) || (is.null(binding) && startsWith(key, "global:"))) {
+            return(ResponseErrorMessage$new(id, "RequestFailed", "A data-mask lookup may refer to this binding"))
+        }
+    }
     # The lexical occurrence index does not include string literals on the
     # left of an assignment. Editing only the callers would break the binding.
     if ((is.null(key) || startsWith(key, "global:")) && token$token %in% doc$parse_data$quoted_bindings) {
@@ -134,7 +199,9 @@ prepare_rename_reply <- function(id, uri, workspace, document, point) {
         if (!length(checked$result)) return(ResponseErrorMessage$new(id, "RequestCancelled", "Cannot rename the symbol"))
         return(Response$new(id, result = site$range))
     }
-    member <- member_navigation_at(workspace, document, point)
+    mask <- data_mask_site(document$parse_data, point)
+    if (!is.null(mask) && !mask$env) return(data_column_rename_error(id))
+    member <- if (is.null(mask)) member_navigation_at(workspace, document, point)
     if (!is.null(member)) {
         checked <- member_navigation_references(id, workspace, document, member, TRUE, TRUE)
         if (!is.null(checked$error)) return(checked)
@@ -144,11 +211,11 @@ prepare_rename_reply <- function(id, uri, workspace, document, point) {
     s4 <- s4_reference_target(workspace, document, point, include_binding = TRUE)
     if (!is.null(s4) && (is.null(s4$binding) || s4_reference_promotes_binding(workspace, s4))) return(s4_reference_rename_error(id))
     parsed <- workspace$get_parse_data(uri)
-    token <- reference_token_at(document, parsed, point)
+    token <- reference_token_at(document, parsed, point, mask)
     if (!nzchar(token$token) || !check_scope(uri, document, point)) {
         return(ResponseErrorMessage$new(id, "RequestCancelled", "Cannot rename the symbol"))
     }
-    defn <- symbol_definition_reply(NULL, uri, workspace, document, point)
+    defn <- symbol_definition_reply(NULL, uri, workspace, document, point, mask = mask)
 
     logger$info("prepare_rename_reply: ", list(
         token = token,

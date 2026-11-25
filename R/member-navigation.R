@@ -686,6 +686,10 @@ member_navigation_occurrences <- function(workspace, owner, name, uris, formal =
         } else {
             hits <- member_navigation_indices(idx, name)
             candidates <- hits[idx$kind[hits] %in% c("read", "write", "call", if (property) c("tag", "property_alias"))]
+            mask <- parsed$data_mask
+            if (length(mask$env) || length(mask$column)) {
+                candidates <- candidates[!idx$row[candidates] %in% c(mask$env, mask$column)]
+            }
             tags <- if (declarations) hits[idx$kind[hits] %in% c("tag", "field")]
         }
         if (!length(candidates) && !length(tags)) next
@@ -941,6 +945,7 @@ member_navigation_references <- function(id, workspace, document, member, includ
         i <- member_navigation_token(owner$parse_data, owner$from_lsp_position(target$range$start))
         names <- member_navigation_syntax(owner$parse_data)
         if (!any(names$row == i & names$name == member$name)) return(Response$new(id, result = list()))
+        if (data_column_member_conflict(workspace, owner, target, i, member$name, uris)) return(data_column_rename_error(id))
     }
     result <- member_navigation_occurrences(workspace, target, member$name, uris, declarations = include_declaration)
     if (member$kind == "write" && !any(vapply(result, function(x) !identical(attr(x, "role"), "declaration"), logical(1L)))) {

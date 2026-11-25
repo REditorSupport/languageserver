@@ -21,6 +21,13 @@ definition_reply <- function(id, uri, workspace, document, point,
         return(Response$new(id))
     }
 
+    site <- data_mask_site(document$parse_data, point)
+    if (!is.null(site)) {
+        if (site$env) return(symbol_definition_reply(id, uri, workspace, document, point,
+                rootPath, context_uri, text_document_content, mask = site))
+        return(Response$new(id, result = data_column_definition(workspace, document, site)))
+    }
+
     if (isTRUE(lsp_settings$get("member_completion"))) {
         member <- member_definition_location(uri, workspace, document, point)
         if (!is.null(member)) {
@@ -46,7 +53,7 @@ definition_reply <- function(id, uri, workspace, document, point,
     s4 <- s4_definition_at(uri, workspace, document, point)
     if (length(s4)) return(Response$new(id, result = s4))
 
-    symbol_definition_reply(id, uri, workspace, document, point, rootPath, context_uri, text_document_content)
+    symbol_definition_reply(id, uri, workspace, document, point, rootPath, context_uri, text_document_content, mask = site)
 }
 
 # Older parse snapshots have XML instead of the compact navigation index.
@@ -120,10 +127,11 @@ s4_definition_at <- function(uri, workspace, document, point) {
 # from member declarations. Keep their existing identity resolution.
 symbol_definition_reply <- function(id, uri, workspace, document, point,
     rootPath = get_root_path_for_uri(uri, workspace$root),
-    context_uri = uri, text_document_content = NULL) {
+    context_uri = uri, text_document_content = NULL, mask = data_mask_site(parse_data, point)) {
     if (!check_r_region(document, point)) return(Response$new(id))
     parse_data <- workspace$get_parse_data(uri)
-    token_result <- reference_token_at(document, parse_data, point)
+    if (!is.null(mask) && !mask$env) return(Response$new(id))
+    token_result <- reference_token_at(document, parse_data, point, mask)
     resolved <- FALSE
     result <- NULL
 
@@ -131,12 +139,13 @@ symbol_definition_reply <- function(id, uri, workspace, document, point,
     if (token_result$accessor == "" && !is.null(syntax)) {
         row <- point$row + 1L
         col <- point$col + 1L
-        token <- navigation_token(parse_data, row, col)
+        token <- if (isTRUE(mask$env)) mask$row else navigation_token(parse_data, row, col,
+            prefer_start = c("SYMBOL", "SYMBOL_FUNCTION_CALL", "SYMBOL_FORMALS"))
         if (token) {
             token_name <- syntax$token[[token]]
             token_text <- syntax$text[[token]]
             if (token_name %in% c("SYMBOL", "SYMBOL_FUNCTION_CALL", "SYMBOL_FORMALS")) {
-                if (!navigation_after_dollar(syntax, token)) {
+                if (isTRUE(mask$env) || !navigation_after_dollar(syntax, token)) {
                     found <- navigation_definitions(parse_data, row, col, token_text,
                         token = token, last = TRUE)
                     if (length(found)) {

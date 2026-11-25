@@ -1,5 +1,11 @@
 # languageserver (development)
 
+- Rename and Find References distinguish lexical variables from column names
+  in data.table queries and common dplyr and base R data masks. An explicit
+  `.env$name` selects the enclosing binding. Rename declines edits when a
+  bare name could also come from the caller. Go to Definition can locate a
+  column declared by a known table constructor.
+
 - Release temporary R documents outside the workspace when the editor closes
   them. This prevents memory use and indexing time from growing as Quarto
   opens successive virtual documents (#888).
