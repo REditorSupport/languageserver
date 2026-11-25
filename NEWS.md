@@ -6,6 +6,9 @@
   bare name could also come from the caller. Go to Definition can locate a
   column declared by a known table constructor.
 
+- Speed up S3 metadata lookup on R versions before 4.6 so signature help can
+  show method-specific arguments sooner after startup.
+
 - Release temporary R documents outside the workspace when the editor closes
   them. This prevents memory use and indexing time from growing as Quarto
   opens successive virtual documents (#888).

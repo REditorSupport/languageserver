@@ -15,7 +15,7 @@ concurrency:
 jobs:
   rcmdcheck:
     if: contains(github.event.head_commit.message, '[ci skip]') == false
-    name: rcmdcheck ${{ matrix.os }}
+    name: rcmdcheck ${{ matrix.os }}${{ matrix.r && format(' ({0})', matrix.r) || '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -23,6 +23,9 @@ jobs:
           - os: ubuntu-latest
             log_file: /tmp/languageserver/ubuntu-log
           - os: macos-latest
+            log_file: /tmp/languageserver/macos-log
+          - os: macos-latest
+            r: oldrel-1
             log_file: /tmp/languageserver/macos-log
           - os: windows-latest
             log_file: C:/tmp/languageserver/windows-log
@@ -36,7 +39,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: r-lib/actions/setup-r@v2
         with:
-          r-version: release
+          r-version: ${{ matrix.r || 'release' }}
       - name: Create log directory on Linux or macOS
         if: runner.os != 'Windows'
         run: mkdir -p $(dirname ${{ env.R_LANGSVR_LOG }})
@@ -82,5 +85,5 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
-          name: ${{ runner.os }}-log
+          name: ${{ runner.os }}-${{ matrix.r || 'release' }}-log
           path: ${{ env.R_LANGSVR_LOG }}
