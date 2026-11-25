@@ -42,8 +42,8 @@ data_mask_index <- function(parsed) {
         context <- data_mask_context(s, kind)
     }
     mask <- data_mask_occurrences(parsed, kind, masks$receiver, context, binding, escapes$keys)
-    mask$fallback <- data_mask_fallbacks(parsed, mask, kind, context, binding, owns)
-    mask
+    heads <- data_mask_call_heads(parsed, kind, masks$receiver, context, binding)
+    data_mask_fallbacks(parsed, mask, heads, kind, context, binding, owns)
 }
 
 # Resolve only unconditional, preceding simple assignments. A formal or a
@@ -562,6 +562,45 @@ data_mask_occurrences <- function(parsed, kind, receiver, context, binding, indi
     list(column = rows, receiver = target, env = env, bracket = bracket,
         indirect = indirect, indirect_row = c(indirect_rows, bracket[dots]),
         glue = glue[kind[context[glue]] != "lexical"])
+}
+
+# R skips non-functions during function lookup. An ordinary bare call can
+# therefore use either a function supplied by the mask or one in the caller.
+# Qualified calls and member calls already have an explicit receiver.
+data_mask_call_heads <- function(parsed, kind, receiver, context, binding) {
+    s <- parsed$syntax_data
+    rows <- which(s$token == "SYMBOL_FUNCTION_CALL" & context > 0L)
+    parent <- s$parent_row[rows]
+    rows <- rows[s$first_child[parent] == rows & s$next_sibling[rows] == 0L &
+            kind[context[rows]] != "lexical"]
+    owner <- context[rows]
+    data <- receiver[owner]
+    if (!length(rows)) return(list(rows = rows, receiver = data))
+
+    # A fallback from an inner mask can still encounter an outer mask.
+    outer <- c(0L, context)[s$parent_row[owner] + 1L]
+    data[outer > 0L] <- 0L
+    # Assignments in the evaluated expression can introduce further bindings.
+    writes <- s$token %in% c("LEFT_ASSIGN", "RIGHT_ASSIGN", "EQ_ASSIGN") |
+        (s$token == "SYMBOL_FUNCTION_CALL" & s$text %in% c("assign", "rm", "remove", "eval", "evalq", "source", "sys.source"))
+    data[owner %in% context[writes]] <- 0L
+
+    # A closure created in the mask can capture its functions. A verified
+    # function declared in an intervening lexical scope takes precedence.
+    nested <- which(s$function_scope[rows] != s$function_scope[owner])
+    keep <- rep(TRUE, length(rows))
+    for (i in nested) {
+        row <- rows[[i]]
+        value <- binding(reference_symbol_names(s$text[[row]]), row)
+        if (value > 0L && s$function_close[[value]] && context[[value]] == owner[[i]] &&
+                s$function_scope[[value]] != s$function_scope[[owner[[i]]]]) keep[[i]] <- FALSE
+    }
+    local <- which(!keep)
+    if (length(local)) {
+        keep[local] <- data_mask_ambiguous_callees(parsed, rows[local], reference_symbol_names(s$text[rows[local]]), binding)
+    }
+    data[nested] <- 0L
+    list(rows = rows[keep], receiver = data[keep])
 }
 
 data_mask_receiver <- function(mask, row) {

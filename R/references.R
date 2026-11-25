@@ -468,6 +468,10 @@ references_reply <- function(id, uri, workspace, document, point,
                 }
                 if (for_rename) for (doc_uri in union(uris, uri)) {
                     doc <- workspace$documents$get(doc_uri, NULL)
+                    if (length(doc$parse_data$data_mask$column) &&
+                            member_masked_formal_conflict(doc, document, formal, token$token, new_name)) {
+                        return(ResponseErrorMessage$new(id, "RequestFailed", "A named argument in a data mask may refer to this parameter"))
+                    }
                     problem <- glue_rename_formal_problem(workspace, doc, formal, token$token, new_name)
                     if (!is.null(problem)) return(ResponseErrorMessage$new(id, "RequestFailed", problem))
                 }
@@ -488,7 +492,7 @@ references_reply <- function(id, uri, workspace, document, point,
         if (for_rename) {
             for (doc_uri in doc_uris) {
                 doc <- workspace$documents$get(doc_uri, NULL)
-                problem <- rename_lexical_document_error(id, doc, uri, token, NULL)
+                problem <- rename_lexical_document_error(id, doc, uri, token, NULL, new_name)
                 if (!is.null(problem)) return(problem)
             }
         }

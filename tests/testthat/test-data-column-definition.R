@@ -75,6 +75,21 @@ test_that("a local constructor in the executing block owns its masked column", {
     expect_null(lookup(7L))
 })
 
+test_that("a shadowed range operator cannot establish a constructor column", {
+    f <- provider_fixture(c(
+        "value <- 99L",
+        "`:` <- function(a, b) base::data.frame(other = 1L)",
+        "df <- base::data.frame(value = 1:3)",
+        "with(df, value)",
+        "value"
+    ))
+    f$workspace$get_definition <- function(...) NULL
+    definition <- definition_reply(1L, f$uri, f$workspace, f$document, list(row = 3L, col = 10L), getwd())
+    expect_null(definition$result)
+    renamed <- rename_reply(1L, f$uri, f$workspace, f$document, list(row = 0L, col = 1L), "outer")
+    expect_match(renamed$error$message, "data.mask")
+})
+
 test_that("a column declaration survives a long sequence of read-only queries", {
     lookup <- data_column_lookup(c("DT <- data.table::data.table(value = 1)", rep("DT[, value]", 100L)))
     expect_equal(lookup(101L)$range$start, position(0L, 29L))

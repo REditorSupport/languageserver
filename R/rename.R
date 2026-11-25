@@ -58,12 +58,15 @@ rename_lexical_conflict <- function(workspace, doc, selected, new, owner_uri, ow
     existing <- reference_indices(index, new)
     existing <- existing[!startsWith(index$definition_key[existing], "package:")]
     uncertain <- data_mask_uncertain_rows(parsed$data_mask, new)
-    if (!length(existing) && !length(uncertain)) return(FALSE)
+    captured <- data_mask_capture_rows(parsed$data_mask, new)
+    if (!length(existing) && !length(uncertain) && !length(captured)) return(FALSE)
     syntax <- parsed$syntax_data
     stride <- as.double(syntax$maxcol) + 1
     at <- function(i) as.double(index$line[i] + 1L) * stride + index$code_point_col[i] + 1L
     start <- function(rows) as.double(syntax$line1[rows]) * stride + syntax$col1[rows]
     end <- function(rows) as.double(syntax$line2[rows]) * stride + syntax$col2[rows]
+    if (length(captured) && any(start(captured) %in% at(selected))) return(TRUE)
+    if (!length(existing) && !length(uncertain)) return(FALSE)
     uncertain <- start(uncertain)
     if (owner_scope) {
         position <- at(existing)
@@ -163,15 +166,36 @@ data_mask_uncertain_rows <- function(mask, name) {
     c(mask$indirect_row[mask$indirect == name], mask$fallback[[name]])
 }
 
-rename_lexical_document_error <- function(id, doc, uri, token, key) {
+data_mask_capture_rows <- function(mask, name) {
+    unlist(lapply(mask$call_capture, function(group) {
+        if (name %in% group$names) group$rows
+    }), use.names = FALSE)
+}
+
+rename_lexical_document_error <- function(id, doc, uri, token, key, new_name = NULL) {
     if (!rename_document_complete(doc, uri, token, key)) return(rename_incomplete_error(id))
+    syntax <- doc$parse_data$syntax_data
+    if (is.null(key) && !is.null(new_name) && !identical(new_name, token$token)) {
+        # The XML fallback has no occurrence keys to narrow these calls.
+        captured <- data_mask_capture_rows(doc$parse_data$data_mask, new_name)
+        if (length(captured) && token$token %in% reference_symbol_names(syntax$text[captured])) {
+            return(ResponseErrorMessage$new(id, "RequestFailed", "The new name could call a different function in a data mask"))
+        }
+    }
     for (row in data_mask_uncertain_rows(doc$parse_data$data_mask, token$token)) {
-        syntax <- doc$parse_data$syntax_data
         # A nested .env can refer to an enclosing mask. For literal keys
         # and ..name, a separately declared lexical binding rules out a hit.
         nested <- syntax$token[[row]] == "SYMBOL" && navigation_after_dollar(syntax, row)
-        binding <- if (!nested && !is.null(key)) glue_lexical_target(doc, token$token, row)$key
-        if (nested || is.null(key) || identical(binding, key) || (is.null(binding) && startsWith(key, "global:"))) {
+        binding <- if (!nested && !is.null(key)) glue_lexical_target(doc, token$token, row)
+        possible <- nested || is.null(key) || identical(binding$key, key) || (is.null(binding) && startsWith(key, "global:"))
+        if (!possible && syntax$token[[row]] == "SYMBOL_FUNCTION_CALL" &&
+                !(isTRUE(binding$value_row > 0L) && syntax$function_close[[binding$value_row]] > 0L)) {
+            # Function lookup can skip a nearer value and reach an outer function.
+            scope <- rename_target_scope(doc$parse_data, token$token, key)
+            possible <- !is.null(scope) && (!scope || lsp_range_contains(navigation_range(doc, syntax, scope),
+                    navigation_range(doc, syntax, row)$start))
+        }
+        if (possible) {
             return(ResponseErrorMessage$new(id, "RequestFailed", "A data-mask lookup may refer to this binding"))
         }
     }

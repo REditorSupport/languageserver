@@ -21,8 +21,7 @@ data_column_definition <- function(workspace, document, site, proof = FALSE) {
 
 # A fully named literal constructor supplies both a declaration target and
 # a closed set of columns for distinguishing masked and lexical reads.
-data_column_constructor <- function(syntax, row, owns) {
-    call <- syntax_call_arguments(syntax, row)
+data_column_constructor <- function(syntax, row, owns, call = syntax_call_arguments(syntax, row)) {
     packages <- c(data.frame = "base", data.table = "data.table", tibble = "tibble")
     if (is.null(call) || !call$name %in% names(packages) || !owns(call, packages[[call$name]], row)) return(NULL)
     keys <- names(call$values)
@@ -39,13 +38,11 @@ data_column_call_owner <- function(workspace, document, row, call, package) {
     if (!is.null(call$package)) return(call$package == package)
     parsed <- document$parse_data
     s <- parsed$syntax_data
-    head <- s$children[[s$child_start[[row]]]]
-    fn <- class_literal_row(s, head, "SYMBOL_FUNCTION_CALL")
-    if (!fn || length(navigation_definitions(parsed, s$line1[[fn]], s$col1[[fn]], call$name, token = fn, last = TRUE))) return(FALSE)
+    if (length(navigation_definitions(parsed, s$line1[[row]], s$col1[[row]], call$name, token = row, last = TRUE))) return(FALSE)
     owner <- if (is.function(workspace$guess_namespace)) workspace$guess_namespace(call$name, isf = TRUE, uri = document$uri)
     if (length(owner) && owner != package) return(FALSE)
     if (package == "base") return(TRUE)
-    at <- c(s$line1[[fn]] - 1L, s$col1[[fn]] - 1L)
+    at <- c(s$line1[[row]] - 1L, s$col1[[row]] - 1L)
     any(vapply(parsed$member_data$imports, function(item) {
         member_before(item$end, at) && length(item$expr) > 1L && identical(member_name(item$expr[[2L]]), package)
     }, logical(1L))) || (package %in% workspace$imported_packages && identical(owner, package))
@@ -57,7 +54,8 @@ data_column_atomic <- function(row, syntax, owns) {
     parts <- syntax_children(syntax, row)
     if (length(parts) == 3L && syntax$text[[parts[[2L]]]] == ":") {
         return(class_literal_row(syntax, parts[[1L]], "NUM_CONST") > 0L &&
-                class_literal_row(syntax, parts[[3L]], "NUM_CONST") > 0L)
+                class_literal_row(syntax, parts[[3L]], "NUM_CONST") > 0L &&
+                owns(list(name = ":"), "base", parts[[2L]]))
     }
     call <- syntax_call_arguments(syntax, row)
     identical(call$name, "c") && length(call$values) > 0L && !any(nzchar(names(call$values))) &&
