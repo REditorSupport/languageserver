@@ -8,6 +8,17 @@ s3_fixture_catalogs <- local({
     }
 })
 
+s3_test_workspace <- function(root = NULL) {
+    # Source-provider tests keep the real workspace and index, but do not
+    # depend on a startup subprocess finishing within its time limit.
+    catalogs <- s3_fixture_catalogs(startup_packages)
+    testthat::with_mocked_bindings(Workspace$new(root),
+        workspace_startup_packages = function() startup_packages,
+        workspace_startup_members = function() list(),
+        workspace_startup_s3 = function() catalogs,
+        .package = "languageserver")
+}
+
 s3_fixture <- function(lines, packages = startup_packages) {
     fixture <- provider_fixture(lines)
     fixture$workspace$s3_metadata <- S3MetadataCache$new()
@@ -72,7 +83,7 @@ test_that("S3 signatures retain recovered calls in their own literate R cell", {
     split <- c(prefix, "obj <- structure(1, class = 'widget')", "render(", "```", "```{r}", "obj)", "```")
     for (ext in c("Rmd", "qmd")) {
         uri <- paste0("file:///scope.", ext)
-        workspace <- Workspace$new(NULL)
+        workspace <- s3_test_workspace()
         for (lines in list(code, nested, split)) {
             document <- Document$new(uri, version = 1L, content = lines)
             workspace$documents$set(uri, document)
@@ -94,7 +105,7 @@ test_that("S3 dispatch reads the original class literal while recovering a call"
         "`pick.a b` <- function(x, space, ...) NULL", "`pick.a\tb` <- function(x, tab, ...) NULL")
     for (literate in c(FALSE, TRUE)) {
         uri <- if (literate) "file:///tabs.qmd" else "file:///tabs.R"
-        workspace <- Workspace$new(NULL)
+        workspace <- s3_test_workspace()
         for (gap in c("", "pkg::")) {
             lines <- c(methods, gap, "pick(", "  structure(1, class = 'a\tb'), )")
             if (literate) lines <- c("```{r}", lines, "```")
@@ -435,17 +446,6 @@ test_that("S3 works independently of member completion and can be disabled", {
     lsp_settings$set("s3_dispatch", FALSE)
     expect_null(s3_result(fixture))
 })
-
-s3_test_workspace <- function(root = NULL) {
-    # Source-provider tests keep the real workspace and index, but do not
-    # depend on a startup subprocess finishing within its time limit.
-    catalogs <- s3_fixture_catalogs(startup_packages)
-    testthat::with_mocked_bindings(Workspace$new(root),
-        workspace_startup_packages = function() startup_packages,
-        workspace_startup_members = function() list(),
-        workspace_startup_s3 = function() catalogs,
-        .package = "languageserver")
-}
 
 s3_workspace_status <- function(workspace) {
     status <- vapply(startup_packages, function(package) {
