@@ -923,7 +923,7 @@ test_that("Startup bundles invalidate when startup, transitive, or server state 
 
     # 3. Startup package DESCRIPTION modified on disk.
     startup_desc <- file.path(fixtures$library, fixtures$startup_pkg, "DESCRIPTION")
-    writeLines(c(readLines(startup_desc), "# startup description change"), startup_desc)
+    writeLines(c(readLines(startup_desc), "Note: startup description change"), startup_desc)
     make_s3()()
     make_mem()()
     expect_identical(s3_calls, 4L)

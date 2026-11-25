@@ -445,6 +445,7 @@ Workspace <- R6::R6Class("Workspace",
     ),
     public = list(
         root = NULL,
+        workspace_for_uri = NULL,
         namespaces = NULL,
         global_env = NULL,
         documents = NULL,

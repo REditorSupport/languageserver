@@ -504,6 +504,9 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
         hinted_packages = NULL,
         hint_sources = NULL,
         s4_sources = NULL,
+        helper_readers = list(),
+        helper_attempts = list(),
+        helper_reads_started = FALSE,
         update_definition_names = function(previous, current, counts = private$definition_counts) {
             for (name in setdiff(previous, current)) {
                 count <- counts$get(name, 0L) - 1L
@@ -782,6 +785,46 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             self$mode <- index_mode(self$root)
             self$full_requested <- self$mode == "full"
             self$enabled <- !is.null(self$root) && self$mode != "off"
+            if (self$enabled) self$set_project_helpers(lsp_settings$get("project_helpers"))
+        },
+
+        helper_rules = NULL,
+
+        set_project_helpers = function(settings) {
+            self$helper_rules <- project_helper_rules(self$root, settings,
+                include = self$compiled_globs(), exclude = self$compiled_globs(TRUE))
+            if (length(private$helper_readers)) self$prune_pending <- TRUE
+            private$helper_readers <- list()
+            private$helper_attempts <- list()
+        },
+
+        # Retain only shallow summaries for the lifetime of the calling scope.
+        helper_summaries = function(caller, helpers, paths, info) {
+            private$helper_reads_started <- TRUE
+            private$helper_readers[[index_canonical_uri(caller)]] <- helpers
+            uris <- names(paths)
+            mtimes <- as.numeric(info$mtime)
+            result <- lapply(seq_along(paths), function(i) {
+                uri <- uris[[i]]
+                stamp <- c(info$size[[i]], mtimes[[i]])
+                summary <- self$summaries$get(uri, NULL)
+                if (!isFALSE(summary$cacheable) && identical(c(summary$size, summary$mtime), stamp)) return(summary)
+                # A failed read settles until the file changes. A client without
+                # a file watcher can still pick up a newer on-disk definition.
+                if (identical(private$helper_attempts[[uri]], stamp) || self$parse_failed(uri)) return(NULL)
+                private$helper_attempts[[uri]] <- stamp
+                if (is.null(self$task_manager)) return(self$update_path(paths[[i]]))
+                self$queue_path(paths[[i]], invalidate = FALSE)
+                NULL
+            })
+            stats::setNames(result, uris)
+        },
+
+        helpers_pending = function(uris) {
+            if (!length(uris)) return(FALSE)
+            any(uris %in% self$pending) ||
+                any(vapply(private$worker_requests, function(r) r$uri %in% uris && private$request_is_current(r), logical(1L))) ||
+                any(vapply(uris, private$awaiting_parses$has, logical(1L)))
         },
 
         is_lazy = function() self$enabled && !self$full_requested,
@@ -792,11 +835,31 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             if (is.null(root) || private$activated_packages$has(root) ||
                     !private$discovery_directory_allowed(file.path(root, "R"))) return(FALSE)
             private$activated_packages$set(root, TRUE)
+            if (private$helper_reads_started) private$package_memberships$pop("active", NULL)
             private$pending_package_roots <- union(private$pending_package_roots, file.path(root, "R"))
             TRUE
         },
 
         watches_package = function(root) private$activated_packages$has(root),
+
+        loads_package_sources = function(root) {
+            !is.null(root) && (!private$helper_reads_started || !self$is_lazy() || self$watches_package(root))
+        },
+
+        # In lazy mode an explicitly named helper can have a package root
+        # before any package source has been opened or sourced.
+        active_package_source_uris = function() {
+            if (!private$helper_reads_started || !self$is_lazy()) return(self$package_source_uris())
+            if (!private$activated_packages$size()) return(character())
+            if (!private$package_memberships$has("active")) {
+                uris <- self$package_source_uris()
+                active <- vapply(uris, function(uri) {
+                    private$activated_packages$has(self$files$get(uri)$package_root)
+                }, logical(1L))
+                private$package_memberships$set("active", uris[active])
+            }
+            private$package_memberships$get("active")
+        },
 
         watches_path = function(path) {
             if (!self$should_index(path)) return(FALSE)
@@ -804,11 +867,23 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             uri <- index_canonical_uri(path_to_uri(path))
             root <- self$package_root_for_uri(uri)
             self$files$has(uri) || self$summaries$has(uri) ||
+                (length(private$helper_readers) && uri %in% unlist(private$helper_readers, use.names = FALSE)) ||
                 length(self$dependents(uri, include_candidates = TRUE)) > 0L ||
                 (!is.null(root) && private$activated_packages$has(root))
         },
 
         prune_inactive = function(keep) {
+            if (length(private$helper_readers)) {
+                previous <- unlist(private$helper_readers, use.names = FALSE)
+                private$helper_readers <- private$helper_readers[intersect(names(private$helper_readers), keep)]
+                retained <- unlist(private$helper_readers, use.names = FALSE)
+                private$helper_attempts <- private$helper_attempts[intersect(names(private$helper_attempts), retained)]
+                # Supersede queued reads even if no summary has arrived yet.
+                if (self$is_lazy()) {
+                    for (uri in setdiff(previous, c(keep, retained))) self$invalidate(uri)
+                }
+                keep <- union(keep, retained)
+            }
             if (!self$is_lazy()) return(invisible(NULL))
             keep <- vapply(keep, index_canonical_uri, "")
             known <- unique(c(self$files$keys(), self$summaries$keys(), private$failed_parses$keys()))
@@ -1446,7 +1521,12 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                 if (length(batch_size) != 1L || is.na(batch_size) || batch_size < 1L) batch_size <- 20L
                 budget <- suppressWarnings(as.numeric(lsp_settings$get("index_time_budget_ms")))
                 if (length(budget) != 1L || is.na(budget) || budget <= 0) budget <- 25
-                if (self$discovering) {
+                # A navigation request can arrive during full discovery.
+                # Schedule its explicit helper reads ahead of the next batch.
+                priority <- if (length(self$pending) && length(private$helper_readers)) {
+                    intersect(unlist(private$helper_readers, use.names = FALSE), self$pending)
+                }
+                if (self$discovering && !length(priority)) {
                     if (!is.null(private$discovery_result)) {
                         private$finish_discovery(batch_size, budget)
                         return(character())
@@ -1508,7 +1588,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                     ))
                     return(character())
                 }
-                candidates <- utils::head(self$pending, batch_size)
+                candidates <- utils::head(if (length(priority)) priority else self$pending, batch_size)
                 requests <- lapply(candidates, function(uri) {
                     list(uri = uri, path = path_from_uri(uri),
                         generation = private$generations$get(uri, 0L))
@@ -1596,6 +1676,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
 
         remove = function(uri) {
             uri <- index_canonical_uri(uri)
+            if (length(private$helper_attempts)) private$helper_attempts[[uri]] <- NULL
             private$discovered_files$pop(uri, NULL)
             self$finish_document(uri)
             if (!self$contains_path(path_from_uri(uri))) {

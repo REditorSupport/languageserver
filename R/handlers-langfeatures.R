@@ -317,8 +317,16 @@ text_document_definition  <- function(self, id, params) {
         return(invisible(NULL))
     }
     rootPath <- get_root_path_for_uri(uri, workspace$root)
-    self$deliver(definition_reply(id, uri, workspace, document, point, rootPath,
-            text_document_content = self$text_document_content))
+    reply <- definition_reply(id, uri, workspace, document, point, rootPath,
+        text_document_content = self$text_document_content)
+    deliver_definition(self, id, params, workspace, document, reply)
+}
+
+deliver_definition <- function(self, id, params, workspace, document, reply) {
+    if (!length(reply$waiting_helpers)) return(self$deliver(reply))
+    self$queue_context_reply(document$uri, workspace, helpers = reply$waiting_helpers)
+    enqueue_latest_reply(self, document$uri, "textDocument/definition",
+        list(id = id, version = document$version, params = params, helpers = reply$waiting_helpers))
 }
 
 #' `textDocument/typeDefinition` request handler
