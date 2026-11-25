@@ -1,5 +1,9 @@
 # languageserver (development)
 
+- Go to Definition can find top-level names in closed project helpers.
+  Map test or script globs to helper filenames with `r.lsp.project_helpers`
+  (#253, #386, #508).
+
 - Release temporary R documents outside the workspace when the editor closes
   them. This prevents memory use and indexing time from growing as Quarto
   opens successive virtual documents (#888).

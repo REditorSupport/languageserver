@@ -356,6 +356,30 @@ calls such as `selectMethod("compileStanModel", "Model")`. In an indexed
 workspace, targets come from the current package's R sources or the script's
 static source dependencies.
 
+## Go to Definition for project helpers
+
+Tests and scripts sometimes use helper functions without an explicit
+`source()` call. To make Go to Definition (F12) find those helpers even when
+their files are closed, map a caller glob to one or more helper filenames in
+your project's `.Rprofile`. Paths are relative to the workspace root. In a
+multi-root workspace the caller and helper must belong to the same folder.
+
+```r
+options(languageserver.project_helpers = list(
+    "tests/testthat/test-*.R" = c("tests/testthat/helper-data.R", "tests/testthat/helper-model.R"),
+    "analysis/**/*.R" = "scripts/common.R"
+))
+```
+
+Only caller patterns accept `*`, `**` and `?`. For a matching caller, Go to
+Definition checks its ordinary local and project definitions first, then the
+listed helpers, then installed packages. If several helpers define the name,
+the editor receives all matching locations in configuration order. Open
+helpers use the current editor text. Closed helpers are indexed on demand for
+their top-level definitions, subject to the workspace index's include,
+exclude and file-size settings. This setting applies only to Go to Definition
+and requires an index mode of `auto`, `lazy`, or `full`.
+
 ## Generated package definitions
 
 When a package function has no source-file location, Go to Definition shows its
@@ -399,6 +423,7 @@ settings | default | description
 `r.lsp.index_batch_size` | `20` | maximum number of shallow summaries built in one idle batch
 `r.lsp.index_time_budget_ms` | `25` | approximate event-loop budget for each shallow-index batch
 `r.lsp.index_persistent_cache` | `true` | persist validated summaries for full indexes; lazy indexes stay in memory
+`r.lsp.project_helpers` | `{}` | map caller globs to workspace-relative helper filenames for Go to Definition
 `r.lsp.glue_highlighting` | `true` | highlight embedded R in recognized templates using semantic tokens
 `r.lsp.glue_highlight_functions` | `{}` | map an exact function spelling to a 1-based unnamed argument, a named argument, or `false` to disable that spelling
 `r.lsp.server_capabilities` | `{}` | override server capabilities defined in [capabilities.R](https://github.com/REditorSupport/languageserver/blob/master/R/capabilities.R). See FAQ below.
