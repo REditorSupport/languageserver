@@ -87,6 +87,64 @@ source_read_requests <- function(server, document) {
     text_document_signature_help(server, 3L, params(1L, 6L))
 }
 
+test_that("a helper lookup leaves an inactive nested package shallow", {
+    source_read_settings(project_helpers = list("main.R" = "subpkg/R/helper.R"))
+    root <- index_normalize_path(withr::local_tempdir())
+    package <- file.path(root, "subpkg")
+    dir.create(file.path(package, "R"), recursive = TRUE)
+    writeLines("Package: helperfixture", file.path(package, "DESCRIPTION"))
+    main <- file.path(root, "main.R")
+    helper <- file.path(package, "R", "helper.R")
+    peer <- file.path(package, "R", "peer.R")
+    writeLines("from_helper()", main)
+    writeLines("from_helper <- function() 1", helper)
+    writeLines("from_peer <- function() 2", peer)
+
+    server <- SourceReadServer$new(root)
+    server$request_handlers[["textDocument/definition"]] <- text_document_definition
+    document <- source_read_open(server, main)
+    source_read_drain(server)
+    workspace <- server$get_workspace(document$uri)
+    params <- list(textDocument = list(uri = document$uri), position = position(0L, 2L))
+    text_document_definition(server, 1L, params)
+    # A source or parse callback may wake the caller before the helper read completes.
+    server$queue_context_reply(document$uri, workspace)
+    server$process_context_replies()
+    expect_equal(server$context_replies$size(), 1L)
+    for (i in seq_len(3L)) {
+        server$queue_pending_replies(document$uri)
+        expect_identical(server$process_pending_replies(max_replies = 2L, time_budget_ms = Inf), 0L)
+    }
+    expect_length(server$replies, 0L)
+    text_document_definition(server, 2L, params)
+    cancel_request(server, list(id = 2L))
+    expect_identical(vapply(server$replies, `[[`, integer(1L), "id"), 1:2)
+    expect_equal(vapply(server$replies, function(reply) reply$error$code, numeric(1L)),
+        rep(ErrorCodes$RequestCancelled, 2L))
+    text_document_definition(server, 3L, params)
+    source_read_drain(server)
+    expect_length(server$replies, 3L)
+    expect_identical(server$replies[[3L]]$id, 3L)
+    expect_identical(server$replies[[3L]]$result$uri, path_to_uri(helper))
+    expect_false(workspace$index$watches_package(package))
+    expect_false(workspace$index$summaries$has(path_to_uri(peer)))
+    expect_setequal(workspace$documents$keys(), document$uri)
+
+    writeLines("from_helper <- function() 3", helper)
+    workspace_did_change_watched_files(server, list(changes = list(
+        list(uri = path_to_uri(helper), type = FileChangeType$Changed))))
+    source_read_drain(server)
+    expect_setequal(workspace$documents$keys(), document$uri)
+    text_document_did_close(server, list(textDocument = list(uri = document$uri)))
+    expect_false(workspace$index$summaries$has(path_to_uri(helper)))
+
+    # Explicit sourcing still prepares the helper and its package peers.
+    source_read_open(server, main, "source('subpkg/R/helper.R')")
+    source_read_drain(server)
+    expect_true(workspace$index$watches_package(package))
+    expect_true(workspace$documents$has(path_to_uri(peer)))
+})
+
 test_that("failed source reads release all providers and retry after file events", {
     source_read_settings()
     root <- index_normalize_path(withr::local_tempdir())

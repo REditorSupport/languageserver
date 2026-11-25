@@ -324,6 +324,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             if (!self$workspaces$has(key)) {
                 path <- if (length(uri) == 0) NULL else path_from_uri(uri)
                 new_workspace <- Workspace$new(path)
+                new_workspace$workspace_for_uri <- self$get_workspace
                 self$workspaces$set(key, new_workspace)
                 self$workspace_cache$clear()
 
@@ -460,7 +461,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     !is.null(doc) && isTRUE(doc$is_open)
                 }, workspace$documents$keys())
                 sourced <- Filter(function(uri) length(index$source_edges$get(uri, character())) > 0L,
-                    index$package_source_uris())
+                    index$active_package_source_uris())
                 union(open, sourced)
             } else {
                 entry_uri
@@ -502,7 +503,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             open_uris <- Filter(function(uri) {
                 isTRUE(workspace$documents$get(uri)$is_open)
             }, document_uris)
-            package_uris <- index$package_source_uris()
+            package_uris <- index$active_package_source_uris()
             sourced <- Filter(function(uri) length(index$source_edges$get(uri, character())) > 0L, package_uris)
             keep <- union(package_uris, open_uris)
             for (uri in union(open_uris, sourced)) keep <- union(keep, index$source_closure(uri))
@@ -597,7 +598,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 workspace$index$attach_worker(self$index_task_manager,
                     on_update = function(uris) {
                         for (uri in uris) {
-                            if (!is.null(workspace$index$package_root_for_uri(uri))) {
+                            if (workspace$index$loads_package_sources(workspace$index$package_root_for_uri(uri))) {
                                 private$queue_workspace_document(workspace, uri)
                             }
                         }
@@ -616,7 +617,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     refresh_index_summary(workspace, workspace$index, doc$uri)
                 }
             }
-            for (uri in workspace$index$package_source_uris()) {
+            for (uri in workspace$index$active_package_source_uris()) {
                 logger$info("load package file:", path_from_uri(uri))
                 if (!workspace$index$summaries$has(uri)) {
                     if (is.null(workspace$index$task_manager)) {
@@ -636,23 +637,32 @@ LanguageServer <- R6::R6Class("LanguageServer",
         },
         start_index_progress = function(workspace) private$start_workspace_progress(workspace),
 
-        queue_context_reply = function(uri, workspace) {
+        queue_context_reply = function(uri, workspace, helpers = NULL) {
             if (is.null(self$context_replies)) self$context_replies <- collections::dict()
-            self$context_replies$set(uri, workspace)
+            key <- paste0(if (length(helpers)) "helpers:" else "sources:", uri)
+            self$context_replies$set(key, list(uri = uri, workspace = workspace, helpers = helpers))
             invisible(NULL)
         },
 
         process_context_replies = function() {
             if (is.null(self$context_replies)) return(invisible(NULL))
-            for (uri in self$context_replies$keys()) {
-                workspace <- self$context_replies$get(uri)
+            for (key in self$context_replies$keys()) {
+                pending <- self$context_replies$get(key)
+                workspace <- pending$workspace
+                uri <- pending$uri
                 document <- workspace$documents$get(uri, NULL)
                 if (is.null(document) || !identical(self$get_workspace(uri), workspace)) {
-                    self$context_replies$remove(uri)
-                } else if (!source_context_waiting(workspace, document)) {
-                    self$context_replies$remove(uri)
-                    self$queue_pending_replies(uri)
+                    self$context_replies$remove(key)
+                    next
                 }
+                waiting <- if (length(pending$helpers)) {
+                    isTRUE(workspace$index$enabled) && workspace$index$helpers_pending(pending$helpers)
+                } else {
+                    source_context_waiting(workspace, document)
+                }
+                if (waiting) next
+                self$context_replies$remove(key)
+                self$queue_pending_replies(uri)
             }
             invisible(NULL)
         },
