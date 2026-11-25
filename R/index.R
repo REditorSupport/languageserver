@@ -187,6 +187,16 @@ index_source_specs <- function(expr) {
     result
 }
 
+# Tags on indirect calls may need other source files to resolve the callee.
+# An empty vector certifies no indirect tags. FALSE leaves glue, partial
+# parses and other unavailable syntax on the full reference lookup path.
+# Older shallow summaries may have no reference_tags field at all.
+index_reference_tags <- function(expressions) {
+    tags <- tryCatch(.Call("index_indirect_call_tags_c", expressions, names(glue_template_packages),
+            new.env(parent = emptyenv()), PACKAGE = "languageserver"), error = function(e) NULL)
+    if (is.null(tags)) FALSE else tags
+}
+
 #' Open unconditional brace statements while preserving individual source ranges
 #' @noRd
 top_level_statements <- function(expressions, incomplete_lines = NULL) {
@@ -419,6 +429,11 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
         size = as.numeric(size),
         mtime = as.numeric(mtime),
         content_hash = get_content_hash(content),
+        reference_tags = if (parse_error) FALSE else if (!is.null(parse_data)) {
+            parse_data$reference_tags
+        } else {
+            index_reference_tags(expressions)
+        },
         definitions = definitions,
         class_declarations = classes,
         functions = functions,
@@ -805,6 +820,17 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             !self$discovering && !length(private$pending_package_roots) &&
                 !length(self$pending) && !length(private$worker_requests) &&
                 private$awaiting_parses$size() == 0L && private$pending_documents$size() == 0L
+        },
+
+        # A pending disk read or reload can replace a retained editor buffer.
+        # A full parse already running on the loaded text cannot change it.
+        source_reads_pending = function(uris) {
+            if (any(self$pending %in% uris)) return(TRUE)
+            if (any(vapply(private$worker_requests, function(request) {
+                request$uri %in% uris && private$request_is_current(request)
+            }, logical(1L)))) return(TRUE)
+            queued <- setdiff(private$pending_documents$keys(), private$awaiting_parses$keys())
+            any(queued %in% uris)
         },
 
         attach_worker = function(manager, on_update = NULL) {
