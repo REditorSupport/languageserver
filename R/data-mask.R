@@ -274,6 +274,53 @@ data_mask_call_roots <- function(s, verbs, owns) {
     list(kind = kind, receiver = receiver, selection = selection)
 }
 
+# [.data.table evaluates .SDcols in its caller, except for a top-level
+# first:last expression with non-call endpoints. Parentheses and one
+# leading ! or - are stripped before it tests for this range.
+data_mask_sdcols_range <- function(s, row) {
+    negated <- FALSE
+    repeat {
+        if (s$child_start[[row]] == s$child_end[[row]]) return(FALSE)
+        parts <- syntax_children(s, row)
+        parts <- parts[s$token[parts] != "COMMENT"]
+        tokens <- s$token[parts]
+        if (length(parts) < 2L) return(FALSE)
+        if (length(parts) == 3L && tokens[[1L]] == "'('") {
+            operator <- "("
+            args <- parts[[2L]]
+        } else if (length(parts) == 2L && tokens[[1L]] %in% c("'!'", "'-'")) {
+            operator <- s$text[[parts[[1L]]]]
+            args <- parts[[2L]]
+        } else if (length(parts) == 3L && tokens[[2L]] == "':'") {
+            operator <- ":"
+            args <- parts[c(1L, 3L)]
+        } else {
+            # Handle prefix spellings such as `:`(a, b). Most other calls
+            # are selectors such as patterns(), whose arguments stay lexical.
+            if (tokens[[2L]] != "'('") return(FALSE)
+            head <- syntax_children(s, parts[[1L]])
+            head <- head[s$token[head] != "COMMENT"]
+            if (length(head) != 1L && !(length(head) == 3L && s$token[[head[[2L]]]] %in% c("NS_GET", "NS_GET_INT"))) return(FALSE)
+            operator <- class_token_text(s$text[[head[[length(head)]]]])
+            if (!operator %in% c(":", "(", "!", "-")) return(FALSE)
+            args <- parts[tokens == "expr"][-1L]
+            if (length(args) != sum(tokens == "','") + 1L) return(FALSE)
+        }
+        if (length(args) == 1L && args[[1L]] > 0L &&
+                (operator == "(" || (!negated && operator %in% c("!", "-")))) {
+            negated <- negated || operator != "("
+            row <- args[[1L]]
+            next
+        }
+        if (operator != ":" || length(args) != 2L || any(args == 0L)) return(FALSE)
+        return(all(vapply(args, function(arg) {
+            leaf <- syntax_children(s, arg)
+            leaf <- leaf[s$token[leaf] != "COMMENT"]
+            length(leaf) == 1L && s$terminal[[leaf]]
+        }, logical(1L))))
+    }
+}
+
 data_mask_bracket_roots <- function(s, bracket, table_kind, masks) {
     tok <- s$token
     kind <- masks$kind
@@ -305,12 +352,23 @@ data_mask_bracket_roots <- function(s, bracket, table_kind, masks) {
         keys <- rep("", max(groups))
         tags <- which(tok[args] == "EQ_SUB")
         keys[groups[tags]] <- class_token_text(s$text[args[tags - 1L]])
+        if (modes == 1L && length(tags)) {
+            keys[startsWith(keys, ".") & startsWith(".SDcols", keys)] <- ".SDcols"
+        }
         positional <- which(!nzchar(keys))
-        remaining <- setdiff(c("i", "j", "by", "keyby"), keys)
+        formals <- c("i", "j", "by", "keyby")
+        if (modes == 1L) {
+            formals <- c(formals, "with", "nomatch", "mult", "roll", "rollends", "which", ".SDcols")
+        }
+        remaining <- setdiff(formals, keys)
         n <- min(length(positional), length(remaining))
         keys[positional[seq_len(n)]] <- remaining[seq_len(n)]
         names(values) <- keys[groups[tok[args] == "expr"]]
         cols <- values[names(values) %in% c("i", "j", "by", "keyby", "on", ".SDcols")]
+        sdcols <- values[".SDcols"]
+        if (modes == 1L && !is.na(sdcols) && !data_mask_sdcols_range(s, sdcols)) {
+            cols <- cols[names(cols) != ".SDcols"]
+        }
         i <- values["i"]
         if (!is.na(i)) {
             sym <- class_literal_row(s, i, "SYMBOL")
