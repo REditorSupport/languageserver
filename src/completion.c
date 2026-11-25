@@ -33,17 +33,18 @@ SEXP member_binding_c(SEXP env, SEXP name, SEXP materialize, SEXP inspect) {
         }
     }
 #else
-    /* Older R binding-kind APIs require an existing name. Enumerating names
-     * does not force promises or invoke active bindings. */
-    SEXP binding_names = PROTECT(R_lsInternal3(env, TRUE, FALSE));
-    int present = 0;
-    for (R_xlen_t i = 0; i < XLENGTH(binding_names); ++i) {
-        if (strcmp(CHAR(STRING_ELT(binding_names, i)), CHAR(STRING_ELT(name, 0))) == 0) {
-            present = 1;
-            break;
-        }
-    }
+    /* BindingIsActive requires an existing name. Check just this binding
+     * without invoking an active binding or forcing a promise. */
+#if R_VERSION >= R_Version(4, 2, 0)
+    int present = R_existsVarInFrame(env, sym);
+#else
+    /* R 4.0 and 4.1 expose the same frame lookup through exists(). */
+    SEXP exists_fn = Rf_install("exists");
+    SEXP lookup = PROTECT(Rf_lang4(exists_fn, name, env, Rf_ScalarLogical(FALSE)));
+    SET_TAG(CDDDR(lookup), Rf_install("inherits"));
+    int present = Rf_asLogical(Rf_eval(lookup, R_BaseEnv));
     UNPROTECT(1);
+#endif
     if (!present) {
         SET_VECTOR_ELT(result, 0, Rf_mkString("deferred"));
     } else if (R_BindingIsActive(sym, env)) {
