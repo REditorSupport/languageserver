@@ -385,7 +385,14 @@ recover_partial_content <- function(content, srcfile, error, include_tokens = TR
     tokens <- if (include_tokens) partial_semantic_data(data, content, token, terminals, gap_data)
     # A repaired trailing operator can preserve its function in the token
     # tree even when the structural projection discards the whole statement.
-    type_hints <- if (include_tokens) member_roxygen_type_index(content, tokens, row_offset)
+    type_hints <- hint_comments <- damaged_type_blocks <- NULL
+    if (include_tokens && roxygen_has_type_span(content)) {
+        type_hints <- member_roxygen_type_index(content, tokens, row_offset)
+        comments <- which(data$token == "COMMENT" & startsWith(data$text, "#'"))
+        comments <- comments[trimws(content[data$line1[comments]]) == trimws(data$text[comments])]
+        hint_comments <- data$line1[comments] + row_offset
+        damaged_type_blocks <- roxygen_damaged_type_blocks(data, comments, row_offset)
+    }
     syntax <- if (!is.null(gap_data)) gap_data else if (include_tokens) utils::getParseData(expr)
     inlay_lines <- incomplete
     if (length(inlay_lines) && (inherits(error, c("invalidRawLiteral", "unrecognizedEscape")) ||
@@ -397,7 +404,8 @@ recover_partial_content <- function(content, srcfile, error, include_tokens = TR
     }
     list(content = projected, expr = expr, syntax = syntax,
         token_data = partial_token_context(tokens, incomplete), incomplete_lines = incomplete,
-        inlay_fallback_lines = inlay_lines, member_packages = member_packages, type_hints = type_hints)
+        inlay_fallback_lines = inlay_lines, member_packages = member_packages, type_hints = type_hints, hint_comments = hint_comments,
+        damaged_type_blocks = damaged_type_blocks)
 }
 
 # Keep scoped classifications and suffix positions from the structural tree,

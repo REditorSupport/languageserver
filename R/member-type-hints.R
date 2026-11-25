@@ -23,6 +23,20 @@ member_type_hint_packages <- function(parsed) {
     })
 }
 
+# A current-package qualifier bypasses local variables and attached packages.
+member_project_type_generator <- function(name, index, budget) {
+    if (length(index$document_bindings[[name]])) {
+        member_resolve_document(name, index, list(), budget, 0L, character())
+    } else {
+        member_package_declaration(name, index, budget, 0L, character())
+    }
+}
+
+member_is_class_generator <- function(value) {
+    identical(value$r6_role, "generator") || !is.null(value$refclass_instance) ||
+        !is.null(value$s4_generator) || !is.null(value$s7_generator)
+}
+
 # A type name describes an instance. Read generator and class metadata without
 # calling constructors or inspecting the user's session.
 member_hinted_value <- function(types, index, bindings, budget) {
@@ -37,8 +51,13 @@ member_hinted_value <- function(types, index, bindings, budget) {
         parts <- strsplit(type, "::", fixed = TRUE)[[1L]]
         name <- utils::tail(parts, 1L)
         package <- if (length(parts) == 2L) parts[[1L]]
-        local <- is.null(package) || identical(package, index$document_package)
-        if (local) {
+        project <- !is.null(package) && identical(package, index$document_package)
+        if (project) {
+            # A qualification names a package binding, even inside a function
+            # which shadows it. Read the package scope, including peer files.
+            bindings <- list()
+            generator <- member_project_type_generator(name, index, budget)
+        } else if (is.null(package)) {
             generator <- member_infer(as.name(name), index, bindings, budget = budget)
         } else {
             catalog <- member_lookup(index$namespace_indices, package)
@@ -49,8 +68,9 @@ member_hinted_value <- function(types, index, bindings, budget) {
         if (!is.null(generator$refclass_instance)) return(generator$refclass_instance)
         if (!is.null(generator$s7_generator)) return(member_s7_shape(generator$s7_generator, generator$closure))
         class <- generator$s4_generator
-        owner <- if (!local) package
-        if (is.null(class) && !is.null(member_s4_descriptor(name, index, bindings, owner, budget))) {
+        owner <- if (!project) package
+        if (is.null(class) && (!project || length(index$document_s4[[name]])) &&
+                !is.null(member_s4_descriptor(name, index, bindings, owner, budget))) {
             class <- list(name = name, package = owner)
         }
         if (!is.null(class)) {
@@ -64,7 +84,7 @@ member_hinted_value <- function(types, index, bindings, budget) {
         }
         # An S3 class need not be an exported symbol. Catalogs carry the
         # inheritance vector, so finding the owner does not decode namespaces.
-        owners <- if (!local) package else unique(index$hint_packages)
+        owners <- if (!is.null(package)) package else unique(index$hint_packages)
         matches <- Filter(function(pkg) {
             candidate <- if (identical(pkg, index$package)) index else member_lookup(index$namespace_indices, pkg)
             !is.null(member_lookup(candidate$classes, name))
@@ -76,7 +96,9 @@ member_hinted_value <- function(types, index, bindings, budget) {
         }
         # User-defined S3 classes need no declaration. Keep the nominal class
         # for dispatch even when no member table or inheritance is available.
-        member_value(type = name, classes = name, member_package = owner)
+        path <- s3_hint_ancestry(name, package)
+        if (is.null(path)) path <- structure(name, incomplete_s3_path = TRUE)
+        member_value(type = name, classes = path, member_package = package)
     }
     if (length(types) == 1L) return(resolve(types[[1L]]))
     values <- lapply(types, resolve)
@@ -85,16 +107,20 @@ member_hinted_value <- function(types, index, bindings, budget) {
 
 # Annotations fill gaps in inference. In particular a concrete argument or
 # return value can have a narrower class and additional fields.
-member_apply_type_hint <- function(value, hint) {
-    if (is.null(hint)) return(value)
-    if (!length(value$type) && is.null(value$function_expr) && is.null(value$function_key) &&
-            (!length(value$possible_returns) || identical(value$reason, "open_dispatch"))) {
-        return(hint)
-    }
-    if (length(value$type) == 1L && identical(value$type, hint$type) &&
-            !length(value$classes) && is.null(value$r6_role) && is.null(value$s4_class) &&
-            !isTRUE(value$s7) && is.null(value$fields) && is.null(value$slots) &&
-            is.null(value$member_package) && !isTRUE(value$known_literal) &&
-            is.null(value$function_expr) && is.null(value$function_key)) return(hint)
-    value
+member_needs_call_hint <- function(value) {
+    if (identical(value$reason, "recursive_default")) return(FALSE)
+    if (!is.null(value$function_expr) || !is.null(value$function_key) || isTRUE(value$known_literal)) return(FALSE)
+    if (!length(value$type)) return(!length(value$possible_returns) || identical(value$reason, "open_dispatch"))
+    length(value$type) == 1L && !value$type %in% c(".missing", ".never", "NULL", "logical", "integer", "double",
+        "complex", "character", "raw", "list", "pairlist", "function") && !length(value$classes) && is.null(value$r6_role) &&
+        is.null(value$s4_class) && !isTRUE(value$s7) && is.null(value$fields) && is.null(value$slots) &&
+        is.null(value$elements) && is.null(value$element_shape) && is.null(value$member_package)
+}
+
+member_refine_call_hint <- function(value, types, index, lexical, budget) {
+    if (!length(types) || !member_needs_call_hint(value) || isTRUE(budget$exhausted)) return(value)
+    hint <- member_hinted_value(types, index, lexical, budget)
+    if (is.null(hint) || (length(value$type) && !identical(value$type, hint$type))) return(value)
+    if (!is.null(value$return_evidence)) return(member_join(value$return_evidence, hint))
+    hint
 }

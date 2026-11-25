@@ -30,19 +30,20 @@ member_complete_item_ids <- function(parsed) {
 # Splice top-level literal source() calls into binding history in execution
 # order. A sourced expression keeps its own declaration URI and range. Only
 # its ordering coordinates change, so a later local write can use that value.
-member_workspace_view <- function(workspace, document) {
+member_workspace_view <- function(workspace, document, positions = FALSE) {
     data <- document$parse_data$member_data
     if (!length(data$sources) || !isTRUE(workspace$index$enabled)) return(NULL)
     key <- list(parse = workspace$s3_revision, index = workspace$index$revision,
         documents = workspace$documents$size(), content = data$content_key)
     cached <- document$member_workspace_view
-    if (identical(key, cached$key)) return(cached)
+    if (identical(key, cached$key) && (!positions || !is.null(cached$positions))) return(cached)
 
     items <- collections::queue()
     imports <- collections::queue()
     state <- new.env(parent = emptyenv())
     state$shadowed <- FALSE
     state$expansions <- state$statements <- 0L
+    if (positions) state$positions <- list()
     expand <- function(doc, trail, anchor = NULL) {
         data <- doc$parse_data$member_data
         if (isTRUE(data$accessor_registrations)) state$accessor_registrations <- TRUE
@@ -66,12 +67,14 @@ member_workspace_view <- function(workspace, document) {
             }
         }
         next_source <- 1L
+        if (positions && !is.null(anchor)) offsets <- rep(NA_integer_, length(data$items))
         for (i in item_ids) {
             item <- data$items[[i]]
             end <- item$end
             if (!is.null(anchor)) {
                 item$declaration <- list(uri = doc$uri, item = i)
                 step <- 2L * items$size()
+                if (positions) offsets[[i]] <- step
                 item$start <- c(anchor, step)
                 item$end <- c(anchor, step + 1L)
                 item$cache_prefix <- NULL
@@ -95,18 +98,30 @@ member_workspace_view <- function(workspace, document) {
             if (uri %in% trail) return(FALSE)
             target <- workspace$documents$get(uri, NULL)
             if (is.null(target) || !identical(target$version, target$parse_data$version) ||
-                    (isTRUE(target$parse_data$parse_error) && is.null(target$parse_data$partial_complete_roots))) next
+                    (isTRUE(target$parse_data$parse_error) && is.null(target$parse_data$partial_complete_roots))) {
+                if (positions) state$unavailable <- TRUE
+                next
+            }
             state$expansions <- state$expansions + 1L
             if (!expand(target, c(trail, uri), if (is.null(anchor)) end else anchor)) return(FALSE)
+        }
+        if (positions && !is.null(anchor)) {
+            visits <- state$positions[[doc$uri]]
+            state$positions[[doc$uri]] <- c(visits, list(list(anchor = anchor, offsets = offsets)))
         }
         if (length(source_bindings)) state$shadowed <- TRUE
         TRUE
     }
     view <- list(key = key)
-    if (expand(document, document$uri) && state$expansions) {
+    expanded <- expand(document, document$uri)
+    if (expanded && state$expansions) {
         view$bindings <- member_index_bindings(items$as_list())
         view$imports <- imports$as_list()
         view$accessor_registrations <- state$accessor_registrations
+    }
+    if (positions) {
+        view$positions <- state$positions
+        view$positions_complete <- expanded && !isTRUE(state$unavailable)
     }
     document$member_workspace_view <- view
     view

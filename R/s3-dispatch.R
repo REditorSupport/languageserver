@@ -260,7 +260,7 @@ s3_lookup_method <- function(generic, classes, scope, context, owner = "source")
             return(visible)
         }
         namespace <- context$namespace_records[[paste(owner, key, sep = "::")]] %s3_or% context$namespace_records[[key]]
-        registered <- registrations[[key]] %s3_or% namespace
+        registered <- registrations[[paste(owner, key, sep = "::")]] %s3_or% namespace
         if (!is.null(registered$fn)) {
             if (!is.null(registered$info)) {
                 if (is.null(registered$info$formals)) return(NULL)
@@ -270,6 +270,7 @@ s3_lookup_method <- function(generic, classes, scope, context, owner = "source")
             }
             return(list(
                 name = registered$name %s3_or% key, fn = registered$fn,
+                registration = registered$registration,
                 formals = registered$fn[[2L]], closure = registered$closure, source = registered$source, body_hash = s3_function_identity(registered$fn)
             ))
         }
@@ -353,15 +354,13 @@ s3_context <- function(uri, workspace, document, at) {
     metadata <- workspace$s3_metadata
     if (!is.null(metadata)) for (package in metadata$keys()) context$catalogs[[package]] <- if (is.function(metadata$catalog)) metadata$catalog(package) else metadata$get(package)
     context$sources <- s3_context_sources(uri, workspace, document)
-    context$imports <- workspace$imported_packages %s3_or% character()
-    for (source in context$sources) {
-        for (import in source$index$imports) {
-            item <- source$items[[import$item]]
-            if (!identical(source$uri, uri) || member_before(item$end, at)) {
-                context$imports <- union(context$imports, import$package)
-            }
-        }
-    }
+    imports <- lapply(context$sources, function(source) {
+        items <- source$index$imports
+        if (identical(source$uri, uri)) items <- Filter(function(import) member_before(source$items[[import$item]]$end, at), items)
+        unlist(lapply(items, `[[`, "package"), use.names = FALSE)
+    })
+    imports_at <- function(per_source) unique(c(workspace$imported_packages, unlist(per_source, use.names = FALSE), character()))
+    context$imports <- imports_at(imports)
     required <- unique(c(startup_packages, context$imports, document$parse_data$member_data$packages))
     repeat {
         dependencies <- unique(unlist(lapply(context$catalogs[required], `[[`, "dependencies"), use.names = FALSE))
@@ -374,7 +373,14 @@ s3_context <- function(uri, workspace, document, at) {
         is.null(catalog) || !is.null(catalog$error)
     }, logical(1L)))
     analyzer <- s3_analyzer(context, context$root)
-    for (source in context$sources) {
+    for (s in seq_along(context$sources)) {
+        source <- context$sources[[s]]
+        if (!length(source$index$registrations)) next
+        # registerS3method() targets the generic visible at registration. A
+        # later library() can mask it before the call being analyzed.
+        previous_imports <- context$imports
+        import_rows <- vapply(source$index$imports, `[[`, integer(1L), "item")
+        last_prefix <- -1L
         for (i in source$index$registrations) {
             item <- source$items[[i]]
             if (!identical(source$uri, uri) || member_before(item$end, at)) {
@@ -382,12 +388,22 @@ s3_context <- function(uri, workspace, document, at) {
                 old_uri <- context$source_uri
                 context$at <- item$start
                 context$source_uri <- source$uri
+                prefix <- findInterval(i - 1L, import_rows)
+                if (prefix != last_prefix) {
+                    scoped_imports <- imports
+                    scoped_imports[s] <- list(unlist(lapply(source$index$imports[seq_len(prefix)], `[[`, "package"), use.names = FALSE))
+                    context$imports <- imports_at(scoped_imports)
+                    last_prefix <- prefix
+                }
+                context$registration_site <- list(uri = source$uri, at = item$start, call = item$expr)
                 analyzer$infer(item$expr, context$root)
+                context$registration_site <- NULL
                 context$at <- old_at
                 context$source_uri <- old_uri
                 if (isTRUE(get0(".dynamic_registration", context$root))) context$registration_unknown <- TRUE
             }
         }
+        context$imports <- previous_imports
     }
     root <- s3_package_root(workspace, uri)
     namespace <- list(key = "", records = list(), valid = TRUE)
@@ -705,6 +721,7 @@ resolve_s3_call <- function(uri, workspace, document, point, hover = FALSE, call
     )
     result$method$closure <- NULL
     result$method$fn <- NULL
+    result$method$registration <- NULL
     result
 }
 
@@ -787,7 +804,8 @@ s3_recover_call <- function(document, location, recovered) {
     # the same function as its original declaration.
     hints <- document$parse_data$member_data$type_hints
     parse_call <- if (length(hints) || any(grepl("(`", lines, fixed = TRUE))) function(text) {
-        member_parse_recovered(text, NULL, start[[1L]], first_col, type_hints = hints)
+        member_parse_recovered(text, NULL, start[[1L]], first_col, type_hints = hints,
+            hint_comments = document$parse_data$member_data$hint_comments)
     } else str2expression
     for (end in seq.int(offset, length(lines))) {
         text <- lines[seq_len(end)]
@@ -1020,30 +1038,50 @@ s3_member_constructor_ready <- function(workspace, document, location, packages)
     !is.null(symbol$signature)
 }
 
-s3_metadata_waiting <- function(self, uri, document, point = NULL, hover = FALSE, call = NULL) {
+s3_hint_worker_waiting <- function(workspace, document, manager, types = NULL) {
+    if (!workspace$s3_hint_workers$has(document$uri) || !manager$has(document$uri)) return(FALSE)
+    data <- document$parse_data$member_data
+    packages <- if (is.null(types)) data$type_hint_packages else unique(unlist(data$type_hint_dependencies[types], use.names = FALSE))
+    metadata <- workspace$member_metadata
+    any(vapply(packages, function(package) {
+        catalog <- if (is.function(metadata$catalog)) metadata$catalog(package) else if (is.function(metadata$get)) metadata$get(package, NULL)
+        is.null(catalog) || isTRUE(catalog$dataset_only) || !is.null(catalog$error)
+    }, logical(1L)))
+}
+
+s3_metadata_waiting <- function(self, uri, document, point = NULL, hover = FALSE, call = NULL, request_id = NULL) {
     if (!isTRUE(lsp_settings$get("s3_dispatch"))) return(FALSE)
     resolve_pending <- is.function(self$resolve_task_manager$has) && self$resolve_task_manager$has(uri)
-    hinted <- document$parse_data$member_data$type_hint_packages
     manager <- self$member_task_manager %s3_or% self$resolve_task_manager
-    if (length(hinted) && is.function(manager$has) && manager$has(uri)) {
-        workspace <- self$get_workspace(uri)
-        missing <- hinted[vapply(hinted, function(package) {
-            metadata <- workspace$member_metadata
-            catalog <- if (is.function(metadata$catalog)) metadata$catalog(package) else if (is.function(metadata$get)) metadata$get(package, NULL)
-            is.null(catalog) || isTRUE(catalog$dataset_only) || !is.null(catalog$error)
-        }, logical(1L))]
-        if (length(missing)) {
-            if (is.null(point)) return(TRUE)
-            # The catalogs can refine only dispatches that actually read a
-            # hint. Known inputs in the same function can reply immediately.
+    if (!resolve_pending && (!is.function(manager$has) || (is.function(manager$has_work) && !manager$has_work()))) return(FALSE)
+    workspace <- if (is.function(self$get_workspace)) self$get_workspace(uri)
+    workers <- workspace$s3_hint_workers
+    if (!is.null(workers) && workers$size() && is.function(manager$has)) {
+        caller <- if (identical(document$uri, uri)) document else workspace$documents$get(uri, NULL)
+        if (!is.null(request_id) && isTRUE(caller$s3_hint_subscriber)) {
+            s3_forget_hint_waiters(workspace, uri, request_id, caller)
+        }
+        if (is.null(point)) {
+            if (s3_hint_worker_waiting(workspace, document, manager)) return(TRUE)
+        } else if (workers$has(uri) || any(workers$keys() %in% workspace_document_uris(workspace, uri))) {
+            # Resolve in the caller's scope and inspect only the class models
+            # actually read. Other queued documents do not enter this search.
             wait <- new.env(parent = emptyenv())
-            wait$packages <- missing
+            wait$manager <- manager
             resolve_s3_call(uri, workspace, document, point, hover, call, hint_wait = wait)
-            if (isTRUE(wait$needed)) return(TRUE)
+            for (owner in setdiff(names(wait$owners), uri)) {
+                if (!is.null(request_id)) {
+                    waiters <- workers$get(owner)
+                    waiters[[request_id_key(request_id)]] <- list(uri = uri, version = document$version, types = wait$owners[[owner]])
+                    workers$set(owner, waiters)
+                    caller$s3_hint_subscriber <- TRUE
+                }
+                if (is.function(manager$promote)) manager$promote(owner)
+            }
+            if (length(wait$owners)) return(TRUE)
         }
     }
     if (!resolve_pending) return(FALSE)
-    workspace <- self$get_workspace(uri)
     packages <- character()
     if (!is.null(point)) {
         location <- s3_call_location(document, point, hover, call)
@@ -1079,11 +1117,11 @@ s3_metadata_waiting <- function(self, uri, document, point = NULL, hover = FALSE
     }, logical(1L)))
 }
 
-s3_queue_ready <- function(self, uri) {
+s3_queue_ready_document <- function(self, workspace, uri) {
     if (is.null(self$pending_replies) || !is.function(self$pending_replies$get)) {
         return(invisible(NULL))
     }
-    document <- self$get_workspace(uri)$documents$get(uri, NULL)
+    document <- workspace$documents$get(uri, NULL)
     if (is.null(document)) {
         return(invisible(NULL))
     }
@@ -1092,6 +1130,80 @@ s3_queue_ready <- function(self, uri) {
     } else {
         drain_pending_replies(self, uri, document$version)
     }
+}
+
+s3_forget_hint_waiters <- function(workspace, uri, request_id = NULL, document = workspace$documents$get(uri, NULL)) {
+    workers <- workspace$s3_hint_workers
+    removed <- character()
+    if (is.null(workers) || !workers$size() || !isTRUE(document$s3_hint_subscriber)) return(invisible(removed))
+    retained <- FALSE
+    for (owner in workers$keys()) {
+        waiters <- workers$get(owner)
+        keys <- if (is.null(request_id)) names(waiters) else request_id_key(request_id)
+        for (key in keys) {
+            if (identical(waiters[[key]]$uri, uri)) {
+                waiters[[key]] <- NULL
+                removed <- union(removed, key)
+            }
+        }
+        if (length(waiters) != length(workers$get(owner))) workers$set(owner, waiters)
+        retained <- retained || any(vapply(waiters, function(waiter) identical(waiter$uri, uri), logical(1L)))
+    }
+    document$s3_hint_subscriber <- retained
+    invisible(removed)
+}
+
+s3_pending_hint_request <- function(self, uri, keys, version) {
+    if (!length(keys) || is.null(self$pending_replies)) return(FALSE)
+    queues <- self$pending_replies$get(uri, NULL)
+    any(vapply(queues, function(queue) {
+        queue$size() && any(vapply(queue$as_list(), function(item) {
+            identical(item$version, version) && request_id_key(item$id) %in% keys
+        }, logical(1L)))
+    }, logical(1L)))
+}
+
+s3_wake_hint_dependents <- function(self, workspace, uri, forget = FALSE, recheck = FALSE) {
+    workers <- workspace$s3_hint_workers
+    if (is.null(workers) || !workers$has(uri)) return(invisible(NULL))
+    waiters <- workers$get(uri)
+    manager <- self$member_task_manager %s3_or% self$resolve_task_manager
+    document <- workspace$documents$get(uri, NULL)
+    finished <- forget || is.null(document) || !is.function(manager$has) || !s3_hint_worker_waiting(workspace, document, manager)
+    ready <- character()
+    for (key in names(waiters)) {
+        waiter <- waiters[[key]]
+        # A completion or cancellation can supersede the original request
+        # while another provider for this URI remains queued.
+        if (s3_pending_hint_request(self, waiter$uri, key, waiter$version)) {
+            if (!finished && !recheck && s3_hint_worker_waiting(workspace, document, manager, waiter$types)) next
+            ready <- union(ready, waiter$uri)
+        }
+        waiters[[key]] <- NULL
+    }
+    if (finished) {
+        workers$remove(uri)
+        if (!is.null(document)) document$s3_hint_worker <- FALSE
+    } else {
+        workers$set(uri, waiters)
+    }
+    for (caller in ready) s3_queue_ready_document(self, workspace, caller)
+    invisible(NULL)
+}
+
+s3_queue_ready <- function(self, uri) {
+    if (!is.function(self$get_workspace)) return(invisible(NULL))
+    workspace <- self$get_workspace(uri)
+    s3_wake_hint_dependents(self, workspace, uri)
+    s3_queue_ready_document(self, workspace, uri)
+}
+
+s3_release_hint_document <- function(self, workspace, uri, document) {
+    if (is.null(workspace$s3_hint_workers) || !workspace$s3_hint_workers$size()) return(invisible(NULL))
+    s3_forget_hint_waiters(workspace, uri, document = document)
+    s3_wake_hint_dependents(self, workspace, uri, forget = TRUE)
+    if (!is.null(document)) document$s3_hint_worker <- FALSE
+    invisible(NULL)
 }
 
 s3_namespace_snapshot <- function(root, owner = NULL) {

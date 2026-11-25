@@ -1,13 +1,17 @@
 #' Queue only the latest expensive range-style request for a version
 #' @noRd
 enqueue_latest_reply <- function(self, uri, method, item) {
-    document <- self$get_workspace(uri)$documents$get(uri, NULL)
+    workspace <- self$get_workspace(uri)
+    document <- workspace$documents$get(uri, NULL)
     if (!is.null(document) && reply_parse_failure(self, item$id, document)) return(invisible(NULL))
     queue <- self$pending_replies$get(uri)[[method]]
     retained <- list()
     while (queue$size()) {
         previous <- queue$pop()
         if (isTRUE(previous$version == item$version)) {
+            if (!identical(request_id_key(previous$id), request_id_key(item$id))) {
+                s3_forget_hint_waiters(workspace, uri, previous$id)
+            }
             self$deliver(ResponseErrorMessage$new(
                 previous$id,
                 "RequestCancelled",
@@ -183,7 +187,7 @@ text_document_completion  <- function(self, id, params) {
     if (identical(document$version, document$parse_data$version) &&
             (index_context_waiting(self, workspace, document, point) ||
                     member_metadata_waiting(self, uri, document, point, call = document$detect_call(point)) ||
-                    s3_metadata_waiting(self, uri, document, point, hover = FALSE))) {
+                    s3_metadata_waiting(self, uri, document, point, hover = FALSE, request_id = id))) {
         enqueue_latest_reply(self, uri, "textDocument/completion", list(id = id, version = document$version, params = params))
         if (is.function(self$resolve_task_manager$promote)) self$resolve_task_manager$promote(uri)
         if (is.function(self$member_task_manager$promote)) self$member_task_manager$promote(uri)
@@ -239,7 +243,7 @@ text_document_hover  <- function(self, id, params) {
     if (glue_cursor_request(self, id, params, "textDocument/hover", workspace, document, point)) return(invisible(NULL))
     if (identical(document$version, document$parse_data$version) &&
             (index_context_waiting(self, workspace, document, point, hover = TRUE) ||
-                    s3_metadata_waiting(self, uri, document, point, hover = TRUE))) {
+                    s3_metadata_waiting(self, uri, document, point, hover = TRUE, request_id = id))) {
         enqueue_latest_reply(self, uri, "textDocument/hover", list(id = id, version = document$version, params = params))
         if (is.function(self$resolve_task_manager$promote)) self$resolve_task_manager$promote(uri)
         return(invisible(NULL))
@@ -275,7 +279,7 @@ text_document_signature_help  <- function(self, id, params) {
     if (identical(document$version, document$parse_data$version) &&
             (index_context_waiting(self, workspace, document, point, call = call) ||
                     member_metadata_waiting(self, uri, document, point, call = call) ||
-                    s3_metadata_waiting(self, uri, document, point, hover = FALSE, call = call))) {
+                    s3_metadata_waiting(self, uri, document, point, hover = FALSE, call = call, request_id = id))) {
         enqueue_latest_reply(self, uri, "textDocument/signatureHelp", list(id = id, version = document$version, params = params))
         if (is.function(self$resolve_task_manager$promote)) self$resolve_task_manager$promote(uri)
         if (is.function(self$member_task_manager$promote)) self$member_task_manager$promote(uri)

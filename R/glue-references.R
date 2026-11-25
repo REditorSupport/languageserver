@@ -383,6 +383,7 @@ glue_member_locations <- function(workspace, owner, name, uris, ordinary, includ
 }
 
 glue_site_locations <- function(workspace, document, site, include_declaration = TRUE) {
+    site <- reference_source_glue_site(workspace, document, site)
     target <- site$target
     if (!length(target$key)) return(list())
     if (identical(target$kind, "lexical")) {

@@ -23,7 +23,7 @@ test_that("typed roxygen follows the function literal belonging to the declarati
         "methods <- list(", "  #' @param arg (`Method`)", "  m = function(arg) arg)",
         "#' @return (`Wrong`)", "factory <- list(f = function() NULL)",
         "#' @return (`Wrong`)", "computed <- (function() NULL)()",
-        "#' @return (`Wrong`)", "", "separate <- function() NULL",
+        "#' @return (`Spaced`)", "", "separate <- function() NULL",
         "txt <- r\"(inside string", "#' @return (`Wrong`)", "unrelated <- function() NULL", ")\"",
         "#' @return (`pkg::Result`)", "nullary <- function() NULL")
     data <- parse_document("file:///roxygen-types.R", lines)$member_data
@@ -36,9 +36,9 @@ test_that("typed roxygen follows the function literal belonging to the declarati
     expect_identical(hint(binding("methods")[[2L]])$params, list(arg = "Method"))
     expect_null(hint(binding("factory")[[2L]]))
     expect_null(hint(binding("computed")[[1L]][[2L]]))
-    expect_null(hint(binding("separate")))
+    expect_identical(hint(binding("separate"))$returns, "Spaced")
     expect_identical(hint(binding("nullary"))$returns, "pkg::Result")
-    expect_identical(length(data$type_hints), 4L)
+    expect_identical(length(data$type_hints), 5L)
     expect_true(data$has_type_hints && data$symbol_scope)
     expect_true("pkg" %in% data$packages)
     expect_true(all(c("Outer", "Inner") %in% member_syntax_names(outer)))
@@ -91,6 +91,64 @@ test_that("ordinary code and Markdown in strings never request or supply types",
     expect_null(member_roxygen_type_index(lines, stop("unused syntax")))
     multiline <- c('text <- "open', "#' @return (`False`)\" # another comment", "f <- function() NULL")
     expect_false(parse_document("file:///string.R", multiline)$member_data$has_type_hints)
+})
+
+test_that("verified type occurrences retain their own code-point ranges and declaration", {
+    lines <- c("\t#' @param Pipeline,other (`fixture::Pipeline |", "\t#'   Π`) Pipeline in prose.",
+        "\t# ordinary comment", "  ", "\t#' @param `a b` (`Local`)",
+        "\t#' @returns (`fixture::Pipeline`)", "# another comment", "",
+        "\tRésumé <- function(Pipeline, other, `a b`) {",
+        "    #' @return (`Nested`)", "    nested <- function() other", "    nested()", "}",
+        "#' @return (`Wrong`)", "", "standalone <- 1L", "next_fun <- function() NULL")
+    parsed <- parse_document("file:///ranges.R", lines)
+    index <- parsed$member_data$type_hints
+    occurrences <- attr(index, "occurrences", exact = TRUE)
+    expect_identical(occurrences$type, c("fixture::Pipeline", "Π", "Local", "fixture::Pipeline", "Nested"))
+    expect_identical(occurrences$parameter, c("Pipeline,other", "Pipeline,other", "`a b`", NA, NA))
+    expect_identical(occurrences$function_row, c(8L, 8L, 8L, 8L, 10L))
+    expect_identical(occurrences$row, c(0L, 1L, 4L, 5L, 9L))
+    expect_identical(substr(lines[occurrences$row + 1L], occurrences$start + 1L, occurrences$end),
+        c("Pipeline", "Π", "Local", "Pipeline", "Nested"))
+    expect_identical(occurrences$start[[1L]], as.integer(regexpr("fixture::", lines[[1L]], fixed = TRUE)) + nchar("fixture::") - 1L)
+    expect_true(all(substr(lines[occurrences$function_row + 1L], occurrences$function_col + 1L,
+                occurrences$function_col + nchar("function")) == "function"))
+    expect_null(attr(parsed$member_data$bindings$next_fun[[1L]]$expr, "member_type_hints", exact = TRUE))
+    tab <- c("#' @param `a\tb` (`Π`)", "f <- function(`a\tb`) NULL")
+    tab_index <- parse_document("file:///quoted-tab.R", tab)$member_data$type_hints
+    expect_identical(tab_index[[1L]]$params[["a\tb"]], "Π")
+})
+
+test_that("fragment recovery ignores roxygen spellings inside multiline strings", {
+    for (opening in c('text <- "open', 'text <- r"(open')) {
+        for (closed in c(FALSE, TRUE)) {
+            content <- c('Pipeline <- R6::R6Class("Pipeline", public = list(walk = 1L))', opening,
+                "#' @param data (`Pipeline`)", "f <- function(data) data$walk",
+                if (closed) if (grepl('r"', opening, fixed = TRUE)) ')"' else '"')
+            fixture <- provider_fixture(content)
+            items <- member_completion(fixture$uri, fixture$workspace, fixture$document,
+                list(row = 3L, col = nchar("f <- function(data) data$")), TRUE, 100L)
+            expect_false("clone" %in% vapply(items, `[[`, "", "label"))
+        }
+    }
+    content <- c("#' @param data (`Frame`)", "f <- function(data) {", "  data$")
+    fixture <- provider_fixture(content)
+    doc <- fixture$document
+    point <- list(row = 2L, col = nchar(content[[3L]]))
+    recovered <- member_recover_scope(doc, point, member_cursor(doc, point), doc$parse_data$member_data)
+    expect_identical(attr(recovered$parsed[[1L]][[3L]], "member_type_hints", exact = TRUE)$params$data, "Frame")
+})
+
+test_that("sparse annotations preserve large function bodies and defaults", {
+    code <- c("#' @param x (`Outer`)", "f <- function(x,",
+        "    #' @param y (`Inner`)", "    nested = function(y) y) {",
+        paste(rep("x", 2000L), collapse = " + "), rep("foo(x)", 1000L), "}")
+    parsed <- parse_document("file:///large-hint.R", code, include_xml = FALSE)
+    expect_false(parsed$parse_error)
+    fn <- parsed$member_data$bindings$f[[1L]]$expr
+    expect_identical(attr(fn, "member_type_hints", exact = TRUE)$params$x, "Outer")
+    expect_identical(attr(fn[[2L]]$nested, "member_type_hints", exact = TRUE)$params$y, "Inner")
+    expect_identical(attr(fn, "member_type_names", exact = TRUE), c("Outer", "Inner"))
+    expect_type(fn[[2L]], "pairlist")
 })
 
 test_that("package sources resolve documented types from relevant NAMESPACE imports", {

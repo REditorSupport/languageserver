@@ -19,6 +19,27 @@ test_that("documented argument types propagate through wrappers and dependent de
         "argument_matching")
 })
 
+test_that("proven results and unused formals do not resolve annotations", {
+    aliases <- c('G0 <- R6::R6Class("Deep", public = list(field = 1))', sprintf("G%d <- G%d", 1:145, 0:144))
+    definitions <- c(aliases, "#' @param x (`G145`) Input.", "#' @return (`G145`) Output.",
+        "wrap <- function(x, y = x, z = y) list(real = TRUE)")
+    for (call in c("wrap(123)", "wrap(opaque())", "wrap()")) {
+        expect_named(roxygen_call_receiver(definitions, call)$fields, "real")
+    }
+    doc <- c(aliases[[1L]], "#' @param x (`G0`) Input.")
+    expect_named(roxygen_call_receiver(c(doc, "wrap <- function(x = y, y = list(later = 1)) x"), "wrap()")$fields, "later")
+    expect_identical(roxygen_call_receiver(c(doc, "wrap <- function(x = y, y = x) x"), "wrap()")$reason, "recursive_default")
+})
+
+test_that("a formal's class name is captured independently of that formal", {
+    definitions <- c('Thing <- R6::R6Class("Global", public = list(wrong = 1))',
+        "factory <- function() {",
+        '  Thing <- R6::R6Class("Local", public = list(right = 1))',
+        "  #' @param Thing (`Thing`) A local instance.",
+        "  function(Thing) Thing", "}")
+    expect_setequal(names(roxygen_call_receiver(definitions, "factory()(opaque())")$fields), c("right", "clone"))
+})
+
 test_that("documented results follow calls through wrappers, stored functions and fluent methods", {
     definitions <- c(
         'Pipeline <- R6::R6Class("Pipeline", public = list(limit = function(n) self,',
@@ -79,6 +100,106 @@ test_that("documented results preserve known outcomes and their members at multi
         expect_false("actual" %in% names(value$fields))
     }
     expect_named(roxygen_call_receiver(definitions, "details()$nested")$fields, "actual")
+})
+
+test_that("grouping and local assignments preserve mixed return evidence", {
+    code <- c('Pipe <- R6::R6Class("Pipe", public = list(only_pipe = 1))', "#' @return (`Pipe`) Output.")
+    bodies <- c("(if (flag) list(actual = 1) else opaque())",
+        "{ out <- if (flag) list(actual = 1) else opaque(); out }",
+        "{ if (flag) out <- list(actual = 1) else out <- opaque(); out }",
+        "{ unrelated <- if (flag) 1 else opaque(); opaque() }")
+    for (body in bodies[1:3]) {
+        definitions <- c(code, paste("choose <- function(flag)", body))
+        expect_named(roxygen_call_receiver(definitions, "choose(TRUE)")$fields, "actual")
+        expect_true("only_pipe" %in% names(roxygen_call_receiver(definitions, "choose(FALSE)")$fields))
+        expect_false("only_pipe" %in% names(roxygen_call_receiver(definitions, "choose(opaque())")$fields))
+    }
+    definitions <- c(code, paste("choose <- function(flag)", bodies[[4L]]))
+    expect_true("only_pipe" %in% names(roxygen_call_receiver(definitions, "choose(opaque())")$fields))
+    definitions <- c(code[[1L]], "#' @param x (`Pipe`) Input.", "id <- function(x) x")
+    expect_false("only_pipe" %in% names(roxygen_call_receiver(definitions, "id(if (flag) list(actual=1) else opaque())")$fields))
+    definitions <- c(code[[1L]], "#' @param x (`Pipe`) Input.", "id <- function(x, flag) { if (flag) x <- Pipe$new(); x }")
+    expect_true("only_pipe" %in% names(roxygen_call_receiver(definitions, "id(opaque(), flag)")$fields))
+})
+
+test_that("registered methods preserve exact factory captures after the implementation is rebound", {
+    definitions <- c('g <- function(x) UseMethod("g")', "factory <- function(value) function(x) value",
+        "impl <- factory(list(first = 1))", 'registerS3method("g", "widget", impl)',
+        "impl <- factory(list(second = 2))", 'x <- structure(1, class = "widget")')
+    expect_named(roxygen_call_receiver(definitions, "g(x)")$fields, "first")
+    definitions[[4L]] <- 'registerS3method("g", "widget", factory(list(inline = 1)))'
+    expect_named(roxygen_call_receiver(definitions, "g(x)")$fields, "inline")
+})
+
+test_that("package generics analyze caller-visible source methods and retain namespace fallbacks", {
+    index <- member_generic_index(paste('draw <- function(object, ...) UseMethod("draw")',
+            "draw.default <- function(object, ...) list(package_result = 1L)", sep = "\n"))
+    index$package <- "drawing"
+    index$exports <- "draw"
+    index$roots$draw <- member_value(function_key = "draw", metadata = "drawing")
+    metadata <- MemberMetadataCache$new(1024^2)
+    metadata$set("drawing", member_index_freeze(index))
+    definitions <- c('Answer <- R6::R6Class("Answer", public = list(answer = 42L))',
+        "#' @return (`Answer`) The drawing.", "draw.foo <- function(object, ...) opaque()",
+        'input <- structure(1, class = "foo")')
+    resolve <- function(lines, call) {
+        f <- provider_fixture(c(lines, paste0(call, "$probe")))
+        f$workspace$member_metadata <- metadata
+        p <- list(row = length(lines), col = nchar(call) + 1L)
+        member_resolve_cursor(f$uri, f$workspace, f$document, p, member_cursor(f$document, p))$value
+    }
+    for (call in c("drawing::draw(object = input)", "draw(input)")) {
+        value <- resolve(c("library(drawing)", definitions), call)
+        expect_setequal(names(value$fields), c("answer", "clone"))
+    }
+    expect_named(resolve(definitions, "drawing::draw(1L)")$fields, "package_result")
+    local_generic <- c('draw <- function(object, ...) UseMethod("draw")', "impl <- function(...) list(local = 1)",
+        'registerS3method("draw", "foo", impl)', 'input <- structure(1, class = "foo")')
+    expect_named(resolve(local_generic, "draw(input)")$fields, "local")
+    expect_named(resolve(local_generic, "drawing::draw(input)")$fields, "package_result")
+    other <- member_generic_index('draw <- function(object, ...) UseMethod("draw")\ndraw.default <- function(...) list(other = 1)')
+    other$package <- "drawing2"
+    other$exports <- "draw"
+    metadata$set("drawing2", member_index_freeze(other))
+    packages <- c("drawing", "drawing2")
+    s3_metadata <- S3MetadataCache$new()
+    for (pkg in packages) {
+        fn <- list(name = "draw", package = pkg, owner = pkg, formals = alist(object = , ... = ),
+            generic = list(name = "draw", formal = "object"))
+        s3_metadata$set(pkg, list(schema = 1L, package = pkg, generation = pkg, functions = list(draw = fn),
+                methods = list(), objects = list()))
+    }
+    registered <- c("library(drawing)", "impl <- function(...) list(registered = TRUE)",
+        'registerS3method("draw", "foo", impl)', "library(drawing2)", 'obj <- structure(1, class="foo")')
+    for (pkg in packages) {
+        call <- paste0(pkg, "::draw(obj)")
+        f <- provider_fixture(c(registered, paste0(call, "$probe")))
+        f$workspace$member_metadata <- metadata
+        f$workspace$s3_metadata <- s3_metadata
+        p <- list(row = length(registered), col = nchar(call) + 1L)
+        result <- member_resolve_cursor(f$uri, f$workspace, f$document, p, member_cursor(f$document, p))$value
+        expect_named(result$fields, if (pkg == "drawing") "registered" else "other")
+    }
+    f <- provider_fixture(c('input <- structure(1, class = "foo")', "drawing::draw(input)$probe"))
+    f$workspace$member_metadata <- metadata
+    point <- list(row = 1L, col = nchar("drawing::draw(input)$"))
+    query <- function() member_resolve_cursor(f$uri, f$workspace, f$document, point, member_cursor(f$document, point))$value
+    for (i in 1:3) expect_named(query()$fields, "package_result")
+    uri <- "file:///drawing-method.R"
+    for (name in c("first", "edited")) {
+        content <- sprintf("draw.foo <- function(object, ...) list(%s = TRUE)", name)
+        doc <- Document$new(uri, version = 1L, content = content)
+        data <- parse_document(uri, content)
+        data$version <- 1L
+        doc$update_parse_data(data)
+        f$workspace$documents$set(uri, doc)
+        expect_named(query()$fields, name)
+    }
+    # A namespace binding can mask base::UseMethod. Its ordinary function
+    # body keeps control even when a conventionally named source method exists.
+    index$definitions$UseMethod <- quote(function(name) list(masked = 1))
+    metadata$set("drawing", member_index_freeze(index))
+    expect_named(resolve(definitions, "drawing::draw(input)")$fields, "masked")
 })
 
 test_that("declared unions propagate every receiver through calls and double brackets", {

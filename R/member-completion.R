@@ -244,6 +244,9 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL, incompl
             items[[length(items) + 1L]] <<- list(expr = statements[[i]],
                 start = c(offset + ref[[7L]] - 1L, ref[[5L]] - 1L),
                 end = c(offset + ref[[8L]] - 1L, ref[[6L]]))
+            if (offset && length(type_hints) && !is.null(attr(statements[[i]], "member_type_names", exact = TRUE))) {
+                items[[length(items)]]$hint_row_offset <<- offset
+            }
         }
     }
     if (complete) {
@@ -677,14 +680,16 @@ member_recover <- function(document, point, cursor, data, origin_uri = NULL) {
         local[[length(local)]] <- paste0(local[[length(local)]], sentinel)
         closers <- missing_closing_delimiters(local)
         parsed <- tryCatch(member_parse_recovered(paste0(paste(local, collapse = "\n"), closers),
-                origin_uri, start + skip - 1L, if (skip == 1L) skipped_columns else 0L, type_hints = data$type_hints), error = function(e) NULL)
+                origin_uri, start + skip - 1L, if (skip == 1L) skipped_columns else 0L,
+                type_hints = data$type_hints, hint_comments = data$hint_comments), error = function(e) NULL)
         if (is.null(parsed) && !is.null(cursor$accessor) && any(grepl("|>", local, fixed = TRUE))) {
             # Native pipes require a call on the RHS. The cursor sentinel is
             # a callee here; its synthetic arguments are never evaluated.
             local[[length(local)]] <- paste0(local[[length(local)]], "()")
             closers <- missing_closing_delimiters(local)
             parsed <- tryCatch(member_parse_recovered(paste0(paste(local, collapse = "\n"), closers),
-                    origin_uri, start + skip - 1L, if (skip == 1L) skipped_columns else 0L, type_hints = data$type_hints), error = function(e) NULL)
+                    origin_uri, start + skip - 1L, if (skip == 1L) skipped_columns else 0L,
+                    type_hints = data$type_hints, hint_comments = data$hint_comments), error = function(e) NULL)
         }
         if (is.null(parsed)) next
         found <- FALSE
@@ -757,7 +762,7 @@ member_recover_context <- function(document, content, point, cursor, start, colu
         lines <- full[seq_len(end)]
         if (sum(nchar(lines, type = "bytes")) > 65536L) break
         context <- tryCatch(member_parse_recovered(lines, origin_uri, start, skipped_columns, edit,
-                document$parse_data$member_data$type_hints),
+                document$parse_data$member_data$type_hints, document$parse_data$member_data$hint_comments),
             error = function(e) NULL)
         if (!is.null(context)) return(context)
     }
@@ -984,12 +989,14 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
     # A source definition in a request's top-level context has stable lexical
     # inputs. Locals/actual arguments use their own lazy binding memos instead.
     memo <- !is.null(index$document_cache) && !length(setdiff(names(bindings), ".__member_position__"))
-    memo_key <- paste(index$package, index$document_context_key, id, paste(at, collapse = ":"), sep = ":")
+    cache_context <- index$document_context_key
+    if (isTRUE(budget$track_returns)) cache_context <- paste0("returns:", cache_context)
+    memo_key <- paste(index$package, cache_context, id, paste(at, collapse = ":"), sep = ":")
     if (memo && exists(memo_key, index$document_cache, inherits = FALSE)) return(index$document_cache[[memo_key]])
     cache <- if (is.null(budget$origin_name)) index$document_binding_cache
     persistent_key <- if (memo && !is.null(cache) && !is.null(item$cache_prefix) &&
             (!is.null(item$setter) || !member_head(item$expr, "function"))) {
-        paste(index$package, index$document_context_key, id, item$cache_prefix, sep = ":")
+        paste(index$package, cache_context, id, item$cache_prefix, sep = ":")
     }
     cached <- analysis_cache_get(cache, persistent_key)
     method_types <- cached$value$s7_method_types
@@ -1092,7 +1099,7 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
 }
 
 member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name = NULL, accessor = "$", context = NULL,
-    path = NULL, source = NULL, key_helper = NULL, s4_new = FALSE, s7_update_list = NULL, s7_call = NULL) {
+    path = NULL, source = NULL, key_helper = NULL, s4_new = FALSE, s7_update_list = NULL, s7_call = NULL, before_formals = FALSE) {
     result <- NULL
     # Find the cursor once, including formal defaults. Replaying a lexical
     # scope must not recursively visit every earlier RHS or sibling method.
@@ -1224,6 +1231,10 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
             return(invisible(NULL))
         }
         if (member_head(node, "function")) {
+            if (before_formals && !length(path)) {
+                result <<- member_infer(as.name(name), index, env, budget = budget)
+                return(invisible(NULL))
+            }
             hints <- attr(node, "member_type_hints", exact = TRUE)$params
             if (length(hints)) lexical <- env
             for (formal in names(node[[2L]])) {
@@ -1621,7 +1632,7 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
     if (!is.null(cursor$accessor) && !is.null(name) && !named_subset) {
         receiver <- value
         declared_union <- identical(receiver$reason, "type_hint_union")
-        possible <- member_possible_receiver(receiver, index, bindings, cursor$accessor)
+        possible <- member_possible_receiver(receiver, index, bindings, cursor$accessor, inspect = name, budget = budget)
         if (!is.null(possible)) {
             if (!name %in% possible$members || name %in% possible$ambiguous) {
                 return(list(value = member_value(reason = "ambiguous_possible_member"),
@@ -1752,7 +1763,7 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
     declared_union <- identical(value$reason, "type_hint_union")
     if (bracket && !member_plain_container(value) &&
             !(declared_union && all(vapply(value$possible_returns, member_plain_container, logical(1L))))) return(list())
-    candidate <- member_possible_receiver(value, resolved$index, resolved$bindings, cursor$accessor)
+    candidate <- member_possible_receiver(value, resolved$index, resolved$bindings, cursor$accessor, inspect = character())
     possible <- !is.null(candidate)
     common <- NULL
     ambiguous <- character()
@@ -1760,7 +1771,6 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
         sets <- candidate$sets
         common <- candidate$members
         if (!length(common)) return(list())
-        ambiguous <- candidate$ambiguous
         value <- candidate$value
     }
     index <- member_package_context(resolved$index, value$member_package)
@@ -1770,8 +1780,7 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
     if (is.null(index) || is.null(value) || !length(value$type)) {
         return(if (!is.null(cursor$key_helper)) list() else NULL)
     }
-    members <- member_members(value, index, bindings, cursor$accessor)
-    if (possible) members <- members[names(members) %in% common]
+    members <- if (possible) sets[[1L]][common] else member_members(value, index, bindings, cursor$accessor)
     labels <- as.character(names(members))
     if (!length(labels)) {
         return(list())
@@ -1779,15 +1788,16 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
     # Filter before pruning so unrelated labels cannot consume the limit.
     matches <- sort(labels[fuzzy_find(labels, cursor$token)])
     keep <- completion_select_indices(matches, matches, cursor$token, limit)
-    labels <- matches
-    labels <- labels[keep]
+    labels <- matches[keep]
+    if (possible) ambiguous <- member_ambiguous_names(resolved$value, sets, labels,
+        resolved$index, bindings, cursor$accessor, budget)
     following <- substring(document$line0(point$row), cursor$end + 1L)
     call_snippet <- snippet_support && !bracket && is.null(cursor$key_helper) && !startsWith(trimws(following), "(")
     edit_range <- range(document$to_lsp_position(point$row, cursor$start),
         document$to_lsp_position(point$row, cursor$end))
     items <- lapply(labels, function(label) {
         shape <- if (identical(cursor$accessor, "@")) {
-            member_slot(value, label, index, bindings, budget)
+            if (!label %in% ambiguous) member_slot(value, label, index, bindings, budget)
         } else {
             value$fields[[label]]
         }
@@ -1816,7 +1826,7 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
                 if (possible) paste0(signature, " [possible receiver]") else signature
             } else if (!is.null(tip) && (identical(tip$certainty, "known value") || cursor$accessor != "@")) {
                 paste0(tip$summary, " [", if (possible) "possible receiver" else tip$certainty, "]")
-            } else if (identical(cursor$accessor, "@")) {
+            } else if (identical(cursor$accessor, "@") && !label %in% ambiguous) {
                 paste0(label, ": ", paste(value$slot_types[[label]], collapse = " | "))
             } else {
                 if (possible) "[possible member]" else "[static member]"

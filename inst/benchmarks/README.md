@@ -90,6 +90,7 @@ corpus, point both runs at the same baseline source directory.
 
 ```sh
 Rscript --vanilla inst/benchmarks/parse-corpus.R /path/to/baseline/R 5
+Rscript --vanilla inst/benchmarks/roxygen-type-hints.R 5
 Rscript --vanilla inst/benchmarks/code-actions.R actions.csv 1000 3
 Rscript --vanilla inst/benchmarks/scoped-inference.R inference.csv 1000 1000 7
 Rscript --vanilla inst/benchmarks/literate-edits.R literate.csv 100 10 5
@@ -99,6 +100,10 @@ Rscript --vanilla inst/benchmarks/semantic-shapes.R 2000 3
 Set `R_LIBS` to the intended installation before each run. For end-to-end
 transport and for additional cold and warm workloads, see the benchmark
 instructions below.
+
+The roxygen benchmark times a deep annotated expression, annotation attachment
+in increasingly wide function bodies, and single-label completion on S4
+classes with 100 inherited slots and computed prototypes.
 
 ## Completion label details
 

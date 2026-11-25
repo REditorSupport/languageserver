@@ -67,6 +67,29 @@ test_that("Go to Type Definition offers both source classes of a declared union"
     expect_setequal(vapply(targets, function(loc) loc$range$start$line, integer(1L)), c(0L, 1L))
 })
 
+test_that("filtered and limited union completion only inspects returned slots with one budget", {
+    f <- provider_fixture(c('methods::setClass("Fields", slots = c(alpha = "integer", beta = "integer", gamma = "integer"))',
+            'methods::setClass("Left", contains = "Fields")', 'methods::setClass("Right", contains = "Fields")',
+            "#' @param x (`Left | Right`)", "f <- function(x) x@gamma"))
+    slot <- member_slot
+    observed <- new.env(parent = emptyenv())
+    testthat::local_mocked_bindings(member_slot = function(value, name, index, bindings, budget = NULL) {
+        stopifnot(is.environment(budget))
+        observed$names <- c(observed$names, name)
+        if (!is.null(observed$budget)) stopifnot(identical(budget, observed$budget))
+        observed$budget <- budget
+        slot(value, name, index, bindings, budget)
+    })
+    for (prefix in c("gamma", "")) {
+        observed$names <- observed$budget <- NULL
+        point <- list(row = 4L, col = nchar(paste0("f <- function(x) x@", prefix)))
+        items <- member_completion(f$uri, f$workspace, f$document, point, TRUE, 1L)
+        want <- if (nzchar(prefix)) "gamma" else "alpha"
+        expect_identical(vapply(items, `[[`, "", "label"), want)
+        expect_identical(unique(observed$names), want)
+    }
+})
+
 test_that("a member request waits for the attached package of a documented receiver", {
     f <- provider_fixture(c("library(polars)", "#' @param data (`polars_data_frame`)",
             "f <- function(data) data$group_by()", "outside <- list(ready = TRUE)", "outside$ready"))

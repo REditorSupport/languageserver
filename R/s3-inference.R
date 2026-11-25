@@ -94,11 +94,23 @@ s3_implicit_classes <- function(type, dimensions = NULL) {
     if (!is.null(dimensions)) c(if (length(dimensions) == 2L) c("matrix", "array") else "array", storage) else storage
 }
 
+# Several ordinary constructors return a fixed, ordered S3 class vector.
+# Index those vectors by the class and its owner once, including glm's
+# standard subclass of lm.
+s3_hint_ancestry <- local({
+    known <- c(s3_constructor_classes, s3_model_classes, list("stats::glm" = c("glm", "lm")))
+    keys <- vapply(known, `[[`, "", 1L)
+    qualified <- paste(sub("::.*", "", names(known)), keys, sep = "::")
+    paths <- c(stats::setNames(known, qualified), stats::setNames(known, keys))
+    function(name, package) paths[[if (is.null(package)) name else paste(package, name, sep = "::")]]
+})
+
 # Keep each possible receiver's dispatch order separate. A union of classes
 # is not an S3 inheritance chain.
 s3_type_hint <- function(types, context, at = context$at, scope = NULL, source = NULL) {
     document <- context$document
     if (!length(types) || length(types) > max_type_hint_alternatives) return(s3_unknown("unknown_type_hint"))
+    if (is.null(source)) source <- context$hint_source
     if (!is.null(source$uri) && !identical(source$uri, document$uri) && !is.null(context$workspace$documents)) {
         owner <- context$workspace$documents$get(source$uri, NULL)
         if (!is.null(owner) && identical(owner$version, owner$parse_data$version)) {
@@ -106,16 +118,15 @@ s3_type_hint <- function(types, context, at = context$at, scope = NULL, source =
             at <- source$start
         }
     }
-    if (!is.null(context$hint_wait)) {
-        packages <- unlist(document$parse_data$member_data$type_hint_dependencies[types], use.names = FALSE)
-        if (any(packages %in% context$hint_wait$packages)) context$hint_wait$needed <- TRUE
+    if (!is.null(context$hint_wait) && s3_hint_worker_waiting(context$workspace, document, context$hint_wait$manager, types)) {
+        context$hint_wait$owners[[document$uri]] <- union(context$hint_wait$owners[[document$uri]], types)
     }
     index <- member_context_index(context$workspace, document$uri, document, at,
         referenced = member_type_dependencies(types))
     budget <- member_request_budget()
     bindings <- list(.__member_position__ = at)
     paths <- lapply(types, function(type) {
-        local <- if (is.environment(scope)) get0(type, scope, inherits = TRUE)
+        local <- if (is.environment(scope) && !grepl("::", type, fixed = TRUE)) get0(type, scope, inherits = TRUE)
         if (!is.null(local)) {
             generator <- member_local_value(local$hint_generator, index, budget)
             if (!identical(generator$r6_role, "generator")) return(NULL)
@@ -142,11 +153,16 @@ s3_bind_hinted_formal <- function(name, types, scope, context) {
     delayedAssign(name, s3_type_hint(types, context, at, enclosing), assign.env = scope)
 }
 
+# R memoizes the argument promise. Multiple unknown exits can share a
+# single lookup, and proven exits never request a class catalog.
+s3_lazy_return_hint <- function(value) function() value
+
 s3_apply_type_hint <- function(value, hint) {
     if (length(value$classes) || length(value$class_options) || !is.null(value$fn) ||
             isTRUE(value$reason %in% c("budget", "ambiguous_classes", "conditional_return", "argument_match", "missing")) || is.null(hint)) {
         return(value)
     }
+    if (is.function(hint)) hint <- hint()
     if (isTRUE(value$returned)) hint$returned <- TRUE
     hint
 }
@@ -159,7 +175,17 @@ s3_class_join <- function(a, b) {
         return(s3_unknown("ambiguous_binding"))
     }
     if (is.null(a$classes) || is.null(b$classes) || !identical(a$classes, b$classes)) {
-        return(s3_unknown("ambiguous_classes"))
+        out <- s3_unknown("ambiguous_classes")
+        choices <- function(value) {
+            if (length(value$classes)) list(value$classes) else value$class_options
+        }
+        left <- choices(a)
+        right <- choices(b)
+        if (length(left) && length(right)) {
+            paths <- unique(c(left, right))
+            if (length(paths) <= max_type_hint_alternatives) out$class_options <- paths
+        }
+        return(out)
     }
     s3_value(a$classes, type = if (identical(a$type, b$type)) a$type else NULL,
         dimensions = if (identical(a$dimensions, b$dimensions)) a$dimensions else NULL,
@@ -206,6 +232,7 @@ s3_analyzer <- function(context, env = new.env(parent = emptyenv())) {
     namespace_function <- function(name, package = NULL) s3_namespace_function(name, package, context)
     package_object <- function(name, package = NULL) s3_package_object(name, package, context)
     lookup_method <- function(generic, classes, scope) s3_lookup_method(generic, classes, scope, context, "source")
+    reflective_calls <- c("<<-", "->>", "eval", "evalq", "assign", "source", "sys.source")
     context$nodes <- 0L
     infer <- function(expr, scope = env, depth = 0L, return_hint = NULL) {
         context$nodes <- context$nodes + 1L
@@ -232,11 +259,15 @@ s3_analyzer <- function(context, env = new.env(parent = emptyenv())) {
         }
         head <- s3_call_name(expr[[1]])
         op <- if (is.symbol(expr[[1]])) as.character(expr[[1]]) else ""
+        if (!is.null(context$effect_probe) && isTRUE(head$name %in% reflective_calls)) {
+            context$effect_probe$reached <- TRUE
+            return(s3_unknown("factory_effect"))
+        }
         if (op == "function") {
             return(s3_value(NULL, fn = expr, closure = scope))
         }
         if (identical(head$name, "R6Class") && !identical(scope, context$root) &&
-                isTRUE(context$document$parse_data$member_data$has_type_hints) &&
+                (isTRUE(context$document$parse_data$member_data$has_type_hints) || !is.null(context$hint_source)) &&
                 (identical(head$package, "R6") || (is.null(head$package) && identical(namespace_function(head$name)$owner, "R6") &&
                             is.null(get_value("R6Class", scope, source_only = TRUE))))) {
             # Resolve its public instance only if a later hint names this
@@ -248,7 +279,7 @@ s3_analyzer <- function(context, env = new.env(parent = emptyenv())) {
                 if (!is.null(value$hint_generator)) return(value$hint_generator)
                 if (isTRUE(value$known)) member_literal(value$literal) else member_value(reason = "unknown_local")
             })
-            bindings$.__member_position__ <- context$at
+            bindings$.__member_position__ <- context$hint_source$start %s3_or% context$at
             value <- s3_unknown("r6_generator")
             value$hint_generator <- member_local_binding(expr, bindings, names)
             return(value)
@@ -446,8 +477,19 @@ s3_analyzer <- function(context, env = new.env(parent = emptyenv())) {
             if (length(raw) == 3L && is.character(raw[[1L]]) && length(raw[[1L]]) == 1L &&
                     is.character(raw[[2L]]) && length(raw[[2L]]) == 1L) {
                 fn <- recur(raw[[3L]])
+                site <- context$registration_site
+                if (!is.null(site) && identical(site$call, expr)) {
+                    fn$registration <- list(uri = site$uri, at = site$at, expr = raw[[3L]])
+                }
+                generic <- get_value(raw[[1L]], scope)
+                owner <- if (!is.null(generic$info)) generic$info$owner else if (!is.null(generic$fn)) "source"
+                if (is.null(owner)) {
+                    assign(".dynamic_registration", TRUE, scope)
+                    return(s3_value("NULL", "NULL"))
+                }
                 reg <- get_value(".registrations", scope)
-                reg[[paste(raw[[1L]], raw[[2L]], sep = ".")]] <- fn
+                key <- paste(raw[[1L]], raw[[2L]], sep = ".")
+                reg[[paste(owner, key, sep = "::")]] <- fn
                 assign(".registrations", reg, scope)
             } else {
                 assign(".dynamic_registration", TRUE, scope)
@@ -625,8 +667,13 @@ s3_analyzer <- function(context, env = new.env(parent = emptyenv())) {
     }
     apply_local <- function(fn, actuals, closure, depth, source = NULL) {
         hints <- attr(fn, "member_type_hints", exact = TRUE)
-        opaque <- any(member_syntax_names(fn[[3L]]) %in% c("<<-", "->>", "eval", "evalq", "assign", "source", "sys.source"))
-        if (opaque && !length(hints$returns)) {
+        if (!is.null(source$uri) && !is.null(attr(fn, "member_type_names", exact = TRUE))) {
+            previous_source <- context$hint_source
+            context$hint_source <- source
+            on.exit(context$hint_source <- previous_source, add = TRUE)
+        }
+        opaque <- any(member_syntax_names(fn[[3L]]) %in% reflective_calls)
+        if (opaque && !length(hints$returns) && is.null(context$effect_probe)) {
             return(s3_unknown("factory_effect"))
         }
         scope <- new.env(parent = if (is.environment(closure)) closure else env)
@@ -639,8 +686,18 @@ s3_analyzer <- function(context, env = new.env(parent = emptyenv())) {
         if (is.null(scope)) {
             return(s3_unknown("argument_match"))
         }
-        return_hint <- if (length(hints$returns)) s3_type_hint(hints$returns, context, scope = closure, source = source)
-        if (opaque) return(return_hint)
+        return_hint <- if (length(hints$returns)) s3_lazy_return_hint(s3_type_hint(hints$returns, context, scope = closure, source = source))
+        if (opaque) {
+            # Only a reached reflective call invalidates the return evidence.
+            # The interpreter already prunes known branches and early exits.
+            previous_probe <- context$effect_probe
+            probe <- new.env(parent = emptyenv())
+            context$effect_probe <- probe
+            on.exit({
+                context$effect_probe <- previous_probe
+                if (!is.null(previous_probe) && isTRUE(probe$reached)) previous_probe$reached <- TRUE
+            }, add = TRUE)
+        }
         descriptor <- s3_generic_descriptor(fn)
         if (!is.null(get_value("UseMethod", scope, source_only = TRUE))) descriptor <- NULL
         if (!is.null(descriptor)) {
@@ -653,6 +710,7 @@ s3_analyzer <- function(context, env = new.env(parent = emptyenv())) {
         } else {
             out <- infer(fn[[3]], scope, depth + 1L, return_hint)
         }
+        if (opaque && isTRUE(probe$reached)) return(s3_apply_type_hint(s3_unknown("factory_effect"), return_hint))
         if (!is.null(return_hint)) out <- s3_apply_type_hint(out, return_hint)
         out$returned <- NULL
         out
@@ -686,7 +744,7 @@ s3_constructor_summary <- function(name, package, raw, actuals, env, recur, cont
             override <- s3_get_value(paste(dispatch_name, cl, sep = "."), env, context, source_only = TRUE)
             if (!is.null(override$fn) || !is.null(s3_get_value(".registrations", env, context,
                         source_only = TRUE
-                    )[[paste(dispatch_name, cl, sep = ".")]])) {
+                    )[[paste0(package, "::", dispatch_name, ".", cl)]])) {
                 return(s3_unknown("constructor_method_override"))
             }
         }

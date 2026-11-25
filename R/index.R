@@ -1,5 +1,6 @@
-# Older summaries omit literal string targets and inner assignment-chain names.
-index_cache_version <- 14L
+# Rebuild summaries so functions documented across blank lines and comments
+# contribute their type hints to package and S3 lookups.
+index_cache_version <- 15L
 
 #' Recognize a package without recursively searching a workspace
 #' @noRd
@@ -415,6 +416,8 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
         class_source_declarations(syntax_parse_data(data), content, path_to_uri(path), incomplete_lines)
     }
     if (is.null(parse_data)) definitions <- class_binding_definitions(definitions, classes)
+    if (!is.null(parse_data)) hints <- parse_data$member_data$type_hints
+    hint_names <- unique(attr(hints, "occurrences", exact = TRUE)$type)
     list(
         uri = path_to_uri(path),
         path = path,
@@ -422,6 +425,7 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
         mtime = as.numeric(mtime),
         content_hash = get_content_hash(content),
         has_type_hints = if (is.null(parse_data)) length(hints) > 0L else isTRUE(parse_data$member_data$has_type_hints),
+        hint_names = hint_names[!grepl("::", hint_names, fixed = TRUE)],
         definitions = definitions,
         class_declarations = classes,
         functions = functions,
@@ -498,6 +502,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
         definition_counts = NULL,
         package_definition_counts = NULL,
         hinted_packages = NULL,
+        hint_sources = NULL,
         s4_sources = NULL,
         update_definition_names = function(previous, current, counts = private$definition_counts) {
             for (name in setdiff(previous, current)) {
@@ -767,6 +772,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             private$definition_counts <- collections::dict()
             private$package_definition_counts <- collections::dict()
             private$hinted_packages <- collections::dict()
+            private$hint_sources <- collections::dict()
             private$s4_sources <- collections::dict()
             private$activated_packages <- collections::dict()
             private$discovery_seen <- collections::dict()
@@ -1359,6 +1365,15 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             self$summaries$set(uri, summary)
             private$update_definition_names(names(previous$definitions), names(summary$definitions))
             private$update_package_definitions(previous, summary)
+            if (length(previous$hint_names) || length(summary$hint_names)) {
+                for (name in setdiff(previous$hint_names, summary$hint_names)) {
+                    others <- setdiff(private$hint_sources$get(name, character()), uri)
+                    if (length(others)) private$hint_sources$set(name, others) else private$hint_sources$remove(name)
+                }
+                for (name in setdiff(summary$hint_names, previous$hint_names)) {
+                    private$hint_sources$set(name, c(private$hint_sources$get(name, character()), uri))
+                }
+            }
             old <- names(previous$s4_declarations)
             new <- names(summary$s4_declarations)
             for (name in setdiff(old, new)) {
@@ -1600,6 +1615,8 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                 empty$sources <- empty$source_candidates <- character()
                 empty$definitions <- empty$functions <- empty$class_declarations <- empty$s4_declarations <- list()
                 empty$parse_error <- FALSE
+                empty$hint_names <- NULL
+                empty$has_type_hints <- FALSE
                 empty$package_root <- NULL
                 self$set_summary(empty)
                 self$summaries$remove(uri)
@@ -1715,6 +1732,10 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             root <- self$package_root_for_uri(uri)
             !is.null(root) && private$hinted_packages$has(root)
         },
+
+        multiple_definition_files = function(name) private$definition_counts$get(name, 0L) > 1L,
+
+        type_hint_uris = function(name) private$hint_sources$get(name, character()),
 
         has_definition = function(name, uri = NULL) {
             if (!private$definition_counts$has(name)) return(FALSE)

@@ -60,6 +60,20 @@ member_r6_shape <- function(expr, index, bindings, budget, depth = 0L, trail = c
         generator <- infer(args$inherit)
         inherited <- generator$fields$new$result_shape
     }
+    # R6's class argument controls the class attribute on instances; public
+    # fields and methods are available on the environment in either case.
+    position <- match("class", names(args))
+    if (is.na(position) && length(args) >= 7L && (is.null(names(args)) || any(!nzchar(names(args))))) {
+        params <- formals(R6::R6Class)
+        position <- match("class", names(params)[s3_match_arguments(params, args)])
+    }
+    if (!is.na(position)) {
+        flag <- if (is.logical(args[[position]])) args[[position]] else infer(args[[position]])$literal
+        if (!isTRUE(flag)) class$classed <- if (isFALSE(flag)) FALSE else NA
+    }
+    if ((!is.null(args$inherit) && is.null(inherited$r6_class)) || isTRUE(inherited$r6_class$incomplete_parents)) {
+        class$incomplete_parents <- TRUE
+    }
     # A method does not store its `private` and `super` contexts. Each level
     # of the inheritance chain is kept once (`r6_layers`), and the contexts of
     # a method are bound from its receiver when it is accessed.
@@ -1076,7 +1090,7 @@ member_r6_runtime_shape <- function(generator, index, trail = list()) {
             classname = get_plain("classname"), public = convert(c(public_fields, public)),
             private = convert(c(private_fields, private_methods)),
             active = convert(active), inherit = if (is.null(inherited)) NULL else as.name(".__r6_parent__"),
-            lock_objects = get_plain("lock_objects"), cloneable = get_plain("cloneable")
+            lock_objects = get_plain("lock_objects"), cloneable = get_plain("cloneable"), class = get_plain("class")
         ))
     shape <- member_r6_shape(expr, index, bindings, NULL, runtime = TRUE)
     shape$fields$new$r6_package <- index$package

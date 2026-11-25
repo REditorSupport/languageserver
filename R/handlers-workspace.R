@@ -112,6 +112,9 @@ workspace_did_change_configuration <- function(self, params) {
                 previous_members != isTRUE(lsp_settings$get("member_completion"))) &&
             !is.null(self$resolve_task_manager)) {
         for (workspace in self$workspaces$values()) {
+            if (previous_s3 && !isTRUE(lsp_settings$get("s3_dispatch")) && !is.null(workspace$s3_hint_workers)) {
+                for (owner in workspace$s3_hint_workers$keys()) s3_wake_hint_dependents(self, workspace, owner, forget = TRUE)
+            }
             for (document in workspace$documents$values()) {
                 # Remember changed preparation modes while an in-flight or
                 # failed parse prevents immediate resolution replacement.
@@ -218,7 +221,7 @@ workspace_did_change_watched_files <- function(self, params) {
                 package_root <- index$package_root_for_uri(uri)
                 if (!is.null(package_root) || workspace$documents$has(uri)) {
                     if (workspace$documents$has(uri)) {
-                        workspace$documents$remove(uri)
+                        workspace_remove_document(self, workspace, uri)
                     }
                     if (is.function(self$load_index_document)) {
                         self$load_index_document(workspace, uri)
@@ -228,7 +231,7 @@ workspace_did_change_watched_files <- function(self, params) {
                 logger$info("remove", path)
                 index$remove(uri)
                 if (workspace$documents$has(uri)) {
-                    workspace$documents$remove(uri)
+                    workspace_remove_document(self, workspace, uri)
                     workspace$diagnostics_globals_cache <- NULL
                     workspace$type_hierarchy_cache$clear()
                 }
@@ -251,11 +254,13 @@ workspace_did_change_watched_files <- function(self, params) {
         if (type == FileChangeType$Created || type == FileChangeType$Changed) {
             logger$info("load", path)
             doc <- Document$new(uri, language = "r", version = NULL, content = read_text_lines(path))
+            existing <- workspace$documents$get(uri, NULL)
             workspace$documents$set(uri, doc)
+            if (!is.null(existing)) s3_release_hint_document(self, workspace, uri, existing)
             self$text_sync(uri, document = doc, parse = TRUE)
         } else if (type == FileChangeType$Deleted) {
             logger$info("remove", path)
-            workspace$documents$remove(uri)
+            workspace_remove_document(self, workspace, uri)
             workspace$diagnostics_globals_cache <- NULL
             workspace$type_hierarchy_cache$clear()
         }

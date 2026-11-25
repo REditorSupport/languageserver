@@ -29,12 +29,15 @@ Document <- R6::R6Class(
         requested_packages = NULL,
         member_refresh = FALSE,
         member_receivers = NULL,
+        member_s3_dispatch = FALSE,
         member_binding_cache = NULL,
         member_workspace_view = NULL,
         member_source_cache = NULL,
         analysis_caches = NULL,
         s3_calls = NULL,
         s3_identity = NULL,
+        s3_hint_worker = FALSE,
+        s3_hint_subscriber = FALSE,
         member_revision = NULL,
         member_ordinary_edit = FALSE,
         pending_diagnostics = FALSE,
@@ -851,10 +854,13 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
     }
     # Cursor recovery also tracks unfinished member accesses and their package
     # hints. Keep its original source and bounded recovery on a syntax error.
+    hints <- member_roxygen_type_index(content, env$syntax_data, value_source = value_source,
+        barriers = c(incomplete_lines + 1L, if (is_rmarkdown) vapply(regions$cells, `[[`, integer(1L), "start_line")))
     env$member_data <- member_document_index(content, expr, data, recovery$incomplete_lines,
         defer_small_scopes = is_rmarkdown && length(incomplete_lines) > 0L, value_source = value_source,
-        verified = verified, type_hints = member_merge_type_hints(if (is_rmarkdown) literate$type_hints else recovery$type_hints,
-            member_roxygen_type_index(content, env$syntax_data)))
+        verified = verified, type_hints = member_merge_type_hints(if (is_rmarkdown) literate$type_hints else recovery$type_hints, hints))
+    env$member_data$hint_comments <- if (is_rmarkdown) literate$hint_comments else recovery$hint_comments
+    env$member_data$damaged_type_blocks <- if (is_rmarkdown) literate$damaged_type_blocks else recovery$damaged_type_blocks
     if (is_rmarkdown && length(literate$member_packages)) {
         env$member_data$packages <- union(env$member_data$packages, literate$member_packages)
     }
@@ -1084,6 +1090,9 @@ parse_callback <- function(self, uri, version, parse_data, source_content = NULL
         }
     }
 
+    if (isTRUE(doc$s3_hint_worker) && !identical(old_parse_data$member_data$content_key, parse_data$member_data$content_key)) {
+        s3_wake_hint_dependents(self, workspace, uri, recheck = TRUE)
+    }
     if (is.function(self$queue_pending_replies)) {
         self$queue_pending_replies(uri)
     } else {
@@ -1110,12 +1119,12 @@ drain_pending_replies <- function(self, uri, version, max_replies = Inf, first =
             if (glue_request_pending(document, point, opener)) return(FALSE)
             workspace <- self$get_workspace(uri)
             context <- glue_cursor_context(document, point, workspace)
-            if (!is.null(context)) return(!glue_request_waiting(self, uri, workspace, context, method))
+            if (!is.null(context)) return(!glue_request_waiting(self, uri, workspace, context, method, item$id))
         }
         if (method %in% c("textDocument/typeDefinition", "textDocument/implementation") && !is.null(document) &&
                 identical(item$version, document$version)) {
             point <- document$from_lsp_position(item$params$position)
-            return(!class_navigation_waiting(self, self$get_workspace(uri), document, point, method))
+            return(!class_navigation_waiting(self, self$get_workspace(uri), document, point, method, item$id))
         }
         if (identical(method, "textDocument/definition") && !is.null(document) &&
                 identical(item$version, document$version)) {
@@ -1137,12 +1146,13 @@ drain_pending_replies <- function(self, uri, version, max_replies = Inf, first =
             if (!identical(method, "textDocument/hover") && member_metadata_waiting(self, uri, document, point,
                     call = if (is.null(call)) document$detect_call(point) else call)) return(FALSE)
             if (s3_metadata_waiting(self, uri, document, point,
-                    hover = identical(method, "textDocument/hover"), call = call)) return(FALSE)
+                    hover = identical(method, "textDocument/hover"), call = call, request_id = item$id)) return(FALSE)
         }
         TRUE
     }
     repeat {
-        document <- if (is.function(self$get_workspace)) self$get_workspace(uri)$documents$get(uri, NULL)
+        workspace <- if (is.function(self$get_workspace)) self$get_workspace(uri)
+        document <- if (!is.null(workspace)) workspace$documents$get(uri, NULL)
         readiness <- lapply(names(queues), function(method) {
             tryCatchStack(eligible(queues[[method]], method), error = identity)
         })
@@ -1152,6 +1162,7 @@ drain_pending_replies <- function(self, uri, version, max_replies = Inf, first =
         after <- available[available >= first]
         selected <- if (length(after)) after[[1L]] else available[[1L]]
         item <- queues[[selected]]$pop()
+        s3_forget_hint_waiters(workspace, uri, item$id)
         first <- selected %% n + 1L
         if (inherits(readiness[[selected]], "error")) {
             self$deliver(ResponseErrorMessage$new(item$id, "InternalError", to_string(readiness[[selected]])))
@@ -1270,7 +1281,8 @@ reply_parse_failure <- function(self, id, document) {
 }
 
 fail_pending_replies <- function(self, uri, version) {
-    document <- self$get_workspace(uri)$documents$get(uri)
+    workspace <- self$get_workspace(uri)
+    document <- workspace$documents$get(uri)
     for (queue in self$pending_replies$get(uri, NULL)) {
         retained <- list()
         while (queue$size()) {
@@ -1278,9 +1290,11 @@ fail_pending_replies <- function(self, uri, version) {
             if (!is.null(item$version) && !is.null(version) && item$version > version) {
                 retained[[length(retained) + 1L]] <- item
             } else if (!is.null(item$version) && !is.null(version) && item$version < version) {
+                s3_forget_hint_waiters(workspace, uri, item$id)
                 self$deliver(ResponseErrorMessage$new(item$id, "RequestCancelled",
                         "Request superseded by a newer parse result"))
             } else {
+                s3_forget_hint_waiters(workspace, uri, item$id)
                 reply_parse_failure(self, item$id, document)
             }
         }
@@ -1392,18 +1406,19 @@ resolve_member_task <- function(self, uri, document, packages, namespace_package
                 force_refresh = TRUE, member_packages = member_packages))
         invisible(NULL)
     }
+    settled <- function() {
+        refresh()
+        # Shared delivery has a post-removal callback. An isolated worker is
+        # still marked running during its final callback, even on failure.
+        if (is.null(sharing) && current()) s3_wake_hint_dependents(self, workspace, uri, forget = TRUE)
+        s3_queue_ready(self, uri)
+    }
     callback <- function(result) {
-        on.exit({
-            refresh()
-            s3_queue_ready(self, uri)
-        }, add = TRUE)
+        on.exit(settled(), add = TRUE)
         if (current()) resolve_callback(self, uri, version, result)
     }
     error <- function(e) {
-        on.exit({
-            refresh()
-            s3_queue_ready(self, uri)
-        }, add = TRUE)
+        on.exit(settled(), add = TRUE)
         logger$info("member metadata task:", e)
     }
     if (shared && is.null(resolution_request)) {
@@ -1436,6 +1451,15 @@ resolve_task <- function(self, uri, document, packages, delay = 0, namespace_pac
     members_enabled <- isTRUE(lsp_settings$get("member_completion"))
     member_packages <- if (!members_enabled && prepare_s3) document$parse_data$member_data$type_hint_packages
     prepare_members <- package_requests && (members_enabled || length(member_packages) > 0L)
+    hinted <- document$parse_data$member_data$type_hint_packages
+    if (prepare_s3 && prepare_members && length(hinted)) {
+        workspace <- self$get_workspace(uri)
+        if (is.null(workspace$s3_hint_workers)) workspace$s3_hint_workers <- collections::dict()
+        if (!workspace$s3_hint_workers$has(uri)) workspace$s3_hint_workers$set(uri, list())
+        document$s3_hint_worker <- TRUE
+    } else if (isTRUE(document$s3_hint_worker)) {
+        s3_wake_hint_dependents(self, self$get_workspace(uri), uri, forget = TRUE)
+    }
     if (split_members && !prepare_members) {
         self$member_task_manager$cancel(uri)
     }
@@ -1488,8 +1512,20 @@ resolve_task <- function(self, uri, document, packages, delay = 0, namespace_pac
                     resolution_request = member_request, member_packages = member_packages))
         }
     }
-    callback <- function(result) resolve_callback(self, uri, version, result)
+    settle_combined <- function() {
+        if (split_members || !is.null(sharing) || !isTRUE(document$s3_hint_worker)) return(invisible(NULL))
+        manager <- self$resolve_task_manager
+        active <- if (is.function(manager$get_task)) manager$get_task(uri)
+        if (is.null(active) || identical(active, task)) {
+            s3_wake_hint_dependents(self, self$get_workspace(uri), uri, forget = TRUE)
+        }
+    }
+    callback <- function(result) {
+        on.exit(settle_combined(), add = TRUE)
+        resolve_callback(self, uri, version, result)
+    }
     error <- function(e) {
+        on.exit(settle_combined(), add = TRUE)
         on.exit(s3_queue_ready(self, uri), add = TRUE)
         logger$info("resolve_task:", e)
         workspace <- self$get_workspace(uri)

@@ -115,7 +115,8 @@ LanguageServer <- R6::R6Class("LanguageServer",
             # Deferred resolution must be replaced in the new workspace even
             # when recovery retains the last successful package request.
             if (!parsed_current || isTRUE(parsed$parse_error)) doc$member_refresh <- TRUE
-            source$documents$remove(uri)
+            waiting <- s3_forget_hint_waiters(source, uri)
+            workspace_remove_document(self, source, uri)
             target$documents$set(uri, doc)
             if (!is.null(source$index) && isTRUE(source$index$enabled)) {
                 source$index$remove(uri)
@@ -149,6 +150,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 # still running, so a late failure cannot strand providers.
                 self$text_sync(uri, doc, run_diagnostics = isTRUE(doc$is_open), parse = TRUE)
             }
+            if (s3_pending_hint_request(self, uri, waiting, doc$version)) s3_queue_ready_document(self, target, uri)
         },
         finalize = function() {
             close(self$inputcon)
@@ -408,7 +410,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             if (!file.exists(path) || dir.exists(path)) {
                 if (!is.null(workspace$index)) workspace$index$remove(uri)
                 if (!is.null(existing)) {
-                    workspace$documents$remove(uri)
+                    workspace_remove_document(self, workspace, uri)
                     workspace$diagnostics_globals_cache <- NULL
                     workspace$type_hierarchy_cache$clear()
                     workspace$update_loaded_packages()
@@ -421,7 +423,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 index <- workspace$index
                 if (!is.null(index) && isTRUE(index$enabled) && index$should_index(path)) {
                     if (!is.null(existing)) {
-                        workspace$documents$remove(uri)
+                        workspace_remove_document(self, workspace, uri)
                         workspace$diagnostics_globals_cache <- NULL
                         workspace$type_hierarchy_cache$clear()
                         workspace$update_loaded_packages()
@@ -438,6 +440,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             doc <- Document$new(
                 uri, language = "r", version = NULL, content = content)
             workspace$documents$set(uri, doc)
+            if (!is.null(existing)) s3_release_hint_document(self, workspace, uri, existing)
             if (!is.null(workspace$index)) workspace$index$queue_document(uri)
             if (!is.null(workspace$index$task_manager)) {
                 workspace$index$await_parse(uri, cacheable = TRUE)
@@ -531,7 +534,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                 if (!is.null(self$resolve_task_manager)) self$resolve_task_manager$cancel(uri)
                 if (!is.null(self$member_task_manager)) self$member_task_manager$cancel(uri)
                 diagnostics_callback(self, uri, NULL, list())
-                workspace$documents$remove(uri)
+                workspace_remove_document(self, workspace, uri)
                 if (index$document_pending(uri) || index$parse_failed(uri)) {
                     if (index$document_pending(uri) && !is.null(self$parse_task_manager)) {
                         self$parse_task_manager$cancel(uri)
@@ -564,7 +567,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             }, workspace$documents$keys())
             for (uri in remove) {
                 diagnostics_callback(self, uri, NULL, list())
-                workspace$documents$remove(uri)
+                workspace_remove_document(self, workspace, uri)
             }
             if (length(remove)) {
                 workspace$diagnostics_globals_cache <- NULL
@@ -1035,7 +1038,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     # Source edges can change while closed callers are parsed.
                     # Recompute their closure after each settled batch; queuing
                     # an already-current document is a no-op.
-                    uris <- reference_request_documents(request$workspace, doc, point)
+                    uris <- reference_request_documents(request$workspace, doc, point, request$params$newName)
                     request$held_documents <- uris
                     request$prepared <- TRUE
                     self$index_requests$set(key, request)

@@ -278,7 +278,7 @@ check_implementation_requests <- function(self, cancel_id = NULL) {
     invisible(NULL)
 }
 
-class_navigation_waiting <- function(self, workspace, document, point, method) {
+class_navigation_waiting <- function(self, workspace, document, point, method, request_id = NULL) {
     implementation <- identical(method, "textDocument/implementation")
     members <- isTRUE(lsp_settings$get("member_completion"))
     s3 <- implementation && isTRUE(lsp_settings$get("s3_dispatch"))
@@ -289,7 +289,7 @@ class_navigation_waiting <- function(self, workspace, document, point, method) {
         if (is.null(call)) return(FALSE)
         s7 <- members && is.null(call$package) && length(class_s7_method_declarations(document$parse_data)) > 0L
         return(((s3 || s7) && index_context_waiting(self, workspace, document, point, call = call)) ||
-                (s3 && s3_metadata_waiting(self, document$uri, document, point, call = call)) ||
+                (s3 && s3_metadata_waiting(self, document$uri, document, point, call = call, request_id = request_id)) ||
                 (s7 && member_metadata_waiting(self, document$uri, document, point, call = call)))
     }
     location <- member_hover_location(document, point)
@@ -306,7 +306,7 @@ class_navigation_request <- function(self, id, params, method) {
     if (is.null(document)) return(self$deliver(Response$new(id)))
     if (reply_parse_failure(self, id, document)) return(invisible(NULL))
     point <- document$from_lsp_position(params$position)
-    if (class_navigation_waiting(self, workspace, document, point, method)) {
+    if (class_navigation_waiting(self, workspace, document, point, method, id)) {
         enqueue_latest_reply(self, uri, method, list(id = id, version = document$version, params = params))
         manager <- if (identical(method, "textDocument/implementation")) self$resolve_task_manager else self$member_task_manager
         if (is.function(manager$promote)) manager$promote(uri)
