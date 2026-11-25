@@ -577,6 +577,18 @@ test_that("Runtime metadata skips deferred values and active getters", {
     expect_identical(member_binding(env, "deferred")[[1L]], "deferred")
 })
 
+test_that("Metadata lookup resolves equivalent binding names in the current frame", {
+    name <- "caf\u00e9"
+    skip_if(is.na(iconv(name, to = "")), "Binding name is unavailable in this locale")
+    latin1 <- iconv(name, to = "latin1")
+    parent <- new.env(parent = emptyenv())
+    assign(name, 1L, parent)
+    child <- new.env(parent = parent)
+    expect_identical(member_binding(child, latin1), list("deferred", NULL))
+    assign(name, NULL, child)
+    expect_identical(member_binding(child, latin1), list("value", NULL))
+})
+
 test_that("Receiver roots take precedence over unrelated exports regardless of cache order", {
     unrelated <- member_generic_index("")
     unrelated$package <- "unrelated"
