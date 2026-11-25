@@ -103,7 +103,7 @@ s3_source_value <- function(name, context) {
             return(s3_unknown("binding_cycle"))
         }
         item <- source$items[[record$item]]
-        cache_key <- if (!is.null(context$binding_cache) && !is.null(item$cache_prefix) && s3_binding_context_unchanged(context)) {
+        cache_key <- if (is.null(context$hint_wait) && !is.null(context$binding_cache) && !is.null(item$cache_prefix) && s3_binding_context_unchanged(context)) {
             paste(source$uri, name, position, item$cache_prefix, s3_binding_context_key(context, i), sep = ":")
         }
         cached <- analysis_cache_get(context$binding_cache, cache_key)
@@ -226,12 +226,16 @@ s3_package_object <- function(name, package = NULL, context) {
     s3_unknown("no_object_metadata")
 }
 
+s3_dispatch_path <- function(classes) {
+    if (isTRUE(attr(classes, "incomplete_s3_path", exact = TRUE))) as.character(classes) else c(classes, "default")
+}
+
 s3_lookup_method <- function(generic, classes, scope, context, owner = "source") {
     if (!length(classes) || anyNA(classes) || isTRUE(context$registration_unknown)) {
         return(NULL)
     }
     registrations <- get0(".registrations", scope, inherits = TRUE)
-    for (class in c(classes, "default")) {
+    for (class in s3_dispatch_path(classes)) {
         key <- paste(generic, class, sep = ".")
         value <- s3_get_value(key, scope, context, source_only = TRUE)
         if (!is.null(value)) {
@@ -296,6 +300,22 @@ s3_lookup_method <- function(generic, classes, scope, context, owner = "source")
     NULL
 }
 
+s3_receiver_method <- function(generic, input, scope, context, owner = "source") {
+    if (!length(input$class_options)) return(s3_lookup_method(generic, input$classes, scope, context, owner))
+    methods <- lapply(input$class_options, function(classes) s3_lookup_method(generic, classes, scope, context, owner))
+    first <- methods[[1L]]
+    if (!is.null(first) && all(vapply(methods[-1L], identical, logical(1L), first))) first
+}
+
+# Class hints can use the package and workspace member metadata as well as
+# the S3 catalogs. Replacing either must invalidate a cached dispatch choice.
+s3_member_metadata_key <- function(workspace) {
+    metadata <- workspace$member_metadata
+    if (is.null(metadata)) return(NULL)
+    list(identity = if (is.function(metadata$identity)) metadata$identity() else metadata,
+        revision = if (is.function(metadata$revision)) metadata$revision())
+}
+
 s3_context_sources <- function(uri, workspace, document) {
     sources <- list(s3_source_view(document))
     others <- if (!is.null(workspace$documents)) workspace_document_uris(workspace, uri) else character()
@@ -318,6 +338,8 @@ s3_context_sources <- function(uri, workspace, document) {
 
 s3_context <- function(uri, workspace, document, at) {
     context <- new.env(parent = emptyenv())
+    context$workspace <- workspace
+    context$document <- document
     context$at <- at
     context$source_uri <- uri
     context$root <- new.env(parent = emptyenv())
@@ -388,7 +410,8 @@ s3_context <- function(uri, workspace, document, at) {
             is.function(metadata$revision) && is.function(metadata$identity) &&
             all(vapply(context$sources, function(source) !is.null(source$content_key), logical(1L)))) {
         context$binding_cache <- analysis_cache(document, "s3-bindings",
-            list(metadata = metadata$identity(), revision = metadata$revision(), namespace = namespace$key),
+            list(metadata = metadata$identity(), revision = metadata$revision(), namespace = namespace$key,
+                member_metadata = s3_member_metadata_key(workspace)),
             max_bytes = 4 * 1024^2)
         context$binding_keys <- new.env(parent = emptyenv())
         context$source_uris <- vapply(context$sources, `[[`, "", "uri")
@@ -485,7 +508,11 @@ s3_scoped_call <- function(document, location, context) {
         }
         if (member_head(node, "function")) {
             scope <- new.env(parent = scope)
-            for (name in names(node[[2L]])) assign(name, s3_unknown("formal"), scope)
+            params <- attr(node, "member_type_hints", exact = TRUE)$params
+            for (name in names(node[[2L]])) {
+                hint <- params[[name]]
+                if (length(hint)) s3_bind_hinted_formal(name, hint, scope, context) else assign(name, s3_unknown("formal"), scope)
+            }
         } else if (member_head(node, "{") || is.expression(node)) {
             sequence <- member_cursor_sequence(node, path, ast, recovered$source,
                 narrow = TRUE, name = location$call$token, call_reads = TRUE)
@@ -564,7 +591,7 @@ s3_match_arguments <- function(formals, actuals) {
     result
 }
 
-resolve_s3_call <- function(uri, workspace, document, point, hover = FALSE, call = NULL) {
+resolve_s3_call <- function(uri, workspace, document, point, hover = FALSE, call = NULL, hint_wait = NULL) {
     if (!isTRUE(lsp_settings$get("s3_dispatch")) ||
             !identical(document$version, document$parse_data$version)) {
         return(NULL)
@@ -574,7 +601,8 @@ resolve_s3_call <- function(uri, workspace, document, point, hover = FALSE, call
         return(NULL)
     }
     revision <- if (is.function(workspace$s3_metadata$revision)) workspace$s3_metadata$revision() else NULL
-    identity <- if (is.function(workspace$s3_metadata$identity)) workspace$s3_metadata$identity() else workspace$s3_metadata
+    identity <- list(s3 = if (is.function(workspace$s3_metadata$identity)) workspace$s3_metadata$identity() else workspace$s3_metadata,
+        members = s3_member_metadata_key(workspace))
     if (!identical(document$s3_identity, identity)) {
         document$s3_calls$clear()
         document$s3_identity <- identity
@@ -586,15 +614,16 @@ resolve_s3_call <- function(uri, workspace, document, point, hover = FALSE, call
         sep = ":"
     )
     cache <- document$s3_calls
-    if (!is.null(revision) && cache$has(cache_key)) {
+    if (is.null(hint_wait) && !is.null(revision) && cache$has(cache_key)) {
         return(cache$get(cache_key))
     }
     result <- NULL
     context <- NULL
-    on.exit(if (!is.null(revision) && !isTRUE(context$exhausted)) {
+    on.exit(if (is.null(hint_wait) && !is.null(revision) && !isTRUE(context$exhausted)) {
         cache$set(cache_key, result)
     }, add = TRUE)
     context <- s3_context(uri, workspace, document, c(location$point$row, location$point$col))
+    context$hint_wait <- hint_wait
     scoped <- s3_scoped_call(document, location, context)
     if (is.null(scoped)) {
         return(NULL)
@@ -623,8 +652,13 @@ resolve_s3_call <- function(uri, workspace, document, point, hover = FALSE, call
             default_scope, context$infer)
         get0(descriptor$formal, arguments, inherits = FALSE)
     }
+    declared <- attr(callee$fn, "member_type_hints", exact = TRUE)$params[[descriptor$formal]]
+    if (length(declared)) {
+        input <- s3_apply_type_hint(input, s3_type_hint(declared, context,
+                scope = callee$closure, source = callee$source$implementation))
+    }
     owner <- if (!is.null(callee$info)) callee$info$owner else "source"
-    method <- s3_lookup_method(descriptor$name, input$classes, scoped$scope, context, owner)
+    method <- s3_receiver_method(descriptor$name, input, scoped$scope, context, owner)
     if (is.null(method)) {
         return(NULL)
     }
@@ -650,6 +684,13 @@ resolve_s3_call <- function(uri, workspace, document, point, hover = FALSE, call
         quote_completion_name(location$call$token),
         as.call(list(as.name("function"), formals, NULL))
     )
+    description <- if (length(input$class_options)) {
+        paste0("S3 method `", method$name, "` for possible classes ",
+            paste(sprintf("`%s`", vapply(input$class_options, `[[`, "", 1L)), collapse = " or "), ".")
+    } else {
+        name <- method$name %s3_or% paste(descriptor$name, input$classes[[1L]], sep = ".")
+        sprintf("S3 method `%s` for class `%s`.", name, paste(input$classes, collapse = ", "))
+    }
     result <- list(
         signature = signature, formals = as.list(formals), argument_names = argument_names, method = method,
         generic = descriptor$name, generic_package = if (owner == "source") NULL else owner,
@@ -660,10 +701,7 @@ resolve_s3_call <- function(uri, workspace, document, point, hover = FALSE, call
         actuals = actuals, matched_parameters = names(method$formals)[method_matched],
         opening = location$call$opening, location = location, uri = uri,
         version = document$version, revision = revision, source_revision = workspace$s3_revision,
-        description = sprintf("S3 method `%s` for class `%s`.", method$name %s3_or% paste(descriptor$name,
-                input$classes[[1L]],
-                sep = "."
-            ), paste(input$classes, collapse = ", "))
+        description = description
     )
     result$method$closure <- NULL
     result$method$fn <- NULL
@@ -742,11 +780,19 @@ s3_recover_call <- function(document, location, recovered) {
         location$cursor$before, recovered$sentinel,
         substring(lines[[offset]], location$cursor$end + 1L)
     )
-    lines[[1L]] <- sub("^[ \t]*;[ \t]*", "", substring(lines[[1L]], start[[2L]] + 1L))
+    original <- lines[[1L]]
+    lines[[1L]] <- sub("^[ \t]*;[ \t]*", "", substring(original, start[[2L]] + 1L))
+    first_col <- nchar(original) - nchar(lines[[1L]])
+    # Both the normal read and the closing-delimiter recovery retain hints on
+    # the same function as its original declaration.
+    hints <- document$parse_data$member_data$type_hints
+    parse_call <- if (length(hints) || any(grepl("(`", lines, fixed = TRUE))) function(text) {
+        member_parse_recovered(text, NULL, start[[1L]], first_col, type_hints = hints)
+    } else str2expression
     for (end in seq.int(offset, length(lines))) {
         text <- lines[seq_len(end)]
         if (sum(nchar(text, type = "bytes")) > 65536L) break
-        parsed <- tryCatch(str2expression(text), error = function(e) NULL)
+        parsed <- tryCatch(parse_call(text), error = function(e) NULL)
         if (!is.null(parsed) && !is.null(member_cursor_path(parsed, recovered$sentinel, NULL))) {
             return(parsed)
         }
@@ -757,7 +803,7 @@ s3_recover_call <- function(document, location, recovered) {
         for (quote in c("", "\"", "'", "`")) {
             fixed <- text
             fixed[[length(fixed)]] <- paste0(fixed[[length(fixed)]], quote)
-            parsed <- tryCatch(str2expression(paste0(
+            parsed <- tryCatch(parse_call(paste0(
                 paste(fixed, collapse = "\n"), "\n",
                 missing_closing_delimiters(fixed)
             )), error = function(e) NULL)
@@ -975,11 +1021,28 @@ s3_member_constructor_ready <- function(workspace, document, location, packages)
 }
 
 s3_metadata_waiting <- function(self, uri, document, point = NULL, hover = FALSE, call = NULL) {
-    if (!isTRUE(lsp_settings$get("s3_dispatch")) || is.null(self$resolve_task_manager) ||
-            !is.function(self$resolve_task_manager$has) ||
-            !self$resolve_task_manager$has(uri)) {
-        return(FALSE)
+    if (!isTRUE(lsp_settings$get("s3_dispatch"))) return(FALSE)
+    resolve_pending <- is.function(self$resolve_task_manager$has) && self$resolve_task_manager$has(uri)
+    hinted <- document$parse_data$member_data$type_hint_packages
+    manager <- self$member_task_manager %s3_or% self$resolve_task_manager
+    if (length(hinted) && is.function(manager$has) && manager$has(uri)) {
+        workspace <- self$get_workspace(uri)
+        missing <- hinted[vapply(hinted, function(package) {
+            metadata <- workspace$member_metadata
+            catalog <- if (is.function(metadata$catalog)) metadata$catalog(package) else if (is.function(metadata$get)) metadata$get(package, NULL)
+            is.null(catalog) || isTRUE(catalog$dataset_only) || !is.null(catalog$error)
+        }, logical(1L))]
+        if (length(missing)) {
+            if (is.null(point)) return(TRUE)
+            # The catalogs can refine only dispatches that actually read a
+            # hint. Known inputs in the same function can reply immediately.
+            wait <- new.env(parent = emptyenv())
+            wait$packages <- missing
+            resolve_s3_call(uri, workspace, document, point, hover, call, hint_wait = wait)
+            if (isTRUE(wait$needed)) return(TRUE)
+        }
     }
+    if (!resolve_pending) return(FALSE)
     workspace <- self$get_workspace(uri)
     packages <- character()
     if (!is.null(point)) {

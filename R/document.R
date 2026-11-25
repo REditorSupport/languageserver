@@ -853,19 +853,29 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
     # hints. Keep its original source and bounded recovery on a syntax error.
     env$member_data <- member_document_index(content, expr, data, recovery$incomplete_lines,
         defer_small_scopes = is_rmarkdown && length(incomplete_lines) > 0L, value_source = value_source,
-        verified = verified)
+        verified = verified, type_hints = member_merge_type_hints(if (is_rmarkdown) literate$type_hints else recovery$type_hints,
+            member_roxygen_type_index(content, env$syntax_data)))
     if (is_rmarkdown && length(literate$member_packages)) {
         env$member_data$packages <- union(env$member_data$packages, literate$member_packages)
     }
-    namespace_imports <- member_namespace_imports(uri)
+    hint_names <- if (isTRUE(env$member_data$has_type_hints)) {
+        types <- unique(unlist(env$member_data$type_hints, use.names = FALSE))
+        setdiff(types[!grepl("::", types, fixed = TRUE)], c(member_builtin_hint_types, names(env$member_data$bindings)))
+    }
+    use_hint_imports <- length(hint_names) > 0L
+    if (use_hint_imports) env$member_data$use_hint_imports <- TRUE
+    namespace_imports <- member_namespace_imports(uri, use_hint_imports)
     env$member_data$document_package <- attr(namespace_imports, "package")
     if (length(namespace_imports)) {
         used <- member_syntax_names(expr)
+        if (use_hint_imports) used <- union(used, hint_names)
         setters <- member_s7_intrinsics[endsWith(member_s7_intrinsics, "<-")]
         used <- union(used, setters[sub("<-$", "", setters) %in% used])
         imported <- member_import_bindings(namespace_imports, used)
         env$member_data$namespace_bindings <- imported
-        env$member_data$packages <- union(env$member_data$packages, vapply(imported, `[[`, "", "package"))
+        packages <- unique(vapply(imported, `[[`, "", "package"))
+        env$member_data$packages <- union(env$member_data$packages, packages)
+        if (use_hint_imports) env$member_data$hint_import_packages <- packages
     }
     env$member_data$attachment_exclusions <- attachment_exclusions
     env$member_data$namespace_imports <- namespace_imports
@@ -873,7 +883,8 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
         (length(namespace_imports) > 0L || "S7" %in% env$member_data$packages || "S7" %in% env$packages)
     env$completion_data <- completion_parse_data(data, env$syntax_data)
     overlay <- !is.null(recovery) || (is_rmarkdown && length(literate$incomplete_lines) > 0L)
-    classes <- class_source_declarations(env$syntax_data, content, uri, incomplete_lines, namespace_imports, attachment_exclusions,
+    class_imports <- if (use_hint_imports) member_namespace_imports(uri) else namespace_imports
+    classes <- class_source_declarations(env$syntax_data, content, uri, incomplete_lines, class_imports, attachment_exclusions,
         navigation = env$navigation_data)
     env$definitions <- class_binding_definitions(env$definitions, classes, env)
     env$semantic_data <- semantic_parse_data(data, content, env$syntax_data, assignments,
@@ -928,6 +939,11 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
     env$class_data <- tryCatch(class_parse_data(uri, content, xml(),
             env$syntax_data, env$definitions), error = function(e) NULL)
     env$class_data$declarations <- classes
+    if (isTRUE(env$member_data$has_type_hints)) {
+        dependencies <- member_type_hint_packages(env)
+        env$member_data$type_hint_dependencies <- dependencies
+        env$member_data$type_hint_packages <- unique(unlist(dependencies, use.names = FALSE))
+    }
     if (length(classes) || length(attributes(classes))) env$class_data$bytes <- sum(env$class_data$bytes, as.numeric(utils::object.size(classes)))
     # These original-id lookup tables are used only while constructing
     # worker indexes. Providers use the compact physical syntax tree.
@@ -1025,9 +1041,11 @@ parse_callback <- function(self, uri, version, parse_data, source_content = NULL
         }
     }
 
+    hint_packages_changed <- !isTRUE(lsp_settings$get("member_completion")) && isTRUE(lsp_settings$get("s3_dispatch")) &&
+        !identical(old_parse_data$member_data$type_hint_packages, parse_data$member_data$type_hint_packages)
     if (!isTRUE(parse_data$parse_error)) {
         requested_packages <- member_package_request(parse_data)
-        if (is.null(previous_packages) || isTRUE(doc$member_refresh) ||
+        if (is.null(previous_packages) || isTRUE(doc$member_refresh) || hint_packages_changed ||
                 !identical(previous_packages, requested_packages)) {
             doc$requested_packages <- requested_packages
             # Shared resolution can complete synchronously from its cache.
@@ -1057,7 +1075,7 @@ parse_callback <- function(self, uri, version, parse_data, source_content = NULL
             requested_packages$packages, parse_data$packages))
         requested_packages$namespace_packages <- normalize_package_request(union(
             requested_packages$namespace_packages, parse_data$member_data$packages))
-        if (!identical(doc$requested_packages, requested_packages) || isTRUE(doc$member_refresh)) {
+        if (!identical(doc$requested_packages, requested_packages) || isTRUE(doc$member_refresh) || hint_packages_changed) {
             doc$requested_packages <- requested_packages
             self$resolve_task_manager$add_task(uri,
                 resolve_task(self, uri, doc, requested_packages$packages,
@@ -1195,7 +1213,8 @@ parse_task <- function(self, uri, document, delay = 0, retry = TRUE) {
         cached_entry <- workspace$parse_cache$get(content_hash)
         if (identical(cached_entry$cache_uri, uri) &&
                 identical(cached_entry$member_data$attachment_exclusions, document$attachment_exclusions) &&
-                identical(cached_entry$member_data$namespace_imports, member_namespace_imports(uri)) &&
+                identical(cached_entry$member_data$namespace_imports,
+                    member_namespace_imports(uri, isTRUE(cached_entry$member_data$use_hint_imports))) &&
                 class_s7_exports_current(cached_entry$class_data$declarations)) {
             logger$info("parse_task: cache hit for", uri)
             cached_env <- list2env(cached_entry, parent = .GlobalEnv)
@@ -1331,10 +1350,11 @@ member_task_request <- function(workspace, document, packages, namespace_package
 }
 
 resolve_member_task <- function(self, uri, document, packages, namespace_packages, force_refresh = FALSE,
-    resolution_request = NULL) {
+    resolution_request = NULL, member_packages = NULL) {
     workspace <- self$get_workspace(uri)
     state <- new.env(parent = emptyenv())
     state$request <- member_task_request(workspace, document, packages, namespace_packages)
+    if (!is.null(member_packages)) state$request$member_packages <- member_packages
     state$refresh_pending <- FALSE
     metadata <- workspace$member_metadata
     known <- list()
@@ -1355,7 +1375,9 @@ resolve_member_task <- function(self, uri, document, packages, namespace_package
     current <- function() {
         manager <- self$member_task_manager
         active <- if (is.function(manager$get_task)) manager$get_task(uri) else NULL
-        isTRUE(lsp_settings$get("member_completion")) &&
+        hinted <- length(member_packages) && isTRUE(lsp_settings$get("s3_dispatch")) &&
+            identical(document$parse_data$member_data$type_hint_packages, member_packages)
+        (isTRUE(lsp_settings$get("member_completion")) || hinted) &&
             (!is.function(manager$get_task) || identical(active$context, state)) &&
             identical(.libPaths(), state$request$lib_paths) &&
             identical(self$get_workspace(uri), workspace) &&
@@ -1366,7 +1388,8 @@ resolve_member_task <- function(self, uri, document, packages, namespace_package
         if (!isTRUE(state$refresh_pending) || !current()) return(invisible(NULL))
         state$refresh_pending <- FALSE
         self$member_task_manager$add_task(uri,
-            resolve_member_task(self, uri, document, packages, namespace_packages, force_refresh = TRUE))
+            resolve_member_task(self, uri, document, packages, namespace_packages,
+                force_refresh = TRUE, member_packages = member_packages))
         invisible(NULL)
     }
     callback <- function(result) {
@@ -1384,14 +1407,15 @@ resolve_member_task <- function(self, uri, document, packages, namespace_package
         logger$info("member metadata task:", e)
     }
     if (shared && is.null(resolution_request)) {
-        resolution_request <- package_resolution_request(packages, namespace_packages, TRUE, FALSE)
+        resolution_request <- package_resolution_request(packages, namespace_packages, TRUE, FALSE, member_packages = member_packages)
     }
     sharing <- if (shared) package_task_sharing(self, uri, document, resolution_request, callback, error,
         refresh = isTRUE(force_refresh) || isTRUE(document$member_refresh))
     task <- create_task(
         target = package_call(member_resolve_packages),
         args = list(pkgs = packages, lib_paths = state$request$lib_paths, namespace_packages = namespace_packages,
-            prepare = TRUE, prepare_s3 = FALSE, known_members = known, cache_dir = state$request$cache_dir),
+            prepare = TRUE, prepare_s3 = FALSE, known_members = known, cache_dir = state$request$cache_dir,
+            member_packages = member_packages),
         callback = function(result) {
             if (is.null(sharing)) callback(result) else sharing$complete(result)
         },
@@ -1408,11 +1432,13 @@ resolve_member_task <- function(self, uri, document, packages, namespace_package
 resolve_task <- function(self, uri, document, packages, delay = 0, namespace_packages = character()) {
     split_members <- !is.null(self$member_task_manager)
     package_requests <- length(packages) > 0L || length(namespace_packages) > 0L
-    prepare_members <- package_requests && isTRUE(lsp_settings$get("member_completion"))
+    prepare_s3 <- isTRUE(lsp_settings$get("s3_dispatch"))
+    members_enabled <- isTRUE(lsp_settings$get("member_completion"))
+    member_packages <- if (!members_enabled && prepare_s3) document$parse_data$member_data$type_hint_packages
+    prepare_members <- package_requests && (members_enabled || length(member_packages) > 0L)
     if (split_members && !prepare_members) {
         self$member_task_manager$cancel(uri)
     }
-    prepare_s3 <- isTRUE(lsp_settings$get("s3_dispatch"))
     if (!package_requests) {
         # Repair failed startup catalogs asynchronously for an open source
         # document, without resolving every background workspace file.
@@ -1431,7 +1457,8 @@ resolve_task <- function(self, uri, document, packages, delay = 0, namespace_pac
         package_resolution_installations(unique(c(startup_packages, packages, namespace_packages)), .libPaths())
     }
     member_request <- if (shared_members) {
-        package_resolution_request(packages, namespace_packages, TRUE, FALSE, installations = installations)
+        package_resolution_request(packages, namespace_packages, TRUE, FALSE, installations = installations,
+            member_packages = member_packages)
     }
     # Neither worker depends on the other's result. In particular, an S3
     # timeout must not prevent member models from being prepared and applied.
@@ -1439,6 +1466,7 @@ resolve_task <- function(self, uri, document, packages, delay = 0, namespace_pac
         manager <- self$member_task_manager
         previous <- if (is.function(manager$get_task)) manager$get_task(uri) else NULL
         request <- member_task_request(self$get_workspace(uri), document, packages, namespace_packages)
+        if (!is.null(member_packages)) request$member_packages <- member_packages
         # Incomplete fingerprints use isolated per-document workers. Their
         # existing context checks still permit queued promotion and one
         # followup after running preparation, without cross-document reuse.
@@ -1457,7 +1485,7 @@ resolve_task <- function(self, uri, document, packages, delay = 0, namespace_pac
         } else {
             manager$add_task(uri,
                 resolve_member_task(self, uri, document, packages, namespace_packages,
-                    resolution_request = member_request))
+                    resolution_request = member_request, member_packages = member_packages))
         }
     }
     callback <- function(result) resolve_callback(self, uri, version, result)
@@ -1470,13 +1498,14 @@ resolve_task <- function(self, uri, document, packages, delay = 0, namespace_pac
     }
     sharing <- if (shared_resolve) package_task_sharing(self, uri, document,
         package_resolution_request(packages, namespace_packages, prepare_members && !split_members, prepare_s3,
-            installations = installations),
+            installations = installations, member_packages = if (!split_members) member_packages),
         callback, error, refresh = isTRUE(document$member_refresh))
     task <- create_task(
         target = package_call(member_resolve_packages),
         args = list(pkgs = packages, lib_paths = .libPaths(), namespace_packages = namespace_packages,
             prepare = prepare_members && !split_members,
-            prepare_s3 = prepare_s3, cache_dir = package_metadata_cache_root()),
+            prepare_s3 = prepare_s3, cache_dir = package_metadata_cache_root(),
+            member_packages = if (!split_members) member_packages),
         callback = function(result) {
             if (is.null(sharing)) callback(result) else sharing$complete(result)
         },

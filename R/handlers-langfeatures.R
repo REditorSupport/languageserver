@@ -105,6 +105,11 @@ member_metadata_waiting <- function(self, uri, document, point, cursor = NULL, n
         }
     }
     packages <- intersect(request$namespace_packages, referenced)
+    hint_dependencies <- document$parse_data$member_data$type_hint_dependencies
+    if (length(hint_dependencies)) {
+        types <- intersect(names(hint_dependencies), referenced)
+        packages <- union(packages, unlist(hint_dependencies[types], use.names = FALSE))
+    }
     # An attached S7 factory is normally written without S7::. Its generated
     # formals still depend on the member worker, even when S3 is disabled.
     if (uses_s7 && any(c("new_class", "new_generic", "deprecated_class", "deprecated_generic", "method<-") %in% referenced)) {

@@ -272,6 +272,50 @@ matching files and directories from the workspace root and the script's
 directory. Document links also recognize static paths assembled with
 `file.path()`.
 
+### Documenting argument and return types
+
+Start a roxygen `@param` description with a class name in backticks and
+parentheses to identify the argument's type inside the function. Use `@return`
+or `@returns` to identify the type of a call result. A union uses `|` inside
+one pair of backticks. These comments work in scripts and package sources.
+
+```r
+Book <- R6::R6Class("Book", public = list(title = "Field guide", pages = 80L))
+Film <- R6::R6Class("Film", public = list(title = "The garden", minutes = 12L))
+
+#' @param item (`Book | Film`) Item to display.
+item_title <- function(item) item$title
+
+#' @return (`Book`) The book stored in the serialized bytes.
+decode_book <- function(bytes) unserialize(bytes)
+
+item_title(Film$new())                          # "The garden"
+bytes <- serialize(Book$new(), NULL)
+decode_book(bytes)$pages                        # 80L
+```
+
+Inside `item_title()`, typing `item$` offers `title` because both classes declare
+it. After `decode_book(bytes)$`, completion also offers `pages`. The server can
+resolve these members without executing `unserialize()`. When the body itself
+reveals a more specific result, such as a list with known fields, the providers
+keep that information. A later assignment updates the inferred type.
+
+Hints also guide S3 dispatch. Inside `year_text()` below, signature help on
+`format(day, ...)` uses `format.Date`.
+
+```r
+#' @param day (`Date`) A calendar day.
+year_text <- function(day) format(day, "%Y")
+year_text(as.Date("2000-01-01"))  # "2000"
+```
+
+An R6 generator name denotes its public instances, including inherited methods.
+Use `package::Class` to identify the owner of a package class. A union accepts
+up to 32 alternatives. Member completion uses their shared names, and signature
+help and Go to Definition require an unambiguous target. S3 dispatch selects a
+method when all alternatives agree. Go to Type Definition can open each source
+class in the union.
+
 Parameter hints use the resolved signature of member calls. For example, if
 `draw` is declared as `function(width, height)`, `canvas$draw(40, 20)` can
 show `width =` and `height =` inline. R6 active bindings, S4 slots and S7

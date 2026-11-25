@@ -290,7 +290,7 @@ partial_token_context <- function(data, incomplete_lines) {
     data
 }
 
-recover_partial_content <- function(content, srcfile, error, include_tokens = TRUE, member_hints = FALSE) {
+recover_partial_content <- function(content, srcfile, error, include_tokens = TRUE, member_hints = FALSE, row_offset = 0L) {
     data <- utils::getParseData(srcfile)
     prefix_only <- is.null(data)
     if (prefix_only) data <- parse_prefix_data(content, error)
@@ -383,6 +383,9 @@ recover_partial_content <- function(content, srcfile, error, include_tokens = TR
     incomplete <- which(content != projected) - 1L
     if (!is.null(attr(expr, "srcfile"))) projected <- attr(expr, "srcfile")$lines
     tokens <- if (include_tokens) partial_semantic_data(data, content, token, terminals, gap_data)
+    # A repaired trailing operator can preserve its function in the token
+    # tree even when the structural projection discards the whole statement.
+    type_hints <- if (include_tokens) member_roxygen_type_index(content, tokens, row_offset)
     syntax <- if (!is.null(gap_data)) gap_data else if (include_tokens) utils::getParseData(expr)
     inlay_lines <- incomplete
     if (length(inlay_lines) && (inherits(error, c("invalidRawLiteral", "unrecognizedEscape")) ||
@@ -394,7 +397,7 @@ recover_partial_content <- function(content, srcfile, error, include_tokens = TR
     }
     list(content = projected, expr = expr, syntax = syntax,
         token_data = partial_token_context(tokens, incomplete), incomplete_lines = incomplete,
-        inlay_fallback_lines = inlay_lines, member_packages = member_packages)
+        inlay_fallback_lines = inlay_lines, member_packages = member_packages, type_hints = type_hints)
 }
 
 # Keep scoped classifications and suffix positions from the structural tree,

@@ -151,7 +151,7 @@ workspace_did_change_configuration <- function(self, params) {
 
 refresh_namespace_document <- function(self, doc, diagnostics = FALSE) {
     if (!is.null(doc$parse_data) && !identical(doc$parse_data$member_data$namespace_imports,
-            member_namespace_imports(doc$uri))) {
+            member_namespace_imports(doc$uri, isTRUE(doc$parse_data$member_data$use_hint_imports)))) {
         self$text_sync(doc$uri, doc, parse = TRUE, run_diagnostics = diagnostics)
     } else if (diagnostics) {
         schedule_diagnostics(self, doc$uri, doc, delay = 0)

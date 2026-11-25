@@ -230,6 +230,11 @@ member_s7_type <- function(descriptor) {
 # S4_contains() exposes the S7 parent's properties on an S4 subclass.
 # The subclass's own slots can still be accessed with methods::slot() or @.
 member_s7_property_receiver <- function(object, bindings) {
+    if (identical(object$reason, "type_hint_union")) {
+        receivers <- lapply(object$possible_returns, member_s7_property_receiver, bindings = bindings)
+        if (any(vapply(receivers, is.null, logical(1L)))) return(NULL)
+        return(member_possible_result(receivers, closed = TRUE))
+    }
     if (isTRUE(object$s7)) return(object)
     parent <- object$s4_class$s7_parent
     if (!is.list(parent) || !identical(parent$kind, "class")) return(NULL)
@@ -500,17 +505,24 @@ member_s7_call <- function(expr, index, bindings, budget, method = member_s7_met
         args <- member_s7_arguments(expr, keys(c("object", "names")))
         object <- member_s7_property_receiver(infer(args$object), bindings)
         if (is.null(object)) return(member_value())
-        selected <- names(object$slot_types)
-        if ("names" %in% names(args)) {
+        all_properties <- !"names" %in% names(args)
+        if (!all_properties) {
             value <- infer(args$names)
             if (!isTRUE(value$known_literal)) return(member_value())
             selected <- value$literal
         }
-        if (is.null(selected)) selected <- character()
-        if (!is.character(selected) || length(selected) > 256L || anyNA(selected) ||
-                any(!selected %in% names(object$slot_types))) return(member_value())
-        fields <- stats::setNames(lapply(selected, function(name) member_slot(object, name, index, bindings, budget)), selected)
-        return(member_value(type = "list", fields = fields, elements = fields))
+        properties <- function(receiver) {
+            keys <- if (all_properties) names(receiver$slot_types) else selected
+            if (is.null(keys)) keys <- character()
+            if (!is.character(keys) || length(keys) > 256L || anyNA(keys) ||
+                    any(!keys %in% names(receiver$slot_types))) return(member_value())
+            fields <- stats::setNames(lapply(keys, function(key) member_slot(receiver, key, index, bindings, budget)), keys)
+            member_value(type = "list", fields = fields, elements = fields)
+        }
+        if (identical(object$reason, "type_hint_union")) {
+            return(member_possible_result(lapply(object$possible_returns, properties), closed = TRUE))
+        }
+        return(properties(object))
     }
     if (method %in% c("set_props", "new_object")) {
         first <- if (method == "set_props") modes$object else modes$parent

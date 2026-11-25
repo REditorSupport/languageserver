@@ -1,5 +1,20 @@
 # languageserver (development)
 
+- Member providers and S3 dispatch now read types from roxygen `@param` and
+  `@return` descriptions. In this example, `box$` inside the function and
+  `copy_box(Box$new())$` at the call site both offer `value`. A function that
+  sometimes returns `NULL` can use `` @return (`Box | NULL`) ``.
+
+  ```r
+  Box <- R6::R6Class("Box", public = list(value = 1L))
+
+  #' @param box (`Box`) A box to copy.
+  #' @return (`Box`) A copy of the box.
+  copy_box <- function(box) box$clone()
+
+  copy_box(Box$new())$value  # 1L
+  ```
+
 - Release temporary R documents outside the workspace when the editor closes
   them. This prevents memory use and indexing time from growing as Quarto
   opens successive virtual documents (#888).

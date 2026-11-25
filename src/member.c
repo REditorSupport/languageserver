@@ -87,8 +87,26 @@ SEXP member_syntax_names_c(SEXP expr) {
     for (size_t i = 0; i < capacity; ++i) seen[i] = R_NilValue;
     SEXP output = PROTECT(Rf_allocVector(STRSXP, count));
     R_xlen_t unique = syntax_names(expr, output, seen, capacity - 1);
-    SEXP result = PROTECT(Rf_allocVector(STRSXP, unique));
+    /* Type dependencies are already deduplicated on annotated ASTs. Keep the
+     * common unannotated call on the native path without a second R walk. */
+    static SEXP type_key = NULL;
+    if (!type_key) type_key = Rf_install("member_type_names");
+    SEXP types = Rf_getAttrib(expr, type_key);
+    if (types == R_NilValue && TYPEOF(expr) == EXPRSXP && XLENGTH(expr) == 1)
+        types = Rf_getAttrib(VECTOR_ELT(expr, 0), type_key);
+    R_xlen_t extra = 0;
+    SEXP positions = R_NilValue;
+    if (TYPEOF(types) == STRSXP) {
+        /* output's unused slots are empty strings; all type names are nonempty. */
+        positions = PROTECT(Rf_match(output, types, 0));
+        for (R_xlen_t i = 0; i < XLENGTH(types); ++i) if (!INTEGER(positions)[i]) extra++;
+    }
+    if (extra > R_XLEN_T_MAX - unique) Rf_error("Member syntax exceeds index capacity");
+    SEXP result = PROTECT(Rf_allocVector(STRSXP, unique + extra));
     for (R_xlen_t i = 0; i < unique; ++i) SET_STRING_ELT(result, i, STRING_ELT(output, i));
-    UNPROTECT(2);
+    if (extra) for (R_xlen_t i = 0; i < XLENGTH(types); ++i) {
+        if (!INTEGER(positions)[i]) SET_STRING_ELT(result, unique++, STRING_ELT(types, i));
+    }
+    UNPROTECT(positions == R_NilValue ? 2 : 3);
     return result;
 }

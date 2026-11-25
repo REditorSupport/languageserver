@@ -33,7 +33,7 @@ class_navigation_symbol <- function(document, parsed, point) {
     list(location = location, call = call)
 }
 
-class_navigation_declaration <- function(uri, workspace, document, point) {
+class_navigation_declaration <- function(uri, workspace, document, point, alternatives = FALSE) {
     if (!isTRUE(lsp_settings$get("member_completion")) || !check_r_region(document, point)) return(NULL)
     parsed <- current_parse_data(uri, workspace, document)
     if (is.null(parsed)) return(NULL)
@@ -42,7 +42,15 @@ class_navigation_declaration <- function(uri, workspace, document, point) {
     if (is.null(location)) return(NULL)
     value <- member_resolve_cursor(uri, workspace, document, location$point, location$cursor,
         location$cursor$token, origins = TRUE)$value
+    if (alternatives && identical(value$reason, "type_hint_union")) {
+        return(unique(Filter(Negate(is.null), lapply(value$possible_returns, class_value_declaration, workspace = workspace))))
+    }
     if (isTRUE(value$possible_receiver) || length(value$possible_returns)) return(NULL)
+    cls <- class_value_declaration(value, workspace)
+    if (alternatives && !is.null(cls)) list(cls) else cls
+}
+
+class_value_declaration <- function(value, workspace) {
     cls <- if (isTRUE(value$r6_role %in% c("instance", "generator")) && !is.null(value$r6_class$origin)) {
         list(type = "R6", name = value$r6_class$name, origin = value$r6_class$origin)
     } else if (!is.null(value$s4_class$origin)) {
@@ -72,8 +80,9 @@ class_navigation_declaration <- function(uri, workspace, document, point) {
 }
 
 type_definition_reply <- function(id, uri, workspace, document, point) {
-    cls <- class_navigation_declaration(uri, workspace, document, point)
-    Response$new(id, result = if (!is.null(cls)) location(cls$uri, cls$selectionRange))
+    classes <- class_navigation_declaration(uri, workspace, document, point, alternatives = TRUE)
+    locations <- lapply(classes, function(cls) location(cls$uri, cls$selectionRange))
+    Response$new(id, result = if (length(locations) == 1L) locations[[1L]] else if (length(locations)) locations)
 }
 
 s3_implementation_target <- function(method, workspace, store) {

@@ -117,7 +117,7 @@ member_workspace_view <- function(workspace, document) {
 # the filesystem, and a parser worker never evaluates NAMESPACE conditions.
 member_namespace_imports <- local({
     cache <- NULL
-    function(uri) {
+    function(uri, type_hints = FALSE) {
         if (length(uri) != 1L || !startsWith(uri, "file:///") ||
                 !grepl("/R/[^/]+\\.[rR]$", uri)) return(NULL)
         root <- dirname(dirname(path_from_uri(uri)))
@@ -127,20 +127,22 @@ member_namespace_imports <- local({
         if (is.null(cache)) cache <<- ByteLruCache$new(1024^2, max_entries = 64L)
         stamp <- info[c("size", "mtime", "ctime")]
         previous <- cache$get(root)
-        if (identical(stamp, previous$stamp)) return(previous$imports)
+        field <- if (type_hints) "all_imports" else "imports"
+        if (identical(stamp, previous$stamp)) return(previous[[field]])
         pkg <- tryCatch(read.dcf(paths[[1L]], fields = "Package"), error = function(e) NULL)
-        imports <- NULL
+        imports <- directives <- NULL
         if (length(pkg) == 1L && !is.na(pkg[[1L]]) && nzchar(pkg[[1L]])) {
             directives <- extract_namespace_imports(paths[[2L]], unconditional = TRUE)$directives
-            # Only the S7 adapter currently needs NAMESPACE declarations to
-            # interpret a binding operator. Keep unrelated projects on their
-            # existing metadata preparation path.
+            # S7 uses imports to identify its binding operator. Other sources
+            # consult them when a documented class needs a package owner.
             packages <- unlist(lapply(directives, function(x) if (x$type == "import") x$packages else x$package), use.names = FALSE)
             imports <- if ("S7" %in% packages) directives else list()
             attr(imports, "package") <- pkg[[1L]]
+            attr(directives, "package") <- pkg[[1L]]
         }
-        cache$set(root, list(stamp = stamp, imports = imports))
-        imports
+        entry <- list(stamp = stamp, imports = imports, all_imports = directives)
+        cache$set(root, entry)
+        entry[[field]]
     }
 })
 
@@ -177,8 +179,14 @@ member_package_declaration <- function(name, index, budget, depth, trail) {
     doc <- workspace$documents$get(owner)
     classes <- doc$parse_data$class_data$declarations
     records <- c(classes, attr(classes, "s7_bindings", exact = TRUE))
-    if (!any(vapply(records, function(cls) {
-        isTRUE(cls$binding) && (isTRUE(cls$named_bind) || cls$type %in% c("S7", "S7Generic")) &&
+    binding <- doc$parse_data$member_data$bindings[[name]]
+    fn <- if (length(binding)) binding[[length(binding)]]$expr
+    # A documented return can travel through an ordinary wrapper or alias in
+    # a third file. Resolve only the requested binding in its owning file.
+    callable <- (member_head(fn, "function") || is.symbol(fn)) &&
+        (isTRUE(doc$parse_data$member_data$has_type_hints) || workspace$index$package_has_type_hints(uri))
+    if (!callable && !any(vapply(records, function(cls) {
+        isTRUE(cls$binding) && (isTRUE(cls$named_bind) || cls$type %in% c("S7", "S7Generic", "S4", "R6", "RefClass")) &&
             identical(cls$name, name)
     }, logical(1L)))) return(member_value(reason = "uncertain_package_binding"))
     key <- paste(root, name, sep = "\n")
@@ -192,7 +200,9 @@ member_package_declaration <- function(name, index, budget, depth, trail) {
         budget$document <- doc
         on.exit(budget$document <- previous, add = TRUE)
     }
-    member_resolve_document(name, context, list(), budget, depth + 1L, trail)
+    value <- member_resolve_document(name, context, list(), budget, depth + 1L, trail)
+    if (callable && !is.null(value$function_expr) && is.null(value$function_uri)) value$function_uri <- owner
+    value
 }
 
 member_package_binding_owner <- function(name, workspace, root, uri) {
