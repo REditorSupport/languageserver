@@ -138,7 +138,7 @@ test_that("a lazy definition request reads only eligible helpers and reuses thei
     expect_length(reads, 0L)
     expect_equal(lookup(2L)$uri, path_to_uri(helper))
     expect_equal(lookup(2L)$uri, path_to_uri(helper))
-    expect_equal(reads, helper)
+    expect_equal(path_to_uri(reads), path_to_uri(helper))
     expect_setequal(workspace$documents$keys(), caller)
     expect_false(workspace$index$full_started)
 

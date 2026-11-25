@@ -67,7 +67,8 @@ project_helper_paths <- function(rules, root, uri) {
     paths <- unlist(lapply(rules, function(rule) {
         if (index_glob_match(relative, NULL, regex = rule$regex)) rule$paths
     }))
-    paths <- paths[!duplicated(paths) & paths != path]
+    uris <- names(paths)
+    paths <- paths[!duplicated(uris) & uris != path_to_uri(path)]
     if (!length(paths)) return(character())
     real_root <- normalizePath(root, winslash = "/", mustWork = FALSE)
     contained <- project_helper_in_root(c(path, paths), real_root)

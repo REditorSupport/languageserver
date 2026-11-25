@@ -8,6 +8,8 @@ test_that("project helper rules combine matching caller globs in configuration o
     rules <- project_helper_rules(root, settings)
     paths <- project_helper_paths(rules, root, caller)
     expect_identical(names(paths), expected)
+    escaped_caller <- sub("test-one", "test-%6Fne", caller, fixed = TRUE)
+    expect_identical(project_helper_paths(rules, root, escaped_caller), paths)
     expect_identical(unname(paths[[1L]]), file.path(root, "support", "b.R"))
     expect_identical(project_helper_paths(rules, root, uri("R/ordinary.R")), character())
     json <- jsonlite::toJSON(settings, auto_unbox = TRUE)
