@@ -310,7 +310,7 @@ indexed_reference_locations <- function(index, uri, selected) {
 
 #' @noRd
 references_reply <- function(id, uri, workspace, document, point,
-    include_declaration = TRUE, for_rename = FALSE, new_name = NULL, glue_site = TRUE) {
+    include_declaration = TRUE, for_rename = FALSE, new_name = NULL, glue_site = TRUE, formal_uris = NULL) {
 
     if (!check_r_region(document, point)) {
         return(Response$new(id, result = list()))
@@ -425,7 +425,7 @@ references_reply <- function(id, uri, workspace, document, point,
                 }
                 scope <- reference_formal_call_scope(parse_data, document, formal)
                 uris <- if (identical(scope, "workspace")) {
-                    member_navigation_uris(workspace, formal, uri)
+                    if (is.null(formal_uris)) member_navigation_uris(workspace, formal, uri) else formal_uris
                 } else if (identical(scope, "document")) {
                     uri
                 } else {

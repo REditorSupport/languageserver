@@ -1,5 +1,9 @@
 # languageserver (development)
 
+- Find References on a top-level package function parameter can return its
+  declaration, body uses, and named callers while other package files are
+  still being indexed.
+
 - Release temporary R documents outside the workspace when the editor closes
   them. This prevents memory use and indexing time from growing as Quarto
   opens successive virtual documents (#888).

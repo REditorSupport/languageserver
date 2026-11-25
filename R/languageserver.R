@@ -63,7 +63,8 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     rename_reply(request$id, request$uri, request$workspace, request$document, point, request$params$newName)
                 } else {
                     references_reply(request$id, request$uri, request$workspace, request$document, point,
-                        include_declaration = !isFALSE(request$params$context$includeDeclaration))
+                        include_declaration = !isFALSE(request$params$context$includeDeclaration),
+                        formal_uris = request$formal_uris)
                 }
                 self$deliver(reply)
             }
@@ -919,6 +920,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
             waiting_parse <- !is.null(document) && (is.null(document$parse_data) ||
                     !identical(document$version, document$parse_data$version) ||
                     !identical(document$content, document$parsed_content))
+            formal_query <- NULL
             if (!is.null(document) && !waiting_parse) {
                 point <- document$from_lsp_position(params$position)
                 if (!check_scope(uri, document, point) && !reference_literal_needs_workspace(document, point)) return(FALSE)
@@ -930,6 +932,9 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     if (index$definition_kind[[i]] != "formal") return(FALSE)
                     formal <- member_navigation_formal_owner(parsed, uri, token$token, index$definition_key[[i]])
                     if (is.null(formal) || !identical(reference_formal_call_scope(parsed, document, formal), "workspace")) return(FALSE)
+                    if (method == "textDocument/references" && !is.null(self$index_task_manager)) {
+                        formal_query <- reference_package_formal(document, formal, token$token)
+                    }
                 }
             }
             indexes <- list()
@@ -959,6 +964,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     workspace = if (is.null(uri)) NULL else self$get_workspace(uri),
                     workspace_index = if (is.null(uri)) NULL else self$get_workspace(uri)$index,
                     document = document, version = document$version, content = document$content, open = document$is_open,
+                    formal_query = formal_query,
                     held_documents = character(), prepared = is.null(uri), waiting_parse = waiting_parse))
             if (waiting_parse && is.function(self$parse_task_manager$promote)) self$parse_task_manager$promote(uri)
             TRUE
@@ -1015,14 +1021,18 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     if (!queued) private$deliver_index_request(request)
                     next
                 }
-                if (!all(vapply(request$indexes, function(entry) entry$index$complete(), logical(1L)))) next
+                complete <- all(vapply(request$indexes, function(entry) entry$index$complete(), logical(1L)))
+                if (!is.null(request$formal_query)) {
+                    request$formal_uris <- reference_package_callers(self, request, complete)
+                }
+                if (!complete && is.null(request$formal_uris)) next
                 if (request$method != "workspace/symbol" &&
                         any(vapply(request$indexes, function(entry) entry$index$indexing_status()$failed > 0L, logical(1L)))) {
                     self$index_requests$remove(key)
                     self$deliver(ResponseErrorMessage$new(request$id, "InternalError", "Required workspace files could not be parsed"))
                     next
                 }
-                if (!is.null(request$uri)) {
+                if (!is.null(request$uri) && is.null(request$formal_uris)) {
                     doc <- request$document
                     if (!is.null(doc$parse_failure) && identical(doc$parse_failure$version, doc$version)) {
                         self$index_requests$remove(key)
