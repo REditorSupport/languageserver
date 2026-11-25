@@ -91,6 +91,7 @@ workspace_did_change_configuration <- function(self, params) {
         "index_max_files", "index_max_file_size_mb", "index_batch_size",
         "index_time_budget_ms", "index_persistent_cache"
     ))
+    previous_helpers <- lsp_settings$get("project_helpers")
     previous_backends <- backend_settings_identity()
     previous_s3 <- isTRUE(lsp_settings$get("s3_dispatch"))
     previous_members <- isTRUE(lsp_settings$get("member_completion"))
@@ -130,6 +131,10 @@ workspace_did_change_configuration <- function(self, params) {
     if (length(index_settings)) {
         for (workspace in self$workspaces$values()) {
             reset_workspace_index(self, workspace)
+        }
+    } else if (!identical(previous_helpers, lsp_settings$get("project_helpers"))) {
+        for (workspace in self$workspaces$values()) {
+            if (isTRUE(workspace$index$enabled)) workspace$index$set_project_helpers(lsp_settings$get("project_helpers"))
         }
     }
 
@@ -216,7 +221,7 @@ workspace_did_change_watched_files <- function(self, params) {
                     refresh_index_summary(workspace, index, dependent)
                 }
                 package_root <- index$package_root_for_uri(uri)
-                if (!is.null(package_root) || workspace$documents$has(uri)) {
+                if (index$loads_package_sources(package_root) || workspace$documents$has(uri)) {
                     if (workspace$documents$has(uri)) {
                         workspace$documents$remove(uri)
                     }

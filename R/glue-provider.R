@@ -174,6 +174,10 @@ glue_definition_reply <- function(id, uri, workspace, context, rootPath, text_do
         return(Response$new(id, location(uri, glue_host_range(context, target$range))))
     }
     if (identical(target$kind, "package")) {
+        if (length(workspace$index$helper_rules)) {
+            helper <- project_helper_definition(id, workspace, uri, target$name, package_callee = TRUE)
+            if (!is.null(helper)) return(helper)
+        }
         view <- glue_provider_workspace(workspace, context)
         # Use the normal virtual-document and tempfile paths with the package
         # chosen in function position, even if the host has a same-name value.
@@ -457,7 +461,8 @@ glue_cursor_request <- function(self, id, params, method, workspace, document, p
         "textDocument/signatureHelp" = glue_signature_reply(id, uri, workspace, context, self$ClientCapabilities),
         "textDocument/definition" = glue_definition_reply(id, uri, workspace, context,
             get_root_path_for_uri(uri, workspace$root), self$text_document_content))
-    self$deliver(reply)
+    if (identical(method, "textDocument/definition")) deliver_definition(self, id, params, workspace, document, reply)
+    else self$deliver(reply)
     TRUE
 }
 

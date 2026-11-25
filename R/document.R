@@ -1090,6 +1090,10 @@ drain_pending_replies <- function(self, uri, version, max_replies = Inf, first =
         if (!queue$size()) return(FALSE)
         item <- queue$peek()
         if (!is.null(version) && !is.null(item$version) && item$version > version) return(FALSE)
+        if (length(item$helpers) && identical(item$version, version)) {
+            index <- self$get_workspace(uri)$index
+            if (isTRUE(index$enabled) && index$helpers_pending(item$helpers)) return(FALSE)
+        }
         if (!is.null(document) && identical(item$version, document$version) &&
                 method %in% c("textDocument/completion", "textDocument/hover", "textDocument/signatureHelp", "textDocument/definition")) {
             point <- document$from_lsp_position(item$params$position)

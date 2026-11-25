@@ -24,7 +24,7 @@ definition_reply <- function(id, uri, workspace, document, point,
     site <- data_mask_site(document$parse_data, point)
     if (!is.null(site)) {
         if (site$env) return(symbol_definition_reply(id, uri, workspace, document, point,
-                rootPath, context_uri, text_document_content, mask = site))
+                rootPath, context_uri, text_document_content, project_helpers = TRUE, mask = site))
         return(Response$new(id, result = data_column_definition(workspace, document, site)))
     }
 
@@ -53,7 +53,8 @@ definition_reply <- function(id, uri, workspace, document, point,
     s4 <- s4_definition_at(uri, workspace, document, point)
     if (length(s4)) return(Response$new(id, result = s4))
 
-    symbol_definition_reply(id, uri, workspace, document, point, rootPath, context_uri, text_document_content, mask = site)
+    symbol_definition_reply(id, uri, workspace, document, point, rootPath, context_uri, text_document_content,
+        project_helpers = TRUE, mask = site)
 }
 
 # Older parse snapshots have XML instead of the compact navigation index.
@@ -127,13 +128,14 @@ s4_definition_at <- function(uri, workspace, document, point) {
 # from member declarations. Keep their existing identity resolution.
 symbol_definition_reply <- function(id, uri, workspace, document, point,
     rootPath = get_root_path_for_uri(uri, workspace$root),
-    context_uri = uri, text_document_content = NULL, mask = data_mask_site(parse_data, point)) {
+    context_uri = uri, text_document_content = NULL, project_helpers = FALSE, mask = data_mask_site(parse_data, point)) {
     if (!check_r_region(document, point)) return(Response$new(id))
     parse_data <- workspace$get_parse_data(uri)
     if (!is.null(mask) && !mask$env) return(Response$new(id))
     token_result <- reference_token_at(document, parse_data, point, mask)
     resolved <- FALSE
     result <- NULL
+    token_name <- NULL
 
     syntax <- parse_data$syntax_data
     if (token_result$accessor == "" && !is.null(syntax)) {
@@ -237,6 +239,16 @@ symbol_definition_reply <- function(id, uri, workspace, document, point,
     }
 
     if (!resolved && check_scope(uri, document, point)) {
+        if (project_helpers && length(workspace$index$helper_rules) &&
+                identical(token_result$accessor, "") && length(token_name) &&
+                token_name %in% c("SYMBOL", "SYMBOL_FUNCTION_CALL")) {
+            bare <- if (!is.null(syntax)) length(syntax_children(syntax, syntax$parent_row[[token]])) == 1L else
+                xml_find_lgl_(token, "count(../*) = 1")
+            if (bare || isTRUE(mask$env)) {
+                reply <- project_helper_definition(id, workspace, context_uri, token_result$token)
+                if (!is.null(reply)) return(reply)
+            }
+        }
         arguments <- list(token_result$token, token_result$package,
             exported_only = token_result$accessor != ":::", uri = context_uri)
         parameters <- names(formals(workspace$get_definition))

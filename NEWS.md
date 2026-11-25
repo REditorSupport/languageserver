@@ -6,6 +6,10 @@
   bare name could also come from the caller. Go to Definition can locate a
   column declared by a known table constructor.
 
+- Go to Definition can find top-level names in closed project helpers.
+  Map test or script globs to helper filenames with `r.lsp.project_helpers`
+  (#253, #386, #508).
+
 - Speed up S3 metadata lookup on R versions before 4.6 so signature help can
   show method-specific arguments sooner after startup.
 
