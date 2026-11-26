@@ -4,6 +4,7 @@ samples <- if (length(args)) as.integer(args[[1L]]) else 5L
 stopifnot(length(args) <= 1L, !is.na(samples), samples >= 1L)
 ns <- asNamespace("languageserver")
 has_class_tags <- exists("roxygen_class_block", ns, inherits = FALSE)
+has_formats <- exists("roxygen_leading_types", ns, inherits = FALSE)
 if (!has_class_tags) cat("This installation does not index class member tags.\n")
 
 milliseconds <- function(fn) {
@@ -22,10 +23,12 @@ cat("fields  documentation       hint index (ms)\n")
 for (n in c(32L, 128L, 256L)) {
     members <- paste0("f", seq_len(n))
     fields <- paste0("  ", members, " = NULL", ifelse(seq_len(n) == n, "", ","))
-    for (kind in c("bare", "prose", "inherited prose", "typed")) {
+    for (kind in c("bare", "prose", "inherited prose", "typed", if (has_formats) c("Markdown", "Rd"))) {
         rows <- fields
+        typed <- kind %in% c("typed", "Markdown", "Rd")
         if (kind != "bare") {
-            tag <- if (kind == "typed") "(`Receiver`) A field." else "A field."
+            tag <- switch(kind, typed = "(`Receiver`) A field.", Markdown = "[`Receiver`] A field.",
+                Rd = "[\\code{Receiver}] A field.", "A field.")
             rows <- as.vector(rbind(paste("  #' @field", members, tag), fields))
         }
         parent <- if (kind == "inherited prose") "inherit = Parent, " else ""
@@ -33,17 +36,20 @@ for (n in c(32L, 128L, 256L)) {
         syntax <- ns$syntax_parse_data(utils::getParseData(parse(text = lines, keep.source = TRUE)))
         index <- function() ns$member_roxygen_type_index(lines, syntax, uri = "file:///wide-class.R")
         hints <- index()
-        if (has_class_tags && kind %in% c("inherited prose", "typed")) {
+        if (has_class_tags && (kind == "inherited prose" || typed)) {
             records <- attr(hints, "classes", exact = TRUE)
             stopifnot(length(records) == 1L)
             record <- records[[1L]]$hints
             stopifnot(identical(attr(record, "roxygen_documented_fields", exact = TRUE), members))
-            if (kind == "typed") {
+            if (typed) {
                 sites <- attr(hints, "occurrences", exact = TRUE)
                 stopifnot(identical(names(record$field), members), all(lengths(record$field) == 1L),
                     all(unlist(record$field, use.names = FALSE) == "Receiver"),
                     identical(sites$parameter, members), all(sites$type == "Receiver"),
                     identical(substring(lines[sites$row + 1L], sites$start + 1L, sites$end), sites$type))
+                stopifnot(all(vapply(record$field, function(x) {
+                    identical(attr(x, "roxygen_class_links", exact = TRUE), if (kind == "Markdown") "Receiver")
+                }, logical(1L))))
             }
         } else {
             stopifnot(is.null(hints))

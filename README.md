@@ -274,10 +274,12 @@ directory. Document links also recognize static paths assembled with
 
 ### Documenting argument, return, and member types
 
-Start a roxygen `@param` description with a class name in backticks and
-parentheses to identify the argument's type inside the function. Use `@return`
-or `@returns` to identify the type of a call result. A union uses `|` inside
-one pair of backticks. These comments work in scripts and package sources.
+Start a roxygen `@param`, `@return`, or `@returns` description with a type
+marker. For new documentation, use a parenthesized code span such as
+`` (`Book`) `` or `` (`Book | Film`) ``. The server also reads a leading
+Markdown class link such as `` [`Book`] `` or an Rd marker such as
+`[\code{Book}]`. The description can begin on the next roxygen line. One
+marker after `@param left,right` applies to both arguments.
 
 ```r
 Book <- R6::R6Class("Book", public = list(title = "Field guide", pages = 80L))
@@ -289,11 +291,16 @@ item_title <- function(item) item$title
 #' @inheritParams item_title
 has_title <- function(item) nzchar(item$title)
 
-#' @return (`Book`) The book stored in the serialized bytes.
+#' @param left,right [`Book`] Books to compare.
+same_title <- function(left, right) identical(left$title, right$title)
+
+#' @return
+#'   [\code{Book}] The book stored in the serialized bytes.
 decode_book <- function(bytes) unserialize(bytes)
 
 item_title(Film$new())                          # "The garden"
 has_title(Book$new())                           # TRUE
+same_title(Book$new(), Book$new())              # TRUE
 bytes <- serialize(Book$new(), NULL)
 decode_book(bytes)$pages                        # 80L
 ```
@@ -303,6 +310,14 @@ it. After `decode_book(bytes)$`, completion also offers `pages`. The server can
 resolve these members without executing `unserialize()`. When the body itself
 reveals a more specific result, such as a list with known fields, the providers
 keep that information. A later assignment updates the inferred type.
+
+A Markdown link supplies a type when its target resolves to a known class
+or built-in type in the declaration's scope. In `` [`Book`] or [`Film`] ``
+both alternatives must resolve. The server also recognizes an opening phrase
+such as ``An object of class [`Book`].`` or ``The [`Book`] object to read.``
+A description such as ``A list of [`Book`] objects.`` leaves the type to
+ordinary inference. The parenthesized form can name a user-defined S3 class
+which has no generator binding.
 
 `has_title()` inherits the same union for `item` from `item_title()`. The server
 follows `@inheritParams` between source topics in the same file or indexed
@@ -316,7 +331,7 @@ source topic, usually its function name. The lookup skips `@noRd` donors,
 external installed topics and multi-block shared help pages. Reading these
 hints works without installing `roxygen2`.
 
-Renaming the `Book` generator updates its names in both type annotations.
+Renaming the `Book` generator updates its references in the type annotations.
 An ordinary comment or blank line between a roxygen block and the function
 keeps the annotation associated with that function.
 

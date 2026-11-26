@@ -235,6 +235,8 @@ member_inherited_hint_value <- function(record, workspace, budget, index = NULL)
     # is fixed for this request, including the member whose origin is wanted.
     key <- paste(record$uri, record$row, record$col, paste(record$types, collapse = "|"),
         budget$origin_name %s3_or% "", sep = "\r")
+    links <- attr(record$types, "roxygen_class_links", exact = TRUE)
+    if (length(links)) key <- paste(key, paste(links, collapse = "|"), sep = "\r")
     memo <- budget$inherited_values
     if (is.null(memo)) budget$inherited_values <- memo <- new.env(parent = emptyenv())
     if (!is.null(memo[[key]])) return(memo[[key]])

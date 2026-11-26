@@ -12,6 +12,26 @@ type_rename <- function(f, row, col, new_name) {
     rename_reply(1L, f$uri, f$workspace, f$document, list(row = row, col = col), new_name)
 }
 
+test_that("Rename follows leading type markers without changing surrounding markup", {
+    lines <- c('Book <- R6::R6Class("Book")', 'Film <- R6::R6Class("Film")',
+        "#' @param x,y", "#'   [`Book`] or [`Film`] Items to read.",
+        "#' @returns An object of class [`Book`].", "read <- function(x, y) x",
+        "#' @returns [\\code{Book}] Restored item.", "restore <- function(x) unserialize(x)",
+        "#' @param x A list of [`Book`] objects.", "wrap <- function(x) x",
+        "#' @returns [`Book`](https://example.org) documentation.", "help_page <- function() NULL",
+        "helper <- function() NULL", "#' @param x [`helper`] describes this input.", "last <- function(x) x")
+    f <- type_rename_fixture(lines)
+    edits <- type_rename(f, 0L, 1L, "Volume")$result$changes[[f$uri]]
+    rows <- vapply(edits, function(e) e$range$start$line + 1L, integer(1L))
+    expect_setequal(rows, c(1L, 4L, 5L, 7L))
+    for (i in seq_along(edits)) {
+        span <- edits[[i]]$range
+        expect_identical(substr(lines[[rows[[i]]]], span$start$character + 1L, span$end$character), "Book")
+    }
+    helper <- type_rename(f, 12L, 1L, "implementation")$result$changes[[f$uri]]
+    expect_identical(vapply(helper, function(e) e$range$start$line, integer(1L)), 12L)
+})
+
 test_that("member type tags refer to the enclosing class declaration scope", {
     lines <- c('Leaf <- R6::R6Class("Global")',
         "#' @slot item (`Leaf`)", 'methods::setClass("Basket", slots = c(item = "ANY"))',

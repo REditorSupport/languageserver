@@ -1,12 +1,28 @@
 max_type_hint_alternatives <- 32L
 roxygen_type_identifier <- "(?!\\.[0-9])[[:alpha:].][[:alnum:]_.]*"
+roxygen_nominal_type <- paste0("(*UCP)^", roxygen_type_identifier, "(?:::", roxygen_type_identifier, ")?$")
+roxygen_param_spelling <- r"(`(?:\\.|[^`\\])*`|\S+)"
 
-# Scan only potential comment lines before requesting a syntax tree, including
-# when a single string contains a recovered multiline source fragment.
-roxygen_has_type_span <- function(lines) {
-    matches <- grep("(`", lines, fixed = TRUE)
-    length(matches) > 0L && any(grepl(r"((?m)^\h*#'[^\r\n]*\(`)", lines[matches], perl = TRUE))
+# Consider only a description or continuation start. The full parser decides
+# what the marker contains and whether a phrase really describes a class.
+roxygen_type_candidate_pattern <- local({
+    named <- "@(?:param|field|slot|prop)"
+    tag <- paste0("(?:", named, "\\h+(?:", roxygen_param_spelling, ")\\h+|@returns?\\h+)?")
+    marker <- r"(\(`|\\?\[`|\[\\code\{)"
+    class_phrase <- r"((?i:an\h+object)(?:\h+of\b|\h*$))"
+    article <- r"((?i:a|an|the)(?:\h+\[`|\h*$))"
+    # A tag or article can end the physical line before its name or class.
+    lead <- paste(marker, class_phrase, article, sep = "|")
+    paste0("(?m)^\\h*#'\\h*(?:", tag, "(?:", lead, ")|", named, "\\h*$)")
+})
+
+roxygen_type_candidate_rows <- function(lines) {
+    comments <- grep("#'", lines, fixed = TRUE)
+    if (!length(comments)) return(integer())
+    comments[grepl(roxygen_type_candidate_pattern, lines[comments], perl = TRUE)]
 }
+
+roxygen_has_type_span <- function(lines) length(roxygen_type_candidate_rows(lines)) > 0L
 
 # Most source files have neither an inheritance edge nor a donor. Only a
 # standalone roxygen tag with subsequent source can introduce a topic record.
@@ -31,7 +47,6 @@ roxygen_package_topic_file <- function(uri) {
 
 roxygen_topic_tag_pattern <- r"(^\h*#'\h*@(param|inheritParams|name|rdname|describeIn)\b)"
 roxygen_topic_name_pattern <- r"((*UCP)^[[:alnum:]_.-]+$)"
-roxygen_param_spelling <- r"(`(?:\\.|[^`\\])*`|\S+)"
 
 roxygen_param_names <- function(spelling) {
     if (startsWith(spelling, "`")) reference_symbol_names(spelling) else strsplit(spelling, ",", fixed = TRUE)[[1L]]
@@ -94,8 +109,8 @@ roxygen_topic_tags <- function(comments, formals) {
         names = unique(names), rdnames = unique(rdnames), hidden = hidden)
 }
 
-# A type annotation is one parenthesized code span at the start of a roxygen
-# description. Leave all other Markdown and ordinary documentation alone.
+# A type declaration starts the tag's description. Keep the physical spans of
+# each alternative and preserve the distinct evidence required by help links.
 roxygen_type_block <- function(comments, formals = NULL, rows = NULL, columns = NULL, collect_groups = FALSE,
     directives = c("param", "return", "returns"), field = NULL, class_name = NULL) {
     prefix <- attr(regexpr("^#'\\s*", comments, perl = TRUE), "match.length")
@@ -105,8 +120,7 @@ roxygen_type_block <- function(comments, formals = NULL, rows = NULL, columns = 
     params <- group_types <- members <- list()
     returns <- character()
     occurrences <- list()
-    qualified <- paste0("(*UCP)^", roxygen_type_identifier, "(?:::", roxygen_type_identifier, ")?$")
-    pattern <- r"(^@(?|(param|field|slot|prop)\s+(`(?:\\.|[^`\\])*`|\S+)|(returns?)())\s+\(`([^`]+)`\)(?:\s|[.,:]|$))"
+    pattern <- r"(^@(?|(param|field|slot|prop)\s+(`(?:\\.|[^`\\])*`|\S+)|(returns?)())\s+)"
     for (i in seq_along(starts)) {
         section <- seq.int(starts[[i]], ends[[i]])
         tag <- paste(lines[section], collapse = "\n")
@@ -115,12 +129,11 @@ roxygen_type_block <- function(comments, formals = NULL, rows = NULL, columns = 
         if (!length(parts) || !parts[[2L]] %in% directives) next
         tag_name <- parts[[2L]]
         named <- nzchar(parts[[3L]])
-        span <- parts[[4L]]
-        if (!nzchar(trimws(span)) || endsWith(trimws(span), "|")) next
-        terms <- strsplit(span, "|", fixed = TRUE)[[1L]]
-        types <- trimws(terms)
-        unique_types <- unique(types)
-        if (length(unique_types) > max_type_hint_alternatives || !all(grepl(qualified, types, perl = TRUE))) next
+        header <- attr(match[[1L]], "match.length")[[1L]]
+        declared <- roxygen_leading_types(substring(tag, header + 1L))
+        if (is.null(declared)) next
+        types <- declared$types
+        unique_types <- declared$unique
         parameter <- NA_character_
         if (tag_name == "param") {
             parameter <- parts[[3L]]
@@ -138,17 +151,15 @@ roxygen_type_block <- function(comments, formals = NULL, rows = NULL, columns = 
             }
             if (!nzchar(name) || (!is.null(field) && !identical(name, field))) next
             previous <- members[[tag_name]][[name]]
-            members[[tag_name]][[name]] <- if (is.null(previous) || identical(previous, unique_types)) unique_types else character()
+            members[[tag_name]][[name]] <- roxygen_merge_member_types(previous, unique_types)
         } else {
             returns <- unique_types
         }
         if (!is.null(rows)) {
             # Match offsets count code points in the joined description. Map
             # the terminal identifier back to its original comment and column.
-            term_starts <- c(0L, cumsum(nchar(terms) + 1L))[-(length(terms) + 1L)]
             class_names <- sub("^.*::", "", types)
-            offsets <- match[[1L]][[4L]] - 1L + term_starts + nchar(terms) - nchar(trimws(terms, "left")) +
-                nchar(types) - nchar(class_names)
+            offsets <- header + declared$starts
             line_starts <- c(0L, cumsum(nchar(lines[section]) + 1L))
             which_line <- findInterval(offsets, line_starts)
             source <- section[which_line]
@@ -298,7 +309,8 @@ member_roxygen_type_index <- function(content, data, row_offset = 0L, barriers =
     value_source = NULL, uri = NULL, col_offset = 0L, parsed = NULL) {
     inherits <- roxygen_has_inheritance(content)
     plain_topics <- inherits || roxygen_package_topic_file(uri)
-    typed_document <- roxygen_has_type_span(content)
+    candidates <- roxygen_type_candidate_rows(if (is.null(value_source)) content else value_source)
+    typed_document <- length(candidates) > 0L
     # Prose suppresses inherited R6 types on overrides. A parentless class
     # in an untyped file has no such member defaults to mask.
     r6_docs <- (typed_document || inherits || any(grepl("inherit", content, fixed = TRUE))) &&
@@ -331,17 +343,19 @@ member_roxygen_type_index <- function(content, data, row_offset = 0L, barriers =
         keep <- keep & findInterval(line[comments], barriers) == findInterval(line[next_code], barriers)
     }
     groups <- split(comments[keep], next_code[keep])
+    typed_lines <- logical(length(content))
+    typed_lines[candidates] <- TRUE
     result <- locations <- topics <- classes <- list()
     r6_lists <- new.env(parent = emptyenv())
     batches <- if (r6_docs && length(groups) >= 8L) {
-        roxygen_field_batches(data, groups, terminals, text, content, value_source, row_offset, col_offset, r6_lists)
+        roxygen_field_batches(data, groups, terminals, text, content, value_source, row_offset, col_offset, r6_lists, typed_lines)
     }
     if (length(batches$skip)) groups[batches$skip] <- NULL
     rows <- cols <- integer()
     for (key in names(groups)) {
         group <- groups[[key]]
         tagged <- text[group]
-        typed <- any(grepl("(`", tagged, fixed = TRUE))
+        typed <- typed_document && any(typed_lines[line[group]])
         # A title-only primary block can share an Rd page with an explicitly
         # named secondary block, even when it has no @param tags of its own.
         r6_block <- r6_docs && any(grepl("@(field|param)\\b", tagged, perl = TRUE))
@@ -506,6 +520,8 @@ roxygen_damaged_type_blocks <- function(data, comments, row_offset) {
     kind <- data$token[terminals]
     code <- which(kind != "COMMENT")
     groups <- split(comments, findInterval(match(comments, terminals), code) + 1L)
+    typed <- logical(length(data$text))
+    typed[comments[roxygen_type_candidate_rows(data$text[comments])]] <- TRUE
     result <- list()
     code_rows <- terminals[code]
     tokens <- data$text[code_rows]
@@ -514,7 +530,7 @@ roxygen_damaged_type_blocks <- function(data, comments, row_offset) {
     pending <- pending[pending > 1L & tokens[pmax(1L, pending - 1L)] %in% factories]
     for (key in names(groups)) {
         group <- groups[[key]]
-        if (!any(grepl("(`", data$text[group], fixed = TRUE))) next
+        if (!any(typed[group])) next
         j <- as.integer(key)
         while (j <= length(code)) {
             if (kind[code[[j]]] == "'('") {

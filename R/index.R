@@ -1,5 +1,5 @@
-# Topic summaries locate @inheritParams donors across package source files.
-index_cache_version <- 17L
+# Topic summaries include the class links that need verification at the donor.
+index_cache_version <- 18L
 
 #' Recognize a package without recursively searching a workspace
 #' @noRd

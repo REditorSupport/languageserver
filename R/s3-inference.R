@@ -102,7 +102,19 @@ s3_hint_ancestry <- local({
     keys <- vapply(known, `[[`, "", 1L)
     qualified <- paste(sub("::.*", "", names(known)), keys, sep = "::")
     paths <- c(stats::setNames(known, qualified), stats::setNames(known, keys))
-    function(name, package) paths[[if (is.null(package)) name else paste(package, name, sep = "::")]]
+    # Classes returned by foreign constructors (e.g. utils::read.csv)
+    # retain the namespace of the class, such as base::data.frame.
+    first <- !duplicated(keys)
+    owners <- c(stats::setNames(sub("::.*", "", qualified[first]), keys[first]), lm = "stats")
+    function(name, package, visible = NULL) {
+        if (!is.null(visible)) {
+            owner <- unname(owners[name])
+            if (is.na(owner) || !owner %in% visible) return(NULL)
+            if (name == "lm") return("lm")
+            package <- owner
+        }
+        paths[[if (is.null(package)) name else paste(package, name, sep = "::")]]
+    }
 })
 
 s3_inherited_params <- function(hints, context) {
@@ -140,6 +152,7 @@ s3_type_hint <- function(types, context, at = context$at, scope = NULL, source =
         referenced = member_type_dependencies(types))
     budget <- member_request_budget()
     bindings <- list(.__member_position__ = at)
+    class_links <- attr(types, "roxygen_class_links", exact = TRUE)
     values <- if (!is.null(inherited)) {
         budget$hint_wait <- context$hint_wait
         value <- member_inherited_hint_value(inherited, context$workspace, budget, index = index)
@@ -152,7 +165,7 @@ s3_type_hint <- function(types, context, at = context$at, scope = NULL, source =
                 if (!identical(generator$r6_role, "generator")) return(NULL)
                 return(generator$fields$new$result_shape)
             }
-            member_hinted_value(type, index, bindings, budget)
+            member_hinted_value(type, index, bindings, budget, class_links)
         })
     }
     if (isTRUE(budget$exhausted)) context$exhausted <- TRUE

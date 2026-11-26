@@ -1,3 +1,14 @@
+test_that("repeated class and member annotations retain matching explicit evidence", {
+    lines <- c("#' @field item [`Box`]", 'Tray <- R6::R6Class("Tray", public = list(',
+        "  #' @field item [\\code{Box}]", "  item = NULL))",
+        "#' @slot payload (`Box`)", "#' @slot payload [`Box`]",
+        'methods::setClass("Bin", slots = c(payload = "ANY"))')
+    hints <- parse_document("file:///mixed-field-types.R", lines)$member_data$type_hints
+    classes <- unname(attr(hints, "classes", exact = TRUE))
+    expect_identical(classes[[1L]]$hints$field$item, "Box")
+    expect_identical(classes[[2L]]$hints$slot$payload, "Box")
+})
+
 test_that("batched R6 field tags retain the exact declaration and rename coordinates", {
     fields <- function(prefix, type, n) {
         names <- paste0(prefix, seq_len(n))

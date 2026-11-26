@@ -174,6 +174,16 @@ roxygen_class_block <- function(s, target, comments, tags, typed, rows, cols, re
     roxygen_class_record(factory, record, values, documented, fields)
 }
 
+# A field can be documented both on its class and beside its declaration.
+# A matching explicit annotation already vouches for the linked spelling.
+roxygen_merge_member_types <- function(previous, incoming) {
+    if (is.null(previous) || identical(previous, incoming)) return(incoming)
+    if (!identical(as.vector(previous), as.vector(incoming))) return(character())
+    links <- intersect(attr(previous, "roxygen_class_links", exact = TRUE), attr(incoming, "roxygen_class_links", exact = TRUE))
+    attr(incoming, "roxygen_class_links") <- if (length(links)) links
+    incoming
+}
+
 roxygen_class_record <- function(factory, record, values, documented = NULL, fields = NULL) {
     if (!length(values) && !length(documented) && !length(fields)) return(NULL)
     if (is.null(record)) record <- list(factory = factory, hints = list())
@@ -184,9 +194,7 @@ roxygen_class_record <- function(factory, record, values, documented = NULL, fie
             incoming <- values[[tag]]
             current <- record$hints[[tag]]
             for (name in intersect(names(current), names(incoming))) {
-                # Roxygen can emit both a class-level and an inline description.
-                # Conflicting member types cannot prove a receiver.
-                if (!identical(current[[name]], incoming[[name]])) incoming[[name]] <- character()
+                incoming[[name]] <- roxygen_merge_member_types(current[[name]], incoming[[name]])
             }
             current[names(incoming)] <- incoming
             record$hints[[tag]] <- current
@@ -202,7 +210,7 @@ roxygen_class_record <- function(factory, record, values, documented = NULL, fie
 # A sequence of simple @field blocks shares its class declaration and section.
 # Decode those names/locations together; complex spellings still use the full
 # block parser. Batches never cross another documented member or declaration.
-roxygen_field_batches <- function(s, groups, terminals, text, content, source, row_offset, col_offset, lists) {
+roxygen_field_batches <- function(s, groups, terminals, text, content, source, row_offset, col_offset, lists, typed_lines) {
     keys <- names(groups)
     first <- terminals[as.integer(keys)]
     candidates <- which(lengths(groups) == 1L & s$token[first] == "SYMBOL_SUB")
@@ -212,14 +220,18 @@ roxygen_field_batches <- function(s, groups, terminals, text, content, source, r
     indent <- as.integer(regexpr("#'", content[line], fixed = TRUE)) - 1L
     tagged <- if (is.null(source)) text[comments] else substring(source[line], indent + 1L)
     id <- roxygen_type_identifier
+    type <- paste0("(?<type>(?:", id, "::)?(?<class>", id, "))")
+    # Branch-reset captures expose the same type and class columns for all
+    # single-atom spellings. Unions and prose use the full block grammar.
+    marker <- paste0("(?|\\(`", type, "`\\)|\\\\?\\[`", type, "`\\]|\\[\\\\code\\{", type, "\\}\\])")
     pattern <- paste0("(*UCP)^#'\\s*@field\\s+(?<field>", id, ")(?=\\s|$)",
-        "(?:\\s+\\(`(?<type>(?:", id, "::)?(?<class>", id, "))`\\)(?=\\s|[.,:]|$))?")
+        "(?:\\s+", marker, "(?=\\h*$|\\.\\h*$|\\h+(?!(?i:or|and)\\b)[[:alpha:]]))?")
     match <- regexpr(pattern, tagged, perl = TRUE)
     start <- attr(match, "capture.start")
     size <- attr(match, "capture.length")
     field <- substring(tagged, start[, "field"], start[, "field"] + size[, "field"] - 1L)
     typed <- size[, "type"] > 0L
-    use <- which(match > 0L & field == s$text[first[candidates]] & (typed | !grepl("(`", tagged, fixed = TRUE)))
+    use <- which(match > 0L & field == s$text[first[candidates]] & (typed | !typed_lines[line]))
     if (length(use) < 8L) return(NULL)
     section <- s$parent_row[first[candidates[use]]]
     runs <- split(use, cumsum(c(TRUE, diff(candidates[use]) != 1L | diff(section) != 0L)))
@@ -235,7 +247,15 @@ roxygen_field_batches <- function(s, groups, terminals, text, content, source, r
         if (length(typed_rows)) {
             i <- typed_rows
             types <- substring(tagged[i], start[i, "type"], start[i, "type"] + size[i, "type"] - 1L)
-            values <- list(field = stats::setNames(as.list(types), field[i]))
+            values <- as.list(types)
+            # Unescaped Markdown links require class evidence, unlike the
+            # explicit escaped bracket and Rd forms.
+            at <- start[i, "type"]
+            opening <- substring(tagged[i], at - 2L, at - 1L)
+            weak <- (opening == "[`" & substring(tagged[i], at - 3L, at - 3L) != "\\") |
+                (opening != "(`" & types %in% roxygen_bracket_labels)
+            for (pos in which(weak)) attr(values[[pos]], "roxygen_class_links") <- types[[pos]]
+            values <- list(field = stats::setNames(values, field[i]))
             offset <- indent[i] + (line[i] == 1L) * col_offset - 1L
             pos <- start[i, "class"] + offset
             source_row <- line[i] + row_offset - 1L
