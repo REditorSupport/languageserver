@@ -183,6 +183,43 @@ member_s4_descriptor <- function(name, index, bindings, package = NULL, budget =
     member_lookup(index$attached_s4, name)
 }
 
+# .class2() orders S4 superclasses by distance, preserving declaration order
+# at a tie. A diamond keeps the closest occurrence of each superclass.
+member_s4_dispatch_path <- function(name, parents) {
+    if (any(!lengths(parents))) return(NULL)
+    inherited <- sort(unlist(unname(parents), use.names = TRUE) + 1, method = "radix")
+    inherited <- inherited[!duplicated(names(inherited))]
+    if (length(inherited) < 256L) c(stats::setNames(0, name), inherited)
+}
+
+member_s4_runtime_path <- function(record) {
+    name <- attr(record, "className", exact = TRUE)
+    extensions <- attr(record, "contains", exact = TRUE)
+    if (length(name) != 1L || !is.list(extensions) || length(extensions) > 256L) return(NULL)
+    # methods::extends(maybe = FALSE) tests the *body* of each extension
+    # predicate for literal TRUE. Never invoke a user-supplied predicate.
+    distances <- vapply(extensions, function(x) {
+        test <- attr(x, "test", exact = TRUE)
+        distance <- attr(x, "distance", exact = TRUE)
+        if (typeof(test) != "closure" || !is.numeric(distance) || length(distance) != 1L || !is.finite(distance)) return(NA_real_)
+        if (isTRUE(body(test))) distance else Inf
+    }, numeric(1L))
+    if (anyNA(distances) || (length(distances) && (is.null(names(distances)) || anyNA(names(distances)) ||
+                    any(!nzchar(names(distances)))))) return(NULL)
+    c(stats::setNames(0, as.character(name)), distances[is.finite(distances)])
+}
+
+member_s4_builtin_path <- local({
+    cache <- new.env(parent = emptyenv())
+    function(name) {
+        if (!exists(name, cache, inherits = FALSE)) {
+            record <- methods::getClassDef(name, where = asNamespace("methods"), inherits = FALSE)
+            cache[[name]] <- member_s4_runtime_path(record)
+        }
+        cache[[name]]
+    }
+})
+
 member_s4_shape <- function(name, index, bindings, package = NULL, trail = character(), budget = NULL) {
     if (!is.null(budget)) {
         budget$remaining <- budget$remaining - 1L
@@ -206,6 +243,8 @@ member_s4_shape <- function(name, index, bindings, package = NULL, trail = chara
         })))
     }
     slots <- defaults <- origins <- list()
+    collect_path <- length(budget$resolving_hints) > 0L
+    if (collect_path) paths <- stats::setNames(vector("list", length(descriptor$contains)), descriptor$contains)
     s7_parent <- NULL
     if (!is.null(descriptor$bridge)) {
         bridge <- descriptor$bridge
@@ -223,14 +262,17 @@ member_s4_shape <- function(name, index, bindings, package = NULL, trail = chara
         if (parent %in% c("numeric", "integer", "double", "logical", "character", "complex", "raw", "list", "expression",
                 "function", "language", "matrix", "array")) {
             slots[".Data"] <- list(parent)
+            if (collect_path) paths[parent] <- list(member_s4_builtin_path(parent))
             next
         }
         if (parent %in% c("environment", "externalptr")) {
             slots[".xData"] <- list(parent)
+            if (collect_path) paths[parent] <- list(member_s4_builtin_path(paste0(".", parent)))
             next
         }
         inherited <- member_s4_shape(parent, index, bindings, package, trail, budget)
         if (is.null(inherited$slot_types)) return(member_value(reason = "unknown_s4_parent"))
+        if (collect_path) paths[parent] <- list(inherited$s4_class$dispatch_path)
         bridge <- inherited$s4_class$s7_parent
         if (!is.null(bridge)) {
             s7_parent <- if (is.null(s7_parent) || identical(s7_parent, bridge)) bridge else FALSE
@@ -250,6 +292,13 @@ member_s4_shape <- function(name, index, bindings, package = NULL, trail = chara
     }
     owner <- if (is.null(descriptor$package)) package else descriptor$package
     result <- member_value(type = name, s4_class = list(name = name, package = owner), slot_types = slots, slots = defaults)
+    if (collect_path) {
+        result$s4_class$dispatch_path <- if (!is.null(descriptor$dispatch_path)) {
+            descriptor$dispatch_path
+        } else if ((!is.null(descriptor$defaults) || length(descriptor$contains)) && is.null(descriptor$bridge)) {
+            member_s4_dispatch_path(name, paths)
+        }
+    }
     result$s4_class$origin <- descriptor$class_origin
     result$s4_class$s7_parent <- s7_parent
     if (length(origins)) result$slot_origins <- origins
@@ -316,7 +365,7 @@ member_s4_construct <- function(class, actuals, index, bindings, budget = NULL) 
     value
 }
 
-member_s4_runtime_descriptor <- function(value) {
+member_s4_runtime_descriptor <- function(value, dispatch = FALSE) {
     name <- attr(value, "className", exact = TRUE)
     slots <- attr(value, "slots", exact = TRUE)
     if (!is.character(name) || length(name) != 1L || !is.list(slots) || length(slots) > 256L) return(NULL)
@@ -332,8 +381,12 @@ member_s4_runtime_descriptor <- function(value) {
     })
     # Installed descriptors already include inherited slots. Their prototypes
     # and initialization methods are not read or invoked to guess slot values.
-    list(name = as.character(name), package = attr(name, "package", exact = TRUE), slots = slots, contains = character(),
+    descriptor <- list(name = as.character(name), package = attr(name, "package", exact = TRUE), slots = slots, contains = character(),
         virtual = isTRUE(attr(value, "virtual", exact = TRUE)), complete = TRUE)
+    # Keep ancestry once in the defining namespace's class catalog. An
+    # instance snapshot or slot dependency needs only the structural record.
+    if (dispatch) descriptor$dispatch_path <- member_s4_runtime_path(value)
+    descriptor
 }
 
 # Static instances store ordinary slots as attributes. Read their already
@@ -457,6 +510,10 @@ member_s4_call <- function(expr, index, bindings, budget) {
         name <- if (!is.null(args$name)) args$name else if (length(args) >= 2L) args[[2L]]
         if (!is.character(name) || length(name) != 1L) return(member_value())
         value <- member_infer(args$object, index, bindings, budget = budget)
+        if (identical(value$reason, "type_hint_union")) {
+            return(member_possible_result(lapply(value$possible_returns, member_s4_slot, name = name,
+                        index = index, bindings = bindings, budget = budget), closed = TRUE))
+        }
         return(member_s4_slot(value, name, index, bindings, budget))
     }
     if (method != "new") return(NULL)

@@ -88,3 +88,11 @@ Settings <- R6::R6Class("Settings",
 # note that this object should not be used in sessions created by callr because
 # settings may be updated from the lsp configuration
 lsp_settings <- Settings$new()
+
+roxygen_type_hints_enabled <- function() isTRUE(lsp_settings$get("roxygen_type_hints"))
+
+# Read the setting in the server process so a change applies to accepted parses.
+roxygen_inference_hints <- function(node) {
+    hints <- attr(node, "member_type_hints", exact = TRUE)
+    if (!is.null(hints) && roxygen_type_hints_enabled()) hints
+}

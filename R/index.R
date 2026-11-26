@@ -1,5 +1,6 @@
-# Older summaries omit literal string targets and inner assignment-chain names.
-index_cache_version <- 13L
+# Rebuild summaries so functions documented across blank lines and comments
+# contribute their type hints to package and S3 lookups.
+index_cache_version <- 19L
 
 #' Recognize a package without recursively searching a workspace
 #' @noRd
@@ -336,6 +337,8 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
         } else if (any(tabbed) || any(startsWith(text, "#line"))) {
             expressions <- index_physical_srcrefs(expressions, srcfile, text, tabbed)
         }
+        hints <- member_roxygen_type_index(text, utils::getParseData(expressions))
+        expressions <- member_attach_type_hints(expressions, hints)
     }
     definitions <- list()
     functions <- list()
@@ -429,6 +432,7 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
         size = as.numeric(size),
         mtime = as.numeric(mtime),
         content_hash = get_content_hash(content),
+        has_type_hints = if (is.null(parse_data)) length(hints) > 0L else isTRUE(parse_data$member_data$has_type_hints),
         reference_tags = if (parse_error) FALSE else if (!is.null(parse_data)) {
             parse_data$reference_tags
         } else {
@@ -509,6 +513,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
         package_memberships = NULL,
         definition_counts = NULL,
         package_definition_counts = NULL,
+        hinted_packages = NULL,
         s4_sources = NULL,
         helper_readers = list(),
         helper_attempts = list(),
@@ -524,6 +529,10 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             }
         },
         update_package_definitions = function(previous, current) {
+            if (isTRUE(previous$has_type_hints) || isTRUE(current$has_type_hints)) {
+                private$update_definition_names(if (isTRUE(previous$has_type_hints)) previous$package_root,
+                    if (isTRUE(current$has_type_hints)) current$package_root, private$hinted_packages)
+            }
             for (root in unique(Filter(Negate(is.null), list(previous$package_root, current$package_root)))) {
                 if (!private$package_definition_counts$has(root)) {
                     private$package_definition_counts$set(root, collections::dict())
@@ -776,6 +785,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             private$package_memberships <- collections::dict()
             private$definition_counts <- collections::dict()
             private$package_definition_counts <- collections::dict()
+            private$hinted_packages <- collections::dict()
             private$s4_sources <- collections::dict()
             private$activated_packages <- collections::dict()
             private$discovery_seen <- collections::dict()
@@ -1698,6 +1708,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                 empty$sources <- empty$source_candidates <- character()
                 empty$definitions <- empty$functions <- empty$class_declarations <- empty$s4_declarations <- list()
                 empty$parse_error <- FALSE
+                empty$has_type_hints <- FALSE
                 empty$package_root <- NULL
                 self$set_summary(empty)
                 self$summaries$remove(uri)
@@ -1807,6 +1818,12 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
         },
 
         s4_declaration_uris = function(name) private$s4_sources$get(name, character()),
+
+        package_has_type_hints = function(uri) {
+            if (!private$hinted_packages$size()) return(FALSE)
+            root <- self$package_root_for_uri(uri)
+            !is.null(root) && private$hinted_packages$has(root)
+        },
 
         has_definition = function(name, uri = NULL) {
             if (!private$definition_counts$has(name)) return(FALSE)

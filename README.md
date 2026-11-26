@@ -272,6 +272,53 @@ matching files and directories from the workspace root and the script's
 directory. Document links also recognize static paths assembled with
 `file.path()`.
 
+### Documenting argument and return types
+
+Start a roxygen `@param` description with a class name in backticks and
+parentheses to identify the argument's type inside the function. Use `@return`
+or `@returns` to identify the type of a call result. A union uses `|` inside
+one pair of backticks. These comments work in scripts and package sources.
+
+```r
+Book <- R6::R6Class("Book", public = list(title = "Field guide", pages = 80L))
+Film <- R6::R6Class("Film", public = list(title = "The garden", minutes = 12L))
+
+#' @param item (`Book | Film`) Item to display.
+item_title <- function(item) item$title
+
+#' @return (`Book`) The book stored in the serialized bytes.
+decode_book <- function(bytes) unserialize(bytes)
+
+item_title(Film$new())                          # "The garden"
+bytes <- serialize(Book$new(), NULL)
+decode_book(bytes)$pages                        # 80L
+```
+
+Inside `item_title()`, typing `item$` offers `title` because both classes declare
+it. After `decode_book(bytes)$`, completion also offers `pages`. The server can
+resolve these members without executing `unserialize()`. When the body itself
+reveals a more specific result, such as a list with known fields, the providers
+keep that information. A later assignment updates the inferred type.
+
+An ordinary comment or blank line between a roxygen block and the function
+keeps the annotation associated with that function.
+
+Hints also guide S3 dispatch. Inside `year_text()` below, signature help on
+`format(day, ...)` uses `format.Date`.
+
+```r
+#' @param day (`Date`) A calendar day.
+year_text <- function(day) format(day, "%Y")
+year_text(as.Date("2000-01-01"))  # "2000"
+```
+
+An R6 generator name denotes its public instances, including inherited methods.
+Use `package::Class` to identify the owner of a package class. A union accepts
+up to 32 alternatives. Member completion uses their shared names, and signature
+help and Go to Definition require an unambiguous target. S3 dispatch selects a
+method when all alternatives agree. Go to Type Definition can open each source
+class in the union.
+
 Parameter hints use the resolved signature of member calls. For example, if
 `draw` is declared as `function(width, height)`, `canvas$draw(40, 20)` can
 show `width =` and `height =` inline. R6 active bindings, S4 slots and S7
@@ -289,31 +336,6 @@ is not synchronized across aliases or the saved receivers for `private` and
 `super` methods. For example, after `alias <- self; self$data <- list(new = 1)`,
 completion on `alias$data$` may still use the earlier `data` value. The same
 can occur when a private or superclass method returns `self$data`.
-
-### Documenting a receiver type
-
-Start a roxygen `@param`, `@return`, or `@returns` description with an
-instance's class name in backticks and parentheses. The server uses this
-hint for member completion when the value cannot be inferred from the code.
-
-```r
-Box <- R6::R6Class("Box", public = list(contents = "hello"))
-
-#' @param box (`Box`) The box to inspect.
-inspect <- function(box) box$contents
-
-#' @return (`Box`) A restored box.
-restore <- function(bytes) unserialize(bytes)
-
-bytes <- serialize(Box$new(), NULL)
-inspect(restore(bytes))  # "hello"
-```
-
-Completion after `box$` inside `inspect()` and after `restore(bytes)$` offers
-`contents`. Package classes can be qualified, for example
-``#' @param data (`polars::polars_data_frame`) Input rows.``
-To disable type hints, set `r.lsp.roxygen_type_hints` to `false` or add
-`options(languageserver.roxygen_type_hints = FALSE)` to `.Rprofile`.
 
 ## S3 method information
 
@@ -433,9 +455,9 @@ settings | default | description
 `r.lsp.snippet_support` | `true` | enable snippets in auto completion
 `r.lsp.completion_label_details` | `false` | show inline function signatures and value/type tips for members and ordinary symbols when supported by the editor; selected-item details remain available
 `r.lsp.max_completions` | 200 | maximum number of completion items
+`r.lsp.roxygen_type_hints` | `true` | use documented types alongside ordinary code and class inference
 `r.lsp.s3_dispatch` | `true` | use static S3 dispatch for argument completion, hover and signature help, independently of member completion
 `r.lsp.member_completion` | `true` | use static analysis for `$` member and S4 `@` slot completion, named arguments, signature help, hover and go-to-definition when a source location is available
-`r.lsp.roxygen_type_hints` | `true` | use explicit roxygen parameter and return class hints for member completion
 `r.lsp.lint_cache` | `false` | toggle caching of lint results
 `r.lsp.parse_delay` | `0.15` | seconds to debounce parsing after an edit
 `r.lsp.diagnostics_delay` | `0.75` | seconds to debounce diagnostics after the current parse

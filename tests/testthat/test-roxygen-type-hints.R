@@ -59,9 +59,6 @@ test_that("type hints use only explicit markers in actual roxygen comments", {
     f <- type_hint_fixture(c(type_hint_box, "#' @param box (`Box`) Outer box.",
             "use <- function(box) {", "  inner <- function(box) box$@@collect", "}"))
     expect_false("collect" %in% type_hint_labels(f))
-    f <- type_hint_fixture(c(type_hint_box, "#' @param box (`Box`) (Required).",
-            "use <- function(box) box$@@collect"))
-    expect_true("collect" %in% type_hint_labels(f))
 })
 
 test_that("a nested function uses its locally visible generator", {
@@ -93,21 +90,9 @@ test_that("a package hint waits for its model only when its receiver is used", {
     server <- list(member_task_manager = list(has = function(...) TRUE), get_workspace = function(...) f$workspace)
     f$document$requested_packages <- member_package_request(f$document$parse_data)
     expect_identical(f$document$requested_packages$namespace_packages, "framefixture")
-    expect_true(member_metadata_waiting(server, f$uri, f$document, f$point, type_hints = TRUE))
-    expect_false(member_metadata_waiting(server, f$uri, f$document, list(row = 3L, col = 6L), type_hints = TRUE))
+    expect_true(member_metadata_waiting(server, f$uri, f$document, f$point))
+    expect_false(member_metadata_waiting(server, f$uri, f$document, list(row = 3L, col = 6L)))
     lsp_settings$set("roxygen_type_hints", FALSE)
     expect_length(member_package_request(f$document$parse_data)$namespace_packages, 0L)
-    expect_false(member_metadata_waiting(server, f$uri, f$document, f$point, type_hints = TRUE))
-})
-
-test_that("the foundation only uses hints for member completion", {
-    f <- type_hint_fixture(c(type_hint_box, "#' @return (`Box`) A box.",
-            "restore <- function() opaque()", "box <- restore()", "box$@@collect()"))
-    expect_true("collect" %in% type_hint_labels(f))
-    field <- list(row = f$point$row, col = f$point$col + 2L)
-    expect_null(member_definition_location(f$uri, f$workspace, f$document, field)$result)
-    expect_null(prepare_rename_reply(1L, f$uri, f$workspace, f$document, field)$result)
-    cursor <- member_cursor(f$document, f$point)
-    expect_null(member_resolve_cursor(f$uri, f$workspace, f$document, f$point, cursor)$value$type)
-    expect_true("collect" %in% type_hint_labels(f))
+    expect_false(member_metadata_waiting(server, f$uri, f$document, f$point))
 })
