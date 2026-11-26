@@ -91,12 +91,15 @@ test_that("filtered and limited union completion only inspects returned slots wi
 })
 
 test_that("a member request waits for the attached package of a documented receiver", {
-    f <- provider_fixture(c("library(polars)", "#' @param data (`polars_data_frame`)",
-            "f <- function(data) data$group_by()", "outside <- list(ready = TRUE)", "outside$ready"))
+    f <- provider_fixture(c("library(callr)", "#' @param session (`r_session`)",
+            "f <- function(session) session$is_alive()", "outside <- list(ready = TRUE)", "outside$ready"))
     f$document$requested_packages <- member_package_request(f$document$parse_data)
     server <- list(member_task_manager = list(has = function(uri) TRUE), get_workspace = function(uri) f$workspace)
-    expect_true(member_metadata_waiting(server, f$uri, f$document, list(row = 2L, col = 25L)))
+    point <- list(row = 2L, col = nchar("f <- function(session) session$"))
+    expect_true(member_metadata_waiting(server, f$uri, f$document, point))
     expect_false(member_metadata_waiting(server, f$uri, f$document, list(row = 4L, col = 8L)))
+    f$workspace$member_metadata <- list(catalog = function(package) if (package == "callr") list(dataset_only = FALSE))
+    expect_false(member_metadata_waiting(server, f$uri, f$document, point))
 })
 
 test_that("formal hints use reference-class, S4 and S7 instance declarations", {
