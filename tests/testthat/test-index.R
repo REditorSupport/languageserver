@@ -91,6 +91,18 @@ test_that("member, S3 and shallow indexes distinguish right assignment from a qu
     expect_equal(shallow$definitions$target$range$start$line, 1L)
 })
 
+test_that("formal caller screening inspects computed heads, defaults and quoted tags", {
+    code <- c("f <- function(x = obj$make(in_default = 1)) {",
+        "  obj$choose(in_head = 1)(in_call = 2)",
+        '  pkg::work("a\\u006cl" = 3)',
+        "  direct(other = 4)", "}")
+    expect_setequal(index_reference_tags(parse(text = code, keep.source = FALSE)),
+        c("in_default", "in_head", "in_call", "all"))
+    expect_identical(index_reference_tags(expression(direct(other = 4))), character())
+    expect_false(index_reference_tags(expression(f <- function(x = glue_data(df, "{x}")) x)))
+    expect_false(index_reference_tags(expression(stringr::str_glue("{x}"))))
+})
+
 test_that("shallow collectors preserve declaration order and last replacement", {
     root <- withr::local_tempdir()
     path <- file.path(root, "collectors.R")

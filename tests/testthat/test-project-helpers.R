@@ -103,7 +103,7 @@ test_that("a lazy definition request reads only eligible helpers and reuses thei
     caller <- path_to_uri(file.path(root, "query.R"))
     helper <- file.path(root, "helper.R")
     dir.create(file.path(root, "ignored"))
-    writeLines("from_helper <- function() 1", helper)
+    writeLines(c("from_helper <- function() 1", "v <- 10L"), helper)
     writeLines("from_helper <- function() 2", file.path(root, "ignored", "helper.R"))
     writeLines(rep("from_helper <- function() 3", 100L), file.path(root, "large.R"))
     writeLines("from_helper <- function() 4", file.path(root, "a-unrelated.R"))
@@ -115,7 +115,9 @@ test_that("a lazy definition request reads only eligible helpers and reuses thei
     for (name in names(settings)) lsp_settings$set(name, settings[[name]])
 
     workspace <- Workspace$new(root)
-    document <- Document$new(caller, "r", 1L, c("local_fn <- function() 1", "local_fn()", "from_helper()"))
+    document <- Document$new(caller, "r", 1L, c("local_fn <- function() 1", "local_fn()", "from_helper()",
+            "df <- data.frame(v = 1L)", "dplyr::filter(df, v > .env$v)", "dplyr::filter(unknown, v > 0)",
+            "v", "f <- function(v) dplyr::filter(df, .env$v)"))
     document$did_open()
     workspace$documents$set(caller, document)
     parsed <- parse_document(caller, document$content)
@@ -123,8 +125,8 @@ test_that("a lazy definition request reads only eligible helpers and reuses thei
     workspace$update_parse_data(caller, parsed)
     server <- list(workspaces = collections::dict(), get_workspace = function(uri) workspace, deliver = identity)
     server$workspaces$set(DEFAULT_WORKSPACE, workspace)
-    lookup <- function(line) {
-        params <- list(textDocument = list(uri = caller), position = position(line, 1L))
+    lookup <- function(line, col = 1L) {
+        params <- list(textDocument = list(uri = caller), position = position(line, col))
         text_document_definition(server, 1L, params)$result
     }
     original_read <- read_text_lines
@@ -135,7 +137,18 @@ test_that("a lazy definition request reads only eligible helpers and reuses thei
     }, .package = "languageserver")
 
     expect_equal(lookup(1L)$uri, caller)
+    column <- lookup(4L, 18L)
+    expect_equal(column$uri, caller)
+    expect_equal(column$range, range(position(3L, 17L), position(3L, 18L)))
+    expect_null(lookup(5L, 23L))
+    local <- lookup(7L, 40L)
+    expect_equal(local$uri, caller)
+    expect_equal(local$range, range(position(7L, 14L), position(7L, 15L)))
     expect_length(reads, 0L)
+    from_env <- lookup(4L, 27L)
+    expect_equal(from_env$uri, path_to_uri(helper))
+    expect_equal(from_env$range$start, position(1L, 0L))
+    expect_equal(lookup(6L, 0L), from_env)
     expect_equal(lookup(2L)$uri, path_to_uri(helper))
     expect_equal(lookup(2L)$uri, path_to_uri(helper))
     expect_equal(path_to_uri(reads), path_to_uri(helper))

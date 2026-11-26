@@ -62,8 +62,7 @@ syntax_unit_columns <- function(content, lines, start, end, non_ascii = NULL) {
 
 #' Index local declaration histories without changing legacy navigation scope
 #' @noRd
-navigation_parse_data <- function(syntax) {
-    records <- .Call("navigation_index_c", syntax, PACKAGE = "languageserver")
+navigation_parse_data <- function(syntax, records = .Call("navigation_index_c", syntax, PACKAGE = "languageserver")) {
     make_groups <- function(rows, names) {
         list2env(split(rows, names), hash = TRUE, parent = emptyenv())
     }
@@ -75,6 +74,17 @@ navigation_parse_data <- function(syntax) {
         as.numeric(utils::object.size(as.list(groups)))
     }, numeric(1L)))
     records
+}
+
+navigation_exclude_masked <- function(syntax, records, masked) {
+    keep <- !records$name %in% masked
+    scopes <- !records$scope_name %in% masked
+    if (all(keep) && all(scopes)) return(records)
+    assignments <- c("node", "name", "value", "function")
+    records[assignments] <- lapply(records[assignments], "[", keep)
+    scoped <- c("scope", "scope_name", "scope_hover")
+    records[scoped] <- lapply(records[scoped], "[", scopes)
+    navigation_parse_data(syntax, records)
 }
 
 #' Find a token using the shared terminal interval index

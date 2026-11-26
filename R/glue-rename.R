@@ -53,6 +53,7 @@ glue_rename_problem <- function(workspace, doc, name, key, new_name = NULL, loca
         if (!identical(site$key, key)) next
         if (!isTRUE(site$target$writable)) return(ambiguous)
         if (is.null(new_name) || identical(new_name, name)) next
+        if (new_name %in% site$masked_functions) return("The new name could call a different function in a data mask")
         if (!is.null(site$fragment) && grepl("^\\.\\.(\\.|[0-9]+)$", new_name)) {
             return("The new name has special argument lookup inside a glue expression")
         }

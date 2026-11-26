@@ -70,6 +70,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"source_calls_c", (DL_FUNC) &source_calls_c, 1},
     {"member_assignment_calls_c", (DL_FUNC) &member_assignment_calls_c, 1},
     {"member_accessor_registrations_c", (DL_FUNC) &member_accessor_registrations_c, 1},
+    {"index_indirect_call_tags_c", (DL_FUNC) &index_indirect_call_tags_c, 3},
     {"top_level_statements_c", (DL_FUNC) &top_level_statements_c, 2},
     {"syntax_xml_c", (DL_FUNC) &syntax_xml_c, 1},
     {"syntax_index_c", (DL_FUNC) &syntax_index_c, 2},

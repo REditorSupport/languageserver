@@ -27,7 +27,9 @@ document_highlight_reply <- function(id, uri, workspace, document, point) {
         }
     }
 
-    member <- member_navigation_at(workspace, document, point)
+    mask <- data_mask_site(document$parse_data, point)
+    if (!is.null(mask) && !mask$env) return(Response$new(id))
+    member <- if (is.null(mask)) member_navigation_at(workspace, document, point)
     if (!is.null(member)) {
         if (!is.null(member$definition) && member$formal) {
             matches <- member_navigation_references(id, workspace, document, member, TRUE, FALSE)$result
@@ -49,7 +51,7 @@ document_highlight_reply <- function(id, uri, workspace, document, point) {
     result <- NULL
     parse_data <- workspace$get_parse_data(uri)
     index <- parse_data$reference_index
-    detected <- reference_token_at(document, parse_data, point)
+    detected <- reference_token_at(document, parse_data, point, mask)
     if (!is.null(index) && nzchar(detected$token)) {
         token_point <- list(
             row = detected$range$start$row,

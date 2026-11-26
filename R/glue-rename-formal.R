@@ -15,8 +15,8 @@ glue_rename_tagged_calls <- function(document, fact, old, new) {
     data <- glue_fragment_document(document, fact$fragment)$parse_data
     s <- data$syntax_data
     results <- lapply(unique(s$parent_row[s$token == "EQ_SUB"]), function(row) {
-        call <- syntax_call_arguments(s, row)
-        if (is.null(call) || !is.null(call$package) || glue_inner_callee_shadowed(s, data$reference_index, row, call$name)) return(NULL)
+        call <- glue_tagged_call(s, data$reference_index, data$data_mask, row)
+        if (is.null(call) || !is.null(call$package) || length(call$inner_callee)) return(NULL)
         matched <- syntax_pipe_arguments(s, row, call)
         # Only SYMBOL_SUB labels participate in the exact-tag edit set.
         labeled <- which(call$tags > 0L)
@@ -75,17 +75,17 @@ glue_rename_formal_problem <- function(workspace, document, formal, old, new) {
     for (i in seq_along(facts)) {
         fact <- facts[[i]]
         for (call in glue_rename_tagged_calls(document, fact, old, new)) {
-            if (!is.null(call$package) || call$name %in% mutations[[call_rows[[i]]]]) next
+            if (!is.null(call$package) || identical(call$mask_fallback, FALSE) || call$name %in% mutations[[call_rows[[i]]]]) next
             supplied <- names(call$values)
             tags <- supplied[nzchar(supplied)]
             relevant <- startsWith(rep.int(old, length(tags)), tags) | startsWith(rep.int(new, length(tags)), tags)
             if (!any(relevant)) next
-            target <- glue_formal_target(workspace, document, fact$fragment, list(name = old, call = call))
+            target <- glue_formal_target(workspace, document, fact$fragment, list(name = old, call = call), allow_fallback = TRUE)
             known <- identical(target$uri, formal$uri) && equal_range(target$range, formal$range)
             if (!known && (!is.null(target$range) || !glue_rename_possible_callee(workspace, document, fact$fragment,
                         call$name, formal$uri, syntax$parent_row[[declaration]]))) next
             before <- member_navigation_tag_positions(supplied, parameters)
-            if (known) supplied[supplied == old & call$tags > 0L] <- new
+            if (known && !isTRUE(call$mask_fallback)) supplied[supplied == old & call$tags > 0L] <- new
             after <- member_navigation_tag_positions(supplied, renamed)
             if (is.null(before) || !identical(before, after)) {
                 return("Renaming would change argument matching inside a glue expression")

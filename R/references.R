@@ -14,17 +14,34 @@ reference_symbol_names <- function(names) {
     names
 }
 
-#' Preserve the complete range and name of a backtick-quoted identifier
+#' Look up a masked occurrence at the editor cursor
 #' @noRd
-reference_token_at <- function(document, parse_data, point) {
+data_mask_site <- function(parsed, point) {
+    mask <- parsed$data_mask
+    if (!length(mask$column) && !length(mask$env)) return(NULL)
+    row <- member_navigation_token(parsed, point)
+    if (row %in% mask$env) return(list(row = row, env = TRUE))
+    receiver <- data_mask_receiver(mask, row)
+    if (!is.null(receiver)) list(row = row, env = FALSE, receiver = receiver)
+}
+
+#' Preserve the complete range and name of a backtick or .env identifier
+#' @noRd
+reference_token_at <- function(document, parse_data, point, mask_site = data_mask_site(parse_data, point)) {
     detected <- document$detect_token(point)
     syntax <- parse_data$syntax_data
     if (!is.null(syntax)) {
-        row <- navigation_token(parse_data, point$row + 1L, point$col + 1L)
+        env <- isTRUE(mask_site$env)
+        row <- if (env) mask_site$row else navigation_token(parse_data, point$row + 1L, point$col + 1L,
+            prefer_start = c("SYMBOL", "SYMBOL_FUNCTION_CALL", "SYMBOL_FORMALS"))
         if (!row || !syntax$token[[row]] %in%
                 c("SYMBOL", "SYMBOL_FUNCTION_CALL", "SYMBOL_FORMALS")) return(detected)
         text <- syntax$text[[row]]
-        if (!startsWith(text, "`")) return(detected)
+        if (!env && !startsWith(text, "`")) return(detected)
+        if (env) {
+            detected$accessor <- ""
+            detected$package <- NULL
+        }
         first <- list(row = syntax$line1[[row]] - 1L, col = syntax$col1[[row]] - 1L)
         last <- list(row = syntax$line2[[row]] - 1L, col = syntax$col2[[row]])
     } else {
@@ -79,7 +96,7 @@ reference_call_tokens <- function(data, syntax = NULL) {
 #' resolution for every occurrence in an interactive request.
 #' @noRd
 reference_parse_data <- function(data, content, completion_data, uri,
-    global_definitions, syntax = NULL) {
+    global_definitions, syntax = NULL, mask = NULL) {
     empty <- list(
         name = character(),
         token = character(),
@@ -107,6 +124,8 @@ reference_parse_data <- function(data, content, completion_data, uri,
     # own expression. Syntax preserves this relationship across whitespace
     # and line breaks.
     member <- data$parent[rows] %in% data$parent[data$token == "'$'"]
+    if (length(mask$env)) member <- member & !rows %in% mask$env
+    if (length(mask$column)) member <- member | rows %in% mask$column
     rows <- rows[!member]
     if (!length(rows)) return(empty)
 
@@ -497,7 +516,7 @@ indexed_reference_locations <- function(index, uri, selected) {
 
 #' @noRd
 references_reply <- function(id, uri, workspace, document, point,
-    include_declaration = TRUE, for_rename = FALSE, new_name = NULL, glue_site = TRUE) {
+    include_declaration = TRUE, for_rename = FALSE, new_name = NULL, glue_site = TRUE, formal_uris = NULL) {
 
     if (!check_r_region(document, point)) {
         return(Response$new(id, result = list()))
@@ -508,7 +527,12 @@ references_reply <- function(id, uri, workspace, document, point,
         if (!is.null(embedded)) return(Response$new(id, result = glue_site_locations(workspace, document,
                     embedded, include_declaration)))
     }
-    member <- member_navigation_at(workspace, document, point)
+    mask <- data_mask_site(document$parse_data, point)
+    if (!is.null(mask) && !mask$env) {
+        if (for_rename) return(data_column_rename_error(id))
+        return(Response$new(id, result = list()))
+    }
+    member <- if (is.null(mask)) member_navigation_at(workspace, document, point)
     if (!is.null(member)) {
         reply <- member_navigation_references(id, workspace, document, member, include_declaration, for_rename, new_name)
         if (!for_rename && !isTRUE(member$formal) && length(member$definition$range)) {
@@ -526,11 +550,11 @@ references_reply <- function(id, uri, workspace, document, point,
         return(Response$new(id, result = s4_reference_locations(workspace, s4, include_declaration)))
     }
     parse_data <- workspace$get_parse_data(uri)
-    token <- reference_token_at(document, parse_data, point)
+    token <- reference_token_at(document, parse_data, point, mask)
     if (!nzchar(token$token) || !check_scope(uri, document, point)) {
         return(Response$new(id, result = list()))
     }
-    defn <- symbol_definition_reply(NULL, uri, workspace, document, point)
+    defn <- symbol_definition_reply(NULL, uri, workspace, document, point, mask = mask)
     if (for_rename && !member_navigation_writable(workspace, defn$result)) {
         return(Response$new(id, result = list()))
     }
@@ -663,7 +687,7 @@ references_reply <- function(id, uri, workspace, document, point,
                 }
                 scope <- reference_formal_call_scope(parse_data, document, formal)
                 uris <- if (identical(scope, "workspace")) {
-                    member_navigation_uris(workspace, formal, uri)
+                    if (is.null(formal_uris)) member_navigation_uris(workspace, formal, uri) else formal_uris
                 } else if (identical(scope, "document")) {
                     uri
                 } else {
@@ -682,6 +706,10 @@ references_reply <- function(id, uri, workspace, document, point,
                 }
                 if (for_rename) for (doc_uri in union(uris, uri)) {
                     doc <- workspace$documents$get(doc_uri, NULL)
+                    if (length(doc$parse_data$data_mask$column) &&
+                            member_masked_formal_conflict(doc, document, formal, token$token, new_name)) {
+                        return(ResponseErrorMessage$new(id, "RequestFailed", "A named argument in a data mask may refer to this parameter"))
+                    }
                     problem <- glue_rename_formal_problem(workspace, doc, formal, token$token, new_name)
                     if (!is.null(problem)) return(ResponseErrorMessage$new(id, "RequestFailed", problem))
                 }
@@ -702,18 +730,19 @@ references_reply <- function(id, uri, workspace, document, point,
         if (for_rename) {
             for (doc_uri in doc_uris) {
                 doc <- workspace$documents$get(doc_uri, NULL)
-                problem <- rename_lexical_document_error(id, doc, uri, token, NULL)
+                problem <- rename_lexical_document_error(id, doc, uri, token, NULL, new_name)
                 if (!is.null(problem)) return(problem)
             }
         }
         doc_results <- lapply(doc_uris, function(doc_uri) {
             doc <- workspace$documents$get(doc_uri)
-            xdoc <- parse_data_xml(workspace$get_parse_data(doc_uri))
+            parsed <- workspace$get_parse_data(doc_uri)
+            xdoc <- parse_data_xml(parsed)
             if (is.null(xdoc)) {
                 return(list())
             }
 
-            symbols <- xml_find_all_(xdoc, "//SYMBOL[not(preceding-sibling::OP-DOLLAR)] | //SYMBOL_FUNCTION_CALL[not(preceding-sibling::OP-DOLLAR)] | //SYMBOL_FORMALS")
+            symbols <- xml_find_all_(xdoc, "//SYMBOL | //SYMBOL_FUNCTION_CALL | //SYMBOL_FORMALS")
             symbols <- symbols[reference_symbol_names(xml_text(symbols)) == token$token]
             if (length(symbols) == 0) {
                 return(list())
@@ -735,9 +764,11 @@ references_reply <- function(id, uri, workspace, document, point,
                     if (is_declaration) next
                 }
                 symbol_point <- list(row = line1[[i]] - 1, col = col1[[i]])
+                mask <- data_mask_site(parsed, symbol_point)
+                if (!isTRUE(mask$env) && xml_find_lgl_(symbols[[i]], "boolean(preceding-sibling::OP-DOLLAR)")) next
                 symbol_defn <- symbol_definition_reply(
                     NULL, doc_uri, workspace, doc, symbol_point,
-                    context_uri = uri)
+                    context_uri = uri, mask = mask)
                 if (identical(symbol_defn$result, defn$result) &&
                         is.null(s4_reference_target(workspace, doc, symbol_point))) {
                     idx <- idx + 1L
@@ -881,14 +912,16 @@ reference_request_documents <- function(workspace, doc, point, new_name = NULL) 
         name <- if (length(embedded$key) && startsWith(embedded$key, "global:")) embedded$name
         return(unique(c(scope, callers, reference_source_dependencies(workspace, callers, name, new_name))))
     }
-    member <- member_navigation_at(workspace, doc, point)
+    mask <- data_mask_site(doc$parse_data, point)
+    if (!is.null(mask) && !mask$env) return(doc$uri)
+    member <- if (is.null(mask)) member_navigation_at(workspace, doc, point)
     s4 <- if (is.null(member)) s4_reference_target(workspace, doc, point)
     definition <- if (!is.null(member)) {
         member$definition$uri
     } else if (!is.null(s4)) {
         s4$anchor
     } else {
-        symbol_definition_reply(NULL, doc$uri, workspace, doc, point)$result$uri
+        symbol_definition_reply(NULL, doc$uri, workspace, doc, point, mask = mask)$result$uri
     }
     # A member can originate in an unopened source() dependency. Parse these
     # first; the request manager asks again after their source edges settle.
