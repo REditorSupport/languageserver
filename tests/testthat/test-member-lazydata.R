@@ -161,6 +161,45 @@ test_that("Base wrappers expose datasets from their evaluated arguments", {
     }
 })
 
+lazydata_labels_at_access <- function(lines, row, snapshots) {
+    column <- regexpr("$", lines[[row]], fixed = TRUE)[[1L]]
+    lazydata_labels(paste(lines, collapse = "\n"), snapshots, point = list(row = row - 1L, col = column))
+}
+
+test_that("A finally block written first sees attachments in execution order", {
+    snapshots <- list(earlier = lazydata_shared_snapshot("earlier", "first"),
+        later = lazydata_shared_snapshot("later", "second"))
+    lines <- c("tryCatch(", "  finally = {", "    library(later)", "    shared$", "  },", "  expr = TRUE", ")")
+    expect_identical(lazydata_labels_at_access(lines, 4L, snapshots), "second")
+    lines <- c("tryCatch(finally = {", "  shared$", "}, expr = { library(earlier) })")
+    expect_identical(lazydata_labels_at_access(lines, 2L, snapshots), "first")
+
+    lines <- c("tryCatch(finally = {", "  shared$first", "  library(later)", "  shared$second",
+        "}, expr = {", "  library(earlier)", "  shared$first", "})", "shared$second")
+    expect_identical(lazydata_labels_at_access(lines, 2L, snapshots), "first")
+    expect_identical(lazydata_labels_at_access(lines, 4L, snapshots), "second")
+    expect_identical(lazydata_labels_at_access(lines, 7L, snapshots), "first")
+    expect_identical(lazydata_labels_at_access(lines, 9L, snapshots), "second")
+})
+
+test_that("An assignment keeps the package object visible when its RHS was evaluated", {
+    snapshots <- list(earlier = lazydata_shared_snapshot("earlier", "first"),
+        later = lazydata_shared_snapshot("later", "second"))
+    lines <- c("library(earlier)", "suppressPackageStartupMessages({", "  x <- shared",
+        "  library(later)", "  x$", "})")
+    expect_identical(lazydata_labels_at_access(lines, 5L, snapshots), "first")
+
+    lines <- c("library(earlier)", "suppressPackageStartupMessages({", "  x <- shared",
+        "  library(later)", "  copy <- x", "  copy$first", "  shared$second", "})")
+    expect_identical(lazydata_labels_at_access(lines, 6L, snapshots), "first")
+    expect_identical(lazydata_labels_at_access(lines, 7L, snapshots), "second")
+    lines <- c("library(earlier)", "x <- shared", "library(later)", "x$")
+    expect_identical(lazydata_labels_at_access(lines, 4L, snapshots), "first")
+    lines <- c("library(earlier)", "suppressPackageStartupMessages({", "  f <- function() shared",
+        "  library(later)", "  f()$", "})")
+    expect_identical(lazydata_labels_at_access(lines, 5L, snapshots), "second")
+})
+
 test_that("Wrapped attachments in a sourced file take effect at the source call", {
     root <- index_normalize_path(withr::local_tempdir())
     workspace <- Workspace$new(root)

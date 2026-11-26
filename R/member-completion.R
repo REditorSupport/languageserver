@@ -87,9 +87,27 @@ member_evaluated_wrapper <- function(expr) {
     if (identical(name, "(") || !is.null(base_wrapper_arguments[[name]])) name
 }
 
+# Ordinary call arguments have no srcref on the R language object. The
+# closing delimiter identifies the call in the shared physical syntax index.
+member_wrapper_arg_rows <- function(syntax, statement) {
+    if (is.null(syntax)) return(NULL)
+    at <- statement$end
+    close <- navigation_token(list(syntax_data = syntax), at[[1L]] + 1L, at[[2L]], prefer_start = "')'")
+    if (!close || syntax$token[[close]] != "')'") return(NULL)
+    row <- syntax$parent_row[[close]]
+    if (!row || syntax$line1[[row]] - 1L != statement$start[[1L]] ||
+            syntax$col1[[row]] - 1L != statement$start[[2L]] ||
+            syntax$line2[[row]] - 1L != at[[1L]] || syntax$col2[[row]] != at[[2L]]) return(NULL)
+    if (member_head(statement$expr, "(")) {
+        children <- syntax_children(syntax, row)
+        return(children[syntax$token[children] == "expr"])
+    }
+    syntax_call_arguments(syntax, row)$values
+}
+
 # Follow evaluated arguments and unconditional brace statements, retaining the
 # position of each attachment and any bare wrapper names that can be masked.
-member_attachment_items <- function(item) {
+member_attachment_items <- function(item, syntax = NULL) {
     if (is.null(member_evaluated_wrapper(item$expr))) {
         import <- member_attachment_item(item)
         if (!is.null(import)) return(list(import))
@@ -98,7 +116,7 @@ member_attachment_items <- function(item) {
     offset <- item$line_offset %s3_or% 0L
     imports <- list()
     masked <- character()
-    walk <- function(statement, wrappers, on_exit = NULL) {
+    walk <- function(statement, wrappers, frames = list()) {
         expr <- statement$expr
         name <- member_evaluated_wrapper(expr)
         if (!is.null(name)) {
@@ -111,19 +129,41 @@ member_attachment_items <- function(item) {
             } else {
                 wrapper_argument_positions(expr, name)
             }
+            rows <- member_wrapper_arg_rows(syntax, statement)
+            argument <- function(i) {
+                child <- statement
+                child$expr <- expr[[i]]
+                if (length(rows) >= i - 1L && rows[[i - 1L]] > 0L) {
+                    row <- rows[[i - 1L]]
+                    child$start <- c(syntax$line1[[row]] - 1L, syntax$col1[[row]] - 1L)
+                    child$end <- c(syntax$line2[[row]] - 1L, syntax$col2[[row]])
+                } else if (member_head(child$expr, "{")) {
+                    ref <- member_brace_ref(child$expr)
+                    if (!is.null(ref)) child <- member_statement_item(child$expr, ref, offset)
+                }
+                child
+            }
+            reordered <- isTRUE(positions["finally"] < positions["expr"])
+            if (reordered) {
+                cleanup <- argument(positions[["finally"]])
+                # A synthetic call can lack argument ranges. In that case
+                # apply the cleanup only after the enclosing call returns.
+                if (identical(cleanup$start, statement$start) && identical(cleanup$end, statement$end)) {
+                    cleanup$start <- statement$end
+                }
+            }
             for (arg in names(positions)) {
                 i <- positions[[arg]]
                 if (!is.call(expr[[i]])) next
-                statement$expr <- expr[[i]]
-                end <- on_exit
-                # A finally argument written first runs after the protected expression.
-                if (is.null(end) && arg == "finally" && isTRUE(i < positions["expr"])) end <- statement$end
-                walk(statement, wrappers, end)
+                branch <- frames
+                if (reordered) branch[[length(branch) + 1L]] <- list(start = cleanup$start,
+                    end = cleanup$end, exit = statement$end, cleanup = arg == "finally")
+                walk(argument(i), wrappers, branch)
             }
         } else if (member_head(expr, "{")) {
             refs <- attr(expr, "srcref", exact = TRUE)
             if (length(refs) == length(expr)) {
-                for (i in seq_along(expr)[-1L]) walk(member_statement_item(expr[[i]], refs[[i]], offset), wrappers, on_exit)
+                for (i in seq_along(expr)[-1L]) walk(member_statement_item(expr[[i]], refs[[i]], offset), wrappers, frames)
             }
         } else {
             import <- member_attachment_item(statement)
@@ -132,7 +172,7 @@ member_attachment_items <- function(item) {
                 if (length(writes)) masked <<- union(masked, intersect(writes, c(names(base_wrapper_arguments), "(", "library", "require")))
             } else if (isTRUE(import$qualified) || !member_name(import$expr[[1L]]) %in% masked) {
                 import$wrappers <- wrappers
-                if (!is.null(on_exit)) import$end <- on_exit
+                if (length(frames)) import$finally_frames <- frames
                 import$cache_prefix <- item$cache_prefix
                 imports[[length(imports) + 1L]] <<- import
             }
@@ -142,8 +182,19 @@ member_attachment_items <- function(item) {
     imports
 }
 
+# Within a first-written finally the protected expression has already run.
+# Its cleanup attachments are visible to the caller when the tryCatch exits.
+member_import_reached <- function(item, at) {
+    for (frame in item$finally_frames) {
+        inside <- member_before(frame$start, at) && member_before(at, frame$end)
+        if (inside && !frame$cleanup) return(TRUE)
+        if (!inside && frame$cleanup && !member_before(frame$exit, at)) return(FALSE)
+    }
+    member_before(item$end, at)
+}
+
 member_import_visible <- function(item, bindings, at) {
-    if (!member_before(item$end, at)) return(FALSE)
+    if (!member_import_reached(item, at)) return(FALSE)
     if (!isTRUE(item$qualified) && member_history_position(bindings[[member_name(item$expr[[1L]])]], item$start)) return(FALSE)
     for (name in item$wrappers) if (member_history_position(bindings[[name]], item$start)) return(FALSE)
     TRUE
@@ -292,23 +343,28 @@ member_merge_verified_items <- function(items, verified) {
 }
 
 # A dangling accessor can leave the wrapper intact in the line-preserving
-# projection. Only attachments completed before its first damaged line are
-# certain. Never make the projected wrapper a complete source() statement.
-member_projected_imports <- function(parsed, gaps) {
+# projection. Keep attachments reached before damaged lines in execution
+# order. The projected wrapper is still incomplete for source() replay.
+member_projected_imports <- function(parsed, gaps, syntax = syntax_parse_data(utils::getParseData(parsed))) {
     if (!length(parsed) || !length(gaps)) return(NULL)
-    parsed <- top_level_statements(parsed)
-    refs <- attr(parsed, "srcref")
+    statements <- top_level_statements(parsed)
+    refs <- attr(statements, "srcref")
     starts <- vapply(refs, `[[`, integer(1L), 7L) - 1L
     ends <- vapply(refs, `[[`, integer(1L), 8L) - 1L
     before <- findInterval(starts, gaps)
     damaged <- which(findInterval(ends - 1L, gaps) > before & !starts %in% gaps & !ends %in% gaps)
     imports <- list()
     for (i in damaged) {
-        if (is.null(member_evaluated_wrapper(parsed[[i]]))) next
-        gap <- gaps[[before[[i]] + 1L]]
-        attached <- member_attachment_items(member_statement_item(parsed[[i]], refs[[i]]))
+        if (is.null(member_evaluated_wrapper(statements[[i]]))) next
+        damaged_lines <- gaps[seq.int(before[[i]] + 1L, findInterval(ends[[i]] - 1L, gaps))]
+        attached <- member_attachment_items(member_statement_item(statements[[i]], refs[[i]]), syntax)
         for (item in attached) {
-            if (item$end[[1L]] >= gap) next
+            if (length(item$finally_frames)) {
+                if (any(damaged_lines >= item$start[[1L]] & damaged_lines <= item$end[[1L]]) ||
+                        !all(vapply(damaged_lines, function(line) member_import_reached(item, c(line, 0L)), logical(1L)))) next
+            } else if (item$end[[1L]] >= damaged_lines[[1L]]) {
+                next
+            }
             item$cache_prefix <- digest::digest(item, algo = "xxhash64")
             imports[[length(imports) + 1L]] <- item
         }
@@ -319,12 +375,17 @@ member_projected_imports <- function(parsed, gaps) {
 member_merge_imports <- function(imports, recovered) {
     if (!length(recovered)) return(imports)
     items <- c(imports, recovered)
-    ends <- vapply(items, function(item) item$end[1:2], numeric(2L))
+    # Reordered arguments are already in execution order. Keep their group
+    # together when interleaving imports from disjoint recovered statements.
+    ends <- vapply(items, function(item) {
+        if (length(item$finally_frames)) item$finally_frames[[1L]]$exit else item$end[1:2]
+    }, numeric(2L))
     items[order(ends[1L, ], ends[2L, ])]
 }
 
 member_document_index <- function(content, parsed = NULL, syntax = NULL, incomplete_lines = NULL,
-    defer_small_scopes = FALSE, value_source = NULL, verified = NULL, recovered_imports = NULL) {
+    defer_small_scopes = FALSE, value_source = NULL, verified = NULL, recovered_imports = NULL,
+    wrapper_syntax = syntax_parse_data(syntax)) {
     complete <- !is.null(parsed) && is.null(incomplete_lines)
     recovery_start <- 1L
     if (!complete && !is.null(parsed)) {
@@ -523,9 +584,12 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL, incompl
             args <- tryCatch(match.call(methods::setMethod, expr), error = function(e) NULL)
             if (identical(args$f, "initialize")) initializers[[length(initializers) + 1L]] <- item
         }
-        attached <- member_attachment_items(item)
+        attached <- member_attachment_items(item, if ("tryCatch" %in% syntax_names) wrapper_syntax)
         if (length(attached)) {
             items[[i]]$imports <- attached
+            if (!is.null(member_evaluated_wrapper(expr))) {
+                items[[i]]$expr <- member_mark_statement_positions(expr, item$line_offset %s3_or% 0L)
+            }
             for (import in attached) imports[[length(imports) + 1L]] <- import
         }
         if (is.call(expr) && length(expr) == 2L && is.character(expr[[2L]]) &&
@@ -782,14 +846,16 @@ member_recover <- function(document, point, cursor, data, origin_uri = NULL) {
         local[[length(local)]] <- paste0(local[[length(local)]], sentinel)
         closers <- missing_closing_delimiters(local)
         parsed <- tryCatch(member_parse_recovered(paste0(paste(local, collapse = "\n"), closers),
-                origin_uri, start + skip - 1L, if (skip == 1L) skipped_columns else 0L), error = function(e) NULL)
+                origin_uri, start + skip - 1L, if (skip == 1L) skipped_columns else 0L,
+                imports = length(data$imports) > 0L), error = function(e) NULL)
         if (is.null(parsed) && !is.null(cursor$accessor) && any(grepl("|>", local, fixed = TRUE))) {
             # Native pipes require a call on the RHS. The cursor sentinel is
             # a callee here; its synthetic arguments are never evaluated.
             local[[length(local)]] <- paste0(local[[length(local)]], "()")
             closers <- missing_closing_delimiters(local)
             parsed <- tryCatch(member_parse_recovered(paste0(paste(local, collapse = "\n"), closers),
-                    origin_uri, start + skip - 1L, if (skip == 1L) skipped_columns else 0L), error = function(e) NULL)
+                    origin_uri, start + skip - 1L, if (skip == 1L) skipped_columns else 0L,
+                    imports = length(data$imports) > 0L), error = function(e) NULL)
         }
         if (is.null(parsed)) next
         found <- FALSE
@@ -861,7 +927,8 @@ member_recover_context <- function(document, content, point, cursor, start, colu
     for (end in seq.int(offset, length(full))) {
         lines <- full[seq_len(end)]
         if (sum(nchar(lines, type = "bytes")) > 65536L) break
-        context <- tryCatch(member_parse_recovered(lines, origin_uri, start, skipped_columns, edit),
+        context <- tryCatch(member_parse_recovered(lines, origin_uri, start, skipped_columns, edit,
+                imports = length(document$parse_data$member_data$imports) > 0L),
             error = function(e) NULL)
         if (!is.null(context)) return(context)
     }
@@ -980,9 +1047,11 @@ member_context_index <- function(workspace, uri, document, at, parsed = NULL,
         }
     }
     imports <- character()
-    # Bindings are resolved lazily at their source position. Retain the
-    # previous S7 names only when an attachment changes that namespace's API.
+    # A saved RHS can resolve a name before a later attachment masks it.
+    # Keep the history for names used by this request and for S7 dispatch.
     s7_names <- member_lookup(index$namespace_indices, "S7")$exports
+    tracked <- union(referenced, s7_names)
+    startup <- index$attached_roots[intersect(tracked, names(index$attached_roots))]
     attachments <- list()
     for (item in if (is.null(view$bindings)) data$imports else view$imports) {
         if (!member_import_visible(item, bindings, import_at)) next
@@ -995,20 +1064,17 @@ member_context_index <- function(workspace, uri, document, at, parsed = NULL,
             excluded <- if (isTRUE(index$s7_attached) && !isTRUE(item$uncertain)) {
                 member_lookup(document$attachment_exclusions, package)
             }
-            if (length(s7_names)) {
+            if (isTRUE(item$uncertain)) {
                 # Selective or dynamic attachments cannot establish ownership.
                 # Invalidate any overlapping S7 names at this source position.
-                changed <- if (is.null(package_index) && isTRUE(item$uncertain)) s7_names else
+                changed <- if (is.null(package_index)) s7_names else
                     intersect(setdiff(s7_names, excluded), package_index$exports)
                 if (length(changed)) {
-                    attachments[[length(attachments) + 1L]] <- list(end = item$end,
-                        previous = index$attached_roots[intersect(s7_names, names(index$attached_roots))])
-                    if (isTRUE(item$uncertain)) {
-                        index$attached_roots[changed] <- rep(list(member_value(reason = "uncertain_attachment")), length(changed))
-                    }
+                    index$attached_roots[changed] <- rep(list(member_value(reason = "uncertain_attachment")), length(changed))
+                    attachments[[length(attachments) + 1L]] <- list(item = item, roots = index$attached_roots[changed])
                 }
+                next
             }
-            if (isTRUE(item$uncertain)) next
             if (!is.null(package_index)) {
                 roots <- package_index$roots
                 if (length(excluded)) roots <- roots[setdiff(names(roots), excluded)]
@@ -1029,10 +1095,14 @@ member_context_index <- function(workspace, uri, document, at, parsed = NULL,
                         index$attached_roots[name] <- list(member_value(function_key = name, metadata = package))
                     }
                 }
+                changed <- intersect(tracked, c(names(roots), setdiff(functions, excluded)))
+                if (length(changed)) {
+                    attachments[[length(attachments) + 1L]] <- list(item = item, roots = index$attached_roots[changed])
+                }
             }
             if (identical(package, "R6")) index$r6_attached <- TRUE
             if (identical(package, "S7")) {
-                if (!isTRUE(index$s7_attached)) index$s7_attached_at <- item$end
+                if (!isTRUE(index$s7_attached)) index$s7_attachment <- item
                 index$s7_attached <- TRUE
             }
         }
@@ -1053,8 +1123,10 @@ member_context_index <- function(workspace, uri, document, at, parsed = NULL,
         }
     }
     if (length(attachments)) {
-        index$s7_attachments <- attachments
-        index$s7_attachment_names <- setdiff(s7_names, fixed)
+        index$attachment_history <- rev(attachments)
+        index$attachment_names <- setdiff(tracked, fixed)
+        index$startup_roots <- startup
+        index$import_at <- import_at
     }
     index$document_context_key <- digest::digest(list(index$package, workspace$startup_packages, data$namespace_bindings, document$attachment_exclusions, imports), algo = "xxhash64")
     index
@@ -1071,7 +1143,7 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
     if (!position) {
         peer <- member_package_declaration(name, index, budget, depth, trail)
         if (!is.null(peer)) return(peer)
-        attached <- member_attached_root(index, name, at)
+        attached <- member_attached_root(index, name, bindings$.__member_import_at__ %s3_or% at)
         return(if (is.null(attached)) member_value(reason = "not_yet_bound") else attached)
     }
     item <- history[[position]]
@@ -1081,7 +1153,8 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
     }
     # A source definition in a request's top-level context has stable lexical
     # inputs. Locals/actual arguments use their own lazy binding memos instead.
-    memo <- !is.null(index$document_cache) && !length(setdiff(names(bindings), ".__member_position__"))
+    memo <- !is.null(index$document_cache) &&
+        !length(setdiff(names(bindings), c(".__member_position__", ".__member_import_at__")))
     memo_key <- paste(index$package, index$document_context_key, id, paste(at, collapse = ":"), sep = ":")
     if (memo && exists(memo_key, index$document_cache, inherits = FALSE)) return(index$document_cache[[memo_key]])
     cache <- if (is.null(budget$origin_name)) index$document_binding_cache
@@ -1098,7 +1171,10 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
     }
     env <- bindings
     if (!is.null(budget$origin_name) && is.null(item$first_write)) item <- member_binding_declaration(item, budget)
-    if (!member_head(item$expr, "function")) env$.__member_position__ <- item$start
+    if (!member_head(item$expr, "function")) {
+        env$.__member_position__ <- item$start
+        env$.__member_import_at__ <- NULL
+    }
     expr <- item$expr
     if (member_head(expr, ":=")) {
         bound <- member_s7_bind(expr, index, env)
@@ -1110,6 +1186,7 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
     } else {
         first <- item$first_write
         env$.__member_position__ <- history[[first]]$start
+        env$.__member_import_at__ <- NULL
         value <- member_resolve_document(name, index, env, budget, depth + 1L, c(trail, id))
         # Only exact dispatch keys survive an edit. The generic and method
         # formals come from the current source, including their lexical scope.
@@ -1254,7 +1331,7 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
         if (is.null(accessor) && is.symbol(node) && identical(member_name(node), sentinel)) {
             if (!is.null(key_helper)) return(invisible(NULL))
             result <<- if (is.null(name)) {
-                internal <- c(".__member_position__", ".__s4_classes__", ".__member_properties__",
+                internal <- c(".__member_position__", ".__member_import_at__", ".__s4_classes__", ".__member_properties__",
                     ".__member_context_bindings__", ".__member_context_locals__")
                 value <- member_value(type = "environment", fields = env[setdiff(names(env), internal)])
                 value$context_bindings <- env$.__member_context_bindings__
@@ -1351,8 +1428,14 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
             # Hash current values for dependency capture, while retaining
             # ordinary lists as immutable snapshots consumed by inference.
             lookup <- list2env(env, hash = TRUE, parent = emptyenv())
+            import_at <- env$.__member_import_at__
             for (i in sequence$selected) {
                 child <- sequence$children[[i]]
+                if (!is.null(import_at)) {
+                    at <- attr(child, "member_statement_at", exact = TRUE)
+                    env$.__member_import_at__ <- if (i == sequence$target || is.null(at)) import_at else at
+                    lookup$.__member_import_at__ <- env$.__member_import_at__
+                }
                 if (i != sequence$target && member_head(child, ":=")) {
                     bound <- member_s7_bind(child, index, env)
                     if (!is.null(bound)) child <- bound
@@ -1472,7 +1555,10 @@ member_recover_scope <- function(document, point, cursor, data, budget = NULL) {
         middle <- as.integer(floor((lo + hi) / 2L))
         if (member_before(at, items[[middle]]$end)) hi <- middle - 1L else lo <- middle + 1L
     }
-    if (!isTRUE(document$parse_data$parse_error) && lo <= length(items) &&
+    # A recovered R Markdown or Quarto cell can omit the cursor's receiver
+    # even when the combined document parses successfully.
+    if (!isTRUE(document$parse_data$parse_error) && !point$row %in% document$parse_data$partial_incomplete_lines &&
+            lo <= length(items) &&
             member_before(items[[lo]]$start, at)) {
         sentinel <- ".__languageserver_member_cursor__"
         found <- FALSE
@@ -1693,6 +1779,9 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
             }
         }
         bindings$.__member_position__ <- recovered$start
+        if (any(vapply(index$attachment_history, function(change) {
+            !member_import_reached(change$item, recovered$start)
+        }, logical(1L)))) bindings$.__member_import_at__ <- c(point$row, point$col)
         value <- member_cursor_value(recovered$parsed, recovered$sentinel, index, bindings, budget,
             if (is.null(cursor$accessor) || named_subset) name, cursor$accessor, recovered$context,
             recovered$path, recovered$source, key_helper, isTRUE(cursor$s4_new), cursor$s7_update_list,

@@ -50,8 +50,8 @@ index_context_waiting <- function(self, workspace, document, point, hover = FALS
     TRUE
 }
 
-# A bare dataset has no namespace in its receiver syntax. Search visible
-# attachments in masking order until a catalog can identify the binding.
+# A bare object has no namespace in its receiver syntax. For a saved alias,
+# search the attachments visible when the right-hand symbol was evaluated.
 member_attached_receiver_waiting <- function(workspace, document, point, recovered) {
     data <- document$parse_data$member_data
     path <- recovered$path
@@ -67,12 +67,35 @@ member_attached_receiver_waiting <- function(workspace, document, point, recover
     }
     if (!member_head(access, "$") || !is.symbol(access[[2L]])) return(FALSE)
     receiver <- as.character(access[[2L]])
-    if (receiver %in% formals) return(FALSE)
     at <- c(point$row, point$col)
     view <- member_workspace_view(workspace, document)
     bindings <- if (is.null(view$bindings)) data$bindings else view$bindings
-    if (member_history_position(bindings[[receiver]], at) ||
-            length(navigation_definitions(document$parse_data, point$row + 1L, point$col + 1L, receiver, last = TRUE))) return(FALSE)
+    parsed <- document$parse_data
+    nav <- parsed$navigation_data
+    syntax <- parsed$syntax_data
+    token <- 0L
+    for (depth in seq_len(16L)) {
+        if (receiver %in% formals) return(FALSE)
+        line <- at[[1L]] + 1L
+        col <- at[[2L]] + 1L
+        declaration <- navigation_definitions(parsed, line, col, receiver, token = token, last = TRUE)
+        if (length(declaration) && syntax$line1[[declaration]] == line && syntax$col1[[declaration]] > col) {
+            # Navigation includes declarations later on the same line.
+            rows <- navigation_definitions(parsed, line, col, receiver, token = token)
+            before <- syntax$line2[rows] < line | (syntax$line2[rows] == line & syntax$col2[rows] < col)
+            declaration <- utils::tail(rows[before], 1L)
+        }
+        if (!length(declaration)) {
+            if (member_history_position(bindings[[receiver]], at)) return(FALSE)
+            break
+        }
+        candidates <- nav$by_name[[receiver]]
+        record <- candidates[match(declaration, nav$node[candidates], nomatch = 0L)]
+        token <- class_literal_row(syntax, nav$value[record], "SYMBOL")
+        if (!token || depth == 16L) return(FALSE)
+        at <- c(syntax$line1[[token]] - 1L, syntax$col1[[token]] - 1L)
+        receiver <- class_token_text(syntax$text[[token]])
+    }
     imports <- if (is.null(view$bindings)) data$imports else view$imports
     metadata <- workspace$member_metadata
     request <- document$requested_packages

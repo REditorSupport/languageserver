@@ -81,6 +81,7 @@ member_workspace_view <- function(workspace, document) {
                 if (!is.null(anchor)) {
                     import$start <- item$start
                     import$end <- item$end
+                    import$finally_frames <- NULL
                     import$cache_prefix <- NULL
                 }
                 imports$push(import)

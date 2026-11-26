@@ -79,6 +79,23 @@ test_that("incomplete R cells request metadata for their own verified receivers"
     }
 })
 
+test_that("A dangling accessor in a first-written finally keeps its receiver in a Quarto cell", {
+    content <- c("Prose", "```{r}", "tryCatch(finally = {", "  library(recoveryfixture)",
+        "  observations$", "}, expr = TRUE)", "```")
+    uri <- "file:///wrapped-recovery.qmd"
+    doc <- Document$new(uri, "quarto", 1L, content)
+    parsed <- parse_document(uri, content, is_rmarkdown = TRUE)
+    parsed$version <- doc$version
+    doc$update_parse_data(parsed)
+    snapshot <- member_generic_index("recoveryfixture")
+    snapshot$roots <- list(observations = member_value(type = "list", fields = list(column = member_literal(1L))))
+    metadata <- MemberMetadataCache$new(32 * 1024^2)
+    metadata$set("recoveryfixture", member_index_freeze(snapshot))
+    items <- member_completion(uri, list(member_metadata = metadata), doc,
+        list(row = 4L, col = nchar(content[[5L]])), FALSE, 20L)
+    expect_identical(vapply(items, `[[`, "", "label"), "column")
+})
+
 test_that("a cold Quarto member request prepares its namespace before replying", {
     skip_on_cran()
     root <- withr::local_tempdir()
@@ -187,6 +204,12 @@ test_that("Bare member receivers wait for a visible package that could supply th
     catalog <- list(roots = list(observations = member_literal(1L)))
     expect_false(waiting(c(imports, "observations$"), ready = list(lastfixture = catalog)))
     expect_true(waiting(c(imports, "observations$"), ready = list(firstfixture = catalog)))
+    alias <- c(imports[[1L]], "suppressMessages({", "  x <- observations", "  copy <- x",
+        imports[[2L]], "  copy$", "})")
+    expect_true(waiting(alias, 6L, ready = list(lastfixture = catalog)))
+    expect_false(waiting(alias, 6L, ready = list(firstfixture = catalog)))
+    alias[[3L]] <- "  x <- observations; observations <- list(local = TRUE)"
+    expect_true(waiting(alias, 6L, ready = list(lastfixture = catalog)))
 })
 
 test_that("Startup dataset-only catalogs wait for regular namespace objects", {

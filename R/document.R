@@ -858,7 +858,8 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
     # hints. Keep its original source and bounded recovery on a syntax error.
     env$member_data <- member_document_index(content, expr, data, recovery$incomplete_lines,
         defer_small_scopes = is_rmarkdown && length(incomplete_lines) > 0L, value_source = value_source,
-        verified = verified, recovered_imports = if (!is.null(recovery)) member_projected_imports(expr, incomplete_lines))
+        verified = verified, recovered_imports = if (!is.null(recovery)) member_projected_imports(expr, incomplete_lines, env$syntax_data),
+        wrapper_syntax = env$syntax_data)
     if (is_rmarkdown && length(literate$member_packages)) {
         env$member_data$packages <- union(env$member_data$packages, literate$member_packages)
     }

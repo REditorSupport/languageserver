@@ -94,7 +94,8 @@ member_package_context <- function(index, package) {
     context <- list2env(as.list(owner), parent = emptyenv())
     for (name in c("namespace_indices", "namespace_metadata", "document_bindings", "document_s4",
             "document_binding_cache", "document_context_key", "document_cache",
-            "attached_roots", "attached_s4", "methods_attached")) context[[name]] <- index[[name]]
+            "attached_roots", "attached_s4", "methods_attached", "attachment_history", "attachment_names",
+            "import_at", "startup_roots")) context[[name]] <- index[[name]]
     context
 }
 
@@ -538,7 +539,7 @@ member_assigned_names <- function(node) {
 member_function_closure <- function(expr, bindings) {
     if (!length(bindings)) return(list())
     # Replacement syntax implicitly invokes a lexical setter.
-    internal <- intersect(names(bindings), c("$<-", "[[<-", "@<-", member_s7_setters, ".__member_position__", ".__member_properties__",
+    internal <- intersect(names(bindings), c("$<-", "[[<-", "@<-", member_s7_setters, ".__member_position__", ".__member_import_at__", ".__member_properties__",
             ".__s4_classes__", ".__s7_package__", ".__s7_constructing__"))
     if (length(internal) == length(bindings)) return(bindings)
     referenced <- setdiff(member_syntax_names(expr), names(expr[[2L]]))
@@ -1066,6 +1067,11 @@ member_infer <- function(
     }
     apply_function <- function(key = NULL, self = NULL, actuals = list(),
         fn = NULL, lexical = package_env, dispatch = NULL, r6_initialize = FALSE) {
+        # A local function looks up attached objects when its body runs.
+        # Its captured assignments still carry their own evaluation positions.
+        if (is.null(key) && !is.null(lexical$.__member_position__) && length(index$attachment_history)) {
+            lexical$.__member_import_at__ <- bindings$.__member_import_at__ %s3_or% bindings$.__member_position__
+        }
         if (!is.null(key)) {
             aliases <- character()
             while (is.symbol(member_lookup(index$definitions, key))) {

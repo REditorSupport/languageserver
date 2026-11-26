@@ -2,6 +2,31 @@
 # paths, so they survive worker serialization without retaining XML pointers.
 member_source_key <- function(path) paste(c("root", path), collapse = ":")
 
+# Scope replay can flatten braces or repair an incomplete call. Carry a
+# statement's physical position with it so a deferred RHS keeps its imports.
+member_mark_statement_positions <- function(node, row = 0L, col = 0L) {
+    if (is.expression(node)) {
+        for (i in seq_along(node)) if (is.call(node[[i]])) node[[i]] <- Recall(node[[i]], row, col)
+    } else if (member_head(node, "{")) {
+        refs <- attr(node, "srcref", exact = TRUE)
+        if (length(refs) == length(node)) for (i in seq_along(node)[-1L]) {
+            if (!is.call(node[[i]])) next
+            child <- Recall(node[[i]], row, col)
+            ref <- refs[[i]]
+            line <- ref[[7L]] - 1L
+            attr(child, "member_statement_at") <- c(row + line, ref[[5L]] - 1L + if (line == 0L) col else 0L)
+            node[[i]] <- child
+        }
+    } else {
+        name <- member_evaluated_wrapper(node)
+        if (!is.null(name)) {
+            args <- if (name == "(") seq_along(node)[-1L] else wrapper_argument_positions(node, name)
+            for (i in args) if (is.call(node[[i]])) node[[i]] <- Recall(node[[i]], row, col)
+        }
+    }
+    node
+}
+
 # R's wholeSrcref starts at the beginning of the parse input, even for a
 # nested block. The first child reference locates the opening brace itself.
 member_brace_ref <- function(node) {

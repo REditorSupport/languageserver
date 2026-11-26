@@ -260,10 +260,12 @@ member_binding_declaration <- function(entry, budget) {
 
 # Recovery normally needs only an AST. Collect member token ranges when that
 # fragment contains a potential declaration; its first line may start mid-line.
-member_parse_recovered <- function(lines, uri, row, col = 0L, edit = NULL) {
-    if (is.null(uri) || !any(grepl("=|<-|->", lines))) return(str2expression(lines))
+member_parse_recovered <- function(lines, uri, row, col = 0L, edit = NULL, imports = FALSE) {
+    positioned <- imports && any(grepl("library|require", lines))
+    if ((is.null(uri) && !positioned) || !any(grepl("=|<-|->", lines))) return(str2expression(lines))
     parsed <- parse(text = normalize_parse_content(lines), keep.source = TRUE)
-    parsed <- member_source_origins(parsed, NULL, uri, row, col, edit = edit)
+    if (positioned) parsed <- member_mark_statement_positions(parsed, row, col)
+    if (!is.null(uri)) parsed <- member_source_origins(parsed, NULL, uri, row, col, edit = edit)
     member_strip_srcref(parsed)
 }
 
