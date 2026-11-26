@@ -1,8 +1,9 @@
-roxygen_s3_call <- function(lines) {
+roxygen_s3_call <- function(lines, member_metadata = NULL) {
     row <- grep("@@", lines, fixed = TRUE)
     col <- regexpr("@@", lines[[row]], fixed = TRUE)[[1L]] - 1L
     lines[[row]] <- sub("@@", "", lines[[row]], fixed = TRUE)
     f <- provider_fixture(lines)
+    f$workspace$member_metadata <- member_metadata
     f$workspace$s3_metadata <- S3MetadataCache$new()
     for (snapshot in provider_startup_s3()) f$workspace$s3_metadata$set(snapshot$package, snapshot)
     resolve_s3_call(f$uri, f$workspace, f$document, list(row = row - 1L, col = col))
@@ -54,6 +55,39 @@ test_that("union parameter and return types only select an agreed S3 method", {
         expect_match(call$description, "`integer` or `double`", fixed = TRUE)
         expect_null(roxygen_s3_call(c(generic, "draw.integer <- function(x, other = TRUE) x", code)))
     }
+})
+
+test_that("S3 dispatch follows documented member values through a local assignment", {
+    generic <- c('paint <- function(x, ...) UseMethod("paint")', "paint.dye <- function(x, color = TRUE, ...) x")
+    declaration <- c("#' @slot item (`dye`)", 'Holder <- methods::setClass("Holder", slots = c(item = "ANY"))')
+    for (expr in c("Holder()@item", 'methods::slot(Holder(), "item")', "contents")) {
+        use <- c("use <- function() {", "  contents <- Holder()@item", paste0("  paint(", expr, ", @@)"), "}")
+        expect_identical(roxygen_s3_call(c(generic, declaration, use))$method$name, "paint.dye")
+    }
+    override <- c(generic, "paint.integer <- function(x, digits = 1L, ...) x", declaration, "paint(Holder(item = 1L)@item, @@)")
+    expect_identical(roxygen_s3_call(override)$method$name, "paint.integer")
+    declaration[[1L]] <- "#' @slot item (`dye | other`)"
+    expect_null(roxygen_s3_call(c(generic, "paint.other <- function(x, opacity = 1, ...) x", declaration,
+                "paint(Holder()@item, @@)")))
+    r6 <- c('Bin <- R6::R6Class("Bin", public = list(', "#' @field item (`dye`)", "item = NULL))")
+    expect_identical(roxygen_s3_call(c(generic, r6, "paint(Bin$new()$item, @@)"))$method$name, "paint.dye")
+    r6_method <- c('Bin <- R6::R6Class("Bin", public = list(', "#' @returns (`dye`)", "mix = function() opaque()))")
+    expect_identical(roxygen_s3_call(c(generic, r6_method, "paint(Bin$new()$mix(), @@)"))$method$name, "paint.dye")
+    expect_identical(roxygen_s3_call(c(generic, "#' @param x (`dye`)", 'Bin <- R6::R6Class("Bin", public = list(',
+                "m = function(x) paint(x, @@)))"))$method$name, "paint.dye")
+})
+
+test_that("S3 dispatch can read an S7 computed property's hint", {
+    skip_if_not_installed("S7")
+    metadata <- MemberMetadataCache$new(16 * 1024^2)
+    metadata$set("S7", member_prepare_package("S7"))
+    lines <- c('paint <- function(x, ...) UseMethod("paint")', "paint.dye <- function(x, color = TRUE, ...) x",
+        "#' @prop item (`dye`)", 'Bin <- S7::new_class("Bin", properties = list(',
+        "  item = S7::new_property(getter = function(self) opaque())))", "paint(Bin()@item, @@)")
+    expect_identical(roxygen_s3_call(lines, metadata)$method$name, "paint.dye")
+    extracted <- c(lines[1:2], "library(S7)", "#' @returns (`dye`) An extracted color.",
+        'extract <- new_generic("extract", "x")', "paint(extract(opaque()), @@)")
+    expect_identical(roxygen_s3_call(extracted, metadata)$method$name, "paint.dye")
 })
 
 test_that("documented S3 dispatch observes known ancestry and proven return alternatives", {

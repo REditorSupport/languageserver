@@ -82,6 +82,13 @@ member_r6_shape <- function(expr, index, bindings, budget, depth = 0L, trail = c
     fields <- if (is.null(inherited$fields)) list() else inherited$fields
     bindings_public <- inherited$r6_bindings
     bindings_private <- inherited$r6_private$r6_bindings
+    hints <- roxygen_inference_hints(expr, "member_class_hints")
+    documented <- !is.null(hints) || !is.null(attr(expr, "member_type_names", exact = TRUE)) || isTRUE(inherited$r6_documented)
+    class_params <- field_params <- NULL
+    if (!is.null(hints)) {
+        class_params <- member_r6_doc_params(hints$params, attr(hints, "roxygen_documented", exact = TRUE), index, bindings)
+        field_params <- member_r6_doc_params(hints$field, attr(hints, "roxygen_documented_fields", exact = TRUE), index, bindings)
+    }
     # Private fields are available inside methods, outside the public surface.
     private <- if (is.null(inherited$r6_private$fields)) list() else inherited$r6_private$fields
     declared <- logical()
@@ -92,6 +99,16 @@ member_r6_shape <- function(expr, index, bindings, budget, depth = 0L, trail = c
         values <- as.list(node)[-1L]
         for (name in names(values)) {
             value <- infer(values[[name]])
+            if (documented) {
+                parent <- if (section == "public") inherited$fields[[name]] else inherited$r6_private$fields[[name]]
+                if (!is.null(value$function_expr)) {
+                    value <- member_r6_document_method(value, name, class_params, field_params, parent, index, bindings)
+                } else {
+                    hint <- if (name %in% names(field_params)) field_params[[name]]$r6_hint else if (
+                        !identical(parent$r6_member_kind, "active binding")) parent$r6_field_hint
+                    value <- member_r6_field_default(value, hint, is.null(values[[name]]))
+                }
+            }
             if (identical(budget$origin_name, name) ||
                     (section == "public" && name == "initialize" && identical(budget$origin_name, "new"))) {
                 origin <- attr(node, "member_origins", exact = TRUE)[[as.character(match(name, names(values)))]]
@@ -110,8 +127,20 @@ member_r6_shape <- function(expr, index, bindings, budget, depth = 0L, trail = c
         }
     }
     if (member_head(active, "list")) {
-        for (name in names(as.list(active)[-1L])) {
+        getters <- as.list(active)[-1L]
+        for (name in names(getters)) {
             value <- member_value(reason = "active_property")
+            if (documented) {
+                hint <- field_params[[name]]$r6_hint
+                if (is.null(hint)) {
+                    returns <- roxygen_inference_hints(getters[[name]])$returns
+                    hint <- member_class_hint(returns, index, bindings)
+                }
+                if (is.null(hint) && !name %in% names(field_params) && identical(inherited$fields[[name]]$r6_member_kind, "active binding")) {
+                    hint <- inherited$fields[[name]]$r6_field_hint
+                }
+                value <- member_r6_field_default(value, hint)
+            }
             if (identical(budget$origin_name, name)) {
                 value$origin <- attr(active, "member_origins", exact = TRUE)[[as.character(match(name, names(active)[-1L]))]]
             }
@@ -130,6 +159,8 @@ member_r6_shape <- function(expr, index, bindings, budget, depth = 0L, trail = c
         r6_private = member_r6_private_value(private, class, locked, bindings_private),
         r6_class = class, r6_role = "instance")
     instance$r6_level <- level
+    if (documented) instance$r6_documented <- TRUE
+    if (isFALSE(args$portable)) instance$r6_nonportable <- TRUE
     if (length(layers)) instance$r6_layers <- layers
     if (length(declared)) instance$r6_declared <- declared
     if (length(declared_private)) instance$r6_declared_private <- declared_private
@@ -168,6 +199,7 @@ member_r6_shape <- function(expr, index, bindings, budget, depth = 0L, trail = c
         r6_class = class, r6_role = "constructor"
     )), r6_class = class, r6_role = "generator")
     generator$fields$new$r6_initialize <- fields$initialize
+    if (length(class_params)) generator$r6_class_params <- class_params
     if (member_head(initialize$function_expr, "function")) generator$fields$new$origin <- initialize$origin
     if (!runtime) {
         generator$fields <- c(generator$fields, member_r6_generator_controls)
@@ -243,7 +275,13 @@ member_r6_apply_control <- function(generator, expr, index, bindings, budget) {
     # Even overwrite=TRUE cannot replace a field in another storage group.
     if (own && ((section == "private") != (name %in% instance$r6_declared_private) ||
                 !identical(unname(target$r6_bindings[name]), kind))) return(generator)
-    if (section == "active") value <- member_value(reason = "active_property")
+    if (section == "active") {
+        returns <- roxygen_inference_hints(value$function_expr)$returns
+        value <- member_r6_field_default(member_value(reason = "active_property"), member_class_hint(returns, index, bindings))
+    } else if (callable) {
+        parent <- if (!own) target$fields[[name]]
+        value <- member_r6_document_method(value, name, generator$r6_class_params, NULL, parent, index, bindings)
+    }
     value <- member_r6_declared_field(value, instance$r6_class, section, instance$r6_level)
     if (identical(budget$origin_name, name)) value$origin <- attr(expr, "member_origin", exact = TRUE)
     if (section == "private") {
@@ -1008,7 +1046,11 @@ member_r6_construct <- function(callee, actuals, index, budget, depth, trail) {
     result <- member_infer(call, index, env, budget = budget, depth = depth + 1L, trail = trail)
     if (identical(result$type, "environment") && !is.null(result$fields)) {
         for (name in names(result$fields)) {
-            if (!is.na(name) && nzchar(name)) instance$fields[name] <- result$fields[name]
+            if (is.na(name) || !nzchar(name)) next
+            value <- result$fields[[name]]
+            hint <- instance$fields[[name]]$r6_field_hint
+            if (!is.null(hint) && is.null(value$r6_field_hint)) value <- member_r6_field_default(value, hint)
+            instance$fields[name] <- list(value)
         }
     }
     instance$r6_identity <- NULL
@@ -1018,17 +1060,21 @@ member_r6_construct <- function(callee, actuals, index, budget, depth, trail) {
 member_r6_context <- function(expr, index, bindings, budget) {
     args <- as.list(expr)[-1L]
     instance <- member_r6_shape(expr, index, bindings, budget)$fields$new$result_shape
+    member_r6_instance_scope(instance, !is.null(args$inherit) && !identical(args$inherit, quote(NULL)))
+}
+
+member_r6_instance_scope <- function(instance, has_parent) {
     super <- member_r6_super(instance$r6_layers, instance$r6_level)
     super$r6_self <- instance
     private <- member_r6_private_layers(instance$r6_private, member_r6_all_layers(instance))
     private$r6_self <- instance
     scope <- list(self = instance)
     if (length(private$fields)) scope$private <- private
-    if (!is.null(args$inherit) && !identical(args$inherit, quote(NULL))) scope$super <- super
+    if (has_parent) scope$super <- super
     if (any(instance$r6_bindings == "active")) {
         scope$.__active__ <- member_value(type = "list", r6_class = instance$r6_class, r6_role = "active")
     }
-    if (isFALSE(args$portable)) {
+    if (isTRUE(instance$r6_nonportable)) {
         # Non-portable methods enclose the public environment, whose parent
         # contains private bindings. Public bindings win on lookup. A bare
         # method name does not pass through member_access(): it gets the

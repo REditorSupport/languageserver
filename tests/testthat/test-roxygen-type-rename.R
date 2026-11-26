@@ -12,6 +12,51 @@ type_rename <- function(f, row, col, new_name) {
     rename_reply(1L, f$uri, f$workspace, f$document, list(row = row, col = col), new_name)
 }
 
+test_that("member type tags refer to the enclosing class declaration scope", {
+    lines <- c('Leaf <- R6::R6Class("Global")',
+        "#' @slot item (`Leaf`)", 'methods::setClass("Basket", slots = c(item = "ANY"))',
+        "#' @prop item", "#'   (`Leaf | pkg::Leaf`)", 'Bin <- S7::new_class("Bin", properties = list(item = S7::class_any))',
+        "build <- function() {", '  Leaf <- R6::R6Class("Local")',
+        '  Shelf <- R6::R6Class("Shelf", public = list(', "    #' @field item (`Leaf`)", "    item = NULL))", "}")
+    f <- type_rename_fixture(lines)
+    rows <- function(row, col) {
+        edits <- type_rename(f, row, col, "NewLeaf")$result$changes[[f$uri]]
+        vapply(edits, function(e) e$range$start$line, integer(1L))
+    }
+    expect_setequal(rows(0L, 2L), c(0L, 1L, 4L))
+    expect_setequal(rows(7L, 4L), c(7L, 9L))
+    incomplete <- type_rename_fixture(c(lines[[1L]], lines[[2L]], 'methods::setClass("Basket", slots = '))
+    expect_match(type_rename(incomplete, 0L, 2L, "NewLeaf")$error$message, "documented type")
+})
+
+test_that("renaming a stored member updates just its attached type label", {
+    classes <- list(
+        c('G <- R6::R6Class("G", public = list(', "  #' @field item (`Date | NULL`) An item.", "  item = NULL))", "G$new()$item"),
+        c("#' @slot item (`Date`) An item.", 'G <- methods::setClass("G", slots = c(item = "ANY"))', "G()@item"))
+    for (lines in classes) {
+        f <- type_rename_fixture(lines)
+        edits <- type_rename(f, length(lines) - 1L, nchar(utils::tail(lines, 1L)) - 1L, "entry")$result$changes[[f$uri]]
+        tag <- grep("#'", lines, fixed = TRUE)
+        documentation <- Filter(function(e) e$range$start$line == tag - 1L, edits)
+        expect_length(documentation, 1L)
+        expect_identical(documentation[[1L]]$newText, "entry")
+        span <- documentation[[1L]]$range
+        expect_identical(substr(lines[[tag]], span$start$character + 1L, span$end$character), "item")
+    }
+})
+
+test_that("renaming an S7 property preserves its roxygen class qualifier", {
+    skip_if_not_installed("S7")
+    lines <- c("#' @prop Display@item (`Date`) Item to show.",
+        'Display <- S7::new_class("Display", properties = list(item = S7::class_any))', "Display()@item")
+    f <- type_rename_fixture(lines)
+    f$workspace$member_metadata$set("S7", member_prepare_package("S7"))
+    edits <- type_rename(f, 2L, 12L, "entry")$result$changes[[f$uri]]
+    doc <- Filter(function(e) e$range$start$line == 0L, edits)
+    expect_length(doc, 1L)
+    expect_identical(doc[[1L]]$newText, "Display@entry")
+})
+
 test_that("renaming a generator or its alias updates only its bound type names", {
     lines <- c('Maker <- R6::R6Class("Record", public = list(answer = 42))',
         "Alias <- Maker", "#' @param x (`Maker | Alias`) a record", "#' @return (`Maker`) a record",

@@ -105,6 +105,29 @@ The roxygen benchmark times a deep annotated expression, annotation attachment
 in increasingly wide function bodies, and single-label completion on S4
 classes with 100 inherited slots and computed prototypes.
 
+### R6 field documentation
+
+Run `Rscript --vanilla inst/benchmarks/roxygen-class-fields.R 7` against each
+installation. It builds R6 classes with 32, 128 and 256 fields. After parsing
+the syntax tree, it times the roxygen index separately. It checks the field
+names, types and source ranges for every typed field and the documented names
+of inherited overrides. The following elapsed medians use R 4.6.1 on macOS
+arm64, with seven timing batches per workload.
+
+| Fields | Documentation | Before class tags (ms) | With class tags (ms) |
+| ---: | --- | ---: | ---: |
+| 32 | Typed | 0.40 | 0.55 |
+| 128 | Typed | 2.05 | 0.75 |
+| 256 | Typed | 5.11 | 1.09 |
+| 256 | No roxygen comments | 0.014 | 0.017 |
+| 256 | Prose on a parentless class | 0.019 | 0.031 |
+| 256 | Prose on an inherited class | 0.019 | 0.59 |
+
+The earlier version scanned files containing type spans and returned no field
+types. The new index groups consecutive single-line field tags within a
+verified R6 section. It retains prose on subclasses so a locally documented
+override can suppress a type inherited from another file.
+
 ### Inherited parameter hints
 
 The completion workload selects among four unknown arguments and completes

@@ -62,6 +62,12 @@ s3_source_index <- function(items) {
     )
 }
 
+s3_has_member_hints <- function(hints, classes) {
+    length(attr(hints, "occurrences", exact = TRUE)$type) > 0L &&
+        (length(attr(hints, "classes", exact = TRUE)) > 0L ||
+            any(vapply(classes, function(x) x$type %in% c("R6", "S7Generic", "S7Method"), logical(1L))))
+}
+
 s3_source_view <- function(document, peer = FALSE) {
     parsed <- document$parse_data
     data <- parsed$member_data
@@ -83,6 +89,7 @@ s3_source_view <- function(document, peer = FALSE) {
     }
     view <- list(index = index %s3_or% s3_source_index(items), items = items,
         uri = document$uri, content_key = data$content_key,
+        member_hints = s3_has_member_hints(data$type_hints, parsed$class_data$declarations),
         hint_inheritance = isTRUE(attr(data$type_hints, "has_inheritance", exact = TRUE)))
     if (partial_peer && is.environment(parsed)) parsed$complete_s3_view <- view
     view
@@ -550,7 +557,7 @@ s3_scoped_call <- function(document, location, context) {
         )) && identical(member_name(node[[step]][[3L]]), recovered$sentinel))) {
             node[[1L]][[3L]] <- as.name(location$call$token)
             if (identical(ast, pipe_rhs)) node <- s3_pipe_arguments(node)
-            return(list(call = node, scope = scope))
+            return(list(call = node, scope = scope, root = root, path = ast, start = recovered$start, source = recovered$source))
         }
         if (is.call(node) && step == 1L && is.symbol(node[[step]]) &&
                 identical(member_name(node[[step]]), recovered$sentinel)) {
@@ -563,7 +570,7 @@ s3_scoped_call <- function(document, location, context) {
                 ))
             }
             if (identical(ast, pipe_rhs)) node <- s3_pipe_arguments(node)
-            return(list(call = node, scope = scope, root = root, path = ast))
+            return(list(call = node, scope = scope, root = root, path = ast, start = recovered$start, source = recovered$source))
         }
         node <- node[[step]]
         ast <- c(ast, step)
@@ -675,6 +682,12 @@ resolve_s3_call <- function(uri, workspace, document, point, hover = FALSE, call
         get0(descriptor$formal, arguments, inherits = FALSE)
     }
     hints <- roxygen_inference_hints(callee$fn)
+    if (length(supplied) && isTRUE(input$reason %in% c("field", "element", "formal", "subset_receiver", "custom_subset", "shadowed_callable",
+                "no_summary:::", "no_summary:::@", "no_summary:::slot", "no_summary:::prop")) &&
+            !identical(input_expr[[1L]], quote(expr = )) && any(vapply(context$sources, function(s) isTRUE(s$member_hints), logical(1L)))) {
+        method_call <- input$reason %in% c("no_summary:::", "shadowed_callable")
+        input <- s3_apply_type_hint(input, s3_class_member_input(input_expr[[1L]], scoped, context, method_call))
+    }
     if (!is.null(hints)) {
         input <- s3_apply_type_hint(input, {
             types <- if (isTRUE(attr(hints, "roxygen_inherits", exact = TRUE))) {
@@ -737,7 +750,8 @@ resolve_s3_call <- function(uri, workspace, document, point, hover = FALSE, call
     result
 }
 
-s3_index_summary <- function(content, uri, expressions = NULL, parse_data = NULL, incomplete_lines = integer()) {
+s3_index_summary <- function(content, uri, expressions = NULL, parse_data = NULL, incomplete_lines = integer(),
+    hints = parse_data$member_data$type_hints, classes = parse_data$class_data$declarations) {
     if (!is.null(parse_data$member_data)) {
         items <- parse_data$member_data$items
         if (isTRUE(parse_data$parse_error) || !is.null(parse_data$partial_complete_roots)) {
@@ -793,6 +807,7 @@ s3_index_summary <- function(content, uri, expressions = NULL, parse_data = NULL
     inherited <- if (is.null(parse_data$member_data)) roxygen_has_inheritance(content) else
         isTRUE(attr(parse_data$member_data$type_hints, "has_inheritance", exact = TRUE))
     list(uri = uri, items = items, index = s3_source_index(items), hint_inheritance = inherited,
+        member_hints = s3_has_member_hints(hints, classes),
         content_key = parse_data$member_data$content_key %s3_or% digest::digest(content, algo = "xxhash64"))
 }
 
@@ -817,7 +832,8 @@ s3_recover_call <- function(document, location, recovered) {
     # Both the normal read and the closing-delimiter recovery retain hints on
     # the same function as its original declaration.
     hints <- document$parse_data$member_data$type_hints
-    parse_call <- if (length(hints) || any(grepl("(`", lines, fixed = TRUE)) || roxygen_has_inheritance(lines)) function(text) {
+    parse_call <- if (length(hints) || length(attr(hints, "classes", exact = TRUE)) ||
+            any(grepl("(`", lines, fixed = TRUE)) || roxygen_has_inheritance(lines)) function(text) {
         member_parse_recovered(text, NULL, start[[1L]], first_col, type_hints = hints,
             hint_comments = document$parse_data$member_data$hint_comments)
     } else str2expression

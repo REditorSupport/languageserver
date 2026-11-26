@@ -239,6 +239,19 @@ member_join <- function(a, b) {
                 (isTRUE(a$named_elements) && isTRUE(b$named_elements))) "list" else "environment"
     }
     if (isTRUE(a$s7) && isTRUE(b$s7)) value$s7 <- TRUE
+    if (length(a$slot_hints) && length(b$slot_hints)) {
+        for (key in intersect(names(a$slot_hints), names(b$slot_hints))) {
+            if (!identical(a$slot_hints[[key]], b$slot_hints[[key]])) next
+            left <- a$slots[[key]]
+            right <- b$slots[[key]]
+            # A concrete value or a deferred default on either branch can
+            # contradict the documented type on the other branch.
+            if (identical(left, right) || (is.null(left$binding_expr) && is.null(right$binding_expr) &&
+                        member_needs_call_hint(left) && member_needs_call_hint(right))) {
+                value$slot_hints[[key]] <- a$slot_hints[[key]]
+            }
+        }
+    }
     if (identical(a$r6_class, b$r6_class)) value$r6_class <- a$r6_class
     if (identical(a$r6_role, b$r6_role)) value$r6_role <- a$r6_role
     if (!is.null(a$r6_class_locked) && !is.null(b$r6_class_locked)) {
@@ -637,7 +650,7 @@ member_ambiguous_names <- function(value, sets, labels, index, bindings, accesso
             fields <- lapply(candidates, function(candidate) {
                 if (identical(accessor, "@")) return(member_slot(candidate, name, index, bindings, budget))
                 if (identical(accessor, "[[")) return(member_lookup(candidate$fields, name))
-                member_access(candidate, name, index, bindings)
+                member_access(candidate, name, index, bindings, budget)
             })
             return(isTRUE(budget$exhausted) || !all(vapply(fields, member_r6_value_equiv, logical(1L), fields[[1L]])))
         }
@@ -696,7 +709,7 @@ member_shape_key <- function(value, depth = 0L) {
         known = value$known_literal, function_key = value$function_key,
         fields = lapply(value$fields, member_shape_key, depth + 1L),
         slots = lapply(value$slots, member_shape_key, depth + 1L),
-        slot_types = value$slot_types, s4_class = value$s4_class,
+        slot_types = value$slot_types, slot_hints = value$slot_hints, s4_class = value$s4_class,
         s4_generator = value$s4_generator, s4_contains = value$s4_contains,
         s7 = value$s7, s7_descriptor = value$s7_descriptor,
         s7_storage = if (!is.null(value$s7_storage)) member_shape_key(value$s7_storage, depth + 1L),
@@ -728,7 +741,8 @@ member_cacheable <- function(value, depth = 0L) {
         return(TRUE)
     }
     if (depth > 4L || !is.null(value$origin) || isTRUE(value$open) || length(value$possible_returns) || !is.null(value$function_expr) || !is.null(value$closure) ||
-            !is.null(value$binding_cache) || !is.null(value$binding_expr) || !is.null(value$hint_types) || !is.null(value$return_evidence)) {
+            !is.null(value$binding_cache) || !is.null(value$binding_expr) || !is.null(value$hint_types) || !is.null(value$return_evidence) ||
+            !is.null(value$slot_hints)) {
         return(FALSE)
     }
     if (value$known_literal && length(value$literal) > 8L) {
@@ -784,7 +798,8 @@ member_slot <- function(value, name, index, bindings, budget = NULL) {
 }
 
 # Closures retain their receiver when selected from the object's stored fields.
-member_stored_field <- function(lhs, value) {
+member_stored_field <- function(lhs, value, index = NULL, budget = NULL) {
+    if (!is.null(value$r6_field_hint)) value <- member_r6_read_field(value, index, budget)
     if (identical(value$r6_role, "clone")) {
         if (is.null(value$receiver_value)) {
             value$receiver_value <- if (is.null(lhs$r6_self)) lhs else lhs$r6_self
@@ -852,22 +867,22 @@ member_stored_field <- function(lhs, value) {
     value
 }
 
-member_access <- function(lhs, name, index, bindings) {
+member_access <- function(lhs, name, index, bindings, budget = NULL) {
     unknown <- member_value(reason = "unsupported")
     if (is.null(name)) return(unknown)
     if (identical(lhs$reason, "type_hint_union")) {
         return(member_possible_result(lapply(lhs$possible_returns, member_access, name = name,
-                    index = index, bindings = bindings), closed = TRUE))
+                    index = index, bindings = bindings, budget = budget), closed = TRUE))
     }
     if (!is.null(lhs$s7_storage) && member_s7_reference(lhs)) {
         storage <- member_s7_environment_storage(lhs, "$", index, bindings)
-        return(if (is.null(storage)) unknown else member_access(storage, name, index, bindings))
+        return(if (is.null(storage)) unknown else member_access(storage, name, index, bindings, budget))
     }
     possible <- member_possible_receiver(lhs, index, bindings, inspect = character())
     if (!is.null(possible)) {
         if (!name %in% possible$members) return(unknown)
         return(member_possible_result(lapply(lhs$possible_returns, function(candidate) {
-            member_access(candidate, name, index, bindings)
+            member_access(candidate, name, index, bindings, budget)
         })))
     }
     if (isTRUE(lhs$column_names_only) || identical(lhs$reason, "unresolved_dollar_dispatch")) {
@@ -899,14 +914,14 @@ member_access <- function(lhs, name, index, bindings) {
     }
     value <- member_lookup(lhs$fields, name)
     if (!is.null(value)) {
-        value <- member_stored_field(lhs, value)
+        value <- member_stored_field(lhs, value, index, budget)
         if (length(value$type) || !is.null(value$function_expr) || !is.null(value$function_key) ||
                 !is.null(value$r6_owner) || !is.null(value$origin)) {
             return(value)
         }
     }
     if (length(lhs$type) > 1L) {
-        return(Reduce(member_join, lapply(lhs$type, function(type) member_access(member_value(type = type), name, index, bindings))))
+        return(Reduce(member_join, lapply(lhs$type, function(type) member_access(member_value(type = type), name, index, bindings, budget))))
     }
     property <- member_lookup(member_lookup(index$properties, lhs$type), name)
     if (!is.null(property)) {
@@ -1327,7 +1342,7 @@ member_infer <- function(
         env
     }
     apply_function <- function(key = NULL, self = NULL, actuals = list(),
-        fn = NULL, lexical = package_env, dispatch = NULL, r6_initialize = FALSE) {
+        fn = NULL, lexical = package_env, dispatch = NULL, r6_initialize = FALSE, fallback_result = NULL) {
         if (!is.null(key)) {
             aliases <- character()
             while (is.symbol(member_lookup(index$definitions, key))) {
@@ -1448,7 +1463,7 @@ member_infer <- function(
                 r6_initialize = r6_initialize,
                 namespace_code = !is.null(index$package) && is.null(index$document_bindings))
             if (is.null(key) && !is.null(index$dispatch_document)) ctx$caller <- bindings
-            if (!r6_initialize && length(hints$returns) && !isTRUE(budget$track_returns)) {
+            if (!r6_initialize && (length(hints$returns) || !is.null(fallback_result)) && !isTRUE(budget$track_returns)) {
                 budget$track_returns <- TRUE
                 on.exit(budget$track_returns <- NULL, add = TRUE)
             }
@@ -1458,6 +1473,8 @@ member_infer <- function(
             )
             if (!r6_initialize && length(hints$returns)) {
                 result <- member_refine_call_hint(result, hints$returns, index, lexical, budget)
+            } else if (!is.null(fallback_result)) {
+                result <- member_refine_class_hint(result, fallback_result, index, budget)
             }
         }
         if (!is.null(cache_key) && !budget$exhausted && !isTRUE(budget$transient) && is.null(result$function_expr)) {
@@ -1594,7 +1611,7 @@ member_infer <- function(
     }
     if (member_head(expr, "$")) {
         lhs <- infer(expr[[2L]])
-        out <- member_access(lhs, member_name(expr[[3L]]), index, bindings)
+        out <- member_access(lhs, member_name(expr[[3L]]), index, bindings, budget)
         key <- member_key(expr)
         if (!identical(lhs$reason, "type_hint_union") && !length(out$type) && is.null(out$function_key) && !is.null(key) &&
                 key %in% names(index$definitions) && !member_name(expr[[2L]]) %in% names(bindings)) {
@@ -1641,9 +1658,9 @@ member_infer <- function(
                     # Default [[ selects exact storage. Special $ methods can
                     # expose additional names that do not exist in that storage.
                     field <- member_lookup(lhs$fields, name)
-                    return(if (is.null(field)) unknown else member_extracted_callable(member_stored_field(lhs, field)))
+                    return(if (is.null(field)) unknown else member_extracted_callable(member_stored_field(lhs, field, index, budget)))
                 }
-                return(member_access(lhs, name, index, bindings))
+                return(member_access(lhs, name, index, bindings, budget))
             }
             if (head == "[[" && !is.null(elements) && is.numeric(name) &&
                     name >= 1L && name <= length(elements)) {
@@ -2091,7 +2108,18 @@ member_infer <- function(
     if (!is.null(callee$s7_generator)) {
         return(member_s7_construct(callee, actuals, index, bindings, budget))
     }
-    if (!is.null(callee$s7_dispatch_args)) return(unknown)
+    if (!is.null(callee$s7_dispatch_args)) {
+        fallback <- callee$s7_return_hint
+        if (is.null(fallback) && !isTRUE(callee$s7_typed_methods)) return(unknown)
+        if (open_dots) return(unknown)
+        supplied <- member_s7_match(actuals, names(callee$function_expr[[2L]]))
+        if (is.null(supplied) || !all(callee$s7_dispatch_args %in% names(supplied$args))) return(unknown)
+        if (isTRUE(budget$class_hint_probe)) budget$used_method_result <- TRUE
+        selected <- member_s7_exact_method(callee, supplied$args, budget, require_certain = TRUE)
+        if (is.null(selected$implementation)) return(member_refine_class_hint(unknown, fallback, index, budget))
+        callee <- selected$implementation
+        if (!is.null(fallback)) callee$s7_call_return <- fallback
+    }
     if (!is.null(callee$s4_generator)) {
         return(member_s4_construct(callee$s4_generator, actuals, index, bindings, budget))
     }
@@ -2164,6 +2192,8 @@ member_infer <- function(
         return(namespace_call(actuals))
     }
     if (!is.null(callee$function_expr)) {
+        if (isTRUE(budget$class_hint_probe) && !is.null(callee$r6_owner) &&
+                length(roxygen_inference_hints(callee$function_expr)$returns)) budget$used_method_result <- TRUE
         if (!is.null(callee$function_uri) && !identical(callee$function_uri, index$source_uri)) {
             # Arguments were inferred at the call site. Interpret the source
             # body and its documented class names in the defining file.
@@ -2181,7 +2211,7 @@ member_infer <- function(
         env <- callee$closure
         if (!is.null(callee$receiver_name)) env[callee$receiver_name] <- list(callee$receiver_value)
         return(apply_function(actuals = actuals, fn = callee$function_expr, lexical = env,
-                r6_initialize = isTRUE(callee$r6_initialize)))
+                r6_initialize = isTRUE(callee$r6_initialize), fallback_result = callee$s7_call_return))
     }
     key <- callee$function_key
     # Follow named aliases with the original abstract arguments intact.
