@@ -264,7 +264,7 @@ member_parse_recovered <- function(lines, uri, row, col = 0L, edit = NULL, type_
     origins <- !is.null(uri) && any(grepl("=|<-|->", lines))
     # A bounded fragment may begin inside a multiline literal. Only comments
     # actually seen by the document's lexer can add types during repair.
-    local_hints <- length(hint_comments) > 0L && roxygen_has_type_span(lines)
+    local_hints <- length(hint_comments) > 0L && (roxygen_has_type_span(lines) || roxygen_has_inheritance(lines))
     typed <- (length(type_hints) || local_hints) && any(grepl("function|\\\\", lines))
     if (!origins && !typed) return(str2expression(lines))
     parsed <- parse(text = normalize_parse_content(lines), keep.source = TRUE)
@@ -273,9 +273,18 @@ member_parse_recovered <- function(lines, uri, row, col = 0L, edit = NULL, type_
         # A fragment can recover a declaration omitted from the document's
         # partial syntax. Its own comment tokens and srcrefs use local offsets.
         if (local_hints) {
-            local <- member_roxygen_type_index(attr(parsed, "srcfile")$lines, utils::getParseData(parsed),
-                allowed_comments = hint_comments - row)
-            parsed <- member_attach_type_hints(parsed, local)
+            local <- member_roxygen_type_index(attr(parsed, "srcfile")$lines, utils::getParseData(parsed), row,
+                allowed_comments = hint_comments - row, uri = attr(type_hints, "uri", exact = TRUE), col_offset = col)
+            # The verified document index can lack a function whose body has
+            # not closed yet. Its recovered header supplies its own local tags;
+            # donor topics still come from the document/workspace index.
+            missing <- setdiff(names(local), names(attr(type_hints, "topics", exact = TRUE)))
+            for (key in missing) {
+                if (isTRUE(attr(local[[key]], "roxygen_inherits"))) {
+                    attr(local[[key]], "roxygen_record") <- attr(local, "topics", exact = TRUE)[[key]]
+                }
+            }
+            parsed <- member_attach_type_hints(parsed, local, row, col)
         }
     }
     if (origins) parsed <- member_source_origins(parsed, NULL, uri, row, col, edit = edit)
@@ -317,9 +326,18 @@ roxygen_type_generator_at <- function(workspace, document, site, name, declarati
     parsed <- document$parse_data
     data <- parsed$member_data
     unknown <- member_value(reason = "incomplete_type_hint")
-    if (!length(data$type_hints) || !identical(document$version, parsed$version) ||
+    if (is.null(data$type_hints) || !identical(document$version, parsed$version) ||
             !identical(document$content, document$parsed_content)) return(unknown)
     point <- c(site$function_row, site$function_col)
+    if (isTRUE(site$doc_only)) {
+        budget <- member_request_budget()
+        index <- member_context_index(workspace, document$uri, document, point, referenced = member_type_dependencies(site$type))
+        parts <- strsplit(site$type, "::", fixed = TRUE)[[1L]]
+        value <- member_type_generator(name, if (length(parts) == 2L) parts[[1L]], index, list(.__member_position__ = point), budget)
+        if (isTRUE(budget$exhausted) || isTRUE(budget$transient) ||
+                identical(value$reason, "binding_recursion")) return(member_value(reason = "type_hint_budget"))
+        return(value)
+    }
     i <- member_history_position(data$items, point) + 1L
     item <- if (i <= length(data$items)) data$items[[i]]
     valid <- length(item) && member_before(item$start, point)
@@ -395,8 +413,7 @@ roxygen_type_generator_at <- function(workspace, document, site, name, declarati
     index <- member_context_index(workspace, document$uri, document, start, referenced = referenced)
     parts <- strsplit(site$type, "::", fixed = TRUE)[[1L]]
     if (length(parts) == 2L) {
-        value <- if (identical(parts[[1L]], index$document_package)) member_project_type_generator(name, index, budget)
-        else member_lookup(member_lookup(index$namespace_indices, parts[[1L]])$roots, name)
+        value <- member_type_generator(name, parts[[1L]], index, list(), budget)
     } else {
         value <- member_cursor_value(expr, sentinel, index, list(.__member_position__ = start), budget,
             name = name, accessor = NULL, path = path, source = source, before_formals = valid)

@@ -105,6 +105,40 @@ The roxygen benchmark times a deep annotated expression, annotation attachment
 in increasingly wide function bodies, and single-label completion on S4
 classes with 100 inherited slots and computed prototypes.
 
+### Inherited parameter hints
+
+The completion workload selects among four unknown arguments and completes
+`picked$step()$` on the resulting R6 instance. The direct case documents all
+four types on the consumer. All variants keep the same donor declarations.
+The one-donor case inherits all four from one topic.
+The four-branch case inherits each argument through a separate six-hop path
+to the same donor. Each variant must return `clone`, `label`, and `step` with
+the same completion kinds, details, documentation and inserted text.
+
+The first request uses a freshly parsed document in an initialized process.
+The next cursor completes the same expression on the following line, with
+documentation caches warm. The repeat column averages 20 requests at that
+second cursor. Times exclude parsing, workspace setup and editor transport.
+These are macOS arm64, R 4.6.1 elapsed medians from three serial runs per
+revision, with five samples per run.
+
+| Installed version and completion workload | First (ms) | Next cursor (ms) | Repeat (ms) |
+| --- | ---: | ---: | ---: |
+| `9e0c2ea`, direct | 1.49 | 1.34 | 0.57 |
+| With inheritance support, direct | 1.55 | 1.39 | 0.56 |
+| With inheritance support, one donor | 1.90 | 1.50 | 0.50 |
+| With inheritance support, four branches | 2.76 | 1.49 | 0.50 |
+
+The package workload resolves four prose-only donors and a typed fallback from
+shallow-indexed files. The four prose descriptions consume their parameters.
+The lookup must return only the fifth parameter's type and the fallback donor's
+URI. With four prose topics in the package, first/repeat lookup took
+0.892/0.099 ms. With 512 topics it took 0.873/0.094 ms. Building the shallow
+summaries for those 512 prose-only functions across 32 files took 102 ms on
+`9e0c2ea` and 115 ms with inheritance support. The script reports inherited
+workloads as unavailable on older installations and still measures the direct
+completion and shallow indexing on `9e0c2ea`.
+
 ## Completion label details
 
 See the [completion label-details benchmark](completion-label-details.md) for

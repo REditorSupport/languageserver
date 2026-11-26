@@ -113,8 +113,11 @@ workspace_did_change_configuration <- function(self, params) {
                 previous_members != isTRUE(lsp_settings$get("member_completion"))) &&
             !is.null(self$resolve_task_manager)) {
         for (workspace in self$workspaces$values()) {
-            if (previous_s3 && !isTRUE(lsp_settings$get("s3_dispatch")) && !is.null(workspace$s3_hint_workers)) {
-                for (owner in workspace$s3_hint_workers$keys()) s3_wake_hint_dependents(self, workspace, owner, forget = TRUE)
+            if (!is.null(workspace$s3_hint_workers)) {
+                disabled <- !isTRUE(lsp_settings$get("s3_dispatch")) && !isTRUE(lsp_settings$get("member_completion"))
+                for (owner in workspace$s3_hint_workers$keys()) {
+                    s3_wake_hint_dependents(self, workspace, owner, forget = disabled, recheck = TRUE)
+                }
             }
             for (document in workspace$documents$values()) {
                 # Remember changed preparation modes while an in-flight or

@@ -286,10 +286,14 @@ Film <- R6::R6Class("Film", public = list(title = "The garden", minutes = 12L))
 #' @param item (`Book | Film`) Item to display.
 item_title <- function(item) item$title
 
+#' @inheritParams item_title
+has_title <- function(item) nzchar(item$title)
+
 #' @return (`Book`) The book stored in the serialized bytes.
 decode_book <- function(bytes) unserialize(bytes)
 
 item_title(Film$new())                          # "The garden"
+has_title(Book$new())                           # TRUE
 bytes <- serialize(Book$new(), NULL)
 decode_book(bytes)$pages                        # 80L
 ```
@@ -299,6 +303,18 @@ it. After `decode_book(bytes)$`, completion also offers `pages`. The server can
 resolve these members without executing `unserialize()`. When the body itself
 reveals a more specific result, such as a list with known fields, the providers
 keep that information. A later assignment updates the inferred type.
+
+`has_title()` inherits the same union for `item` from `item_title()`. The server
+follows `@inheritParams` between source topics in the same file or indexed
+package, including unsaved edits. The class names resolve where the parameter
+was documented. A local `@param` takes precedence, even if it contains only
+prose. With multiple donors, the first applicable description wins. Parameter
+inheritance also supports named selections such as `@inheritParams item_title item`,
+exclusions, and ranges of documented names. Grouped parameters are inherited
+together. Return hints are declared separately. A donor must have a unique
+source topic, usually its function name. The lookup skips `@noRd` donors,
+external installed topics and multi-block shared help pages. Reading these
+hints works without installing `roxygen2`.
 
 Renaming the `Book` generator updates its names in both type annotations.
 An ordinary comment or blank line between a roxygen block and the function

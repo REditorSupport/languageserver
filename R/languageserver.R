@@ -639,10 +639,15 @@ LanguageServer <- R6::R6Class("LanguageServer",
         },
         start_index_progress = function(workspace) private$start_workspace_progress(workspace),
 
-        queue_context_reply = function(uri, workspace, helpers = NULL) {
+        queue_context_reply = function(uri, workspace, helpers = NULL, topic_root = NULL, request_id = NULL, version = NULL) {
             if (is.null(self$context_replies)) self$context_replies <- collections::dict()
-            key <- paste0(if (length(helpers)) "helpers:" else "sources:", uri)
-            self$context_replies$set(key, list(uri = uri, workspace = workspace, helpers = helpers))
+            key <- if (is.null(topic_root)) {
+                paste0(if (length(helpers)) "helpers:" else "sources:", uri)
+            } else {
+                paste("topics", uri, topic_root, if (is.null(request_id)) "" else request_id_key(request_id), sep = "\n")
+            }
+            self$context_replies$set(key, list(uri = uri, workspace = workspace, helpers = helpers,
+                    topic_root = topic_root, request_id = request_id, version = version))
             invisible(NULL)
         },
 
@@ -657,7 +662,13 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     self$context_replies$remove(key)
                     next
                 }
-                waiting <- if (length(pending$helpers)) {
+                if (!is.null(pending$request_id) && !s3_pending_hint_request(self, uri, request_id_key(pending$request_id), pending$version)) {
+                    self$context_replies$remove(key)
+                    next
+                }
+                waiting <- if (!is.null(pending$topic_root)) {
+                    workspace$index$package_topics_pending(pending$topic_root)
+                } else if (length(pending$helpers)) {
                     isTRUE(workspace$index$enabled) && workspace$index$helpers_pending(pending$helpers)
                 } else {
                     source_context_waiting(workspace, document)

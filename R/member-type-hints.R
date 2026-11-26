@@ -4,7 +4,7 @@ member_builtin_hint_types <- c("NULL", "logical", "integer", "numeric", "double"
 # Only class names that can come from an imported package need its model.
 member_type_hint_packages <- function(parsed) {
     data <- parsed$member_data
-    types <- unique(unlist(data$type_hints, use.names = FALSE))
+    types <- roxygen_declared_types(data$type_hints)
     declarations <- parsed$class_data$declarations
     local <- vapply(declarations, `[[`, "", "name")
     lapply(stats::setNames(types, types), function(type) {
@@ -37,6 +37,14 @@ member_is_class_generator <- function(value) {
         !is.null(value$s4_generator) || !is.null(value$s7_generator)
 }
 
+member_type_generator <- function(name, package, index, bindings, budget) {
+    if (is.null(package)) return(member_infer(as.name(name), index, bindings, budget = budget))
+    if (identical(package, index$document_package)) return(member_project_type_generator(name, index, budget))
+    catalog <- member_lookup(index$namespace_indices, package)
+    if (is.null(catalog) && identical(package, index$package)) catalog <- index
+    member_lookup(catalog$roots, name)
+}
+
 # A type name describes an instance. Read generator and class metadata without
 # calling constructors or inspecting the user's session.
 member_hinted_value <- function(types, index, bindings, budget) {
@@ -52,18 +60,8 @@ member_hinted_value <- function(types, index, bindings, budget) {
         name <- utils::tail(parts, 1L)
         package <- if (length(parts) == 2L) parts[[1L]]
         project <- !is.null(package) && identical(package, index$document_package)
-        if (project) {
-            # A qualification names a package binding, even inside a function
-            # which shadows it. Read the package scope, including peer files.
-            bindings <- list()
-            generator <- member_project_type_generator(name, index, budget)
-        } else if (is.null(package)) {
-            generator <- member_infer(as.name(name), index, bindings, budget = budget)
-        } else {
-            catalog <- member_lookup(index$namespace_indices, package)
-            if (is.null(catalog) && identical(package, index$package)) catalog <- index
-            generator <- member_lookup(catalog$roots, name)
-        }
+        if (project) bindings <- list()
+        generator <- member_type_generator(name, package, index, bindings, budget)
         if (identical(generator$r6_role, "generator")) return(generator$fields$new$result_shape)
         if (!is.null(generator$refclass_instance)) return(generator$refclass_instance)
         if (!is.null(generator$s7_generator)) return(member_s7_shape(generator$s7_generator, generator$closure))
@@ -119,7 +117,7 @@ member_needs_call_hint <- function(value) {
 
 member_refine_call_hint <- function(value, types, index, lexical, budget) {
     if (!length(types) || !member_needs_call_hint(value) || isTRUE(budget$exhausted)) return(value)
-    hint <- member_hinted_value(types, index, lexical, budget)
+    hint <- member_parameter_hint_value(types, index, lexical, budget)
     if (is.null(hint) || (length(value$type) && !identical(value$type, hint$type))) return(value)
     if (!is.null(value$return_evidence)) return(member_join(value$return_evidence, hint))
     hint
