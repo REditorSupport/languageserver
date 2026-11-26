@@ -67,6 +67,25 @@ test_that("partial member parses retain the original function's annotation", {
     }
 })
 
+test_that("member tags attach to their matching factory and named inline entry", {
+    code <- c("outer <- function() {",
+        "  #' @slot header", "  #'   (`pkg::Record | NULL`) Contents.",
+        '  S <- methods::setClass("Sheet", slots = list(header = "ANY",',
+        "    #' @slot body (`Part`)", '    body = "ANY"))',
+        "  #' @prop Panel@width (`Size`)", "  #' @prop Other@height (`Unrelated`)",
+        '  P <- S7::new_class("Panel", properties = list(width = S7::class_any,',
+        "    #' @prop extra (`Item`)", "    extra = S7::class_any))", "}",
+        "x <- list(", "  #' @field y (`Ignored`)", "  y = NULL)",
+        "#' @slot value (`Ignored`)", 'other::setClass("Wrong", slots = list(value = "ANY"))')
+    d <- parse_document("file:///member-tags.R", code)$member_data
+    body <- d$bindings$outer[[1L]]$expr[[3L]]
+    hints <- function(node) attr(node, "member_class_hints", exact = TRUE)
+    expect_identical(hints(body[[2L]][[3L]])$slot, list(header = c("pkg::Record", "NULL"), body = "Part"))
+    expect_identical(hints(body[[3L]][[3L]])$prop, list(width = "Size", extra = "Item"))
+    expect_setequal(roxygen_declared_types(d$type_hints), c("pkg::Record", "NULL", "Part", "Size", "Item"))
+    expect_true(all(c("pkg", "Item", "Part") %in% member_syntax_names(d$bindings$outer[[1L]]$expr)))
+})
+
 test_that("an unfinished annotated function keeps package hints within its R cell", {
     lines <- c("#' @param data (`pkg::Frame`)", "f <- function(data) data$")
     standalone <- parse_document("file:///typing.R", lines)$member_data

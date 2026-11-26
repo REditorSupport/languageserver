@@ -7,10 +7,18 @@
   Renaming a generator updates its references in type annotations.
   A function can also use `@inheritParams` to share argument hints with a
   source topic in the same file or package. Explicit local parameter
-  documentation takes precedence.
+  documentation takes precedence. R6 `@field`, S4 `@slot` and S7 `@prop`
+  support the same syntax. In the example below, completion inside
+  `stored_value()` follows the `ANY` slot and offers the box's `value` field.
 
   ```r
   Box <- R6::R6Class("Box", public = list(value = 1L))
+
+  #' @slot contents (`Box`) The stored box.
+  Crate <- methods::setClass("Crate", slots = c(contents = "ANY"))
+  #' @param crate (`Crate`) A crate to inspect.
+  stored_value <- function(crate) crate@contents$value
+  stored_value(Crate(contents = Box$new()))  # 1L
 
   #' @param box (`Box`) A box to copy.
   #' @return (`Box`) A copy of the box.

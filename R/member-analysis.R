@@ -157,6 +157,7 @@ member_binding_cacheable <- function(value, depth = 0L) {
     if (is.null(value)) return(TRUE)
     if (depth > 8L || !is.null(value$origin) || !is.null(value$function_expr) || !is.null(value$closure) ||
             !is.null(value$binding_cache) || !is.null(value$binding_expr) || !is.null(value$binding_env) || !is.null(value$return_evidence) ||
+            !is.null(value$slot_hints) ||
             !is.null(value$r6_class) || !is.null(value$r6_identity) || !is.null(value$r6_role) ||
             !is.null(value$s7_descriptor) || !is.null(value$s7_generator) || !is.null(value$s4_generator) || !is.null(value$s4_contains) ||
             (!is.null(value$function_key) && is.null(value$metadata)) ||
@@ -241,6 +242,7 @@ member_parameter_hints <- function(hints, formals) {
 
 member_parameter_hint_value <- function(types, index, lexical, budget) {
     if (!is.list(types)) return(member_hinted_value(types, index, lexical, budget))
+    if (!is.null(types$r6_hint)) return(member_refine_class_hint(member_value(), types$r6_hint, index, budget))
     workspace <- index$dispatch_workspace
     if (is.null(workspace)) workspace <- budget$inherit_workspace
     if (is.null(workspace) || isTRUE(budget$exhausted)) return(NULL)

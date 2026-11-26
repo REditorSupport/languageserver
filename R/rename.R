@@ -324,7 +324,8 @@ rename_reply <- function(id, uri, workspace, document, point, newName) {
     result <- lapply(groups, function(indices) {
         lapply(refs$result[indices], function(ref) {
             quote <- attr(ref, "spelling", exact = TRUE)
-            text <- if (isTRUE(attr(ref, "roxygen_type", exact = TRUE))) newName else
+            roxygen_label <- attr(ref, "roxygen_label", exact = TRUE)
+            text <- if (!is.null(roxygen_label)) roxygen_label else if (isTRUE(attr(ref, "roxygen_type", exact = TRUE))) newName else
                 if (length(quote) && nzchar(quote)) encodeString(newName, quote = quote) else replacement
             fragment <- attr(ref, "fragment", exact = TRUE)
             if (!is.null(fragment)) text <- glue_encode_text(fragment, text)

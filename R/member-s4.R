@@ -143,6 +143,8 @@ member_s4_recipe <- function(expr, index, bindings) {
     }
     recipe <- list(name = name, slots = slots, origins = origins, contains = setdiff(contains, "VIRTUAL"),
         virtual = "VIRTUAL" %in% contains, defaults = defaults, complete = complete)
+    hints <- attr(expr, "member_class_hints", exact = TRUE)$slot
+    if (length(hints)) recipe$slot_hints <- lapply(hints, member_class_hint, index, bindings)
     recipe$bridge <- bridge
     recipe$class_origin <- attr(expr, "class_origin", exact = TRUE)
     recipe
@@ -168,8 +170,9 @@ member_s4_descriptor <- function(name, index, bindings, package = NULL, budget =
     declarations <- member_lookup(index$document_s4, name)
     for (item in rev(declarations)) {
         if (!member_before(item$end, at)) next
-        env <- bindings
-        env$.__member_position__ <- item$start
+        # A top-level declaration uses its own file scope. Caller-local class
+        # recipes and bindings can have different meanings at this read.
+        env <- list(.__member_position__ = item$start)
         expr <- item$expr
         if (!is.null(budget$origin_name) && !is.null(budget$document)) {
             # Resolve the declaration at the version/position chosen by inference.
@@ -243,6 +246,7 @@ member_s4_shape <- function(name, index, bindings, package = NULL, trail = chara
         })))
     }
     slots <- defaults <- origins <- list()
+    hints <- NULL
     collect_path <- length(budget$resolving_hints) > 0L
     if (collect_path) paths <- stats::setNames(vector("list", length(descriptor$contains)), descriptor$contains)
     s7_parent <- NULL
@@ -254,6 +258,7 @@ member_s4_shape <- function(name, index, bindings, package = NULL, trail = chara
         inherited <- member_s7_shape(parent, bridge$bindings)
         slots <- inherited$slot_types
         defaults <- inherited$slots
+        hints <- parent$slot_hints
         for (key in names(parent$properties)) origins[[key]] <- parent$properties[[key]]$origin
     }
     for (parent in descriptor$contains) {
@@ -277,18 +282,28 @@ member_s4_shape <- function(name, index, bindings, package = NULL, trail = chara
         if (!is.null(bridge)) {
             s7_parent <- if (is.null(s7_parent) || identical(s7_parent, bridge)) bridge else FALSE
         }
+        inherited_hints <- inherited$slot_hints
+        if (length(hints) || length(inherited_hints)) {
+            for (key in intersect(names(slots), names(inherited$slot_types))) {
+                if (!identical(hints[[key]], inherited_hints[[key]])) inherited_hints[[key]] <- FALSE
+            }
+            hints[names(inherited_hints)] <- inherited_hints
+        }
         slots <- utils::modifyList(slots, inherited$slot_types)
         origins[names(inherited$slot_origins)] <- inherited$slot_origins
         if (!is.null(inherited$slots)) defaults <- utils::modifyList(defaults, inherited$slots)
     }
     slots <- utils::modifyList(slots, descriptor$slots)
+    if (length(hints)) hints[names(descriptor$slots)] <- NULL
+    if (length(descriptor$slot_hints)) hints[names(descriptor$slot_hints)] <- descriptor$slot_hints
     origins[names(descriptor$slots)] <- NULL
     origins[names(descriptor$origins)] <- descriptor$origins
     if (length(slots) > 256L) return(member_value(reason = "s4_slot_limit"))
     for (slot in intersect(names(descriptor$defaults), names(slots))) {
         # Prototype declarations supply syntax, not evaluated default objects.
         if (identical(descriptor$defaults[[slot]], quote(expr = ))) next
-        defaults[slot] <- list(member_value(binding_expr = descriptor$defaults[[slot]], binding_env = bindings))
+        expr <- descriptor$defaults[[slot]]
+        defaults[[slot]] <- if (is.null(expr)) member_literal(NULL) else member_value(binding_expr = expr, binding_env = bindings)
     }
     owner <- if (is.null(descriptor$package)) package else descriptor$package
     result <- member_value(type = name, s4_class = list(name = name, package = owner), slot_types = slots, slots = defaults)
@@ -302,6 +317,14 @@ member_s4_shape <- function(name, index, bindings, package = NULL, trail = chara
     result$s4_class$origin <- descriptor$class_origin
     result$s4_class$s7_parent <- s7_parent
     if (length(origins)) result$slot_origins <- origins
+    if (length(hints)) {
+        # Two parents can document one slot differently. Only the child's own
+        # declaration can disambiguate it; concrete slot classes always win.
+        keys <- intersect(names(slots), names(hints))
+        unconstrained <- vapply(slots[keys], function(type) identical(as.character(type), "ANY"), logical(1L))
+        hints <- hints[keys[unconstrained]]
+        if (length(hints)) result$slot_hints <- hints
+    }
     result
 }
 
@@ -341,6 +364,10 @@ member_s4_slot <- function(value, name, index, bindings, budget = NULL) {
         budget$s4_slots <- c(trail, key)
         on.exit(budget$s4_slots <- trail)
         actual <- member_infer(actual$binding_expr, index, actual$binding_env, budget = budget)
+    }
+    hint <- value$slot_hints[[name]]
+    if (is.list(hint)) {
+        return(member_refine_class_hint(if (is.null(actual)) member_value() else actual, hint, index, budget))
     }
     if (!is.null(actual) && (length(actual$type) || !is.null(actual$function_expr))) return(actual)
     shapes <- lapply(member_s4_types(type, value$s4_class$package), function(class) {

@@ -265,7 +265,9 @@ member_parse_recovered <- function(lines, uri, row, col = 0L, edit = NULL, type_
     # A bounded fragment may begin inside a multiline literal. Only comments
     # actually seen by the document's lexer can add types during repair.
     local_hints <- length(hint_comments) > 0L && (roxygen_has_type_span(lines) || roxygen_has_inheritance(lines))
-    typed <- (length(type_hints) || local_hints) && any(grepl("function|\\\\", lines))
+    typed <- ((length(type_hints) || local_hints) && any(grepl("function|\\\\", lines))) ||
+        ((length(attr(type_hints, "classes", exact = TRUE)) || local_hints) &&
+                any(grepl("R6Class|setClass|new_class|new_generic", lines)))
     if (!origins && !typed) return(str2expression(lines))
     parsed <- parse(text = normalize_parse_content(lines), keep.source = TRUE)
     if (typed) {
@@ -364,7 +366,12 @@ roxygen_type_generator_at <- function(workspace, document, site, name, declarati
         }
         item_key <- paste0("hint-paths:", i)
         paths <- memo[[item_key]]
-        if (is.null(paths)) {
+        class <- attr(data$type_hints, "classes", exact = TRUE)[[paste(point + 1L, collapse = ":")]]
+        if (!is.null(class)) {
+            anchor <- paste(item$start + 1L, collapse = ":")
+            if (!anchor %in% names(class$anchors)) return(unknown)
+            path <- c(1L, class$anchors[[anchor]])
+        } else if (is.null(paths)) {
             hints <- data$type_hints
             offset <- if (is.null(item$hint_row_offset)) 0L else item$hint_row_offset
             plan <- .Call("member_hint_paths_c", expr, attr(hints, "rows"), attr(hints, "cols"),
@@ -383,7 +390,7 @@ roxygen_type_generator_at <- function(workspace, document, site, name, declarati
             names(paths) <- names(hints)[plan[hits, 3L]]
             memo[[item_key]] <- paths
         }
-        path <- paths[[paste(point + 1L, collapse = ":")]]
+        if (is.null(class)) path <- paths[[paste(point + 1L, collapse = ":")]]
         if (!length(path)) return(unknown)
         start <- item$start
     }
