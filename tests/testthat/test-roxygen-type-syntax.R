@@ -93,7 +93,7 @@ test_that("ordinary code and Markdown in strings never request or supply types",
     expect_false(parse_document("file:///string.R", multiline)$member_data$has_type_hints)
 })
 
-test_that("multiline Unicode annotations attach to their declarations", {
+test_that("verified type occurrences retain their own code-point ranges and declaration", {
     lines <- c("\t#' @param Pipeline,other (`fixture::Pipeline |", "\t#'   Π`) Pipeline in prose.",
         "\t# ordinary comment", "  ", "\t#' @param `a b` (`Local`)",
         "\t#' @returns (`fixture::Pipeline`)", "# another comment", "",
@@ -102,11 +102,16 @@ test_that("multiline Unicode annotations attach to their declarations", {
         "#' @return (`Wrong`)", "", "standalone <- 1L", "next_fun <- function() NULL")
     parsed <- parse_document("file:///ranges.R", lines)
     index <- parsed$member_data$type_hints
-    expect_length(index, 2L)
-    expect_identical(index[[1L]]$params, list(Pipeline = c("fixture::Pipeline", "Π"),
-            other = c("fixture::Pipeline", "Π"), `a b` = "Local"))
-    expect_identical(index[[1L]]$returns, "fixture::Pipeline")
-    expect_identical(index[[2L]]$returns, "Nested")
+    occurrences <- attr(index, "occurrences", exact = TRUE)
+    expect_identical(occurrences$type, c("fixture::Pipeline", "Π", "Local", "fixture::Pipeline", "Nested"))
+    expect_identical(occurrences$parameter, c("Pipeline,other", "Pipeline,other", "`a b`", NA, NA))
+    expect_identical(occurrences$function_row, c(8L, 8L, 8L, 8L, 10L))
+    expect_identical(occurrences$row, c(0L, 1L, 4L, 5L, 9L))
+    expect_identical(substr(lines[occurrences$row + 1L], occurrences$start + 1L, occurrences$end),
+        c("Pipeline", "Π", "Local", "Pipeline", "Nested"))
+    expect_identical(occurrences$start[[1L]], as.integer(regexpr("fixture::", lines[[1L]], fixed = TRUE)) + nchar("fixture::") - 1L)
+    expect_true(all(substr(lines[occurrences$function_row + 1L], occurrences$function_col + 1L,
+                occurrences$function_col + nchar("function")) == "function"))
     expect_null(attr(parsed$member_data$bindings$next_fun[[1L]]$expr, "member_type_hints", exact = TRUE))
     tab <- c("#' @param `a\tb` (`Π`)", "f <- function(`a\tb`) NULL")
     tab_index <- parse_document("file:///quoted-tab.R", tab)$member_data$type_hints

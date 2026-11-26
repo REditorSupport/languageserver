@@ -282,6 +282,132 @@ member_parse_recovered <- function(lines, uri, row, col = 0L, edit = NULL, type_
     member_strip_srcref(parsed)
 }
 
+# Recover only the lexical prefix of a documented function. Its own unfinished
+# body cannot affect the enclosing binding. Start at a verified top-level or
+# cell boundary; skipping an uncertain outer scope could select the wrong class.
+roxygen_partial_type_scope <- function(document, site, complete, items, i) {
+    point <- c(site$function_row, site$function_col)
+    before <- complete[complete < i]
+    start <- if (length(before)) items[[before[[length(before)]]]]$end else c(0L, 0L)
+    if (document$is_rmarkdown) {
+        cell <- literate_r_cell_at(document$regions, point[[1L]])
+        if (is.null(cell)) return(NULL)
+        if (start[[1L]] < cell$body_start - 1L) start <- c(cell$body_start - 1L, 0L)
+    }
+    if (point[[1L]] - start[[1L]] > 128L || !member_before(start, point)) return(NULL)
+    lines <- document$content[seq.int(start[[1L]], point[[1L]]) + 1L]
+    if (sum(nchar(lines, type = "bytes")) > 65536L) return(NULL)
+    sentinel <- ".__roxygen_type_scope__"
+    if (any(grepl(sentinel, lines, fixed = TRUE))) return(NULL)
+    last <- length(lines)
+    keyword <- substring(lines[[last]], point[[2L]] + 1L)
+    if (!startsWith(keyword, "function") && !startsWith(keyword, "\\")) return(NULL)
+    lines[[last]] <- paste0(substr(lines[[last]], 1L, point[[2L]]), "function() ", sentinel)
+    lines[[1L]] <- sub("^\\h*;", "", substring(lines[[1L]], start[[2L]] + 1L), perl = TRUE)
+    lines[[last]] <- paste0(lines[[last]], missing_closing_delimiters(lines))
+    expr <- tryCatch(str2expression(lines), error = function(e) NULL)
+    path <- member_cursor_path(expr, sentinel, NULL)
+    if (length(path)) list(expr = expr, path = path, start = start, sentinel = sentinel)
+}
+
+# Resolve a class spelling at the owning function, before its formals shadow
+# the enclosing scope. Classification needs only ordinary source ASTs. Share
+# the memo across one request to reuse paths and stable generator bindings.
+roxygen_type_generator_at <- function(workspace, document, site, name, declarations = new.env(parent = emptyenv())) {
+    parsed <- document$parse_data
+    data <- parsed$member_data
+    unknown <- member_value(reason = "incomplete_type_hint")
+    if (!length(data$type_hints) || !identical(document$version, parsed$version) ||
+            !identical(document$content, document$parsed_content)) return(unknown)
+    point <- c(site$function_row, site$function_col)
+    i <- member_history_position(data$items, point) + 1L
+    item <- if (i <= length(data$items)) data$items[[i]]
+    valid <- length(item) && member_before(item$start, point)
+    if (isTRUE(parsed$parse_error) || length(parsed$partial_incomplete_lines)) {
+        complete <- member_complete_item_ids(parsed)
+        valid <- valid && i %in% complete
+    }
+    sentinel <- ".__roxygen_type__"
+    source <- NULL
+    if (!valid) {
+        if (!isTRUE(parsed$parse_error) && !length(parsed$partial_incomplete_lines)) return(unknown)
+        recovered <- roxygen_partial_type_scope(document, site, complete, data$items, i)
+        if (is.null(recovered)) return(unknown)
+        expr <- recovered$expr
+        path <- recovered$path
+        start <- recovered$start
+        sentinel <- recovered$sentinel
+    } else {
+        expr <- as.expression(list(item$expr))
+        memo <- declarations[[document$uri]]
+        if (is.null(memo)) {
+            memo <- new.env(parent = emptyenv())
+            declarations[[document$uri]] <- memo
+        }
+        item_key <- paste0("hint-paths:", i)
+        paths <- memo[[item_key]]
+        if (is.null(paths)) {
+            hints <- data$type_hints
+            offset <- if (is.null(item$hint_row_offset)) 0L else item$hint_row_offset
+            plan <- .Call("member_hint_paths_c", expr, attr(hints, "rows"), attr(hints, "cols"),
+                c(offset, 0L), PACKAGE = "languageserver")
+            hits <- which(plan[, 3L] != 0L)
+            depths <- integer(nrow(plan))
+            for (step in seq_along(depths)[-1L]) depths[[step]] <- depths[[plan[step, 1L]]] + 1L
+            paths <- lapply(hits, function(step) {
+                path <- integer(depths[[step]])
+                while (step > 1L) {
+                    path[[depths[[step]]]] <- plan[step, 2L]
+                    step <- plan[step, 1L]
+                }
+                path
+            })
+            names(paths) <- names(hints)[plan[hits, 3L]]
+            memo[[item_key]] <- paths
+        }
+        path <- paths[[paste(point + 1L, collapse = ":")]]
+        if (!length(path)) return(unknown)
+        start <- item$start
+    }
+    cache_key <- NULL
+    if (valid && !length(data$sources) && identical(path, c(1L, 3L)) &&
+            (member_head(item$expr, "<-") || member_head(item$expr, "=")) &&
+            !grepl("::", site$type, fixed = TRUE)) {
+        # Direct top-level functions have the same lexical generator while its
+        # defining assignment is visible. Writes, aliases, sourced bindings
+        # and local scopes keep their ordinary per-site inference.
+        history <- data$bindings[[name]]
+        pos <- member_history_position(history, start)
+        if (pos && !isTRUE(attr(history, "member_aliases"))) {
+            entry <- history[[pos]]
+            head <- if (is.call(entry$expr)) entry$expr[[1L]]
+            if (is.null(entry$first_write) && (identical(head, quote(R6::R6Class)) ||
+                        identical(head, quote(methods::setRefClass)) || identical(head, quote(methods::setClass)) ||
+                        identical(head, quote(S7::new_class)))) {
+                cache_key <- paste("hint-generator", name, pos, sep = ":")
+                if (!is.null(memo[[cache_key]])) return(memo[[cache_key]])
+            }
+        }
+    }
+    budget <- member_request_budget()
+    if (valid) source <- member_item_source(document, data, i)
+    referenced <- union(name, member_source_names(expr, source, path, name, NULL))
+    index <- member_context_index(workspace, document$uri, document, start, referenced = referenced)
+    parts <- strsplit(site$type, "::", fixed = TRUE)[[1L]]
+    if (length(parts) == 2L) {
+        value <- if (identical(parts[[1L]], index$document_package)) member_project_type_generator(name, index, budget)
+        else member_lookup(member_lookup(index$namespace_indices, parts[[1L]])$roots, name)
+    } else {
+        value <- member_cursor_value(expr, sentinel, index, list(.__member_position__ = start), budget,
+            name = name, accessor = NULL, path = path, source = source, before_formals = valid)
+    }
+    if (isTRUE(budget$exhausted) || isTRUE(budget$transient) || identical(value$reason, "binding_recursion")) {
+        return(member_value(reason = "type_hint_budget"))
+    }
+    if (!is.null(cache_key) && member_is_class_generator(value)) memo[[cache_key]] <- value
+    value
+}
+
 member_definition_location <- function(uri, workspace, document, point, audit = NULL) {
     location <- member_hover_location(document, point)
     if (is.null(location)) return(NULL)

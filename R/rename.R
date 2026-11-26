@@ -329,13 +329,33 @@ rename_roxygen_edits <- function(document, formal, new_name) {
     row <- member_navigation_token(parsed, point)
     if (!row || syntax$token[[row]] != "SYMBOL_FORMALS" ||
             !equal_range(navigation_range(document, syntax, row), formal$range)) return(list())
+    name <- reference_symbol_names(syntax$text[[row]])
+    replacement <- if (grepl("[[:space:],]", new_name)) quote_completion_name(new_name) else new_name
+    edits <- list()
+    tag_edits <- function(line, offset) {
+        parameters <- rename_roxygen_names(document$content[[line + 1L]], offset)
+        matches <- Filter(function(parameter) identical(parameter$name, name), parameters)
+        lapply(matches, function(parameter) {
+            text_edit(range(document$to_lsp_position(line, parameter$start),
+                    document$to_lsp_position(line, parameter$end)), replacement)
+        })
+    }
+    # Verified typed tags may be separated from their declaration by blank
+    # lines or comments. Each union shares a single parameter-name spelling.
+    sites <- attr(parsed$member_data$type_hints, "occurrences", exact = TRUE)
+    typed <- NULL
+    if (length(sites$parameter_row)) {
+        owner <- syntax$parent_row[[row]]
+        keep <- !is.na(sites$parameter_row) & sites$function_row == syntax$line1[[owner]] - 1L &
+            sites$function_col == syntax$col1[[owner]] - 1L
+        typed <- unique(sites[keep, c("parameter_row", "parameter_start"), drop = FALSE])
+        for (i in seq_len(nrow(typed))) edits <- c(edits, tag_edits(typed$parameter_row[[i]], typed$parameter_start[[i]]))
+    }
     declaration <- rename_function_declaration(syntax, row)
-    if (!declaration) return(list())
+    if (!declaration) return(edits)
     first <- syntax$line1[[declaration]]
     prefix <- substr(document$content[[first]], 1L, syntax$col1[[declaration]] - 1L)
-    if (first <= 1L || nzchar(trimws(prefix)) || !startsWith(trimws(document$content[[first - 1L]]), "#'")) return(list())
-    name <- reference_symbol_names(syntax$text[[row]])
-    edits <- list()
+    if (first <= 1L || nzchar(trimws(prefix)) || !startsWith(trimws(document$content[[first - 1L]]), "#'")) return(edits)
     # Look up only the contiguous roxygen block immediately above this
     # declaration. Text resembling a tag inside a string is not a comment.
     first_comment <- first
@@ -350,7 +370,6 @@ rename_roxygen_edits <- function(document, formal, new_name) {
     }
     if (first_comment == first) return(edits)
     rows <- seq.int(first_comment, first - 1L)
-    replacement <- if (grepl("[[:space:],]", new_name)) quote_completion_name(new_name) else new_name
     for (row in rows) {
         text <- document$content[[row]]
         tag <- regexpr("^[[:space:]]*#'[[:space:]]*@param(?:[[:space:]]+|$)", text, perl = TRUE)
@@ -368,14 +387,8 @@ rename_roxygen_edits <- function(document, formal, new_name) {
                 break
             }
         }
-        if (interrupted) next
-        names <- rename_roxygen_names(text, offset)
-        for (parameter in names) {
-            if (!identical(parameter$name, name)) next
-            edits[[length(edits) + 1L]] <- text_edit(range(
-                start = document$to_lsp_position(name_row - 1L, parameter$start),
-                end = document$to_lsp_position(name_row - 1L, parameter$end)), replacement)
-        }
+        if (interrupted || any(typed$parameter_row == name_row - 1L & typed$parameter_start == offset)) next
+        edits <- c(edits, tag_edits(name_row - 1L, offset))
     }
     edits
 }
@@ -402,7 +415,8 @@ rename_reply <- function(id, uri, workspace, document, point, newName) {
     result <- lapply(groups, function(indices) {
         lapply(refs$result[indices], function(ref) {
             quote <- attr(ref, "spelling", exact = TRUE)
-            text <- if (length(quote) && nzchar(quote)) encodeString(newName, quote = quote) else replacement
+            text <- if (isTRUE(attr(ref, "roxygen_type", exact = TRUE))) newName else
+                if (length(quote) && nzchar(quote)) encodeString(newName, quote = quote) else replacement
             fragment <- attr(ref, "fragment", exact = TRUE)
             if (!is.null(fragment)) text <- glue_encode_text(fragment, text)
             text_edit(range = ref$range, new_text = text)

@@ -300,6 +300,7 @@ resolve these members without executing `unserialize()`. When the body itself
 reveals a more specific result, such as a list with known fields, the providers
 keep that information. A later assignment updates the inferred type.
 
+Renaming the `Book` generator updates its names in both type annotations.
 An ordinary comment or blank line between a roxygen block and the function
 keeps the annotation associated with that function.
 

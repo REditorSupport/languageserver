@@ -303,35 +303,68 @@ reference_key_at <- function(index, point, name) {
 # Ordinary globals share an index key. A sequence of source() calls can put
 # declarations from different files behind that key in the same environment.
 # Construct a timeline only for callers that actually import multiple owners.
-reference_source_files <- function(index, uri, name) {
+reference_source_files <- function(index, uri, name, missing_hints, multiple) {
     if (!length(index$source_edges$get(uri, character()))) return(NULL)
     files <- index$source_closure(uri)
-    owners <- vapply(files, function(file) name %in% names(index$summaries$get(file, NULL)$definitions), logical(1L))
-    if (sum(owners) > 1L) files
+    added <- intersect(missing_hints, files)
+    split <- multiple && sum(vapply(files, function(file) {
+        name %in% names(index$summaries$get(file, NULL)$definitions)
+    }, logical(1L))) > 1L
+    if (split || length(added)) list(files = files, added = added, multiple = split)
 }
 
-reference_source_contexts <- function(workspace, callers, name) {
-    index <- workspace$index
+reference_hint_uris <- function(index, name, new_name = NULL) {
+    if (is.function(index$type_hint_uris)) unique(unlist(lapply(c(name, new_name), index$type_hint_uris), use.names = FALSE))
+}
+
+reference_hint_callers <- function(index, consumers, visited) {
+    if (!length(consumers) || !is.function(index$dependent_closure)) return(character())
+    others <- setdiff(unique(unlist(lapply(consumers, index$dependent_closure), use.names = FALSE)), c(visited, consumers))
+    if (!length(others)) return(character())
+    # A nested script inherits the state of the importing root. Check that
+    # root's complete sequence, not the nested script in isolation.
+    others[!vapply(others, function(uri) length(index$reverse_edges$get(uri, character())) > 0L, logical(1L))]
+}
+
+reference_source_contexts <- function(workspace, callers, name, hint_uris = character(), multiple = TRUE, check_callers = TRUE) {
     contexts <- list()
-    for (uri in unlist(callers, use.names = FALSE)) {
+    callers <- unlist(callers, use.names = FALSE)
+    missing_hints <- setdiff(hint_uris, callers)
+    if (!multiple && !length(missing_hints)) return(contexts)
+    for (uri in callers) {
         doc <- workspace$documents$get(uri, NULL)
         if (!is.null(doc$parse_data) && !length(doc$parse_data$member_data$sources)) next
-        files <- reference_source_files(index, uri, name)
-        if (!length(files)) next
+        needed <- reference_source_files(workspace$index, uri, name, missing_hints, multiple)
+        if (is.null(needed)) next
         if (is.null(doc) || !identical(doc$version, doc$parse_data$version)) {
-            contexts[[uri]] <- list(complete = FALSE, files = files)
+            contexts[[uri]] <- list(complete = FALSE, multiple = needed$multiple, files = needed$files, extra = needed$added)
             next
         }
+        split <- needed$multiple
+        added <- needed$added
         view <- member_workspace_view(workspace, doc, positions = TRUE)
         bindings <- if (is.null(view$bindings)) doc$parse_data$member_data$bindings else view$bindings
         if (isTRUE(view$positions_complete)) {
-            writes <- Filter(function(entry) is.null(entry$first_write) || identical(entry$expr, quote(.__unknown_branch_write__)),
-                bindings[[name]])
-            declared <- vapply(writes, function(entry) if (is.null(entry$declaration)) uri else entry$declaration$uri, "")
-            if (length(unique(declared)) <= 1L) next
+            added <- intersect(added, names(view$positions))
+            if (split) {
+                writes <- Filter(function(entry) is.null(entry$first_write) || identical(entry$expr, quote(.__unknown_branch_write__)),
+                    bindings[[name]])
+                declared <- vapply(writes, function(entry) if (is.null(entry$declaration)) uri else entry$declaration$uri, "")
+                split <- length(unique(declared)) > 1L
+            }
+            if (!split && !length(added)) next
         }
         contexts[[uri]] <- list(bindings = bindings, positions = view$positions, complete = isTRUE(view$positions_complete),
-            files = union(files, c(uri, names(view$positions))))
+            files = union(needed$files, c(uri, names(view$positions))), multiple = split,
+            extra = if (split) names(view$positions) else added)
+    }
+    if (check_callers && length(missing_hints)) {
+        shared <- intersect(missing_hints, unlist(lapply(contexts, `[[`, "extra"), use.names = FALSE))
+        others <- reference_hint_callers(workspace$index, shared, callers)
+        if (length(others)) {
+            verified <- reference_source_contexts(workspace, others, name, shared, multiple = FALSE, check_callers = FALSE)
+            contexts <- c(contexts, verified)
+        }
     }
     contexts
 }
@@ -376,30 +409,46 @@ reference_source_site_owner <- function(contexts, doc, name, at, token, definiti
         return(NULL)
     }
     if (name %in% member_assigned_names(if (direct) expr[[3L]] else expr)) return(NULL)
-    reference_source_position_owner(contexts, doc, name, at, item)
+    reference_source_position_owner(contexts, doc, name, at, item)$uri
 }
 
 reference_source_position_owner <- function(contexts, doc, name, at, item) {
     owners <- character()
+    cases <- list()
     for (root in names(contexts)) {
         context <- contexts[[root]]
         if (!doc$uri %in% context$files) next
-        if (!context$complete) return(NULL)
+        if (!context$complete) return(list(uri = NULL))
         positions <- if (identical(root, doc$uri)) {
             list(at)
         } else {
             visits <- context$positions[[doc$uri]]
-            if (!length(visits)) return(NULL)
+            if (!length(visits)) return(list(uri = NULL))
             lapply(visits, function(visit) c(visit$anchor, visit$offsets[[item]]))
         }
         for (position in positions) {
-            if (anyNA(position)) return(NULL)
+            if (anyNA(position)) return(list(uri = NULL))
             owner <- member_history_owner(context$bindings[[name]], position, root)
-            if (is.null(owner)) return(NULL)
+            if (is.null(owner)) return(list(uri = NULL))
             owners <- union(owners, owner)
+            cases[[length(cases) + 1L]] <- list(uri = root, at = position)
         }
     }
-    if (length(owners) == 1L) owners[[1L]]
+    if (length(cases)) list(uri = if (length(owners) == 1L) owners[[1L]], cases = cases)
+}
+
+reference_source_hint_owner <- function(contexts, document, site, name) {
+    if (!length(contexts)) return(NULL)
+    at <- c(site$function_row, site$function_col)
+    data <- document$parse_data
+    fn <- navigation_token(data, at[[1L]] + 1L, at[[2L]] + 1L, prefer_start = c("FUNCTION", r"('\\')"))
+    if (!isTRUE(fn > 0L) || rename_binding_scopes(data$syntax_data, data$syntax_data$parent_row[[fn]]) != 0L) {
+        return(list(uri = NULL))
+    }
+    items <- data$member_data$items
+    item <- member_history_position(items, at) + 1L
+    if (item > length(items) || !member_before(items[[item]]$start, at)) return(list(uri = NULL))
+    reference_source_position_owner(contexts, document, name, at, item)
 }
 
 reference_source_ambiguous <- function(id) {
@@ -530,24 +579,28 @@ references_reply <- function(id, uri, workspace, document, point,
         if (!is.null(definition_key)) {
             contexts <- list()
             global <- startsWith(definition_key, "global:")
-            if (global && is.null(s4$binding) && isTRUE(workspace$index$enabled) &&
-                    is.function(workspace$index$multiple_definition_files) && workspace$index$multiple_definition_files(token$token)) {
-                contexts <- reference_source_contexts(workspace, doc_uris, token$token)
-                if (length(contexts)) {
+            if (global && is.null(s4$binding) && isTRUE(workspace$index$enabled) && is.function(workspace$index$multiple_definition_files)) {
+                multiple <- workspace$index$multiple_definition_files(token$token)
+                hints <- reference_hint_uris(workspace$index, token$token, new_name)
+                contexts <- reference_source_contexts(workspace, doc_uris, token$token, hints, multiple)
+                split <- Filter(function(x) x$multiple, contexts)
+                if (length(split)) {
                     row <- reference_index_at(parse_data$reference_index, token_point, token$token)
-                    owner <- reference_source_owner(contexts, document, row, token$token)
+                    owner <- reference_source_owner(split, document, row, token$token)
                     if (is.null(owner)) return(if (for_rename) reference_source_ambiguous(id) else Response$new(id, result = list()))
                     if (!identical(owner, defn$result$uri)) {
                         defn$result$uri <- owner
                         if (for_rename && !member_navigation_writable(workspace, defn$result)) return(reference_source_ambiguous(id))
                         doc_uris <- workspace_reference_document_uris(workspace, owner, uri, scope_key)
-                        contexts <- reference_source_contexts(workspace, doc_uris, token$token)
+                        contexts <- reference_source_contexts(workspace, doc_uris, token$token, hints, multiple)
                     }
+                }
+                if (length(contexts)) {
                     if (for_rename && any(!vapply(contexts, `[[`, logical(1L), "complete"))) return(reference_source_ambiguous(id))
                     # A script between two source calls can read the first
                     # binding without declaring it or importing either file.
                     doc_uris <- union(unlist(doc_uris, use.names = FALSE),
-                        unique(unlist(lapply(contexts, function(context) names(context$positions)), use.names = FALSE)))
+                        unique(unlist(lapply(contexts, `[[`, "extra"), use.names = FALSE)))
                 }
             }
             check_capture <- for_rename && !is.null(new_name) && !identical(new_name, token$token)
@@ -566,6 +619,7 @@ references_reply <- function(id, uri, workspace, document, point,
                 }
                 if (is.null(indexed)) next
                 relevant <- if (length(contexts)) Filter(function(context) doc_uri %in% context$files, contexts)
+                split <- if (length(relevant)) Filter(function(context) context$multiple, relevant)
                 selected <- reference_indices(indexed, token$token, definition_key)
                 if (!is.null(s4$binding)) {
                     selected <- reference_indices(indexed, token$token)
@@ -574,9 +628,9 @@ references_reply <- function(id, uri, workspace, document, point,
                     doc <- workspace$documents$get(doc_uri)
                     selected <- s4_reference_lexical_indices(workspace, doc, selected, token$token, candidates = sources)
                 }
-                if (length(relevant) && length(selected)) {
+                if (length(split) && length(selected)) {
                     doc <- workspace$documents$get(doc_uri)
-                    owners <- lapply(selected, function(row) reference_source_owner(relevant, doc, row, token$token))
+                    owners <- lapply(selected, function(row) reference_source_owner(split, doc, row, token$token))
                     if (for_rename && any(!lengths(owners))) return(reference_source_ambiguous(id))
                     selected <- selected[vapply(owners, identical, logical(1L), defn$result$uri)]
                 }
@@ -589,15 +643,22 @@ references_reply <- function(id, uri, workspace, document, point,
                 }
                 locations <- indexed_reference_locations(indexed, doc_uri, selected)
                 doc <- workspace$documents$get(doc_uri, NULL)
+                type_sites <- attr(doc$parse_data$member_data$type_hints, "occurrences", exact = TRUE)
+                if (!is.null(type_sites) || (for_rename && length(doc$parse_data$member_data$damaged_type_blocks))) {
+                    hints <- roxygen_type_references(workspace, doc, type_sites, token$token, definition_key,
+                        defn$result$uri, for_rename, if (check_capture) new_name, owner_scope, source_contexts = relevant)
+                    if (!is.null(hints$problem)) return(ResponseErrorMessage$new(id, "RequestFailed", hints$problem))
+                    locations <- c(locations, hints$locations)
+                }
                 fragments <- doc$parse_data$glue_templates
                 if (length(fragments) || length(attr(fragments, "unmapped", exact = TRUE))) {
                     occurrences <- glue_reference_occurrences(workspace, doc, token$token)
-                    if (length(relevant)) {
+                    if (length(split)) {
                         keep <- rep(TRUE, length(occurrences))
                         for (i in seq_along(occurrences)) {
                             site <- occurrences[[i]]
                             if (!identical(site$key, definition_key)) next
-                            owner <- reference_source_glue_owner(relevant, doc, site)
+                            owner <- reference_source_glue_owner(split, doc, site)
                             if (for_rename && is.null(owner)) return(reference_source_ambiguous(id))
                             keep[[i]] <- identical(owner, defn$result$uri)
                         }
@@ -840,7 +901,7 @@ reference_literal_needs_workspace <- function(document, point) {
     reference_member_literal_candidate(parsed$syntax_data, row) && row %in% member_navigation_syntax(parsed)$row
 }
 
-reference_request_documents <- function(workspace, doc, point) {
+reference_request_documents <- function(workspace, doc, point, new_name = NULL) {
     embedded <- glue_reference_site(workspace, doc, point)
     if (!is.null(embedded)) {
         if (length(embedded$key) && !startsWith(embedded$key, "global:") &&
@@ -849,7 +910,7 @@ reference_request_documents <- function(workspace, doc, point) {
         scope <- reference_source_scope(workspace, doc$uri)
         callers <- if (length(target)) reference_source_scope(workspace, target, callers = TRUE)
         name <- if (length(embedded$key) && startsWith(embedded$key, "global:")) embedded$name
-        return(unique(c(scope, callers, reference_source_dependencies(workspace, callers, name))))
+        return(unique(c(scope, callers, reference_source_dependencies(workspace, callers, name, new_name))))
     }
     mask <- data_mask_site(doc$parse_data, point)
     if (!is.null(mask) && !mask$env) return(doc$uri)
@@ -875,13 +936,19 @@ reference_request_documents <- function(workspace, doc, point) {
         key <- reference_key_at(doc$parse_data$reference_index, token$range$start, token$token)
         if (length(key) && startsWith(key, "global:")) token$token
     }
-    unique(c(scope, callers, reference_source_dependencies(workspace, callers, name)))
+    unique(c(scope, callers, reference_source_dependencies(workspace, callers, name, new_name)))
 }
 
-# A caller may source additional scripts that use the same sequence of bindings.
-reference_source_dependencies <- function(workspace, callers, name) {
+# Hydrate a caller's literal source graph only when a competing owner or a
+# documented sibling needs its execution order to resolve the selected name.
+reference_source_dependencies <- function(workspace, callers, name, new_name) {
     index <- workspace$index
-    if (!length(name) || !isTRUE(index$enabled) || !is.function(index$multiple_definition_files) ||
-            !index$multiple_definition_files(name)) return(character())
-    unique(unlist(lapply(callers, function(uri) reference_source_files(index, uri, name)), use.names = FALSE))
+    if (!length(name) || !isTRUE(index$enabled) || !is.function(index$multiple_definition_files)) return(character())
+    multiple <- index$multiple_definition_files(name)
+    hints <- setdiff(reference_hint_uris(index, name, new_name), callers)
+    if (!multiple && !length(hints)) return(character())
+    found <- lapply(callers, function(uri) reference_source_files(index, uri, name, hints, multiple))
+    shared <- unique(unlist(lapply(found, `[[`, "added"), use.names = FALSE))
+    others <- reference_hint_callers(index, shared, callers)
+    unique(c(unlist(lapply(found, `[[`, "files"), use.names = FALSE), unlist(lapply(others, index$source_closure), use.names = FALSE)))
 }

@@ -4,6 +4,7 @@
   `@return` descriptions. In this example, `box$` inside the function and
   `copy_box(Box$new())$` at the call site both offer `value`. A function that
   sometimes returns `NULL` can use `` @return (`Box | NULL`) ``.
+  Renaming a generator updates its references in type annotations.
 
   ```r
   Box <- R6::R6Class("Box", public = list(value = 1L))

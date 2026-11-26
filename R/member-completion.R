@@ -244,6 +244,9 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL, incompl
             items[[length(items) + 1L]] <<- list(expr = statements[[i]],
                 start = c(offset + ref[[7L]] - 1L, ref[[5L]] - 1L),
                 end = c(offset + ref[[8L]] - 1L, ref[[6L]]))
+            if (offset && length(type_hints) && !is.null(attr(statements[[i]], "member_type_names", exact = TRUE))) {
+                items[[length(items)]]$hint_row_offset <<- offset
+            }
         }
     }
     if (complete) {
@@ -1099,7 +1102,7 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
 }
 
 member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name = NULL, accessor = "$", context = NULL,
-    path = NULL, source = NULL, key_helper = NULL, s4_new = FALSE, s7_update_list = NULL, s7_call = NULL) {
+    path = NULL, source = NULL, key_helper = NULL, s4_new = FALSE, s7_update_list = NULL, s7_call = NULL, before_formals = FALSE) {
     result <- NULL
     # Find the cursor once, including formal defaults. Replaying a lexical
     # scope must not recursively visit every earlier RHS or sibling method.
@@ -1231,6 +1234,10 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
             return(invisible(NULL))
         }
         if (member_head(node, "function")) {
+            if (before_formals && !length(path)) {
+                result <<- member_infer(as.name(name), index, env, budget = budget)
+                return(invisible(NULL))
+            }
             hints <- roxygen_inference_hints(node)$params
             if (length(hints)) lexical <- env
             for (formal in names(node[[2L]])) {

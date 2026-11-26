@@ -91,8 +91,9 @@ lsp_settings <- Settings$new()
 
 roxygen_type_hints_enabled <- function() isTRUE(lsp_settings$get("roxygen_type_hints"))
 
-# Read the setting in the server process so a change applies to accepted parses.
-roxygen_inference_hints <- function(node) {
-    hints <- attr(node, "member_type_hints", exact = TRUE)
+# Keep source documentation indexed for Rename. The inference setting is read
+# in the server process so a configuration change applies to accepted parses.
+roxygen_inference_hints <- function(node, attribute = "member_type_hints") {
+    hints <- attr(node, attribute, exact = TRUE)
     if (!is.null(hints) && roxygen_type_hints_enabled()) hints
 }

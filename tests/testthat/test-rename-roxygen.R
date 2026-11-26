@@ -58,6 +58,31 @@ test_that("parameter Rename preserves comma-separated names and wrapped descript
     ))
 })
 
+test_that("formal Rename follows verified typed tags across gaps", {
+    content <- c("#' @param", "#'   x,y (`Model | Other`) A value called x in prose.",
+        "#' @param x Untyped description.", "# ordinary comment", "  ", "f <- function(x, y) x",
+        "#' @param x (`Model`) A different function.", "g <- function(x) x")
+    case <- rename_roxygen_fixture(content, 5L, "x", "value")
+    expect_length(case$edits, 3L)
+    expected <- content
+    expected[c(2L, 6L)] <- c("#'   value,y (`Model | Other`) A value called x in prose.", "f <- function(value, y) value")
+    edited <- rename_roxygen_apply(case)
+    expect_identical(edited, expected)
+    hints <- parse_document(case$fixture$uri, edited)$member_data$type_hints
+    expect_identical(hints[[1L]]$params, list(value = c("Model", "Other"), y = c("Model", "Other")))
+})
+
+test_that("typed formal names get one edit even when an attached tag names multiple types", {
+    for (gap in list(NULL, c("", "# comment"))) {
+        content <- c("\t#' @param `two words` (`First | Second`) Input.", gap,
+            "f <- function(`two words`) `two words`")
+        case <- rename_roxygen_fixture(content, length(content) - 1L, "`two words`", "new name")
+        expect_length(case$edits, 3L)
+        expect_identical(rename_roxygen_apply(case), c("\t#' @param `new name` (`First | Second`) Input.", gap,
+                "f <- function(`new name`) `new name`"))
+    }
+})
+
 test_that("parameter Rename follows a multiline declaration and tag", {
     content <- c(
         "#' @param",
