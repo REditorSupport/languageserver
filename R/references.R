@@ -724,6 +724,7 @@ references_reply <- function(id, uri, workspace, document, point,
                 }
                 if (for_rename) attr(result, "rename_formal") <- formal
             }
+            if (for_rename && global) attr(result, "rename_topic") <- list(name = token$token, uri = defn$result$uri)
             return(Response$new(id, result = result))
         }
 
@@ -801,7 +802,17 @@ references_reply <- function(id, uri, workspace, document, point,
             result <- do.call(c, doc_results)
             # XML-era indexes do not record a formal's reference key. The
             # lexical definition still identifies its exact source location.
-            if (for_rename && length(result)) attr(result, "rename_formal") <- defn$result
+            if (for_rename && length(result)) {
+                attr(result, "rename_formal") <- defn$result
+                target <- workspace$documents$get(defn$result$uri, NULL)
+                if (!is.null(target) && length(attr(target$parse_data$member_data$type_hints, "topics", exact = TRUE))) {
+                    s <- target$parse_data$syntax_data
+                    row <- member_navigation_token(target$parse_data, target$from_lsp_position(defn$result$range$start))
+                    if (row && s$token[[row]] == "SYMBOL" && !rename_binding_scopes(s, row)) {
+                        attr(result, "rename_topic") <- list(name = token$token, uri = defn$result$uri)
+                    }
+                }
+            }
         }
     }
 

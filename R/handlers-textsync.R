@@ -191,8 +191,15 @@ text_document_did_close <- function(self, params) {
     if (!is.null(doc)) doc$did_close()
     if (is_from_workspace && isTRUE(index$enabled)) {
         if (file.exists(path)) {
-            if (is.null(index$task_manager)) index$update_path(path)
-            else index$queue_path(path, force = TRUE)
+            if (is.function(self$load_index_document) && is.function(index$package_has_hint_inheritance) &&
+                    index$package_has_hint_inheritance(uri) &&
+                    length(attr(doc$parse_data$member_data$type_hints, "topics", exact = TRUE))) {
+                self$load_index_document(workspace, uri, reload = TRUE)
+            } else if (is.null(index$task_manager)) {
+                index$update_path(path)
+            } else {
+                index$queue_path(path, force = TRUE)
+            }
         } else {
             index$remove(uri)
         }

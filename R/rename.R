@@ -409,20 +409,29 @@ rename_reply <- function(id, uri, workspace, document, point, newName) {
         refs <- references_reply(id, uri, workspace, document, point, for_rename = TRUE, new_name = newName)
     }
     if (!is.null(refs$error)) return(refs)
+    formal <- attr(refs$result, "rename_formal", exact = TRUE)
+    topic <- attr(refs$result, "rename_topic", exact = TRUE)
+    if (!is.null(formal) || !is.null(topic)) {
+        owner_uri <- if (is.null(topic)) formal$uri else topic$uri
+        owner <- workspace$documents$get(owner_uri, NULL)
+        extra <- roxygen_topic_rename(workspace, owner, topic$name, newName, if (is.null(topic)) formal, owner_uri)
+        if (!is.null(extra$problem)) return(ResponseErrorMessage$new(id, "RequestFailed", extra$problem))
+        if (length(extra$locations)) refs$result <- c(refs$result, extra$locations)
+    }
     uris <- vapply(refs$result, function(ref) ref$uri, character(1L))
     groups <- split(seq_along(uris), factor(uris, levels = unique(uris)))
     replacement <- quote_completion_name(newName)
     result <- lapply(groups, function(indices) {
         lapply(refs$result[indices], function(ref) {
             quote <- attr(ref, "spelling", exact = TRUE)
-            text <- if (isTRUE(attr(ref, "roxygen_type", exact = TRUE))) newName else
+            roxygen_label <- attr(ref, "roxygen_label", exact = TRUE)
+            text <- if (!is.null(roxygen_label)) roxygen_label else if (isTRUE(attr(ref, "roxygen_type", exact = TRUE))) newName else
                 if (length(quote) && nzchar(quote)) encodeString(newName, quote = quote) else replacement
             fragment <- attr(ref, "fragment", exact = TRUE)
             if (!is.null(fragment)) text <- glue_encode_text(fragment, text)
             text_edit(range = ref$range, new_text = text)
         })
     })
-    formal <- attr(refs$result, "rename_formal", exact = TRUE)
     if (!is.null(formal)) {
         doc <- workspace$documents$get(formal$uri, NULL)
         if (!is.null(doc)) {

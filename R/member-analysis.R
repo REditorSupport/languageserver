@@ -125,7 +125,13 @@ member_package_context_required <- function(document, workspace) {
 }
 
 member_document_cache_revision <- function(document, metadata, source_revision = NULL, workspace = NULL) {
-    if (member_package_context_required(document, workspace)) {
+    if (isTRUE(attr(document$parse_data$member_data$type_hints, "has_inheritance", exact = TRUE))) {
+        # A donor can occur after the use or in another source file. A
+        # fingerprint of statements before an assignment cannot cover either.
+        source_revision <- list(source_revision, document$parse_data$member_data$content_key,
+            workspace$s3_revision, workspace$index$revision,
+            if (is.function(workspace$documents$size)) workspace$documents$size())
+    } else if (member_package_context_required(document, workspace)) {
         source_revision <- list(source_revision, workspace$s3_revision, workspace$index$revision)
     }
     if (isTRUE(document$member_s3_dispatch)) {
@@ -211,13 +217,55 @@ member_local_value <- function(value, index, budget, depth = 0L, trail = charact
         input <- member_local_value(value$hint_input, index, budget, depth, trail, receiver, context)
         member_refine_call_hint(input, value$hint_types, index, value$binding_env, budget)
     } else {
-        member_hinted_value(value$hint_types, index, value$binding_env, budget)
+        hint <- member_parameter_hint_value(value$hint_types, index, value$binding_env, budget)
+        if (is.null(hint)) member_value(reason = "formal") else hint
     }
     if (!is.null(cache) && !isTRUE(budget$exhausted) && !isTRUE(budget$transient)) {
         cache$value <- result
         if (isTRUE(budget$track_returns)) cache$tracked <- TRUE
     }
     result
+}
+
+# Inheritance can involve a different file and different lexical class names.
+# Keep each formal lazy; no document/workspace handle is retained by a closure.
+member_parameter_hints <- function(hints, formals) {
+    params <- hints$params
+    if (!isTRUE(attr(hints, "roxygen_inherits", exact = TRUE))) return(params)
+    missing <- setdiff(formals, c("...", names(params), attr(hints, "roxygen_documented", exact = TRUE)))
+    if (length(missing)) {
+        params[missing] <- lapply(missing, function(name) list(formal = name, declaration = hints))
+    }
+    params
+}
+
+member_parameter_hint_value <- function(types, index, lexical, budget) {
+    if (!is.list(types)) return(member_hinted_value(types, index, lexical, budget))
+    workspace <- index$dispatch_workspace
+    if (is.null(workspace)) workspace <- budget$inherit_workspace
+    if (is.null(workspace) || isTRUE(budget$exhausted)) return(NULL)
+    hints <- types$declaration
+    document <- index$dispatch_document
+    uri <- attr(hints, "roxygen_uri", exact = TRUE)
+    if (is.null(uri)) uri <- document$uri
+    location <- attr(hints, "roxygen_key", exact = TRUE)
+    if (!length(uri) || !length(location)) return(NULL)
+    if (is.null(workspace$s3_revision) && is.function(workspace$documents$size) && workspace$documents$size() > 1L) {
+        budget$unversioned_inherited_params <- TRUE
+    }
+    # Resolve the documentation once per request, even when several arguments
+    # read its hints. Receiver shapes themselves depend on the current budget
+    # and the requested source origin, and stay on the individual bindings.
+    memo <- budget$inherited_params
+    if (is.null(memo)) budget$inherited_params <- memo <- new.env(parent = emptyenv())
+    key <- paste(uri, location, sep = "\n")
+    if (!exists(key, memo, inherits = FALSE)) {
+        assign(key, roxygen_effective_params(hints, workspace, document, hint_wait = budget$hint_wait), memo)
+    }
+    hint <- memo[[key]][[types$formal]]
+    if (is.null(hint)) return(NULL)
+    if (is.character(hint)) return(member_hinted_value(hint, index, lexical, budget))
+    member_inherited_hint_value(hint, workspace, budget)
 }
 
 # A caller may never read an unknown argument. Capture its documented type
@@ -270,9 +318,10 @@ member_receiver_cacheable <- function(value, index, budget) {
 }
 
 member_receiver_cache_value <- function(value, index, budget) {
-    # Source dispatch also depends on registrations and methods in other open
-    # documents. Those inputs are request-local to the S3 analyzer.
-    if (!is.null(budget$member_s3_context) || isTRUE(budget$unversioned_s3_sources)) return(NULL)
+    # Source dispatch depends on registrations in other open documents.
+    # Unversioned donors also provide only request-local evidence.
+    if (!is.null(budget$member_s3_context) || isTRUE(budget$unversioned_s3_sources) ||
+            isTRUE(budget$unversioned_inherited_params)) return(NULL)
     if (member_receiver_cacheable(value, index, budget)) return(value)
     if (isTRUE(budget$exhausted) || !isTRUE(budget$transient) ||
             length(value$type) || !length(value$possible_returns)) return(NULL)

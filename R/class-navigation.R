@@ -290,13 +290,13 @@ class_navigation_waiting <- function(self, workspace, document, point, method, r
         s7 <- members && is.null(call$package) && length(class_s7_method_declarations(document$parse_data)) > 0L
         return(((s3 || s7) && index_context_waiting(self, workspace, document, point, call = call)) ||
                 (s3 && s3_metadata_waiting(self, document$uri, document, point, call = call, request_id = request_id)) ||
-                (s7 && member_metadata_waiting(self, document$uri, document, point, call = call)))
+                (s7 && member_metadata_waiting(self, document$uri, document, point, call = call, request_id = request_id)))
     }
     location <- member_hover_location(document, point)
     if (is.null(location)) location <- class_navigation_symbol(document, document$parse_data, point)$location
     if (is.null(location)) return(FALSE)
     index_context_waiting(self, workspace, document, point, hover = TRUE) ||
-        member_metadata_waiting(self, document$uri, document, point, location$cursor, location$cursor$token)
+        member_metadata_waiting(self, document$uri, document, point, location$cursor, location$cursor$token, request_id = request_id)
 }
 
 class_navigation_request <- function(self, id, params, method) {

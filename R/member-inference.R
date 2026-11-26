@@ -1365,7 +1365,7 @@ member_infer <- function(
         # Package syntax and captures are immutable. A cached invocation has
         # already passed matching; look it up before defaults and delegation.
         cache_values <- c(list(self), actuals)
-        cache_key <- if (is.null(budget$origin_name) && !is.null(key) && !isTRUE(attr(actuals, "member_open_dots")) &&
+        cache_key <- if (is.null(budget$origin_name) && is.null(budget$hint_wait) && !is.null(key) && !isTRUE(attr(actuals, "member_open_dots")) &&
                 all(vapply(cache_values, member_cacheable, logical(1L)))) {
             digest::digest(list(key, lapply(cache_values, member_shape_key), dispatch), algo = "xxhash64")
         } else {
@@ -1386,7 +1386,8 @@ member_infer <- function(
             fn <- returned$fn
         }
         hints <- roxygen_inference_hints(fn)
-        param_hints <- if (length(hints$params)) hints$params[intersect(names(hints$params), setdiff(names(fn[[2L]]), "..."))]
+        params <- if (!is.null(hints)) member_parameter_hints(hints, names(fn[[2L]]))
+        param_hints <- if (length(params)) params[intersect(names(params), setdiff(names(fn[[2L]]), "..."))]
         env <- bind_arguments(fn, actuals, lexical, param_hints = param_hints)
         if (is.null(env)) {
             return(member_value(reason = "argument_matching"))
@@ -1764,8 +1765,10 @@ member_infer <- function(
     }
     actuals <- vector("list", length(args))
     names(actuals) <- names(args)
-    track_args <- !is.null(callee$function_expr) && length(roxygen_inference_hints(callee$function_expr)$params) &&
-        !isTRUE(budget$track_returns)
+    track_args <- !is.null(callee$function_expr) && !isTRUE(budget$track_returns) && {
+        hints <- roxygen_inference_hints(callee$function_expr)
+        length(hints$params) > 0L || (!is.null(hints) && isTRUE(attr(hints, "roxygen_inherits", exact = TRUE)))
+    }
     if (track_args) {
         budget$track_returns <- TRUE
         on.exit(budget$track_returns <- NULL, add = TRUE)

@@ -336,7 +336,7 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL, incompl
     imports <- list()
     sources <- list()
     effects <- list()
-    type_names <- unique(unlist(type_hints, use.names = FALSE))
+    type_names <- roxygen_declared_types(type_hints)
     qualified <- type_names[grepl("::", type_names, fixed = TRUE)]
     hint_packages <- sub("::.*", "", qualified)
     packages <- recovered_packages
@@ -441,7 +441,7 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL, incompl
     }
     source_bytes <- if (complete) member_compact_source(parsed, parts) else prefix_bytes
     list(items = items, has_blocks = has_blocks, bindings = member_index_bindings(items), imports = imports, sources = sources, effects = effects, s4 = s4, refclasses = refclasses, initializers = initializers,
-        has_type_hints = length(type_hints) > 0L, type_hints = type_hints,
+        has_type_hints = length(type_hints) > 0L || length(type_names) > 0L, type_hints = type_hints,
         content_key = digest::digest(fingerprint_source, algo = "xxhash64"),
         source_bytes = source_bytes, deferred_parts = if (defer_small_scopes) parts,
         packages = union(union(recovered_packages, hint_packages), packages),
@@ -996,7 +996,7 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
     if (isTRUE(budget$track_returns)) cache_context <- paste0("returns:", cache_context)
     memo_key <- paste(index$package, cache_context, id, paste(at, collapse = ":"), sep = ":")
     if (memo && exists(memo_key, index$document_cache, inherits = FALSE)) return(index$document_cache[[memo_key]])
-    cache <- if (is.null(budget$origin_name)) index$document_binding_cache
+    cache <- if (is.null(budget$origin_name) && is.null(budget$hint_wait)) index$document_binding_cache
     persistent_key <- if (memo && !is.null(cache) && !is.null(item$cache_prefix) &&
             (!is.null(item$setter) || !member_head(item$expr, "function"))) {
         paste(index$package, cache_context, id, item$cache_prefix, sep = ":")
@@ -1238,7 +1238,8 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
                 result <<- member_infer(as.name(name), index, env, budget = budget)
                 return(invisible(NULL))
             }
-            hints <- roxygen_inference_hints(node)$params
+            declared <- roxygen_inference_hints(node)
+            hints <- if (!is.null(declared)) member_parameter_hints(declared, names(node[[2L]]))
             if (length(hints)) lexical <- env
             for (formal in names(node[[2L]])) {
                 value <- formal_types[[formal]]
@@ -1548,7 +1549,7 @@ member_recover_scope <- function(document, point, cursor, data, budget = NULL) {
 }
 
 member_resolve_cursor <- function(uri, workspace, document, point, cursor, name = NULL, origins = FALSE, origin_name = name,
-    audit = NULL) {
+    audit = NULL, hint_wait = NULL) {
     if (!identical(document$version, document$parse_data$version) &&
             !is.null(document$parse_data$version)) {
         return(NULL)
@@ -1561,6 +1562,8 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
         return(NULL)
     }
     budget <- member_request_budget()
+    budget$inherit_workspace <- workspace
+    if (!is.null(hint_wait)) budget$hint_wait <- hint_wait
     # Provenance is relevant only to this member definition request. Other
     # fields can have identical shapes even when declared on different lines.
     if (origins) {
@@ -1573,7 +1576,7 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
     metadata <- workspace$member_metadata
     cache <- document$member_receivers
     view <- member_workspace_view(workspace, document)
-    revision <- member_document_cache_revision(document, metadata, view$key, workspace)
+    revision <- if (is.null(hint_wait)) member_document_cache_revision(document, metadata, view$key, workspace)
     # Named [[ calls resolve the full subset expression in its lexical scope,
     # including local subset methods. Other member prefixes share the receiver.
     accessor <- cursor$accessor

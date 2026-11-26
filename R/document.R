@@ -857,11 +857,12 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
     }
     # Cursor recovery also tracks unfinished member accesses and their package
     # hints. Keep its original source and bounded recovery on a syntax error.
-    hints <- member_roxygen_type_index(content, env$syntax_data, value_source = value_source,
+    hints <- member_roxygen_type_index(content, env$syntax_data, uri = uri, value_source = value_source,
         barriers = c(incomplete_lines + 1L, if (is_rmarkdown) vapply(regions$cells, `[[`, integer(1L), "start_line")))
+    hints <- member_type_hint_uri(member_merge_type_hints(if (is_rmarkdown) literate$type_hints else recovery$type_hints, hints), uri)
     env$member_data <- member_document_index(content, expr, data, recovery$incomplete_lines,
         defer_small_scopes = is_rmarkdown && length(incomplete_lines) > 0L, value_source = value_source,
-        verified = verified, type_hints = member_merge_type_hints(if (is_rmarkdown) literate$type_hints else recovery$type_hints, hints))
+        verified = verified, type_hints = hints)
     env$member_data$hint_comments <- if (is_rmarkdown) literate$hint_comments else recovery$hint_comments
     env$member_data$damaged_type_blocks <- if (is_rmarkdown) literate$damaged_type_blocks else recovery$damaged_type_blocks
     if (is_rmarkdown && length(literate$member_packages)) {
@@ -869,7 +870,7 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
         env$member_data$hint_only_packages <- setdiff(env$member_data$hint_only_packages, literate$member_packages)
     }
     hint_names <- if (isTRUE(env$member_data$has_type_hints)) {
-        types <- unique(unlist(env$member_data$type_hints, use.names = FALSE))
+        types <- roxygen_declared_types(env$member_data$type_hints)
         setdiff(types[!grepl("::", types, fixed = TRUE)], c(member_builtin_hint_types, names(env$member_data$bindings)))
     }
     use_hint_imports <- length(hint_names) > 0L
@@ -1154,7 +1155,7 @@ drain_pending_replies <- function(self, uri, version, max_replies = Inf, first =
             point <- document$from_lsp_position(item$params$position)
             return(identical(document$version, document$parse_data$version) &&
                     !index_context_waiting(self, self$get_workspace(uri), document, point, hover = TRUE) &&
-                    !member_metadata_waiting(self, uri, document, point))
+                    !member_metadata_waiting(self, uri, document, point, request_id = item$id))
         }
         if (!is.null(document) && identical(item$version, document$version) &&
                 method %in% c("textDocument/completion", "textDocument/hover", "textDocument/signatureHelp")) {
@@ -1166,7 +1167,7 @@ drain_pending_replies <- function(self, uri, version, max_replies = Inf, first =
             }
             if (index_context_waiting(self, self$get_workspace(uri), document, point,
                     hover = identical(method, "textDocument/hover"), call = call)) return(FALSE)
-            if (!identical(method, "textDocument/hover") && member_metadata_waiting(self, uri, document, point,
+            if (member_metadata_waiting(self, uri, document, point, request_id = item$id, inherited_only = identical(method, "textDocument/hover"),
                     call = if (is.null(call)) document$detect_call(point) else call)) return(FALSE)
             if (s3_metadata_waiting(self, uri, document, point,
                     hover = identical(method, "textDocument/hover"), call = call, request_id = item$id)) return(FALSE)
@@ -1475,8 +1476,7 @@ resolve_task <- function(self, uri, document, packages, delay = 0, namespace_pac
     hinted <- if (roxygen_type_hints_enabled()) document$parse_data$member_data$type_hint_packages
     member_packages <- if (!members_enabled && prepare_s3) hinted
     prepare_members <- package_requests && (members_enabled || length(member_packages) > 0L)
-    hinted <- document$parse_data$member_data$type_hint_packages
-    if (prepare_s3 && prepare_members && length(hinted)) {
+    if (prepare_members && length(hinted)) {
         workspace <- self$get_workspace(uri)
         if (is.null(workspace$s3_hint_workers)) workspace$s3_hint_workers <- collections::dict()
         if (!workspace$s3_hint_workers$has(uri)) workspace$s3_hint_workers$set(uri, list())
