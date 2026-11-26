@@ -162,7 +162,7 @@ test_that("the first LSP reply uses a closed package donor and follows its unsav
     path <- file.path(root, "R", "use.R")
     donor <- c('First <- R6::R6Class("First", public = list(old_member = function(count = 1L) self))',
         'Second <- R6::R6Class("Second", public = list(new_member = function() self))',
-        "#' @param x (`First`) An instance.", "donor <- function(x) x")
+        "#' @param x [`First`] An instance.", "donor <- function(x) x")
     use <- c("#' @inheritParams donor", "use <- function(x) x$old_member(1L)")
     writeLines(donor, origin)
     writeLines(use, path)

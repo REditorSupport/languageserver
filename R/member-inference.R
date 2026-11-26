@@ -99,6 +99,7 @@ member_package_context <- function(index, package) {
 }
 
 member_subset_method <- function(value, operator, index, bindings, budget, depth, trail) {
+    if (isTRUE(value$advisory_type)) return(member_value(reason = "unresolved_subset_dispatch"))
     owner <- member_package_context(index, value$member_package)
     if (is.null(owner)) return(NULL)
     if (identical(value$reason, "ambiguous_class")) return(member_value(reason = "unresolved_subset_dispatch"))
@@ -239,6 +240,7 @@ member_join <- function(a, b) {
                 (isTRUE(a$named_elements) && isTRUE(b$named_elements))) "list" else "environment"
     }
     if (isTRUE(a$s7) && isTRUE(b$s7)) value$s7 <- TRUE
+    if (isTRUE(a$advisory_type) || isTRUE(b$advisory_type)) value$advisory_type <- TRUE
     if (length(a$slot_hints) && length(b$slot_hints)) {
         for (key in intersect(names(a$slot_hints), names(b$slot_hints))) {
             if (!identical(a$slot_hints[[key]], b$slot_hints[[key]])) next
@@ -299,6 +301,7 @@ member_join_return_evidence <- function(a, b) {
 }
 
 member_hint_dispatch_classes <- function(value, index) {
+    if (isTRUE(value$advisory_type)) return(character())
     if (identical(value$r6_role, "generator")) return("R6ClassGenerator")
     if (identical(value$r6_role, "instance")) {
         if (is.null(value$r6_class)) return(character())
@@ -740,7 +743,7 @@ member_cacheable <- function(value, depth = 0L) {
     if (is.null(value)) {
         return(TRUE)
     }
-    if (depth > 4L || !is.null(value$origin) || isTRUE(value$open) || length(value$possible_returns) || !is.null(value$function_expr) || !is.null(value$closure) ||
+    if (depth > 4L || !is.null(value$origin) || isTRUE(value$open) || isTRUE(value$advisory_type) || length(value$possible_returns) || !is.null(value$function_expr) || !is.null(value$closure) ||
             !is.null(value$binding_cache) || !is.null(value$binding_expr) || !is.null(value$hint_types) || !is.null(value$return_evidence) ||
             !is.null(value$slot_hints)) {
         return(FALSE)
@@ -988,7 +991,10 @@ member_infer <- function(
         # Only the initializer's outer body returns its instance effects.
         # Nested expressions and called functions keep ordinary return values.
         if (isTRUE(ctx$r6_initialize)) ctx$r6_initialize <- FALSE
-        member_infer(x, index, env, receiver, depth + 1L, trail, budget, ctx)
+        before <- budget$advisory_reads
+        value <- member_infer(x, index, env, receiver, depth + 1L, trail, budget, ctx)
+        if (is.null(budget$advisory_reads) && !isTRUE(value$advisory_type)) return(value)
+        member_advisory_result(value, before, budget)
     }
     join <- if (isTRUE(budget$track_returns)) member_join_return_evidence else member_join
     local_object <- function(env, name) {
@@ -1379,6 +1385,7 @@ member_infer <- function(
         }
         # Package syntax and captures are immutable. A cached invocation has
         # already passed matching; look it up before defaults and delegation.
+        before_hint <- budget$advisory_reads
         cache_values <- c(list(self), actuals)
         cache_key <- if (is.null(budget$origin_name) && is.null(budget$hint_wait) && !is.null(key) && !isTRUE(attr(actuals, "member_open_dots")) &&
                 all(vapply(cache_values, member_cacheable, logical(1L)))) {
@@ -1387,6 +1394,7 @@ member_infer <- function(
             NULL
         }
         if (!is.null(cache_key) && isTRUE(budget$track_returns)) cache_key <- paste0("returns:", cache_key)
+        if (!is.null(cache_key) && isTRUE(budget$explicit_hints_only)) cache_key <- paste0("explicit:", cache_key)
         if (!is.null(cache_key) && exists(cache_key, index$cache, inherits = FALSE)) {
             return(get(cache_key, index$cache, inherits = FALSE))
         }
@@ -1477,6 +1485,7 @@ member_infer <- function(
                 result <- member_refine_class_hint(result, fallback_result, index, budget)
             }
         }
+        if (!is.null(budget$advisory_reads)) result <- member_advisory_result(result, before_hint, budget)
         if (!is.null(cache_key) && !budget$exhausted && !isTRUE(budget$transient) && is.null(result$function_expr)) {
             size <- as.numeric(utils::object.size(result))
             if (size <= 1024^2) {
@@ -1694,6 +1703,7 @@ member_infer <- function(
             } else {
                 infer(as.name(context$formals[[1L]]))
             }
+            if (isTRUE(input$advisory_type)) return(unknown)
             closed <- identical(input$reason, "type_hint_union")
             source <- !is.null(index$dispatch_document) && is.null(context$key) && !isTRUE(context$namespace_code)
             if ((source || closed || length(input$type) > 1L) && length(generic) == 1L) {
@@ -2047,6 +2057,7 @@ member_infer <- function(
     }
     operators <- c("+", "-", "*", "/", "^", "%%", "%/%", "&", "|", "!", "==", "!=", ">", "<", ">=", "<=", "&&", "||")
     if (head %in% operators && intrinsic(head)) {
+        if (!is.null(budget$advisory_reads) && any(vapply(actuals, function(value) isTRUE(value$advisory_type), logical(1L)))) return(unknown)
         keys <- lapply(actuals[seq_len(min(2L, length(actuals)))], function(value) {
             candidates <- paste(head, member_classes(value, index), sep = ".")
             candidates <- candidates[candidates %in% names(index$definitions)]
@@ -2114,8 +2125,11 @@ member_infer <- function(
         if (open_dots) return(unknown)
         supplied <- member_s7_match(actuals, names(callee$function_expr[[2L]]))
         if (is.null(supplied) || !all(callee$s7_dispatch_args %in% names(supplied$args))) return(unknown)
-        if (isTRUE(budget$class_hint_probe)) budget$used_method_result <- TRUE
         selected <- member_s7_exact_method(callee, supplied$args, budget, require_certain = TRUE)
+        if (isTRUE(budget$class_hint_probe) && (roxygen_authoritative_types(fallback$types) ||
+                    roxygen_authoritative_types(roxygen_inference_hints(selected$implementation$function_expr)$returns))) {
+            budget$used_method_result <- TRUE
+        }
         if (is.null(selected$implementation)) return(member_refine_class_hint(unknown, fallback, index, budget))
         callee <- selected$implementation
         if (!is.null(fallback)) callee$s7_call_return <- fallback
@@ -2173,6 +2187,7 @@ member_infer <- function(
             position <- match(match(descriptor$formal, names(fn[[2L]])), matched)
             if (!is.na(position)) {
                 input <- actuals[[position]]
+                if (isTRUE(input$advisory_type)) return(unknown)
                 closed <- identical(input$reason, "type_hint_union")
                 candidates <- if (closed) input$possible_returns else list(input)
                 values <- lapply(candidates, function(candidate) {
@@ -2193,7 +2208,7 @@ member_infer <- function(
     }
     if (!is.null(callee$function_expr)) {
         if (isTRUE(budget$class_hint_probe) && !is.null(callee$r6_owner) &&
-                length(roxygen_inference_hints(callee$function_expr)$returns)) budget$used_method_result <- TRUE
+                roxygen_authoritative_types(roxygen_inference_hints(callee$function_expr)$returns)) budget$used_method_result <- TRUE
         if (!is.null(callee$function_uri) && !identical(callee$function_uri, index$source_uri)) {
             # Arguments were inferred at the call site. Interpret the source
             # body and its documented class names in the defining file.

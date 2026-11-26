@@ -833,7 +833,7 @@ s3_recover_call <- function(document, location, recovered) {
     # the same function as its original declaration.
     hints <- document$parse_data$member_data$type_hints
     parse_call <- if (length(hints) || length(attr(hints, "classes", exact = TRUE)) ||
-            any(grepl("(`", lines, fixed = TRUE)) || roxygen_has_inheritance(lines)) function(text) {
+            roxygen_has_type_span(lines) || roxygen_has_inheritance(lines)) function(text) {
         member_parse_recovered(text, NULL, start[[1L]], first_col, type_hints = hints,
             hint_comments = document$parse_data$member_data$hint_comments)
     } else str2expression

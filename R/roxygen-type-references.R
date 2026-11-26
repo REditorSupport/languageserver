@@ -51,6 +51,7 @@ roxygen_type_references <- function(workspace, document, sites, name, key, owner
         return(list(problem = "Incomplete R code prevents resolving a documented type"))
     }
     if (is.null(sites)) return(NULL)
+    if (!is.null(sites$advisory)) sites <- sites[!sites$advisory, , drop = FALSE]
     sites <- sites[sites$type %in% spellings, , drop = FALSE]
     if (!nrow(sites)) return(NULL)
     groups <- split(seq_len(nrow(sites)), paste(sites$function_row, sites$function_col, sites$type))

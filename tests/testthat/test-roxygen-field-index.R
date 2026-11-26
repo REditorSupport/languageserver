@@ -1,3 +1,14 @@
+test_that("repeated class and member annotations retain matching explicit evidence", {
+    lines <- c("#' @field item [`Box`]", 'Tray <- R6::R6Class("Tray", public = list(',
+        "  #' @field item [\\code{Box}]", "  item = NULL))",
+        "#' @slot payload (`Box`)", "#' @slot payload [`Box`]",
+        'methods::setClass("Bin", slots = c(payload = "ANY"))')
+    hints <- parse_document("file:///mixed-field-types.R", lines)$member_data$type_hints
+    classes <- unname(attr(hints, "classes", exact = TRUE))
+    expect_identical(classes[[1L]]$hints$field$item, "Box")
+    expect_identical(classes[[2L]]$hints$slot$payload, "Box")
+})
+
 test_that("batched R6 field tags retain the exact declaration and rename coordinates", {
     fields <- function(prefix, type, n) {
         names <- paste0(prefix, seq_len(n))
@@ -63,4 +74,11 @@ test_that("qualified inline descriptions follow S7 bindings and literal S4 decla
     expect_identical(classes[[2L]]$hints$slot, list(data = "StoredValue"))
     expect_identical(classes[[3L]]$hints$slot, list(raw = "LegacyValue"))
     expect_identical(attr(hints, "occurrences")$type, c("S7Value", "StoredValue", "LegacyValue"))
+})
+
+test_that("a prose description cannot displace a conflicting explicit field contract", {
+    prose <- structure("Topic", roxygen_class_links = "Topic")
+    expect_identical(roxygen_merge_member_types("Explicit", prose), "Explicit")
+    expect_identical(roxygen_merge_member_types(prose, "Explicit"), "Explicit")
+    expect_identical(roxygen_merge_member_types("Explicit", "Other"), character())
 })

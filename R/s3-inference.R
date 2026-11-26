@@ -102,7 +102,19 @@ s3_hint_ancestry <- local({
     keys <- vapply(known, `[[`, "", 1L)
     qualified <- paste(sub("::.*", "", names(known)), keys, sep = "::")
     paths <- c(stats::setNames(known, qualified), stats::setNames(known, keys))
-    function(name, package) paths[[if (is.null(package)) name else paste(package, name, sep = "::")]]
+    # Classes returned by foreign constructors (e.g. utils::read.csv)
+    # retain the namespace of the class, such as base::data.frame.
+    first <- !duplicated(keys)
+    owners <- c(stats::setNames(sub("::.*", "", qualified[first]), keys[first]), lm = "stats")
+    function(name, package, visible = NULL) {
+        if (!is.null(visible)) {
+            owner <- unname(owners[name])
+            if (is.na(owner) || !owner %in% visible) return(NULL)
+            if (name == "lm") return("lm")
+            package <- owner
+        }
+        paths[[if (is.null(package)) name else paste(package, name, sep = "::")]]
+    }
 })
 
 s3_inherited_params <- function(hints, context) {
@@ -118,6 +130,8 @@ s3_type_hint <- function(types, context, at = context$at, scope = NULL, source =
     if (!roxygen_type_hints_enabled()) return(s3_unknown("unknown_type_hint"))
     document <- context$document
     inherited <- if (is.list(types)) types
+    declared <- if (is.null(inherited)) types else inherited$types
+    if (length(attr(declared, "roxygen_class_links", exact = TRUE))) return(s3_unknown("advisory_type_hint"))
     if (!is.null(inherited)) {
         types <- inherited$types
         document <- roxygen_hint_document(context$workspace, inherited$uri, document)
@@ -140,7 +154,9 @@ s3_type_hint <- function(types, context, at = context$at, scope = NULL, source =
     index <- member_context_index(context$workspace, document$uri, document, at,
         referenced = member_type_dependencies(types))
     budget <- member_request_budget()
+    budget$explicit_hints_only <- TRUE
     bindings <- list(.__member_position__ = at)
+    class_links <- attr(types, "roxygen_class_links", exact = TRUE)
     values <- if (!is.null(inherited)) {
         budget$hint_wait <- context$hint_wait
         value <- member_inherited_hint_value(inherited, context$workspace, budget, index = index)
@@ -153,7 +169,7 @@ s3_type_hint <- function(types, context, at = context$at, scope = NULL, source =
                 if (!identical(generator$r6_role, "generator")) return(NULL)
                 return(generator$fields$new$result_shape)
             }
-            member_hinted_value(type, index, bindings, budget)
+            member_hinted_value(type, index, bindings, budget, class_links)
         })
     }
     if (isTRUE(budget$exhausted)) context$exhausted <- TRUE
@@ -193,6 +209,7 @@ s3_class_member_input <- function(expr, scoped, context, method_call) {
     budget <- member_request_budget()
     budget$hint_wait <- context$hint_wait
     budget$class_hint_probe <- TRUE
+    budget$explicit_hints_only <- TRUE
     value <- member_cursor_value(scoped$root, ".__languageserver_dispatch__", index, list(.__member_position__ = start), budget,
         accessor = NULL, path = scoped$path, source = scoped$source, dispatch_input = expr)
     if (isTRUE(budget$exhausted) || isTRUE(budget$transient)) context$exhausted <- TRUE

@@ -31,3 +31,14 @@ test_that("disabled hints only drop namespace models used solely in comments", {
     lsp_settings$set("roxygen_type_hints", TRUE)
     expect_setequal(member_package_request(parsed)$namespace_packages, c("commentpkg", "samepkg"))
 })
+
+test_that("an advisory link alone never schedules a class model for S3 dispatch", {
+    prior <- lsp_settings$get("member_completion")
+    withr::defer(lsp_settings$set("member_completion", prior))
+    code <- c("#' @param x [`onlydocs::Topic`]", "#' @return (`declared::Box`)", "read <- function(x) ordinary::read(x)")
+    parsed <- parse_document("file:///example.R", code)
+    lsp_settings$set("member_completion", FALSE)
+    expect_setequal(member_package_request(parsed)$namespace_packages, c("ordinary", "declared"))
+    lsp_settings$set("member_completion", TRUE)
+    expect_setequal(member_package_request(parsed)$namespace_packages, c("ordinary", "declared", "onlydocs"))
+})

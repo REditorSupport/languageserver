@@ -965,6 +965,11 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
         dependencies <- member_type_hint_packages(env)
         env$member_data$type_hint_dependencies <- dependencies
         env$member_data$type_hint_packages <- unique(unlist(dependencies, use.names = FALSE))
+        sites <- attr(hints, "occurrences", exact = TRUE)
+        if (any(sites$advisory)) {
+            explicit <- unique(sites$type[!sites$advisory])
+            env$member_data$s3_hint_packages <- as.character(unique(unlist(dependencies[explicit], use.names = FALSE)))
+        }
     }
     if (length(classes) || length(attributes(classes))) env$class_data$bytes <- sum(env$class_data$bytes, as.numeric(utils::object.size(classes)))
     # These original-id lookup tables are used only while constructing
@@ -983,10 +988,20 @@ normalize_package_request <- function(packages) {
     enc2utf8(unname(as.character(packages)))
 }
 
+# With only S3 dispatch enabled, advisory links never need a class model.
+s3_document_hint_packages <- function(data) {
+    if (is.null(data$s3_hint_packages)) data$type_hint_packages else data$s3_hint_packages
+}
+
 member_package_request <- function(parse_data) {
     namespaces <- parse_data$member_data$packages
-    if (length(parse_data$member_data$hint_only_packages) && !roxygen_type_hints_enabled()) {
-        namespaces <- setdiff(namespaces, parse_data$member_data$hint_only_packages)
+    only <- parse_data$member_data$hint_only_packages
+    if (length(only)) {
+        if (!roxygen_type_hints_enabled()) namespaces <- setdiff(namespaces, only)
+        else if (!isTRUE(lsp_settings$get("member_completion"))) {
+            explicit <- if (isTRUE(lsp_settings$get("s3_dispatch"))) s3_document_hint_packages(parse_data$member_data)
+            namespaces <- setdiff(namespaces, setdiff(only, explicit))
+        }
     }
     list(
         packages = normalize_package_request(parse_data$packages),
@@ -1068,7 +1083,7 @@ parse_callback <- function(self, uri, version, parse_data, source_content = NULL
     }
 
     hint_packages_changed <- !isTRUE(lsp_settings$get("member_completion")) && isTRUE(lsp_settings$get("s3_dispatch")) &&
-        !identical(old_parse_data$member_data$type_hint_packages, parse_data$member_data$type_hint_packages)
+        !identical(s3_document_hint_packages(old_parse_data$member_data), s3_document_hint_packages(parse_data$member_data))
     if (!isTRUE(parse_data$parse_error)) {
         requested_packages <- member_package_request(parse_data)
         if (is.null(previous_packages) || isTRUE(doc$member_refresh) || hint_packages_changed ||
@@ -1414,7 +1429,7 @@ resolve_member_task <- function(self, uri, document, packages, namespace_package
         manager <- self$member_task_manager
         active <- if (is.function(manager$get_task)) manager$get_task(uri) else NULL
         hinted <- length(member_packages) && roxygen_type_hints_enabled() && isTRUE(lsp_settings$get("s3_dispatch")) &&
-            identical(document$parse_data$member_data$type_hint_packages, member_packages)
+            identical(s3_document_hint_packages(document$parse_data$member_data), member_packages)
         (isTRUE(lsp_settings$get("member_completion")) || hinted) &&
             (!is.function(manager$get_task) || identical(active$context, state)) &&
             identical(.libPaths(), state$request$lib_paths) &&
@@ -1474,7 +1489,7 @@ resolve_task <- function(self, uri, document, packages, delay = 0, namespace_pac
     prepare_s3 <- isTRUE(lsp_settings$get("s3_dispatch"))
     members_enabled <- isTRUE(lsp_settings$get("member_completion"))
     hinted <- if (roxygen_type_hints_enabled()) document$parse_data$member_data$type_hint_packages
-    member_packages <- if (!members_enabled && prepare_s3) hinted
+    member_packages <- if (!members_enabled && prepare_s3 && roxygen_type_hints_enabled()) s3_document_hint_packages(document$parse_data$member_data)
     prepare_members <- package_requests && (members_enabled || length(member_packages) > 0L)
     if (prepare_members && length(hinted)) {
         workspace <- self$get_workspace(uri)

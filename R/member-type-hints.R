@@ -47,9 +47,9 @@ member_type_generator <- function(name, package, index, bindings, budget) {
 
 # A type name describes an instance. Read generator and class metadata without
 # calling constructors or inspecting the user's session.
-member_hinted_value <- function(types, index, bindings, budget) {
-    if (!roxygen_type_hints_enabled()) return(NULL)
-    if (!length(types) || length(types) > max_type_hint_alternatives) return(NULL)
+member_hinted_value <- function(types, index, bindings, budget, class_links = attr(types, "roxygen_class_links", exact = TRUE)) {
+    if (!length(types) || length(types) > max_type_hint_alternatives || !roxygen_type_hints_enabled() ||
+            (length(class_links) && isTRUE(budget$explicit_hints_only))) return(NULL)
     resolve <- function(type) {
         previous <- budget$resolving_hints
         if (type %in% previous || length(previous) >= 32L || isTRUE(budget$exhausted)) {
@@ -60,6 +60,7 @@ member_hinted_value <- function(types, index, bindings, budget) {
         parts <- strsplit(type, "::", fixed = TRUE)[[1L]]
         name <- utils::tail(parts, 1L)
         package <- if (length(parts) == 2L) parts[[1L]]
+        linked <- length(class_links) && type %in% class_links
         project <- !is.null(package) && identical(package, index$document_package)
         if (project) bindings <- list()
         generator <- member_type_generator(name, package, index, bindings, budget)
@@ -67,10 +68,24 @@ member_hinted_value <- function(types, index, bindings, budget) {
         if (!is.null(generator$refclass_instance)) return(generator$refclass_instance)
         if (!is.null(generator$s7_generator)) return(member_s7_shape(generator$s7_generator, generator$closure))
         class <- generator$s4_generator
-        owner <- if (!project) package
+        owner <- package
+        if (linked && is.null(class) && is.null(package)) {
+            history <- member_lookup(index$document_bindings, name)
+            at <- bindings$.__member_position__
+            if (name %in% names(bindings) || (length(history) && (is.null(at) || member_history_position(history, at) > 0L)) ||
+                    member_package_shadows(index, name)) return(NULL)
+            attached <- member_attached_root(index, name, at)
+            if (!is.null(attached)) {
+                # A topic may link to an ordinary imported object or alias.
+                # Only its own namespace can prove a same-named class.
+                if (!identical(attached$function_key, name) || is.null(attached$metadata)) return(NULL)
+                owner <- attached$metadata
+            }
+        }
+        s4_package <- if (!project) owner
         if (is.null(class) && (!project || length(index$document_s4[[name]])) &&
-                !is.null(member_s4_descriptor(name, index, bindings, owner, budget))) {
-            class <- list(name = name, package = owner)
+                !is.null(member_s4_descriptor(name, index, bindings, s4_package, budget))) {
+            class <- list(name = name, package = s4_package)
         }
         if (!is.null(class)) {
             if (!is.null(class$recipe)) bindings$.__s4_classes__[[class$name]] <- class$recipe
@@ -83,25 +98,45 @@ member_hinted_value <- function(types, index, bindings, budget) {
         }
         # An S3 class need not be an exported symbol. Catalogs carry the
         # inheritance vector, so finding the owner does not decode namespaces.
-        owners <- if (!is.null(package)) package else unique(index$hint_packages)
+        owners <- if (!is.null(owner)) owner else unique(index$hint_packages)
         matches <- Filter(function(pkg) {
             candidate <- if (identical(pkg, index$package)) index else member_lookup(index$namespace_indices, pkg)
             !is.null(member_lookup(candidate$classes, name))
         }, owners)
         if (length(matches) == 1L) return(member_value(type = name, member_package = matches[[1L]]))
-        if (length(matches) > 1L) return(member_value(reason = "ambiguous_type_hint"))
-        if ((is.null(package) || identical(package, "base")) && name %in% member_builtin_hint_types) {
+        if (length(matches) > 1L) return(if (linked) NULL else member_value(reason = "ambiguous_type_hint"))
+        if ((is.null(owner) || identical(owner, "base")) && name %in% member_builtin_hint_types) {
             return(member_value(type = if (name == "numeric") "double" else name))
         }
         # User-defined S3 classes need no declaration. Keep the nominal class
         # for dispatch even when no member table or inheritance is available.
-        path <- s3_hint_ancestry(name, package)
+        if (linked) {
+            # A Markdown topic may describe any function or concept. An S3
+            # method with a coincidentally matching suffix proves no class.
+            owners <- if (!is.null(owner)) owner else unique(c("base", index$document_package, index$hint_packages))
+            path <- s3_hint_ancestry(name, owner, owners)
+            if (is.null(path)) return(NULL)
+        } else {
+            path <- s3_hint_ancestry(name, package)
+        }
         if (is.null(path)) path <- structure(name, incomplete_s3_path = TRUE)
-        member_value(type = name, classes = path, member_package = package)
+        member_value(type = name, classes = path, member_package = owner)
     }
-    if (length(types) == 1L) return(resolve(types[[1L]]))
-    values <- lapply(types, resolve)
-    member_value(reason = "type_hint_union", possible_returns = values)
+    if (length(types) == 1L) {
+        result <- resolve(types[[1L]])
+    } else {
+        values <- lapply(types, resolve)
+        if (length(class_links) && any(vapply(values, is.null, logical(1L)))) return(NULL)
+        if (length(class_links)) {
+            for (i in seq_along(values)) values[[i]]$advisory_type <- TRUE
+        }
+        result <- member_value(reason = "type_hint_union", possible_returns = values)
+    }
+    if (length(class_links) && !is.null(result)) {
+        result$advisory_type <- TRUE
+        budget$advisory_reads <- (budget$advisory_reads %s3_or% 0L) + 1L
+    }
+    result
 }
 
 # Annotations fill gaps in inference. In particular a concrete argument or
@@ -114,6 +149,18 @@ member_needs_call_hint <- function(value) {
         "complex", "character", "raw", "list", "pairlist", "function") && !length(value$classes) && is.null(value$r6_role) &&
         is.null(value$s4_class) && !isTRUE(value$s7) && is.null(value$fields) && is.null(value$slots) &&
         is.null(value$elements) && is.null(value$element_shape) && is.null(value$member_package)
+}
+
+# A concrete-looking child (even a literal returned by a selected method)
+# can depend on an advisory receiver. Keep that dependency on materialized
+# values so dispatch sees it through aliases, projections and cache hits.
+member_advisory_result <- function(value, before, budget) {
+    if (!identical(before, budget$advisory_reads)) {
+        if (!is.null(value)) value$advisory_type <- TRUE
+    } else if (isTRUE(value$advisory_type)) {
+        budget$advisory_reads <- (before %s3_or% 0L) + 1L
+    }
+    value
 }
 
 member_refine_call_hint <- function(value, types, index, lexical, budget) {
@@ -133,7 +180,8 @@ member_class_hint <- function(types, index, bindings) {
 }
 
 member_refine_class_hint <- function(value, hint, index, budget = NULL) {
-    if (is.null(hint)) return(value)
+    if (is.null(hint) || (isTRUE(budget$explicit_hints_only) &&
+                length(attr(hint$types, "roxygen_class_links", exact = TRUE)))) return(value)
     if (!member_needs_call_hint(value)) {
         if (isTRUE(budget$class_hint_probe)) budget$used_member_hint <- TRUE
         return(value)
