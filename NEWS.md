@@ -1,5 +1,9 @@
 # languageserver (development)
 
+- Offer member completion for package objects when `library()` or `require()`
+  is called inside `suppressPackageStartupMessages()`, `try()`, `tryCatch()`,
+  or another supported base R wrapper, including on the first completion request.
+
 - Rename and Find References distinguish lexical variables from column names
   in data.table queries and common dplyr and base R data masks. An explicit
   `.env$name` selects the enclosing binding. Rename declines edits when a

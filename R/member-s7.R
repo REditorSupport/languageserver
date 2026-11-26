@@ -135,11 +135,13 @@ member_s7_value <- function(..., s7 = FALSE, s7_descriptor = NULL, s7_generator 
 }
 
 member_attached_root <- function(index, name, at) {
-    changes <- index$s7_attachments
-    if (length(changes) && !is.null(at) && !member_before(changes[[length(changes)]]$end, at) &&
-            name %in% index$s7_attachment_names) {
-        next_change <- member_history_position(changes, at) + 1L
-        return(changes[[next_change]]$previous[[name]])
+    if (length(index$attachment_history) && !is.null(at) && !identical(at, index$import_at) &&
+            name %in% index$attachment_names) {
+        for (change in index$attachment_history) {
+            value <- member_lookup(change$roots, name)
+            if (!is.null(value) && member_import_reached(change$item, at)) return(value)
+        }
+        return(member_lookup(index$startup_roots, name))
     }
     member_lookup(index$attached_roots, name)
 }
@@ -156,12 +158,13 @@ member_s7_method <- function(expr, index, bindings) {
     at <- bindings$.__member_position__
     history <- member_lookup(index$document_bindings, name)
     if (length(history) && (is.null(at) || member_history_position(history, at) > 0L)) return(NULL)
-    attached <- member_attached_root(index, name, at)
+    import_at <- bindings$.__member_import_at__ %s3_or% at
+    attached <- member_attached_root(index, name, import_at)
     if (is.null(index$document_bindings) && name %in% names(index$definitions) && !identical(index$package, "S7")) return(NULL)
     method <- if (!is.null(attached)) {
         if (identical(attached$metadata, "S7") && isTRUE(attached$function_key %in% member_s7_intrinsics)) attached$function_key
     } else if ((isTRUE(index$s7_attached) &&
-                (is.null(at) || is.null(index$s7_attached_at) || member_before(index$s7_attached_at, at))) ||
+                (is.null(import_at) || is.null(index$s7_attachment) || member_import_reached(index$s7_attachment, import_at))) ||
             (is.null(index$document_bindings) && name %in% index$intrinsics)) {
         name
     }

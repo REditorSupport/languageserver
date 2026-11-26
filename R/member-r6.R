@@ -662,7 +662,7 @@ member_r6_equiv_skip <- c(
 )
 
 member_r6_internal_env_keys <- c(
-    ".__member_position__", ".__member_properties__",
+    ".__member_position__", ".__member_import_at__", ".__member_properties__",
     ".__s4_classes__", ".__s7_package__", ".__s7_constructing__"
 )
 

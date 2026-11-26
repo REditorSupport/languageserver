@@ -88,23 +88,141 @@ test_that("Lazy datasets retain public visibility without exposing private bindi
     expect_false(file.exists(marker))
 })
 
+lazydata_shared_snapshot <- function(package, column) {
+    ns <- new.env(parent = baseenv())
+    data <- new.env(parent = emptyenv())
+    data$shared <- stats::setNames(data.frame(1L), column)
+    member_index_freeze(member_package_index(member_namespace_input(
+        ns, package = package, exports = character(), lazydata = data
+    )))
+}
+
 test_that("Implicit startup datasets follow R masking and lexical shadowing", {
-    make_snapshot <- function(package, column) {
-        ns <- new.env(parent = baseenv())
-        data <- new.env(parent = emptyenv())
-        data$shared <- stats::setNames(data.frame(1L), column)
-        member_index_freeze(member_package_index(member_namespace_input(
-            ns, package = package, exports = character(), lazydata = data
-        )))
-    }
-    snapshots <- list(earlier = make_snapshot("earlier", "first"), later = make_snapshot("later", "second"),
-        explicit = make_snapshot("explicit", "third"))
+    snapshots <- list(earlier = lazydata_shared_snapshot("earlier", "first"),
+        later = lazydata_shared_snapshot("later", "second"), explicit = lazydata_shared_snapshot("explicit", "third"))
     expect_identical(lazydata_labels("shared$", snapshots, c("earlier", "later")), "second")
     expect_identical(lazydata_labels("library(explicit)\nshared$", snapshots, c("earlier", "later")), "third")
     expect_identical(lazydata_labels("shared <- list(local = TRUE)\nshared$", snapshots, c("earlier", "later")), "local")
     expect_length(lazydata_labels("shared$", snapshots), 0L)
     expect_length(lazydata_labels("f <- function(shared) { shared$\n}", snapshots, c("earlier", "later"),
             point = list(row = 0L, col = nchar("f <- function(shared) { shared$"))), 0L)
+})
+
+test_that("Suppressed package attachments expose dataset columns in source order", {
+    snapshots <- list(earlier = lazydata_shared_snapshot("earlier", "first"),
+        later = lazydata_shared_snapshot("later", "second"))
+    lines <- c("suppressPackageStartupMessages({", "  shared$first", "  library(earlier)",
+        "  shared$first", "  require('later')", "})", "shared$second")
+    code <- paste(lines, collapse = "\n")
+    expect_length(lazydata_labels(code, snapshots, point = list(row = 1L, col = 9L)), 0L)
+    expect_identical(lazydata_labels(code, snapshots, point = list(row = 3L, col = 9L)), "first")
+    expect_identical(lazydata_labels(code, snapshots, point = list(row = 6L, col = 7L)), "second")
+
+    for (scope in c(
+        "suppressPackageStartupMessages <- function(expr) NULL\nsuppressPackageStartupMessages(library(earlier))",
+        "suppressPackageStartupMessages({ library <- function(...) NULL; library(earlier) })",
+        "suppressPackageStartupMessages(quote(library(earlier)))",
+        "suppressPackageStartupMessages(if (flag) library(earlier))")) {
+        expect_length(lazydata_labels(paste(scope, "shared$", sep = "\n"), snapshots), 0L)
+    }
+    qualified <- paste("suppressPackageStartupMessages <- function(expr) NULL", "library <- function(...) NULL",
+        "base::suppressPackageStartupMessages(expr = base::library(earlier))", "shared$", sep = "\n")
+    expect_identical(lazydata_labels(qualified, snapshots), "first")
+})
+
+test_that("Base wrappers expose datasets from their evaluated arguments", {
+    snapshots <- list(earlier = lazydata_shared_snapshot("earlier", "first"),
+        later = lazydata_shared_snapshot("later", "second"))
+    columns <- function(scope) lazydata_labels(paste(scope, "shared$", sep = "\n"), snapshots)
+    for (scope in c(
+        "try(library(earlier))",
+        "invisible(identity(force(library(earlier))))",
+        "try(silent = TRUE, expr = suppressPackageStartupMessages({ library(earlier) }))",
+        "tryCatch(error = function(e) NULL, expr = { require('earlier') })",
+        "try <- function(expr) NULL\nsuppressPackageStartupMessages(base::try(library(earlier)))")) {
+        expect_identical(columns(scope), "first", info = scope)
+    }
+    expect_identical(columns("tryCatch(finally = library(later), expr = library(earlier))"), "second")
+    code <- paste(c("library(earlier)", "tryCatch(TRUE, finally = {",
+            "  shared$first", "  library(later)", "  shared$second", "}, error = function(e) NULL)"), collapse = "\n")
+    expect_identical(lazydata_labels(code, snapshots, point = list(row = 2L, col = 9L)), "first")
+    expect_identical(lazydata_labels(code, snapshots, point = list(row = 4L, col = 9L)), "second")
+    code <- paste(c("library(earlier)", "tryCatch(finally = { library(later) }, {",
+            "  shared$first", "})"), collapse = "\n")
+    expect_identical(lazydata_labels(code, snapshots, point = list(row = 2L, col = 9L)), "first")
+    incomplete <- sub("shared$first", "shared$", code, fixed = TRUE)
+    expect_identical(lazydata_labels(incomplete, snapshots, point = list(row = 2L, col = 9L)), "first")
+    for (scope in c(
+        "tryCatch(TRUE, error = function(e) library(earlier))",
+        "try(silent = { library(earlier); TRUE }, expr = TRUE)",
+        "try <- function(expr) NULL\nsuppressPackageStartupMessages(try(library(earlier)))",
+        "tryCatch <- function(...) NULL\ntryCatch(library(earlier))")) {
+        expect_identical(columns(scope), character(), info = scope)
+    }
+})
+
+lazydata_labels_at_access <- function(lines, row, snapshots) {
+    column <- regexpr("$", lines[[row]], fixed = TRUE)[[1L]]
+    lazydata_labels(paste(lines, collapse = "\n"), snapshots, point = list(row = row - 1L, col = column))
+}
+
+test_that("A finally block written first sees attachments in execution order", {
+    snapshots <- list(earlier = lazydata_shared_snapshot("earlier", "first"),
+        later = lazydata_shared_snapshot("later", "second"))
+    lines <- c("tryCatch(", "  finally = {", "    library(later)", "    shared$", "  },", "  expr = TRUE", ")")
+    expect_identical(lazydata_labels_at_access(lines, 4L, snapshots), "second")
+    lines <- c("tryCatch(finally = {", "  shared$", "}, expr = { library(earlier) })")
+    expect_identical(lazydata_labels_at_access(lines, 2L, snapshots), "first")
+
+    lines <- c("tryCatch(finally = {", "  shared$first", "  library(later)", "  shared$second",
+        "}, expr = {", "  library(earlier)", "  shared$first", "})", "shared$second")
+    expect_identical(lazydata_labels_at_access(lines, 2L, snapshots), "first")
+    expect_identical(lazydata_labels_at_access(lines, 4L, snapshots), "second")
+    expect_identical(lazydata_labels_at_access(lines, 7L, snapshots), "first")
+    expect_identical(lazydata_labels_at_access(lines, 9L, snapshots), "second")
+})
+
+test_that("An assignment keeps the package object visible when its RHS was evaluated", {
+    snapshots <- list(earlier = lazydata_shared_snapshot("earlier", "first"),
+        later = lazydata_shared_snapshot("later", "second"))
+    lines <- c("library(earlier)", "suppressPackageStartupMessages({", "  x <- shared",
+        "  library(later)", "  x$", "})")
+    expect_identical(lazydata_labels_at_access(lines, 5L, snapshots), "first")
+
+    lines <- c("library(earlier)", "suppressPackageStartupMessages({", "  x <- shared",
+        "  library(later)", "  copy <- x", "  copy$first", "  shared$second", "})")
+    expect_identical(lazydata_labels_at_access(lines, 6L, snapshots), "first")
+    expect_identical(lazydata_labels_at_access(lines, 7L, snapshots), "second")
+    lines <- c("library(earlier)", "x <- shared", "library(later)", "x$")
+    expect_identical(lazydata_labels_at_access(lines, 4L, snapshots), "first")
+    lines <- c("library(earlier)", "suppressPackageStartupMessages({", "  f <- function() shared",
+        "  library(later)", "  f()$", "})")
+    expect_identical(lazydata_labels_at_access(lines, 5L, snapshots), "second")
+})
+
+test_that("Wrapped attachments in a sourced file take effect at the source call", {
+    root <- index_normalize_path(withr::local_tempdir())
+    workspace <- Workspace$new(root)
+    workspace$member_metadata$set("earlier", lazydata_shared_snapshot("earlier", "first"))
+    workspace$member_metadata$set("later", lazydata_shared_snapshot("later", "second"))
+    open <- function(name, lines) {
+        uri <- path_to_uri(file.path(root, name))
+        doc <- Document$new(uri, "r", 1L, lines)
+        doc$did_open()
+        workspace$documents$set(uri, doc)
+        parsed <- parse_document(uri, lines)
+        parsed$version <- doc$version
+        workspace$update_parse_data(uri, parsed)
+        doc
+    }
+    open("packages.R", c("suppressPackageStartupMessages({", "  library(later)", "})"))
+    doc <- open("main.R", c("library(earlier)", "shared$first", 'source("packages.R")', "shared$second"))
+    columns <- function(row) {
+        items <- member_completion(doc$uri, workspace, doc, list(row = row, col = 7L), FALSE, 200L)
+        vapply(items, `[[`, character(1L), "label")
+    }
+    expect_identical(columns(1L), "first")
+    expect_identical(columns(3L), "second")
 })
 
 test_that("Data-frame subclasses propose stored columns without invoking dollar methods", {
@@ -185,18 +303,24 @@ test_that("Dataset completion works over LSP from an initially incomplete buffer
     fixture <- lazydata_test_package()
     # Add only the fixture directory, retaining the standalone server's normal
     # library paths instead of forwarding check-worker proxy libraries.
-    client <- language_client(working_dir = fixture$root, lib_paths = fixture$library)
-    cases <- list(list(code = "mtcars$", columns = names(datasets::mtcars)),
-        list(code = "lazycolumnfixture::observations$", columns = fixture$columns))
-    for (i in seq_along(cases)) {
-        case <- cases[[i]]
-        path <- file.path(fixture$root, paste0("dataset-", i, ".R"))
-        did_open(client, path, text = case$code)
+    columns <- function(client, code) {
+        path <- tempfile(tmpdir = fixture$root, fileext = ".R")
+        did_open(client, path, text = code)
         timeout <- if (identical(Sys.getenv("R_COVR"), "true")) 90 else 45
-        result <- respond_completion(client, path, c(0L, nchar(case$code)), timeout = timeout, retry = FALSE)
-        labels <- vapply(result$items, `[[`, character(1L), "label")
-        expect_true(all(case$columns %in% labels), info = case$code)
-        expect_identical(sort(labels), sort(case$columns), info = case$code)
+        point <- c(length(code) - 1L, nchar(tail(code, 1L)))
+        result <- respond_completion(client, path, point, timeout = timeout, retry = FALSE)
+        sort(vapply(result$items, `[[`, character(1L), "label"))
     }
+    client <- language_client(working_dir = fixture$root, lib_paths = fixture$library)
+    expect_identical(columns(client, "mtcars$"), sort(names(datasets::mtcars)))
+    expect_identical(columns(client, "lazycolumnfixture::observations$"), sort(fixture$columns))
+    cold_columns <- function(code) {
+        cold_client <- language_client(working_dir = fixture$root, lib_paths = fixture$library)
+        columns(cold_client, code)
+    }
+    wrapped <- c("suppressPackageStartupMessages({", "  library(lazycolumnfixture)", "})", "observations$")
+    expect_identical(cold_columns(wrapped), sort(fixture$columns))
+    handled <- c("tryCatch({", "  try(library(lazycolumnfixture))", "}, error = function(e) NULL)", "observations$")
+    expect_identical(cold_columns(handled), sort(fixture$columns))
     expect_false(file.exists(fixture$marker))
 })
