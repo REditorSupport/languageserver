@@ -71,6 +71,8 @@ test_that("S3 dispatch follows documented member values through a local assignme
                 "paint(Holder()@item, @@)")))
     r6 <- c('Bin <- R6::R6Class("Bin", public = list(', "#' @field item (`dye`)", "item = NULL))")
     expect_identical(roxygen_s3_call(c(generic, r6, "paint(Bin$new()$item, @@)"))$method$name, "paint.dye")
+    r6_method <- c('Bin <- R6::R6Class("Bin", public = list(', "#' @returns (`dye`)", "mix = function() opaque()))")
+    expect_identical(roxygen_s3_call(c(generic, r6_method, "paint(Bin$new()$mix(), @@)"))$method$name, "paint.dye")
     expect_identical(roxygen_s3_call(c(generic, "#' @param x (`dye`)", 'Bin <- R6::R6Class("Bin", public = list(',
                 "m = function(x) paint(x, @@)))"))$method$name, "paint.dye")
 })
@@ -83,6 +85,9 @@ test_that("S3 dispatch can read an S7 computed property's hint", {
         "#' @prop item (`dye`)", 'Bin <- S7::new_class("Bin", properties = list(',
         "  item = S7::new_property(getter = function(self) opaque())))", "paint(Bin()@item, @@)")
     expect_identical(roxygen_s3_call(lines, metadata)$method$name, "paint.dye")
+    extracted <- c(lines[1:2], "library(S7)", "#' @returns (`dye`) An extracted color.",
+        'extract <- new_generic("extract", "x")', "paint(extract(opaque()), @@)")
+    expect_identical(roxygen_s3_call(extracted, metadata)$method$name, "paint.dye")
 })
 
 test_that("documented S3 dispatch observes known ancestry and proven return alternatives", {

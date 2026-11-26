@@ -180,7 +180,7 @@ s3_bind_hinted_formal <- function(name, types, scope, context) {
 # S3 has its own small value model. On an unresolved dispatch argument, ask
 # the member providers for the value in the same lexical scope. Accept their
 # answer only when reading a documented member contributed evidence.
-s3_class_member_input <- function(expr, scoped, context) {
+s3_class_member_input <- function(expr, scoped, context, method_call) {
     reads <- member_syntax_names(expr)
     if (!length(reads)) return(NULL)
     operators <- intersect(reads, c("$", "[[", "@"))
@@ -195,7 +195,8 @@ s3_class_member_input <- function(expr, scoped, context) {
     value <- member_cursor_value(scoped$root, ".__languageserver_dispatch__", index, list(.__member_position__ = start), budget,
         accessor = NULL, path = scoped$path, source = scoped$source, dispatch_input = expr)
     if (isTRUE(budget$exhausted) || isTRUE(budget$transient)) context$exhausted <- TRUE
-    if (!isTRUE(budget$used_member_hint) || isTRUE(context$exhausted)) return(NULL)
+    documented <- if (method_call) budget$used_method_result else budget$used_member_hint
+    if (!isTRUE(documented) || isTRUE(context$exhausted)) return(NULL)
     values <- if (identical(value$reason, "type_hint_union")) value$possible_returns else list(value)
     paths <- unique(unname(lapply(values, member_hint_dispatch_classes, index = index)))
     if (!length(paths) || any(!lengths(paths))) return(NULL)

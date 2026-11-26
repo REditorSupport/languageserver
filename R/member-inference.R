@@ -2114,6 +2114,7 @@ member_infer <- function(
         if (open_dots) return(unknown)
         supplied <- member_s7_match(actuals, names(callee$function_expr[[2L]]))
         if (is.null(supplied) || !all(callee$s7_dispatch_args %in% names(supplied$args))) return(unknown)
+        if (isTRUE(budget$class_hint_probe)) budget$used_method_result <- TRUE
         selected <- member_s7_exact_method(callee, supplied$args, budget, require_certain = TRUE)
         if (is.null(selected$implementation)) return(member_refine_class_hint(unknown, fallback, index, budget))
         callee <- selected$implementation
@@ -2191,6 +2192,8 @@ member_infer <- function(
         return(namespace_call(actuals))
     }
     if (!is.null(callee$function_expr)) {
+        if (isTRUE(budget$class_hint_probe) && !is.null(callee$r6_owner) &&
+                length(attr(callee$function_expr, "member_type_hints", exact = TRUE)$returns)) budget$used_method_result <- TRUE
         if (!is.null(callee$function_uri) && !identical(callee$function_uri, index$source_uri)) {
             # Arguments were inferred at the call site. Interpret the source
             # body and its documented class names in the defining file.

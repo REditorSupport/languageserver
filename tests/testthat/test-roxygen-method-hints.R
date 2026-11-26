@@ -1,5 +1,6 @@
 method_hint_probe <- function(lines, s7 = FALSE) {
     f <- provider_fixture(lines)
+    expect_false(f$document$parse_data$parse_error)
     if (s7) {
         skip_if_not_installed("S7")
         metadata <- MemberMetadataCache$new(16 * 1024^2)
@@ -24,7 +25,7 @@ test_that("S4 roxygen belongs to the matched inline generic or method definition
         "#' @param value (`Box`) Replacement.",
         'methods::setReplaceMethod(signature = "ANY", f = "render", definition = function(x, value) value$field)',
         "#' @param from (`Box`) Source.", "#' @param to (`Unrelated`) Coercion target.",
-        'methods::setAs("From", "To",", "  replace = function(from, value) from$field,", "  def = (function(from) from$field))',
+        'methods::setAs("From", "To",', "  replace = function(from, value) from$field,", "  def = (function(from) from$field))",
         "setMethod <- function(f, signature, definition) NULL", "#' @param x (`Box`) Unrelated callback.",
         'setMethod("render", "ANY", function(x) x$field)', "#' @param x (`Box`) Wrong namespace.",
         'unrelated::setGeneric("render", function(x) x$field)')
@@ -37,9 +38,9 @@ test_that("S4 roxygen belongs to the matched inline generic or method definition
 })
 
 test_that("S7 method hints and emitted generic results preserve exact dispatch evidence", {
-    lines <- c('Box <- R6::R6Class("Box", public = list(value = 1L))", "library(S7)',
-        'A <- new_class("A")", "B <- new_class("B")', "#' @returns (`Box`) A result.",
-        'read <- new_generic("read", "x")", "read(opaque())$field',
+    lines <- c('Box <- R6::R6Class("Box", public = list(value = 1L))', "library(S7)",
+        'A <- new_class("A")', 'B <- new_class("B")', "#' @returns (`Box`) A result.",
+        'read <- new_generic("read", "x")', "read(opaque())$field",
         "method(read, A) <- function(x) list(actual = TRUE)", "a <- read(A())$field",
         "read(B())$field", "#' @returns (`Box`) Method result.", "method(read, A) <- function(x) opaque()",
         "b <- read(A())$field", "method(read, A) <- function(x) if (opaque()) list(different = TRUE) else opaque()",
