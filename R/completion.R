@@ -1215,9 +1215,7 @@ completion_has_call_parens <- function(document, token_result) {
 #' @noRd
 completion_global_outline <- function(parsed, previews = FALSE) {
     bindings <- new.env(hash = TRUE, parent = emptyenv())
-    controls <- c("{", "(", "if", "for", "while", "repeat", "system.time", "try", "tryCatch",
-        "withCallingHandlers", "withRestarts", "allowInterrupts", "suspendInterrupts",
-        "suppressPackageStartupMessages", "suppressMessages", "suppressWarnings")
+    controls <- c("{", "(", "if", "for", "while", "repeat", names(base_wrapper_arguments))
     walk <- function(expr, ref = NULL, uncertain = FALSE) {
         if (is.expression(expr) || is.list(expr)) {
             refs <- attr(expr, "srcref")

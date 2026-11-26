@@ -77,8 +77,14 @@ member_workspace_view <- function(workspace, document) {
                 item$cache_prefix <- NULL
             }
             items$push(item)
-            import <- member_attachment_item(item)
-            if (!is.null(import)) imports$push(import)
+            for (import in item$imports) {
+                if (!is.null(anchor)) {
+                    import$start <- item$start
+                    import$end <- item$end
+                    import$cache_prefix <- NULL
+                }
+                imports$push(import)
+            }
             if (next_source > length(source_items) || i != source_items[[next_source]]) next
             source <- sources[[next_source]]
             next_source <- next_source + 1L
@@ -105,7 +111,7 @@ member_workspace_view <- function(workspace, document) {
     view <- list(key = key)
     if (expand(document, document$uri) && state$expansions) {
         view$bindings <- member_index_bindings(items$as_list())
-        view$imports <- imports$as_list()
+        view$imports <- member_merge_imports(imports$as_list(), data$recovered_imports)
         view$accessor_registrations <- state$accessor_registrations
     }
     document$member_workspace_view <- view

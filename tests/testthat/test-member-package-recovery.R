@@ -32,6 +32,37 @@ test_that("Recovered namespace requests do not create source bindings", {
     expect_length(index$imports, 0L)
 })
 
+test_that("A dangling accessor retains earlier attachments in a wrapped block", {
+    content <- c("{", "tryCatch(finally = library(exitfixture), expr = {",
+        "  library(recoveryfixture)", "  observations$", "})", "}", "library(lastfixture)")
+    uri <- "file:///wrapped-recovery.R"
+    doc <- Document$new(uri, "r", 1L, content)
+    parsed <- parse_document(uri, content)
+    parsed$version <- 1L
+    doc$update_parse_data(parsed)
+    index <- member_generic_index("recoveryfixture")
+    index$roots <- list(observations = member_value(type = "list", fields = list(column = member_literal(1L))))
+    metadata <- MemberMetadataCache$new(32 * 1024^2)
+    metadata$set("recoveryfixture", member_index_freeze(index))
+    items <- member_completion(uri, list(member_metadata = metadata), doc,
+        list(row = 3L, col = nchar(content[[4L]])), FALSE, 20L)
+    expect_identical(vapply(items, `[[`, "", "label"), "column")
+    packages <- function(imports) vapply(imports, function(item) member_name(item$expr[[2L]]), "")
+    expect_identical(packages(parsed$member_data$imports), c("recoveryfixture", "lastfixture"))
+    # A caller sourcing the incomplete script may replay only its intact roots.
+    valid <- parsed$member_data$items[member_complete_item_ids(parsed)]
+    expect_identical(packages(do.call(c, lapply(valid, `[[`, "imports"))), "lastfixture")
+    for (scope in c("if (flag) {", "f <- function() {")) {
+        scoped <- parse_document(uri, replace(content, 1L, scope))
+        expect_length(scoped$member_data$recovered_imports, 0L)
+    }
+
+    lines <- c("suppressPackageStartupMessages({", "library(firstfixture)",
+        "library(", "  uncertain", ")", "library(laterfixture)", "})")
+    projection <- parse(text = lines, keep.source = TRUE)
+    expect_identical(packages(member_projected_imports(projection, 3L)), "firstfixture")
+})
+
 test_that("incomplete R cells request metadata for their own verified receivers", {
     content <- c(
         "prosepkg::object$", "```{python}", "otherpkg::object$", "```",
@@ -137,6 +168,25 @@ test_that("Cold member requests wait for only the receiver's pending namespace",
     fixture <- package_recovery_wait_fixture("recoveryfixture::frame$")
     fixture$server$member_task_manager <- list(has = function(...) FALSE)
     expect_false(member_metadata_waiting(fixture$server, fixture$uri, fixture$document, fixture$point))
+})
+
+test_that("Bare member receivers wait for a visible package that could supply them", {
+    waiting <- function(lines, row = length(lines), ready = list()) {
+        fixture <- package_recovery_wait_fixture(paste(lines, collapse = "\n"))
+        fixture$document$requested_packages <- list(packages = c("firstfixture", "lastfixture"), namespace_packages = character())
+        for (pkg in names(ready)) fixture$workspace$member_metadata$set(pkg, ready[[pkg]])
+        point <- list(row = row - 1L, col = regexpr("$", lines[[row]], fixed = TRUE)[[1L]])
+        member_metadata_waiting(fixture$server, fixture$uri, fixture$document, point)
+    }
+    imports <- c("library(firstfixture)", "library(lastfixture)")
+    expect_true(waiting(c(imports, "observations$")))
+    expect_false(waiting(c("observations$column", imports), 1L))
+    expect_false(waiting(c(imports, "observations <- list(column = 1)", "observations$")))
+    expect_false(waiting(c(imports, "function(observations) observations$")))
+    expect_false(waiting(c(imports, "list(column = 1)$")))
+    catalog <- list(roots = list(observations = member_literal(1L)))
+    expect_false(waiting(c(imports, "observations$"), ready = list(lastfixture = catalog)))
+    expect_true(waiting(c(imports, "observations$"), ready = list(firstfixture = catalog)))
 })
 
 test_that("Startup dataset-only catalogs wait for regular namespace objects", {

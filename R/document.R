@@ -446,6 +446,25 @@ noncallable_definitions <- function(definitions, names) {
     names[!vapply(definitions[names], function(def) identical(def$type, "function"), logical(1L))]
 }
 
+# These base functions force the listed arguments in the caller's environment.
+# Order matters for tryCatch(), whose finally expression runs on exit.
+base_wrapper_arguments <- list(
+    system.time = "expr", try = "expr", tryCatch = c("expr", "finally"),
+    withCallingHandlers = "expr", withRestarts = "expr", allowInterrupts = "expr",
+    suspendInterrupts = "expr", suppressPackageStartupMessages = "expr",
+    suppressMessages = "expr", suppressWarnings = "expr",
+    force = "x", identity = "x", invisible = "x"
+)
+
+wrapper_argument_positions <- function(expr, name) {
+    fn <- get(name, envir = baseenv(), inherits = FALSE)
+    if (is.primitive(fn)) fn <- args(fn)
+    positions <- as.list(expr)
+    positions[-1L] <- seq_along(expr)[-1L]
+    call <- tryCatch(match.call(fn, as.call(positions), expand.dots = FALSE), error = function(e) NULL)
+    unlist(as.list(call)[intersect(base_wrapper_arguments[[name]], names(call))], use.names = TRUE)
+}
+
 parser_hooks <- list(
     "{" = function(expr, action) {
         children <- as.list(expr)[-1L]
@@ -537,17 +556,7 @@ parser_hooks <- list(
             packages <- vapply(call[["..."]], as.character, character(1L))
             action$update(packages = packages)
         }
-    },
-    "system.time" = function(expr, action) action$parse_args("expr"),
-    "try" = function(expr, action) action$parse_args("expr"),
-    "tryCatch" = function(expr, action) action$parse_args(c("expr", "finally")),
-    "withCallingHandlers" = function(expr, action) action$parse_args("expr"),
-    "withRestarts" = function(expr, action) action$parse_args("expr"),
-    "allowInterrupts" = function(expr, action) action$parse_args("expr"),
-    "suspendInterrupts" = function(expr, action) action$parse_args("expr"),
-    "suppressPackageStartupMessages" = function(expr, action) action$parse_args("expr"),
-    "suppressMessages" = function(expr, action) action$parse_args("expr"),
-    "suppressWarnings" = function(expr, action) action$parse_args("expr")
+    }
 )
 
 parse_expr <- function(content, expr, env, srcref = attr(expr, "srcref")) {
@@ -571,7 +580,11 @@ parse_expr <- function(content, expr, env, srcref = attr(expr, "srcref")) {
     } else if (is_simple_call(expr)) {
         f <- fun_string(expr[[1L]])
         fun <- parser_hooks[[f]]
-        if (is.function(fun)) {
+        if (!is.null(base_wrapper_arguments[[f]])) {
+            for (i in wrapper_argument_positions(expr, f)) {
+                if (is.call(expr[[i]])) parse_expr(content, expr[[i]], env, srcref)
+            }
+        } else if (is.function(fun)) {
             action <- list(
                 update = function(...) {
                     updates <- list(...)
@@ -655,17 +668,6 @@ parse_expr <- function(content, expr, env, srcref = attr(expr, "srcref")) {
                         parse_expr(content, expr, env, srcref_override)
                     } else {
                         parse_expr(content, expr, env, srcref)
-                    }
-                },
-                parse_args = function(args) {
-                    fn <- tryCatch(eval(expr[[1L]], globalenv()), error = function(e) NULL)
-                    if (is.function(fn)) {
-                        call <- match.call(fn, expr, expand.dots = FALSE)
-                        for (arg in args) {
-                            if (is.call(call[[arg]])) {
-                                parse_expr(content, call[[arg]], env, srcref)
-                            }
-                        }
                     }
                 }
             )
@@ -853,7 +855,7 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
     # hints. Keep its original source and bounded recovery on a syntax error.
     env$member_data <- member_document_index(content, expr, data, recovery$incomplete_lines,
         defer_small_scopes = is_rmarkdown && length(incomplete_lines) > 0L, value_source = value_source,
-        verified = verified)
+        verified = verified, recovered_imports = if (!is.null(recovery)) member_projected_imports(expr, incomplete_lines))
     if (is_rmarkdown && length(literate$member_packages)) {
         env$member_data$packages <- union(env$member_data$packages, literate$member_packages)
     }

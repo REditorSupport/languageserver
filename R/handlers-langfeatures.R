@@ -50,6 +50,46 @@ index_context_waiting <- function(self, workspace, document, point, hover = FALS
     TRUE
 }
 
+# A bare dataset has no namespace in its receiver syntax. Search visible
+# attachments in masking order until a catalog can identify the binding.
+member_attached_receiver_waiting <- function(workspace, document, point, recovered) {
+    data <- document$parse_data$member_data
+    path <- recovered$path
+    if (is.null(path)) path <- member_cursor_path(recovered$parsed, recovered$sentinel, "$")
+    if (!length(path)) return(FALSE)
+    # Recovery retains formals even when a dangling $ removed a whole
+    # one-line function from the document's navigation index.
+    access <- recovered$parsed
+    formals <- character()
+    for (child in path) {
+        if (member_head(access, "function")) formals <- c(formals, names(access[[2L]]))
+        access <- access[[child]]
+    }
+    if (!member_head(access, "$") || !is.symbol(access[[2L]])) return(FALSE)
+    receiver <- as.character(access[[2L]])
+    if (receiver %in% formals) return(FALSE)
+    at <- c(point$row, point$col)
+    view <- member_workspace_view(workspace, document)
+    bindings <- if (is.null(view$bindings)) data$bindings else view$bindings
+    if (member_history_position(bindings[[receiver]], at) ||
+            length(navigation_definitions(document$parse_data, point$row + 1L, point$col + 1L, receiver, last = TRUE))) return(FALSE)
+    imports <- if (is.null(view$bindings)) data$imports else view$imports
+    metadata <- workspace$member_metadata
+    request <- document$requested_packages
+    for (item in rev(imports)) {
+        if (isTRUE(item$uncertain) || !member_import_visible(item, bindings, at)) next
+        package <- member_name(item$expr[[2L]])
+        if (!package %in% request$packages) next
+        catalog <- if (is.function(metadata$catalog)) metadata$catalog(package) else if (is.function(metadata$get)) metadata$get(package, NULL)
+        if (receiver %in% names(catalog$roots) && is.null(catalog$error)) return(FALSE)
+        if (package %in% startup_packages && !package %in% request$namespace_packages) next
+        if (is.null(catalog) || !is.null(catalog$error) ||
+                (isTRUE(catalog$dataset_only) && !isTRUE(catalog$namespace_attempted))) return(TRUE)
+        if (receiver %in% catalog$exports) return(FALSE)
+    }
+    FALSE
+}
+
 # Namespace member models run independently of S3 catalogs. Wait only for
 # packages used by this receiver, never unrelated source-member requests.
 member_metadata_waiting <- function(self, uri, document, point, cursor = NULL, name = NULL, call = NULL) {
@@ -71,6 +111,8 @@ member_metadata_waiting <- function(self, uri, document, point, cursor = NULL, n
     recovered <- tryCatch(member_recover_scope(document, point, cursor, document$parse_data$member_data),
         error = function(e) NULL)
     if (is.null(recovered)) return(FALSE)
+    if (identical(cursor$accessor, "$") && length(request$packages) &&
+            member_attached_receiver_waiting(self$get_workspace(uri), document, point, recovered)) return(TRUE)
     referenced <- member_source_names(recovered$parsed, recovered$source, recovered$path, name, cursor$accessor)
     referenced <- union(name, referenced)
     # A literal function already supplies its own formals. Keep walking
