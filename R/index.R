@@ -1825,6 +1825,8 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             !is.null(root) && private$hinted_packages$has(root)
         },
 
+        multiple_definition_files = function(name) private$definition_counts$get(name, 0L) > 1L,
+
         has_definition = function(name, uri = NULL) {
             if (!private$definition_counts$has(name)) return(FALSE)
             if (is.null(uri)) return(TRUE)

@@ -113,6 +113,7 @@ glue_rename_problem <- function(workspace, doc, name, key, new_name = NULL, loca
 # Redispatch lexical symbols at their real declarations so workspace, formal,
 # capture and documentation checks follow the same path from either cursor.
 glue_rename_references <- function(id, workspace, document, point, site, new_name) {
+    site <- reference_source_glue_site(workspace, document, site)
     target <- site$target
     if (!isTRUE(target$writable) || is.null(site$key)) {
         return(ResponseErrorMessage$new(id, "RequestFailed", "Cannot establish a writable glue binding"))

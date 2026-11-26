@@ -68,6 +68,21 @@ member_history_position <- function(history, at) {
     hi
 }
 
+# Writes to a field, setter or alias change the receiver, not the source
+# declaration of its name. Conditional assignments may replace that binding.
+member_history_owner <- function(history, at, uri) {
+    position <- member_history_position(history, at)
+    if (!position) return(NULL)
+    first <- history[[position]]$first_write
+    if (!is.null(first)) {
+        if (first <= 1L || any(vapply(history[seq.int(first, position)],
+                    function(entry) identical(entry$expr, quote(.__unknown_branch_write__)), logical(1L)))) return(NULL)
+        position <- first - 1L
+    }
+    source <- history[[position]]$declaration$uri
+    if (is.null(source)) uri else source
+}
+
 # Reconstruct one visible receiver history from its own base binding and the
 # writes since it joined a possible environment alias group. An ordinary list
 # will ignore the indirect writes when its value is resolved.
