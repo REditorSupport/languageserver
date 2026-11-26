@@ -200,7 +200,8 @@ glue_call_bindings <- function(workspace, document, fragment) {
         last <- max(which(dots & seq_along(dots) < before), 0L)
         if (last) targets <- named[rev(which(tags < before & tags > last))]
     }
-    list(targets = targets, open = fields$open || (length(env) && !current_env) || any(dots),
+    list(targets = targets, open = fields$open || (length(env) && !current_env) || any(dots) ||
+            row %in% document$parse_data$data_mask$glue,
         tags = tags, named = named, fields = fields$targets, call = call)
 }
 

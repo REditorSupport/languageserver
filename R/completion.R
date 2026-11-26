@@ -123,7 +123,7 @@ constants <- c("TRUE", "FALSE", "NULL",
 #' repeatedly walk the complete XML parse tree. All values stored here are
 #' ordinary R vectors and can therefore be returned by the parse subprocess.
 #' @noRd
-completion_parse_data <- function(data, syntax = NULL) {
+completion_parse_data <- function(data, syntax = NULL, masked = NULL) {
     empty_scope <- function() {
         list(
             name = character(),
@@ -163,6 +163,11 @@ completion_parse_data <- function(data, syntax = NULL) {
     )
 
     make_records <- function(name_rows, range_rows) {
+        if (length(masked) && length(name_rows)) {
+            keep <- !name_rows %in% masked
+            name_rows <- name_rows[keep]
+            range_rows <- range_rows[keep]
+        }
         if (!length(name_rows)) {
             return(empty_scope())
         }

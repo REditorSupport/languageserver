@@ -45,6 +45,22 @@ These are local elapsed medians except where identified as CPU time. Startup inc
 
 Cold cross-file References for the `allow_null` parameter in ggplot2 returned four locations in 14.52 seconds on the baseline and 14.37 seconds on the branch in an isolated repeat (three fresh stdio sessions per revision). Under concurrent test load the medians were 16.47 and 17.11 seconds. A source function's formal may have named callers throughout the workspace. Some Polars chains also remain slow, including `pl$concat(s, s2, rechunk = FALSE)$n_chunks()`. On a cold wire probe for attached `pl$scan_csv`, the first F12 returned empty in 49 ms. While metadata was pending, outline and semantic tokens took 1 and 2 ms. A retry found the generated body 10.73 seconds after process launch and the next request took 7 ms. Source-less fields and dtype constants often have no definition target. String-literal assignment targets participate in indexing and search. Rename declines edits that would update callers without their quoted declaration.
 
+### Package parameter references
+
+On ggplot2 4.0.4, three alternating pairs of fresh stdio servers compared `d2adaeb` with the package caller filter on macOS arm64. Each server opened `R/properties.R` and ran the provider probe above. The first References request included the declaration and returned the same four URI/ranges in every run. A subsequent request for the global function `property_boolean` still waited for package indexing to finish.
+
+| Workload | Before | After |
+| --- | ---: | ---: |
+| First References on `allow_null` | 16.10 s | 7.63 s |
+| Immediate repeats of the same request | 178 ms | 40 ms |
+| Repeats after the global request | 216 ms | 74 ms |
+| First formal request through the global reply, including intervening requests | 16.89 s | 16.13 s |
+| Initialize the server | 3.89 s | 4.09 s |
+
+The immediate-after-open replay below made References the first editor request. A separate pair returned the same four locations in 17.58 s and 9.60 s. In one instrumented provider run, the branch answered after 93 of 206 package files had finished their full parses. About 6.9 s elapsed while the server loaded the source buffers. In two 90-request bursts during indexing, the median foreground request rose from 3.5 to 13.1 ms. The 95th percentile fell from 95 to 89 ms.
+
+On the 195-file corpus, serialized shallow summaries grew by 10,762 bytes (0.027%). Separate-process median CPU times for shallow indexing and full parsing rose from 1.13 to 1.34 s and from 5.07 to 5.89 s. To isolate the new tag collector, a second control alternated it on and off for each file in the same process and reversed the order between trials. The median paired CPU differences across three trials were +2.6% for shallow indexing and +1.9% for full parsing. All trials produced the same 2,586 definitions and 1,147,350 semantic token integers.
+
 ### Source-preserving R6 cache check
 
 A coverage-instrumented installation exposed a cache regression in the initial patch. Synthetic R6 signatures retained a reference to the server implementation's source file. Serializing an instance then took 57,888,042 bytes, exceeding the 4 MiB receiver cache. Dropping that source reference reduced the instance to 4,735 bytes (4,978 bytes for the cache entry) and a generator to 12,791 bytes. Seven repeated member lookups took a median of 380 ms on the initial patch and at most 1 ms each after the fix. The regression test checks cache admission and navigation to the user's initializer and method.
@@ -61,3 +77,9 @@ R_LIBS=/path/to/branch Rscript --vanilla inst/benchmarks/workspace-symbols.R /pa
 ```
 
 The CSV reports expected and missing names per file, shallow indexing time and full parsing time. Timing excludes download and extraction. The regression tests contain smaller examples with exact expected locations, method names, signatures and edits.
+
+To measure Find References as the first editor request, run the following command against the unpacked ggplot2 4.0.4 source. Each invocation starts a fresh stdio server with an empty cache, opens `R/properties.R`, and immediately requests references to the body use of `property_boolean()`'s `allow_null` parameter at zero-based line 2, character 16. It checks the declaration and both body uses in that file and the named argument in `R/theme-elements.R`. The reported time runs from sending the request to receiving its response. Alternate the two installed revisions across three or more runs and compare their medians.
+
+```sh
+R_LIBS=/path/to/library Rscript --vanilla inst/benchmarks/package-references.R /path/to/sources/ggplot2
+```
