@@ -90,7 +90,6 @@ corpus, point both runs at the same baseline source directory.
 
 ```sh
 Rscript --vanilla inst/benchmarks/parse-corpus.R /path/to/baseline/R 5
-Rscript --vanilla inst/benchmarks/roxygen-type-hints.R 5
 Rscript --vanilla inst/benchmarks/code-actions.R actions.csv 1000 3
 Rscript --vanilla inst/benchmarks/scoped-inference.R inference.csv 1000 1000 7
 Rscript --vanilla inst/benchmarks/literate-edits.R literate.csv 100 10 5
@@ -100,72 +99,6 @@ Rscript --vanilla inst/benchmarks/semantic-shapes.R 2000 3
 Set `R_LIBS` to the intended installation before each run. For end-to-end
 transport and for additional cold and warm workloads, see the benchmark
 instructions below.
-
-The roxygen benchmark times a deep annotated expression, annotation attachment
-in increasingly wide function bodies, and single-label completion on S4
-classes with 100 inherited slots and computed prototypes.
-
-To compare the leading type markers, run
-`Rscript --vanilla inst/benchmarks/roxygen-type-formats.R /path/to/unpacked/packages 5`.
-It times candidate scans on the ranked package sources, indexes representative
-files, and checks first and repeated completion for each spelling.
-
-### R6 field documentation
-
-Run `Rscript --vanilla inst/benchmarks/roxygen-class-fields.R 7` against each
-installation. It builds R6 classes with 32, 128 and 256 fields. After parsing
-the syntax tree, it times the roxygen index separately. It checks the field
-names, types and source ranges for every typed field and the documented names
-of inherited overrides. The following elapsed medians use R 4.6.1 on macOS
-arm64, with seven timing batches per workload.
-
-| Fields | Documentation | Before class tags (ms) | With class tags (ms) |
-| ---: | --- | ---: | ---: |
-| 32 | Typed | 0.40 | 0.55 |
-| 128 | Typed | 2.05 | 0.75 |
-| 256 | Typed | 5.11 | 1.09 |
-| 256 | No roxygen comments | 0.014 | 0.017 |
-| 256 | Prose on a parentless class | 0.019 | 0.031 |
-| 256 | Prose on an inherited class | 0.019 | 0.59 |
-
-The earlier version scanned files containing type spans and returned no field
-types. The new index groups consecutive single-line field tags within a
-verified R6 section. It retains prose on subclasses so a locally documented
-override can suppress a type inherited from another file.
-
-### Inherited parameter hints
-
-The completion workload selects among four unknown arguments and completes
-`picked$step()$` on the resulting R6 instance. The direct case documents all
-four types on the consumer. All variants keep the same donor declarations.
-The one-donor case inherits all four from one topic.
-The four-branch case inherits each argument through a separate six-hop path
-to the same donor. Each variant must return `clone`, `label`, and `step` with
-the same completion kinds, details, documentation and inserted text.
-
-The first request uses a freshly parsed document in an initialized process.
-The next cursor completes the same expression on the following line, with
-documentation caches warm. The repeat column averages 20 requests at that
-second cursor. Times exclude parsing, workspace setup and editor transport.
-These are macOS arm64, R 4.6.1 elapsed medians from three serial runs per
-revision, with five samples per run.
-
-| Installed version and completion workload | First (ms) | Next cursor (ms) | Repeat (ms) |
-| --- | ---: | ---: | ---: |
-| `9e0c2ea`, direct | 1.49 | 1.34 | 0.57 |
-| With inheritance support, direct | 1.55 | 1.39 | 0.56 |
-| With inheritance support, one donor | 1.90 | 1.50 | 0.50 |
-| With inheritance support, four branches | 2.76 | 1.49 | 0.50 |
-
-The package workload resolves four prose-only donors and a typed fallback from
-shallow-indexed files. The four prose descriptions consume their parameters.
-The lookup must return only the fifth parameter's type and the fallback donor's
-URI. With four prose topics in the package, first/repeat lookup took
-0.892/0.099 ms. With 512 topics it took 0.873/0.094 ms. Building the shallow
-summaries for those 512 prose-only functions across 32 files took 102 ms on
-`9e0c2ea` and 115 ms with inheritance support. The script reports inherited
-workloads as unavailable on older installations and still measures the direct
-completion and shallow indexing on `9e0c2ea`.
 
 ## Completion label details
 

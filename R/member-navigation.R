@@ -973,46 +973,6 @@ member_navigation_writable <- function(workspace, target) {
         !is.null(workspace$documents$get(target$uri, NULL))
 }
 
-# A typed field/slot/property description follows the member's name. Its
-# type spans can contain several alternatives which all share one label.
-roxygen_member_labels <- function(workspace, target, name, new_name) {
-    doc <- workspace$documents$get(target$uri, NULL)
-    parsed <- doc$parse_data
-    hints <- parsed$member_data$type_hints
-    if (!length(attr(hints, "classes", exact = TRUE))) return(NULL)
-    s <- parsed$syntax_data
-    row <- member_navigation_token(parsed, doc$from_lsp_position(target$range$start))
-    if (!row) return(NULL)
-    cls <- roxygen_class_target(s, row, row, inline = TRUE, lists = new.env(parent = emptyenv()))
-    if (!identical(cls$field, name)) return(NULL)
-    tags <- switch(cls$name, R6Class = "field", setClass = "slot", new_class = c("prop", "param"))
-    if (identical(cls$name, "new_class")) {
-        call <- syntax_call_arguments(s, cls$row)
-        args <- class_matched_arguments(call, c("name", "parent", "package", "properties", "abstract", "constructor", "validator"))
-        if (!is.null(args$constructor)) tags <- "prop"
-    }
-    sites <- attr(hints, "occurrences", exact = TRUE)
-    keep <- sites$directive %in% tags & sites$function_row == s$line1[[cls$row]] - 1L &
-        sites$function_col == s$col1[[cls$row]] - 1L
-    if (!any(keep)) return(NULL)
-    labels <- unique(sites[keep, c("directive", "parameter_row", "parameter_start"), drop = FALSE])
-    out <- list()
-    for (i in seq_len(nrow(labels))) {
-        line <- labels$parameter_row[[i]]
-        for (label in rename_roxygen_names(doc$content[[line + 1L]], labels$parameter_start[[i]])) {
-            prefix <- if (labels$directive[[i]] == "prop") sub("[^@]*$", "", label$name) else ""
-            if (!identical(label$name, paste0(prefix, name))) next
-            loc <- location(doc$uri, range(doc$to_lsp_position(line, label$start), doc$to_lsp_position(line, label$end)))
-            if (!is.null(new_name)) {
-                text <- paste0(prefix, new_name)
-                attr(loc, "roxygen_label") <- if (grepl("[[:space:],`]", text)) quote_completion_name(text) else text
-            }
-            out[[length(out) + 1L]] <- loc
-        }
-    }
-    out
-}
-
 member_navigation_references <- function(id, workspace, document, member, include_declaration, for_rename, new_name = NULL) {
     target <- member$definition
     if (is.null(target) || (for_rename && !member_navigation_writable(workspace, target))) {
@@ -1056,10 +1016,8 @@ member_navigation_references <- function(id, workspace, document, member, includ
     if (for_rename && length(result)) {
         conflict <- member_navigation_rename_conflict(workspace, uris, result, member$name, new_name)
         if (!is.null(conflict)) return(ResponseErrorMessage$new(id, "RequestFailed", conflict))
-        result <- c(result, roxygen_member_labels(workspace, target, member$name, new_name))
         if (length(glue_uris)) return(glue_member_rename(id, workspace, member, glue_uris, result, new_name))
     } else if (!for_rename) {
-        result <- c(result, roxygen_member_labels(workspace, target, member$name, NULL))
         result <- lapply(result, function(x) location(x$uri, x$range))
     }
     Response$new(id, result = result)

@@ -1,5 +1,5 @@
-# Topic summaries include the class links that need verification at the donor.
-index_cache_version <- 18L
+# Older summaries omit literal string targets and inner assignment-chain names.
+index_cache_version <- 13L
 
 #' Recognize a package without recursively searching a workspace
 #' @noRd
@@ -336,9 +336,6 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
         } else if (any(tabbed) || any(startsWith(text, "#line"))) {
             expressions <- index_physical_srcrefs(expressions, srcfile, text, tabbed)
         }
-        hints <- member_roxygen_type_index(text, utils::getParseData(expressions), uri = path_to_uri(path),
-            parsed = if (!parse_error) expressions)
-        expressions <- member_attach_type_hints(expressions, hints)
     }
     definitions <- list()
     functions <- list()
@@ -426,21 +423,12 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
         class_source_declarations(syntax_parse_data(data), content, path_to_uri(path), incomplete_lines)
     }
     if (is.null(parse_data)) definitions <- class_binding_definitions(definitions, classes)
-    if (!is.null(parse_data)) hints <- parse_data$member_data$type_hints
-    hint_names <- unique(attr(hints, "occurrences", exact = TRUE)$type)
-    hint_uri <- attr(hints, "uri", exact = TRUE)
-    uri <- path_to_uri(path)
     list(
-        uri = uri,
+        uri = path_to_uri(path),
         path = path,
         size = as.numeric(size),
         mtime = as.numeric(mtime),
         content_hash = get_content_hash(content),
-        has_type_hints = length(hint_names) > 0L,
-        roxygen_uri = if (!identical(hint_uri, uri)) hint_uri,
-        roxygen_topics = roxygen_topic_map(hints),
-        inherits_params = isTRUE(attr(hints, "has_inheritance", exact = TRUE)),
-        hint_names = hint_names[!grepl("::", hint_names, fixed = TRUE)],
         reference_tags = if (parse_error) FALSE else if (!is.null(parse_data)) {
             parse_data$reference_tags
         } else {
@@ -452,7 +440,7 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
         s4_declarations = if (is.null(parse_data)) s4_declarations(expressions, content, incomplete_lines) else
             parse_data$s4_declarations,
         s3 = s3_index_summary(content, path_to_uri(path), if (length(incomplete_lines)) expressions else statements,
-            parse_data, incomplete_lines = incomplete_lines, hints = hints, classes = classes),
+            parse_data, incomplete_lines = incomplete_lines),
         sources = sources,
         source_candidates = source_candidates,
         source_candidate_exists = source_candidate_exists,
@@ -521,10 +509,6 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
         package_memberships = NULL,
         definition_counts = NULL,
         package_definition_counts = NULL,
-        hinted_packages = NULL,
-        inheriting_packages = NULL,
-        topic_sources = NULL,
-        hint_sources = NULL,
         s4_sources = NULL,
         helper_readers = list(),
         helper_attempts = list(),
@@ -540,14 +524,6 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             }
         },
         update_package_definitions = function(previous, current) {
-            if (isTRUE(previous$inherits_params) || isTRUE(current$inherits_params)) {
-                private$update_definition_names(if (isTRUE(previous$inherits_params)) previous$package_root,
-                    if (isTRUE(current$inherits_params)) current$package_root, private$inheriting_packages)
-            }
-            if (isTRUE(previous$has_type_hints) || isTRUE(current$has_type_hints)) {
-                private$update_definition_names(if (isTRUE(previous$has_type_hints)) previous$package_root,
-                    if (isTRUE(current$has_type_hints)) current$package_root, private$hinted_packages)
-            }
             for (root in unique(Filter(Negate(is.null), list(previous$package_root, current$package_root)))) {
                 if (!private$package_definition_counts$has(root)) {
                     private$package_definition_counts$set(root, collections::dict())
@@ -800,10 +776,6 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             private$package_memberships <- collections::dict()
             private$definition_counts <- collections::dict()
             private$package_definition_counts <- collections::dict()
-            private$hinted_packages <- collections::dict()
-            private$inheriting_packages <- collections::dict()
-            private$topic_sources <- collections::dict()
-            private$hint_sources <- collections::dict()
             private$s4_sources <- collections::dict()
             private$activated_packages <- collections::dict()
             private$discovery_seen <- collections::dict()
@@ -853,19 +825,6 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             any(uris %in% self$pending) ||
                 any(vapply(private$worker_requests, function(r) r$uri %in% uris && private$request_is_current(r), logical(1L))) ||
                 any(vapply(uris, private$awaiting_parses$has, logical(1L)))
-        },
-
-        package_topics_pending = function(root) {
-            if (!self$enabled || is.null(root) || self$complete()) return(FALSE)
-            directory <- file.path(root, "R")
-            if (directory %in% private$pending_package_roots) return(TRUE)
-            if (self$discovering && any(vapply(private$discovery_roots, function(path) {
-                identical(directory, path) || path_has_parent(directory, path)
-            }, logical(1L)))) return(TRUE)
-            prefix <- paste0(path_to_uri(directory), "/")
-            matches <- function(uris) length(uris) && any(startsWith(as.character(uris), prefix))
-            matches(self$pending) || matches(private$awaiting_parses$keys()) ||
-                any(vapply(private$worker_requests, function(r) startsWith(r$uri, prefix) && private$request_is_current(r), logical(1L)))
         },
 
         is_lazy = function() self$enabled && !self$full_requested,
@@ -1492,26 +1451,6 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             self$summaries$set(uri, summary)
             private$update_definition_names(names(previous$definitions), names(summary$definitions))
             private$update_package_definitions(previous, summary)
-            old_topics <- names(previous$roxygen_topics)
-            new_topics <- names(summary$roxygen_topics)
-            if (length(old_topics) || length(new_topics)) {
-                for (name in setdiff(old_topics, new_topics)) {
-                    others <- setdiff(private$topic_sources$get(name), uri)
-                    if (length(others)) private$topic_sources$set(name, others) else private$topic_sources$remove(name)
-                }
-                for (name in setdiff(new_topics, old_topics)) {
-                    private$topic_sources$set(name, c(private$topic_sources$get(name, character()), uri))
-                }
-            }
-            if (length(previous$hint_names) || length(summary$hint_names)) {
-                for (name in setdiff(previous$hint_names, summary$hint_names)) {
-                    others <- setdiff(private$hint_sources$get(name, character()), uri)
-                    if (length(others)) private$hint_sources$set(name, others) else private$hint_sources$remove(name)
-                }
-                for (name in setdiff(summary$hint_names, previous$hint_names)) {
-                    private$hint_sources$set(name, c(private$hint_sources$get(name, character()), uri))
-                }
-            }
             old <- names(previous$s4_declarations)
             new <- names(summary$s4_declarations)
             for (name in setdiff(old, new)) {
@@ -1759,10 +1698,6 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                 empty$sources <- empty$source_candidates <- character()
                 empty$definitions <- empty$functions <- empty$class_declarations <- empty$s4_declarations <- list()
                 empty$parse_error <- FALSE
-                empty$hint_names <- NULL
-                empty$roxygen_topics <- NULL
-                empty$inherits_params <- FALSE
-                empty$has_type_hints <- FALSE
                 empty$package_root <- NULL
                 self$set_summary(empty)
                 self$summaries$remove(uri)
@@ -1872,23 +1807,6 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
         },
 
         s4_declaration_uris = function(name) private$s4_sources$get(name, character()),
-
-        package_has_type_hints = function(uri) {
-            if (!private$hinted_packages$size()) return(FALSE)
-            root <- self$package_root_for_uri(uri)
-            !is.null(root) && private$hinted_packages$has(root)
-        },
-
-        multiple_definition_files = function(name) private$definition_counts$get(name, 0L) > 1L,
-
-        roxygen_topic_uris = function(name) private$topic_sources$get(name, character()),
-        package_has_hint_inheritance = function(uri) {
-            if (!private$inheriting_packages$size()) return(FALSE)
-            root <- self$package_root_for_uri(uri)
-            !is.null(root) && private$inheriting_packages$has(root)
-        },
-
-        type_hint_uris = function(name) private$hint_sources$get(name, character()),
 
         has_definition = function(name, uri = NULL) {
             if (!private$definition_counts$has(name)) return(FALSE)

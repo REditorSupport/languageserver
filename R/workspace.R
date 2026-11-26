@@ -45,13 +45,6 @@ workspace_document_uris <- function(workspace, uri = NULL) {
     }
 }
 
-# Release dependencies from either side when a source is removed or replaced.
-workspace_remove_document <- function(self, workspace, uri) {
-    doc <- workspace$documents$remove(uri)
-    s3_release_hint_document(self, workspace, uri, doc)
-    doc
-}
-
 #' Return documents that can reference a definition
 #' @noRd
 workspace_reference_document_uris <- function(workspace, definition_uri,
@@ -469,7 +462,6 @@ Workspace <- R6::R6Class("Workspace",
         analysis_caches = NULL,
         s3_metadata = NULL,
         s3_revision = 0L,
-        s3_hint_workers = NULL,
 
         initialize = function(root) {
             self$root <- root

@@ -14,17 +14,12 @@ member_refclass_generator <- function(expr, index, bindings, budget, trail = cha
     budget$remaining <- budget$remaining - 1L
     parents <- member_s4_strings(args$contains, index, bindings)
     if (length(parents) > 16L) return(member_value(reason = "reference_class_limit"))
-    collect_path <- length(budget$resolving_hints) > 0L || isTRUE(index$dispatch_document$parse_data$member_data$has_type_hints)
-    if (collect_path) paths <- stats::setNames(vector("list", length(parents)), parents)
     # Merge in declaration order; the first superclass takes precedence.
     for (parent in rev(parents)) {
         history <- member_lookup(index$document_refclasses, parent)
         at <- bindings$.__member_position__
         position <- if (is.null(at)) length(history) else member_history_position(history, at)
-        if (!position) {
-            if (collect_path && identical(parent, "envRefClass")) paths[parent] <- list(member_s4_builtin_path(parent))
-            next
-        }
+        if (!position) next
         entry <- history[[position]]
         env <- bindings
         env$.__member_position__ <- entry$start
@@ -37,7 +32,6 @@ member_refclass_generator <- function(expr, index, bindings, budget, trail = cha
             }
         }
         generator <- member_refclass_generator(parent_expr, index, env, budget, c(trail, class))
-        if (collect_path) paths[parent] <- list(generator$refclass_instance$refclass_dispatch_path)
         field_names <- union(field_names, generator$refclass_instance$refclass_fields)
         inherited <- generator$refclass_instance$fields
         members[names(inherited)] <- inherited
@@ -78,10 +72,6 @@ member_refclass_generator <- function(expr, index, bindings, budget, trail = cha
         }
     }
     instance <- member_value(type = class, fields = members)
-    if (collect_path && (length(parents) || is.null(args$contains) || identical(args$contains, character()))) {
-        if (!length(parents)) paths <- list(member_s4_builtin_path("envRefClass"))
-        instance$refclass_dispatch_path <- member_s4_dispatch_path(class, paths)
-    }
     instance$refclass_origin <- attr(expr, "class_origin", exact = TRUE)
     instance$refclass_fields <- setdiff(field_names, names(methods))
     initialize <- member_lookup(members, "initialize")

@@ -68,21 +68,6 @@ member_history_position <- function(history, at) {
     hi
 }
 
-# Writes to a field, setter or alias change the receiver, not the source
-# declaration of its name. Conditional assignments may replace that binding.
-member_history_owner <- function(history, at, uri) {
-    position <- member_history_position(history, at)
-    if (!position) return(NULL)
-    first <- history[[position]]$first_write
-    if (!is.null(first)) {
-        if (first <= 1L || any(vapply(history[seq.int(first, position)],
-                    function(entry) identical(entry$expr, quote(.__unknown_branch_write__)), logical(1L)))) return(NULL)
-        position <- first - 1L
-    }
-    source <- history[[position]]$declaration$uri
-    if (is.null(source)) uri else source
-}
-
 # Reconstruct one visible receiver history from its own base binding and the
 # writes since it joined a possible environment alias group. An ordinary list
 # will ignore the indirect writes when its value is resolved.
@@ -117,27 +102,9 @@ member_source_prefix <- function(content, start, end, prefix) {
     digest::digest(list(prefix, start, end, lines), algo = "xxhash64")
 }
 
-member_package_context_required <- function(document, workspace) {
-    data <- document$parse_data$member_data
-    if (!isTRUE(workspace$index$enabled)) return(FALSE)
-    isTRUE(data$package_classes) || (!is.null(data$document_package) &&
-            (isTRUE(data$has_type_hints) || workspace$index$package_has_type_hints(document$uri)))
-}
-
 member_document_cache_revision <- function(document, metadata, source_revision = NULL, workspace = NULL) {
-    if (isTRUE(attr(document$parse_data$member_data$type_hints, "has_inheritance", exact = TRUE))) {
-        # A donor can occur after the use or in another source file. A
-        # fingerprint of statements before an assignment cannot cover either.
-        source_revision <- list(source_revision, document$parse_data$member_data$content_key,
-            workspace$s3_revision, workspace$index$revision,
-            if (is.function(workspace$documents$size)) workspace$documents$size())
-    } else if (member_package_context_required(document, workspace)) {
+    if (isTRUE(document$parse_data$member_data$package_classes) && isTRUE(workspace$index$enabled)) {
         source_revision <- list(source_revision, workspace$s3_revision, workspace$index$revision)
-    }
-    if (isTRUE(document$member_s3_dispatch)) {
-        source_revision <- list(source_revision, workspace$s3_revision, workspace$index$revision,
-            if (!is.null(workspace$documents)) workspace$documents$size(),
-            s3_namespace_generation(workspace, document$uri))
     }
     revision <- if (is.null(metadata)) 0L else if (is.function(metadata$revision)) metadata$revision() else NULL
     identity <- list(metadata = if (is.function(metadata$identity)) metadata$identity() else metadata,
@@ -156,8 +123,7 @@ member_document_cache_revision <- function(document, metadata, source_revision =
 member_binding_cacheable <- function(value, depth = 0L) {
     if (is.null(value)) return(TRUE)
     if (depth > 8L || !is.null(value$origin) || !is.null(value$function_expr) || !is.null(value$closure) ||
-            !is.null(value$binding_cache) || !is.null(value$binding_expr) || !is.null(value$binding_env) || !is.null(value$return_evidence) ||
-            !is.null(value$slot_hints) ||
+            !is.null(value$binding_expr) || !is.null(value$binding_env) || !is.null(value$hint_type) ||
             !is.null(value$r6_class) || !is.null(value$r6_identity) || !is.null(value$r6_role) ||
             !is.null(value$s7_descriptor) || !is.null(value$s7_generator) || !is.null(value$s4_generator) || !is.null(value$s4_contains) ||
             (!is.null(value$function_key) && is.null(value$metadata)) ||
@@ -189,92 +155,14 @@ member_local_binding <- function(expr, bindings, referenced = member_syntax_name
 
 member_local_value <- function(value, index, budget, depth = 0L, trail = character(),
     receiver = NULL, context = NULL) {
-    if (is.null(value$binding_expr) && is.null(value$hint_types) && is.null(value$binding_choices)) return(value)
+    if (!is.null(value$hint_type)) return(member_hinted_value(value$hint_type, index, value$binding_env, budget))
+    if (is.null(value$binding_expr)) return(value)
     cache <- value$binding_cache
-    if (!is.null(cache) && exists("value", cache, inherits = FALSE) &&
-            (!isTRUE(budget$track_returns) || isTRUE(cache$tracked) ||
-                    !isTRUE(cache$value$reason %in% c("unknown_branch", "unknown_union_result")))) return(cache$value)
-    result <- if (!is.null(value$binding_choices)) {
-        limit <- if (is.null(budget$depth_limit)) 64L else budget$depth_limit
-        budget$remaining <- budget$remaining - 1L
-        if (budget$remaining < 0L || depth >= limit || isTRUE(budget$exhausted)) {
-            budget$exhausted <- TRUE
-            return(member_value(reason = "budget"))
-        }
-        choices <- lapply(value$binding_choices, member_local_value, index = index, budget = budget,
-            depth = depth + 1L, trail = trail, receiver = receiver, context = context)
-        if (isTRUE(budget$track_returns)) member_join_return_evidence(choices[[1L]], choices[[2L]]) else member_join(choices[[1L]], choices[[2L]])
-    } else if (is.null(value$hint_types)) {
-        env <- value$binding_env
-        if (!is.null(cache$defaults)) {
-            if (isTRUE(cache$resolving_default)) return(member_value(reason = "recursive_default"))
-            cache$resolving_default <- TRUE
-            on.exit(cache$resolving_default <- NULL, add = TRUE)
-            env[names(cache$defaults)] <- cache$defaults
-        }
-        member_infer(value$binding_expr, index, env, receiver,
-            depth = depth + 1L, trail = trail, budget = budget, context = context)
-    } else if (!is.null(value$hint_input)) {
-        input <- member_local_value(value$hint_input, index, budget, depth, trail, receiver, context)
-        member_refine_call_hint(input, value$hint_types, index, value$binding_env, budget)
-    } else {
-        hint <- member_parameter_hint_value(value$hint_types, index, value$binding_env, budget)
-        if (is.null(hint)) member_value(reason = "formal") else hint
-    }
-    if (!is.null(cache) && !isTRUE(budget$exhausted) && !isTRUE(budget$transient)) {
-        cache$value <- result
-        if (isTRUE(budget$track_returns)) cache$tracked <- TRUE
-    }
+    if (!is.null(cache) && exists("value", cache, inherits = FALSE)) return(cache$value)
+    result <- member_infer(value$binding_expr, index, value$binding_env, receiver,
+        depth = depth + 1L, trail = trail, budget = budget, context = context)
+    if (!is.null(cache) && !isTRUE(budget$exhausted) && !isTRUE(budget$transient)) cache$value <- result
     result
-}
-
-# Inheritance can involve a different file and different lexical class names.
-# Keep each formal lazy; no document/workspace handle is retained by a closure.
-member_parameter_hints <- function(hints, formals) {
-    params <- hints$params
-    if (!isTRUE(attr(hints, "roxygen_inherits", exact = TRUE))) return(params)
-    missing <- setdiff(formals, c("...", names(params), attr(hints, "roxygen_documented", exact = TRUE)))
-    if (length(missing)) {
-        params[missing] <- lapply(missing, function(name) list(formal = name, declaration = hints))
-    }
-    params
-}
-
-member_parameter_hint_value <- function(types, index, lexical, budget) {
-    if (!is.list(types)) return(member_hinted_value(types, index, lexical, budget))
-    if (!is.null(types$r6_hint)) return(member_refine_class_hint(member_value(), types$r6_hint, index, budget))
-    workspace <- index$dispatch_workspace
-    if (is.null(workspace)) workspace <- budget$inherit_workspace
-    if (is.null(workspace) || isTRUE(budget$exhausted)) return(NULL)
-    hints <- types$declaration
-    document <- index$dispatch_document
-    uri <- attr(hints, "roxygen_uri", exact = TRUE)
-    if (is.null(uri)) uri <- document$uri
-    location <- attr(hints, "roxygen_key", exact = TRUE)
-    if (!length(uri) || !length(location)) return(NULL)
-    if (is.null(workspace$s3_revision) && is.function(workspace$documents$size) && workspace$documents$size() > 1L) {
-        budget$unversioned_inherited_params <- TRUE
-    }
-    # Resolve the documentation once per request, even when several arguments
-    # read its hints. Receiver shapes themselves depend on the current budget
-    # and the requested source origin, and stay on the individual bindings.
-    memo <- budget$inherited_params
-    if (is.null(memo)) budget$inherited_params <- memo <- new.env(parent = emptyenv())
-    key <- paste(uri, location, sep = "\n")
-    if (!exists(key, memo, inherits = FALSE)) {
-        assign(key, roxygen_effective_params(hints, workspace, document, hint_wait = budget$hint_wait), memo)
-    }
-    hint <- memo[[key]][[types$formal]]
-    if (is.null(hint)) return(NULL)
-    if (is.character(hint)) return(member_hinted_value(hint, index, lexical, budget))
-    member_inherited_hint_value(hint, workspace, budget)
-}
-
-# A caller may never read an unknown argument. Capture its documented type
-# in the defining scope without spending the request budget to resolve it.
-member_hinted_argument <- function(value, types, lexical) {
-    if (!length(types) || !member_needs_call_hint(value)) return(value)
-    list(hint_types = types, hint_input = value, binding_env = lexical, binding_cache = new.env(parent = emptyenv()))
 }
 
 # Ordinary completion needs the binding kind and R6 identity, not every list
@@ -320,10 +208,6 @@ member_receiver_cacheable <- function(value, index, budget) {
 }
 
 member_receiver_cache_value <- function(value, index, budget) {
-    # Source dispatch depends on registrations in other open documents.
-    # Unversioned donors also provide only request-local evidence.
-    if (!is.null(budget$member_s3_context) || isTRUE(budget$unversioned_s3_sources) ||
-            isTRUE(budget$unversioned_inherited_params)) return(NULL)
     if (member_receiver_cacheable(value, index, budget)) return(value)
     if (isTRUE(budget$exhausted) || !isTRUE(budget$transient) ||
             length(value$type) || !length(value$possible_returns)) return(NULL)

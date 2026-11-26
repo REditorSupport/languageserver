@@ -216,10 +216,7 @@ member_merge_verified_items <- function(items, verified) {
 }
 
 member_document_index <- function(content, parsed = NULL, syntax = NULL, incomplete_lines = NULL,
-    defer_small_scopes = FALSE, value_source = NULL, verified = NULL,
-    type_hints = member_roxygen_type_index(content, if (is.null(syntax)) utils::getParseData(parsed) else syntax)) {
-    parsed <- member_attach_type_hints(parsed, type_hints)
-    verified <- member_attach_type_hints(verified, type_hints)
+    defer_small_scopes = FALSE, value_source = NULL, verified = NULL, type_hints = NULL) {
     complete <- !is.null(parsed) && is.null(incomplete_lines)
     recovery_start <- 1L
     if (!complete && !is.null(parsed)) {
@@ -235,6 +232,7 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL, incompl
     items <- list()
     has_blocks <- FALSE
     append <- function(parsed, offset = 0L) {
+        roxygen_hint_source(parsed, type_hints, offset)
         statements <- top_level_statements(parsed)
         if (!identical(statements, parsed)) has_blocks <<- TRUE
         refs <- attr(statements, "srcref")
@@ -244,9 +242,6 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL, incompl
             items[[length(items) + 1L]] <<- list(expr = statements[[i]],
                 start = c(offset + ref[[7L]] - 1L, ref[[5L]] - 1L),
                 end = c(offset + ref[[8L]] - 1L, ref[[6L]]))
-            if (offset && length(type_hints) && !is.null(attr(statements[[i]], "member_type_names", exact = TRUE))) {
-                items[[length(items)]]$hint_row_offset <<- offset
-            }
         }
     }
     if (complete) {
@@ -276,7 +271,7 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL, incompl
                 parsed <- restore_tabbed_parse(parsed, utils::getParseData(parsed), text,
                     value_source[rows])$expr
             }
-            append(member_attach_type_hints(parsed, type_hints, start - 1L), start - 1L)
+            append(parsed, start - 1L)
         }
         while (end <= length(content)) {
             if (end == start && end > batch_end) {
@@ -336,13 +331,11 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL, incompl
     imports <- list()
     sources <- list()
     effects <- list()
-    type_names <- roxygen_declared_types(type_hints)
-    qualified <- type_names[grepl("::", type_names, fixed = TRUE)]
-    packages <- union(recovered_packages, sub("::.*", "", qualified))
+    packages <- recovered_packages
     class_scope <- FALSE
     accessor_registrations <- FALSE
     refclasses <- initializers <- list()
-    symbol_scope <- length(type_hints) > 0L
+    symbol_scope <- FALSE
     parts <- if (complete) member_function_parts(if (is.null(syntax)) utils::getParseData(parsed) else syntax) else NULL
     # Small scopes in recovered literate documents can be built when visited.
     # Bound foreground work by both source bytes and AST size, including dense
@@ -440,10 +433,9 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL, incompl
     }
     source_bytes <- if (complete) member_compact_source(parsed, parts) else prefix_bytes
     list(items = items, has_blocks = has_blocks, bindings = member_index_bindings(items), imports = imports, sources = sources, effects = effects, s4 = s4, refclasses = refclasses, initializers = initializers,
-        has_type_hints = length(type_names) > 0L || isTRUE(attr(type_hints, "has_inheritance")), type_hints = type_hints,
         content_key = digest::digest(fingerprint_source, algo = "xxhash64"),
         source_bytes = source_bytes, deferred_parts = if (defer_small_scopes) parts,
-        packages = packages, class_scope = class_scope, symbol_scope = symbol_scope, accessor_registrations = accessor_registrations,
+        packages = packages, type_hints = type_hints, class_scope = class_scope, symbol_scope = symbol_scope, accessor_registrations = accessor_registrations,
         s3 = s3_source_index(items))
 }
 
@@ -680,16 +672,14 @@ member_recover <- function(document, point, cursor, data, origin_uri = NULL) {
         local[[length(local)]] <- paste0(local[[length(local)]], sentinel)
         closers <- missing_closing_delimiters(local)
         parsed <- tryCatch(member_parse_recovered(paste0(paste(local, collapse = "\n"), closers),
-                origin_uri, start + skip - 1L, if (skip == 1L) skipped_columns else 0L,
-                type_hints = data$type_hints, hint_comments = data$hint_comments), error = function(e) NULL)
+                origin_uri, start + skip - 1L, if (skip == 1L) skipped_columns else 0L, type_hints = data$type_hints), error = function(e) NULL)
         if (is.null(parsed) && !is.null(cursor$accessor) && any(grepl("|>", local, fixed = TRUE))) {
             # Native pipes require a call on the RHS. The cursor sentinel is
             # a callee here; its synthetic arguments are never evaluated.
             local[[length(local)]] <- paste0(local[[length(local)]], "()")
             closers <- missing_closing_delimiters(local)
             parsed <- tryCatch(member_parse_recovered(paste0(paste(local, collapse = "\n"), closers),
-                    origin_uri, start + skip - 1L, if (skip == 1L) skipped_columns else 0L,
-                    type_hints = data$type_hints, hint_comments = data$hint_comments), error = function(e) NULL)
+                    origin_uri, start + skip - 1L, if (skip == 1L) skipped_columns else 0L, type_hints = data$type_hints), error = function(e) NULL)
         }
         if (is.null(parsed)) next
         found <- FALSE
@@ -761,8 +751,7 @@ member_recover_context <- function(document, content, point, cursor, start, colu
     for (end in seq.int(offset, length(full))) {
         lines <- full[seq_len(end)]
         if (sum(nchar(lines, type = "bytes")) > 65536L) break
-        context <- tryCatch(member_parse_recovered(lines, origin_uri, start, skipped_columns, edit,
-                document$parse_data$member_data$type_hints, document$parse_data$member_data$hint_comments),
+        context <- tryCatch(member_parse_recovered(lines, origin_uri, start, skipped_columns, edit, document$parse_data$member_data$type_hints),
             error = function(e) NULL)
         if (!is.null(context)) return(context)
     }
@@ -822,16 +811,16 @@ member_context_index <- function(workspace, uri, document, at, parsed = NULL,
         }
     }
     index$document_bindings <- bindings
+    index$hint_packages <- workspace$startup_packages
+    index$hint_names <- unique(unlist(document$parse_data$member_data$type_hints, use.names = FALSE))
     index$accessor_registrations <- isTRUE(document$parse_data$member_data$accessor_registrations) ||
         isTRUE(view$accessor_registrations)
     index$document_cache <- new.env(parent = emptyenv())
-    index$dispatch_document <- document
-    index$dispatch_workspace <- workspace
     index$document_binding_cache <- if (!is.null(revision)) document$member_binding_cache else NULL
     index$methods_attached <- TRUE
     index$s7_attached <- FALSE
     index$document_package <- document$parse_data$member_data$document_package
-    if (member_package_context_required(document, workspace)) {
+    if (isTRUE(document$parse_data$member_data$package_classes) && isTRUE(workspace$index$enabled)) {
         index$source_workspace <- workspace
         index$source_uri <- uri
     }
@@ -840,7 +829,6 @@ member_context_index <- function(workspace, uri, document, at, parsed = NULL,
     index$document_initializers <- document$parse_data$member_data$initializers
     index$document_refclasses <- document$parse_data$member_data$refclasses
     index$document_s4 <- document$parse_data$member_data$s4
-    index$hint_packages <- c(workspace$startup_packages, document$parse_data$member_data$hint_import_packages)
     index$namespace_indices <- list()
     index$namespace_metadata <- metadata
     index$s4_dependencies <- list()
@@ -915,8 +903,8 @@ member_context_index <- function(workspace, uri, document, at, parsed = NULL,
                 }
             }
             if (isTRUE(item$uncertain)) next
+            index$hint_packages <- c(index$hint_packages, package)
             if (!is.null(package_index)) {
-                index$hint_packages <- c(index$hint_packages, package)
                 roots <- package_index$roots
                 if (length(excluded)) roots <- roots[setdiff(names(roots), excluded)]
                 index$attached_roots[names(roots)] <- roots
@@ -989,14 +977,12 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
     # A source definition in a request's top-level context has stable lexical
     # inputs. Locals/actual arguments use their own lazy binding memos instead.
     memo <- !is.null(index$document_cache) && !length(setdiff(names(bindings), ".__member_position__"))
-    cache_context <- index$document_context_key
-    if (isTRUE(budget$track_returns)) cache_context <- paste0("returns:", cache_context)
-    memo_key <- paste(index$package, cache_context, id, paste(at, collapse = ":"), sep = ":")
+    memo_key <- paste(index$package, index$document_context_key, id, paste(at, collapse = ":"), sep = ":")
     if (memo && exists(memo_key, index$document_cache, inherits = FALSE)) return(index$document_cache[[memo_key]])
-    cache <- if (is.null(budget$origin_name) && is.null(budget$hint_wait) && !isTRUE(budget$class_hint_probe)) index$document_binding_cache
+    cache <- if (is.null(budget$origin_name)) index$document_binding_cache
     persistent_key <- if (memo && !is.null(cache) && !is.null(item$cache_prefix) &&
             (!is.null(item$setter) || !member_head(item$expr, "function"))) {
-        paste(index$package, cache_context, id, item$cache_prefix, sep = ":")
+        paste(index$package, index$document_context_key, isTRUE(budget$roxygen_type_hints), id, item$cache_prefix, sep = ":")
     }
     cached <- analysis_cache_get(cache, persistent_key)
     method_types <- cached$value$s7_method_types
@@ -1006,11 +992,11 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
         return(value)
     }
     env <- bindings
-    # A top-level declaration uses the document's class names. A caller can
-    # have a same-named argument while invoking the documented function.
-    hint_names <- attr(item$expr, "member_type_names", exact = TRUE)
-    if (length(hint_names)) env[intersect(names(env), hint_names)] <- NULL
     if (!is.null(budget$origin_name) && is.null(item$first_write)) item <- member_binding_declaration(item, budget)
+    if (isTRUE(budget$roxygen_type_hints) && member_head(item$expr, "function")) {
+        types <- unlist(member_function_hints(item$expr), use.names = FALSE)
+        env[intersect(names(env), types)] <- NULL
+    }
     if (!member_head(item$expr, "function")) env$.__member_position__ <- item$start
     expr <- item$expr
     if (member_head(expr, ":=")) {
@@ -1082,8 +1068,7 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
             if (is.null(value)) return(member_value(reason = "unknown_mutation"))
             env[write$writer] <- NULL
         }
-        if (cache_methods && length(value$s7_methods) && !isTRUE(value$s7_typed_methods) &&
-                !isTRUE(budget$exhausted) && !isTRUE(budget$transient)) {
+        if (cache_methods && length(value$s7_methods) && !isTRUE(budget$exhausted) && !isTRUE(budget$transient)) {
             # In a method-only history the retained registrations are a
             # contiguous suffix following the last opaque registration.
             analysis_cache_set(cache, persistent_key, list(s7_method_types = lapply(value$s7_methods, `[[`, "types")))
@@ -1100,16 +1085,11 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
 }
 
 member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name = NULL, accessor = "$", context = NULL,
-    path = NULL, source = NULL, key_helper = NULL, s4_new = FALSE, s7_update_list = NULL, s7_call = NULL,
-    before_formals = FALSE, dispatch_input = NULL) {
+    path = NULL, source = NULL, key_helper = NULL, s4_new = FALSE, s7_update_list = NULL, s7_call = NULL) {
     result <- NULL
     # Find the cursor once, including formal defaults. Replaying a lexical
     # scope must not recursively visit every earlier RHS or sibling method.
     visit <- function(node, env, path, ast_path = integer(), formal_types = NULL) {
-        if (!length(path) && !is.null(dispatch_input)) {
-            result <<- member_infer(dispatch_input, index, env, budget = budget)
-            return(invisible(NULL))
-        }
         if (member_head(node, ":=") && length(node) == 3L) {
             # Cursor recovery can stop immediately before the call's opening
             # parenthesis. Both forms identify the direct RHS callee.
@@ -1162,9 +1142,8 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
                 if (identical(args[[key]], as.name(sentinel)) && !is.null(args$object)) {
                     receiver <- member_infer(args$object, index, env, budget = budget)
                     if (key_helper == "slot") {
-                        candidates <- if (identical(receiver$reason, "type_hint_union")) receiver$possible_returns else list(receiver)
-                        if (!any(vapply(candidates, function(value) isTRUE(value$s7), logical(1L)))) result <<- receiver
-                    } else if (!replacement || !identical(receiver$reason, "type_hint_union")) {
+                        if (!isTRUE(receiver$s7)) result <<- receiver
+                    } else {
                         result <<- member_s7_property_receiver(receiver, env)
                     }
                 }
@@ -1226,7 +1205,7 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
                 result <<- if (identical(accessor, "@")) {
                     member_slot(receiver, name, index, env, budget)
                 } else {
-                    member_access(receiver, name, index, env, budget)
+                    member_access(receiver, name, index, env)
                 }
                 key <- member_members(receiver, index, env, accessor)[name]
                 if (is.null(result$function_key) && length(key) && !is.na(key[[1L]]) &&
@@ -1236,20 +1215,12 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
             }
             return(invisible(NULL))
         }
-        if (before_formals && !length(path)) {
-            result <<- member_infer(as.name(name), index, env, budget = budget)
-            return(invisible(NULL))
-        }
         if (member_head(node, "function")) {
-            declared <- attr(node, "member_type_hints", exact = TRUE)
-            hints <- if (!is.null(declared)) member_parameter_hints(declared, names(node[[2L]]))
+            hints <- if (isTRUE(budget$roxygen_type_hints)) member_function_hints(node)$params
             if (length(hints)) lexical <- env
             for (formal in names(node[[2L]])) {
                 value <- formal_types[[formal]]
-                if (is.null(value) && !is.null(hints[[formal]])) {
-                    value <- list(hint_types = hints[[formal]], binding_env = lexical,
-                        binding_cache = new.env(hash = FALSE, parent = emptyenv()))
-                }
+                if (is.null(value) && !is.null(hints[[formal]])) value <- member_hint_binding(hints[[formal]], lexical)
                 env[formal] <- list(if (is.null(value)) member_value(reason = "formal") else value)
             }
             env$.__member_context_bindings__ <- setdiff(env$.__member_context_bindings__, names(node[[2L]]))
@@ -1271,19 +1242,14 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
             if (length(section) && section %in% c("public", "private", "active") &&
                     member_head(node[[path[[1L]]]], "list") && length(path) >= 2L) {
                 method <- node[[path[[1L]]]][[path[[2L]]]]
-                if (member_head(method, "function")) {
-                    key <- names(as.list(node[[path[[1L]]]]))[path[[2L]]]
-                    target <- if (section == "public") scope$self else if (section == "private") scope$private
-                    annotated <- member_lookup(target$fields, key)$function_expr
-                    if (!is.null(annotated)) attr(method, "member_type_hints") <- attr(annotated, "member_type_hints", exact = TRUE)
-                    visit(method, utils::modifyList(env, scope), path[-c(1L, 2L)], c(ast_path, path[1:2]))
-                }
+                if (member_head(method, "function")) visit(method, utils::modifyList(env, scope), path[-c(1L, 2L)],
+                    c(ast_path, path[1:2]))
             }
             return(invisible(NULL))
         }
         if (member_head(node, "{") || is.expression(node)) {
-            needed <- if (!is.null(dispatch_input)) member_syntax_names(dispatch_input) else name
-            sequence <- member_cursor_sequence(node, path, ast_path, source, !is.null(accessor) || !is.null(needed), needed)
+            needed <- if (isTRUE(budget$roxygen_type_hints)) union(name, index$hint_names) else name
+            sequence <- member_cursor_sequence(node, path, ast_path, source, !is.null(accessor) || !is.null(name), needed)
             summary <- sequence$summary
             # Hash current values for dependency capture, while retaining
             # ordinary lists as immutable snapshots consumed by inference.
@@ -1379,13 +1345,6 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
             if (length(path)) {
                 selected <- node[[path[[1L]]]]
                 types <- if (is.call(node) && member_head(selected, "function")) {
-                    if (is.call(node[[1L]]) && isTRUE(index$dispatch_document$parse_data$member_data$has_type_hints)) {
-                        registration <- member_r6_set_cursor(node, selected, index, env, budget)
-                        if (!is.null(registration)) {
-                            visit(registration$method, utils::modifyList(env, registration$scope), path[-1L], c(ast_path, path[[1L]]))
-                            return(invisible(NULL))
-                        }
-                    }
                     if (member_head(node, "<-") || member_head(node, "=")) {
                         member_s7_method_formals(node, selected, index, env, budget)
                     } else {
@@ -1565,7 +1524,7 @@ member_recover_scope <- function(document, point, cursor, data, budget = NULL) {
 }
 
 member_resolve_cursor <- function(uri, workspace, document, point, cursor, name = NULL, origins = FALSE, origin_name = name,
-    audit = NULL, hint_wait = NULL) {
+    audit = NULL, type_hints = FALSE) {
     if (!identical(document$version, document$parse_data$version) &&
             !is.null(document$parse_data$version)) {
         return(NULL)
@@ -1578,8 +1537,6 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
         return(NULL)
     }
     budget <- member_request_budget()
-    budget$inherit_workspace <- workspace
-    if (!is.null(hint_wait)) budget$hint_wait <- hint_wait
     # Provenance is relevant only to this member definition request. Other
     # fields can have identical shapes even when declared on different lines.
     if (origins) {
@@ -1592,7 +1549,9 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
     metadata <- workspace$member_metadata
     cache <- document$member_receivers
     view <- member_workspace_view(workspace, document)
-    revision <- if (is.null(hint_wait)) member_document_cache_revision(document, metadata, view$key, workspace)
+    budget$roxygen_type_hints <- isTRUE(type_hints) && (length(data$type_hints) || length(view$bindings)) &&
+        isTRUE(lsp_settings$get("roxygen_type_hints"))
+    revision <- member_document_cache_revision(document, metadata, view$key, workspace)
     # Named [[ calls resolve the full subset expression in its lexical scope,
     # including local subset methods. Other member prefixes share the receiver.
     accessor <- cursor$accessor
@@ -1608,6 +1567,7 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
     if (!is.null(cursor$s7_update_list)) key <- paste("property-tag", cursor$s7_update_list, key, sep = ":")
     if (origins) key <- paste("definition", origin_name, name, key, sep = ":")
     if (isTRUE(cursor$s7_implementation)) key <- paste0("implementation:", key)
+    if (isTRUE(budget$roxygen_type_hints)) key <- paste0("roxygen:", key)
     cached <- if (!is.null(revision)) cache$get(key) else NULL
     if (!is.null(cached)) {
         cached <- unserialize(cached)
@@ -1653,8 +1613,7 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
     cursor$accessor <- accessor
     if (!is.null(cursor$accessor) && !is.null(name) && !named_subset) {
         receiver <- value
-        declared_union <- identical(receiver$reason, "type_hint_union")
-        possible <- member_possible_receiver(receiver, index, bindings, cursor$accessor, inspect = name, budget = budget)
+        possible <- member_possible_receiver(receiver, index, bindings, cursor$accessor)
         if (!is.null(possible)) {
             if (!name %in% possible$members || name %in% possible$ambiguous) {
                 return(list(value = member_value(reason = "ambiguous_possible_member"),
@@ -1663,7 +1622,7 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
             receiver <- possible$value
         }
         value <- if (identical(cursor$accessor, "@")) member_slot(receiver, name, index, bindings, budget) else
-            member_access(receiver, name, index, bindings, budget)
+            member_access(receiver, name, index, bindings)
         members <- member_members(receiver, index, bindings, cursor$accessor)
         key <- members[name]
         # Rename can use the complete field names already computed at this
@@ -1690,7 +1649,7 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
         if (is.null(value$function_key) && length(key) && !is.na(key[[1L]]) && !is.null(value$function_expr)) {
             value$function_key <- key[[1L]]
         }
-        if (!is.null(possible) && !declared_union) value$possible_receiver <- TRUE
+        if (!is.null(possible)) value$possible_receiver <- TRUE
     }
     list(value = value, index = index, bindings = bindings, budget = budget)
 }
@@ -1777,15 +1736,13 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
     label_details_support = FALSE) {
     cursor <- member_cursor(document, point)
     bracket <- identical(cursor$accessor, "[[")
-    resolved <- member_resolve_cursor(uri, workspace, document, point, cursor)
+    resolved <- member_resolve_cursor(uri, workspace, document, point, cursor, type_hints = TRUE)
     if (is.null(resolved)) {
         return(if (bracket) list() else NULL)
     }
     value <- resolved$value
-    declared_union <- identical(value$reason, "type_hint_union")
-    if (bracket && !member_plain_container(value) &&
-            !(declared_union && all(vapply(value$possible_returns, member_plain_container, logical(1L))))) return(list())
-    candidate <- member_possible_receiver(value, resolved$index, resolved$bindings, cursor$accessor, inspect = character())
+    if (bracket && !member_plain_container(value)) return(list())
+    candidate <- member_possible_receiver(value, resolved$index, resolved$bindings, cursor$accessor)
     possible <- !is.null(candidate)
     common <- NULL
     ambiguous <- character()
@@ -1793,6 +1750,7 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
         sets <- candidate$sets
         common <- candidate$members
         if (!length(common)) return(list())
+        ambiguous <- candidate$ambiguous
         value <- candidate$value
     }
     index <- member_package_context(resolved$index, value$member_package)
@@ -1802,7 +1760,8 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
     if (is.null(index) || is.null(value) || !length(value$type)) {
         return(if (!is.null(cursor$key_helper)) list() else NULL)
     }
-    members <- if (possible) sets[[1L]][common] else member_members(value, index, bindings, cursor$accessor)
+    members <- member_members(value, index, bindings, cursor$accessor)
+    if (possible) members <- members[names(members) %in% common]
     labels <- as.character(names(members))
     if (!length(labels)) {
         return(list())
@@ -1810,16 +1769,15 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
     # Filter before pruning so unrelated labels cannot consume the limit.
     matches <- sort(labels[fuzzy_find(labels, cursor$token)])
     keep <- completion_select_indices(matches, matches, cursor$token, limit)
-    labels <- matches[keep]
-    if (possible) ambiguous <- member_ambiguous_names(resolved$value, sets, labels,
-        resolved$index, bindings, cursor$accessor, budget)
+    labels <- matches
+    labels <- labels[keep]
     following <- substring(document$line0(point$row), cursor$end + 1L)
     call_snippet <- snippet_support && !bracket && is.null(cursor$key_helper) && !startsWith(trimws(following), "(")
     edit_range <- range(document$to_lsp_position(point$row, cursor$start),
         document$to_lsp_position(point$row, cursor$end))
     items <- lapply(labels, function(label) {
         shape <- if (identical(cursor$accessor, "@")) {
-            if (!label %in% ambiguous) member_slot(value, label, index, bindings, budget)
+            member_slot(value, label, index, bindings, budget)
         } else {
             value$fields[[label]]
         }
@@ -1828,7 +1786,7 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
         symbol <- member_symbol_info(label, shape, key, index)
         if (label %in% ambiguous) {
             symbol$signature <- symbol$function_id <- NULL
-            symbol$package <- symbol$description <- symbol$comments <- NULL
+            symbol$package <- NULL
         }
         is_function <- !is.null(shape$function_expr) || !is.null(shape$result_shape) ||
             !is.null(shape$function_key) || (!is.null(key) && !is.na(key))
@@ -1848,7 +1806,7 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
                 if (possible) paste0(signature, " [possible receiver]") else signature
             } else if (!is.null(tip) && (identical(tip$certainty, "known value") || cursor$accessor != "@")) {
                 paste0(tip$summary, " [", if (possible) "possible receiver" else tip$certainty, "]")
-            } else if (identical(cursor$accessor, "@") && !label %in% ambiguous) {
+            } else if (identical(cursor$accessor, "@")) {
                 paste0(label, ": ", paste(value$slot_types[[label]], collapse = " | "))
             } else {
                 if (possible) "[possible member]" else "[static member]"
@@ -1867,7 +1825,7 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
         item
     })
     if (length(matches) > limit || budget$exhausted) attr(items, "truncated") <- TRUE
-    if (possible && !declared_union) attr(items, "truncated") <- TRUE
+    if (possible) attr(items, "truncated") <- TRUE
     items
 }
 

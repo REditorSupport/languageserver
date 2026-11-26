@@ -143,8 +143,6 @@ member_s4_recipe <- function(expr, index, bindings) {
     }
     recipe <- list(name = name, slots = slots, origins = origins, contains = setdiff(contains, "VIRTUAL"),
         virtual = "VIRTUAL" %in% contains, defaults = defaults, complete = complete)
-    hints <- attr(expr, "member_class_hints", exact = TRUE)$slot
-    if (length(hints)) recipe$slot_hints <- lapply(hints, member_class_hint, index, bindings)
     recipe$bridge <- bridge
     recipe$class_origin <- attr(expr, "class_origin", exact = TRUE)
     recipe
@@ -170,9 +168,8 @@ member_s4_descriptor <- function(name, index, bindings, package = NULL, budget =
     declarations <- member_lookup(index$document_s4, name)
     for (item in rev(declarations)) {
         if (!member_before(item$end, at)) next
-        # A top-level declaration uses its own file scope. Caller-local class
-        # recipes and bindings can have different meanings at this read.
-        env <- list(.__member_position__ = item$start)
+        env <- bindings
+        env$.__member_position__ <- item$start
         expr <- item$expr
         if (!is.null(budget$origin_name) && !is.null(budget$document)) {
             # Resolve the declaration at the version/position chosen by inference.
@@ -185,43 +182,6 @@ member_s4_descriptor <- function(name, index, bindings, package = NULL, budget =
     if (is.null(index$document_bindings)) return(member_lookup(index$s4_classes, name))
     member_lookup(index$attached_s4, name)
 }
-
-# .class2() orders S4 superclasses by distance, preserving declaration order
-# at a tie. A diamond keeps the closest occurrence of each superclass.
-member_s4_dispatch_path <- function(name, parents) {
-    if (any(!lengths(parents))) return(NULL)
-    inherited <- sort(unlist(unname(parents), use.names = TRUE) + 1, method = "radix")
-    inherited <- inherited[!duplicated(names(inherited))]
-    if (length(inherited) < 256L) c(stats::setNames(0, name), inherited)
-}
-
-member_s4_runtime_path <- function(record) {
-    name <- attr(record, "className", exact = TRUE)
-    extensions <- attr(record, "contains", exact = TRUE)
-    if (length(name) != 1L || !is.list(extensions) || length(extensions) > 256L) return(NULL)
-    # methods::extends(maybe = FALSE) tests the *body* of each extension
-    # predicate for literal TRUE. Never invoke a user-supplied predicate.
-    distances <- vapply(extensions, function(x) {
-        test <- attr(x, "test", exact = TRUE)
-        distance <- attr(x, "distance", exact = TRUE)
-        if (typeof(test) != "closure" || !is.numeric(distance) || length(distance) != 1L || !is.finite(distance)) return(NA_real_)
-        if (isTRUE(body(test))) distance else Inf
-    }, numeric(1L))
-    if (anyNA(distances) || (length(distances) && (is.null(names(distances)) || anyNA(names(distances)) ||
-                    any(!nzchar(names(distances)))))) return(NULL)
-    c(stats::setNames(0, as.character(name)), distances[is.finite(distances)])
-}
-
-member_s4_builtin_path <- local({
-    cache <- new.env(parent = emptyenv())
-    function(name) {
-        if (!exists(name, cache, inherits = FALSE)) {
-            record <- methods::getClassDef(name, where = asNamespace("methods"), inherits = FALSE)
-            cache[[name]] <- member_s4_runtime_path(record)
-        }
-        cache[[name]]
-    }
-})
 
 member_s4_shape <- function(name, index, bindings, package = NULL, trail = character(), budget = NULL) {
     if (!is.null(budget)) {
@@ -246,9 +206,6 @@ member_s4_shape <- function(name, index, bindings, package = NULL, trail = chara
         })))
     }
     slots <- defaults <- origins <- list()
-    hints <- NULL
-    collect_path <- length(budget$resolving_hints) > 0L
-    if (collect_path) paths <- stats::setNames(vector("list", length(descriptor$contains)), descriptor$contains)
     s7_parent <- NULL
     if (!is.null(descriptor$bridge)) {
         bridge <- descriptor$bridge
@@ -258,7 +215,6 @@ member_s4_shape <- function(name, index, bindings, package = NULL, trail = chara
         inherited <- member_s7_shape(parent, bridge$bindings)
         slots <- inherited$slot_types
         defaults <- inherited$slots
-        hints <- parent$slot_hints
         for (key in names(parent$properties)) origins[[key]] <- parent$properties[[key]]$origin
     }
     for (parent in descriptor$contains) {
@@ -267,64 +223,36 @@ member_s4_shape <- function(name, index, bindings, package = NULL, trail = chara
         if (parent %in% c("numeric", "integer", "double", "logical", "character", "complex", "raw", "list", "expression",
                 "function", "language", "matrix", "array")) {
             slots[".Data"] <- list(parent)
-            if (collect_path) paths[parent] <- list(member_s4_builtin_path(parent))
             next
         }
         if (parent %in% c("environment", "externalptr")) {
             slots[".xData"] <- list(parent)
-            if (collect_path) paths[parent] <- list(member_s4_builtin_path(paste0(".", parent)))
             next
         }
         inherited <- member_s4_shape(parent, index, bindings, package, trail, budget)
         if (is.null(inherited$slot_types)) return(member_value(reason = "unknown_s4_parent"))
-        if (collect_path) paths[parent] <- list(inherited$s4_class$dispatch_path)
         bridge <- inherited$s4_class$s7_parent
         if (!is.null(bridge)) {
             s7_parent <- if (is.null(s7_parent) || identical(s7_parent, bridge)) bridge else FALSE
-        }
-        inherited_hints <- inherited$slot_hints
-        if (length(hints) || length(inherited_hints)) {
-            for (key in intersect(names(slots), names(inherited$slot_types))) {
-                if (!identical(hints[[key]], inherited_hints[[key]])) inherited_hints[[key]] <- FALSE
-            }
-            hints[names(inherited_hints)] <- inherited_hints
         }
         slots <- utils::modifyList(slots, inherited$slot_types)
         origins[names(inherited$slot_origins)] <- inherited$slot_origins
         if (!is.null(inherited$slots)) defaults <- utils::modifyList(defaults, inherited$slots)
     }
     slots <- utils::modifyList(slots, descriptor$slots)
-    if (length(hints)) hints[names(descriptor$slots)] <- NULL
-    if (length(descriptor$slot_hints)) hints[names(descriptor$slot_hints)] <- descriptor$slot_hints
     origins[names(descriptor$slots)] <- NULL
     origins[names(descriptor$origins)] <- descriptor$origins
     if (length(slots) > 256L) return(member_value(reason = "s4_slot_limit"))
     for (slot in intersect(names(descriptor$defaults), names(slots))) {
         # Prototype declarations supply syntax, not evaluated default objects.
         if (identical(descriptor$defaults[[slot]], quote(expr = ))) next
-        expr <- descriptor$defaults[[slot]]
-        defaults[[slot]] <- if (is.null(expr)) member_literal(NULL) else member_value(binding_expr = expr, binding_env = bindings)
+        defaults[slot] <- list(member_value(binding_expr = descriptor$defaults[[slot]], binding_env = bindings))
     }
     owner <- if (is.null(descriptor$package)) package else descriptor$package
     result <- member_value(type = name, s4_class = list(name = name, package = owner), slot_types = slots, slots = defaults)
-    if (collect_path) {
-        result$s4_class$dispatch_path <- if (!is.null(descriptor$dispatch_path)) {
-            descriptor$dispatch_path
-        } else if ((!is.null(descriptor$defaults) || length(descriptor$contains)) && is.null(descriptor$bridge)) {
-            member_s4_dispatch_path(name, paths)
-        }
-    }
     result$s4_class$origin <- descriptor$class_origin
     result$s4_class$s7_parent <- s7_parent
     if (length(origins)) result$slot_origins <- origins
-    if (length(hints)) {
-        # Two parents can document one slot differently. Only the child's own
-        # declaration can disambiguate it; concrete slot classes always win.
-        keys <- intersect(names(slots), names(hints))
-        unconstrained <- vapply(slots[keys], function(type) identical(as.character(type), "ANY"), logical(1L))
-        hints <- hints[keys[unconstrained]]
-        if (length(hints)) result$slot_hints <- hints
-    }
     result
 }
 
@@ -365,10 +293,6 @@ member_s4_slot <- function(value, name, index, bindings, budget = NULL) {
         on.exit(budget$s4_slots <- trail)
         actual <- member_infer(actual$binding_expr, index, actual$binding_env, budget = budget)
     }
-    hint <- value$slot_hints[[name]]
-    if (is.list(hint)) {
-        return(member_refine_class_hint(if (is.null(actual)) member_value() else actual, hint, index, budget))
-    }
     if (!is.null(actual) && (length(actual$type) || !is.null(actual$function_expr))) return(actual)
     shapes <- lapply(member_s4_types(type, value$s4_class$package), function(class) {
         package <- attr(class, "package", exact = TRUE)
@@ -392,7 +316,7 @@ member_s4_construct <- function(class, actuals, index, bindings, budget = NULL) 
     value
 }
 
-member_s4_runtime_descriptor <- function(value, dispatch = FALSE) {
+member_s4_runtime_descriptor <- function(value) {
     name <- attr(value, "className", exact = TRUE)
     slots <- attr(value, "slots", exact = TRUE)
     if (!is.character(name) || length(name) != 1L || !is.list(slots) || length(slots) > 256L) return(NULL)
@@ -408,12 +332,8 @@ member_s4_runtime_descriptor <- function(value, dispatch = FALSE) {
     })
     # Installed descriptors already include inherited slots. Their prototypes
     # and initialization methods are not read or invoked to guess slot values.
-    descriptor <- list(name = as.character(name), package = attr(name, "package", exact = TRUE), slots = slots, contains = character(),
+    list(name = as.character(name), package = attr(name, "package", exact = TRUE), slots = slots, contains = character(),
         virtual = isTRUE(attr(value, "virtual", exact = TRUE)), complete = TRUE)
-    # Keep ancestry once in the defining namespace's class catalog. An
-    # instance snapshot or slot dependency needs only the structural record.
-    if (dispatch) descriptor$dispatch_path <- member_s4_runtime_path(value)
-    descriptor
 }
 
 # Static instances store ordinary slots as attributes. Read their already
@@ -537,10 +457,6 @@ member_s4_call <- function(expr, index, bindings, budget) {
         name <- if (!is.null(args$name)) args$name else if (length(args) >= 2L) args[[2L]]
         if (!is.character(name) || length(name) != 1L) return(member_value())
         value <- member_infer(args$object, index, bindings, budget = budget)
-        if (identical(value$reason, "type_hint_union")) {
-            return(member_possible_result(lapply(value$possible_returns, member_s4_slot, name = name,
-                        index = index, bindings = bindings, budget = budget), closed = TRUE))
-        }
         return(member_s4_slot(value, name, index, bindings, budget))
     }
     if (method != "new") return(NULL)

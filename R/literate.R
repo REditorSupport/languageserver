@@ -364,8 +364,6 @@ literate_provider_content <- function(content, regions = parse_literate_regions(
     incomplete_lines <- integer()
     inlay_lines <- integer()
     member_packages <- character()
-    type_hints <- damaged_type_blocks <- NULL
-    hint_comments <- integer()
     partial_tokens <- partial_strings <- list()
     glue_fragments <- unmapped_glue <- list()
     for (cell in regions$cells) {
@@ -386,11 +384,8 @@ literate_provider_content <- function(content, regions = parse_literate_regions(
             expr <- template$expr
         }
         if (inherits(expr, "error")) {
-            recovered <- recover_partial_content(text, srcfile, expr, member_hints = TRUE, row_offset = rows[[1L]] - 1L)
+            recovered <- recover_partial_content(text, srcfile, expr, member_hints = TRUE)
             member_packages <- union(member_packages, recovered$member_packages)
-            type_hints <- member_merge_type_hints(type_hints, recovered$type_hints)
-            hint_comments <- c(hint_comments, recovered$hint_comments)
-            damaged_type_blocks <- c(damaged_type_blocks, recovered$damaged_type_blocks)
             result[rows] <- recovered$content
             incomplete_lines <- c(incomplete_lines, rows[recovered$incomplete_lines + 1L] - 1L)
             inlay_lines <- c(inlay_lines, rows[recovered$inlay_fallback_lines + 1L] - 1L)
@@ -419,8 +414,7 @@ literate_provider_content <- function(content, regions = parse_literate_regions(
         result
     }
     list(content = result, original_content = parse_cache_content(original, source), incomplete_lines = incomplete_lines,
-        inlay_fallback_lines = inlay_lines, member_packages = member_packages, type_hints = type_hints, hint_comments = hint_comments,
-        damaged_type_blocks = damaged_type_blocks,
+        inlay_fallback_lines = inlay_lines, member_packages = member_packages,
         partial_tokens = stack_fields(partial_tokens), partial_strings = stack_fields(partial_strings),
         glue_fragments = glue_fragments, unmapped_glue = unmapped_glue)
 }

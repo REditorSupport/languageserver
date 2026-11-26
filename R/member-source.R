@@ -229,8 +229,6 @@ member_source_names <- function(parsed, source, path, name = NULL, accessor = "$
     referenced <- character()
     narrow <- !is.null(name) || !is.null(accessor)
     while (length(path)) {
-        hints <- attr(node, "member_type_hints", exact = TRUE)
-        if (!is.null(hints)) referenced <- c(referenced, member_type_dependencies(hints))
         summary <- source$scopes[[member_source_key(ast_path)]]
         if (!is.null(summary)) {
             flattened <- !is.null(summary$flat)

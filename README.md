@@ -272,129 +272,6 @@ matching files and directories from the workspace root and the script's
 directory. Document links also recognize static paths assembled with
 `file.path()`.
 
-### Documenting argument, return, and member types
-
-Start a roxygen `@param`, `@return`, or `@returns` description with a type
-marker. For new documentation, use a parenthesized code span such as
-`` (`Book`) `` or `` (`Book | Film`) ``. The server also reads a leading
-Markdown class link such as `` [`Book`] `` or an Rd marker such as
-`[\code{Book}]`. The description can begin on the next roxygen line. One
-marker after `@param left,right` applies to both arguments.
-
-```r
-Book <- R6::R6Class("Book", public = list(title = "Field guide", pages = 80L))
-Film <- R6::R6Class("Film", public = list(title = "The garden", minutes = 12L))
-
-#' @param item (`Book | Film`) Item to display.
-item_title <- function(item) item$title
-
-#' @inheritParams item_title
-has_title <- function(item) nzchar(item$title)
-
-#' @param left,right [`Book`] Books to compare.
-same_title <- function(left, right) identical(left$title, right$title)
-
-#' @return
-#'   [\code{Book}] The book stored in the serialized bytes.
-decode_book <- function(bytes) unserialize(bytes)
-
-item_title(Film$new())                          # "The garden"
-has_title(Book$new())                           # TRUE
-same_title(Book$new(), Book$new())              # TRUE
-bytes <- serialize(Book$new(), NULL)
-decode_book(bytes)$pages                        # 80L
-```
-
-Inside `item_title()`, typing `item$` offers `title` because both classes declare
-it. After `decode_book(bytes)$`, completion also offers `pages`. The server can
-resolve these members without executing `unserialize()`. When the body itself
-reveals a more specific result, such as a list with known fields, the providers
-keep that information. A later assignment updates the inferred type.
-
-A Markdown link supplies a type when its target resolves to a known class
-or built-in type in the declaration's scope. In `` [`Book`] or [`Film`] ``
-both alternatives must resolve. The server also recognizes an opening phrase
-such as ``An object of class [`Book`].`` or ``The [`Book`] object to read.``
-A description such as ``A list of [`Book`] objects.`` leaves the type to
-ordinary inference. The parenthesized form can name a user-defined S3 class
-which has no generator binding.
-
-`has_title()` inherits the same union for `item` from `item_title()`. The server
-follows `@inheritParams` between source topics in the same file or indexed
-package, including unsaved edits. The class names resolve where the parameter
-was documented. A local `@param` takes precedence, even if it contains only
-prose. With multiple donors, the first applicable description wins. Parameter
-inheritance also supports named selections such as `@inheritParams item_title item`,
-exclusions, and ranges of documented names. Grouped parameters are inherited
-together. Return hints are declared separately. A donor must have a unique
-source topic, usually its function name. The lookup skips `@noRd` donors,
-external installed topics and multi-block shared help pages. Reading these
-hints works without installing `roxygen2`.
-
-Renaming the `Book` generator updates its references in the type annotations.
-An ordinary comment or blank line between a roxygen block and the function
-keeps the annotation associated with that function.
-
-Hints also guide S3 dispatch. Inside `year_text()` below, signature help on
-`format(day, ...)` uses `format.Date`.
-
-```r
-#' @param day (`Date`) A calendar day.
-year_text <- function(day) format(day, "%Y")
-year_text(as.Date("2000-01-01"))  # "2000"
-```
-
-Use the same type syntax for a stored member. Place an R6 `@field` immediately
-above the field or active binding, an S4 `@slot` on the class, and an S7
-`@prop` on the class for a computed property. In S7, `@param` on a class can
-also describe a property supplied by its generated constructor.
-
-```r
-Card <- R6::R6Class("Card", public = list(title = "Atlas"))
-
-Wallet <- R6::R6Class("Wallet", public = list(
-  #' @field card (`Card`) The card currently in the wallet.
-  card = NULL
-))
-wallet <- Wallet$new()
-wallet$card <- Card$new()
-wallet$card$title                                  # "Atlas"
-
-#' @slot item (`Card`) The card stored in this sleeve.
-Sleeve <- methods::setClass("Sleeve", slots = c(item = "ANY"))
-#' @param sleeve (`Sleeve`) A card sleeve.
-card_title <- function(sleeve) sleeve@item$title
-card_title(Sleeve(item = Card$new()))              # "Atlas"
-
-#' @param entry (`Card`) The card on display.
-#' @prop current (`Card`) The card visible to a visitor.
-Display <- S7::new_class("Display", properties = list(
-  entry = S7::class_any,
-  current = S7::new_property(getter = function(self) self@entry)
-))
-Display(entry = Card$new())@current$title          # "Atlas"
-```
-
-For example, after `Display(entry = Card$new())@current$`, completion offers
-`title` without running the getter. Member hints can also use a union. The
-declared members determine which names are available, and a concrete supplied
-value or a specific slot or property class takes precedence.
-
-An R6 method can document its own arguments and return value. For a missing
-argument description, the server checks the class-level `@param`, the matching
-`@field` for `initialize()`, and the same method in a parent class. An S4
-registration such as `setMethod()` can document the formals of its inline
-function. An S7 method can put its own block above
-`method(generic, Class) <- function(...)`. A documented S7 generic can supply
-a return hint when a call's result would otherwise be unknown.
-
-An R6 generator name denotes its public instances, including inherited methods.
-Use `package::Class` to identify the owner of a package class. A union accepts
-up to 32 alternatives. Member completion uses their shared names, and signature
-help and Go to Definition require an unambiguous target. S3 dispatch selects a
-method when all alternatives agree. Go to Type Definition can open each source
-class in the union.
-
 Parameter hints use the resolved signature of member calls. For example, if
 `draw` is declared as `function(width, height)`, `canvas$draw(40, 20)` can
 show `width =` and `height =` inline. R6 active bindings, S4 slots and S7
@@ -412,6 +289,31 @@ is not synchronized across aliases or the saved receivers for `private` and
 `super` methods. For example, after `alias <- self; self$data <- list(new = 1)`,
 completion on `alias$data$` may still use the earlier `data` value. The same
 can occur when a private or superclass method returns `self$data`.
+
+### Documenting a receiver type
+
+Start a roxygen `@param`, `@return`, or `@returns` description with an
+instance's class name in backticks and parentheses. The server uses this
+hint for member completion when the value cannot be inferred from the code.
+
+```r
+Box <- R6::R6Class("Box", public = list(contents = "hello"))
+
+#' @param box (`Box`) The box to inspect.
+inspect <- function(box) box$contents
+
+#' @return (`Box`) A restored box.
+restore <- function(bytes) unserialize(bytes)
+
+bytes <- serialize(Box$new(), NULL)
+inspect(restore(bytes))  # "hello"
+```
+
+Completion after `box$` inside `inspect()` and after `restore(bytes)$` offers
+`contents`. Package classes can be qualified, for example
+``#' @param data (`polars::polars_data_frame`) Input rows.``
+To disable type hints, set `r.lsp.roxygen_type_hints` to `false` or add
+`options(languageserver.roxygen_type_hints = FALSE)` to `.Rprofile`.
 
 ## S3 method information
 
@@ -533,6 +435,7 @@ settings | default | description
 `r.lsp.max_completions` | 200 | maximum number of completion items
 `r.lsp.s3_dispatch` | `true` | use static S3 dispatch for argument completion, hover and signature help, independently of member completion
 `r.lsp.member_completion` | `true` | use static analysis for `$` member and S4 `@` slot completion, named arguments, signature help, hover and go-to-definition when a source location is available
+`r.lsp.roxygen_type_hints` | `true` | use explicit roxygen parameter and return class hints for member completion
 `r.lsp.lint_cache` | `false` | toggle caching of lint results
 `r.lsp.parse_delay` | `0.15` | seconds to debounce parsing after an edit
 `r.lsp.diagnostics_delay` | `0.75` | seconds to debounce diagnostics after the current parse

@@ -108,20 +108,18 @@ package_resolution_installations <- local({
 })
 
 package_resolution_request <- function(packages, namespace_packages, prepare, prepare_s3,
-    lib_paths = .libPaths(), cache_dir = package_metadata_cache_root(), installations = NULL, member_packages = NULL) {
+    lib_paths = .libPaths(), cache_dir = package_metadata_cache_root(), installations = NULL) {
     packages <- normalize_package_request(packages)
     namespace_packages <- normalize_package_request(unique(namespace_packages))
     if (is.null(installations)) {
         installations <- package_resolution_installations(unique(c(startup_packages, packages, namespace_packages)), lib_paths)
     }
-    request <- list(packages = packages, namespace_packages = namespace_packages,
+    list(packages = packages, namespace_packages = namespace_packages,
         prepare = prepare, prepare_s3 = prepare_s3, lib_paths = lib_paths, cache_dir = cache_dir,
         settings = list(members = isTRUE(lsp_settings$get("member_completion")),
             s3 = isTRUE(lsp_settings$get("s3_dispatch"))),
         locale = Sys.getlocale(), r = as.character(getRversion()),
         installations = installations)
-    if (!is.null(member_packages)) request$member_packages <- member_packages
-    request
 }
 
 package_resolution_cacheable <- function(result, request) {
@@ -139,7 +137,6 @@ package_resolution_cacheable <- function(result, request) {
     }
     if (isTRUE(request$prepare)) {
         required <- unique(c(setdiff(result$packages, startup_packages), request$namespace_packages))
-        if (!is.null(request$member_packages)) required <- intersect(required, request$member_packages)
         if (!all(required %in% names(result$members)) ||
                 !all(vapply(result$members, catalog_ok, logical(1L), members = TRUE))) return(FALSE)
     }
@@ -175,7 +172,7 @@ package_task_sharing <- function(self, uri, document, request, callback, error, 
     }
     sharing$current <- function() {
         identical(request, package_resolution_request(request$packages, request$namespace_packages,
-                request$prepare, request$prepare_s3, member_packages = request$member_packages))
+                request$prepare, request$prepare_s3))
     }
     sharing$callback <- callback
     sharing$error <- error

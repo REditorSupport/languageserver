@@ -30,20 +30,19 @@ member_complete_item_ids <- function(parsed) {
 # Splice top-level literal source() calls into binding history in execution
 # order. A sourced expression keeps its own declaration URI and range. Only
 # its ordering coordinates change, so a later local write can use that value.
-member_workspace_view <- function(workspace, document, positions = FALSE) {
+member_workspace_view <- function(workspace, document) {
     data <- document$parse_data$member_data
     if (!length(data$sources) || !isTRUE(workspace$index$enabled)) return(NULL)
     key <- list(parse = workspace$s3_revision, index = workspace$index$revision,
         documents = workspace$documents$size(), content = data$content_key)
     cached <- document$member_workspace_view
-    if (identical(key, cached$key) && (!positions || !is.null(cached$positions))) return(cached)
+    if (identical(key, cached$key)) return(cached)
 
     items <- collections::queue()
     imports <- collections::queue()
     state <- new.env(parent = emptyenv())
     state$shadowed <- FALSE
     state$expansions <- state$statements <- 0L
-    if (positions) state$positions <- list()
     expand <- function(doc, trail, anchor = NULL) {
         data <- doc$parse_data$member_data
         if (isTRUE(data$accessor_registrations)) state$accessor_registrations <- TRUE
@@ -67,14 +66,12 @@ member_workspace_view <- function(workspace, document, positions = FALSE) {
             }
         }
         next_source <- 1L
-        if (positions && !is.null(anchor)) offsets <- rep(NA_integer_, length(data$items))
         for (i in item_ids) {
             item <- data$items[[i]]
             end <- item$end
             if (!is.null(anchor)) {
                 item$declaration <- list(uri = doc$uri, item = i)
                 step <- 2L * items$size()
-                if (positions) offsets[[i]] <- step
                 item$start <- c(anchor, step)
                 item$end <- c(anchor, step + 1L)
                 item$cache_prefix <- NULL
@@ -98,30 +95,18 @@ member_workspace_view <- function(workspace, document, positions = FALSE) {
             if (uri %in% trail) return(FALSE)
             target <- workspace$documents$get(uri, NULL)
             if (is.null(target) || !identical(target$version, target$parse_data$version) ||
-                    (isTRUE(target$parse_data$parse_error) && is.null(target$parse_data$partial_complete_roots))) {
-                if (positions) state$unavailable <- TRUE
-                next
-            }
+                    (isTRUE(target$parse_data$parse_error) && is.null(target$parse_data$partial_complete_roots))) next
             state$expansions <- state$expansions + 1L
             if (!expand(target, c(trail, uri), if (is.null(anchor)) end else anchor)) return(FALSE)
-        }
-        if (positions && !is.null(anchor)) {
-            visits <- state$positions[[doc$uri]]
-            state$positions[[doc$uri]] <- c(visits, list(list(anchor = anchor, offsets = offsets)))
         }
         if (length(source_bindings)) state$shadowed <- TRUE
         TRUE
     }
     view <- list(key = key)
-    expanded <- expand(document, document$uri)
-    if (expanded && state$expansions) {
+    if (expand(document, document$uri) && state$expansions) {
         view$bindings <- member_index_bindings(items$as_list())
         view$imports <- imports$as_list()
         view$accessor_registrations <- state$accessor_registrations
-    }
-    if (positions) {
-        view$positions <- state$positions
-        view$positions_complete <- expanded && !isTRUE(state$unavailable)
     }
     document$member_workspace_view <- view
     view
@@ -132,7 +117,7 @@ member_workspace_view <- function(workspace, document, positions = FALSE) {
 # the filesystem, and a parser worker never evaluates NAMESPACE conditions.
 member_namespace_imports <- local({
     cache <- NULL
-    function(uri, type_hints = FALSE) {
+    function(uri) {
         if (length(uri) != 1L || !startsWith(uri, "file:///") ||
                 !grepl("/R/[^/]+\\.[rR]$", uri)) return(NULL)
         root <- dirname(dirname(path_from_uri(uri)))
@@ -142,22 +127,20 @@ member_namespace_imports <- local({
         if (is.null(cache)) cache <<- ByteLruCache$new(1024^2, max_entries = 64L)
         stamp <- info[c("size", "mtime", "ctime")]
         previous <- cache$get(root)
-        field <- if (type_hints) "all_imports" else "imports"
-        if (identical(stamp, previous$stamp)) return(previous[[field]])
+        if (identical(stamp, previous$stamp)) return(previous$imports)
         pkg <- tryCatch(read.dcf(paths[[1L]], fields = "Package"), error = function(e) NULL)
-        imports <- directives <- NULL
+        imports <- NULL
         if (length(pkg) == 1L && !is.na(pkg[[1L]]) && nzchar(pkg[[1L]])) {
             directives <- extract_namespace_imports(paths[[2L]], unconditional = TRUE)$directives
-            # S7 uses imports to identify its binding operator. Other sources
-            # consult them when a documented class needs a package owner.
+            # Only the S7 adapter currently needs NAMESPACE declarations to
+            # interpret a binding operator. Keep unrelated projects on their
+            # existing metadata preparation path.
             packages <- unlist(lapply(directives, function(x) if (x$type == "import") x$packages else x$package), use.names = FALSE)
             imports <- if ("S7" %in% packages) directives else list()
             attr(imports, "package") <- pkg[[1L]]
-            attr(directives, "package") <- pkg[[1L]]
         }
-        entry <- list(stamp = stamp, imports = imports, all_imports = directives)
-        cache$set(root, entry)
-        entry[[field]]
+        cache$set(root, list(stamp = stamp, imports = imports))
+        imports
     }
 })
 
@@ -194,14 +177,8 @@ member_package_declaration <- function(name, index, budget, depth, trail) {
     doc <- workspace$documents$get(owner)
     classes <- doc$parse_data$class_data$declarations
     records <- c(classes, attr(classes, "s7_bindings", exact = TRUE))
-    binding <- doc$parse_data$member_data$bindings[[name]]
-    fn <- if (length(binding)) binding[[length(binding)]]$expr
-    # A documented return can travel through an ordinary wrapper or alias in
-    # a third file. Resolve only the requested binding in its owning file.
-    callable <- (member_head(fn, "function") || is.symbol(fn)) &&
-        (isTRUE(doc$parse_data$member_data$has_type_hints) || workspace$index$package_has_type_hints(uri))
-    if (!callable && !any(vapply(records, function(cls) {
-        isTRUE(cls$binding) && (isTRUE(cls$named_bind) || cls$type %in% c("S7", "S7Generic", "S4", "R6", "RefClass")) &&
+    if (!any(vapply(records, function(cls) {
+        isTRUE(cls$binding) && (isTRUE(cls$named_bind) || cls$type %in% c("S7", "S7Generic")) &&
             identical(cls$name, name)
     }, logical(1L)))) return(member_value(reason = "uncertain_package_binding"))
     key <- paste(root, name, sep = "\n")
@@ -215,9 +192,7 @@ member_package_declaration <- function(name, index, budget, depth, trail) {
         budget$document <- doc
         on.exit(budget$document <- previous, add = TRUE)
     }
-    value <- member_resolve_document(name, context, list(), budget, depth + 1L, trail)
-    if (callable && !is.null(value$function_expr) && is.null(value$function_uri)) value$function_uri <- owner
-    value
+    member_resolve_document(name, context, list(), budget, depth + 1L, trail)
 }
 
 member_package_binding_owner <- function(name, workspace, root, uri) {

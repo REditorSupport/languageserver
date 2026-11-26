@@ -129,7 +129,6 @@ cancel_request <- function(self, params) {
             while (queue$size()) {
                 item <- queue$pop()
                 if (identical(request_id_key(item$id), request_key)) {
-                    if (is.function(self$get_workspace)) s3_forget_hint_waiters(self$get_workspace(uri), uri, item$id)
                     self$deliver(ResponseErrorMessage$new(
                         item$id,
                         "RequestCancelled",

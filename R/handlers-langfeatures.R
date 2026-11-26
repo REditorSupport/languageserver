@@ -1,17 +1,13 @@
 #' Queue only the latest expensive range-style request for a version
 #' @noRd
 enqueue_latest_reply <- function(self, uri, method, item) {
-    workspace <- self$get_workspace(uri)
-    document <- workspace$documents$get(uri, NULL)
+    document <- self$get_workspace(uri)$documents$get(uri, NULL)
     if (!is.null(document) && reply_parse_failure(self, item$id, document)) return(invisible(NULL))
     queue <- self$pending_replies$get(uri)[[method]]
     retained <- list()
     while (queue$size()) {
         previous <- queue$pop()
         if (isTRUE(previous$version == item$version)) {
-            if (!identical(request_id_key(previous$id), request_id_key(item$id))) {
-                s3_forget_hint_waiters(workspace, uri, previous$id)
-            }
             self$deliver(ResponseErrorMessage$new(
                 previous$id,
                 "RequestCancelled",
@@ -56,34 +52,10 @@ index_context_waiting <- function(self, workspace, document, point, hover = FALS
 
 # Namespace member models run independently of S3 catalogs. Wait only for
 # packages used by this receiver, never unrelated source-member requests.
-member_metadata_waiting <- function(self, uri, document, point, cursor = NULL, name = NULL, call = NULL, request_id = NULL, inherited_only = FALSE) {
+member_metadata_waiting <- function(self, uri, document, point, cursor = NULL, name = NULL, call = NULL, type_hints = FALSE) {
     if (!isTRUE(lsp_settings$get("member_completion"))) return(FALSE)
     manager <- if (is.null(self$member_task_manager)) self$resolve_task_manager else self$member_task_manager
-    if (is.null(manager) || !is.function(manager$has)) return(FALSE)
-    data <- document$parse_data$member_data
-    if ((isTRUE(attr(data$type_hints, "has_inheritance", exact = TRUE)) || !is.null(data$document_package)) &&
-            is.function(self$get_workspace)) {
-        workspace <- self$get_workspace(uri)
-        if (hint_package_inherits(workspace, document) &&
-                ((!is.null(workspace$s3_hint_workers) && workspace$s3_hint_workers$size()) || hint_package_cold(self, workspace, document))) {
-            target <- list(point = point, cursor = cursor %s3_or% member_cursor(document, point), name = name)
-            if (is.null(target$cursor)) {
-                location <- if (inherited_only) member_hover_location(document, point) else if (!is.null(call$opening)) {
-                    member_call_location(document, point, call)
-                }
-                if (!is.null(location)) target <- list(point = location$point, cursor = location$cursor, name = location$cursor$token)
-            }
-            if (!is.null(target$cursor)) {
-                if (!is.null(request_id)) s3_forget_hint_waiters(workspace, uri, request_id)
-                wait <- new.env(parent = emptyenv())
-                wait$manager <- manager
-                wait$server <- self
-                member_resolve_cursor(uri, workspace, document, target$point, target$cursor, target$name, hint_wait = wait)
-                if (hint_request_blocked(wait, self, workspace, uri, document, request_id)) return(TRUE)
-            }
-        }
-    }
-    if (inherited_only || !manager$has(uri)) return(FALSE)
+    if (is.null(manager) || !is.function(manager$has) || !manager$has(uri)) return(FALSE)
     if (is.null(cursor)) cursor <- member_cursor(document, point)
     request <- document$requested_packages
     uses_s7 <- "S7" %in% c(request$packages, request$namespace_packages)
@@ -133,10 +105,9 @@ member_metadata_waiting <- function(self, uri, document, point, cursor = NULL, n
         }
     }
     packages <- intersect(request$namespace_packages, referenced)
-    hint_dependencies <- document$parse_data$member_data$type_hint_dependencies
-    if (length(hint_dependencies)) {
-        types <- intersect(names(hint_dependencies), referenced)
-        packages <- union(packages, unlist(hint_dependencies[types], use.names = FALSE))
+    data <- document$parse_data$member_data
+    if (type_hints && length(data$type_hints) && isTRUE(lsp_settings$get("roxygen_type_hints"))) {
+        packages <- union(packages, member_hint_packages(recovered, cursor, referenced, expressions, data, request))
     }
     # An attached S7 factory is normally written without S7::. Its generated
     # formals still depend on the member worker, even when S3 is disabled.
@@ -210,8 +181,8 @@ text_document_completion  <- function(self, id, params) {
     }
     if (identical(document$version, document$parse_data$version) &&
             (index_context_waiting(self, workspace, document, point) ||
-                    member_metadata_waiting(self, uri, document, point, call = document$detect_call(point), request_id = id) ||
-                    s3_metadata_waiting(self, uri, document, point, hover = FALSE, request_id = id))) {
+                    member_metadata_waiting(self, uri, document, point, call = document$detect_call(point), type_hints = TRUE) ||
+                    s3_metadata_waiting(self, uri, document, point, hover = FALSE))) {
         enqueue_latest_reply(self, uri, "textDocument/completion", list(id = id, version = document$version, params = params))
         if (is.function(self$resolve_task_manager$promote)) self$resolve_task_manager$promote(uri)
         if (is.function(self$member_task_manager$promote)) self$member_task_manager$promote(uri)
@@ -267,8 +238,7 @@ text_document_hover  <- function(self, id, params) {
     if (glue_cursor_request(self, id, params, "textDocument/hover", workspace, document, point)) return(invisible(NULL))
     if (identical(document$version, document$parse_data$version) &&
             (index_context_waiting(self, workspace, document, point, hover = TRUE) ||
-                    member_metadata_waiting(self, uri, document, point, request_id = id, inherited_only = TRUE) ||
-                    s3_metadata_waiting(self, uri, document, point, hover = TRUE, request_id = id))) {
+                    s3_metadata_waiting(self, uri, document, point, hover = TRUE))) {
         enqueue_latest_reply(self, uri, "textDocument/hover", list(id = id, version = document$version, params = params))
         if (is.function(self$resolve_task_manager$promote)) self$resolve_task_manager$promote(uri)
         return(invisible(NULL))
@@ -303,8 +273,8 @@ text_document_signature_help  <- function(self, id, params) {
     call <- document$detect_call(point, signature = TRUE)
     if (identical(document$version, document$parse_data$version) &&
             (index_context_waiting(self, workspace, document, point, call = call) ||
-                    member_metadata_waiting(self, uri, document, point, call = call, request_id = id) ||
-                    s3_metadata_waiting(self, uri, document, point, hover = FALSE, call = call, request_id = id))) {
+                    member_metadata_waiting(self, uri, document, point, call = call) ||
+                    s3_metadata_waiting(self, uri, document, point, hover = FALSE, call = call))) {
         enqueue_latest_reply(self, uri, "textDocument/signatureHelp", list(id = id, version = document$version, params = params))
         if (is.function(self$resolve_task_manager$promote)) self$resolve_task_manager$promote(uri)
         if (is.function(self$member_task_manager$promote)) self$member_task_manager$promote(uri)
@@ -336,7 +306,7 @@ text_document_definition  <- function(self, id, params) {
     member <- isTRUE(lsp_settings$get("member_completion")) && !is.null(member_hover_location(document, point))
     if (!identical(document$version, document$parse_data$version) ||
             index_context_waiting(self, workspace, document, point, hover = TRUE) ||
-            (member && member_metadata_waiting(self, uri, document, point, request_id = id))) {
+            (member && member_metadata_waiting(self, uri, document, point))) {
         enqueue_latest_reply(self, uri, "textDocument/definition", list(id = id, version = document$version, params = params))
         if (member && is.function(self$member_task_manager$promote)) self$member_task_manager$promote(uri)
         return(invisible(NULL))

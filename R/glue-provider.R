@@ -416,16 +416,16 @@ glue_request_pending <- function(document, point, opener = FALSE) {
     isTRUE(document$detect_call(point, signature = TRUE)$token %in% names(glue_template_packages))
 }
 
-glue_request_waiting <- function(self, uri, workspace, context, method, request_id = NULL) {
+glue_request_waiting <- function(self, uri, workspace, context, method) {
     inner <- context$document
     point <- context$point
     signature <- identical(method, "textDocument/signatureHelp")
     hover <- identical(method, "textDocument/hover")
     call <- inner$detect_call(point, signature = signature)
     if (index_context_waiting(self, workspace, inner, point, hover = hover, call = if (signature) call)) return(TRUE)
-    if (member_metadata_waiting(self, uri, inner, point, call = call, request_id = request_id, inherited_only = hover)) return(TRUE)
+    if (!hover && member_metadata_waiting(self, uri, inner, point, call = call, type_hints = identical(method, "textDocument/completion"))) return(TRUE)
     if (identical(method, "textDocument/definition")) return(FALSE)
-    s3_metadata_waiting(self, uri, inner, point, hover = hover, call = if (signature) call, request_id = request_id)
+    s3_metadata_waiting(self, uri, inner, point, hover = hover, call = if (signature) call)
 }
 
 glue_cursor_request <- function(self, id, params, method, workspace, document, point) {
@@ -449,7 +449,7 @@ glue_cursor_request <- function(self, id, params, method, workspace, document, p
         return(TRUE)
     }
     if (!pending && is.null(context)) return(FALSE)
-    if (pending || glue_request_waiting(self, uri, workspace, context, method, id)) {
+    if (pending || glue_request_waiting(self, uri, workspace, context, method)) {
         enqueue_latest_reply(self, uri, method, list(id = id, version = document$version, params = params))
         if (is.function(self$resolve_task_manager$promote)) self$resolve_task_manager$promote(uri)
         if (is.function(self$member_task_manager$promote)) self$member_task_manager$promote(uri)

@@ -33,7 +33,7 @@ class_navigation_symbol <- function(document, parsed, point) {
     list(location = location, call = call)
 }
 
-class_navigation_declaration <- function(uri, workspace, document, point, alternatives = FALSE) {
+class_navigation_declaration <- function(uri, workspace, document, point) {
     if (!isTRUE(lsp_settings$get("member_completion")) || !check_r_region(document, point)) return(NULL)
     parsed <- current_parse_data(uri, workspace, document)
     if (is.null(parsed)) return(NULL)
@@ -42,15 +42,7 @@ class_navigation_declaration <- function(uri, workspace, document, point, altern
     if (is.null(location)) return(NULL)
     value <- member_resolve_cursor(uri, workspace, document, location$point, location$cursor,
         location$cursor$token, origins = TRUE)$value
-    if (alternatives && identical(value$reason, "type_hint_union")) {
-        return(unique(Filter(Negate(is.null), lapply(value$possible_returns, class_value_declaration, workspace = workspace))))
-    }
     if (isTRUE(value$possible_receiver) || length(value$possible_returns)) return(NULL)
-    cls <- class_value_declaration(value, workspace)
-    if (alternatives && !is.null(cls)) list(cls) else cls
-}
-
-class_value_declaration <- function(value, workspace) {
     cls <- if (isTRUE(value$r6_role %in% c("instance", "generator")) && !is.null(value$r6_class$origin)) {
         list(type = "R6", name = value$r6_class$name, origin = value$r6_class$origin)
     } else if (!is.null(value$s4_class$origin)) {
@@ -80,9 +72,8 @@ class_value_declaration <- function(value, workspace) {
 }
 
 type_definition_reply <- function(id, uri, workspace, document, point) {
-    classes <- class_navigation_declaration(uri, workspace, document, point, alternatives = TRUE)
-    locations <- lapply(classes, function(cls) location(cls$uri, cls$selectionRange))
-    Response$new(id, result = if (length(locations) == 1L) locations[[1L]] else if (length(locations)) locations)
+    cls <- class_navigation_declaration(uri, workspace, document, point)
+    Response$new(id, result = if (!is.null(cls)) location(cls$uri, cls$selectionRange))
 }
 
 s3_implementation_target <- function(method, workspace, store) {
@@ -278,7 +269,7 @@ check_implementation_requests <- function(self, cancel_id = NULL) {
     invisible(NULL)
 }
 
-class_navigation_waiting <- function(self, workspace, document, point, method, request_id = NULL) {
+class_navigation_waiting <- function(self, workspace, document, point, method) {
     implementation <- identical(method, "textDocument/implementation")
     members <- isTRUE(lsp_settings$get("member_completion"))
     s3 <- implementation && isTRUE(lsp_settings$get("s3_dispatch"))
@@ -289,14 +280,14 @@ class_navigation_waiting <- function(self, workspace, document, point, method, r
         if (is.null(call)) return(FALSE)
         s7 <- members && is.null(call$package) && length(class_s7_method_declarations(document$parse_data)) > 0L
         return(((s3 || s7) && index_context_waiting(self, workspace, document, point, call = call)) ||
-                (s3 && s3_metadata_waiting(self, document$uri, document, point, call = call, request_id = request_id)) ||
-                (s7 && member_metadata_waiting(self, document$uri, document, point, call = call, request_id = request_id)))
+                (s3 && s3_metadata_waiting(self, document$uri, document, point, call = call)) ||
+                (s7 && member_metadata_waiting(self, document$uri, document, point, call = call)))
     }
     location <- member_hover_location(document, point)
     if (is.null(location)) location <- class_navigation_symbol(document, document$parse_data, point)$location
     if (is.null(location)) return(FALSE)
     index_context_waiting(self, workspace, document, point, hover = TRUE) ||
-        member_metadata_waiting(self, document$uri, document, point, location$cursor, location$cursor$token, request_id = request_id)
+        member_metadata_waiting(self, document$uri, document, point, location$cursor, location$cursor$token)
 }
 
 class_navigation_request <- function(self, id, params, method) {
@@ -306,7 +297,7 @@ class_navigation_request <- function(self, id, params, method) {
     if (is.null(document)) return(self$deliver(Response$new(id)))
     if (reply_parse_failure(self, id, document)) return(invisible(NULL))
     point <- document$from_lsp_position(params$position)
-    if (class_navigation_waiting(self, workspace, document, point, method, id)) {
+    if (class_navigation_waiting(self, workspace, document, point, method)) {
         enqueue_latest_reply(self, uri, method, list(id = id, version = document$version, params = params))
         manager <- if (identical(method, "textDocument/implementation")) self$resolve_task_manager else self$member_task_manager
         if (is.function(manager$promote)) manager$promote(uri)

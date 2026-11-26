@@ -7,13 +7,13 @@ class_helper_packages <- c(R6Class = "R6", setClass = "methods", setRefClass = "
     deprecated_class = "S7", new_generic = "S7", deprecated_generic = "S7", method = "S7",
     setGeneric = "methods", setGroupGeneric = "methods", setMethod = "methods", setReplaceMethod = "methods")
 
-syntax_call_arguments <- function(syntax, row, computed_name = NULL) {
+syntax_call_arguments <- function(syntax, row) {
     children <- syntax_children(syntax, row)
     children <- children[syntax$token[children] != "COMMENT"]
     if (length(children) < 3L || syntax$token[children[[2L]]] != "'('") return(NULL)
     head <- syntax_children(syntax, children[[1L]])
-    if (is.null(computed_name) && (!length(head) || !utils::tail(syntax$token[head], 1L) %in% "SYMBOL_FUNCTION_CALL" ||
-            !(length(head) == 1L || (length(head) == 3L && syntax$token[head[[2L]]] %in% c("NS_GET", "NS_GET_INT"))))) {
+    if (!length(head) || !utils::tail(syntax$token[head], 1L) %in% "SYMBOL_FUNCTION_CALL" ||
+            !(length(head) == 1L || (length(head) == 3L && syntax$token[head[[2L]]] %in% c("NS_GET", "NS_GET_INT")))) {
         return(NULL)
     }
     part <- children[-seq_len(2L)]
@@ -40,8 +40,8 @@ syntax_call_arguments <- function(syntax, row, computed_name = NULL) {
     } else {
         value <- tag <- integer()
     }
-    list(name = if (is.null(computed_name)) class_token_text(utils::tail(syntax$text[head], 1L)) else computed_name,
-        package = if (is.null(computed_name) && length(head) == 3L) class_token_text(syntax$text[head[[1L]]]),
+    list(name = class_token_text(utils::tail(syntax$text[head], 1L)),
+        package = if (length(head) == 3L) class_token_text(syntax$text[head[[1L]]]),
         values = value, tags = tag)
 }
 

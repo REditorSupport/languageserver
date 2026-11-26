@@ -25,6 +25,9 @@ member_binding <- function(env, name, materialize = FALSE, inspect = FALSE) {
 member_strip_srcref <- function(part) {
     if (is.name(part)) return(part)
     if (inherits(part, "srcref")) return(NULL)
+    if (member_head(part, "function") && length(part) >= 4L && !is.null(attr(part[[4L]], "srcfile")$.languageserver_type_hints)) {
+        attr(part, "member_type_hints") <- member_function_hints(part)
+    }
     if (!is.null(attributes(part))) {
         attr(part, "srcref") <- NULL
         attr(part, "wholeSrcref") <- NULL
@@ -701,7 +704,7 @@ member_namespace_input <- function(
         }
         if (isS4(value) && any(c("classRepresentation", "ClassUnionRepresentation") %in%
                     attr(value, "class", exact = TRUE))) {
-            descriptor <- member_s4_runtime_descriptor(value, dispatch = TRUE)
+            descriptor <- member_s4_runtime_descriptor(value)
             if (!is.null(descriptor)) s4_classes[descriptor$name] <- list(descriptor)
             next
         }
@@ -880,8 +883,6 @@ member_namespace_input <- function(
     )
 }
 
-member_snapshot_max_bytes <- 32 * 1024^2
-
 member_index_freeze <- function(index) {
     value <- as.list(index)
     value$cache <- NULL
@@ -895,17 +896,7 @@ member_index_freeze <- function(index) {
         any(vapply(value$package_roots, function(root) !is.null(root$s7_generator) || !is.null(root$s7_dispatch_args), logical(1L)))
     value$generation <- digest::digest(value, algo = "sha256")
     value$schema <- 1L
-    if (as.numeric(utils::object.size(value)) > member_snapshot_max_bytes) {
-        paths <- names(value$s4_classes)[vapply(value$s4_classes, function(class) !is.null(class$dispatch_path), logical(1L))]
-        if (!length(paths)) stop("Namespace exceeds snapshot budget")
-        # A namespace that previously fit must retain its roots and members.
-        # Optional S3 ancestry can be omitted independently of its S4 slots.
-        for (name in paths) value$s4_classes[[name]]$dispatch_path <- NULL
-        if (as.numeric(utils::object.size(value)) > member_snapshot_max_bytes) stop("Namespace exceeds snapshot budget")
-        value$generation <- value$schema <- NULL
-        value$generation <- digest::digest(value, algo = "sha256")
-        value$schema <- 1L
-    }
+    if (as.numeric(utils::object.size(value)) > 32 * 1024^2) stop("Namespace exceeds snapshot budget")
     value
 }
 
@@ -1297,7 +1288,7 @@ member_prepare_startup_data <- function(
 }
 
 member_resolve_packages <- function(pkgs, lib_paths, prepare = TRUE, namespace_packages = character(), prepare_s3 = TRUE,
-    known_members = list(), cache_dir = package_metadata_cache_root(), member_packages = NULL) {
+    known_members = list(), cache_dir = package_metadata_cache_root()) {
     .libPaths(lib_paths)
     previous <- options(languageserver.package_cache_dir = cache_dir)
     on.exit(options(previous), add = TRUE)
@@ -1311,9 +1302,7 @@ member_resolve_packages <- function(pkgs, lib_paths, prepare = TRUE, namespace_p
         member_s7_capabilities()
         if ("S7" %in% loadedNamespaces()) context_packages <- package_metadata_sort(union(context_packages, "S7"))
         context <- package_metadata_context(context_packages)
-        required <- unique(c(setdiff(packages, startup_packages), namespace_packages))
-        if (!is.null(member_packages)) required <- intersect(required, member_packages)
-        for (package in required) {
+        for (package in unique(c(setdiff(packages, startup_packages), namespace_packages))) {
             identity <- tryCatch(package_metadata_live_identity(package, lib_paths, context), error = function(e) NULL)
             if (isTRUE(context$cacheable) && !is.null(identity) && identical(known_members[[package]], identity)) next
             snapshots[package] <- list(tryCatch(member_prepare_package(package, lib_paths, context, identity),

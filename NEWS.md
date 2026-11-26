@@ -1,34 +1,15 @@
 # languageserver (development)
 
-- Member providers and S3 dispatch now read types from roxygen `@param` and
-  `@return` descriptions. In this example, `box$` inside the function and
-  `copy_box(Box$new())$` at the call site both offer `value`. A function that
-  sometimes returns `NULL` can use `` @return (`Box | NULL`) ``.
-  A description can also begin with a Markdown class link such as
-  `` [`Box`] `` or an Rd marker such as `[\code{Box}]`. A hint after
-  grouped parameter names applies to each argument. Markdown links are
-  resolved in the scope of the documented declaration.
-  Renaming a generator updates its references in type annotations.
-  A function can also use `@inheritParams` to share argument hints with a
-  source topic in the same file or package. Explicit local parameter
-  documentation takes precedence. R6 `@field`, S4 `@slot` and S7 `@prop`
-  support the same syntax. In the example below, completion inside
-  `stored_value()` follows the `ANY` slot and offers the box's `value` field.
+- Member completion uses explicit roxygen `@param`, `@return`, and `@returns`
+  class hints, including for arguments inside a function and its result at
+  a call site. Configure this with `r.lsp.roxygen_type_hints`. For example,
+  `box$` offers `contents` inside this function.
 
   ```r
-  Box <- R6::R6Class("Box", public = list(value = 1L))
-
-  #' @slot contents (`Box`) The stored box.
-  Crate <- methods::setClass("Crate", slots = c(contents = "ANY"))
-  #' @param crate (`Crate`) A crate to inspect.
-  stored_value <- function(crate) crate@contents$value
-  stored_value(Crate(contents = Box$new()))  # 1L
-
-  #' @param box [`Box`] A box to copy.
-  #' @return [\code{Box}] A copy of the box.
-  copy_box <- function(box) box$clone()
-
-  copy_box(Box$new())$value  # 1L
+  Box <- R6::R6Class("Box", public = list(contents = "hello"))
+  #' @param box (`Box`) The box to inspect.
+  inspect <- function(box) box$contents
+  inspect(Box$new())  # "hello"
   ```
 
 - Rename and Find References distinguish lexical variables from column names
