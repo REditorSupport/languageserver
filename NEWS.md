@@ -1,8 +1,8 @@
 # languageserver (development)
 
-- Complete dataset columns after `library()` or `require()` inside
-  `suppressPackageStartupMessages()`, `try()`, `tryCatch()`, and other
-  supported base R wrappers, including on the first completion request.
+- Offer member completion for package objects when `library()` or `require()`
+  is called inside `suppressPackageStartupMessages()`, `try()`, `tryCatch()`,
+  or another supported base R wrapper, including on the first completion request.
 
 - Go to Definition can find top-level names in closed project helpers.
   Map test or script globs to helper filenames with `r.lsp.project_helpers`
