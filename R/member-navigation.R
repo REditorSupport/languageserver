@@ -454,8 +454,16 @@ member_navigation_function <- function(doc, definition) {
     0L
 }
 
+member_navigation_masked_callee <- function(parsed, expr) {
+    if (!length(parsed$data_mask$column)) return(FALSE)
+    s <- parsed$syntax_data
+    leaf <- class_literal_row(s, expr, "SYMBOL_FUNCTION_CALL")
+    leaf > 0L && !is.null(data_mask_receiver(parsed$data_mask, leaf))
+}
+
 member_navigation_formals <- function(workspace, doc, rec) {
     parsed <- doc$parse_data
+    if (member_navigation_masked_callee(parsed, rec$expr)) return(NULL)
     s <- parsed$syntax_data
     callee <- syntax_children(s, rec$expr)
     callee <- callee[s$token[callee] != "COMMENT"]
@@ -484,6 +492,57 @@ member_navigation_formals <- function(workspace, doc, rec) {
     kids <- syntax_children(source, fn)
     formals <- kids[source$token[kids] == "SYMBOL_FORMALS"]
     list(owner = owner, rows = formals, names = reference_symbol_names(source$text[formals]))
+}
+
+# A named argument can reach the selected formal only if its callee does.
+# Proven mask functions have no lexical tags; an ambiguous call can still
+# use the caller's function. Likewise, a function stored in a named field
+# may supply the masked callee even though its declaration is elsewhere.
+member_masked_formal_conflict <- function(doc, owner, formal, old, new) {
+    parsed <- doc$parse_data
+    mask <- parsed$data_mask
+    if (!length(mask$column)) return(FALSE)
+    s <- parsed$syntax_data
+    calls <- mask$column[s$token[mask$column] == "SYMBOL_FUNCTION_CALL"]
+    heads <- s$parent_row[calls]
+    calls <- calls[s$child_start[heads] == s$child_end[heads]]
+    if (!length(calls)) return(FALSE)
+    source <- owner$parse_data
+    row <- member_navigation_token(source, owner$from_lsp_position(formal$range$start))
+    if (!row) return(FALSE)
+    value <- source$syntax_data$parent_row[[row]]
+    # Parentheses around the function do not change the name that receives it.
+    parent <- source$syntax_data$parent_row[[value]]
+    while (parent) {
+        parts <- syntax_children(source$syntax_data, parent)
+        if (!identical(source$syntax_data$token[parts], c("'('", "expr", "')'"))) break
+        value <- parent
+        parent <- source$syntax_data$parent_row[[value]]
+    }
+    nav <- source$navigation_data
+    names <- reference_symbol_names(source$syntax_data$text[nav$name[nav$value == value]])
+    lexical <- length(names) > 0L
+    if (lexical) {
+        calls <- intersect(calls, unlist(mask$fallback[names], use.names = FALSE))
+    } else {
+        fields <- member_navigation_syntax(source)
+        names <- fields$name[fields$value == value & fields$kind %in% c("tag", "field", "write")]
+        calls <- calls[reference_symbol_names(s$text[calls]) %in% names]
+    }
+    if (!length(calls)) return(FALSE)
+    tags <- member_navigation_syntax(parsed)
+    hits <- member_navigation_prefix_indices(tags, old)
+    if (!is.null(new)) hits <- union(hits, member_navigation_prefix_indices(tags, new))
+    calls <- calls[s$parent_row[calls] %in% tags$expr[hits[tags$kind[hits] == "tag"]]]
+    if (!lexical) return(length(calls) > 0L)
+    for (call in calls) {
+        # A preceding, unconditional function binding in the call's own block
+        # rules out a different function of the same name. If the intervening
+        # uses cannot be verified, the callee can still fall through.
+        bound <- data_column_binding(parsed, call)
+        if (!bound || !s$function_close[[bound]] || (doc$uri == owner$uri && bound == value)) return(TRUE)
+    }
+    FALSE
 }
 
 member_navigation_formal <- function(workspace, doc, rec) {
@@ -620,6 +679,9 @@ member_navigation_at <- function(workspace, document, point) {
     if (is.na(at)) return(NULL)
     rec <- index[at, , drop = FALSE]
     rng <- navigation_range(document, s, row)
+    if (rec$kind == "tag" && member_navigation_masked_callee(parsed, rec$expr)) {
+        return(list(name = rec$name, definition = NULL, range = rng, formal = TRUE, kind = "tag"))
+    }
     field <- member_navigation_field_tag(workspace, document, rec)
     formal <- rec$kind == "tag" && !field
     property <- if (formal || isTRUE(rec$update_call > 0L)) member_navigation_constructor_tag(workspace, document, rec)
@@ -686,6 +748,10 @@ member_navigation_occurrences <- function(workspace, owner, name, uris, formal =
         } else {
             hits <- member_navigation_indices(idx, name)
             candidates <- hits[idx$kind[hits] %in% c("read", "write", "call", if (property) c("tag", "property_alias"))]
+            mask <- parsed$data_mask
+            if (length(mask$env) || length(mask$column)) {
+                candidates <- candidates[!idx$row[candidates] %in% c(mask$env, mask$column)]
+            }
             tags <- if (declarations) hits[idx$kind[hits] %in% c("tag", "field")]
         }
         if (!length(candidates) && !length(tags)) next
@@ -941,6 +1007,7 @@ member_navigation_references <- function(id, workspace, document, member, includ
         i <- member_navigation_token(owner$parse_data, owner$from_lsp_position(target$range$start))
         names <- member_navigation_syntax(owner$parse_data)
         if (!any(names$row == i & names$name == member$name)) return(Response$new(id, result = list()))
+        if (data_column_member_conflict(workspace, owner, target, i, member$name, uris)) return(data_column_rename_error(id))
     }
     result <- member_navigation_occurrences(workspace, target, member$name, uris, declarations = include_declaration)
     if (member$kind == "write" && !any(vapply(result, function(x) !identical(attr(x, "role"), "declaration"), logical(1L)))) {

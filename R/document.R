@@ -874,7 +874,6 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
     env$member_data$namespace_imports <- namespace_imports
     env$member_data$package_classes <- !is.null(env$member_data$document_package) &&
         (length(namespace_imports) > 0L || "S7" %in% env$member_data$packages || "S7" %in% env$packages)
-    env$completion_data <- completion_parse_data(data, env$syntax_data)
     overlay <- !is.null(recovery) || (is_rmarkdown && length(literate$incomplete_lines) > 0L)
     classes <- class_source_declarations(env$syntax_data, content, uri, incomplete_lines, namespace_imports, attachment_exclusions,
         navigation = env$navigation_data)
@@ -921,8 +920,14 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
     }
     env$source_specs <- index_source_specs(expr)
     env$s4_declarations <- s4_declarations(expr, content, incomplete_lines)
+    env$data_mask <- data_mask_index(env)
+    masked <- env$data_mask$column
+    # A column assignment such as DT[, v := 1] is also an assignment in
+    # R's parse tree. Keep it out of subsequent lexical definition lookups.
+    if (length(masked)) env$navigation_data <- navigation_exclude_masked(env$syntax_data, env$navigation_data, masked)
+    env$completion_data <- completion_parse_data(data, env$syntax_data, masked)
     env$reference_index <- reference_parse_data(
-        data, content, env$completion_data, uri, env$definitions, env$syntax_data)
+        data, content, env$completion_data, uri, env$definitions, env$syntax_data, env$data_mask)
     # Indexed providers need no XML. Keep it out of worker snapshots and
     # materialize it from syntax only for class extraction or a legacy provider.
     env$xml_deferred <- !include_xml

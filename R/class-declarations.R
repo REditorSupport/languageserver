@@ -19,7 +19,11 @@ syntax_call_arguments <- function(syntax, row) {
     part <- children[-seq_len(2L)]
     part <- part[syntax$token[part] != "')'"]
     comma <- syntax$token[part] == "','"
-    if (length(part)) {
+    ordinary <- part[syntax$token[part] == "expr"]
+    if (length(ordinary) && length(ordinary) == sum(comma) + 1L && length(part) == length(ordinary) + sum(comma)) {
+        value <- stats::setNames(ordinary, rep("", length(ordinary)))
+        tag <- integer(length(ordinary))
+    } else if (length(part)) {
         group_index <- cumsum(c(TRUE, comma))[seq_along(part)]
         groups <- split(part[!comma], factor(group_index[!comma], levels = seq_len(sum(comma) + 1L)))
         value <- tag <- integer(length(groups))

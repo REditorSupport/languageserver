@@ -1,8 +1,10 @@
 # languageserver (development)
 
-- Find References on a top-level package function parameter can return its
-  declaration, body uses, and named callers while other package files are
-  still being indexed.
+- Rename and Find References distinguish lexical variables from column names
+  in data.table queries and common dplyr and base R data masks. An explicit
+  `.env$name` selects the enclosing binding. Rename declines edits when a
+  bare name could also come from the caller. Go to Definition can locate a
+  column declared by a known table constructor.
 
 - Go to Definition can find top-level names in closed project helpers.
   Map test or script globs to helper filenames with `r.lsp.project_helpers`
@@ -52,6 +54,10 @@
   many diagnostics, and edits to Quarto or R Markdown documents. Member
   completion in long functions and S3 dispatch across many files also take
   less time.
+
+- Find References on a top-level package function parameter can return its
+  declaration, body uses, and named callers while other package files are
+  still being indexed.
 
 - Find References, Rename, highlights, call hierarchy and call-count lenses
   distinguish source members by their declarations. Named argument references
