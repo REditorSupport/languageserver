@@ -15,9 +15,10 @@ classification_manager <- function() {
     manager$cancel <- function(id) manager$tasks$pop(id, NULL)
     manager$promote <- function(id) manager$promoted <- c(manager$promoted, id)
     manager$has <- function(id) manager$tasks$has(id)
-    manager$finish <- function() {
+    manager$finish <- function(id = NULL) {
         if (!manager$tasks$size()) return(invisible(NULL))
-        task <- manager$tasks$pop(manager$tasks$keys()[[1L]])$.__enclos_env__$private
+        if (is.null(id)) id <- manager$tasks$keys()[[1L]]
+        task <- manager$tasks$pop(id)$.__enclos_env__$private
         result <- do.call(task$target, task$args)
         if (is.function(task$callback)) task$callback(result)
         invisible(NULL)
@@ -61,13 +62,18 @@ classification_params <- function(document, col = 22L) {
         newName = "renamed", context = list(includeDeclaration = FALSE))
 }
 
+classification_step <- function(server, hold = character()) {
+    for (workspace in server$workspaces$values()) workspace$index$process_batch()
+    server$process_workspace_documents(time_budget_ms = Inf)
+    server$index_task_manager$finish()
+    ready <- setdiff(server$parse_task_manager$tasks$keys(), hold)
+    if (length(ready)) server$parse_task_manager$finish(ready[[1L]])
+    server$process_index_requests()
+}
+
 classification_drain <- function(server) {
     for (i in seq_len(200L)) {
-        for (workspace in server$workspaces$values()) workspace$index$process_batch()
-        server$process_workspace_documents(time_budget_ms = Inf)
-        server$index_task_manager$finish()
-        server$parse_task_manager$finish()
-        server$process_index_requests()
+        classification_step(server)
         if (!server$index_task_manager$tasks$size() && !server$parse_task_manager$tasks$size() &&
                 (is.null(server$index_requests) || !server$index_requests$size()) &&
                 all(vapply(server$workspaces$values(), function(workspace) workspace$index$complete(), logical(1L)))) return(invisible(NULL))
@@ -314,4 +320,161 @@ test_that("anonymous callback parameters remain local without workspace discover
     text_document_rename(server, 2L, params)
     expect_false(server$get_workspace(document$uri)$index$full_started)
     expect_length(server$replies[[2L]]$result$changes[[document$uri]], 2L)
+})
+
+classification_package_root <- function() {
+    root <- index_normalize_path(withr::local_tempdir(.local_envir = parent.frame()))
+    dir.create(file.path(root, "R"))
+    writeLines("Package: reffixture", file.path(root, "DESCRIPTION"))
+    root
+}
+
+test_that("package formal references preserve exact, partial and unsaved named callers", {
+    classification_settings()
+    root <- classification_package_root()
+    source <- file.path(root, "R")
+    path <- file.path(source, "api.R")
+    writeLines(c("api <- function(allow_null) {", "  allow_null", "}"), path)
+    writeLines(c("api(allow_null = FALSE)", "other(allow_null = TRUE)"), file.path(source, "exact.R"))
+    writeLines("api(all = TRUE)", file.path(source, "partial.R"))
+    buffer <- file.path(source, "buffer.R")
+    writeLines("other <- function(allow_null) allow_null", buffer)
+    changed <- file.path(source, "changed.R")
+    writeLines("unused <- TRUE", changed)
+
+    server <- ClassificationServer$new(root)
+    document <- classification_open(server, path)
+    params <- classification_params(document, 18L)
+    references <- function(id, include) {
+        params$context$includeDeclaration <- include
+        text_document_references(server, id, params)
+        classification_drain(server)
+        reply <- server$replies[[id]]
+        expect_null(reply$error)
+        sort(vapply(reply$result, function(loc) {
+            sprintf("%s %d:%d-%d:%d", basename(path_from_uri(loc$uri)),
+                loc$range$start$line, loc$range$start$character, loc$range$end$line, loc$range$end$character)
+        }, ""))
+    }
+    uses <- c("api.R 1:2-1:12", "exact.R 0:4-0:14", "partial.R 0:4-0:7")
+    expect_identical(references(1L, TRUE), c("api.R 0:16-0:26", uses))
+    expect_identical(references(2L, FALSE), uses)
+
+    # A closed non-caller can gain a call in an unsaved editor buffer.
+    classification_open(server, buffer)
+    text_document_did_change(server, list(textDocument = list(uri = path_to_uri(buffer), version = 2L),
+            contentChanges = list(list(text = "api(allow_n = TRUE)"))))
+    expect_identical(references(3L, FALSE), sort(c(uses, "buffer.R 0:4-0:11")))
+    text_document_did_change(server, list(textDocument = list(uri = path_to_uri(buffer), version = 3L),
+            contentChanges = list(list(text = "api(TRUE)"))))
+    expect_identical(references(4L, FALSE), uses)
+
+    # The old disk summary excludes this file. Recovery still exposes the
+    # callers on its complete lines, including a decoded tag and a glue call.
+    writeLines(c('glue::glue("{api(allow_null = TRUE)}")', 'api("a\\u006cl" = TRUE)', "broken <- ("), changed)
+    change <- list(uri = path_to_uri(changed), type = FileChangeType$Changed)
+    workspace_did_change_watched_files(server, list(changes = list(change)))
+    expect_identical(references(5L, FALSE), sort(c(uses, "changed.R 0:17-0:27", "changed.R 1:4-1:14")))
+})
+
+test_that("package formal references can reply while an unrelated full parse is pending", {
+    classification_settings()
+    root <- classification_package_root()
+    source <- file.path(root, "R")
+    path <- file.path(source, "api.R")
+    caller <- file.path(source, "caller.R")
+    unused <- file.path(source, "unused.R")
+    writeLines("api <- function(allow_null) allow_null", path)
+    writeLines("api(allow_null = TRUE)", caller)
+    writeLines("unrelated <- function(value) value", unused)
+
+    server <- ClassificationServer$new(root)
+    document <- classification_open(server, path)
+    params <- classification_params(document, 18L)
+    blocked <- path_to_uri(unused)
+    text_document_references(server, 1L, params)
+    for (i in seq_len(50L)) {
+        classification_step(server, hold = blocked)
+        if (length(server$replies)) break
+    }
+    expect_length(server$replies, 1L)
+    expect_null(server$replies[[1L]]$error)
+    expect_setequal(vapply(server$replies[[1L]]$result, `[[`, "", "uri"), c(document$uri, path_to_uri(caller)))
+
+    text_document_rename(server, 2L, params)
+    for (i in seq_len(10L)) classification_step(server, hold = blocked)
+    expect_true(server$parse_task_manager$has(blocked))
+    expect_length(server$replies, 1L)
+    classification_drain(server)
+    expect_null(server$replies[[2L]]$error)
+    expect_setequal(names(server$replies[[2L]]$result$changes), c(document$uri, path_to_uri(caller)))
+
+    # Finish screening in a fresh server but keep the known caller pending.
+    # A file that gains a call before the reply must now be parsed as well.
+    disk_call <- "api(allow_n = FALSE)"
+    for (close in c(FALSE, TRUE)) {
+        writeLines(if (close) disk_call else "unrelated <- TRUE", unused)
+        server <- ClassificationServer$new(root)
+        document <- classification_open(server, path)
+        if (close) {
+            # The disk file now contains a call. An unsaved buffer hides it.
+            text_document_did_open(server, list(textDocument = list(uri = blocked, languageId = "r",
+                        version = 1L, text = "unrelated <- TRUE")))
+        }
+        text_document_references(server, 1L, params)
+        for (i in seq_len(30L)) classification_step(server, hold = c(path_to_uri(caller), blocked))
+        expect_length(server$replies, 0L)
+        if (close) {
+            text_document_did_close(server, list(textDocument = list(uri = blocked)))
+            # The disk refresh hasn't run when the known caller is accepted.
+            server$parse_task_manager$finish(path_to_uri(caller))
+            server$process_index_requests()
+        } else {
+            writeLines(disk_call, unused)
+            change <- list(uri = blocked, type = FileChangeType$Changed)
+            workspace_did_change_watched_files(server, list(changes = list(change)))
+            for (i in seq_len(10L)) classification_step(server, hold = blocked)
+        }
+        expect_length(server$replies, 0L)
+        classification_drain(server)
+        expect_null(server$replies[[1L]]$error)
+        expect_setequal(vapply(server$replies[[1L]]$result, `[[`, "", "uri"), c(document$uri, path_to_uri(caller), blocked))
+    }
+})
+
+test_that("glue callers can reference a package formal through an alias in R and Quarto", {
+    classification_settings()
+    root <- classification_package_root()
+    source <- file.path(root, "R")
+    path <- file.path(source, "api.R")
+    writeLines("api <- function(allow_null) allow_null", path)
+    alias <- file.path(source, "alias.R")
+    writeLines("alias <- api", alias)
+    path_peer <- file.path(source, "peer.R")
+    peer <- path_to_uri(path_peer)
+    call <- "glue::glue('{alias(allow_null = TRUE)}')"
+    for (mode in c("r", "quarto", "reopen")) {
+        # The raw R parser sees one string. Quarto sees a call inside an R cell.
+        lines <- if (mode == "r") call else c('"', "```{r}", call, "```", '"')
+        writeLines(lines, path_peer)
+        server <- ClassificationServer$new(root)
+        document <- classification_open(server, path)
+        open <- list(textDocument = list(uri = peer, languageId = if (mode == "r") "r" else "quarto",
+                version = 1L, text = paste(lines, collapse = "\n")))
+        if (mode != "reopen") text_document_did_open(server, open)
+        text_document_references(server, 1L, classification_params(document, 18L))
+        if (mode == "reopen") {
+            # Switch the screened peer to Quarto without changing its text.
+            for (i in seq_len(30L)) classification_step(server, hold = c(path_to_uri(alias), peer))
+            text_document_did_open(server, open)
+        }
+        for (i in seq_len(30L)) classification_step(server, hold = peer)
+        expect_length(server$replies, 0L)
+        classification_drain(server)
+        expect_null(server$replies[[1L]]$error)
+        hits <- Filter(function(loc) loc$uri == peer, server$replies[[1L]]$result)
+        expect_length(hits, 1L)
+        line <- if (mode == "r") 0L else 2L
+        expect_equal(hits[[1L]]$range, range(position(line, 19L), position(line, 29L)))
+    }
 })

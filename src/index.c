@@ -86,6 +86,53 @@ SEXP member_accessor_registrations_c(SEXP expressions) {
     return matching_calls(expressions, ACCESSOR_REGISTRATIONS);
 }
 
+/* Only an indirect call's tags can require additional files to resolve its
+ * receiver. Walk computed heads and formal defaults as well as ordinary
+ * arguments. R's parser has already decoded quoted and escaped tag names. */
+static int collect_indirect_tags(SEXP node, SEXP tags, SEXP glue_names, unsigned int *visited) {
+    if (TYPEOF(node) != LANGSXP && TYPEOF(node) != LISTSXP && TYPEOF(node) != EXPRSXP) return 1;
+    R_CheckStack();
+    if (++*visited % 1024 == 0) R_CheckUserInterrupt();
+    if (TYPEOF(node) == EXPRSXP) {
+        for (R_xlen_t i = 0; i < XLENGTH(node); ++i) {
+            if (!collect_indirect_tags(VECTOR_ELT(node, i), tags, glue_names, visited)) return 0;
+        }
+        return 1;
+    }
+    int indirect = 0;
+    if (TYPEOF(node) == LANGSXP) {
+        SEXP head = CAR(node);
+        indirect = TYPEOF(head) != SYMSXP;
+        SEXP name = head;
+        if (TYPEOF(head) == LANGSXP &&
+            (CAR(head) == R_DoubleColonSymbol || CAR(head) == R_TripleColonSymbol) && Rf_length(head) == 3) {
+            name = CADDR(head);
+        }
+        if (TYPEOF(name) == SYMSXP) name = PRINTNAME(name);
+        else if (TYPEOF(name) == STRSXP && XLENGTH(name) == 1) name = STRING_ELT(name, 0);
+        if (TYPEOF(name) == CHARSXP) {
+            for (R_xlen_t i = 0; i < XLENGTH(glue_names); ++i) {
+                if (name == STRING_ELT(glue_names, i)) return 0;
+            }
+        }
+        if (indirect && !collect_indirect_tags(head, tags, glue_names, visited)) return 0;
+        node = CDR(node);
+    }
+    for (SEXP arg = node; arg != R_NilValue; arg = CDR(arg)) {
+        if (indirect && TAG(arg) != R_NilValue) Rf_defineVar(TAG(arg), R_NilValue, tags);
+        if (!collect_indirect_tags(CAR(arg), tags, glue_names, visited)) return 0;
+    }
+    return 1;
+}
+
+SEXP index_indirect_call_tags_c(SEXP expressions, SEXP glue_names, SEXP tags) {
+    if (TYPEOF(expressions) != EXPRSXP && TYPEOF(expressions) != LANGSXP) return R_NilValue;
+    if (TYPEOF(glue_names) != STRSXP || TYPEOF(tags) != ENVSXP) Rf_error("Invalid argument index");
+    unsigned int visited = 0;
+    if (!collect_indirect_tags(expressions, tags, glue_names, &visited)) return R_NilValue;
+    return R_lsInternal3(tags, TRUE, FALSE);
+}
+
 /* Index of the first changed physical line at or after a source position. */
 static R_xlen_t gap_at_or_after(SEXP gaps, int line) {
     R_xlen_t lo = 0, hi = XLENGTH(gaps);

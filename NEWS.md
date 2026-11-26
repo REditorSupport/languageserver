@@ -55,6 +55,10 @@
   completion in long functions and S3 dispatch across many files also take
   less time.
 
+- Find References on a top-level package function parameter can return its
+  declaration, body uses, and named callers while other package files are
+  still being indexed.
+
 - Find References, Rename, highlights, call hierarchy and call-count lenses
   distinguish source members by their declarations. Named argument references
   include matching calls to source functions and methods.

@@ -40,6 +40,7 @@ Document <- R6::R6Class(
         pending_diagnostics = FALSE,
         diagnostics_generation = NULL,
         index_content_hash = NULL,
+        reference_tags = NULL,
         diagnostics_delay = 0,
 
         initialize = function(uri, language = NULL, version = NULL, content = "") {
@@ -66,6 +67,7 @@ Document <- R6::R6Class(
         },
 
         set_content = function(version, content, change = NULL) {
+            self$reference_tags <- NULL
             # Track a single edited line at EOF until the worker finishes. A
             # second line or a full replacement invalidates the shortcut.
             row <- change$range$start$line
@@ -794,6 +796,7 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
             if (!is_rmarkdown) env$parse_error <- TRUE
         }
     }
+    env$reference_tags <- if (env$parse_error || is_rmarkdown) FALSE else index_reference_tags(expr)
     env$syntax_data <- syntax_parse_data(data)
     assignments <- symbol_assignment_rows(data, env$syntax_data)
     env$nested_by_position <- outline_nested_functions(env$syntax_data, assignments)
