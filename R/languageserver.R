@@ -932,8 +932,10 @@ LanguageServer <- R6::R6Class("LanguageServer",
             if (!is.null(document) && !waiting_parse) {
                 point <- document$from_lsp_position(params$position)
                 if (!check_scope(uri, document, point) && !reference_literal_needs_workspace(document, point)) return(FALSE)
-                token <- document$detect_token(point)
                 parsed <- document$parse_data
+                mask <- data_mask_site(parsed, point)
+                if (!is.null(mask) && !mask$env) return(FALSE)
+                token <- if (isTRUE(mask$env)) reference_token_at(document, parsed, point, mask) else document$detect_token(point)
                 index <- parsed$reference_index
                 i <- reference_index_at(index, point, token$token)
                 if (i && !startsWith(index$definition_key[[i]], "global:")) {
