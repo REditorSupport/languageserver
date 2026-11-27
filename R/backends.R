@@ -14,7 +14,7 @@ backend_descriptor <- function(kind, selection = lsp_settings$get(paste0(kind, "
                 document_types = c("r", "literate"), needs_workspace_globals = TRUE,
                 package = "lintr", version = "3.3.0-1", config_files = ".lintr"),
             "diagnostics:jarl" = list(id = "jarl", run = jarl_diagnostics,
-                document_types = "r", executable = "jarl",
+                document_types = c("r", "literate"), executable = "jarl",
                 config_files = c("jarl.toml", "DESCRIPTION", "NAMESPACE")),
             "formatting:styler" = list(id = "styler", run = styler_formatting,
                 document_types = c("r", "literate"),
