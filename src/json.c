@@ -311,6 +311,8 @@ static char *write_value(SEXP value, char *out, size_t *visited) {
         case STRSXP:
             out = write_string(STRING_ELT(value, i), out);
             break;
+        default:
+            break;
         }
     }
     if (array) *out++ = ']';
