@@ -143,3 +143,44 @@ test_that("field writes retain the binding owner's certainty until the next decl
     expect_null(owner(4L))
     expect_identical(owner(6L), "source.R")
 })
+
+test_that("independent entries must agree on a shared reader before a declaration is renamed", {
+    scripts <- list("a.R" = "Maker <- 1", "b.R" = "Maker <- 2", "reader.R" = "observed <- Maker",
+        "shared.R" = 'source("reader.R")', "one.R" = c('source("a.R")', 'source("shared.R")', "value <- Maker"),
+        "two.R" = c('source("b.R")', 'source("shared.R")', "value <- Maker"),
+        "unused.R" = "Maker <- 3", "unrelated.R" = 'source("unused.R")')
+    f <- source_owner_workspace(scripts)
+    uri <- function(file) f$docs[[file]]$uri
+    for (pair in list(c("a.R", "one.R"), c("b.R", "two.R"))) {
+        result <- source_owner_query(f, pair[1L], 0L, 1L, FALSE)
+        expect_identical(source_owner_rows(result, f$docs[[pair[2L]]], FALSE), 2L)
+        expect_length(source_owner_rows(result, f$docs[["reader.R"]], FALSE), 0L)
+        edit <- source_owner_query(f, pair[1L], 0L, 1L)
+        expect_null(edit$result)
+        expect_match(edit$error$message, "Different sourced declarations")
+    }
+    request <- function() reference_request_documents(f$workspace, f$docs[["a.R"]], list(row = 0L, col = 1L))
+    expect_setequal(request(), vapply(f$docs[1:6], `[[`, "", "uri", USE.NAMES = FALSE))
+    f$workspace$documents$remove(uri("reader.R"))
+    expect_true(uri("reader.R") %in% request())
+    expect_false(uri("two.R") %in% request())
+    scripts[["reader.R"]] <- "observed <- 1"
+    f <- source_owner_workspace(scripts)
+    expect_setequal(request(), c(uri("a.R"), uri("one.R")))
+    expect_null(source_owner_query(f, "a.R", 0L, 1L)$error)
+    expect_null(f$docs[["two.R"]]$member_workspace_view)
+
+    scripts[["reader.R"]] <- "observed <- Maker"
+    scripts[["two.R"]][1L] <- 'source("a.R")'
+    scripts[c("unused.R", "unrelated.R")] <- NULL
+    f <- source_owner_workspace(scripts)
+    for (rename in c(FALSE, TRUE)) {
+        result <- source_owner_query(f, "a.R", 0L, 1L, rename)
+        expect_identical(source_owner_rows(result, f$docs[["reader.R"]], rename), 0L)
+        expect_identical(source_owner_rows(result, f$docs[["two.R"]], rename), 2L)
+    }
+    expect_true(f$workspace$index$shared_source_count > 0L)
+    f$workspace$index$remove(uri("two.R"))
+    expect_identical(f$workspace$index$shared_source_count, 0L)
+    expect_null(reference_shared_readers(f$workspace, stop("Unneeded caller scan"), "Maker"))
+})
