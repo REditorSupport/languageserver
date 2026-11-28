@@ -183,12 +183,14 @@ roxygen_topic_rename <- function(workspace, document, old, new, formal = NULL, o
                 sum(vapply(matches, function(t) identical(t$page, owner$page), logical(1L))) == 1L) owner
     }
     if (!is.null(formal) && length(record$inherit) && !old %in% record$documented) {
-        before <- roxygen_inherited_groups(record, here, resolve)
+        may_inherit <- function(topic, name) {
+            inherited <- roxygen_inherited_groups(topic, here, resolve)
+            !inherited$complete || name %in% unlist(lapply(inherited$groups, `[[`, "names"), use.names = FALSE)
+        }
         after <- record
         after$formals[after$formals == old] <- new
-        if (old %in% unlist(lapply(before, `[[`, "names"), use.names = FALSE) ||
-                new %in% unlist(lapply(roxygen_inherited_groups(after, here, resolve), `[[`, "names"), use.names = FALSE)) {
-            return(failure("Renaming this parameter would change documentation inherited through @inheritParams"))
+        if (may_inherit(record, old) || may_inherit(after, new)) {
+            return(failure("Renaming this parameter may change documentation inherited through @inheritParams"))
         }
     }
     if (is.null(record$topic)) return(NULL)
@@ -228,7 +230,7 @@ roxygen_topic_rename <- function(workspace, document, old, new, formal = NULL, o
                     if (!any(edge$needed %in% spelling) || !old %in% record$documented) next
                     available <- unlist(record$groups, use.names = FALSE)
                     selected <- roxygen_selected_params(available, edge$selector)
-                    if (any(vapply(record$groups, function(group) old %in% group && any(group %in% selected), logical(1L)))) {
+                    if (is.null(selected) || any(vapply(record$groups, function(group) old %in% group && any(group %in% selected), logical(1L)))) {
                         return(failure("Renaming this parameter would change @inheritParams documentation"))
                     }
                     next

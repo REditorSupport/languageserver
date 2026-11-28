@@ -228,7 +228,7 @@ roxygen_topic_declaration <- function(syntax, row) {
     list()
 }
 
-# The shallow package index already has the parsed top-level statements. A
+# Both package indexes already have the parsed top-level statements. A
 # whole line between consecutive, verified statement spans is outside strings
 # and nested scopes. Use those gaps to index ordinary title/@param blocks in
 # bulk without materializing the document's navigation tree or walking bodies.
@@ -263,10 +263,12 @@ roxygen_shallow_prose_index <- function(content, parsed, uri) {
     if (any(!grepl(simple, blocks[params], perl = TRUE))) return(FALSE)
     labels <- sub(simple, "\\1", blocks[params], perl = TRUE)
     groups <- strsplit(labels, ",", fixed = TRUE)
-    by_statement <- split(seq_along(labels), next_statement[params])
-    topics <- list()
-    for (i in unique(next_statement)) {
-        expr <- statements[[i]]
+    owners <- unique(next_statement)
+    by_statement <- split(seq_along(labels), factor(next_statement[params], levels = owners))
+    topics <- vector("list", length(owners))
+    keys <- character(length(owners))
+    for (i in seq_along(owners)) {
+        expr <- statements[[owners[[i]]]]
         if (length(expr) != 3L || !(member_head(expr, "<-") || member_head(expr, "=")) || !is.symbol(expr[[2L]])) next
         fn <- expr[[3L]]
         if (member_head(fn, "(") || member_head(fn, "<-") || member_head(fn, "=")) return(FALSE)
@@ -275,15 +277,18 @@ roxygen_shallow_prose_index <- function(content, parsed, uri) {
         name <- as.character(expr[[2L]])
         formals <- names(fn[[2L]])
         if (is.null(formals)) formals <- character()
-        tags <- by_statement[[as.character(i)]]
+        tags <- by_statement[[i]]
         grouped <- groups[tags[!duplicated(labels[tags], fromLast = TRUE)]]
         documented <- intersect(as.character(unlist(groups[tags], use.names = FALSE)), formals)
         line <- fn[[4L]][[7L]]
         col <- fn[[4L]][[5L]]
-        topics[[paste(line, col, sep = ":")]] <- list(topic = name, page = name, formals = formals,
+        keys[[i]] <- paste(line, col, sep = ":")
+        topics[[i]] <- list(topic = name, page = name, formals = formals,
             documented = documented, groups = grouped, inherit = list(), row = line - 1L, col = col - 1L)
     }
-    if (length(topics)) structure(list(), rows = integer(), cols = integer(), topics = topics, uri = uri, has_inheritance = FALSE)
+    keep <- nzchar(keys)
+    if (any(keep)) structure(list(), rows = integer(), cols = integer(),
+        topics = stats::setNames(topics[keep], keys[keep]), uri = uri, has_inheritance = FALSE)
 }
 
 # Whitespace and ordinary comments can separate roxygen from its declaration.
@@ -318,10 +323,14 @@ member_roxygen_type_index <- function(content, data, row_offset = 0L, barriers =
         keep <- keep & findInterval(line[comments], barriers) == findInterval(line[next_code], barriers)
     }
     groups <- split(comments[keep], next_code[keep])
-    result <- locations <- topics <- list()
-    rows <- cols <- integer()
-    for (key in names(groups)) {
-        group <- groups[[key]]
+    result <- topics <- vector("list", length(groups))
+    locations <- new.env(hash = TRUE, parent = emptyenv())
+    rows <- cols <- integer(length(groups))
+    positions <- character(length(groups))
+    keys <- names(groups)
+    for (i in seq_along(groups)) {
+        key <- keys[[i]]
+        group <- groups[[i]]
         tagged <- text[group]
         typed <- any(grepl("(`", tagged, fixed = TRUE))
         # A title-only primary block can share an Rd page with an explicitly
@@ -361,6 +370,7 @@ member_roxygen_type_index <- function(content, data, row_offset = 0L, barriers =
         if (grepl("\t", source, fixed = TRUE)) column <- index_physical_columns(column, 1L, source, TRUE)
         if (source_row == 1L) column <- column + col_offset
         position <- paste(fn_row, fn_col, sep = ":")
+        positions[[i]] <- position
         binding <- declaration$binding
         topic <- page <- NULL
         if ((length(binding) || isTRUE(declaration$doc_only)) && !tags$hidden && length(tags$names) <= 1L && length(tags$rdnames) <= 1L) {
@@ -380,7 +390,7 @@ member_roxygen_type_index <- function(content, data, row_offset = 0L, barriers =
                     at_cols[spans[, 1L]] + spans[, 3L])
             }
             if (any(lengths(group_types) > 0L)) record$group_types <- group_types
-            topics[[position]] <- record
+            topics[[i]] <- record
         }
         occurrences <- attr(hints, "occurrences", exact = TRUE)
         if (!fn && !is.null(occurrences)) occurrences <- occurrences[!is.na(occurrences$parameter), , drop = FALSE]
@@ -399,14 +409,27 @@ member_roxygen_type_index <- function(content, data, row_offset = 0L, barriers =
             attr(hints, "roxygen_documented") <- tags$documented
         }
         if (!is.null(uri)) attr(hints, "roxygen_uri") <- uri
-        result[[position]] <- hints
-        rows[position] <- fn_row
-        cols[position] <- fn_col
+        result[[i]] <- hints
+        rows[[i]] <- fn_row
+        cols[[i]] <- fn_col
     }
+    # Only accepted blocks participate in each table. If a multiline
+    # declaration has multiple blocks for one position, its last entry wins.
+    keep_topics <- which(lengths(topics) > 0L)
+    keep_topics <- keep_topics[!duplicated(positions[keep_topics], fromLast = TRUE)]
+    topics <- if (length(keep_topics)) stats::setNames(topics[keep_topics], positions[keep_topics]) else list()
+    keep <- which(rows > 0L)
+    keep <- keep[!duplicated(positions[keep], fromLast = TRUE)]
+    result <- if (length(keep)) stats::setNames(result[keep], positions[keep]) else list()
+    rows <- rows[keep]
+    cols <- cols[keep]
     if (!length(result) && !length(topics)) return(NULL)
     order <- order(rows, cols)
-    occurrences <- do.call(rbind, unname(locations))
-    if (!is.null(occurrences)) occurrences <- occurrences[order(occurrences$row, occurrences$start), , drop = FALSE]
+    occurrences <- do.call(rbind, unname(as.list(locations, all.names = TRUE)))
+    if (!is.null(occurrences)) {
+        occurrences <- occurrences[order(occurrences$row, occurrences$start), , drop = FALSE]
+        rownames(occurrences) <- NULL
+    }
     has_inheritance <- any(vapply(topics, function(x) length(x$inherit) > 0L, logical(1L)))
     structure(result[order], rows = as.integer(rows[order]), cols = as.integer(cols[order]),
         occurrences = occurrences, topics = topics, uri = uri, has_inheritance = has_inheritance)

@@ -165,6 +165,14 @@ benchmark_prose_package <- function(n) {
             stopifnot(sum(counts) == n)
         })
         if (!ok) stop("The prose-only shallow-index workload failed")
+        content <- unlist(scripts, use.names = FALSE)
+        uri <- ns$path_to_uri(paths[[1L]])
+        ok <- measure(paste("parse", n, "prose topics"), function() {
+            parsed <- ns$parse_document(uri, content, include_xml = FALSE)
+            stopifnot(!parsed$parse_error, length(parsed$definitions) == n)
+            if (has_inheritance) stopifnot(length(attr(parsed$member_data$type_hints, "topics")) == n)
+        })
+        if (!ok) stop("The prose-only document parse failed")
     }
     if (!has_inheritance) return(invisible(NULL))
     for (i in seq_along(paths)) {

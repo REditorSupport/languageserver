@@ -76,13 +76,14 @@ member_attachment_item <- function(item) {
 member_index_bindings <- function(items) {
     bindings <- new.env(hash = TRUE, parent = emptyenv())
     aliases <- new.env(hash = TRUE, parent = emptyenv())
-    record <- function(name, rhs, item, write = FALSE, field = NULL, subset = FALSE, setter = NULL, slot = FALSE) {
+    record <- function(name, rhs, item, write = FALSE, field = NULL, subset = FALSE, setter = NULL, slot = FALSE, conditional = FALSE) {
         history <- bindings[[name]]
         last <- length(history)
         entry <- list(expr = rhs, start = item$start, end = item$end, cache_prefix = item$cache_prefix)
         if (!is.null(item$declaration)) entry$declaration <- item$declaration
         if (write) {
             entry$writer <- name
+            if (conditional || (last && isTRUE(history[[last]]$uncertain_owner))) entry$uncertain_owner <- TRUE
             entry$field <- field
             if (!is.null(setter)) entry$setter <- setter
             if (subset) entry$subset <- TRUE
@@ -149,7 +150,7 @@ member_index_bindings <- function(items) {
             }
         } else if (is.call(expr)) {
             for (name in member_assigned_names(expr)) {
-                record(name, quote(.__unknown_branch_write__), item, write = TRUE)
+                record(name, quote(.__unknown_branch_write__), item, write = TRUE, conditional = TRUE)
                 if (!is.null(aliases[[name]])) rm(list = name, envir = aliases)
             }
             if (is.null(control)) {

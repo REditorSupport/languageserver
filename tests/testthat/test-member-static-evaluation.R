@@ -89,7 +89,7 @@ test_that("Open forwarded dots cannot supply a reliable default or count", {
     open <- infer(quote(f(...)), scope)
     expect_null(open$fields$first$type)
     expect_true(open$fields$rest$open)
-    expect_identical(infer(quote(g(, key = 3L)$first))$type, ".missing")
+    expect_identical(infer(quote(g(, key = 3L)$first))$literal, "default")
 })
 
 test_that("Trimming the inference cache preserves its reservation callback and fresh results", {

@@ -137,3 +137,19 @@ test_that("annotations in a sourced consumer use the binding present when it was
     expect_null(rename(first)$result)
     expect_match(rename(first)$error$message, "documented type|sourced declarations")
 })
+
+test_that("later local assignments do not own earlier generator annotations", {
+    f <- type_rename_fixture(c('Maker <- R6::R6Class("Global")', "outer <- function() {",
+            "  #' @return (`Maker`)", "  before <- function() opaque()",
+            '  Maker <- R6::R6Class("Local")', "  #' @return (`Maker`)", "  after <- function() opaque()",
+            "  inner <- function() {", "    #' @return (`Maker`)", "    nested <- function() opaque()",
+            "    Maker <- 123", "  }", "}"))
+    rows <- function(row, col) {
+        reply <- type_rename(f, row, col, "Builder")
+        expect_null(reply$error)
+        vapply(reply$result$changes[[f$uri]], function(edit) edit$range$start$line, integer(1L))
+    }
+    expect_setequal(rows(0L, 1L), c(0L, 2L))
+    expect_setequal(rows(4L, 3L), c(4L, 5L, 8L))
+    expect_identical(rows(10L, 5L), 10L)
+})

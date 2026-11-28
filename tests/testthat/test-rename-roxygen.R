@@ -227,3 +227,25 @@ test_that("named call tags and XML lexical fallback update only their formal's a
     edits <- result$result$changes[[f$uri]]
     expect_equal(sort(vapply(edits, function(edit) as.integer(edit$range$start$line), integer(1L))), c(0L, 1L, 1L))
 })
+
+test_that("formal Rename preserves grouped and single roxygen type labels", {
+    for (gap in list(character(), "")) {
+        content <- c("#' @param x,y (`Date`) Inputs.", gap, "f <- function(x, y) x")
+        f <- provider_fixture(content)
+        line <- length(content) - 1L
+        for (col in c(14L, 17L)) for (new_name in c("new name", "new,name", "new`name")) {
+            result <- rename_reply(1L, f$uri, f$workspace, f$document, list(row = line, col = col), new_name)
+            expect_match(result$error$message, "grouped roxygen tag")
+            expect_null(result$result)
+        }
+        updated <- rename_roxygen_apply(rename_roxygen_fixture(content, line, "x", "new-name"))
+        hints <- provider_fixture(updated)$document$parse_data$member_data$type_hints
+        expect_identical(hints[[1L]]$params, list(`new-name` = "Date", y = "Date"))
+    }
+    content <- c("#' @param x (`Date`) Input.", "f <- function(x) x")
+    for (new_name in c("new name", "new`name")) {
+        updated <- rename_roxygen_apply(rename_roxygen_fixture(content, 1L, "x", new_name))
+        hints <- provider_fixture(updated)$document$parse_data$member_data$type_hints
+        expect_identical(hints[[1L]]$params, stats::setNames(list("Date"), new_name))
+    }
+})

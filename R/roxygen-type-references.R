@@ -7,7 +7,7 @@ roxygen_type_binding <- function(workspace, document, site, name, qualified, loc
     if (!qualified && name %in% local_names) {
         token <- navigation_token(parsed, site$row + 1L, site$start + 1L)
         if (!isTRUE(token > 0L)) return(NULL)
-        target <- glue_lexical_target(document, name, token)
+        target <- glue_lexical_target(document, name, token, preceding = TRUE)
         if (!is.null(target$key) && startsWith(target$key, "local:")) return(target)
     }
 

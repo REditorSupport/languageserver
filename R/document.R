@@ -858,6 +858,7 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
     # Cursor recovery also tracks unfinished member accesses and their package
     # hints. Keep its original source and bounded recovery on a syntax error.
     hints <- member_roxygen_type_index(content, env$syntax_data, uri = uri, value_source = value_source,
+        parsed = if (!is_rmarkdown && !env$parse_error && is.null(value_source)) expr,
         barriers = c(incomplete_lines + 1L, if (is_rmarkdown) vapply(regions$cells, `[[`, integer(1L), "start_line")))
     hints <- member_type_hint_uri(member_merge_type_hints(if (is_rmarkdown) literate$type_hints else recovery$type_hints, hints), uri)
     env$member_data <- member_document_index(content, expr, data, recovery$incomplete_lines,
@@ -1067,40 +1068,41 @@ parse_callback <- function(self, uri, version, parse_data, source_content = NULL
         }
     }
 
-    hint_packages_changed <- !isTRUE(lsp_settings$get("member_completion")) && isTRUE(lsp_settings$get("s3_dispatch")) &&
+    detected_packages <- member_package_request(parse_data)
+    hint_packages_changed <- roxygen_type_hints_enabled() && !isTRUE(lsp_settings$get("member_completion")) && isTRUE(lsp_settings$get("s3_dispatch")) &&
         !identical(old_parse_data$member_data$type_hint_packages, parse_data$member_data$type_hint_packages)
     if (!isTRUE(parse_data$parse_error)) {
-        requested_packages <- member_package_request(parse_data)
+        requested_packages <- detected_packages
         if (is.null(previous_packages) || isTRUE(doc$member_refresh) || hint_packages_changed ||
                 !identical(previous_packages, requested_packages)) {
             doc$requested_packages <- requested_packages
             # Shared resolution can complete synchronously from its cache.
             # Set explicit imports first so the expanded search path returned
             # by that callback is not overwritten afterward.
-            loaded_packages <- normalize_package_request(parse_data$packages)
+            loaded_packages <- requested_packages$packages
             changed <- !setequal(doc$loaded_packages, loaded_packages)
             doc$loaded_packages <- loaded_packages
             if (changed) workspace$update_loaded_packages()
             self$resolve_task_manager$add_task(
                 uri,
-                resolve_task(self, uri, doc, normalize_package_request(parse_data$packages),
-                    namespace_packages = parse_data$member_data$packages)
+                resolve_task(self, uri, doc, requested_packages$packages,
+                    namespace_packages = requested_packages$namespace_packages)
             )
             doc$member_refresh <- FALSE
         } else if (is.null(doc$requested_packages)) {
             doc$requested_packages <- requested_packages
         }
-    } else if (length(parse_data$member_data$packages) ||
-            length(setdiff(parse_data$packages, previous_packages$packages))) {
+    } else if (length(detected_packages$namespace_packages) ||
+            length(setdiff(detected_packages$packages, previous_packages$packages))) {
         # A partial tree can confirm new imports and namespace receivers, but
         # cannot prove that a previously requested package is no longer used.
         requested_packages <- previous_packages
         if (is.null(requested_packages)) requested_packages <- list(
             packages = normalize_package_request(doc$loaded_packages), namespace_packages = character())
         requested_packages$packages <- normalize_package_request(union(
-            requested_packages$packages, parse_data$packages))
+            requested_packages$packages, detected_packages$packages))
         requested_packages$namespace_packages <- normalize_package_request(union(
-            requested_packages$namespace_packages, parse_data$member_data$packages))
+            requested_packages$namespace_packages, detected_packages$namespace_packages))
         if (!identical(doc$requested_packages, requested_packages) || isTRUE(doc$member_refresh) || hint_packages_changed) {
             doc$requested_packages <- requested_packages
             self$resolve_task_manager$add_task(uri,
