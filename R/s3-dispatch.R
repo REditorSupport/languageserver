@@ -568,11 +568,17 @@ s3_scoped_call <- function(document, location, context) {
 
 s3_match_arguments <- function(formals, actuals) {
     keys <- names(formals)
-    names <- names(actuals) %s3_or% rep("", length(actuals))
-    result <- rep(NA_integer_, length(actuals))
-    used <- integer()
     dots <- match("...", keys)
     before <- if (is.na(dots)) seq_along(keys) else seq_len(dots - 1L)
+    names <- names(actuals)
+    if (!any(nzchar(names))) {
+        n <- length(actuals)
+        if (n <= length(before)) return(seq_len(n))
+        if (is.na(dots)) return(NULL)
+        return(c(before, rep.int(dots, n - length(before))))
+    }
+    result <- rep(NA_integer_, length(actuals))
+    used <- integer()
     # R matches all exact names before considering any partial names.
     exact <- which(nzchar(names) & names %in% setdiff(keys, "..."))
     for (i in exact) {

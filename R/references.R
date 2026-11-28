@@ -333,6 +333,38 @@ reference_source_contexts <- function(workspace, callers, name) {
         contexts[[uri]] <- list(bindings = bindings, positions = view$positions, complete = isTRUE(view$positions_complete),
             files = union(files, c(uri, names(view$positions))))
     }
+    reference_source_shared_contexts(workspace, contexts)
+}
+
+# A shared script can also run from an entry point which never imports the
+# requested declaration. Its reads must agree across all known executions.
+reference_source_other_roots <- function(index, files) {
+    if (!length(files)) return(character())
+    parents <- function(uri) index$reverse_edges$get(uri, character())
+    outside <- setdiff(unique(unlist(lapply(files, parents), use.names = FALSE)), files)
+    if (!length(outside)) return(character())
+    unique(unlist(lapply(outside, function(uri) {
+        candidates <- index$dependent_closure(uri)
+        roots <- candidates[lengths(lapply(candidates, parents)) == 0L]
+        # A rootless cycle still represents a possible execution.
+        if (length(roots)) roots else uri
+    }), use.names = FALSE))
+}
+
+reference_source_shared_contexts <- function(workspace, contexts) {
+    if (!length(contexts)) return(contexts)
+    files <- unique(unlist(lapply(contexts, `[[`, "files"), use.names = FALSE))
+    idx <- workspace$index
+    for (root in reference_source_other_roots(idx, files)) {
+        shared <- intersect(idx$source_closure(root), files)
+        doc <- workspace$documents$get(root, NULL)
+        view <- if (!is.null(doc$parse_data) && identical(doc$version, doc$parse_data$version)) {
+            member_workspace_view(workspace, doc, positions = TRUE)
+        }
+        positions <- view$positions[intersect(names(view$positions), shared)]
+        contexts[[root]] <- list(bindings = view$bindings, positions = positions,
+            files = shared, complete = isTRUE(view$positions_complete))
+    }
     contexts
 }
 
@@ -883,5 +915,7 @@ reference_source_dependencies <- function(workspace, callers, name) {
     index <- workspace$index
     if (!length(name) || !isTRUE(index$enabled) || !is.function(index$multiple_definition_files) ||
             !index$multiple_definition_files(name)) return(character())
-    unique(unlist(lapply(callers, function(uri) reference_source_files(index, uri, name)), use.names = FALSE))
+    files <- unique(unlist(lapply(callers, function(uri) reference_source_files(index, uri, name)), use.names = FALSE))
+    others <- reference_source_other_roots(index, files)
+    unique(c(files, unlist(lapply(others, index$source_closure), use.names = FALSE)))
 }

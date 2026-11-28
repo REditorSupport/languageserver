@@ -107,3 +107,33 @@ test_that("a reference request includes closed siblings when a caller sources co
     expected <- vapply(f$docs[c("a.R", "b.R", "reader.R", "main.R")], `[[`, "", "uri")
     expect_setequal(required, unname(expected))
 })
+
+test_that("shared reads agree across independently sourced entry scripts", {
+    scripts <- list("a.R" = "Maker <- 1", "b.R" = "Maker <- 2", "reader.R" = "result <- Maker",
+        "one.R" = c('source("a.R")', 'source("reader.R")', 'source("b.R")'),
+        "two.R" = c('source("b.R")', 'source("reader.R")'))
+    f <- source_owner_workspace(scripts)
+    for (file in c("a.R", "b.R")) {
+        rename <- source_owner_query(f, file, 0L, 1L)
+        expect_match(rename$error$message, "Different sourced declarations")
+        refs <- source_owner_query(f, file, 0L, 1L, FALSE)
+        expect_length(source_owner_rows(refs, f$docs[["reader.R"]], FALSE), 0L)
+    }
+    needed <- reference_request_documents(f$workspace, f$docs[["a.R"]], list(row = 0L, col = 1L))
+    expect_true(f$docs[["two.R"]]$uri %in% needed)
+    scripts[["two.R"]][1L] <- 'source("a.R")'
+    f <- source_owner_workspace(scripts)
+    res <- source_owner_query(f, "a.R", 0L, 1L)
+    expect_identical(source_owner_rows(res, f$docs[["reader.R"]]), 0L)
+})
+
+test_that("field writes retain the binding owner's certainty until the next declaration", {
+    exprs <- parse(text = c("x <- list()", "x$a <- 1", "if (cond) x <- other", "x$b <- 2", "x <- list()", "x$c <- 3"))
+    items <- lapply(seq_along(exprs), function(i) list(expr = exprs[[i]], start = c(i, 0L), end = c(i, 20L)))
+    history <- member_index_bindings(items)$x
+    owner <- function(i) member_history_owner(history, c(i, 21L), "source.R")
+    expect_identical(owner(2L), "source.R")
+    expect_null(owner(3L))
+    expect_null(owner(4L))
+    expect_identical(owner(6L), "source.R")
+})

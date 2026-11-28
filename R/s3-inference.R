@@ -72,7 +72,21 @@ s3_value <- function(
     )
 }
 `%s3_or%` <- function(a, b) if (is.null(a)) b else a
-s3_copy_scope <- function(env) list2env(as.list(env, all.names = TRUE), parent = parent.env(env))
+# Branches overlay the enclosing local frame. Reflection can invalidate all
+# bindings in those overlays, but must not write through a function closure.
+s3_invalidate_locals <- function(scope, reason, symbols = NULL) {
+    frame <- scope
+    repeat {
+        keys <- if (is.null(symbols)) {
+            setdiff(ls(frame, all.names = TRUE), c(".registrations", ".dynamic_registration"))
+        } else {
+            symbols[vapply(symbols, exists, logical(1L), envir = frame, inherits = FALSE)]
+        }
+        for (key in keys) assign(key, s3_unknown(reason), scope)
+        if (!isTRUE(attr(frame, "s3_branch", exact = TRUE))) break
+        frame <- parent.env(frame)
+    }
+}
 s3_call_name <- function(expr) {
     if (is.symbol(expr)) {
         return(list(name = as.character(expr), package = NULL))
@@ -197,13 +211,19 @@ s3_match_values <- function(formals, actuals, env, infer, parameter_hint = NULL)
     matched <- s3_match_arguments(formals, actuals)
     if (is.null(matched)) return(NULL)
     dot <- match("...", keys)
-    ordinary <- which(keys[matched] != "...")
-    for (i in ordinary) {
-        name <- keys[[matched[[i]]]]
-        value <- actuals[[i]]
-        if (!is.null(parameter_hint)) value <- parameter_hint(name, value)
-        assign(name, value, env)
+    bind <- function(name, value) {
+        if (is.null(parameter_hint)) {
+            assign(name, value, env)
+        } else {
+            # Capture the current argument. Only a read of this formal should
+            # consult its documented class or wait for package metadata.
+            force(name)
+            force(value)
+            delayedAssign(name, parameter_hint(name, value), assign.env = env)
+        }
     }
+    ordinary <- which(keys[matched] != "...")
+    for (i in ordinary) bind(keys[[matched[[i]]]], actuals[[i]])
     supplied <- ordinary[!vapply(actuals[ordinary], function(x) identical(x$reason, "missing"), logical(1L))]
     used <- keys[matched[supplied]]
     if (!is.na(dot)) assign("...", s3_value("list", type = "list", fields = actuals[matched == dot]), env)
@@ -216,9 +236,7 @@ s3_match_values <- function(formals, actuals, env, infer, parameter_hint = NULL)
         if (!identical(expression[[1L]], quote(expr = ))) {
             dependencies <- intersect(member_syntax_names(expression[[1L]]), defaults$pending)
             for (dependency in dependencies) resolve_default(dependency, c(trail, name))
-            value <- infer(expression[[1L]], env)
-            if (!is.null(parameter_hint)) value <- parameter_hint(name, value)
-            assign(name, value, env)
+            bind(name, infer(expression[[1L]], env))
         }
         defaults$pending <- setdiff(defaults$pending, name)
         invisible(NULL)
@@ -338,8 +356,11 @@ s3_analyzer <- function(context, env = new.env(parent = emptyenv())) {
             if (isTRUE(cond$known) && isFALSE(cond$literal)) {
                 return(if (length(expr) > 3L) recur(expr[[4]], hint = return_hint) else s3_value("NULL", "NULL"))
             }
-            a_scope <- s3_copy_scope(scope)
-            b_scope <- s3_copy_scope(scope)
+            # Each branch records its own writes. Inheriting the original
+            # scope keeps unrelated arguments lazy and out of the join.
+            a_scope <- new.env(parent = scope)
+            b_scope <- new.env(parent = scope)
+            attr(a_scope, "s3_branch") <- attr(b_scope, "s3_branch") <- TRUE
             a <- recur(expr[[3]], a_scope, return_hint)
             b <- if (length(expr) > 3L) recur(expr[[4]], b_scope, return_hint) else s3_value("NULL", "NULL")
             if (!is.null(return_hint)) {
@@ -498,9 +519,7 @@ s3_analyzer <- function(context, env = new.env(parent = emptyenv())) {
             return(s3_value("NULL", "NULL"))
         }
         if (op %in% c("assign", "eval", "source", "sys.source")) {
-            for (k in setdiff(ls(scope, all.names = TRUE), c(".registrations", ".dynamic_registration"))) {
-                assign(k, s3_unknown("reflection"), scope)
-            }
+            s3_invalidate_locals(scope, "reflection")
             return(s3_unknown("reflection"))
         }
         local <- if (!is.null(head) && is.null(head$package)) get_value(head$name, scope, source_only = TRUE) else NULL
@@ -656,14 +675,8 @@ s3_analyzer <- function(context, env = new.env(parent = emptyenv())) {
             return(out)
         }
         # Unknown calls can change referenced objects; discard their class evidence.
-        for (symbol in unique(unlist(lapply(raw, member_syntax_names), use.names = FALSE))) {
-            if (exists(symbol,
-                    scope,
-                    inherits = FALSE
-                )) {
-                assign(symbol, s3_unknown("opaque_call_effect"), scope)
-            }
-        }
+        symbols <- unique(unlist(lapply(raw, member_syntax_names), use.names = FALSE))
+        if (length(symbols)) s3_invalidate_locals(scope, "opaque_call_effect", symbols)
         s3_unknown(paste0("no_summary:", package, "::", name))
     }
     apply_local <- function(fn, actuals, closure, depth, source = NULL) {
@@ -678,10 +691,14 @@ s3_analyzer <- function(context, env = new.env(parent = emptyenv())) {
             return(s3_unknown("factory_effect"))
         }
         scope <- new.env(parent = if (is.environment(closure)) closure else env)
-        parameter_hint <- if (length(hints$params)) function(name, value) {
-            types <- hints$params[[name]]
-            if (!length(types)) return(value)
-            s3_apply_type_hint(value, s3_type_hint(types, context, scope = closure, source = source))
+        parameter_hint <- if (length(hints$params)) {
+            hint_at <- context$at
+            hint_source <- source %s3_or% context$hint_source
+            function(name, value) {
+                types <- hints$params[[name]]
+                if (!length(types)) return(value)
+                s3_apply_type_hint(value, s3_type_hint(types, context, at = hint_at, scope = closure, source = hint_source))
+            }
         }
         scope <- s3_match_values(fn[[2]], actuals, scope, function(x, e) infer(x, e, depth + 1L), parameter_hint)
         if (is.null(scope)) {

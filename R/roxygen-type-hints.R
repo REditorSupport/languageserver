@@ -95,12 +95,13 @@ member_roxygen_type_index <- function(content, data, row_offset = 0L, barriers =
         keep <- keep & findInterval(line[comments], barriers) == findInterval(line[next_code], barriers)
     }
     groups <- split(comments[keep], next_code[keep])
-    result <- list()
-    rows <- cols <- integer()
-    for (key in names(groups)) {
-        group <- groups[[key]]
+    result <- vector("list", length(groups))
+    functions <- integer(length(groups))
+    targets <- as.integer(names(groups))
+    for (i in seq_along(groups)) {
+        group <- groups[[i]]
         if (!any(grepl("(`", text[group], fixed = TRUE))) next
-        fn <- roxygen_function_row(data, terminals[[as.integer(key)]])
+        fn <- roxygen_function_row(data, terminals[[targets[[i]]]])
         if (!fn) next
         parts <- syntax_children(data, data$parent_row[[fn]])
         formals <- reference_symbol_names(data$text[parts[data$token[parts] == "SYMBOL_FORMALS"]])
@@ -112,15 +113,18 @@ member_roxygen_type_index <- function(content, data, row_offset = 0L, barriers =
         }
         hints <- roxygen_type_block(comments, formals)
         if (is.null(hints)) next
-        fn_row <- data$line1[[fn]] + row_offset
-        fn_col <- data$col1[[fn]]
-        position <- paste(fn_row, fn_col, sep = ":")
-        result[[position]] <- hints
-        rows[position] <- fn_row
-        cols[position] <- fn_col
+        result[[i]] <- hints
+        functions[[i]] <- fn
     }
-    if (!length(result)) return(NULL)
+    # Several comment groups around a multiline assignment can identify the
+    # same function. As with a repeated tag, keep its last accepted block.
+    keep <- which(functions > 0L & !duplicated(functions, fromLast = TRUE))
+    if (!length(keep)) return(NULL)
+    functions <- functions[keep]
+    rows <- data$line1[functions] + row_offset
+    cols <- data$col1[functions]
     order <- order(rows, cols)
+    result <- stats::setNames(result[keep], paste(rows, cols, sep = ":"))
     structure(result[order], rows = as.integer(rows[order]), cols = as.integer(cols[order]))
 }
 
