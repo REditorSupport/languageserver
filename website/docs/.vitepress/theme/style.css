@@ -1,0 +1,120 @@
+:root {
+  --vp-c-brand-1: #2556a1;
+  --vp-c-brand-2: #2a60ae;
+  --vp-c-brand-3: #284f90;
+}
+
+.dark {
+  --vp-c-brand-1: #9fbfff;
+  --vp-c-brand-2: #85aaf2;
+  --vp-c-brand-3: #345a9a;
+}
+
+.VPHomeHero .image .image-container {
+  width: 100%;
+  height: auto;
+  transform: none;
+}
+
+.VPHomeHero .image-bg {
+  display: none;
+}
+
+.VPHomeHero.has-image .image {
+  display: grid;
+  align-items: center;
+  order: 2;
+  margin: 32px 0 0;
+}
+
+.signature-example {
+  width: min(100%, 400px);
+  margin: 0 auto;
+  overflow: hidden;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 12px;
+  background: var(--vp-c-bg-soft);
+  text-align: left;
+}
+
+.signature-example figcaption,
+.signature-example pre,
+.signature-help code {
+  font-family: var(--vp-font-family-mono);
+}
+
+.signature-example figcaption,
+.signature-example a {
+  display: block;
+  padding: 12px 20px;
+  font-size: 14px;
+}
+
+.signature-example figcaption {
+  color: var(--vp-c-text-2);
+  border-bottom: 1px solid var(--vp-c-divider);
+}
+
+.signature-example pre {
+  padding: 16px 20px 10px;
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.signature-example strong {
+  color: var(--vp-c-brand-1);
+}
+
+.signature-example .caret {
+  border-left: 2px solid var(--vp-c-brand-1);
+}
+
+.signature-help {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0 20px 16px;
+  padding: 8px 12px;
+  border-left: 2px solid var(--vp-c-brand-1);
+  background: var(--vp-c-bg);
+  font-size: 14px;
+}
+
+.signature-help span {
+  color: var(--vp-c-text-2);
+}
+
+.signature-example a {
+  border-top: 1px solid var(--vp-c-divider);
+  color: var(--vp-c-brand-1);
+  font-weight: 600;
+}
+
+.signature-example a:hover {
+  text-decoration: underline;
+}
+
+@media (min-width: 960px) {
+  .VPHomeHero.has-image .image {
+    margin: 0 0 0 36px;
+  }
+}
+
+@media (max-width: 640px) {
+  .feature-index .vp-doc table {
+    display: table;
+    width: 100%;
+    table-layout: fixed;
+  }
+
+  .feature-index .vp-doc :is(th, td) {
+    padding: 8px;
+    vertical-align: top;
+    overflow-wrap: anywhere;
+  }
+
+  .feature-index .vp-doc th:first-child {
+    width: 53%;
+  }
+}

@@ -1,5 +1,5 @@
 refactoring_documentation_command <- "languageserver.showRefactoringDocumentation"
-refactoring_documentation_uri <- "https://github.com/REditorSupport/languageserver/blob/master/README.md#refactoring"
+refactoring_documentation_uri <- "https://reditorsupport.github.io/languageserver/guide/navigation#extract-an-expression"
 
 code_action_documentation_supported <- function(client_capabilities) {
     isTRUE(client_capabilities$textDocument$codeAction$documentationSupport) &&

@@ -1,0 +1,6 @@
+# VitePress 1.x and its Vue plugin work with the patched Vite 6 release.
+overrides:
+  vite: ^6.4.6
+
+allowBuilds:
+  esbuild: true
