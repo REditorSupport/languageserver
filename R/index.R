@@ -1,5 +1,5 @@
 # Topic summaries locate @inheritParams donors across package source files.
-index_cache_version <- 21L
+index_cache_version <- 22L
 
 #' Recognize a package without recursively searching a workspace
 #' @noRd
@@ -454,7 +454,7 @@ index_shallow_summary <- function(path, content, workspace_root, metadata = NULL
         s4_declarations = if (is.null(parse_data)) s4_declarations(expressions, content, incomplete_lines) else
             parse_data$s4_declarations,
         s3 = s3_index_summary(content, path_to_uri(path), if (length(incomplete_lines)) expressions else statements,
-            parse_data, incomplete_lines = incomplete_lines),
+            parse_data, incomplete_lines = incomplete_lines, hints = hints, classes = classes),
         sources = sources,
         source_candidates = source_candidates,
         source_candidate_exists = source_candidate_exists,

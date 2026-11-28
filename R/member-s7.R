@@ -239,6 +239,10 @@ member_s7_property_receiver <- function(object, bindings) {
     parent <- object$s4_class$s7_parent
     if (!is.list(parent) || !identical(parent$kind, "class")) return(NULL)
     value <- member_s7_shape(parent, bindings)
+    if (length(value$slot_hints) || length(object$slot_hints)) {
+        keys <- intersect(names(parent$properties), names(object$slot_hints))
+        value$slot_hints <- Filter(is.list, object$slot_hints[keys])
+    }
     for (name in intersect(names(object$slots), names(parent$properties))) {
         property <- parent$properties[[name]]
         if (!property$getter && !property$setter) value$slots[name] <- object$slots[name]
@@ -254,8 +258,10 @@ member_s7_shape <- function(descriptor, bindings = list(), depth = 0L, defaults 
         return(if (length(shapes)) Reduce(member_join, shapes) else member_value())
     }
     if (identical(descriptor$kind, "s4")) {
-        return(member_value(type = descriptor$name, slot_types = descriptor$slots,
-                s4_class = list(name = descriptor$name, package = descriptor$package)))
+        shape <- member_value(type = descriptor$name, slot_types = descriptor$slots,
+            s4_class = list(name = descriptor$name, package = descriptor$package))
+        if (length(descriptor$slot_hints)) shape$slot_hints <- descriptor$slot_hints
+        return(shape)
     }
     if (!identical(descriptor$kind, "class")) {
         return(member_s7_value(type = if (!identical(descriptor$kind, "any")) descriptor$name,
@@ -274,8 +280,10 @@ member_s7_shape <- function(descriptor, bindings = list(), depth = 0L, defaults 
         type <- member_s7_type(property$class)
         if (length(type)) type else "ANY"
     })
-    member_s7_value(type = descriptor$name, slots = slots, slot_types = types, s7 = TRUE,
+    shape <- member_s7_value(type = descriptor$name, slots = slots, slot_types = types, s7 = TRUE,
         s7_descriptor = descriptor)
+    if (length(descriptor$slot_hints)) shape$slot_hints <- descriptor$slot_hints
+    shape
 }
 
 member_s7_generator <- function(descriptor, bindings = list(), depth = 0L) {
@@ -477,6 +485,22 @@ member_s7_call <- function(expr, index, bindings, budget, method = member_s7_met
             constructor = constructor, custom = custom, own = own, forward = if (!custom) forward else FALSE,
             modes = modes[c("class_ref", "overrides")])
         descriptor$origin <- attr(expr, "class_origin", exact = TRUE)
+        hints <- parent$slot_hints
+        if (length(hints)) hints[own] <- NULL
+        docs <- roxygen_inference_hints(expr, "member_class_hints")
+        if (length(docs$prop) || length(docs$params)) {
+            for (key in intersect(names(properties), union(names(docs$prop), names(docs$params)))) {
+                property <- properties[[key]]
+                if (!identical(property$class$kind, "any") || !is.null(property$alias)) next
+                types <- docs$prop[[key]]
+                # A generated constructor assigns ordinary arguments directly.
+                # A custom constructor or setter may store a different value.
+                if (is.null(types) && !custom && key %in% names(formals) && !property$getter && !property$setter &&
+                        (root || key %in% own || !isTRUE(parent$custom))) types <- docs$params[[key]]
+                if (!is.null(types)) hints[[key]] <- member_class_hint(types, index, bindings)
+            }
+        }
+        if (length(hints)) descriptor$slot_hints <- hints
         return(member_s7_generator(descriptor, bindings))
     }
     if (method == "prop") {
@@ -803,7 +827,11 @@ member_s7_slot <- function(value, name, index, bindings, budget = NULL) {
         if (!is.null(descriptor)) return(member_s7_shape(descriptor, bindings))
         return(member_value(type = spec$name, reason = "unresolved_s7_external"))
     }
-    if (is.null(property$binding_expr)) return(property)
+    hint <- value$slot_hints[[name]]
+    if (is.null(property$binding_expr)) {
+        if (!is.null(hint)) return(member_refine_class_hint(property, hint, index, budget))
+        return(property)
+    }
     if (is.null(budget)) {
         budget <- new.env(parent = emptyenv())
         budget$remaining <- 20000L
@@ -814,6 +842,7 @@ member_s7_slot <- function(value, name, index, bindings, budget = NULL) {
     budget$s7_slots <- c(trail, key)
     on.exit(budget$s7_slots <- trail)
     result <- member_infer(property$binding_expr, index, property$binding_env, budget = budget)
+    if (!is.null(hint)) return(member_refine_class_hint(result, hint, index, budget))
     if (length(result$type) || !is.null(result$function_expr)) result else property
 }
 
@@ -832,10 +861,14 @@ member_s7_s4_spec <- function(class, index, bindings, budget) {
     shape <- member_s4_shape(class$name, index, bindings, class$package, budget = budget)
     descriptor <- member_s7_s4_descriptor(list(name = class$name, package = class$package,
             slots = shape$slot_types, virtual = FALSE, complete = !is.null(shape$slot_types)))
+    if (length(shape$slot_hints) && !is.null(descriptor)) {
+        descriptor$slot_hints <- Filter(is.list, shape$slot_hints)
+    }
     for (name in names(descriptor$properties)) {
         type <- descriptor$properties[[name]]$class$name
         root <- member_lookup(index$namespace_roots, paste0("S7::class_", type))
         if (!is.null(root$s7_descriptor)) descriptor$properties[[name]]$class <- root$s7_descriptor
+        if (!is.null(descriptor$slot_hints[[name]])) descriptor$properties[[name]]$class <- list(kind = "any")
         descriptor$properties[[name]]$origin <- shape$slot_origins[[name]]
     }
     descriptor

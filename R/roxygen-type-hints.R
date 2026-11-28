@@ -110,22 +110,25 @@ roxygen_topic_tags <- function(comments, formals) {
 
 # A type annotation is one parenthesized code span at the start of a roxygen
 # description. Leave all other Markdown and ordinary documentation alone.
-roxygen_type_block <- function(comments, formals = NULL, rows = NULL, columns = NULL, collect_groups = FALSE) {
+roxygen_type_block <- function(comments, formals = NULL, rows = NULL, columns = NULL, collect_groups = FALSE,
+    directives = c("param", "return", "returns"), field = NULL, class_name = NULL) {
     prefix <- attr(regexpr("^#'\\s*", comments, perl = TRUE), "match.length")
     lines <- substring(comments, prefix + 1L)
     starts <- which(startsWith(lines, "@"))
     ends <- c(starts[-1L] - 1L, length(lines))
-    params <- group_types <- list()
+    params <- group_types <- members <- list()
     returns <- character()
     occurrences <- list()
     qualified <- paste0("(*UCP)^", roxygen_type_identifier, "(?:::", roxygen_type_identifier, ")?$")
-    pattern <- r"(^@(param\s+(`(?:\\.|[^`\\])*`|\S+)|returns?)\s+\(`([^`]+)`\)(?!\s*[,;]?\s*(?:\||/|(?i:or|and)\b|\\?\[|\(`))(?=\s|[.,:]|$))"
+    pattern <- r"(^@(?|(param|field|slot|prop)\s+(`(?:\\.|[^`\\])*`|\S+)|(returns?)())\s+\(`([^`]+)`\)(?!\s*[,;]?\s*(?:\||/|(?i:or|and)\b|\\?\[|\(`))(?=\s|[.,:]|$))"
     for (i in seq_along(starts)) {
         section <- seq.int(starts[[i]], ends[[i]])
         tag <- paste(lines[section], collapse = "\n")
         match <- regexec(pattern, tag, perl = TRUE)
         parts <- regmatches(tag, match)[[1L]]
-        if (!length(parts)) next
+        if (!length(parts) || !parts[[2L]] %in% directives) next
+        tag_name <- parts[[2L]]
+        named <- nzchar(parts[[3L]])
         span <- parts[[4L]]
         if (!nzchar(trimws(span)) || endsWith(trimws(span), "|")) next
         terms <- strsplit(span, "|", fixed = TRUE)[[1L]]
@@ -133,13 +136,26 @@ roxygen_type_block <- function(comments, formals = NULL, rows = NULL, columns = 
         unique_types <- unique(types)
         if (length(unique_types) > max_type_hint_alternatives || !all(grepl(qualified, types, perl = TRUE))) next
         parameter <- NA_character_
-        if (startsWith(parts[[2L]], "param")) {
+        if (tag_name == "param") {
             parameter <- parts[[3L]]
             names <- roxygen_param_names(parameter)
             if (!is.null(formals)) names <- intersect(names, formals)
             if (!length(names)) next
             if (collect_groups) group_types[[as.character(i)]] <- unique_types
             params[names] <- rep(list(unique_types), length(names))
+        } else if (named) {
+            parameter <- parts[[3L]]
+            name <- reference_symbol_names(parts[[3L]])
+            if (tag_name == "prop" && grepl("@", name, fixed = TRUE)) {
+                if (is.null(class_name) || !startsWith(name, paste0(class_name, "@"))) next
+                name <- substring(name, nchar(class_name) + 2L)
+            }
+            keys <- if (tag_name == "field") roxygen_param_names(parameter) else name
+            if (!length(keys) || any(!nzchar(keys)) || (!is.null(field) && !field %in% keys)) next
+            for (key in keys) {
+                previous <- members[[tag_name]][[key]]
+                members[[tag_name]][[key]] <- if (is.null(previous) || identical(previous, unique_types)) unique_types else character()
+            }
         } else {
             returns <- unique_types
         }
@@ -163,12 +179,12 @@ roxygen_type_block <- function(comments, formals = NULL, rows = NULL, columns = 
                 parameter_start <- columns[[source_line]] + prefix[[source_line]] + offset - line_starts[[line]]
             }
             occurrences[[length(occurrences) + 1L]] <- data.frame(type = types, row = rows[source],
-                start = start, end = start + nchar(class_names), parameter = parameter,
+                start = start, end = start + nchar(class_names), directive = tag_name, parameter = parameter,
                 parameter_row = parameter_row, parameter_start = parameter_start, stringsAsFactors = FALSE)
         }
     }
-    if (!length(params) && !length(returns)) return(NULL)
-    hints <- list(params = params, returns = returns)
+    if (!length(params) && !length(returns) && !length(members)) return(NULL)
+    hints <- c(list(params = params, returns = returns), members)
     if (length(group_types)) attr(hints, "group_types") <- group_types
     if (length(occurrences)) attr(hints, "occurrences") <- do.call(rbind, occurrences)
     hints
@@ -183,15 +199,16 @@ roxygen_declaration_row <- function(syntax, row) {
 
 # Follow assignments and parentheses to their value. Named arguments include
 # R6 methods and need the value following their argument tag.
-roxygen_function_row <- function(syntax, row, declaration = roxygen_declaration_row(syntax, row)) {
+roxygen_function_row <- function(syntax, row, declaration = roxygen_declaration_row(syntax, row), memo = NULL) {
     token <- syntax$token
-    parent <- syntax$parent_row
-    if (token[[row]] %in% c("SYMBOL_SUB", "SYMBOL_FORMALS")) {
-        parts <- syntax_children(syntax, parent[[row]])
-        parts <- parts[token[parts] != "COMMENT"]
-        i <- match(row, parts)
-        if (is.na(i) || i + 2L > length(parts) || !token[parts[[i + 1L]]] %in% c("EQ_SUB", "EQ_FORMALS")) return(0L)
-        row <- parts[[i + 2L]]
+    if (token[[row]] %in% c("SYMBOL_SUB", "SYMBOL_FORMALS") || (token[[row]] == "STR_CONST" && row == declaration)) {
+        # Follow two siblings, even in a class with thousands of members.
+        eq <- syntax$next_sibling[[row]]
+        while (eq && token[[eq]] == "COMMENT") eq <- syntax$next_sibling[[eq]]
+        if (!eq || !token[[eq]] %in% c("EQ_SUB", "EQ_FORMALS")) return(0L)
+        row <- syntax$next_sibling[[eq]]
+        while (row && token[[row]] == "COMMENT") row <- syntax$next_sibling[[row]]
+        if (!row) return(0L)
     } else {
         row <- declaration
     }
@@ -201,6 +218,11 @@ roxygen_function_row <- function(syntax, row, declaration = roxygen_declaration_
         if (!length(parts)) return(0L)
         kinds <- token[parts]
         if (kinds[[1L]] %in% c("FUNCTION", r"('\\')")) return(parts[[1L]])
+        if (length(parts) >= 3L && kinds[[2L]] == "'('") {
+            # Roxygen documents the registered function at the outer call.
+            # Other callback arguments belong to their enclosing R call.
+            return(roxygen_registered_function(syntax, row, declaration, parts[[1L]], memo))
+        }
         if (length(parts) != 3L) return(0L)
         if (kinds[[2L]] %in% c("LEFT_ASSIGN", "EQ_ASSIGN")) row <- parts[[3L]]
         else if (kinds[[2L]] == "RIGHT_ASSIGN") row <- parts[[1L]]
@@ -298,7 +320,12 @@ member_roxygen_type_index <- function(content, data, row_offset = 0L, barriers =
     value_source = NULL, uri = NULL, col_offset = 0L, parsed = NULL) {
     inherits <- roxygen_has_inheritance(content)
     plain_topics <- inherits || roxygen_package_topic_file(uri)
-    if (!inherits && !roxygen_has_type_span(content)) {
+    typed_document <- roxygen_has_type_span(content)
+    # Prose suppresses inherited R6 types on overrides. A parentless class
+    # in an untyped file has no such member defaults to mask.
+    r6_docs <- (typed_document || inherits || any(grepl("inherit", content, fixed = TRUE))) &&
+        any(grepl("R6Class", content, fixed = TRUE)) && any(grepl("@(field|param)\\b", content, perl = TRUE))
+    if (!inherits && !typed_document && !r6_docs) {
         if (!plain_topics || !roxygen_has_topic_tags(content, all_blocks = !is.null(uri))) return(NULL)
         if (!is.null(parsed) && !length(barriers) && is.null(allowed_comments) && !row_offset && !col_offset) {
             fast <- roxygen_shallow_prose_index(content, parsed, uri)
@@ -318,11 +345,20 @@ member_roxygen_type_index <- function(content, data, row_offset = 0L, barriers =
     code <- which(kind != "COMMENT")
     next_code <- code[findInterval(comments, code) + 1L]
     keep <- !is.na(next_code)
+    # Inline named arguments cannot publish package documentation topics.
+    if (!typed_document && !inherits && !r6_docs) keep <- keep & kind[next_code] != "SYMBOL_SUB"
+    if (!any(keep)) return(NULL)
     if (length(barriers)) {
         barriers <- sort(unique(barriers))
         keep <- keep & findInterval(line[comments], barriers) == findInterval(line[next_code], barriers)
     }
     groups <- split(comments[keep], next_code[keep])
+    classes <- list()
+    r6_lists <- new.env(parent = emptyenv())
+    batches <- if (r6_docs && length(groups) >= 8L) {
+        roxygen_field_batches(data, groups, terminals, text, content, value_source, row_offset, col_offset, r6_lists)
+    }
+    if (length(batches$skip)) groups[batches$skip] <- NULL
     result <- topics <- vector("list", length(groups))
     locations <- new.env(hash = TRUE, parent = emptyenv())
     rows <- cols <- integer(length(groups))
@@ -335,12 +371,15 @@ member_roxygen_type_index <- function(content, data, row_offset = 0L, barriers =
         typed <- any(grepl("(`", tagged, fixed = TRUE))
         # A title-only primary block can share an Rd page with an explicitly
         # named secondary block, even when it has no @param tags of its own.
-        if (!typed && !plain_topics) next
+        r6_block <- r6_docs && any(grepl("@(field|param)\\b", tagged, perl = TRUE))
+        if (!typed && !plain_topics && !r6_block) next
         first <- terminals[[as.integer(key)]]
         statement <- roxygen_declaration_row(data, first)
-        fn <- roxygen_function_row(data, first, statement)
+        fn <- roxygen_function_row(data, first, statement, r6_lists)
         declaration <- roxygen_topic_declaration(data, statement)
-        if (!fn && !isTRUE(declaration$doc_only)) next
+        inline <- r6_block || (typed && any(grepl("@(field|slot|prop)\\b", tagged, perl = TRUE)))
+        target <- if ((typed || r6_block) && (!fn || inline)) roxygen_class_target(data, first, statement, inline, r6_lists)
+        if (!fn && !isTRUE(declaration$doc_only) && is.null(target)) next
         marker <- if (fn) fn else first
         if (fn) {
             parts <- syntax_children(data, data$parent_row[[fn]])
@@ -352,9 +391,31 @@ member_roxygen_type_index <- function(content, data, row_offset = 0L, barriers =
         comment_cols <- as.integer(regexpr("#'", content[comment_rows], fixed = TRUE)) - 1L
         comments <- if (is.null(value_source)) tagged else substring(value_source[comment_rows], comment_cols + 1L)
         tags <- roxygen_topic_tags(comments, formals)
-        if (typed || length(tags$inherit_ranges)) {
-            at_rows <- comment_rows + row_offset - 1L
-            at_cols <- comment_cols + ifelse(comment_rows == 1L, col_offset, 0L)
+        at_rows <- comment_rows + row_offset - 1L
+        at_cols <- comment_cols + ifelse(comment_rows == 1L, col_offset, 0L)
+        if (!is.null(target)) {
+            source_row <- data$line1[[target$row]]
+            class_row <- source_row + row_offset
+            class_col <- data$col1[[target$row]] + if (source_row == 1L) col_offset else 0L
+            owner <- paste(class_row, class_col, sep = ":")
+            batch <- batches$records[[key]]
+            block <- if (is.null(batch)) {
+                roxygen_class_block(data, target, comments, tags, typed, at_rows, at_cols, classes[[owner]])
+            } else {
+                roxygen_class_record(target$name, classes[[owner]], batch$values, fields = batch$fields)
+            }
+            if (!is.null(block)) {
+                if (is.null(block$record$anchors)) block$record$anchors <- roxygen_class_route(data, target$row, row_offset, col_offset)
+                classes[[owner]] <- block$record
+                sites <- block$sites
+                if (!is.null(sites)) {
+                    sites$function_row <- class_row - 1L
+                    sites$function_col <- class_col - 1L
+                    sites$doc_only <- FALSE
+                    locations[[paste0("class:", key)]] <- sites
+                }
+            }
+            if (!fn) next
         }
         hints <- if (typed) roxygen_type_block(comments, formals, at_rows, at_cols, collect_groups = TRUE)
         group_types <- attr(hints, "group_types", exact = TRUE)
@@ -400,14 +461,13 @@ member_roxygen_type_index <- function(content, data, row_offset = 0L, barriers =
             occurrences$function_col <- column
             locations[[position]] <- occurrences
         }
-        if (!fn || (is.null(hints) && !length(tags$inherit))) next
+        method_docs <- identical(target$name, "R6Class") && !is.null(target$field) && length(tags$documented) > 0L
+        if (!fn || (is.null(hints) && !length(tags$inherit) && !method_docs)) next
         if (is.null(hints)) hints <- list(params = list(), returns = character())
         attr(hints, "occurrences") <- NULL
         attr(hints, "roxygen_key") <- position
-        if (length(tags$inherit)) {
-            attr(hints, "roxygen_inherits") <- TRUE
-            attr(hints, "roxygen_documented") <- tags$documented
-        }
+        if (length(tags$inherit)) attr(hints, "roxygen_inherits") <- TRUE
+        if (length(tags$inherit) || method_docs) attr(hints, "roxygen_documented") <- tags$documented
         if (!is.null(uri)) attr(hints, "roxygen_uri") <- uri
         result[[i]] <- hints
         rows[[i]] <- fn_row
@@ -423,7 +483,7 @@ member_roxygen_type_index <- function(content, data, row_offset = 0L, barriers =
     result <- if (length(keep)) stats::setNames(result[keep], positions[keep]) else list()
     rows <- rows[keep]
     cols <- cols[keep]
-    if (!length(result) && !length(topics)) return(NULL)
+    if (!length(result) && !length(topics) && !length(classes)) return(NULL)
     order <- order(rows, cols)
     occurrences <- do.call(rbind, unname(as.list(locations, all.names = TRUE)))
     if (!is.null(occurrences)) {
@@ -432,7 +492,8 @@ member_roxygen_type_index <- function(content, data, row_offset = 0L, barriers =
     }
     has_inheritance <- any(vapply(topics, function(x) length(x$inherit) > 0L, logical(1L)))
     structure(result[order], rows = as.integer(rows[order]), cols = as.integer(cols[order]),
-        occurrences = occurrences, topics = topics, uri = uri, has_inheritance = has_inheritance)
+        occurrences = occurrences, topics = topics, classes = if (length(classes)) classes,
+        uri = uri, has_inheritance = has_inheritance)
 }
 
 # Most documents have no hints. Only repaired indexes assembled before the
@@ -448,7 +509,7 @@ member_type_hint_uri <- function(index, uri) {
             anchors <- paste(sites$function_row[doc_only], sites$function_col[doc_only])
             keep <- keep | vapply(topics, function(record) paste(record$row, record$col) %in% anchors, logical(1L))
         }
-        if (!length(index) && !any(keep)) return(NULL)
+        if (!length(index) && !any(keep) && !length(attr(index, "classes", exact = TRUE))) return(NULL)
         attr(index, "topics") <- topics[keep]
     }
     for (i in seq_along(index)) attr(index[[i]], "roxygen_uri") <- uri
@@ -469,15 +530,18 @@ member_merge_type_hints <- function(partial, current) {
     order <- order(rows, cols)
     a <- attr(partial, "occurrences", exact = TRUE)
     b <- attr(current, "occurrences", exact = TRUE)
+    old_classes <- attr(partial, "classes", exact = TRUE)
+    new_classes <- attr(current, "classes", exact = TRUE)
+    classes <- c(old_classes[!names(old_classes) %in% names(new_classes)], new_classes)
     if (!is.null(a)) {
-        owners <- vapply(new_topics, function(x) paste(x$row, x$col), "")
-        a <- a[!paste(a$function_row, a$function_col) %in% owners, , drop = FALSE]
+        owners <- c(vapply(new_topics, function(x) paste(x$row + 1L, x$col + 1L, sep = ":"), ""), names(new_classes))
+        a <- a[!paste(a$function_row + 1L, a$function_col + 1L, sep = ":") %in% owners, , drop = FALSE]
     }
     occurrences <- rbind(a, b)
     if (!is.null(occurrences)) occurrences <- occurrences[order(occurrences$row, occurrences$start), , drop = FALSE]
     has_inheritance <- any(vapply(topics, function(x) length(x$inherit) > 0L, logical(1L)))
     structure(c(partial[keep_hints], current)[order], rows = rows[order], cols = cols[order],
-        occurrences = occurrences, topics = topics, has_inheritance = has_inheritance)
+        occurrences = occurrences, topics = topics, classes = classes, has_inheritance = has_inheritance)
 }
 
 # Failed parses can leave the function keyword and its formals as lexer tokens
@@ -491,6 +555,11 @@ roxygen_damaged_type_blocks <- function(data, comments, row_offset) {
     code <- which(kind != "COMMENT")
     groups <- split(comments, findInterval(match(comments, terminals), code) + 1L)
     result <- list()
+    code_rows <- terminals[code]
+    tokens <- data$text[code_rows]
+    pending <- which(tokens == "(" & data$parent[code_rows] <= 0L)
+    factories <- c("R6Class", "setClass", "new_class", "new_generic", "setMethod", "setReplaceMethod", "setGeneric", "setGroupGeneric", "setAs")
+    pending <- pending[pending > 1L & tokens[pmax(1L, pending - 1L)] %in% factories]
     for (key in names(groups)) {
         group <- groups[[key]]
         if (!any(grepl("(`", data$text[group], fixed = TRUE))) next
@@ -505,7 +574,20 @@ roxygen_damaged_type_blocks <- function(data, comments, row_offset) {
                 break
             }
         }
-        if (j > length(code) || !kind[code[[j]]] %in% c("FUNCTION", r"('\\')")) next
+        if (j > length(code)) next
+        if (!kind[code[[j]]] %in% c("FUNCTION", r"('\\')")) {
+            # A class/registration call can be unreduced while each literal
+            # field is already tokenized. Keep its source rows so Rename
+            # declines only mentions the repaired index could not verify.
+            inline <- any(pending < as.integer(key)) && any(grepl("^#'\\s*@(field|slot|prop)\\b", data$text[group], perl = TRUE))
+            if (inline || any(pending %in% c(j + 1L, j + 3L))) {
+                block <- roxygen_type_block(data$text[group], rows = data$line1[group] + row_offset - 1L,
+                    columns = integer(length(group)), directives = c("field", "slot", "prop", "param", "return", "returns"))
+                sites <- attr(block, "occurrences", exact = TRUE)
+                for (line in unique(sites$row)) result[[paste0("tag:", line)]] <- sites$type[sites$row == line]
+            }
+            next
+        }
         fn <- terminals[code[[j]]]
         # Partial recovery already cleared parent IDs that were never reduced.
         if (data$parent[[fn]] > 0L) next
@@ -541,6 +623,15 @@ roxygen_unresolved_type_hint <- function(data, spellings) {
     damaged <- data$damaged_type_blocks
     if (!length(damaged)) return(FALSE)
     missing <- setdiff(names(damaged), names(data$type_hints))
+    tags <- startsWith(missing, "tag:")
+    if (any(tags)) {
+        sites <- attr(data$type_hints, "occurrences", exact = TRUE)
+        for (key in missing[tags]) {
+            documented <- sites$type[sites$row == as.integer(substring(key, 5L))]
+            if (any(spellings %in% setdiff(damaged[[key]], documented))) return(TRUE)
+        }
+        missing <- missing[!tags]
+    }
     any(spellings %in% unlist(damaged[missing], use.names = FALSE))
 }
 
@@ -554,6 +645,8 @@ member_type_dependencies <- function(hints) {
 # iterative; wide calls are converted to an indexed list once, and deep paths
 # are rebuilt from leaves to roots without recursing on the R stack.
 member_attach_type_hints <- function(parsed, index, row = 0L, col = 0L) {
+    classes <- attr(index, "classes", exact = TRUE)
+    if (length(classes) && length(parsed)) parsed <- member_attach_class_hints(parsed, classes, row, col)
     if (!length(index) || !length(parsed)) return(parsed)
     plan <- .Call("member_hint_paths_c", parsed, attr(index, "rows"), attr(index, "cols"),
         as.integer(c(row, col)), PACKAGE = "languageserver")

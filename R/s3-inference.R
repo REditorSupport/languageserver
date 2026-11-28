@@ -192,6 +192,35 @@ s3_bind_hinted_formal <- function(name, types, scope, context) {
     }, assign.env = scope)
 }
 
+# S3 has its own small value model. On an unresolved dispatch argument, ask
+# the member providers for the value in the same lexical scope. Accept their
+# answer only when reading a documented member contributed evidence.
+s3_class_member_input <- function(expr, scoped, context, method_call) {
+    reads <- member_syntax_names(expr)
+    if (!length(reads)) return(NULL)
+    operators <- intersect(reads, c("$", "[[", "@"))
+    if (any(vapply(operators, function(op) !is.null(s3_get_value(op, scoped$scope, context, source_only = TRUE)), logical(1L)))) return(NULL)
+    start <- scoped$start
+    names <- member_source_names(scoped$root, scoped$source, scoped$path, name = reads, accessor = NULL)
+    index <- member_context_index(context$workspace, context$document$uri, context$document, start,
+        referenced = union(reads, names))
+    budget <- member_request_budget()
+    budget$hint_wait <- context$hint_wait
+    budget$class_hint_probe <- TRUE
+    value <- member_cursor_value(scoped$root, ".__languageserver_dispatch__", index, list(.__member_position__ = start), budget,
+        accessor = NULL, path = scoped$path, source = scoped$source, dispatch_input = expr)
+    if (isTRUE(budget$exhausted) || isTRUE(budget$transient)) context$exhausted <- TRUE
+    documented <- if (method_call) budget$used_method_result else budget$used_member_hint
+    if (!isTRUE(documented) || isTRUE(context$exhausted)) return(NULL)
+    values <- if (identical(value$reason, "type_hint_union")) value$possible_returns else list(value)
+    paths <- unique(unname(lapply(values, member_hint_dispatch_classes, index = index)))
+    if (!length(paths) || any(!lengths(paths))) return(NULL)
+    if (length(paths) == 1L) return(s3_value(paths[[1L]]))
+    out <- s3_unknown("union_type_hint")
+    out$class_options <- paths
+    out
+}
+
 # R memoizes the argument promise. Multiple unknown exits can share a
 # single lookup, and proven exits never request a class catalog.
 s3_lazy_return_hint <- function(value) function() value

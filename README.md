@@ -272,7 +272,7 @@ matching files and directories from the workspace root and the script's
 directory. Document links also recognize static paths assembled with
 `file.path()`.
 
-### Documenting argument and return types
+### Documenting argument, return, and member types
 
 Start a roxygen `@param` description with a class name in backticks and
 parentheses to identify the argument's type inside the function. Use `@return`
@@ -333,6 +333,50 @@ Hints also guide S3 dispatch. Inside `year_text()` below, signature help on
 year_text <- function(day) format(day, "%Y")
 year_text(as.Date("2000-01-01"))  # "2000"
 ```
+
+Use the same type syntax for a stored member. Place an R6 `@field` immediately
+above the field or active binding, an S4 `@slot` on the class, and an S7
+`@prop` on the class for a computed property. In S7, `@param` on a class can
+also describe a property supplied by its generated constructor.
+
+```r
+Card <- R6::R6Class("Card", public = list(title = "Atlas"))
+
+Wallet <- R6::R6Class("Wallet", public = list(
+  #' @field card (`Card`) The card currently in the wallet.
+  card = NULL
+))
+wallet <- Wallet$new()
+wallet$card <- Card$new()
+wallet$card$title                                  # "Atlas"
+
+#' @slot item (`Card`) The card stored in this sleeve.
+Sleeve <- methods::setClass("Sleeve", slots = c(item = "ANY"))
+#' @param sleeve (`Sleeve`) A card sleeve.
+card_title <- function(sleeve) sleeve@item$title
+card_title(Sleeve(item = Card$new()))              # "Atlas"
+
+#' @param entry (`Card`) The card on display.
+#' @prop current (`Card`) The card visible to a visitor.
+Display <- S7::new_class("Display", properties = list(
+  entry = S7::class_any,
+  current = S7::new_property(getter = function(self) self@entry)
+))
+Display(entry = Card$new())@current$title          # "Atlas"
+```
+
+For example, after `Display(entry = Card$new())@current$`, completion offers
+`title` without running the getter. Member hints can also use a union. The
+declared members determine which names are available, and a concrete supplied
+value or a specific slot or property class takes precedence.
+
+An R6 method can document its own arguments and return value. For a missing
+argument description, the server checks the class-level `@param`, the matching
+`@field` for `initialize()`, and the same method in a parent class. An S4
+registration such as `setMethod()` can document the formals of its inline
+function. An S7 method can put its own block above
+`method(generic, Class) <- function(...)`. A documented S7 generic can supply
+a return hint when a call's result would otherwise be unknown.
 
 An R6 generator name denotes its public instances, including inherited methods.
 Use `package::Class` to identify the owner of a package class. A union accepts

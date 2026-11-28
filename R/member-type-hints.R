@@ -123,3 +123,39 @@ member_refine_call_hint <- function(value, types, index, lexical, budget) {
     if (!is.null(value$return_evidence)) return(member_join(value$return_evidence, hint))
     hint
 }
+
+# Keep only lexical inputs to the documented type. Member values can outlive
+# a request, so look up the defining document on demand for cross-file reads.
+member_class_hint <- function(types, index, bindings) {
+    if (!length(types)) return(NULL)
+    keys <- c(member_type_dependencies(types), ".__member_position__", ".__s4_classes__")
+    list(types = types, bindings = bindings[intersect(names(bindings), keys)], uri = index$dispatch_document$uri)
+}
+
+member_refine_class_hint <- function(value, hint, index, budget = NULL) {
+    if (is.null(hint)) return(value)
+    if (!member_needs_call_hint(value)) {
+        if (isTRUE(budget$class_hint_probe)) budget$used_member_hint <- TRUE
+        return(value)
+    }
+    if (is.null(budget)) budget <- member_request_budget()
+    if (!is.null(budget$hint_wait) && !is.null(hint$uri)) {
+        doc <- roxygen_hint_document(index$dispatch_workspace, hint$uri, index$dispatch_document)
+        s3_record_hint_wait(budget$hint_wait, index$dispatch_workspace, doc, hint$types, uri = hint$uri)
+    }
+    if (!is.null(hint$uri) && !identical(hint$uri, index$dispatch_document$uri)) {
+        workspace <- index$dispatch_workspace
+        doc <- roxygen_hint_document(workspace, hint$uri)
+        if (is.null(doc)) return(value)
+        at <- hint$bindings$.__member_position__ %s3_or% c(Inf, Inf)
+        index <- member_context_index(workspace, doc$uri, doc, at, referenced = member_type_dependencies(hint$types))
+        if (!is.null(budget$origin_name)) {
+            previous <- budget$document
+            budget$document <- doc
+            on.exit(budget$document <- previous)
+        }
+    }
+    result <- member_refine_call_hint(value, hint$types, index, hint$bindings, budget)
+    if (isTRUE(budget$class_hint_probe) && (length(result$type) || length(result$possible_returns))) budget$used_member_hint <- TRUE
+    result
+}
