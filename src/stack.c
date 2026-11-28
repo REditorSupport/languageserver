@@ -14,11 +14,11 @@ typedef struct {
 } stack;
 */
 
-void stack_initialize(stack* s) {
+void languageserver_stack_initialize(stack* s) {
     s->top = NULL;
 }
 
-void stack_clear(stack* s) {
+void languageserver_stack_clear(stack* s) {
     stackitem* t = s->top;
     stackitem* temp;
     while (t != NULL) {
@@ -30,7 +30,7 @@ void stack_clear(stack* s) {
 }
 
 
-void stack_push(stack* s, int x) {
+void languageserver_stack_push(stack* s, int x) {
     stackitem* t = s->top;
     stackitem* si = malloc(sizeof(stackitem));
     si->prev = t;
@@ -38,7 +38,7 @@ void stack_push(stack* s, int x) {
     s->top = si;
 }
 
-int stack_pop(stack* s) {
+int languageserver_stack_pop(stack* s) {
     stackitem* t = s->top;
     int ret;
     if (t == NULL) {

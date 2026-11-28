@@ -10,12 +10,12 @@ typedef struct {
     stackitem* top;
 } stack;
 
-void stack_initialize(stack* s);
+void languageserver_stack_initialize(stack* s);
 
-void stack_clear(stack* s);
+void languageserver_stack_clear(stack* s);
 
-void stack_push(stack* s, int x);
+void languageserver_stack_push(stack* s, int x);
 
-int stack_pop(stack* s);
+int languageserver_stack_pop(stack* s);
 
 #endif /* end of include guard: STACK_H__ */
