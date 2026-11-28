@@ -1,5 +1,17 @@
 # languageserver (development)
 
+- Member completion uses explicit roxygen `@param`, `@return`, and `@returns`
+  class hints, including for arguments inside a function and its result at
+  a call site. Configure this with `r.lsp.roxygen_type_hints`. For example,
+  `box$` offers `contents` inside this function.
+
+  ```r
+  Box <- R6::R6Class("Box", public = list(contents = "hello"))
+  #' @param box (`Box`) The box to inspect.
+  inspect <- function(box) box$contents
+  inspect(Box$new())  # "hello"
+  ```
+
 - Rename and Find References distinguish lexical variables from column names
   in data.table queries and common dplyr and base R data masks. An explicit
   `.env$name` selects the enclosing binding. Rename declines edits when a

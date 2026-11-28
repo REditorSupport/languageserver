@@ -95,6 +95,7 @@ workspace_did_change_configuration <- function(self, params) {
     previous_backends <- backend_settings_identity()
     previous_s3 <- isTRUE(lsp_settings$get("s3_dispatch"))
     previous_members <- isTRUE(lsp_settings$get("member_completion"))
+    previous_hints <- isTRUE(lsp_settings$get("roxygen_type_hints"))
     previous_highlighting <- glue_highlight_config()
     lsp_settings$update_from_workspace(settings)
     if (!identical(previous_highlighting, glue_highlight_config()) &&
@@ -109,11 +110,13 @@ workspace_did_change_configuration <- function(self, params) {
         }
     }
 
-    if ((previous_s3 != isTRUE(lsp_settings$get("s3_dispatch")) ||
-                previous_members != isTRUE(lsp_settings$get("member_completion"))) &&
+    modes_changed <- previous_s3 != isTRUE(lsp_settings$get("s3_dispatch")) ||
+        previous_members != isTRUE(lsp_settings$get("member_completion"))
+    if ((modes_changed || previous_hints != isTRUE(lsp_settings$get("roxygen_type_hints"))) &&
             !is.null(self$resolve_task_manager)) {
         for (workspace in self$workspaces$values()) {
             for (document in workspace$documents$values()) {
+                if (!modes_changed && !length(document$parse_data$member_data$type_hints)) next
                 # Remember changed preparation modes while an in-flight or
                 # failed parse prevents immediate resolution replacement.
                 document$member_refresh <- TRUE

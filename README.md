@@ -290,6 +290,31 @@ is not synchronized across aliases or the saved receivers for `private` and
 completion on `alias$data$` may still use the earlier `data` value. The same
 can occur when a private or superclass method returns `self$data`.
 
+### Documenting a receiver type
+
+Start a roxygen `@param`, `@return`, or `@returns` description with an
+instance's class name in backticks and parentheses. The server uses this
+hint for member completion when the value cannot be inferred from the code.
+
+```r
+Box <- R6::R6Class("Box", public = list(contents = "hello"))
+
+#' @param box (`Box`) The box to inspect.
+inspect <- function(box) box$contents
+
+#' @return (`Box`) A restored box.
+restore <- function(bytes) unserialize(bytes)
+
+bytes <- serialize(Box$new(), NULL)
+inspect(restore(bytes))  # "hello"
+```
+
+Completion after `box$` inside `inspect()` and after `restore(bytes)$` offers
+`contents`. Package classes can be qualified, for example
+``#' @param data (`polars::polars_data_frame`) Input rows.``
+To disable type hints, set `r.lsp.roxygen_type_hints` to `false` or add
+`options(languageserver.roxygen_type_hints = FALSE)` to `.Rprofile`.
+
 ## S3 method information
 
 Argument completion, hover and signature help select an ordinary S3 method when
@@ -410,6 +435,7 @@ settings | default | description
 `r.lsp.max_completions` | 200 | maximum number of completion items
 `r.lsp.s3_dispatch` | `true` | use static S3 dispatch for argument completion, hover and signature help, independently of member completion
 `r.lsp.member_completion` | `true` | use static analysis for `$` member and S4 `@` slot completion, named arguments, signature help, hover and go-to-definition when a source location is available
+`r.lsp.roxygen_type_hints` | `true` | use explicit roxygen parameter and return class hints for member completion
 `r.lsp.lint_cache` | `false` | toggle caching of lint results
 `r.lsp.parse_delay` | `0.15` | seconds to debounce parsing after an edit
 `r.lsp.diagnostics_delay` | `0.75` | seconds to debounce diagnostics after the current parse

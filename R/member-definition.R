@@ -260,10 +260,13 @@ member_binding_declaration <- function(entry, budget) {
 
 # Recovery normally needs only an AST. Collect member token ranges when that
 # fragment contains a potential declaration; its first line may start mid-line.
-member_parse_recovered <- function(lines, uri, row, col = 0L, edit = NULL) {
-    if (is.null(uri) || !any(grepl("=|<-|->", lines))) return(str2expression(lines))
+member_parse_recovered <- function(lines, uri, row, col = 0L, edit = NULL, type_hints = NULL) {
+    origins <- !is.null(uri) && any(grepl("=|<-|->", lines))
+    typed <- length(type_hints) && any(grepl("function|\\\\", lines))
+    if (!origins && !typed) return(str2expression(lines))
     parsed <- parse(text = normalize_parse_content(lines), keep.source = TRUE)
-    parsed <- member_source_origins(parsed, NULL, uri, row, col, edit = edit)
+    if (typed) roxygen_hint_source(parsed, type_hints, row, col)
+    if (origins) parsed <- member_source_origins(parsed, NULL, uri, row, col, edit = edit)
     member_strip_srcref(parsed)
 }
 

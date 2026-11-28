@@ -216,7 +216,7 @@ member_merge_verified_items <- function(items, verified) {
 }
 
 member_document_index <- function(content, parsed = NULL, syntax = NULL, incomplete_lines = NULL,
-    defer_small_scopes = FALSE, value_source = NULL, verified = NULL) {
+    defer_small_scopes = FALSE, value_source = NULL, verified = NULL, type_hints = NULL) {
     complete <- !is.null(parsed) && is.null(incomplete_lines)
     recovery_start <- 1L
     if (!complete && !is.null(parsed)) {
@@ -232,6 +232,7 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL, incompl
     items <- list()
     has_blocks <- FALSE
     append <- function(parsed, offset = 0L) {
+        roxygen_hint_source(parsed, type_hints, offset)
         statements <- top_level_statements(parsed)
         if (!identical(statements, parsed)) has_blocks <<- TRUE
         refs <- attr(statements, "srcref")
@@ -434,7 +435,7 @@ member_document_index <- function(content, parsed = NULL, syntax = NULL, incompl
     list(items = items, has_blocks = has_blocks, bindings = member_index_bindings(items), imports = imports, sources = sources, effects = effects, s4 = s4, refclasses = refclasses, initializers = initializers,
         content_key = digest::digest(fingerprint_source, algo = "xxhash64"),
         source_bytes = source_bytes, deferred_parts = if (defer_small_scopes) parts,
-        packages = packages, class_scope = class_scope, symbol_scope = symbol_scope, accessor_registrations = accessor_registrations,
+        packages = packages, type_hints = type_hints, class_scope = class_scope, symbol_scope = symbol_scope, accessor_registrations = accessor_registrations,
         s3 = s3_source_index(items))
 }
 
@@ -671,14 +672,14 @@ member_recover <- function(document, point, cursor, data, origin_uri = NULL) {
         local[[length(local)]] <- paste0(local[[length(local)]], sentinel)
         closers <- missing_closing_delimiters(local)
         parsed <- tryCatch(member_parse_recovered(paste0(paste(local, collapse = "\n"), closers),
-                origin_uri, start + skip - 1L, if (skip == 1L) skipped_columns else 0L), error = function(e) NULL)
+                origin_uri, start + skip - 1L, if (skip == 1L) skipped_columns else 0L, type_hints = data$type_hints), error = function(e) NULL)
         if (is.null(parsed) && !is.null(cursor$accessor) && any(grepl("|>", local, fixed = TRUE))) {
             # Native pipes require a call on the RHS. The cursor sentinel is
             # a callee here; its synthetic arguments are never evaluated.
             local[[length(local)]] <- paste0(local[[length(local)]], "()")
             closers <- missing_closing_delimiters(local)
             parsed <- tryCatch(member_parse_recovered(paste0(paste(local, collapse = "\n"), closers),
-                    origin_uri, start + skip - 1L, if (skip == 1L) skipped_columns else 0L), error = function(e) NULL)
+                    origin_uri, start + skip - 1L, if (skip == 1L) skipped_columns else 0L, type_hints = data$type_hints), error = function(e) NULL)
         }
         if (is.null(parsed)) next
         found <- FALSE
@@ -750,7 +751,7 @@ member_recover_context <- function(document, content, point, cursor, start, colu
     for (end in seq.int(offset, length(full))) {
         lines <- full[seq_len(end)]
         if (sum(nchar(lines, type = "bytes")) > 65536L) break
-        context <- tryCatch(member_parse_recovered(lines, origin_uri, start, skipped_columns, edit),
+        context <- tryCatch(member_parse_recovered(lines, origin_uri, start, skipped_columns, edit, document$parse_data$member_data$type_hints),
             error = function(e) NULL)
         if (!is.null(context)) return(context)
     }
@@ -810,6 +811,8 @@ member_context_index <- function(workspace, uri, document, at, parsed = NULL,
         }
     }
     index$document_bindings <- bindings
+    index$hint_packages <- workspace$startup_packages
+    index$hint_names <- unique(unlist(document$parse_data$member_data$type_hints, use.names = FALSE))
     index$accessor_registrations <- isTRUE(document$parse_data$member_data$accessor_registrations) ||
         isTRUE(view$accessor_registrations)
     index$document_cache <- new.env(parent = emptyenv())
@@ -900,6 +903,7 @@ member_context_index <- function(workspace, uri, document, at, parsed = NULL,
                 }
             }
             if (isTRUE(item$uncertain)) next
+            index$hint_packages <- c(index$hint_packages, package)
             if (!is.null(package_index)) {
                 roots <- package_index$roots
                 if (length(excluded)) roots <- roots[setdiff(names(roots), excluded)]
@@ -978,7 +982,7 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
     cache <- if (is.null(budget$origin_name)) index$document_binding_cache
     persistent_key <- if (memo && !is.null(cache) && !is.null(item$cache_prefix) &&
             (!is.null(item$setter) || !member_head(item$expr, "function"))) {
-        paste(index$package, index$document_context_key, id, item$cache_prefix, sep = ":")
+        paste(index$package, index$document_context_key, isTRUE(budget$roxygen_type_hints), id, item$cache_prefix, sep = ":")
     }
     cached <- analysis_cache_get(cache, persistent_key)
     method_types <- cached$value$s7_method_types
@@ -989,6 +993,10 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
     }
     env <- bindings
     if (!is.null(budget$origin_name) && is.null(item$first_write)) item <- member_binding_declaration(item, budget)
+    if (isTRUE(budget$roxygen_type_hints) && member_head(item$expr, "function")) {
+        types <- unlist(member_function_hints(item$expr), use.names = FALSE)
+        env[intersect(names(env), types)] <- NULL
+    }
     if (!member_head(item$expr, "function")) env$.__member_position__ <- item$start
     expr <- item$expr
     if (member_head(expr, ":=")) {
@@ -1208,8 +1216,11 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
             return(invisible(NULL))
         }
         if (member_head(node, "function")) {
+            hints <- if (isTRUE(budget$roxygen_type_hints)) member_function_hints(node)$params
+            if (length(hints)) lexical <- env
             for (formal in names(node[[2L]])) {
                 value <- formal_types[[formal]]
+                if (is.null(value) && !is.null(hints[[formal]])) value <- member_hint_binding(hints[[formal]], lexical)
                 env[formal] <- list(if (is.null(value)) member_value(reason = "formal") else value)
             }
             env$.__member_context_bindings__ <- setdiff(env$.__member_context_bindings__, names(node[[2L]]))
@@ -1237,7 +1248,8 @@ member_cursor_value <- function(parsed, sentinel, index, bindings, budget, name 
             return(invisible(NULL))
         }
         if (member_head(node, "{") || is.expression(node)) {
-            sequence <- member_cursor_sequence(node, path, ast_path, source, !is.null(accessor) || !is.null(name), name)
+            needed <- if (isTRUE(budget$roxygen_type_hints)) union(name, index$hint_names) else name
+            sequence <- member_cursor_sequence(node, path, ast_path, source, !is.null(accessor) || !is.null(name), needed)
             summary <- sequence$summary
             # Hash current values for dependency capture, while retaining
             # ordinary lists as immutable snapshots consumed by inference.
@@ -1387,7 +1399,7 @@ member_recover_scope <- function(document, point, cursor, data, budget = NULL) {
             lines[[length(lines)]] <- substr(lines[[length(lines)]], 1L, end)
             lines[[1L]] <- substring(lines[[1L]], ref[[5L]])
             edit <- list(row = point$row, start = cursor$start, end = cursor$end, inserted = nchar(sentinel))
-            parsed <- tryCatch(member_parse_recovered(lines, origin_uri, ref[[1L]] - 1L, ref[[5L]] - 1L, edit),
+            parsed <- tryCatch(member_parse_recovered(lines, origin_uri, ref[[1L]] - 1L, ref[[5L]] - 1L, edit, data$type_hints),
                 error = function(e) NULL)
             if (length(parsed) == 1L) {
                 local_path <- member_cursor_path(parsed[[1L]], sentinel, cursor$accessor)
@@ -1512,7 +1524,7 @@ member_recover_scope <- function(document, point, cursor, data, budget = NULL) {
 }
 
 member_resolve_cursor <- function(uri, workspace, document, point, cursor, name = NULL, origins = FALSE, origin_name = name,
-    audit = NULL) {
+    audit = NULL, type_hints = FALSE) {
     if (!identical(document$version, document$parse_data$version) &&
             !is.null(document$parse_data$version)) {
         return(NULL)
@@ -1537,6 +1549,8 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
     metadata <- workspace$member_metadata
     cache <- document$member_receivers
     view <- member_workspace_view(workspace, document)
+    budget$roxygen_type_hints <- isTRUE(type_hints) && (length(data$type_hints) || length(view$bindings)) &&
+        isTRUE(lsp_settings$get("roxygen_type_hints"))
     revision <- member_document_cache_revision(document, metadata, view$key, workspace)
     # Named [[ calls resolve the full subset expression in its lexical scope,
     # including local subset methods. Other member prefixes share the receiver.
@@ -1553,6 +1567,7 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
     if (!is.null(cursor$s7_update_list)) key <- paste("property-tag", cursor$s7_update_list, key, sep = ":")
     if (origins) key <- paste("definition", origin_name, name, key, sep = ":")
     if (isTRUE(cursor$s7_implementation)) key <- paste0("implementation:", key)
+    if (isTRUE(budget$roxygen_type_hints)) key <- paste0("roxygen:", key)
     cached <- if (!is.null(revision)) cache$get(key) else NULL
     if (!is.null(cached)) {
         cached <- unserialize(cached)
@@ -1721,7 +1736,7 @@ member_completion <- function(uri, workspace, document, point, snippet_support, 
     label_details_support = FALSE) {
     cursor <- member_cursor(document, point)
     bracket <- identical(cursor$accessor, "[[")
-    resolved <- member_resolve_cursor(uri, workspace, document, point, cursor)
+    resolved <- member_resolve_cursor(uri, workspace, document, point, cursor, type_hints = TRUE)
     if (is.null(resolved)) {
         return(if (bracket) list() else NULL)
     }

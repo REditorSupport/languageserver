@@ -755,7 +755,9 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
         expr <- template$expr
     }
     recovery <- NULL
+    partial_hints <- NULL
     if (inherits(expr, "error")) {
+        partial_hints <- roxygen_type_index(content, utils::getParseData(srcfile))
         recovery <- recover_partial_content(content, srcfile, expr)
         expr <- recovery$expr
         incomplete_lines <- sort(unique(c(incomplete_lines, recovery$incomplete_lines)))
@@ -854,9 +856,10 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
     }
     # Cursor recovery also tracks unfinished member accesses and their package
     # hints. Keep its original source and bounded recovery on a syntax error.
+    hints <- if (is.null(recovery)) roxygen_type_index(if (is.null(value_source)) content else value_source, data) else partial_hints
     env$member_data <- member_document_index(content, expr, data, recovery$incomplete_lines,
         defer_small_scopes = is_rmarkdown && length(incomplete_lines) > 0L, value_source = value_source,
-        verified = verified)
+        verified = verified, type_hints = hints)
     if (is_rmarkdown && length(literate$member_packages)) {
         env$member_data$packages <- union(env$member_data$packages, literate$member_packages)
     }
@@ -954,9 +957,14 @@ normalize_package_request <- function(packages) {
 }
 
 member_package_request <- function(parse_data) {
+    packages <- parse_data$member_data$packages
+    if (isTRUE(lsp_settings$get("member_completion")) && isTRUE(lsp_settings$get("roxygen_type_hints")) && length(parse_data$member_data$type_hints)) {
+        types <- unlist(parse_data$member_data$type_hints, use.names = FALSE)
+        packages <- union(packages, sub("::.*", "", types[grepl("::", types, fixed = TRUE)]))
+    }
     list(
         packages = normalize_package_request(parse_data$packages),
-        namespace_packages = normalize_package_request(unique(parse_data$member_data$packages))
+        namespace_packages = normalize_package_request(unique(packages))
     )
 }
 
@@ -1033,8 +1041,9 @@ parse_callback <- function(self, uri, version, parse_data, source_content = NULL
         }
     }
 
+    detected_packages <- member_package_request(parse_data)
     if (!isTRUE(parse_data$parse_error)) {
-        requested_packages <- member_package_request(parse_data)
+        requested_packages <- detected_packages
         if (is.null(previous_packages) || isTRUE(doc$member_refresh) ||
                 !identical(previous_packages, requested_packages)) {
             doc$requested_packages <- requested_packages
@@ -1047,14 +1056,14 @@ parse_callback <- function(self, uri, version, parse_data, source_content = NULL
             if (changed) workspace$update_loaded_packages()
             self$resolve_task_manager$add_task(
                 uri,
-                resolve_task(self, uri, doc, normalize_package_request(parse_data$packages),
-                    namespace_packages = parse_data$member_data$packages)
+                resolve_task(self, uri, doc, requested_packages$packages,
+                    namespace_packages = requested_packages$namespace_packages)
             )
             doc$member_refresh <- FALSE
         } else if (is.null(doc$requested_packages)) {
             doc$requested_packages <- requested_packages
         }
-    } else if (length(parse_data$member_data$packages) ||
+    } else if (length(detected_packages$namespace_packages) ||
             length(setdiff(parse_data$packages, previous_packages$packages))) {
         # A partial tree can confirm new imports and namespace receivers, but
         # cannot prove that a previously requested package is no longer used.
@@ -1064,7 +1073,7 @@ parse_callback <- function(self, uri, version, parse_data, source_content = NULL
         requested_packages$packages <- normalize_package_request(union(
             requested_packages$packages, parse_data$packages))
         requested_packages$namespace_packages <- normalize_package_request(union(
-            requested_packages$namespace_packages, parse_data$member_data$packages))
+            requested_packages$namespace_packages, detected_packages$namespace_packages))
         if (!identical(doc$requested_packages, requested_packages) || isTRUE(doc$member_refresh)) {
             doc$requested_packages <- requested_packages
             self$resolve_task_manager$add_task(uri,
@@ -1129,7 +1138,7 @@ drain_pending_replies <- function(self, uri, version, max_replies = Inf, first =
             if (index_context_waiting(self, self$get_workspace(uri), document, point,
                     hover = identical(method, "textDocument/hover"), call = call)) return(FALSE)
             if (!identical(method, "textDocument/hover") && member_metadata_waiting(self, uri, document, point,
-                    call = if (is.null(call)) document$detect_call(point) else call)) return(FALSE)
+                    call = if (is.null(call)) document$detect_call(point) else call, type_hints = identical(method, "textDocument/completion"))) return(FALSE)
             if (s3_metadata_waiting(self, uri, document, point,
                     hover = identical(method, "textDocument/hover"), call = call)) return(FALSE)
         }

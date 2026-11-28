@@ -25,6 +25,9 @@ member_binding <- function(env, name, materialize = FALSE, inspect = FALSE) {
 member_strip_srcref <- function(part) {
     if (is.name(part)) return(part)
     if (inherits(part, "srcref")) return(NULL)
+    if (member_head(part, "function") && length(part) >= 4L && !is.null(attr(part[[4L]], "srcfile")$.languageserver_type_hints)) {
+        attr(part, "member_type_hints") <- member_function_hints(part)
+    }
     if (!is.null(attributes(part))) {
         attr(part, "srcref") <- NULL
         attr(part, "wholeSrcref") <- NULL

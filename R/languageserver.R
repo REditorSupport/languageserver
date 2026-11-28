@@ -133,7 +133,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     doc$requested_packages <- member_package_request(parsed)
                     self$resolve_task_manager$add_task(uri,
                         resolve_task(self, uri, doc, normalize_package_request(parsed$packages),
-                            namespace_packages = parsed$member_data$packages))
+                            namespace_packages = doc$requested_packages$namespace_packages))
                     doc$member_refresh <- FALSE
                 }
                 if (isTRUE(parsed$parse_error) && !is.null(self$parse_task_manager)) {

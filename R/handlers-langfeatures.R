@@ -52,7 +52,7 @@ index_context_waiting <- function(self, workspace, document, point, hover = FALS
 
 # Namespace member models run independently of S3 catalogs. Wait only for
 # packages used by this receiver, never unrelated source-member requests.
-member_metadata_waiting <- function(self, uri, document, point, cursor = NULL, name = NULL, call = NULL) {
+member_metadata_waiting <- function(self, uri, document, point, cursor = NULL, name = NULL, call = NULL, type_hints = FALSE) {
     if (!isTRUE(lsp_settings$get("member_completion"))) return(FALSE)
     manager <- if (is.null(self$member_task_manager)) self$resolve_task_manager else self$member_task_manager
     if (is.null(manager) || !is.function(manager$has) || !manager$has(uri)) return(FALSE)
@@ -105,6 +105,10 @@ member_metadata_waiting <- function(self, uri, document, point, cursor = NULL, n
         }
     }
     packages <- intersect(request$namespace_packages, referenced)
+    data <- document$parse_data$member_data
+    if (type_hints && length(data$type_hints) && isTRUE(lsp_settings$get("roxygen_type_hints"))) {
+        packages <- union(packages, member_hint_packages(recovered, cursor, referenced, expressions, data, request))
+    }
     # An attached S7 factory is normally written without S7::. Its generated
     # formals still depend on the member worker, even when S3 is disabled.
     if (uses_s7 && any(c("new_class", "new_generic", "deprecated_class", "deprecated_generic", "method<-") %in% referenced)) {
@@ -177,7 +181,7 @@ text_document_completion  <- function(self, id, params) {
     }
     if (identical(document$version, document$parse_data$version) &&
             (index_context_waiting(self, workspace, document, point) ||
-                    member_metadata_waiting(self, uri, document, point, call = document$detect_call(point)) ||
+                    member_metadata_waiting(self, uri, document, point, call = document$detect_call(point), type_hints = TRUE) ||
                     s3_metadata_waiting(self, uri, document, point, hover = FALSE))) {
         enqueue_latest_reply(self, uri, "textDocument/completion", list(id = id, version = document$version, params = params))
         if (is.function(self$resolve_task_manager$promote)) self$resolve_task_manager$promote(uri)

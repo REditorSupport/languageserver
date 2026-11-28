@@ -123,7 +123,7 @@ member_document_cache_revision <- function(document, metadata, source_revision =
 member_binding_cacheable <- function(value, depth = 0L) {
     if (is.null(value)) return(TRUE)
     if (depth > 8L || !is.null(value$origin) || !is.null(value$function_expr) || !is.null(value$closure) ||
-            !is.null(value$binding_expr) || !is.null(value$binding_env) ||
+            !is.null(value$binding_expr) || !is.null(value$binding_env) || !is.null(value$hint_type) ||
             !is.null(value$r6_class) || !is.null(value$r6_identity) || !is.null(value$r6_role) ||
             !is.null(value$s7_descriptor) || !is.null(value$s7_generator) || !is.null(value$s4_generator) || !is.null(value$s4_contains) ||
             (!is.null(value$function_key) && is.null(value$metadata)) ||
@@ -155,6 +155,7 @@ member_local_binding <- function(expr, bindings, referenced = member_syntax_name
 
 member_local_value <- function(value, index, budget, depth = 0L, trail = character(),
     receiver = NULL, context = NULL) {
+    if (!is.null(value$hint_type)) return(member_hinted_value(value$hint_type, index, value$binding_env, budget))
     if (is.null(value$binding_expr)) return(value)
     cache <- value$binding_cache
     if (!is.null(cache) && exists("value", cache, inherits = FALSE)) return(cache$value)

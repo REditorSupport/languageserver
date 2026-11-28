@@ -92,7 +92,7 @@ member_package_context <- function(index, package) {
     owner <- member_namespace_index(index, package)
     if (is.null(owner)) return(NULL)
     context <- list2env(as.list(owner), parent = emptyenv())
-    for (name in c("namespace_indices", "namespace_metadata", "document_bindings", "document_s4",
+    for (name in c("namespace_indices", "namespace_metadata", "document_bindings", "document_s4", "hint_packages",
             "document_binding_cache", "document_context_key", "document_cache",
             "attached_roots", "attached_s4", "methods_attached")) context[[name]] <- index[[name]]
     context
@@ -535,13 +535,13 @@ member_assigned_names <- function(node) {
 
 # Retain lexical inputs used by the function (including nested closures and
 # defaults), rather than copying an entire instance into every generated method.
-member_function_closure <- function(expr, bindings) {
+member_function_closure <- function(expr, bindings, hint_names = NULL) {
     if (!length(bindings)) return(list())
     # Replacement syntax implicitly invokes a lexical setter.
     internal <- intersect(names(bindings), c("$<-", "[[<-", "@<-", member_s7_setters, ".__member_position__", ".__member_properties__",
             ".__s4_classes__", ".__s7_package__", ".__s7_constructing__"))
     if (length(internal) == length(bindings)) return(bindings)
-    referenced <- setdiff(member_syntax_names(expr), names(expr[[2L]]))
+    referenced <- c(setdiff(member_syntax_names(expr), names(expr[[2L]])), hint_names)
     bindings[intersect(names(bindings), c(referenced, internal))]
 }
 
@@ -1010,7 +1010,8 @@ member_infer <- function(
         }
         if (state$falls) member_join(state$returns, state$value) else state$returns
     }
-    bind_arguments <- function(fn, actuals, env, defaults = TRUE) {
+    bind_arguments <- function(fn, actuals, env, defaults = TRUE, hints = NULL) {
+        if (length(hints)) lexical <- env
         formals <- as.list(fn[[2L]])
         keys <- names(formals)
         # An open forwarded dots list can fill any formal. Preparation must
@@ -1020,39 +1021,20 @@ member_infer <- function(
             if ("..." %in% keys) env["..."] <- list(member_value(type = "list", open = TRUE))
             return(env)
         }
+        matched <- s3_match_arguments(formals, actuals)
+        if (is.null(matched)) return(NULL)
         dots <- match("...", keys)
-        before_dots <- if (is.na(dots)) keys else keys[seq_len(dots - 1L)]
-        supplied <- names(actuals)
-        if (is.null(supplied)) supplied <- rep("", length(actuals))
-        matched <- rep(FALSE, length(actuals))
-        used <- character()
-        for (i in which(nzchar(supplied))) {
-            name <- supplied[[i]]
-            candidates <- if (name %in% keys) name else before_dots[startsWith(before_dots, name)]
-            if (length(candidates) == 1L && candidates != "...") {
-                if (candidates %in% used) {
-                    return(NULL)
-                }
-                env[candidates] <- list(actuals[[i]])
-                used <- c(used, candidates)
-                matched[[i]] <- TRUE
-            } else if (length(candidates) > 1L) {
-                return(NULL)
+        ordinary <- if (is.na(dots)) seq_along(actuals) else which(matched != dots)
+        # An empty argument still occupies its position but takes its default.
+        supplied <- ordinary[!vapply(actuals[ordinary], function(value) identical(value$reason, "empty_argument"), logical(1L))]
+        used <- keys[matched[supplied]]
+        env[used] <- actuals[supplied]
+        if (!is.na(dots)) env["..."] <- list(member_value(type = "list", elements = actuals[matched == dots]))
+        if (length(hints)) {
+            for (name in intersect(used, names(hints))) {
+                if (member_needs_type_hint(env[[name]])) env[[name]] <- member_hint_binding(hints[[name]], lexical)
             }
         }
-        available <- setdiff(before_dots, used)
-        for (i in which(!matched & !nzchar(supplied))) {
-            if (!length(available)) break
-            name <- available[[1L]]
-            available <- available[-1L]
-            env[name] <- list(actuals[[i]])
-            used <- c(used, name)
-            matched[[i]] <- TRUE
-        }
-        if (any(!matched) && is.na(dots)) {
-            return(NULL)
-        }
-        if (!is.na(dots)) env["..."] <- list(member_value(type = "list", elements = actuals[!matched]))
         for (name in setdiff(keys, c(used, "..."))) {
             env[name] <- list(if (!defaults) {
                 unknown
@@ -1109,6 +1091,7 @@ member_infer <- function(
         } else {
             NULL
         }
+        if (!is.null(cache_key) && isTRUE(budget$roxygen_type_hints)) cache_key <- paste0("roxygen:", cache_key)
         if (!is.null(cache_key) && exists(cache_key, index$cache, inherits = FALSE)) {
             return(get(cache_key, index$cache, inherits = FALSE))
         }
@@ -1122,7 +1105,8 @@ member_infer <- function(
             }
             fn <- returned$fn
         }
-        env <- bind_arguments(fn, actuals, lexical)
+        hints <- if (isTRUE(budget$roxygen_type_hints)) member_function_hints(fn)
+        env <- bind_arguments(fn, actuals, lexical, hints = hints$params)
         if (is.null(env)) {
             return(member_value(reason = "argument_matching"))
         }
@@ -1185,6 +1169,9 @@ member_infer <- function(
                 depth = depth + 1L,
                 trail = if (is.null(key)) trail else c(trail, key), budget = budget, context = ctx
             )
+            if (length(hints$returns) && member_needs_type_hint(result)) {
+                result <- member_hinted_value(hints$returns, index, lexical, budget)
+            }
         }
         if (!is.null(cache_key) && !budget$exhausted && !isTRUE(budget$transient) && is.null(result$function_expr)) {
             size <- as.numeric(utils::object.size(result))
@@ -1206,6 +1193,7 @@ member_infer <- function(
         key <- as.character(expr)
         if (key %in% names(bindings)) {
             value <- bindings[[key]]
+            if (!is.null(value$hint_type)) return(member_local_value(value, index, budget))
             if (!is.null(value$binding_expr)) {
                 if (!is.null(value$binding_cache)) {
                     return(member_local_value(value, index, budget, depth, trail, receiver, context))
@@ -1274,8 +1262,11 @@ member_infer <- function(
         return(if (length(results)) Reduce(member_join, results) else member_literal(NULL))
     }
     if (member_head(expr, "function")) {
+        hints <- if (isTRUE(budget$roxygen_type_hints)) member_function_hints(expr)
+        if (length(hints)) attr(expr, "member_type_hints") <- hints
         package <- if (isTRUE(context$namespace_code)) index$package else NULL
-        return(member_value(function_expr = expr, closure = member_function_closure(expr, bindings), metadata = package))
+        closure <- member_function_closure(expr, bindings, unlist(hints, use.names = FALSE))
+        return(member_value(function_expr = expr, closure = closure, metadata = package))
     }
     if (member_is_r6_call(expr, index, bindings)) {
         return(member_r6_shape(expr, index, bindings, budget, depth, trail))
@@ -1456,7 +1447,11 @@ member_infer <- function(
     actuals <- vector("list", length(args))
     names(actuals) <- names(args)
     for (i in seq_along(args)) {
-        actuals[[i]] <- if (identical(unname(args[i]), list(quote(expr = )))) member_value(type = ".missing") else infer(args[[i]])
+        actuals[[i]] <- if (identical(unname(args[i]), list(quote(expr = )))) {
+            member_value(type = ".missing", reason = "empty_argument")
+        } else {
+            infer(args[[i]])
+        }
         if (isTRUE(budget$exhausted)) return(member_value(reason = "budget"))
     }
     origins <- if (!is.null(budget$origin_name)) attr(expr, "member_origins", exact = TRUE)

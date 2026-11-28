@@ -423,7 +423,7 @@ glue_request_waiting <- function(self, uri, workspace, context, method) {
     hover <- identical(method, "textDocument/hover")
     call <- inner$detect_call(point, signature = signature)
     if (index_context_waiting(self, workspace, inner, point, hover = hover, call = if (signature) call)) return(TRUE)
-    if (!hover && member_metadata_waiting(self, uri, inner, point, call = call)) return(TRUE)
+    if (!hover && member_metadata_waiting(self, uri, inner, point, call = call, type_hints = identical(method, "textDocument/completion"))) return(TRUE)
     if (identical(method, "textDocument/definition")) return(FALSE)
     s3_metadata_waiting(self, uri, inner, point, hover = hover, call = if (signature) call)
 }
