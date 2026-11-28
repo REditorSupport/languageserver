@@ -111,3 +111,16 @@ test_that("the foundation only uses hints for member completion", {
     expect_null(member_resolve_cursor(f$uri, f$workspace, f$document, f$point, cursor)$value$type)
     expect_true("collect" %in% type_hint_labels(f))
 })
+
+test_that("documented wrappers match exact names before partial names and use defaults for empty arguments", {
+    definitions <- c(type_hint_box, "#' @param application (`Box`) Input.",
+        "wrap <- function(apple, application = list(default = TRUE), ...) application")
+    for (call in c("wrap(app = opaque(), apple = 1)", "wrap(apple = 1, app = opaque())")) {
+        f <- type_hint_fixture(c(definitions, paste0(call, "$@@collect")))
+        expect_true("collect" %in% type_hint_labels(f))
+    }
+    f <- type_hint_fixture(c(definitions, "wrap(1, , extra = 2)$@@default"))
+    expect_identical(type_hint_labels(f), "default")
+    f <- type_hint_fixture(c(definitions, "wrap(app = opaque())$@@collect"))
+    expect_false("collect" %in% type_hint_labels(f))
+})

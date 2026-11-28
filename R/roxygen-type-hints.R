@@ -44,8 +44,10 @@ roxygen_type_index <- function(content, data) {
     comments <- comments[grepl("^\\s*#'", content[line[comments]])]
     if (!length(comments)) return(NULL)
     groups <- split(comments, cumsum(c(TRUE, diff(line[comments]) != 1L)))
-    result <- list()
-    for (group in groups) {
+    result <- vector("list", length(groups))
+    positions <- character(length(groups))
+    for (j in seq_along(groups)) {
+        group <- groups[[j]]
         if (!roxygen_has_type_span(text[group])) next
         end <- group[[length(group)]]
         i <- end + 1L
@@ -56,9 +58,12 @@ roxygen_type_index <- function(content, data) {
         }
         if (i > length(token) || !token[[i]] %in% c("FUNCTION", r"('\\')")) next
         hints <- roxygen_type_block(text[group])
-        if (!is.null(hints)) result[[paste(line[[i]], data$col1[terminals[[i]]], sep = ":")]] <- hints
+        if (is.null(hints)) next
+        result[[j]] <- hints
+        positions[[j]] <- paste(line[[i]], data$col1[terminals[[i]]], sep = ":")
     }
-    if (length(result)) result
+    keep <- which(nzchar(positions))
+    if (length(keep)) stats::setNames(result[keep], positions[keep])
 }
 
 # All function literals in a parser fragment share the same srcfile. Keep
