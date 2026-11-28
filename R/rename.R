@@ -333,17 +333,16 @@ rename_roxygen_edits <- function(document, formal, new_name) {
     quote_label <- grepl("[[:space:],`]", new_name)
     replacement <- if (quote_label) quote_completion_name(new_name) else new_name
     edits <- list()
-    add_tag_edits <- function(line, offset) {
+    tag_edits <- function(line, offset) {
         parameters <- rename_roxygen_names(document$content[[line + 1L]], offset)
         matches <- Filter(function(parameter) identical(parameter$name, name), parameters)
         # Only a whole roxygen label can be quoted. Quoting an individual
         # name changes how the other names and the description are parsed.
-        if (length(matches) && length(parameters) > 1L && quote_label) return(FALSE)
-        edits <<- c(edits, lapply(matches, function(parameter) {
+        if (length(matches) && length(parameters) > 1L && quote_label) return(NULL)
+        lapply(matches, function(parameter) {
             text_edit(range(document$to_lsp_position(line, parameter$start),
                     document$to_lsp_position(line, parameter$end)), replacement)
-        }))
-        TRUE
+        })
     }
     # Verified typed tags may be separated from their declaration by blank
     # lines or comments. Each union shares a single parameter-name spelling.
@@ -355,7 +354,9 @@ rename_roxygen_edits <- function(document, formal, new_name) {
             sites$function_col == syntax$col1[[owner]] - 1L
         typed <- unique(sites[keep, c("parameter_row", "parameter_start"), drop = FALSE])
         for (i in seq_len(nrow(typed))) {
-            if (!add_tag_edits(typed$parameter_row[[i]], typed$parameter_start[[i]])) return(NULL)
+            tag <- tag_edits(typed$parameter_row[[i]], typed$parameter_start[[i]])
+            if (is.null(tag)) return(NULL)
+            edits <- c(edits, tag)
         }
     }
     declaration <- rename_function_declaration(syntax, row)
@@ -395,7 +396,9 @@ rename_roxygen_edits <- function(document, formal, new_name) {
             }
         }
         if (interrupted || any(typed$parameter_row == name_row - 1L & typed$parameter_start == offset)) next
-        if (!add_tag_edits(name_row - 1L, offset)) return(NULL)
+        tag <- tag_edits(name_row - 1L, offset)
+        if (is.null(tag)) return(NULL)
+        edits <- c(edits, tag)
     }
     edits
 }

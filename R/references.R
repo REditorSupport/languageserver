@@ -331,6 +331,7 @@ reference_source_contexts <- function(workspace, callers, name, hint_uris = char
     callers <- unlist(callers, use.names = FALSE)
     missing_hints <- setdiff(hint_uris, callers)
     if (!multiple && !length(missing_hints)) return(contexts)
+    shared <- if (multiple && check_callers) reference_shared_readers(workspace, callers, name)
     for (uri in callers) {
         doc <- workspace$documents$get(uri, NULL)
         if (!is.null(doc$parse_data) && !length(doc$parse_data$member_data$sources)) next
@@ -358,7 +359,9 @@ reference_source_contexts <- function(workspace, callers, name, hint_uris = char
             files = union(needed$files, c(uri, names(view$positions))), multiple = split,
             extra = if (split) names(view$positions) else added)
     }
-    if (multiple && length(contexts)) contexts <- reference_source_shared_contexts(workspace, contexts)
+    if (multiple && check_callers && (length(contexts) || length(shared$readers) || length(shared$pending))) {
+        contexts <- reference_source_shared_contexts(workspace, contexts, c(shared$readers, shared$pending))
+    }
     if (check_callers && length(missing_hints)) {
         shared <- intersect(missing_hints, unlist(lapply(contexts, `[[`, "extra"), use.names = FALSE))
         others <- reference_hint_callers(workspace$index, shared, union(callers, names(contexts)))
@@ -368,6 +371,36 @@ reference_source_contexts <- function(workspace, callers, name, hint_uris = char
         }
     }
     contexts
+}
+
+# A shared reader may run under two entry scripts which each source only one
+# declaration. Examine just their shared subtrees and only hydrate other entry
+# scripts after the reader's own parse has confirmed a matching use.
+reference_shared_readers <- function(workspace, callers, name) {
+    index <- workspace$index
+    if (!isTRUE(index$shared_source_count > 0L)) return(NULL)
+    callers <- as.character(unlist(callers, use.names = FALSE))
+    roots <- callers[vapply(callers, function(uri) {
+        length(index$source_edges$get(uri, character())) && !length(index$reverse_edges$get(uri, character()))
+    }, logical(1L))]
+    if (!length(roots)) return(NULL)
+    scope <- unique(unlist(lapply(roots, index$source_closure), use.names = FALSE))
+    joins <- scope[vapply(scope, function(uri) length(index$reverse_edges$get(uri, character())) > 1L, logical(1L))]
+    shared <- unique(unlist(lapply(joins, index$source_closure), use.names = FALSE))
+    if (!length(shared)) return(NULL)
+    key <- paste0("global:", name)
+    reads <- vapply(shared, function(uri) {
+        doc <- workspace$documents$get(uri, NULL)
+        data <- doc$parse_data
+        if (is.null(data) || !identical(doc$version, data$version) || !identical(doc$content, doc$parsed_content)) return(NA)
+        indexed <- data$reference_index
+        rows <- reference_indices(indexed, name, key)
+        if (any(!indexed$is_definition[rows]) || isTRUE(data$parse_error) || length(data$partial_incomplete_lines)) return(TRUE)
+        if (!length(data$glue_templates) && !length(attr(data$glue_templates, "unmapped"))) return(FALSE)
+        catalog <- glue_reference_catalog(doc)
+        length(catalog$uncertain) > 0L || !is.null(catalog$by_name[[name]]) || length(attr(data$glue_templates, "unmapped")) > 0L
+    }, logical(1L))
+    list(readers = shared[which(reads)], pending = shared[is.na(reads)])
 }
 
 # A shared script can also run from an entry point which never imports the
@@ -385,9 +418,9 @@ reference_source_other_roots <- function(index, files) {
     }), use.names = FALSE))
 }
 
-reference_source_shared_contexts <- function(workspace, contexts) {
+reference_source_shared_contexts <- function(workspace, contexts, readers) {
     split <- Filter(function(context) context$multiple, contexts)
-    files <- unique(unlist(lapply(split, `[[`, "files"), use.names = FALSE))
+    files <- unique(c(readers, unlist(lapply(split, `[[`, "files"), use.names = FALSE)))
     idx <- workspace$index
     for (root in reference_source_other_roots(idx, files)) {
         shared <- intersect(idx$source_closure(root), files)
@@ -395,6 +428,8 @@ reference_source_shared_contexts <- function(workspace, contexts) {
         view <- if (!is.null(doc$parse_data) && identical(doc$version, doc$parse_data$version)) {
             member_workspace_view(workspace, doc, positions = TRUE)
         }
+        if (isTRUE(view$positions_complete)) shared <- intersect(shared, names(view$positions))
+        if (!length(shared)) next
         positions <- view$positions[intersect(names(view$positions), shared)]
         if (!is.null(contexts[[root]])) {
             positions <- view$positions
@@ -620,7 +655,7 @@ references_reply <- function(id, uri, workspace, document, point,
                 multiple <- workspace$index$multiple_definition_files(token$token)
                 hints <- reference_hint_uris(workspace$index, token$token, new_name)
                 contexts <- reference_source_contexts(workspace, doc_uris, token$token, hints, multiple)
-                split <- Filter(function(x) x$multiple, contexts)
+                split <- Filter(function(x) x$multiple && uri %in% x$files, contexts)
                 if (length(split)) {
                     row <- reference_index_at(parse_data$reference_index, token_point, token$token)
                     owner <- reference_source_owner(split, document, row, token$token)
@@ -984,10 +1019,12 @@ reference_source_dependencies <- function(workspace, callers, name, new_name) {
     multiple <- index$multiple_definition_files(name)
     hints <- setdiff(reference_hint_uris(index, name, new_name), callers)
     if (!multiple && !length(hints)) return(character())
+    readers <- if (multiple) reference_shared_readers(workspace, callers, name)
     found <- lapply(callers, function(uri) reference_source_files(index, uri, name, hints, multiple))
     shared <- unique(unlist(lapply(found, `[[`, "added"), use.names = FALSE))
     others <- reference_hint_callers(index, shared, callers)
     split <- Filter(function(source) isTRUE(source$multiple), found)
-    others <- union(others, reference_source_other_roots(index, unique(unlist(lapply(split, `[[`, "files"), use.names = FALSE))))
-    unique(c(unlist(lapply(found, `[[`, "files"), use.names = FALSE), unlist(lapply(others, index$source_closure), use.names = FALSE)))
+    files <- unique(c(readers$readers, unlist(lapply(split, `[[`, "files"), use.names = FALSE)))
+    others <- union(others, reference_source_other_roots(index, files))
+    unique(c(readers$pending, files, unlist(lapply(found, `[[`, "files"), use.names = FALSE), unlist(lapply(others, index$source_closure), use.names = FALSE)))
 }

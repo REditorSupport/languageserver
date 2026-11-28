@@ -341,3 +341,16 @@ test_that("quoted property and slot reads use every documented union alternative
         expect_length(probe(c(s4, s7), "Left | B", call, metadata), 0L)
     }
 })
+
+test_that("cached shapes reject documented arguments nested in optional receiver state", {
+    concrete <- member_value(type = "integer")
+    documented <- member_value(type = "integer")
+    documented$hint_types <- "integer"
+    for (field in c("r6_private", "r6_super", "r6_self", "s7_storage", "element_shape")) {
+        value <- member_value(type = "list", fields = list(ordinary = concrete))
+        value[[field]] <- member_value(type = "list", fields = list(child = concrete))
+        expect_true(member_cacheable(value))
+        value[[field]]$fields$child <- documented
+        expect_false(member_cacheable(value))
+    }
+})
