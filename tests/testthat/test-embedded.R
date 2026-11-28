@@ -1,4 +1,4 @@
-embedded_client <- function(folders = NULL) {
+embedded_client <- function(folders = NULL, diagnostic_refresh = FALSE) {
     receive <- run_embedded()
     send <- function(method, params = list(), id = NULL) {
         packet <- list(jsonrpc = "2.0", method = method, params = params)
@@ -7,6 +7,7 @@ embedded_client <- function(folders = NULL) {
         if (length(result)) jsonlite::fromJSON(result[[1L]], simplifyVector = FALSE)
     }
     init <- send("initialize", list(workspaceFolders = folders, capabilities = list(
+        workspace = list(diagnostics = list(refreshSupport = diagnostic_refresh)),
         textDocument = list(documentSymbol = list(hierarchicalDocumentSymbolSupport = TRUE)))), 1L)
     list(send = send, capabilities = init$result$capabilities,
         open = function(uri, text, version = 1L, language = "r") {
@@ -190,4 +191,20 @@ test_that("embedded lintr uses only the selected non-evaluating rule", {
     lints <- e$ask("diagnostic", u)$result$items
     expect_length(lints, 2L)
     expect_true(all(vapply(lints, function(x) x$source == "lintr" && x$range$start$line == 1L, logical(1))))
+})
+
+test_that("pull diagnostics refresh after effective configuration changes", {
+    configure <- function(client, ...) client$send("workspace/didChangeConfiguration", list(settings = list(...)))
+    supported <- embedded_client(diagnostic_refresh = TRUE)
+    off <- configure(supported, diagnostics = FALSE)
+    expect_identical(off$method, "workspace/diagnostic/refresh")
+    expect_null(configure(supported, diagnostics = FALSE))
+    expect_null(configure(supported, diagnostics_backend = "jarl"))
+    on <- configure(supported, diagnostics = TRUE)
+    expect_identical(on$method, off$method)
+    expect_false(identical(on$id, off$id))
+    withr::local_options(languageserver.diagnostics = TRUE)
+    expect_null(configure(supported, diagnostics = FALSE))
+    other <- embedded_client()
+    expect_null(configure(other, diagnostics_backend = "jarl"))
 })

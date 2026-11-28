@@ -24,8 +24,17 @@ run_embedded <- function() {
     formatting <- FALSE
     diagnostics <- TRUE
     lint <- TRUE
+    refresh_id <- 0
     generated <- NULL
     state <- "new"
+
+    diagnostic_mode <- function() {
+        if (!isTRUE(getOption("languageserver.diagnostics", diagnostics))) return("off")
+        if (identical(getOption("languageserver.diagnostics_backend", if (lint) "lintr" else ""), "lintr")) {
+            return("lintr")
+        }
+        "syntax"
+    }
 
     workspace_for <- function(uri) {
         folder <- folders[startsWith(uri, folders)]
@@ -52,10 +61,8 @@ run_embedded <- function() {
         if (is.null(uri)) return(ResponseErrorMessage$new(id, "MethodNotFound", method))
         if (identical(method, "textDocument/diagnostic")) {
             doc <- workspace_for(uri)$documents$get(uri, NULL)
-            enabled <- isTRUE(getOption("languageserver.diagnostics", diagnostics))
-            use_lintr <- identical(getOption("languageserver.diagnostics_backend",
-                if (lint) "lintr" else ""), "lintr")
-            return(Response$new(id, embedded_diagnostics(doc, enabled, use_lintr, params$previousResultId)))
+            mode <- diagnostic_mode()
+            return(Response$new(id, embedded_diagnostics(doc, mode != "off", mode == "lintr", params$previousResultId)))
         }
         operation <- switch(method,
             "textDocument/completion" = function() completion_reply(id, uri, ws, doc, point,
@@ -136,10 +143,15 @@ run_embedded <- function() {
         uri <- params$textDocument$uri
         if (!request) {
             if (identical(method, "workspace/didChangeConfiguration")) {
+                previous <- diagnostic_mode()
                 settings <- params$settings
                 if (!is.null(settings$r$lsp)) settings <- settings$r$lsp
                 if (!is.null(settings$diagnostics)) diagnostics <<- isTRUE(settings$diagnostics)
                 if (!is.null(settings$diagnostics_backend)) lint <<- identical(settings$diagnostics_backend, "lintr")
+                if (!identical(previous, diagnostic_mode()) && isTRUE(capabilities$workspace$diagnostics$refreshSupport)) {
+                    refresh_id <<- refresh_id + 1
+                    return(Request$new(paste0("diagnostics-", refresh_id), "workspace/diagnostic/refresh"))
+                }
             }
             if (!is.null(uri)) embedded_text_sync(workspace_for(uri), method, uri, params)
             return(NULL)
