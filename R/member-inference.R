@@ -1276,39 +1276,15 @@ member_infer <- function(
             if ("..." %in% keys) env["..."] <- list(member_value(type = "list", open = TRUE))
             return(env)
         }
+        matched <- s3_match_arguments(formals, actuals)
+        if (is.null(matched)) return(NULL)
         dots <- match("...", keys)
-        before_dots <- if (is.na(dots)) keys else keys[seq_len(dots - 1L)]
-        supplied <- names(actuals)
-        if (is.null(supplied)) supplied <- rep("", length(actuals))
-        matched <- rep(FALSE, length(actuals))
-        used <- character()
-        for (i in which(nzchar(supplied))) {
-            name <- supplied[[i]]
-            candidates <- if (name %in% keys) name else before_dots[startsWith(before_dots, name)]
-            if (length(candidates) == 1L && candidates != "...") {
-                if (candidates %in% used) {
-                    return(NULL)
-                }
-                env[candidates] <- list(actuals[[i]])
-                used <- c(used, candidates)
-                matched[[i]] <- TRUE
-            } else if (length(candidates) > 1L) {
-                return(NULL)
-            }
-        }
-        available <- setdiff(before_dots, used)
-        for (i in which(!matched & !nzchar(supplied))) {
-            if (!length(available)) break
-            name <- available[[1L]]
-            available <- available[-1L]
-            env[name] <- list(actuals[[i]])
-            used <- c(used, name)
-            matched[[i]] <- TRUE
-        }
-        if (any(!matched) && is.na(dots)) {
-            return(NULL)
-        }
-        if (!is.na(dots)) env["..."] <- list(member_value(type = "list", elements = actuals[!matched]))
+        ordinary <- if (is.na(dots)) seq_along(actuals) else which(matched != dots)
+        # An empty argument still occupies its position but takes its default.
+        supplied <- ordinary[!vapply(actuals[ordinary], function(value) identical(value$reason, "empty_argument"), logical(1L))]
+        used <- keys[matched[supplied]]
+        env[used] <- actuals[supplied]
+        if (!is.na(dots)) env["..."] <- list(member_value(type = "list", elements = actuals[matched == dots]))
         if (length(param_hints)) {
             for (name in intersect(used, names(param_hints))) {
                 env[[name]] <- member_hinted_argument(env[[name]], param_hints[[name]], lexical)
@@ -1791,7 +1767,11 @@ member_infer <- function(
         on.exit(budget$track_returns <- NULL, add = TRUE)
     }
     for (i in seq_along(args)) {
-        actuals[[i]] <- if (identical(unname(args[i]), list(quote(expr = )))) member_value(type = ".missing") else infer(args[[i]])
+        actuals[[i]] <- if (identical(unname(args[i]), list(quote(expr = )))) {
+            member_value(type = ".missing", reason = "empty_argument")
+        } else {
+            infer(args[[i]])
+        }
         if (isTRUE(budget$exhausted)) return(member_value(reason = "budget"))
     }
     if (track_args) budget$track_returns <- NULL

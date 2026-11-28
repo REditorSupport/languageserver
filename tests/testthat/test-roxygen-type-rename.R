@@ -57,6 +57,19 @@ test_that("renaming an S7 property preserves its roxygen class qualifier", {
     expect_identical(doc[[1L]]$newText, "Display@entry")
 })
 
+test_that("R6 field rename preserves the other names in a shared field tag", {
+    lines <- c("#' @field left,right (`Date`) Payloads.",
+        'G <- R6::R6Class("G", public = list(left = NULL, right = NULL))', "G$new()$right")
+    f <- type_rename_fixture(lines)
+    rename <- function(name) type_rename(f, 2L, nchar(lines[[3L]]) - 1L, name)
+    edits <- rename("second")$result$changes[[f$uri]]
+    doc <- Filter(function(e) e$range$start$line == 0L, edits)
+    expect_length(doc, 1L)
+    expect_identical(doc[[1L]]$range, range(position(0L, 15L), position(0L, 20L)))
+    expect_identical(doc[[1L]]$newText, "second")
+    expect_match(rename("second field")$error$message, "grouped roxygen")
+})
+
 test_that("renaming a generator or its alias updates only its bound type names", {
     lines <- c('Maker <- R6::R6Class("Record", public = list(answer = 42))',
         "Alias <- Maker", "#' @param x (`Maker | Alias`) a record", "#' @return (`Maker`) a record",
@@ -181,4 +194,20 @@ test_that("annotations in a sourced consumer use the binding present when it was
     open("main.R", c('source("first.R")', 'source("consumer.R")', 'source("second.R")', 'source("consumer.R")'))
     expect_null(rename(first)$result)
     expect_match(rename(first)$error$message, "documented type|sourced declarations")
+})
+
+test_that("later local assignments do not own earlier generator annotations", {
+    f <- type_rename_fixture(c('Maker <- R6::R6Class("Global")', "outer <- function() {",
+            "  #' @return (`Maker`)", "  before <- function() opaque()",
+            '  Maker <- R6::R6Class("Local")', "  #' @return (`Maker`)", "  after <- function() opaque()",
+            "  inner <- function() {", "    #' @return (`Maker`)", "    nested <- function() opaque()",
+            "    Maker <- 123", "  }", "}"))
+    rows <- function(row, col) {
+        reply <- type_rename(f, row, col, "Builder")
+        expect_null(reply$error)
+        vapply(reply$result$changes[[f$uri]], function(edit) edit$range$start$line, integer(1L))
+    }
+    expect_setequal(rows(0L, 1L), c(0L, 2L))
+    expect_setequal(rows(4L, 3L), c(4L, 5L, 8L))
+    expect_identical(rows(10L, 5L), 10L)
 })

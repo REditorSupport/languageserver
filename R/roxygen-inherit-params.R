@@ -40,7 +40,7 @@ roxygen_document_topics <- function(document) {
 }
 
 # Literal roxygen selections, including exclusions and ranges. Never evaluate
-# expressions supplied in documentation. Invalid selectors select no entries.
+# expressions supplied in documentation. NULL means the selector is unverified.
 roxygen_selected_params <- function(args, selector) {
     if (!nzchar(selector)) return(args)
     args <- setdiff(args, "...")
@@ -53,14 +53,16 @@ roxygen_selected_params <- function(args, selector) {
             if (startsWith(term, "(") && endsWith(term, ")")) {
                 term <- substr(term, 2L, nchar(term) - 1L)
             } else if (grepl(":", term, fixed = TRUE)) {
-                return(character())
+                return(NULL)
             }
         }
-        if (!nzchar(term) || endsWith(term, ":")) return(character())
+        if (!nzchar(term) || endsWith(term, ":")) return(NULL)
         ends <- strsplit(term, ":", fixed = TRUE)[[1L]]
-        if (!all(grepl(paste0("(*UCP)^", roxygen_type_identifier, "$"), ends, perl = TRUE))) return(character())
         pos <- match(ends, args)
-        if (length(pos) > 2L || anyNA(pos)) return(character())
+        numeric <- grepl("^[1-9][0-9]*L?$", ends)
+        if (!all(numeric | grepl(paste0("(*UCP)^", roxygen_type_identifier, "$"), ends, perl = TRUE))) return(NULL)
+        if (any(numeric)) pos[numeric] <- suppressWarnings(as.integer(sub("L$", "", ends[numeric])))
+        if (length(pos) > 2L || anyNA(pos) || any(pos > length(args))) return(NULL)
         if (length(pos) == 2L) pos <- seq.int(pos[[1L]], pos[[2L]])
         selected[pos] <- !exclude
     }
@@ -99,7 +101,9 @@ roxygen_inherited_groups <- function(record, uri, donor) {
             available <- unlist(lapply(inherited, `[[`, "names"), use.names = FALSE)
             selected <- available
             if (all(nzchar(selectors))) {
-                selected <- unique(unlist(lapply(selectors, function(s) roxygen_selected_params(available, s)), use.names = FALSE))
+                selections <- lapply(selectors, function(s) roxygen_selected_params(available, s))
+                if (any(vapply(selections, is.null, logical(1L)))) return(list(groups = groups, complete = FALSE))
+                selected <- unique(unlist(selections, use.names = FALSE))
             }
             for (group in inherited) {
                 if (!any(group$names %in% selected)) next
@@ -116,7 +120,7 @@ roxygen_inherited_groups <- function(record, uri, donor) {
         list(groups = groups, complete = TRUE)
     }
     record$uri <- uri
-    walk(record, paste(uri, record$row, record$col, sep = "\n"))$groups
+    walk(record, paste(uri, record$row, record$col, sep = "\n"))
 }
 
 # Resolve documentation groups as a unit. Untyped prose also consumes a
@@ -216,7 +220,7 @@ roxygen_effective_params <- function(hints, workspace, document, hint_wait = NUL
         if (sum(vapply(matches, function(x) identical(x$page, owner$page), logical(1L))) == 1L) owner
     }
 
-    for (group in roxygen_inherited_groups(record, uri, donor)) {
+    for (group in roxygen_inherited_groups(record, uri, donor)$groups) {
         add <- setdiff(group$names, record$documented)
         if (length(add) && !is.null(group$origin)) direct[add] <- rep(list(group$origin), length(add))
     }

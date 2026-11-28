@@ -64,3 +64,21 @@ test_that("qualified inline descriptions follow S7 bindings and literal S4 decla
     expect_identical(classes[[3L]]$hints$slot, list(raw = "LegacyValue"))
     expect_identical(attr(hints, "occurrences")$type, c("S7Value", "StoredValue", "LegacyValue"))
 })
+
+test_that("class annotations sharing a statement attach to their own factories", {
+    types <- paste0("Payload", seq_len(20L))
+    declarations <- paste0("C", seq_along(types), ' <- methods::setClass("C', seq_along(types), '", slots = c(item = "ANY"))')
+    code <- c("local({", as.vector(rbind(paste0("#' @slot item (`", types, "`)"), declarations)), "untouched()", "})")
+    parsed <- parse(text = code, keep.source = TRUE)
+    hints <- member_roxygen_type_index(code, utils::getParseData(parsed), uri = "file:///classes.R")
+    attached <- member_attach_type_hints(parsed, hints)
+    block <- attached[[1L]][[2L]]
+    for (i in seq_along(types)) {
+        assignment <- block[[i + 1L]]
+        expect_identical(attr(assignment[[3L]], "member_class_hints")$slot$item, types[[i]])
+        expect_identical(attr(assignment, "member_type_names"), types[[i]])
+    }
+    expect_setequal(attr(block, "member_type_names"), types)
+    expect_identical(attr(parsed, "srcref"), attr(attached, "srcref"))
+    expect_identical(block[[length(block)]], quote(untouched()))
+})

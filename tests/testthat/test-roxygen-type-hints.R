@@ -96,3 +96,19 @@ test_that("a package hint waits for its model only when its receiver is used", {
     expect_length(member_package_request(f$document$parse_data)$namespace_packages, 0L)
     expect_false(member_metadata_waiting(server, f$uri, f$document, f$point))
 })
+
+test_that("documented wrappers match exact names before partial names and use defaults for empty arguments", {
+    definitions <- c(type_hint_box, "#' @param application (`Box`) Input.",
+        "wrap <- function(apple, application = list(default = TRUE), ...) application")
+    for (call in c("wrap(app = opaque(), apple = 1)", "wrap(apple = 1, app = opaque())")) {
+        f <- type_hint_fixture(c(definitions, paste0(call, "$@@collect")))
+        expect_true("collect" %in% type_hint_labels(f))
+    }
+    f <- type_hint_fixture(c(definitions, "wrap(1, , extra = 2)$@@default"))
+    expect_identical(type_hint_labels(f), "default")
+    f <- type_hint_fixture(c(definitions, "forward <- function(x) wrap(1, application = x)",
+            "forward()$@@default"))
+    expect_false("default" %in% type_hint_labels(f))
+    f <- type_hint_fixture(c(definitions, "wrap(app = opaque())$@@collect"))
+    expect_false("collect" %in% type_hint_labels(f))
+})

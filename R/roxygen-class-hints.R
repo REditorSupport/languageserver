@@ -168,8 +168,10 @@ roxygen_class_block <- function(s, target, comments, tags, typed, rows, cols, re
     fields <- if ("field" %in% directives && any(grepl("@field", comments, fixed = TRUE))) {
         pattern <- paste0("^#'\\s*@field\\s+(", roxygen_param_spelling, ")(?:\\s|$)")
         matches <- regmatches(comments, regexec(pattern, comments, perl = TRUE))
-        field_names <- reference_symbol_names(vapply(matches[lengths(matches) > 0L], `[[`, "", 2L))
-        if (!is.null(target$field)) intersect(field_names, target$field) else field_names
+        labels <- vapply(matches[lengths(matches) > 0L], `[[`, "", 2L)
+        groups <- lapply(labels, roxygen_param_names)
+        if (!is.null(target$field)) groups <- Filter(function(keys) target$field %in% keys, groups)
+        unlist(groups, use.names = FALSE)
     }
     roxygen_class_record(factory, record, values, documented, fields)
 }
@@ -257,37 +259,56 @@ member_attach_class_hints <- function(parsed, classes, row_offset, col_offset) {
     keys <- paste(lines + row_offset, cols + (lines == 1L) * col_offset, sep = ":")
     anchors <- lapply(classes, function(record) names(record$anchors))
     roots <- utils::relist(match(unlist(anchors, use.names = FALSE), keys, nomatch = 0L), anchors)
-    used <- vector("list", length(classes))
-    for (j in seq_along(classes)) {
-        record <- classes[[j]]
-        root <- roots[[j]]
+    paths <- lapply(seq_along(classes), function(i) {
+        root <- roots[[i]]
         anchor <- match(TRUE, root > 0L)
-        if (is.na(anchor)) next
-        statement <- root[[anchor]]
-        path <- record$anchors[[anchor]]
-        nodes <- vector("list", length(path))
-        child <- parsed[[statement]]
-        for (i in seq_along(path)) {
-            if ((!is.call(child) && !is.expression(child) && !is.pairlist(child)) || path[[i]] > length(child)) break
-            nodes[[i]] <- child
-            child <- child[[path[[i]]]]
+        if (!is.na(anchor)) c(root[[anchor]], classes[[i]]$anchors[[anchor]])
+    })
+    depths <- lengths(paths)
+    # Several documented classes may live in one brace or call. Rebuild their
+    # shared ancestors once. Each source route is bounded to 128 levels.
+    attach <- function(node, ids, depth) {
+        at <- depths[ids] == depth
+        added <- NULL
+        for (i in ids[at]) {
+            if (!is.call(node)) next
+            head <- node[[1L]]
+            if (member_head(head, "::")) head <- head[[3L]]
+            record <- classes[[i]]
+            if (!identical(head, as.name(record$factory))) next
+            attr(node, "member_class_hints") <- record$hints
+            added <- member_type_dependencies(record$hints)
         }
-        if ((length(path) && is.null(nodes[[length(path)]])) || !is.call(child)) next
-        head <- child[[1L]]
-        if (member_head(head, "::")) head <- head[[3L]]
-        if (!identical(head, as.name(record$factory))) next
-        attr(child, "member_class_hints") <- record$hints
-        dependencies <- member_type_dependencies(record$hints)
-        used[[j]] <- dependencies
-        attr(child, "member_type_names") <- union(attr(child, "member_type_names", exact = TRUE), dependencies)
-        for (i in rev(seq_along(path))) {
-            parent <- nodes[[i]]
-            parent[[path[[i]]]] <- child
-            attr(parent, "member_type_names") <- union(attr(parent, "member_type_names", exact = TRUE), dependencies)
-            child <- parent
+        below <- ids[!at]
+        if (length(below) && (is.call(node) || is.expression(node) || is.pairlist(node))) {
+            if (length(below) == 1L) {
+                slot <- paths[[below]][[depth + 1L]]
+                if (slot <= length(node) && !is.null(node[[slot]]) && !identical(node[[slot]], quote(expr = ))) {
+                    child <- attach(node[[slot]], below, depth + 1L)
+                    node[[slot]] <- child
+                    added <- c(added, attr(child, "member_type_names", exact = TRUE))
+                }
+            } else {
+                slots <- vapply(paths[below], `[[`, integer(1L), depth + 1L)
+                valid <- slots <= length(node)
+                groups <- split(below[valid], slots[valid])
+                parts <- as.list(node)
+                used <- vector("list", length(groups))
+                for (j in seq_along(groups)) {
+                    slot <- as.integer(names(groups)[[j]])
+                    if (identical(parts[[slot]], quote(expr = ))) next
+                    child <- attach(parts[[slot]], groups[[j]], depth + 1L)
+                    parts[slot] <- list(child)
+                    used[j] <- list(attr(child, "member_type_names", exact = TRUE))
+                }
+                rebuilt <- if (is.call(node)) as.call(parts) else if (is.expression(node)) as.expression(parts) else as.pairlist(parts)
+                attributes(rebuilt) <- attributes(node)
+                node <- rebuilt
+                added <- c(added, unlist(used, use.names = FALSE))
+            }
         }
-        parsed[[statement]] <- child
+        if (length(added)) attr(node, "member_type_names") <- union(attr(node, "member_type_names", exact = TRUE), added)
+        node
     }
-    attr(parsed, "member_type_names") <- union(attr(parsed, "member_type_names", exact = TRUE), unlist(used, use.names = FALSE))
-    parsed
+    attach(parsed, which(depths > 0L), 0L)
 }

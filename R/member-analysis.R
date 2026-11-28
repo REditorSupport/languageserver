@@ -75,8 +75,7 @@ member_history_owner <- function(history, at, uri) {
     if (!position) return(NULL)
     first <- history[[position]]$first_write
     if (!is.null(first)) {
-        if (first <= 1L || any(vapply(history[seq.int(first, position)],
-                    function(entry) identical(entry$expr, quote(.__unknown_branch_write__)), logical(1L)))) return(NULL)
+        if (first <= 1L || isTRUE(history[[position]]$uncertain_owner)) return(NULL)
         position <- first - 1L
     }
     source <- history[[position]]$declaration$uri
