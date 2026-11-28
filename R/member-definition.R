@@ -260,12 +260,24 @@ member_binding_declaration <- function(entry, budget) {
 
 # Recovery normally needs only an AST. Collect member token ranges when that
 # fragment contains a potential declaration; its first line may start mid-line.
-member_parse_recovered <- function(lines, uri, row, col = 0L, edit = NULL, type_hints = NULL) {
+member_parse_recovered <- function(lines, uri, row, col = 0L, edit = NULL, type_hints = NULL, hint_comments = NULL) {
     origins <- !is.null(uri) && any(grepl("=|<-|->", lines))
-    typed <- length(type_hints) && any(grepl("function|\\\\", lines))
+    # A bounded fragment may begin inside a multiline literal. Only comments
+    # actually seen by the document's lexer can add types during repair.
+    local_hints <- length(hint_comments) > 0L && roxygen_has_type_span(lines)
+    typed <- (length(type_hints) || local_hints) && any(grepl("function|\\\\", lines))
     if (!origins && !typed) return(str2expression(lines))
     parsed <- parse(text = normalize_parse_content(lines), keep.source = TRUE)
-    if (typed) roxygen_hint_source(parsed, type_hints, row, col)
+    if (typed) {
+        parsed <- member_attach_type_hints(parsed, type_hints, row, col)
+        # A fragment can recover a declaration omitted from the document's
+        # partial syntax. Its own comment tokens and srcrefs use local offsets.
+        if (local_hints) {
+            local <- member_roxygen_type_index(attr(parsed, "srcfile")$lines, utils::getParseData(parsed),
+                allowed_comments = hint_comments - row)
+            parsed <- member_attach_type_hints(parsed, local)
+        }
+    }
     if (origins) parsed <- member_source_origins(parsed, NULL, uri, row, col, edit = edit)
     member_strip_srcref(parsed)
 }

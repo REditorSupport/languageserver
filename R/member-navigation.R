@@ -418,7 +418,7 @@ member_navigation_proof_cache <- function(workspace, doc, domain) {
         revision = workspace$s3_revision, index = workspace$index, index_revision = workspace$index$revision,
         topology = workspace$index$topology_revision, packages = workspace$index$package_revision,
         metadata = workspace$member_metadata$identity(), metadata_revision = workspace$member_metadata$revision(),
-        startup = workspace$startup_packages, imported = workspace$imported_packages)
+        startup = workspace$startup_packages, imported = workspace$imported_packages, roxygen = roxygen_type_hints_enabled())
     analysis_cache(doc, domain, context, max_bytes = 256L * 1024L, max_entries = 16L)
 }
 

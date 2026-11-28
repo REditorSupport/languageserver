@@ -92,7 +92,7 @@ member_package_context <- function(index, package) {
     owner <- member_namespace_index(index, package)
     if (is.null(owner)) return(NULL)
     context <- list2env(as.list(owner), parent = emptyenv())
-    for (name in c("namespace_indices", "namespace_metadata", "document_bindings", "document_s4", "hint_packages",
+    for (name in c("namespace_indices", "namespace_metadata", "document_bindings", "document_s4", "hint_packages", "document_package",
             "document_binding_cache", "document_context_key", "document_cache",
             "attached_roots", "attached_s4", "methods_attached")) context[[name]] <- index[[name]]
     context
@@ -186,6 +186,9 @@ member_join <- function(a, b) {
                 identical(a[!vapply(a, is.null, logical(1L))], b[!vapply(b, is.null, logical(1L))]))) {
         return(a)
     }
+    if (identical(a$reason, "type_hint_union") || identical(b$reason, "type_hint_union")) {
+        return(member_possible_result(list(a, b), closed = TRUE))
+    }
     r6_cmp <- NULL
     if (any(c(a$r6_role, b$r6_role) %in% c("instance", "private", "super"))) {
         r6_cmp <- member_r6_comparator(a, b, 0L)
@@ -264,6 +267,184 @@ member_classes <- function(value, index) {
     }
     classes <- member_lookup(index$classes, value$type)
     if (is.null(classes)) value$type else classes
+}
+
+# An unknown alternative can reach a return indirectly through an assignment,
+# a nested branch or a wrapper. Keep the proven part until the function exits.
+# Intermediate expressions still see the original unknown value.
+member_join_return_evidence <- function(a, b) {
+    out <- member_join(a, b)
+    if (length(out$type) || !isTRUE(out$reason %in% c("unknown_branch", "unknown_union_result"))) return(out)
+    concrete <- function(x) {
+        if (length(x$type) || !is.null(x$function_key) || !is.null(x$function_expr) ||
+                identical(x$reason, "type_hint_union")) x else x$return_evidence
+    }
+    x <- concrete(a)
+    y <- concrete(b)
+    out$return_evidence <- if (is.null(x)) y else if (is.null(y)) x else member_join(x, y)
+    out
+}
+
+member_hint_dispatch_classes <- function(value, index) {
+    if (identical(value$r6_role, "generator")) return("R6ClassGenerator")
+    if (identical(value$r6_role, "instance")) {
+        if (is.null(value$r6_class)) return(character())
+        if (isFALSE(value$r6_class$classed)) return("environment")
+        if (!is.null(value$r6_class$classed) && is.na(value$r6_class$classed)) return(character())
+        parents <- lapply(rev(value$r6_layers), function(layer) layer$r6_class$name)
+        classes <- unique(c(value$r6_class$name, unlist(parents, use.names = FALSE)))
+        if (isTRUE(value$r6_class$incomplete_parents)) {
+            return(if (length(classes)) structure(classes, incomplete_s3_path = TRUE) else character())
+        }
+        return(unique(c(classes, "R6")))
+    }
+    if (isTRUE(value$s7)) {
+        if (!is.null(value$s7_generator)) return(c("S7_class", "S7_object"))
+        descriptor <- value$s7_descriptor
+        classes <- character()
+        while (identical(descriptor$kind, "class")) {
+            name <- descriptor$name
+            if (!is.null(descriptor$package)) name <- paste(descriptor$package, name, sep = "::")
+            classes <- c(classes, name)
+            descriptor <- descriptor$parent
+        }
+        # An S4 bridge can add inherited S4 dispatch classes that are absent
+        # from the S7 descriptor. Avoid selecting a default method in that case.
+        if (!is.null(descriptor) && !identical(descriptor$kind, "base")) return(character())
+        return(unique(c(classes, descriptor$name, "S7_object")))
+    }
+    if (!is.null(value$s4_generator) || !is.null(value$refclass_instance)) return(character())
+    if (!is.null(value$s4_class) || !is.null(value$refclass_fields)) {
+        path <- if (!is.null(value$s4_class)) value$s4_class$dispatch_path else value$refclass_dispatch_path
+        if (is.null(path) && !is.null(value$s4_class$package)) {
+            path <- member_s4_descriptor(value$s4_class$name, index, list(), value$s4_class$package)$dispatch_path
+        }
+        if (length(path)) return(names(path))
+        name <- if (!is.null(value$s4_class)) value$s4_class$name else value$type
+        return(structure(name, incomplete_s3_path = TRUE))
+    }
+    if (!is.null(value$member_package) && !identical(value$member_package, index$package)) {
+        index <- member_lookup(index$namespace_indices, value$member_package)
+    }
+    classes <- member_classes(value, index)
+    if (!length(value$classes) && length(classes) == 1L && classes %in% c("double", "integer")) {
+        return(s3_implicit_classes(classes))
+    }
+    classes
+}
+
+# Resolve a document generic with the same source and registration precedence
+# used by signature help, then analyze the selected method in its own document.
+member_source_s3_result <- function(generic, classes, actuals, index, caller, at, budget, depth, trail, owner = "source") {
+    unknown <- member_value(reason = "unknown_s3_method")
+    document <- index$dispatch_document
+    workspace <- index$dispatch_workspace
+    if (!length(classes) || isTRUE(budget$exhausted)) return(unknown)
+    if (is.null(at)) at <- c(Inf, Inf)
+    context <- budget$member_s3_context
+    if (is.null(context) || !identical(context$document, document) || !identical(context$at, at)) {
+        context <- s3_context(document$uri, workspace, document, at)
+        budget$member_s3_context <- context
+    }
+    scope <- new.env(parent = context$root)
+    keys <- paste(generic, s3_dispatch_path(classes), sep = ".")
+    local <- intersect(keys, names(caller))
+    for (name in local) {
+        value <- member_local_value(caller[[name]], index, budget, depth, trail)
+        assign(name, list(fn = value$function_expr), scope)
+    }
+    method <- s3_lookup_method(generic, classes, scope, context, owner)
+    # For a package generic, its own verified method can use the existing
+    # namespace interpreter and native return summaries.
+    if (owner != "source" && is.null(method$fn) && identical(method$package, owner)) return(NULL)
+    if (owner != "source" && is.null(method) && !isTRUE(context$registration_unknown) && !isTRUE(context$exhausted)) {
+        # A registration for a different namespace can share the same
+        # generic.class spelling. It does not override this package's method.
+        registered <- get0(".registrations", scope, inherits = TRUE)
+        qualified <- paste(owner, keys, sep = "::")
+        if (!any(qualified %in% names(registered)) &&
+                !any(c(qualified, keys) %in% names(context$namespace_records)) &&
+                !any(vapply(keys, function(key) !is.null(s3_get_value(key, scope, context, source_only = TRUE)), logical(1L)))) return(NULL)
+    }
+    if (is.null(method$fn) || isTRUE(context$exhausted)) return(unknown)
+    env <- list(.__member_position__ = at)
+    registration <- method$registration
+    if (is.null(registration) && is.null(method$source) && method$name %in% local) {
+        callee <- member_local_value(caller[[method$name]], index, budget, depth, trail)
+    } else {
+        source <- if (is.null(registration)) method$source else registration
+        target <- if (!is.null(registration)) registration$expr else if (!is.null(source$binding)) as.name(source$binding)
+        if (is.null(target) || is.null(source$uri)) return(unknown)
+        if (!identical(source$uri, document$uri)) {
+            if (is.null(workspace$documents)) return(unknown)
+            method_document <- workspace$documents$get(source$uri, NULL)
+            if (is.null(method_document) || !identical(method_document$version, method_document$parse_data$version)) return(unknown)
+            env$.__member_position__ <- c(Inf, Inf)
+            index <- member_context_index(workspace, source$uri, method_document, env$.__member_position__, target)
+            if (!is.null(budget$origin_name)) {
+                previous <- budget$document
+                budget$document <- method_document
+                on.exit(budget$document <- previous)
+            }
+        }
+        # Registration retains the closure from this binding, including the
+        # arguments captured by a factory. A later assignment may have the
+        # same function body and a different set of captures.
+        definition_env <- env
+        if (!is.null(registration)) definition_env$.__member_position__ <- registration$at
+        callee <- member_infer(target, index, definition_env, depth = depth + 1L, trail = trail, budget = budget)
+        if (is.null(callee$function_expr) || (!identical(callee$function_expr, method$fn) &&
+                    !identical(s3_function_identity(callee$function_expr), method$body_hash))) return(unknown)
+        callee$closure$.__member_position__ <- env$.__member_position__
+    }
+    env$.__member_s3_method__ <- callee
+    arguments <- sprintf(".__member_s3_arg%d", seq_along(actuals))
+    env[arguments] <- actuals
+    call <- as.call(c(list(as.name(".__member_s3_method__")), stats::setNames(lapply(arguments, as.name), names(actuals))))
+    member_infer(call, index, env, depth = depth + 1L, trail = trail, budget = budget)
+}
+
+# Inspect inexpensive source histories before constructing a dispatch context.
+# Package calls without visible overrides retain ordinary namespace inference.
+member_package_s3_overrides <- function(generic, classes, owner, index, caller, at, budget) {
+    document <- index$dispatch_document
+    workspace <- index$dispatch_workspace
+    keys <- paste(generic, s3_dispatch_path(classes), sep = ".")
+    if (any(keys %in% names(caller))) return(TRUE)
+    sources <- budget$member_s3_sources
+    if (!identical(sources$uri, document$uri)) {
+        document$member_s3_dispatch <- TRUE
+        root <- s3_package_root(workspace, document$uri)
+        namespace <- if (!is.null(root)) s3_namespace_snapshot(root, workspace)
+        sources <- list(uri = document$uri, views = s3_context_sources(document$uri, workspace, document),
+            records = namespace$records, uncertain = isFALSE(namespace$valid))
+        budget$member_s3_sources <- sources
+        if (is.null(workspace$s3_revision) && length(sources$views) > 1L) budget$unversioned_s3_sources <- TRUE
+    }
+    if (sources$uncertain) return(TRUE)
+    for (record in sources$records) {
+        if (identical(record$generic, generic) && record$class %in% s3_dispatch_path(classes) &&
+                (is.null(record$package) || identical(record$package, owner))) return(TRUE)
+    }
+    if (is.null(at)) at <- c(Inf, Inf)
+    for (source in sources$views) {
+        position <- if (identical(source$uri, document$uri)) at else c(Inf, Inf)
+        for (i in source$index$registrations) {
+            item <- source$items[[i]]
+            if (!member_before(item$end, position)) next
+            args <- as.list(item$expr)[-1L]
+            matched <- s3_match_arguments(alist(genname = , class = , method = , envir = ), args)
+            if (is.null(matched) || !all(1:2 %in% matched)) return(TRUE)
+            target <- args[[match(1L, matched)]]
+            class <- args[[match(2L, matched)]]
+            if ((!is.character(target) || identical(target, generic)) &&
+                    (!is.character(class) || class %in% s3_dispatch_path(classes))) return(TRUE)
+        }
+        for (key in keys) {
+            if (member_history_position(source$index$histories[[key]], position)) return(TRUE)
+        }
+    }
+    FALSE
 }
 
 # A worker snapshot can verify ordinary environment access. A method declared
@@ -414,46 +595,81 @@ member_members <- function(value, index, bindings = list(), accessor = "$") {
 
 # Possible receivers keep their inferred type unresolved. All providers use
 # the same intersection and reject conflicting member implementations.
-member_possible_receiver <- function(value, index, bindings = list(), accessor = "$") {
+member_possible_receiver <- function(value, index, bindings = list(), accessor = "$", inspect = NULL, budget = NULL) {
     if (length(value$type) || !length(value$possible_returns)) return(NULL)
     candidates <- value$possible_returns
     sets <- lapply(candidates, function(candidate) member_members(candidate, index, bindings, accessor))
     common <- Reduce(intersect, lapply(sets, names))
-    owners <- vapply(candidates, function(candidate) {
-        if (is.null(candidate$member_package)) "" else candidate$member_package
-    }, character(1L))
-    ambiguous <- common[vapply(common, function(name) {
-        if (length(unique(owners)) > 1L || !all(vapply(sets, function(set) identical(set[[name]], sets[[1L]][[name]]), logical(1L)))) {
-            return(TRUE)
-        }
-        origins <- lapply(candidates, function(candidate) {
-            fields <- if (identical(accessor, "@")) candidate$slots else candidate$fields
-            member_lookup(fields, name)$origin
-        })
-        if (!all(vapply(origins, identical, logical(1L), origins[[1L]]))) return(TRUE)
-        if (all(vapply(sets, function(set) is.na(set[[name]]), logical(1L)))) {
-            fields <- lapply(candidates, function(candidate) {
-                if (identical(accessor, "@")) member_slot(candidate, name, index, bindings) else
-                    member_access(candidate, name, index, bindings)
-            })
-            return(!all(vapply(fields, member_r6_value_equiv, logical(1L), fields[[1L]])))
-        }
-        FALSE
-    }, logical(1L))]
+    labels <- if (is.null(inspect)) common else intersect(inspect, common)
+    ambiguous <- member_ambiguous_names(value, sets, labels, index, bindings, accessor, budget)
     list(value = candidates[[1L]], members = common, ambiguous = ambiguous, sets = sets)
 }
 
-member_possible_result <- function(values) {
+# Resolving a slot can infer a prototype expression. Only inspect labels the
+# provider will actually use, sharing its budget across all alternatives.
+member_ambiguous_names <- function(value, sets, labels, index, bindings, accessor, budget) {
+    if (!length(labels)) return(character())
+    candidates <- value$possible_returns
+    owners <- vapply(candidates, function(candidate) {
+        if (is.null(candidate$member_package)) "" else candidate$member_package
+    }, character(1L))
+    if (length(unique(owners)) > 1L) return(labels)
+    labels[vapply(labels, function(name) {
+        if (isTRUE(budget$exhausted) || !all(vapply(sets, function(set) identical(set[[name]], sets[[1L]][[name]]), logical(1L)))) {
+            return(TRUE)
+        }
+        origins <- lapply(candidates, function(candidate) {
+            if (identical(accessor, "@")) {
+                return(if (isTRUE(candidate$s7)) candidate$s7_descriptor$properties[[name]]$origin else candidate$slot_origins[[name]])
+            }
+            member_lookup(candidate$fields, name)$origin
+        })
+        if (!all(vapply(origins, identical, logical(1L), origins[[1L]]))) return(TRUE)
+        if (all(vapply(sets, function(set) is.na(set[[name]]), logical(1L)))) {
+            if (identical(value$reason, "type_hint_union") && !identical(accessor, "@")) {
+                # Sibling instances bind the same inherited method to different
+                # self/private environments. Compare its declaration first.
+                declarations <- lapply(candidates, function(candidate) member_lookup(candidate$fields, name))
+                first <- declarations[[1L]]
+                if (!is.null(first$r6_owner) && !is.null(first$function_expr) &&
+                        all(vapply(declarations, identical, logical(1L), first))) return(FALSE)
+            }
+            fields <- lapply(candidates, function(candidate) {
+                if (identical(accessor, "@")) return(member_slot(candidate, name, index, bindings, budget))
+                if (identical(accessor, "[[")) return(member_lookup(candidate$fields, name))
+                member_access(candidate, name, index, bindings)
+            })
+            return(isTRUE(budget$exhausted) || !all(vapply(fields, member_r6_value_equiv, logical(1L), fields[[1L]])))
+        }
+        FALSE
+    }, logical(1L))]
+}
+
+member_possible_result <- function(values, closed = FALSE) {
     candidates <- list()
     for (value in values) {
         if (!length(value$type) && length(value$possible_returns)) {
+            # An open generic describes only known alternatives. It cannot
+            # establish a common result for every branch of a declared union.
+            if (closed && !identical(value$reason, "type_hint_union")) return(member_value(reason = "unknown_union_result"))
             candidates <- c(candidates, value$possible_returns)
         } else if ((length(value$type) && !any(value$type %in% c(".never", ".missing"))) ||
                 !is.null(value$function_key) || !is.null(value$function_expr) || !is.null(value$result_shape)) {
             candidates <- c(candidates, list(value))
+        } else if (closed && !identical(value$type, ".never")) {
+            return(member_value(reason = "unknown_union_result"))
+        }
+        if (closed && length(candidates) > max_type_hint_alternatives) {
+            candidates <- unique(candidates)
+            if (length(candidates) > max_type_hint_alternatives) return(member_value(reason = "type_union_limit"))
         }
     }
     candidates <- candidates[!duplicated(candidates)]
+    if (closed) {
+        if (!length(candidates)) return(member_value(type = ".never"))
+        if (length(candidates) == 1L) return(candidates[[1L]])
+        return(member_value(reason = "type_hint_union", possible_returns = candidates))
+    }
     member_value(reason = "possible_result", possible_returns = candidates)
 }
 
@@ -512,17 +728,20 @@ member_cacheable <- function(value, depth = 0L) {
         return(TRUE)
     }
     if (depth > 4L || !is.null(value$origin) || isTRUE(value$open) || length(value$possible_returns) || !is.null(value$function_expr) || !is.null(value$closure) ||
-            !is.null(value$binding_expr)) {
+            !is.null(value$binding_cache) || !is.null(value$binding_expr) || !is.null(value$hint_types) || !is.null(value$return_evidence)) {
         return(FALSE)
     }
     if (value$known_literal && length(value$literal) > 8L) {
         return(FALSE)
     }
-    all(vapply(
-        c(value$fields, value$slots, value$elements, value[c("r6_private", "r6_super", "r6_self", "s7_storage")],
-            if (!is.null(value$element_shape)) list(value$element_shape)),
-        member_cacheable, logical(1L), depth + 1L
-    ))
+    # Ordinary values have none of these optional receiver shapes. Visit
+    # only present children, including any lexical evidence nested in them.
+    children <- c(value$fields, value$slots, value$elements)
+    for (field in c("r6_private", "r6_super", "r6_self", "s7_storage", "element_shape")) {
+        child <- value[[field]]
+        if (!is.null(child)) children[[length(children) + 1L]] <- child
+    }
+    !length(children) || all(vapply(children, member_cacheable, logical(1L), depth + 1L))
 }
 
 member_assigned_names <- function(node) {
@@ -535,19 +754,25 @@ member_assigned_names <- function(node) {
 
 # Retain lexical inputs used by the function (including nested closures and
 # defaults), rather than copying an entire instance into every generated method.
-member_function_closure <- function(expr, bindings, hint_names = NULL) {
+member_function_closure <- function(expr, bindings) {
     if (!length(bindings)) return(list())
     # Replacement syntax implicitly invokes a lexical setter.
     internal <- intersect(names(bindings), c("$<-", "[[<-", "@<-", member_s7_setters, ".__member_position__", ".__member_properties__",
             ".__s4_classes__", ".__s7_package__", ".__s7_constructing__"))
     if (length(internal) == length(bindings)) return(bindings)
-    referenced <- c(setdiff(member_syntax_names(expr), names(expr[[2L]])), hint_names)
+    referenced <- setdiff(member_syntax_names(expr), names(expr[[2L]]))
+    hint_names <- attr(expr, "member_type_names", exact = TRUE)
+    if (length(hint_names)) referenced <- union(referenced, hint_names)
     bindings[intersect(names(bindings), c(referenced, internal))]
 }
 
 # Select a member from an already inferred receiver. This does not traverse
 # syntax, so a known declaration remains usable after inference hits a limit.
 member_slot <- function(value, name, index, bindings, budget = NULL) {
+    if (identical(value$reason, "type_hint_union")) {
+        return(member_possible_result(lapply(value$possible_returns, member_slot, name = name, index = index,
+                    bindings = bindings, budget = budget), closed = TRUE))
+    }
     result <- if (isTRUE(value$s7)) member_s7_slot(value, name, index, bindings, budget) else
         member_s4_slot(value, name, index, bindings, budget)
     if (identical(budget$origin_name, name)) {
@@ -633,11 +858,15 @@ member_stored_field <- function(lhs, value) {
 member_access <- function(lhs, name, index, bindings) {
     unknown <- member_value(reason = "unsupported")
     if (is.null(name)) return(unknown)
+    if (identical(lhs$reason, "type_hint_union")) {
+        return(member_possible_result(lapply(lhs$possible_returns, member_access, name = name,
+                    index = index, bindings = bindings), closed = TRUE))
+    }
     if (!is.null(lhs$s7_storage) && member_s7_reference(lhs)) {
         storage <- member_s7_environment_storage(lhs, "$", index, bindings)
         return(if (is.null(storage)) unknown else member_access(storage, name, index, bindings))
     }
-    possible <- member_possible_receiver(lhs, index, bindings)
+    possible <- member_possible_receiver(lhs, index, bindings, inspect = character())
     if (!is.null(possible)) {
         if (!name %in% possible$members) return(unknown)
         return(member_possible_result(lapply(lhs$possible_returns, function(candidate) {
@@ -749,6 +978,10 @@ member_infer <- function(
         if (isTRUE(ctx$r6_initialize)) ctx$r6_initialize <- FALSE
         member_infer(x, index, env, receiver, depth + 1L, trail, budget, ctx)
     }
+    join <- if (isTRUE(budget$track_returns)) member_join_return_evidence else member_join
+    local_object <- function(env, name) {
+        member_local_value(member_lookup(env, name), index, budget, depth, trail, receiver, context)
+    }
     qualified <- NULL
     if (is.call(expr) && member_head(expr[[1L]], "::") && identical(expr[[1L]][[2L]], as.name("base"))) {
         target <- member_name(expr[[1L]][[3L]])
@@ -774,7 +1007,11 @@ member_infer <- function(
             x <- xs[[i]]
             y <- ys[[i]]
             if (identical(x, y)) return(x)
-            if (!is.list(x) || !is.list(y)) unknown else member_join(x, y)
+            if (!is.list(x) || !is.list(y)) return(unknown)
+            if (!is.null(x$binding_cache) || !is.null(y$binding_cache)) {
+                return(list(binding_choices = list(x, y), binding_cache = new.env(parent = emptyenv())))
+            }
+            join(x, y)
         }), keys)
     }
     join_effects <- function(a, b) {
@@ -806,10 +1043,11 @@ member_infer <- function(
                 value = member_literal(NULL), env = env,
                 returns = member_value(type = ".never"), falls = TRUE
             )
-            for (child in as.list(node)[-1L]) {
+            children <- as.list(node)[-1L]
+            for (child in children) {
                 if (!state$falls || isTRUE(budget$exhausted)) break
                 next_state <- flow(child, state$env)
-                state$returns <- member_join(state$returns, next_state$returns)
+                state$returns <- join(state$returns, next_state$returns)
                 if (isTRUE(context$r6_initialize)) {
                     state$r6_returns <- join_effects(state$r6_returns, next_state$r6_returns)
                 }
@@ -857,10 +1095,10 @@ member_infer <- function(
             }
             falls <- a$falls || b$falls
             out_env <- if (!a$falls) b$env else if (!b$falls) a$env else join_env(a$env, b$env)
-            value <- if (!a$falls) b$value else if (!b$falls) a$value else member_join(a$value, b$value)
+            value <- if (!a$falls) b$value else if (!b$falls) a$value else join(a$value, b$value)
             return(list(
                 value = value, env = out_env,
-                returns = member_join(a$returns, b$returns), falls = falls,
+                returns = join(a$returns, b$returns), falls = falls,
                 r6_returns = if (isTRUE(context$r6_initialize)) join_effects(a$r6_returns, b$r6_returns)
             ))
         }
@@ -877,7 +1115,7 @@ member_infer <- function(
                         identical(member_name(body[[3L]][[3L]]), variable) &&
                         identical(body[[3L]][[2L]], node[[3L]][[2L]])) {
                     target <- member_name(body[[2L]][[2L]])
-                    object <- member_lookup(env, target)
+                    object <- local_object(env, target)
                     source <- infer(node[[3L]][[2L]], env)
                     if (identical(object$type, "environment") && identical(source$type, "list") &&
                             !isTRUE(source$open) && !is.null(source$fields) && length(source$fields) <= 256L) {
@@ -906,9 +1144,13 @@ member_infer <- function(
             member_walk(node, function(x) {
                 if (member_head(x, "return")) has_return <<- TRUE
             }, descend_functions = FALSE)
+            returns <- member_value(type = ".never")
+            if (has_return) {
+                returns <- if (isTRUE(budget$track_returns)) flow(node[[length(node)]], env)$returns else unknown
+            }
             return(list(
                 value = member_literal(NULL), env = env,
-                returns = if (has_return) unknown else member_value(type = ".never"), falls = TRUE
+                returns = returns, falls = TRUE
             ))
         }
         if (member_head(node, ":=")) {
@@ -943,12 +1185,12 @@ member_infer <- function(
                     # A nested replacement can change the root but cannot be
                     # treated as a direct write to its outermost field name.
                     root <- member_write_root(lhs)
-                    if (member_plain_container(member_lookup(env, root))) name <- root
+                    if (member_plain_container(local_object(env, root))) name <- root
                 }
                 subset <- member_head(lhs, "[[")
                 direct <- member_write_field(lhs)
                 field <- if (subset) direct else member_name(lhs[[3L]])
-                object <- member_lookup(env, name)
+                object <- local_object(env, name)
                 surface <- if (member_head(lhs, "@")) "slots" else "fields"
                 if (surface == "slots" && isTRUE(object$s7)) {
                     reference <- member_s7_reference(object)
@@ -979,7 +1221,7 @@ member_infer <- function(
                 }
             } else if (!is.null(setter <- member_s7_property_setter(lhs))) {
                 name <- member_name(lhs[[2L]])
-                object <- member_lookup(env, name)
+                object <- local_object(env, name)
                 updated <- member_s7_property_write(setter, object, value, index, env, budget)
                 env[[name]] <- if (is.null(updated)) unknown else updated
                 if (isTRUE(object$s7) && member_s7_reference(object)) {
@@ -987,7 +1229,7 @@ member_infer <- function(
                 }
             } else if (member_head(lhs, "class")) {
                 name <- member_name(lhs[[2L]])
-                object <- member_lookup(env, name)
+                object <- local_object(env, name)
                 classes <- member_strings(node[[3L]])
                 if (!is.null(object) && length(classes)) {
                     object$type <- classes[[1L]]
@@ -1008,16 +1250,17 @@ member_infer <- function(
         if (isTRUE(context$r6_initialize)) {
             return(join_effects(state$r6_returns, if (state$falls) state$env$.__r6_instance__ else NULL))
         }
-        if (state$falls) member_join(state$returns, state$value) else state$returns
+        if (state$falls) join(state$returns, state$value) else state$returns
     }
-    bind_arguments <- function(fn, actuals, env, defaults = TRUE, hints = NULL) {
-        if (length(hints)) lexical <- env
+    bind_arguments <- function(fn, actuals, env, defaults = TRUE, param_hints = NULL) {
+        if (length(param_hints)) lexical <- env
         formals <- as.list(fn[[2L]])
         keys <- names(formals)
         # An open forwarded dots list can fill any formal. Preparation must
         # explore unknown values instead of treating it as one supplied item.
         if (isTRUE(attr(actuals, "member_open_dots"))) {
             for (name in keys) env[name] <- list(unknown)
+            for (name in names(param_hints)) env[[name]] <- member_hinted_argument(unknown, param_hints[[name]], lexical)
             if ("..." %in% keys) env["..."] <- list(member_value(type = "list", open = TRUE))
             return(env)
         }
@@ -1030,19 +1273,35 @@ member_infer <- function(
         used <- keys[matched[supplied]]
         env[used] <- actuals[supplied]
         if (!is.na(dots)) env["..."] <- list(member_value(type = "list", elements = actuals[matched == dots]))
-        if (length(hints)) {
-            for (name in intersect(used, names(hints))) {
-                if (member_needs_type_hint(env[[name]])) env[[name]] <- member_hint_binding(hints[[name]], lexical)
+        if (length(param_hints)) {
+            for (name in intersect(used, names(param_hints))) {
+                env[[name]] <- member_hinted_argument(env[[name]], param_hints[[name]], lexical)
             }
         }
-        for (name in setdiff(keys, c(used, "..."))) {
+        pending <- setdiff(keys, c(used, "..."))
+        if (length(param_hints)) {
+            env[pending] <- rep(list(unknown), length(pending))
+            forward <- list()
+        }
+        for (name in pending) {
             env[name] <- list(if (!defaults) {
                 unknown
             } else if (identical(formals[[name]], quote(expr = ))) {
                 member_value(type = ".missing")
+            } else if (length(param_hints)) {
+                binding <- member_local_binding(formals[[name]], env)
+                dependencies <- intersect(names(binding$binding_env), pending)
+                if (length(dependencies)) forward[[name]] <- list(cache = binding$binding_cache, names = dependencies)
+                binding
             } else {
                 infer(formals[[name]], env)
             })
+            if (!is.null(param_hints[[name]])) env[[name]] <- member_hinted_argument(env[[name]], param_hints[[name]], lexical)
+        }
+        if (length(param_hints)) {
+            # Defaults can refer to later formals. Link only actual lexical
+            # dependencies once all the argument bindings exist.
+            for (entry in forward) entry$cache$defaults <- env[entry$names]
         }
         env
     }
@@ -1091,7 +1350,7 @@ member_infer <- function(
         } else {
             NULL
         }
-        if (!is.null(cache_key) && isTRUE(budget$roxygen_type_hints)) cache_key <- paste0("roxygen:", cache_key)
+        if (!is.null(cache_key) && isTRUE(budget$track_returns)) cache_key <- paste0("returns:", cache_key)
         if (!is.null(cache_key) && exists(cache_key, index$cache, inherits = FALSE)) {
             return(get(cache_key, index$cache, inherits = FALSE))
         }
@@ -1105,8 +1364,9 @@ member_infer <- function(
             }
             fn <- returned$fn
         }
-        hints <- if (isTRUE(budget$roxygen_type_hints)) member_function_hints(fn)
-        env <- bind_arguments(fn, actuals, lexical, hints = hints$params)
+        hints <- roxygen_inference_hints(fn)
+        param_hints <- if (length(hints$params)) hints$params[intersect(names(hints$params), setdiff(names(fn[[2L]]), "..."))]
+        env <- bind_arguments(fn, actuals, lexical, param_hints = param_hints)
         if (is.null(env)) {
             return(member_value(reason = "argument_matching"))
         }
@@ -1162,15 +1422,20 @@ member_infer <- function(
                 member_package = index$package)
         } else {
             body <- fn[[3L]]
-            ctx <- list(key = key, actuals = actuals, formals = names(fn[[2L]]), dispatch = dispatch,
+            ctx <- list(key = key, actuals = actuals, formals = names(fn[[2L]]), parameters = fn[[2L]], dispatch = dispatch,
                 r6_initialize = r6_initialize,
                 namespace_code = !is.null(index$package) && is.null(index$document_bindings))
+            if (is.null(key) && !is.null(index$dispatch_document)) ctx$caller <- bindings
+            if (!r6_initialize && length(hints$returns) && !isTRUE(budget$track_returns)) {
+                budget$track_returns <- TRUE
+                on.exit(budget$track_returns <- NULL, add = TRUE)
+            }
             result <- member_infer(body, summary_index, env,
                 depth = depth + 1L,
                 trail = if (is.null(key)) trail else c(trail, key), budget = budget, context = ctx
             )
-            if (length(hints$returns) && member_needs_type_hint(result)) {
-                result <- member_hinted_value(hints$returns, index, lexical, budget)
+            if (!r6_initialize && length(hints$returns)) {
+                result <- member_refine_call_hint(result, hints$returns, index, lexical, budget)
             }
         }
         if (!is.null(cache_key) && !budget$exhausted && !isTRUE(budget$transient) && is.null(result$function_expr)) {
@@ -1193,11 +1458,10 @@ member_infer <- function(
         key <- as.character(expr)
         if (key %in% names(bindings)) {
             value <- bindings[[key]]
-            if (!is.null(value$hint_type)) return(member_local_value(value, index, budget))
+            if (!is.null(value$binding_cache)) {
+                return(member_local_value(value, index, budget, depth, trail, receiver, context))
+            }
             if (!is.null(value$binding_expr)) {
-                if (!is.null(value$binding_cache)) {
-                    return(member_local_value(value, index, budget, depth, trail, receiver, context))
-                }
                 return(infer(value$binding_expr, value$binding_env))
             }
             return(value)
@@ -1257,16 +1521,14 @@ member_infer <- function(
             return(if (length(defaults) == 1L) infer(alternatives[[defaults]]) else member_literal(NULL))
         }
         results <- lapply(seq_along(alternatives), function(i) {
-            if (identical(alternatives[[i]], quote(expr = ))) member_value(type = ".never") else infer(alternatives[[i]])
+            if (identical(alternatives[[i]], quote(expr = ))) return(member_value(type = ".never"))
+            infer(alternatives[[i]])
         })
-        return(if (length(results)) Reduce(member_join, results) else member_literal(NULL))
+        return(if (length(results)) Reduce(join, results) else member_literal(NULL))
     }
     if (member_head(expr, "function")) {
-        hints <- if (isTRUE(budget$roxygen_type_hints)) member_function_hints(expr)
-        if (length(hints)) attr(expr, "member_type_hints") <- hints
         package <- if (isTRUE(context$namespace_code)) index$package else NULL
-        closure <- member_function_closure(expr, bindings, unlist(hints, use.names = FALSE))
-        return(member_value(function_expr = expr, closure = closure, metadata = package))
+        return(member_value(function_expr = expr, closure = member_function_closure(expr, bindings), metadata = package))
     }
     if (member_is_r6_call(expr, index, bindings)) {
         return(member_r6_shape(expr, index, bindings, budget, depth, trail))
@@ -1312,8 +1574,8 @@ member_infer <- function(
         lhs <- infer(expr[[2L]])
         out <- member_access(lhs, member_name(expr[[3L]]), index, bindings)
         key <- member_key(expr)
-        if (!length(out$type) && is.null(out$function_key) && !is.null(key) &&
-            key %in% names(index$definitions) && !member_name(expr[[2L]]) %in% names(bindings)) {
+        if (!identical(lhs$reason, "type_hint_union") && !length(out$type) && is.null(out$function_key) && !is.null(key) &&
+                key %in% names(index$definitions) && !member_name(expr[[2L]]) %in% names(bindings)) {
             return(member_value(function_key = key))
         }
         return(member_extracted_callable(out))
@@ -1324,6 +1586,16 @@ member_infer <- function(
     if (head %in% c("[[", "[")) {
         if (head == "[[" && is.null(qualified) && member_operator_masked(head, index, bindings)) return(unknown)
         lhs <- infer(expr[[2L]])
+        if (identical(lhs$reason, "type_hint_union")) {
+            subset <- expr
+            subset[[2L]] <- as.name(".__member_subset_receiver__")
+            values <- lapply(lhs$possible_returns, function(candidate) {
+                env <- bindings
+                env$.__member_subset_receiver__ <- candidate
+                infer(subset, env)
+            })
+            return(member_possible_result(values, closed = TRUE))
+        }
         if (!is.null(lhs$s7_storage) && head == "[[" && member_s7_reference(lhs)) {
             lhs <- member_s7_environment_storage(lhs, head, index, bindings)
             if (is.null(lhs)) return(unknown)
@@ -1376,24 +1648,49 @@ member_infer <- function(
     }
     if (head %in% c("UseMethod", "NextMethod") && intrinsic(head) && !is.null(context)) {
         if (head == "UseMethod") {
+            if (length(expr) < 2L || (length(expr) == 2L && !length(context$formals))) return(unknown)
             generic <- member_strings(expr[[2L]])
             input <- if (length(expr) > 2L) {
                 infer(expr[[3L]])
             } else {
-                member_lookup(bindings, context$formals[[1L]])
+                infer(as.name(context$formals[[1L]]))
             }
-            if (length(input$type) > 1L && length(generic) == 1L) {
-                return(Reduce(member_join, lapply(input$type, function(type) {
-                    classes <- member_classes(member_value(type = type), index)
-                    keys <- c(paste(generic, classes, sep = "."), paste0(generic, ".default"))
+            closed <- identical(input$reason, "type_hint_union")
+            source <- !is.null(index$dispatch_document) && is.null(context$key) && !isTRUE(context$namespace_code)
+            if ((source || closed || length(input$type) > 1L) && length(generic) == 1L) {
+                inputs <- if (closed) {
+                    input$possible_returns
+                } else if (length(input$type) > 1L) {
+                    lapply(input$type, function(type) member_value(type = type))
+                } else {
+                    list(input)
+                }
+                actuals <- context$actuals
+                position <- 1L
+                if (source || closed) {
+                    # The dispatch argument may be supplied by name, in any
+                    # order, or explicitly computed by UseMethod(g, object).
+                    formal <- if (length(expr) > 2L) member_name(expr[[3L]]) else context$formals[[1L]]
+                    matched <- s3_match_arguments(context$parameters, actuals)
+                    position <- match(match(formal, context$formals), matched, nomatch = 0L)
+                    if (!length(position) || !position) position <- NULL
+                }
+                values <- lapply(inputs, function(candidate) {
+                    classes <- if (source || closed) member_hint_dispatch_classes(candidate, index) else member_classes(candidate, index)
+                    if (!length(classes)) return(unknown)
+                    if (is.integer(position)) actuals[[position]] <- candidate
+                    if (source) {
+                        return(member_source_s3_result(generic, classes, actuals, index, context$caller,
+                                bindings$.__member_position__, budget, depth, trail))
+                    }
+                    keys <- paste(generic, s3_dispatch_path(classes), sep = ".")
                     keys <- keys[keys %in% names(index$definitions)]
                     if (!length(keys)) {
                         return(unknown)
                     }
-                    actuals <- context$actuals
-                    actuals[[1L]] <- member_value(type = type)
                     apply_function(keys[[1L]], actuals = actuals, dispatch = keys[-1L])
-                })))
+                })
+                return(if (closed) member_possible_result(values, closed = TRUE) else Reduce(member_join, values))
             }
             classes <- member_classes(input, index)
             if (!length(classes) || !length(generic)) {
@@ -1446,6 +1743,12 @@ member_infer <- function(
     }
     actuals <- vector("list", length(args))
     names(actuals) <- names(args)
+    track_args <- !is.null(callee$function_expr) && length(roxygen_inference_hints(callee$function_expr)$params) &&
+        !isTRUE(budget$track_returns)
+    if (track_args) {
+        budget$track_returns <- TRUE
+        on.exit(budget$track_returns <- NULL, add = TRUE)
+    }
     for (i in seq_along(args)) {
         actuals[[i]] <- if (identical(unname(args[i]), list(quote(expr = )))) {
             member_value(type = ".missing", reason = "empty_argument")
@@ -1454,6 +1757,7 @@ member_infer <- function(
         }
         if (isTRUE(budget$exhausted)) return(member_value(reason = "budget"))
     }
+    if (track_args) budget$track_returns <- NULL
     origins <- if (!is.null(budget$origin_name)) attr(expr, "member_origins", exact = TRUE)
     if (length(origins) && head %in% c("list", "list2", "data.frame") && intrinsic(head)) {
         for (i in which(names(args) == budget$origin_name)) {
@@ -1524,7 +1828,7 @@ member_infer <- function(
                 } else {
                     unknown
                 }
-                result <- member_join(result, branch)
+                result <- join(result, branch)
             }
             return(result)
         }
@@ -1758,7 +2062,7 @@ member_infer <- function(
             env$.__possible_callee__ <- candidate
             member_infer(call, index, env, depth = depth + 1L, trail = trail, budget = budget)
         })
-        return(member_possible_result(values))
+        return(member_possible_result(values, closed = identical(callee$reason, "type_hint_union")))
     }
     if (identical(callee$metadata, "S7") && callee$function_key %in% member_s7_intrinsics) {
         result <- member_s7_call(expr, index, bindings, budget, callee$function_key)
@@ -1786,7 +2090,8 @@ member_infer <- function(
         if (is.null(package_index)) {
             return(unknown)
         }
-        descriptor <- s3_generic_descriptor(member_definition(package_index$definitions, callee$function_key))
+        fn <- member_definition(package_index$definitions, callee$function_key)
+        descriptor <- s3_generic_descriptor(fn)
         if (!is.null(descriptor) && length(package_index$generic_returns[[descriptor$name]])) {
             methods <- union(names(bindings), names(index$document_bindings))
             methods <- methods[startsWith(methods, paste0(descriptor$name, "."))]
@@ -1801,17 +2106,58 @@ member_infer <- function(
                 package_index$cache <- new.env(parent = emptyenv())
             }
         }
-        env <- package_index$package_roots
-        callee$metadata <- NULL
-        env$.__member_callee__ <- callee
-        call <- as.call(c(
-            list(as.name(".__member_callee__")),
-            stats::setNames(lapply(seq_along(actuals), function(i) as.name(paste0(".__member_arg", i))), names(actuals))
-        ))
-        for (i in seq_along(actuals)) env[paste0(".__member_arg", i)] <- list(actuals[[i]])
-        return(member_infer(call, package_index, env, depth = depth + 1L, budget = budget))
+        # Keep package evaluation isolated, but resolve a visible source S3
+        # method in the caller's dispatch context before crossing namespaces.
+        namespace_call <- function(values) {
+            env <- package_index$package_roots
+            target <- callee
+            target$metadata <- NULL
+            env$.__member_callee__ <- target
+            arg_names <- sprintf(".__member_arg%d", seq_along(values))
+            env[arg_names] <- values
+            call <- as.call(c(list(as.name(".__member_callee__")), stats::setNames(lapply(arg_names, as.name), names(values))))
+            member_infer(call, package_index, env, depth = depth + 1L, budget = budget)
+        }
+        if (!is.null(descriptor) && !is.null(index$dispatch_document) && is.null(member_lookup(package_index$definitions, "UseMethod")) &&
+                is.null(member_lookup(package_index$package_roots, "UseMethod"))) {
+            matched <- s3_match_arguments(fn[[2L]], actuals)
+            if (is.null(matched)) return(member_value(reason = "argument_matching"))
+            position <- match(match(descriptor$formal, names(fn[[2L]])), matched)
+            if (!is.na(position)) {
+                input <- actuals[[position]]
+                closed <- identical(input$reason, "type_hint_union")
+                candidates <- if (closed) input$possible_returns else list(input)
+                values <- lapply(candidates, function(candidate) {
+                    actuals[[position]] <- candidate
+                    classes <- member_hint_dispatch_classes(candidate, index)
+                    at <- bindings$.__member_position__
+                    if (length(classes) && member_package_s3_overrides(descriptor$name, classes, callee$metadata, index, bindings, at, budget)) {
+                        result <- member_source_s3_result(descriptor$name, classes, actuals, index, bindings, at,
+                            budget, depth, trail, callee$metadata)
+                        if (!is.null(result)) return(result)
+                    }
+                    namespace_call(actuals)
+                })
+                return(if (closed) member_possible_result(values, closed = TRUE) else values[[1L]])
+            }
+        }
+        return(namespace_call(actuals))
     }
     if (!is.null(callee$function_expr)) {
+        if (!is.null(callee$function_uri) && !identical(callee$function_uri, index$source_uri)) {
+            # Arguments were inferred at the call site. Interpret the source
+            # body and its documented class names in the defining file.
+            workspace <- index$source_workspace
+            if (is.null(workspace)) return(unknown)
+            doc <- workspace$documents$get(callee$function_uri, NULL)
+            if (is.null(doc) || !identical(doc$version, doc$parse_data$version)) return(unknown)
+            index <- member_context_index(workspace, doc$uri, doc, c(Inf, Inf), callee$function_expr)
+            if (!is.null(budget$origin_name)) {
+                previous <- budget$document
+                budget$document <- doc
+                on.exit(budget$document <- previous, add = TRUE)
+            }
+        }
         env <- callee$closure
         if (!is.null(callee$receiver_name)) env[callee$receiver_name] <- list(callee$receiver_value)
         return(apply_function(actuals = actuals, fn = callee$function_expr, lexical = env,

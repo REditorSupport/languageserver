@@ -95,7 +95,7 @@ workspace_did_change_configuration <- function(self, params) {
     previous_backends <- backend_settings_identity()
     previous_s3 <- isTRUE(lsp_settings$get("s3_dispatch"))
     previous_members <- isTRUE(lsp_settings$get("member_completion"))
-    previous_hints <- isTRUE(lsp_settings$get("roxygen_type_hints"))
+    previous_hints <- roxygen_type_hints_enabled()
     previous_highlighting <- glue_highlight_config()
     lsp_settings$update_from_workspace(settings)
     if (!identical(previous_highlighting, glue_highlight_config()) &&
@@ -110,13 +110,16 @@ workspace_did_change_configuration <- function(self, params) {
         }
     }
 
-    modes_changed <- previous_s3 != isTRUE(lsp_settings$get("s3_dispatch")) ||
+    providers_changed <- previous_s3 != isTRUE(lsp_settings$get("s3_dispatch")) ||
         previous_members != isTRUE(lsp_settings$get("member_completion"))
-    if ((modes_changed || previous_hints != isTRUE(lsp_settings$get("roxygen_type_hints"))) &&
-            !is.null(self$resolve_task_manager)) {
+    hints_changed <- previous_hints != roxygen_type_hints_enabled()
+    if ((providers_changed || hints_changed) && !is.null(self$resolve_task_manager)) {
         for (workspace in self$workspaces$values()) {
+            if (previous_s3 && !isTRUE(lsp_settings$get("s3_dispatch")) && !is.null(workspace$s3_hint_workers)) {
+                for (owner in workspace$s3_hint_workers$keys()) s3_wake_hint_dependents(self, workspace, owner, forget = TRUE)
+            }
             for (document in workspace$documents$values()) {
-                if (!modes_changed && !length(document$parse_data$member_data$type_hints)) next
+                if (!providers_changed && !isTRUE(document$parse_data$member_data$has_type_hints)) next
                 # Remember changed preparation modes while an in-flight or
                 # failed parse prevents immediate resolution replacement.
                 document$member_refresh <- TRUE
@@ -159,7 +162,7 @@ workspace_did_change_configuration <- function(self, params) {
 
 refresh_namespace_document <- function(self, doc, diagnostics = FALSE) {
     if (!is.null(doc$parse_data) && !identical(doc$parse_data$member_data$namespace_imports,
-            member_namespace_imports(doc$uri))) {
+            member_namespace_imports(doc$uri, isTRUE(doc$parse_data$member_data$use_hint_imports)))) {
         self$text_sync(doc$uri, doc, parse = TRUE, run_diagnostics = diagnostics)
     } else if (diagnostics) {
         schedule_diagnostics(self, doc$uri, doc, delay = 0)
@@ -226,7 +229,7 @@ workspace_did_change_watched_files <- function(self, params) {
                 package_root <- index$package_root_for_uri(uri)
                 if (index$loads_package_sources(package_root) || workspace$documents$has(uri)) {
                     if (workspace$documents$has(uri)) {
-                        workspace$documents$remove(uri)
+                        workspace_remove_document(self, workspace, uri)
                     }
                     if (is.function(self$load_index_document)) {
                         self$load_index_document(workspace, uri)
@@ -236,7 +239,7 @@ workspace_did_change_watched_files <- function(self, params) {
                 logger$info("remove", path)
                 index$remove(uri)
                 if (workspace$documents$has(uri)) {
-                    workspace$documents$remove(uri)
+                    workspace_remove_document(self, workspace, uri)
                     workspace$diagnostics_globals_cache <- NULL
                     workspace$type_hierarchy_cache$clear()
                 }
@@ -259,11 +262,13 @@ workspace_did_change_watched_files <- function(self, params) {
         if (type == FileChangeType$Created || type == FileChangeType$Changed) {
             logger$info("load", path)
             doc <- Document$new(uri, language = "r", version = NULL, content = read_text_lines(path))
+            existing <- workspace$documents$get(uri, NULL)
             workspace$documents$set(uri, doc)
+            if (!is.null(existing)) s3_release_hint_document(self, workspace, uri, existing)
             self$text_sync(uri, document = doc, parse = TRUE)
         } else if (type == FileChangeType$Deleted) {
             logger$info("remove", path)
-            workspace$documents$remove(uri)
+            workspace_remove_document(self, workspace, uri)
             workspace$diagnostics_globals_cache <- NULL
             workspace$type_hierarchy_cache$clear()
         }

@@ -102,13 +102,25 @@ member_source_prefix <- function(content, start, end, prefix) {
     digest::digest(list(prefix, start, end, lines), algo = "xxhash64")
 }
 
+member_package_context_required <- function(document, workspace) {
+    data <- document$parse_data$member_data
+    if (!isTRUE(workspace$index$enabled)) return(FALSE)
+    isTRUE(data$package_classes) || (!is.null(data$document_package) &&
+            (isTRUE(data$has_type_hints) || workspace$index$package_has_type_hints(document$uri)))
+}
+
 member_document_cache_revision <- function(document, metadata, source_revision = NULL, workspace = NULL) {
-    if (isTRUE(document$parse_data$member_data$package_classes) && isTRUE(workspace$index$enabled)) {
+    if (member_package_context_required(document, workspace)) {
         source_revision <- list(source_revision, workspace$s3_revision, workspace$index$revision)
+    }
+    if (isTRUE(document$member_s3_dispatch)) {
+        source_revision <- list(source_revision, workspace$s3_revision, workspace$index$revision,
+            if (!is.null(workspace$documents)) workspace$documents$size(),
+            s3_namespace_generation(workspace, document$uri))
     }
     revision <- if (is.null(metadata)) 0L else if (is.function(metadata$revision)) metadata$revision() else NULL
     identity <- list(metadata = if (is.function(metadata$identity)) metadata$identity() else metadata,
-        revision = revision, sources = source_revision)
+        revision = revision, sources = source_revision, roxygen = roxygen_type_hints_enabled())
     document$member_binding_cache <- analysis_cache(document, "member-bindings", identity, max_bytes = 4 * 1024^2)
     if (!identical(document$member_revision, identity)) {
         document$member_receivers$clear()
@@ -123,7 +135,7 @@ member_document_cache_revision <- function(document, metadata, source_revision =
 member_binding_cacheable <- function(value, depth = 0L) {
     if (is.null(value)) return(TRUE)
     if (depth > 8L || !is.null(value$origin) || !is.null(value$function_expr) || !is.null(value$closure) ||
-            !is.null(value$binding_expr) || !is.null(value$binding_env) || !is.null(value$hint_type) ||
+            !is.null(value$binding_cache) || !is.null(value$binding_expr) || !is.null(value$binding_env) || !is.null(value$return_evidence) ||
             !is.null(value$r6_class) || !is.null(value$r6_identity) || !is.null(value$r6_role) ||
             !is.null(value$s7_descriptor) || !is.null(value$s7_generator) || !is.null(value$s4_generator) || !is.null(value$s4_contains) ||
             (!is.null(value$function_key) && is.null(value$metadata)) ||
@@ -155,14 +167,49 @@ member_local_binding <- function(expr, bindings, referenced = member_syntax_name
 
 member_local_value <- function(value, index, budget, depth = 0L, trail = character(),
     receiver = NULL, context = NULL) {
-    if (!is.null(value$hint_type)) return(member_hinted_value(value$hint_type, index, value$binding_env, budget))
-    if (is.null(value$binding_expr)) return(value)
+    if (is.null(value$binding_expr) && is.null(value$hint_types) && is.null(value$binding_choices)) return(value)
     cache <- value$binding_cache
-    if (!is.null(cache) && exists("value", cache, inherits = FALSE)) return(cache$value)
-    result <- member_infer(value$binding_expr, index, value$binding_env, receiver,
-        depth = depth + 1L, trail = trail, budget = budget, context = context)
-    if (!is.null(cache) && !isTRUE(budget$exhausted) && !isTRUE(budget$transient)) cache$value <- result
+    if (!is.null(cache) && exists("value", cache, inherits = FALSE) &&
+            (!isTRUE(budget$track_returns) || isTRUE(cache$tracked) ||
+                    !isTRUE(cache$value$reason %in% c("unknown_branch", "unknown_union_result")))) return(cache$value)
+    result <- if (!is.null(value$binding_choices)) {
+        limit <- if (is.null(budget$depth_limit)) 64L else budget$depth_limit
+        budget$remaining <- budget$remaining - 1L
+        if (budget$remaining < 0L || depth >= limit || isTRUE(budget$exhausted)) {
+            budget$exhausted <- TRUE
+            return(member_value(reason = "budget"))
+        }
+        choices <- lapply(value$binding_choices, member_local_value, index = index, budget = budget,
+            depth = depth + 1L, trail = trail, receiver = receiver, context = context)
+        if (isTRUE(budget$track_returns)) member_join_return_evidence(choices[[1L]], choices[[2L]]) else member_join(choices[[1L]], choices[[2L]])
+    } else if (is.null(value$hint_types)) {
+        env <- value$binding_env
+        if (!is.null(cache$defaults)) {
+            if (isTRUE(cache$resolving_default)) return(member_value(reason = "recursive_default"))
+            cache$resolving_default <- TRUE
+            on.exit(cache$resolving_default <- NULL, add = TRUE)
+            env[names(cache$defaults)] <- cache$defaults
+        }
+        member_infer(value$binding_expr, index, env, receiver,
+            depth = depth + 1L, trail = trail, budget = budget, context = context)
+    } else if (!is.null(value$hint_input)) {
+        input <- member_local_value(value$hint_input, index, budget, depth, trail, receiver, context)
+        member_refine_call_hint(input, value$hint_types, index, value$binding_env, budget)
+    } else {
+        member_hinted_value(value$hint_types, index, value$binding_env, budget)
+    }
+    if (!is.null(cache) && !isTRUE(budget$exhausted) && !isTRUE(budget$transient)) {
+        cache$value <- result
+        if (isTRUE(budget$track_returns)) cache$tracked <- TRUE
+    }
     result
+}
+
+# A caller may never read an unknown argument. Capture its documented type
+# in the defining scope without spending the request budget to resolve it.
+member_hinted_argument <- function(value, types, lexical) {
+    if (!length(types) || !member_needs_call_hint(value)) return(value)
+    list(hint_types = types, hint_input = value, binding_env = lexical, binding_cache = new.env(parent = emptyenv()))
 }
 
 # Ordinary completion needs the binding kind and R6 identity, not every list
@@ -208,6 +255,9 @@ member_receiver_cacheable <- function(value, index, budget) {
 }
 
 member_receiver_cache_value <- function(value, index, budget) {
+    # Source dispatch also depends on registrations and methods in other open
+    # documents. Those inputs are request-local to the S3 analyzer.
+    if (!is.null(budget$member_s3_context) || isTRUE(budget$unversioned_s3_sources)) return(NULL)
     if (member_receiver_cacheable(value, index, budget)) return(value)
     if (isTRUE(budget$exhausted) || !isTRUE(budget$transient) ||
             length(value$type) || !length(value$possible_returns)) return(NULL)

@@ -1,147 +1,187 @@
-# Only an explicit, leading parenthesized code span denotes an instance.
-# Arbitrary documentation, defaults and constructor calls are never evaluated.
-roxygen_has_type_span <- function(content) {
-    candidate <- grep("(`", content, fixed = TRUE)
-    length(candidate) > 0L && any(grepl("^\\s*#'", content[candidate]))
+max_type_hint_alternatives <- 32L
+roxygen_type_identifier <- "(?!\\.[0-9])[[:alpha:].][[:alnum:]_.]*"
+
+# Scan only potential comment lines before requesting a syntax tree, including
+# when a single string contains a recovered multiline source fragment.
+roxygen_has_type_span <- function(lines) {
+    matches <- grep("(`", lines, fixed = TRUE)
+    length(matches) > 0L && any(grepl(r"((?m)^\h*#'[^\r\n]*\(`)", lines[matches], perl = TRUE))
 }
 
-roxygen_type_block <- function(comments) {
-    lines <- trimws(sub("^#'", "", comments))
+# A type annotation is one parenthesized code span at the start of a roxygen
+# description. Leave all other Markdown and ordinary documentation alone.
+roxygen_type_block <- function(comments, formals = NULL) {
+    lines <- sub("^#'\\s*", "", comments, perl = TRUE)
     starts <- which(startsWith(lines, "@"))
+    ends <- c(starts[-1L] - 1L, length(lines))
     params <- list()
-    returns <- NULL
-    name <- "(?!\\.[0-9])[[:alpha:].][[:alnum:]_.]*"
-    pattern <- paste0("(*UCP)^@(?:(?:param\\s+([^[:space:]]+))|(returns?))\\s+\\(`(",
-        name, "(?:::", name, ")?)`\\)(?=\\s|[.,:]|$)")
+    returns <- character()
+    qualified <- paste0("(*UCP)^", roxygen_type_identifier, "(?:::", roxygen_type_identifier, ")?$")
+    pattern <- r"(^@(param\s+(`(?:\\.|[^`\\])*`|\S+)|returns?)\s+\(`([^`]+)`\)(?!\s*[,;]?\s*(?:\||/|(?i:or|and)\b|\\?\[|\(`))(?=\s|[.,:]|$))"
     for (i in seq_along(starts)) {
-        end <- if (i < length(starts)) starts[[i + 1L]] - 1L else length(lines)
-        tag <- paste(lines[starts[[i]]:end], collapse = " ")
+        section <- seq.int(starts[[i]], ends[[i]])
+        tag <- paste(lines[section], collapse = "\n")
         match <- regexec(pattern, tag, perl = TRUE)
         parts <- regmatches(tag, match)[[1L]]
         if (!length(parts)) next
-        tail <- substring(tag, attr(match[[1L]], "match.length")[[1L]] + 1L)
-        if (grepl(r"(^\s*,?\s*(?:[|/]|\(`|(?i:or|and)\b))", tail, perl = TRUE)) next
-        if (nzchar(parts[[3L]])) {
-            returns <- parts[[4L]]
+        span <- parts[[4L]]
+        if (!nzchar(trimws(span)) || endsWith(trimws(span), "|")) next
+        terms <- strsplit(span, "|", fixed = TRUE)[[1L]]
+        types <- trimws(terms)
+        unique_types <- unique(types)
+        if (length(unique_types) > max_type_hint_alternatives || !all(grepl(qualified, types, perl = TRUE))) next
+        if (startsWith(parts[[2L]], "param")) {
+            parameter <- parts[[3L]]
+            names <- if (startsWith(parameter, "`")) reference_symbol_names(parameter) else strsplit(parameter, ",", fixed = TRUE)[[1L]]
+            if (!is.null(formals)) names <- intersect(names, formals)
+            if (!length(names)) next
+            params[names] <- rep(list(unique_types), length(names))
         } else {
-            names <- strsplit(parts[[2L]], ",", fixed = TRUE)[[1L]]
-            params[names] <- rep(list(parts[[4L]]), length(names))
+            returns <- unique_types
         }
     }
-    if (length(params) || length(returns)) list(params = params, returns = returns)
+    if (!length(params) && !length(returns)) return(NULL)
+    list(params = params, returns = returns)
 }
 
-# Key the block to the physical position of the function keyword. A nearby
-# callback or nested function has its own position even on the same line.
-roxygen_type_index <- function(content, data) {
+# Follow assignments and parentheses to their value. Named arguments include
+# R6 methods and need the value following their argument tag.
+roxygen_function_row <- function(syntax, row) {
+    token <- syntax$token
+    parent <- syntax$parent_row
+    if (token[[row]] %in% c("SYMBOL_SUB", "SYMBOL_FORMALS")) {
+        parts <- syntax_children(syntax, parent[[row]])
+        parts <- parts[token[parts] != "COMMENT"]
+        i <- match(row, parts)
+        if (is.na(i) || i + 2L > length(parts) || !token[parts[[i + 1L]]] %in% c("EQ_SUB", "EQ_FORMALS")) return(0L)
+        row <- parts[[i + 2L]]
+    } else {
+        while (parent[[row]] && syntax$line1[[parent[[row]]]] == syntax$line1[[row]] &&
+                syntax$col1[[parent[[row]]]] == syntax$col1[[row]]) row <- parent[[row]]
+    }
+    repeat {
+        parts <- syntax_children(syntax, row)
+        parts <- parts[token[parts] != "COMMENT"]
+        if (!length(parts)) return(0L)
+        kinds <- token[parts]
+        if (kinds[[1L]] %in% c("FUNCTION", r"('\\')")) return(parts[[1L]])
+        if (length(parts) != 3L) return(0L)
+        if (kinds[[2L]] %in% c("LEFT_ASSIGN", "EQ_ASSIGN")) row <- parts[[3L]]
+        else if (kinds[[2L]] == "RIGHT_ASSIGN") row <- parts[[1L]]
+        else if (identical(kinds[c(1L, 3L)], c("'('", "')'"))) row <- parts[[2L]]
+        else return(0L)
+    }
+}
+
+# Whitespace and ordinary comments can separate roxygen from its declaration.
+# The first real token stops the search. A fence or a discarded statement in a
+# partial projection is also a boundary, even if the projection blanked it out.
+member_roxygen_type_index <- function(content, data, row_offset = 0L, barriers = integer(), allowed_comments = NULL, value_source = NULL) {
     if (!roxygen_has_type_span(content) || !length(data$token)) return(NULL)
-    terminals <- which(data$terminal)
-    terminals <- terminals[order(data$line1[terminals], data$col1[terminals])]
-    token <- data$token[terminals]
+    if (is.null(data$terminals)) data <- syntax_parse_data(data)
+    terminals <- data$terminals
+    kind <- data$token[terminals]
     line <- data$line1[terminals]
     text <- data$text[terminals]
-    comments <- which(token == "COMMENT" & startsWith(text, "#'"))
-    comments <- comments[grepl("^\\s*#'", content[line[comments]])]
+    comments <- which(kind == "COMMENT" & startsWith(text, "#'"))
+    comments <- comments[trimws(content[line[comments]]) == trimws(text[comments])]
+    if (!is.null(allowed_comments)) comments <- comments[line[comments] %in% allowed_comments]
     if (!length(comments)) return(NULL)
-    groups <- split(comments, cumsum(c(TRUE, diff(line[comments]) != 1L)))
+    code <- which(kind != "COMMENT")
+    next_code <- code[findInterval(comments, code) + 1L]
+    keep <- !is.na(next_code)
+    if (length(barriers)) {
+        barriers <- sort(unique(barriers))
+        keep <- keep & findInterval(line[comments], barriers) == findInterval(line[next_code], barriers)
+    }
+    groups <- split(comments[keep], next_code[keep])
     result <- vector("list", length(groups))
-    positions <- character(length(groups))
-    for (j in seq_along(groups)) {
-        group <- groups[[j]]
-        if (!roxygen_has_type_span(text[group])) next
-        end <- group[[length(group)]]
-        i <- end + 1L
-        if (i > length(token) || line[[i]] != line[[end]] + 1L) next
-        # Ordinary assignments, including ones split before the literal.
-        while (i < length(token) && token[[i]] == "SYMBOL" && token[[i + 1L]] %in% c("LEFT_ASSIGN", "EQ_ASSIGN")) {
-            i <- i + 2L
+    functions <- integer(length(groups))
+    targets <- as.integer(names(groups))
+    for (i in seq_along(groups)) {
+        group <- groups[[i]]
+        if (!any(grepl("(`", text[group], fixed = TRUE))) next
+        fn <- roxygen_function_row(data, terminals[[targets[[i]]]])
+        if (!fn) next
+        parts <- syntax_children(data, data$parent_row[[fn]])
+        formals <- reference_symbol_names(data$text[parts[data$token[parts] == "SYMBOL_FORMALS"]])
+        comments <- text[group]
+        if (!is.null(value_source)) {
+            comment_rows <- line[group]
+            starts <- regexpr("#'", content[comment_rows], fixed = TRUE)
+            comments <- substring(value_source[comment_rows], starts)
         }
-        if (i > length(token) || !token[[i]] %in% c("FUNCTION", r"('\\')")) next
-        hints <- roxygen_type_block(text[group])
+        hints <- roxygen_type_block(comments, formals)
         if (is.null(hints)) next
-        result[[j]] <- hints
-        positions[[j]] <- paste(line[[i]], data$col1[terminals[[i]]], sep = ":")
+        result[[i]] <- hints
+        functions[[i]] <- fn
     }
-    keep <- which(nzchar(positions))
-    if (length(keep)) stats::setNames(result[keep], positions[keep])
+    # Several comment groups around a multiline assignment can identify the
+    # same function. As with a repeated tag, keep its last accepted block.
+    keep <- which(functions > 0L & !duplicated(functions, fromLast = TRUE))
+    if (!length(keep)) return(NULL)
+    functions <- functions[keep]
+    rows <- data$line1[functions] + row_offset
+    cols <- data$col1[functions]
+    order <- order(rows, cols)
+    result <- stats::setNames(result[keep], paste(rows, cols, sep = ":"))
+    structure(result[order], rows = as.integer(rows[order]), cols = as.integer(cols[order]))
 }
 
-# All function literals in a parser fragment share the same srcfile. Keep
-# the sparse table there instead of walking each function's body to attach it.
-roxygen_hint_source <- function(parsed, hints, row = 0L, col = 0L) {
-    if (!length(hints)) return()
-    source <- attr(parsed, "srcfile", exact = TRUE)
-    if (is.environment(source)) source$.languageserver_type_hints <- list(values = hints, row = row, col = col)
+member_merge_type_hints <- function(partial, current) {
+    if (!length(partial)) return(current)
+    if (!length(current)) return(partial)
+    keep_hints <- !names(partial) %in% names(current)
+    rows <- c(attr(partial, "rows")[keep_hints], attr(current, "rows"))
+    cols <- c(attr(partial, "cols")[keep_hints], attr(current, "cols"))
+    order <- order(rows, cols)
+    structure(c(partial[keep_hints], current)[order], rows = rows[order], cols = cols[order])
 }
 
-member_function_hints <- function(fn) {
-    hints <- attr(fn, "member_type_hints", exact = TRUE)
-    if (!is.null(hints) || length(fn) < 4L) return(hints)
-    ref <- fn[[4L]]
-    index <- attr(ref, "srcfile", exact = TRUE)$.languageserver_type_hints
-    if (is.null(index)) return(NULL)
-    col <- ref[[5L]] + if (ref[[7L]] == 1L) index$col else 0L
-    index$values[[paste(ref[[7L]] + index$row, col, sep = ":")]]
+member_type_dependencies <- function(hints) {
+    types <- unique(unlist(hints, use.names = FALSE))
+    qualified <- types[grepl("::", types, fixed = TRUE)]
+    unique(c(types, sub("::.*", "", qualified)))
 }
 
-# When a metadata worker is pending, a documented receiver can depend on
-# an attached package even if the source never mentions its exported roots.
-member_hint_packages <- function(recovered, cursor, referenced, expressions, data, request) {
-    node <- if (is.null(recovered$context)) recovered$parsed else recovered$context
-    path <- if (is.null(recovered$context)) recovered$path
-    if (is.null(path)) path <- member_cursor_path(node, recovered$sentinel, cursor$accessor)
-    params <- list()
-    for (step in path) {
-        if (member_head(node, "function")) {
-            formals <- names(node[[2L]])
-            params[formals] <- member_function_hints(node)$params[formals]
+# Copy only the paths leading to annotated functions. The native traversal is
+# iterative; wide calls are converted to an indexed list once, and deep paths
+# are rebuilt from leaves to roots without recursing on the R stack.
+member_attach_type_hints <- function(parsed, index, row = 0L, col = 0L) {
+    if (!length(index) || !length(parsed)) return(parsed)
+    plan <- .Call("member_hint_paths_c", parsed, attr(index, "rows"), attr(index, "cols"),
+        as.integer(c(row, col)), PACKAGE = "languageserver")
+    n <- nrow(plan)
+    if (!n) return(parsed)
+    children <- split(seq_len(n)[-1L], factor(plan[-1L, 1L], levels = seq_len(n)))
+    nodes <- parts <- vector("list", n)
+    nodes[[1L]] <- parsed
+    for (i in seq_len(n)) {
+        kids <- children[[i]]
+        if (length(kids)) {
+            parts[[i]] <- as.list(nodes[[i]])
+            nodes[kids] <- parts[[i]][plan[kids, 2L]]
         }
-        node <- node[[step]]
     }
-    types <- unlist(params[intersect(names(params), referenced)], use.names = FALSE)
-    for (expr in expressions[-1L]) {
-        if (member_head(expr, "function")) types <- c(types, member_function_hints(expr)$returns)
+    for (i in rev(seq_len(n))) {
+        node <- nodes[[i]]
+        kids <- children[[i]]
+        dependencies <- attr(node, "member_type_names", exact = TRUE)
+        if (length(kids)) {
+            values <- parts[[i]]
+            values[plan[kids, 2L]] <- nodes[kids]
+            rebuilt <- if (is.call(node)) as.call(values) else if (is.expression(node)) as.expression(values) else as.pairlist(values)
+            attributes(rebuilt) <- attributes(node)
+            node <- rebuilt
+            dependencies <- c(dependencies, unlist(lapply(nodes[kids], attr, "member_type_names", exact = TRUE), use.names = FALSE))
+        }
+        hint <- plan[i, 3L]
+        if (hint) {
+            attr(node, "member_type_hints") <- index[[hint]]
+            dependencies <- c(member_type_dependencies(index[[hint]]), dependencies)
+        }
+        attr(node, "member_type_names") <- unique(dependencies)
+        nodes[[i]] <- node
     }
-    qualified <- grepl("::", types, fixed = TRUE)
-    packages <- sub("::.*", "", types[qualified])
-    if (length(setdiff(types[!qualified], c(names(data$bindings), names(data$s4), names(data$refclasses))))) {
-        packages <- union(packages, setdiff(request$packages, startup_packages))
-    }
-    packages
-}
-
-member_hint_binding <- function(type, lexical) {
-    keys <- intersect(c(type, ".__member_position__", ".__s4_classes__"), names(lexical))
-    list(hint_type = type, binding_env = lexical[keys])
-}
-
-member_hinted_value <- function(type, index, bindings, budget) {
-    parts <- strsplit(type, "::", fixed = TRUE)[[1L]]
-    name <- utils::tail(parts, 1L)
-    package <- if (length(parts) == 2L) parts[[1L]]
-    if (type %in% budget$resolving_type_hints || isTRUE(budget$exhausted)) return(member_value())
-    previous <- budget$resolving_type_hints
-    budget$resolving_type_hints <- c(previous, type)
-    on.exit(budget$resolving_type_hints <- previous)
-    generator <- if (is.null(package)) {
-        member_infer(as.name(name), index, bindings, budget = budget)
-    } else if (identical(package, index$document_package)) {
-        member_resolve_document(name, index, list(.__member_position__ = c(Inf, Inf)), budget, 0L, character())
-    } else {
-        member_lookup(member_lookup(index$namespace_indices, package)$roots, name)
-    }
-    if (identical(generator$r6_role, "generator")) return(generator$fields$new$result_shape)
-    if (!is.null(generator$refclass_instance)) return(generator$refclass_instance)
-    if (!is.null(generator$s7_generator)) return(member_s7_shape(generator$s7_generator, generator$closure))
-    if (!is.null(generator$s4_generator)) return(member_s4_construct(generator$s4_generator, list(), index, bindings, budget))
-    if (!is.null(member_s4_descriptor(name, index, bindings, package, budget))) return(member_s4_shape(name, index, bindings, package, budget = budget))
-    owners <- if (!is.null(package)) package else unique(index$hint_packages)
-    matches <- Filter(function(owner) !is.null(member_lookup(member_lookup(index$namespace_indices, owner)$classes, name)), owners)
-    if (length(matches) == 1L) return(member_value(type = name, member_package = matches[[1L]]))
-    member_value()
-}
-
-member_needs_type_hint <- function(value) {
-    !length(value$type) && !length(value$possible_returns) && is.null(value$function_expr) &&
-        is.null(value$function_key) && !isTRUE(value$known_literal) && !identical(value$reason, "unknown_branch")
+    nodes[[1L]]
 }

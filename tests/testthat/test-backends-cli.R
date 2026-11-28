@@ -116,16 +116,23 @@ test_that("CLI descendants stop on cancellation, supersession, shutdown, worker 
     skip_if_not_installed("ps")
     script <- withr::local_tempfile(fileext = ".R")
     writeLines(c(
+        "marker <- commandArgs(TRUE)[[1L]]",
         "child <- processx::process$new(file.path(R.home('bin'), 'Rscript'),",
         "    c('--vanilla', '-e', \"writeLines('ready', commandArgs(TRUE)[[1L]]); Sys.sleep(30)\",",
-        "        paste0(commandArgs(TRUE)[[1L]], '.child')), cleanup = FALSE)",
-        "while (!file.exists(paste0(commandArgs(TRUE)[[1L]], '.child'))) Sys.sleep(0.01)",
-        "saveRDS(c(parent = Sys.getpid(), child = child$get_pid()), commandArgs(TRUE)[[1L]])",
+        "        paste0(marker, '.child')), cleanup = FALSE)",
+        "while (!file.exists(paste0(marker, '.child'))) Sys.sleep(0.01)",
+        "pids <- c(parent = Sys.getpid(), child = child$get_pid())",
+        "started <- lapply(pids, function(pid) ps::ps_create_time(ps::ps_handle(pid)))",
+        "saveRDS(list(pids = pids, started = started), paste0(marker, '.tmp'))",
+        "stopifnot(file.rename(paste0(marker, '.tmp'), marker))",
         "Sys.sleep(30)"
     ), script)
+    alive <- function(handle) {
+        tryCatch(ps::ps_is_running(handle) && !ps::ps_status(handle) %in% c("zombie", "dead"),
+            no_such_process = function(e) FALSE)
+    }
     for (mode in c("cancel", "supersede", "stop", "worker_death", "timeout")) {
-        marker <- withr::local_tempfile()
-        withr::defer(unlink(paste0(marker, ".child")))
+        marker <- file.path(withr::local_tempdir(), "ready.rds")
         request <- cli_fixture_request(timeout = if (mode == "timeout") 1.5 else 30)
         manager <- TaskManager$new(paste("CLI", mode), use_session = TRUE,
             min_idle_sessions = 0, max_running_tasks = 1)
@@ -141,9 +148,12 @@ test_that("CLI descendants stop on cancellation, supersession, shutdown, worker 
         }
         expect_true(file.exists(marker), info = mode)
         if (!file.exists(marker)) next
-        handles <- lapply(readRDS(marker), ps::ps_handle)
+        # Timeout may have already reaped the tree. Use the creation times
+        # recorded by the live fixture rather than looking up or reusing PIDs.
+        tree <- readRDS(marker)
+        handles <- Map(ps::ps_handle, tree$pids, tree$started)
         withr::defer(for (handle in handles) try(ps::ps_kill(handle), silent = TRUE))
-        # The parent has observed a fully started process tree before failure.
+        if (mode != "timeout") expect_true(all(vapply(handles, alive, logical(1L))), info = mode)
         Sys.sleep(0.05)
         manager$check_tasks()
         switch(mode,
@@ -153,10 +163,6 @@ test_that("CLI descendants stop on cancellation, supersession, shutdown, worker 
             worker_death = manager$.__enclos_env__$private$running_tasks$get("cli")$
                 .__enclos_env__$private$session$kill(grace = 0, close_connections = FALSE),
             timeout = NULL)
-        alive <- function(handle) {
-            tryCatch(ps::ps_is_running(handle) && !ps::ps_status(handle) %in% c("zombie", "dead"),
-                no_such_process = function(e) FALSE)
-        }
         deadline <- Sys.time() + 5
         while (any(vapply(handles, alive, logical(1L))) && Sys.time() < deadline) {
             manager$check_tasks()

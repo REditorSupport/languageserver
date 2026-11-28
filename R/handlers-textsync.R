@@ -44,7 +44,7 @@ text_document_did_open <- function(self, params) {
     workspace <- self$get_workspace(uri)
 
     if (workspace$documents$has(uri)) {
-        doc <- workspace$documents$remove(uri)
+        doc <- workspace_remove_document(self, workspace, uri)
     }
     doc <- Document$new(uri, language = language, version = version, content = content)
     workspace$documents$set(uri, doc)
@@ -67,12 +67,14 @@ text_document_did_change <- function(self, params) {
     cancel_formatting_requests(self, uri = uri,
         message = "Request superseded by a newer document version")
 
+    workspace <- self$get_workspace(uri)
     pending <- self$pending_replies$get(uri, NULL)
     for (queue in pending) {
         retained <- list()
         while (queue$size()) {
             item <- queue$pop()
             if (!is.null(item$version) && item$version < version) {
+                s3_forget_hint_waiters(workspace, uri, item$id)
                 self$deliver(ResponseErrorMessage$new(
                     item$id,
                     "RequestCancelled",
@@ -85,8 +87,6 @@ text_document_did_change <- function(self, params) {
         for (item in retained) queue$push(item)
     }
     
-    workspace <- self$get_workspace(uri)
-
     if (workspace$documents$has(uri)) {
         doc <- workspace$documents$get(uri)
         doc$apply_content_changes(version, contentChanges)
@@ -178,6 +178,7 @@ text_document_did_close <- function(self, params) {
     path <- path_from_uri(uri)
     workspace <- self$get_workspace(uri)
     index <- workspace$index
+    s3_forget_hint_waiters(workspace, uri)
     is_from_workspace <- nzchar(path) && path_has_parent(path, workspace$root)
 
     if (!is_from_workspace && is.function(index$remove)) {
@@ -208,7 +209,7 @@ text_document_did_close <- function(self, params) {
         if (!is.null(self$member_task_manager)) self$member_task_manager$cancel(uri)
         if (!is.null(doc)) {
             diagnostics_callback(self, uri, NULL, list())
-            workspace$documents$remove(uri)
+            workspace_remove_document(self, workspace, uri)
             workspace$diagnostics_globals_cache <- NULL
             workspace$type_hierarchy_cache$clear()
             workspace$update_loaded_packages()
