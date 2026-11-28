@@ -165,6 +165,46 @@ test_that("the original spelling of each class occurrence governs its rename", {
     expect_identical(offsets, nchar("#' @returns [`Box`] or (`"))
 })
 
+test_that("advisory class links do not select S7 method results", {
+    skip_if_not_installed("S7")
+    lines <- c("library(S7)", 'render <- new_generic("render", "x")',
+        "#' @returns (`list`) Output.",
+        "method(render, class_Date) <- function(x) list(selected = TRUE)",
+        "#' @param x [`Date`] An input.", "weak <- function(x) render(x)$field",
+        "#' @param x (`Date`) An input.", "strong <- function(x) render(x)$field")
+    f <- provider_fixture(lines)
+    f$workspace$member_metadata <- MemberMetadataCache$new(16 * 1024^2)
+    f$workspace$member_metadata$set("S7", member_prepare_package("S7"))
+    labels <- function(row) {
+        point <- list(row = row - 1L, col = regexpr("$field", lines[[row]], fixed = TRUE)[[1L]])
+        items <- member_completion(f$uri, f$workspace, f$document, point, TRUE, 100L)
+        vapply(items, `[[`, "", "label")
+    }
+    for (pass in seq_len(2L)) {
+        expect_length(labels(6L), 0L)
+        expect_identical(labels(8L), "selected")
+    }
+})
+
+test_that("an unused advisory argument preserves an independently established S3 class", {
+    lines <- c('Box <- R6::R6Class("Box", public = list(item = TRUE))',
+        'ignore <- function(unused) structure(list(), class = "record")',
+        "forward <- function(value) value", 'render <- function(x, ...) UseMethod("render")',
+        "render.record <- function(x) list(selected = TRUE)", "render.Box <- function(x) list(wrong = TRUE)",
+        "#' @param box [`Box`] Input.", "read <- function(box) {",
+        "  render(ignore(box))$probe", "  render(forward(box))$probe", "}")
+    f <- provider_fixture(lines)
+    labels <- function(row) {
+        point <- list(row = row - 1L, col = regexpr("$probe", lines[[row]], fixed = TRUE)[[1L]])
+        items <- member_completion(f$uri, f$workspace, f$document, point, TRUE, 100L)
+        vapply(items, `[[`, "", "label")
+    }
+    for (pass in seq_len(2L)) {
+        expect_identical(labels(9L), "selected")
+        expect_length(labels(10L), 0L)
+    }
+})
+
 test_that("unattached prose descriptions do not prevent independent class renames", {
     lines <- c('Box <- R6::R6Class("Box")', "#' @slot item [`Box`] Contents.",
         'methods::setClass("Pending", slots = ')

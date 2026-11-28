@@ -133,3 +133,23 @@ test_that("open edited consumers win and closing restores the indexed file", {
     w$index$remove(path_to_uri(collision))
     expect_identical(topic_edit_rows(rename(), uri), 1L)
 })
+
+test_that("formal rename requires a complete set of potentially inherited parameters", {
+    f <- topic_rename_doc(c("#' @inheritParams stats::lm", "fit <- function(data) data"))
+    result <- topic_rename_call(f, 2L, "fit <- function(da", "observations")
+    expect_null(result$result)
+    expect_match(result$error$message, "@inheritParams")
+
+    f <- topic_rename_doc(c("#' @param data A data frame.", "donor <- function(data) data",
+            "#' @inheritParams donor", "fit <- function(keep) keep"))
+    expect_null(topic_rename_call(f, 4L, "fit <- function(ke", "unrelated")$error)
+    expect_match(topic_rename_call(f, 4L, "fit <- function(ke", "data")$error$message, "@inheritParams")
+})
+
+test_that("formal rename protects positional inheritance selectors", {
+    for (selector in c("2L", "1:2", "(2)")) {
+        f <- topic_rename_doc(c("#' @param a First.", "#' @param b Second.", "donor <- function(a, b) b",
+                paste("#' @inheritParams donor", selector), "read <- function(b) b"))
+        expect_match(topic_rename_call(f, 3L, "donor <- function(a, b", "other")$error$message, "@inheritParams")
+    }
+})

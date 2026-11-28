@@ -57,3 +57,18 @@ for (n in c(32L, 128L, 256L)) {
         cat(sprintf("%6d  %-17s %10.3f\n", n, kind, milliseconds(index)))
     }
 }
+
+if (has_class_tags) {
+    cat("classes in one block    hint attachment (ms)\n")
+    for (n in c(128L, 512L, 2048L)) {
+        names <- paste0("Box", seq_len(n))
+        code <- c("local({", as.vector(rbind("#' @slot item (`Payload`)",
+                    paste0(names, ' <- methods::setClass("', names, '", slots = c(item = "ANY"))'))), "})")
+        parsed <- parse(text = code, keep.source = TRUE)
+        hints <- ns$member_roxygen_type_index(code, utils::getParseData(parsed), uri = "file:///classes.R")
+        attach <- function() ns$member_attach_type_hints(parsed, hints)
+        block <- attach()[[1L]][[2L]]
+        stopifnot(all(vapply(as.list(block)[-1L], function(stmt) identical(attr(stmt[[3L]], "member_class_hints")$slot$item, "Payload"), TRUE)))
+        cat(sprintf("%6d                  %10.3f\n", n, milliseconds(attach)))
+    }
+}

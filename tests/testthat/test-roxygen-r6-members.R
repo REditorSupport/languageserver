@@ -83,3 +83,20 @@ test_that("R6 $set documents only the statically registered function", {
         "#' @param arg (`Item`) Not an R6 registration.", 'G$set("public", "echo", function(arg) arg$@@value)')
     expect_length(r6_doc_members(masked), 0L)
 })
+
+test_that("R6 grouped fields and string-named methods retain their hints", {
+    lines <- c('Box <- R6::R6Class("Box", public = list(value = TRUE))',
+        'Holder <- R6::R6Class("Holder", public = list(',
+        "#' @field left,right (`Box`) Payloads.", "left = NULL, right = NULL,",
+        "#' @param x (`Box`) Input.", "#' @returns (`Box`) Result.",
+        "'read it' = function(x) { x$probe; opaque() },",
+        "initialize = function(right) right$probe))")
+    for (i in c(7L, 8L)) {
+        marked <- lines
+        marked[i] <- sub("probe", "@@probe", marked[i], fixed = TRUE)
+        expect_identical(r6_doc_members(marked), c("clone", "value"))
+    }
+    for (suffix in c("$left", "$right", "[['read it']](Box$new())")) {
+        expect_identical(r6_doc_members(c(lines, paste0("Holder$new(Box$new())", suffix, "$@@probe"))), c("clone", "value"))
+    }
+})

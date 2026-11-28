@@ -388,3 +388,21 @@ test_that("the defining buffer wakes S3 requests waiting for its class catalog",
     expect_true(f$uri %in% state$ready)
     expect_false(workspace$s3_hint_workers$has(owner$uri))
 })
+
+test_that("S3 inference only resolves annotated arguments that are read", {
+    lookups <- character()
+    resolve <- s3_type_hint
+    local_mocked_bindings(s3_type_hint = function(types, ...) {
+        lookups <<- c(lookups, types)
+        resolve(types, ...)
+    })
+    generic <- c('g <- function(x, ...) UseMethod("g")',
+        "g.integer <- function(x, digits = 1L, ...) NULL", "g.widget <- function(x, shade, ...) NULL")
+    docs <- "#' @param unused (`unused_type`) A documented input."
+    branch <- c(docs, "run <- function(unused, flag) {", "  value <- if (flag) 1L else 2L", "  g(value, @@)", "}")
+    expect_identical(roxygen_s3_call(c(generic, branch))$method$name, "g.integer")
+    expect_length(lookups, 0L)
+    wrapper <- c(docs, "#' @param used (`widget`) A widget.", "run <- function(unused, used) used")
+    expect_identical(roxygen_s3_call(c(generic, wrapper, "g(run(opaque(), opaque()), @@)"))$method$name, "g.widget")
+    expect_identical(lookups, "widget")
+})

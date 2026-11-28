@@ -158,7 +158,7 @@ member_s7_exact_method <- function(generic, values, budget, require_certain = is
     dispatch <- generic$s7_dispatch_args
     if (!length(dispatch) || !all(dispatch %in% names(values))) return(NULL)
     keys <- lapply(values[dispatch], function(value) {
-        if (is.null(value) || !is.null(value$reason) || !is.null(value$s4_class)) return(NULL)
+        if (is.null(value) || !is.null(value$reason) || !is.null(value$s4_class) || isTRUE(value$advisory_type)) return(NULL)
         if (require_certain && (isTRUE(value$possible_receiver) || length(value$possible_returns))) return(NULL)
         # structure() can retain its known base payload while changing the
         # dispatch class. Use the explicit class vector before its storage.

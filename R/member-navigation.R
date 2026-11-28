@@ -999,12 +999,16 @@ roxygen_member_labels <- function(workspace, target, name, new_name) {
     out <- list()
     for (i in seq_len(nrow(labels))) {
         line <- labels$parameter_row[[i]]
-        for (label in rename_roxygen_names(doc$content[[line + 1L]], labels$parameter_start[[i]])) {
+        group <- rename_roxygen_names(doc$content[[line + 1L]], labels$parameter_start[[i]])
+        for (label in group) {
             prefix <- if (labels$directive[[i]] == "prop") sub("[^@]*$", "", label$name) else ""
             if (!identical(label$name, paste0(prefix, name))) next
             loc <- location(doc$uri, range(doc$to_lsp_position(line, label$start), doc$to_lsp_position(line, label$end)))
             if (!is.null(new_name)) {
                 text <- paste0(prefix, new_name)
+                if (length(group) > 1L && grepl("[[:space:],`]", text)) {
+                    return("The new name cannot be represented in this grouped roxygen tag")
+                }
                 attr(loc, "roxygen_label") <- if (grepl("[[:space:],`]", text)) quote_completion_name(text) else text
             }
             out[[length(out) + 1L]] <- loc
@@ -1056,7 +1060,9 @@ member_navigation_references <- function(id, workspace, document, member, includ
     if (for_rename && length(result)) {
         conflict <- member_navigation_rename_conflict(workspace, uris, result, member$name, new_name)
         if (!is.null(conflict)) return(ResponseErrorMessage$new(id, "RequestFailed", conflict))
-        result <- c(result, roxygen_member_labels(workspace, target, member$name, new_name))
+        labels <- roxygen_member_labels(workspace, target, member$name, new_name)
+        if (is.character(labels)) return(ResponseErrorMessage$new(id, "RequestFailed", labels))
+        result <- c(result, labels)
         if (length(glue_uris)) return(glue_member_rename(id, workspace, member, glue_uris, result, new_name))
     } else if (!for_rename) {
         result <- c(result, roxygen_member_labels(workspace, target, member$name, NULL))

@@ -34,12 +34,14 @@ test_that("literal inheritance selectors filter documentation without evaluating
         "#' @inheritParams donor -a -c", "two <- function(a,b,c) NULL",
         "#' @inheritParams donor -(a:b)", "three <- function(a,b,c) NULL",
         "#' @inheritParams donor a", "#' @inheritParams donor c", "multi <- function(a,b,c) NULL",
-        "#' @inheritParams donor stop('unexpected')", "bad <- function(a,b,c) NULL"))
+        "#' @inheritParams donor stop('unexpected')", "bad <- function(a,b,c) NULL",
+        "#' @inheritParams donor 2:3L", "positions <- function(a,b,c) NULL"))
     expect_identical(probe("one"), list(b = "B", c = "C"))
     expect_identical(probe("two"), list(b = "B"))
     expect_identical(probe("three"), list(c = "C"))
     expect_identical(probe("multi"), list(a = "A", c = "C"))
     expect_length(probe("bad"), 0L)
+    expect_identical(probe("positions"), list(b = "B", c = "C"))
 })
 
 test_that("only unique, visible source topics donate, including explicitly named NULL topics", {
