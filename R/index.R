@@ -738,6 +738,7 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
         root = NULL,
         files = NULL,
         summaries = NULL,
+        shared_source_count = 0L,
         source_edges = NULL,
         reverse_edges = NULL,
         pending = NULL,
@@ -1424,12 +1425,14 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
                 references <- self$source_closure(uri)
                 for (target in setdiff(old_sources, sources)) {
                     reverse <- setdiff(self$reverse_edges$get(target, character()), uri)
+                    if (length(reverse) == 1L) self$shared_source_count <- self$shared_source_count - 1L
                     if (length(reverse)) self$reverse_edges$set(target, reverse)
                     else if (self$reverse_edges$has(target)) self$reverse_edges$remove(target)
                 }
                 for (target in setdiff(sources, old_sources)) {
-                    self$reverse_edges$set(target,
-                        union(self$reverse_edges$get(target, character()), uri))
+                    reverse <- union(self$reverse_edges$get(target, character()), uri)
+                    if (length(reverse) == 2L) self$shared_source_count <- self$shared_source_count + 1L
+                    self$reverse_edges$set(target, reverse)
                 }
                 self$source_edges$set(uri, sources)
                 # Traverse the new graph after clearing only the closure at
@@ -1824,6 +1827,8 @@ WorkspaceIndex <- R6::R6Class("WorkspaceIndex",
             root <- self$package_root_for_uri(uri)
             !is.null(root) && private$hinted_packages$has(root)
         },
+
+        multiple_definition_files = function(name) private$definition_counts$get(name, 0L) > 1L,
 
         has_definition = function(name, uri = NULL) {
             if (!private$definition_counts$has(name)) return(FALSE)
