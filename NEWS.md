@@ -1,5 +1,8 @@
 # languageserver (development)
 
+- Add `run_embedded()` to serve open R documents over JSON-RPC messages
+  in a dedicated webR worker or another R host without subprocesses.
+
 - Fix a native symbol collision that broke `collections` stack operations
   when languageserver was loaded first in webR (#902).
 
