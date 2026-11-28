@@ -107,6 +107,31 @@ test_that("Parse recovery schedules namespace metadata without changing valid im
     expect_length(tasks, 3L)
 })
 
+test_that("complete and partial parses submit only enabled hint packages to workers", {
+    prior <- lsp_settings$get("roxygen_type_hints")
+    withr::defer(lsp_settings$set("roxygen_type_hints", prior))
+    lsp_settings$set("roxygen_type_hints", FALSE)
+    testthat::local_mocked_bindings(resolve_task = function(self, uri, document, packages, namespace_packages) {
+        list(packages = packages, namespace_packages = namespace_packages)
+    }, .package = "languageserver")
+    for (partial in c(FALSE, TRUE)) {
+        uri <- "file:///hint-package-routing.R"
+        content <- c("#' @return (`doconly::Box`)", "make <- function() used::make()", if (partial) "unfinished <-")
+        doc <- Document$new(uri, version = 1L, content = content)
+        workspace <- Workspace$new(NULL)
+        workspace$documents$set(uri, doc)
+        sent <- NULL
+        server <- list(get_workspace = function(...) workspace, queue_pending_replies = function(...) NULL,
+            resolve_task_manager = list(add_task = function(uri, task) sent <<- task))
+        parsed <- parse_document(uri, content, include_xml = FALSE)
+        expect_identical(parsed$parse_error, partial)
+        expect_identical(parsed$member_data$hint_only_packages, "doconly")
+        parse_callback(server, uri, 1L, parsed, cache = FALSE)
+        expect_identical(sent$namespace_packages, "used")
+        expect_identical(doc$requested_packages, sent)
+    }
+})
+
 package_recovery_wait_fixture <- function(code) {
     content <- strsplit(code, "\n", fixed = TRUE)[[1L]]
     uri <- "file:///package-recovery-wait.R"

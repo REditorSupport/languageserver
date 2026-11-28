@@ -1,7 +1,7 @@
 # Locate a host declaration in the same lexical scope as an embedded read.
 # Completion records retain the scope bounds and the reference index supplies
 # the identity shared by highlights, references and rename.
-glue_lexical_target <- function(document, name, at, skip = character()) {
+glue_lexical_target <- function(document, name, at, skip = character(), preceding = FALSE) {
     parsed <- document$parse_data
     index <- parsed$reference_index
     matches <- reference_indices(index, name)
@@ -11,6 +11,11 @@ glue_lexical_target <- function(document, name, at, skip = character()) {
     syntax <- parsed$syntax_data
     line <- syntax$line1[[at]]
     col <- syntax$col1[[at]]
+    if (preceding) {
+        matches <- matches[index$line[matches] < line - 1L |
+                (index$line[matches] == line - 1L & index$code_point_col[matches] < col - 1L)]
+        if (!length(matches)) return(NULL)
+    }
     records <- parsed$completion_data[c("symbols", "functions", "formals")]
     candidates <- lapply(records, function(group) {
         i <- which(reference_symbol_names(group$name) == name &

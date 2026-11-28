@@ -330,15 +330,20 @@ rename_roxygen_edits <- function(document, formal, new_name) {
     if (!row || syntax$token[[row]] != "SYMBOL_FORMALS" ||
             !equal_range(navigation_range(document, syntax, row), formal$range)) return(list())
     name <- reference_symbol_names(syntax$text[[row]])
-    replacement <- if (grepl("[[:space:],]", new_name)) quote_completion_name(new_name) else new_name
+    quote_label <- grepl("[[:space:],`]", new_name)
+    replacement <- if (quote_label) quote_completion_name(new_name) else new_name
     edits <- list()
-    tag_edits <- function(line, offset) {
+    add_tag_edits <- function(line, offset) {
         parameters <- rename_roxygen_names(document$content[[line + 1L]], offset)
         matches <- Filter(function(parameter) identical(parameter$name, name), parameters)
-        lapply(matches, function(parameter) {
+        # Only a whole roxygen label can be quoted. Quoting an individual
+        # name changes how the other names and the description are parsed.
+        if (length(matches) && length(parameters) > 1L && quote_label) return(FALSE)
+        edits <<- c(edits, lapply(matches, function(parameter) {
             text_edit(range(document$to_lsp_position(line, parameter$start),
                     document$to_lsp_position(line, parameter$end)), replacement)
-        })
+        }))
+        TRUE
     }
     # Verified typed tags may be separated from their declaration by blank
     # lines or comments. Each union shares a single parameter-name spelling.
@@ -349,7 +354,9 @@ rename_roxygen_edits <- function(document, formal, new_name) {
         keep <- !is.na(sites$parameter_row) & sites$function_row == syntax$line1[[owner]] - 1L &
             sites$function_col == syntax$col1[[owner]] - 1L
         typed <- unique(sites[keep, c("parameter_row", "parameter_start"), drop = FALSE])
-        for (i in seq_len(nrow(typed))) edits <- c(edits, tag_edits(typed$parameter_row[[i]], typed$parameter_start[[i]]))
+        for (i in seq_len(nrow(typed))) {
+            if (!add_tag_edits(typed$parameter_row[[i]], typed$parameter_start[[i]])) return(NULL)
+        }
     }
     declaration <- rename_function_declaration(syntax, row)
     if (!declaration) return(edits)
@@ -388,7 +395,7 @@ rename_roxygen_edits <- function(document, formal, new_name) {
             }
         }
         if (interrupted || any(typed$parameter_row == name_row - 1L & typed$parameter_start == offset)) next
-        edits <- c(edits, tag_edits(name_row - 1L, offset))
+        if (!add_tag_edits(name_row - 1L, offset)) return(NULL)
     }
     edits
 }
@@ -427,6 +434,9 @@ rename_reply <- function(id, uri, workspace, document, point, newName) {
         doc <- workspace$documents$get(formal$uri, NULL)
         if (!is.null(doc)) {
             documentation <- rename_roxygen_edits(doc, formal, newName)
+            if (is.null(documentation)) {
+                return(ResponseErrorMessage$new(id, "RequestFailed", "The new name cannot be represented in this grouped roxygen tag"))
+            }
             if (length(documentation)) result[[formal$uri]] <- c(result[[formal$uri]], documentation)
         }
     }

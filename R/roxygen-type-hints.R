@@ -123,12 +123,13 @@ member_roxygen_type_index <- function(content, data, row_offset = 0L, barriers =
         keep <- keep & findInterval(line[comments], barriers) == findInterval(line[next_code], barriers)
     }
     groups <- split(comments[keep], next_code[keep])
-    result <- locations <- list()
-    rows <- cols <- integer()
-    for (key in names(groups)) {
-        group <- groups[[key]]
+    result <- locations <- vector("list", length(groups))
+    functions <- integer(length(groups))
+    targets <- as.integer(names(groups))
+    for (i in seq_along(groups)) {
+        group <- groups[[i]]
         if (!any(grepl("(`", text[group], fixed = TRUE))) next
-        fn <- roxygen_function_row(data, terminals[[as.integer(key)]])
+        fn <- roxygen_function_row(data, terminals[[targets[[i]]]])
         if (!fn) next
         parts <- syntax_children(data, data$parent_row[[fn]])
         formals <- reference_symbol_names(data$text[parts[data$token[parts] == "SYMBOL_FORMALS"]])
@@ -139,7 +140,6 @@ member_roxygen_type_index <- function(content, data, row_offset = 0L, barriers =
         if (is.null(hints)) next
         fn_row <- data$line1[[fn]] + row_offset
         fn_col <- data$col1[[fn]]
-        position <- paste(fn_row, fn_col, sep = ":")
         occurrences <- attr(hints, "occurrences", exact = TRUE)
         attr(hints, "occurrences") <- NULL
         occurrences$function_row <- fn_row - 1L
@@ -147,15 +147,21 @@ member_roxygen_type_index <- function(content, data, row_offset = 0L, barriers =
         source <- content[[data$line1[[fn]]]]
         if (grepl("\t", source, fixed = TRUE)) column <- index_physical_columns(column, 1L, source, TRUE)
         occurrences$function_col <- column
-        locations[[position]] <- occurrences
-        result[[position]] <- hints
-        rows[position] <- fn_row
-        cols[position] <- fn_col
+        locations[[i]] <- occurrences
+        result[[i]] <- hints
+        functions[[i]] <- fn
     }
-    if (!length(result)) return(NULL)
+    # Several comment groups around a multiline assignment can identify the
+    # same function. As with a repeated tag, keep its last accepted block.
+    keep <- which(functions > 0L & !duplicated(functions, fromLast = TRUE))
+    if (!length(keep)) return(NULL)
+    functions <- functions[keep]
+    rows <- data$line1[functions] + row_offset
+    cols <- data$col1[functions]
     order <- order(rows, cols)
+    result <- stats::setNames(result[keep], paste(rows, cols, sep = ":"))
     structure(result[order], rows = as.integer(rows[order]), cols = as.integer(cols[order]),
-        occurrences = do.call(rbind, unname(locations[order])))
+        occurrences = do.call(rbind, locations[keep[order]]))
 }
 
 member_merge_type_hints <- function(partial, current) {

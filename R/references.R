@@ -358,13 +358,50 @@ reference_source_contexts <- function(workspace, callers, name, hint_uris = char
             files = union(needed$files, c(uri, names(view$positions))), multiple = split,
             extra = if (split) names(view$positions) else added)
     }
+    if (multiple && length(contexts)) contexts <- reference_source_shared_contexts(workspace, contexts)
     if (check_callers && length(missing_hints)) {
         shared <- intersect(missing_hints, unlist(lapply(contexts, `[[`, "extra"), use.names = FALSE))
-        others <- reference_hint_callers(workspace$index, shared, callers)
+        others <- reference_hint_callers(workspace$index, shared, union(callers, names(contexts)))
         if (length(others)) {
             verified <- reference_source_contexts(workspace, others, name, shared, multiple = FALSE, check_callers = FALSE)
             contexts <- c(contexts, verified)
         }
+    }
+    contexts
+}
+
+# A shared script can also run from an entry point which never imports the
+# requested declaration. Its reads must agree across all known executions.
+reference_source_other_roots <- function(index, files) {
+    if (!length(files)) return(character())
+    parents <- function(uri) index$reverse_edges$get(uri, character())
+    outside <- setdiff(unique(unlist(lapply(files, parents), use.names = FALSE)), files)
+    if (!length(outside)) return(character())
+    unique(unlist(lapply(outside, function(uri) {
+        candidates <- index$dependent_closure(uri)
+        roots <- candidates[lengths(lapply(candidates, parents)) == 0L]
+        # A rootless cycle still represents a possible execution.
+        if (length(roots)) roots else uri
+    }), use.names = FALSE))
+}
+
+reference_source_shared_contexts <- function(workspace, contexts) {
+    split <- Filter(function(context) context$multiple, contexts)
+    files <- unique(unlist(lapply(split, `[[`, "files"), use.names = FALSE))
+    idx <- workspace$index
+    for (root in reference_source_other_roots(idx, files)) {
+        shared <- intersect(idx$source_closure(root), files)
+        doc <- workspace$documents$get(root, NULL)
+        view <- if (!is.null(doc$parse_data) && identical(doc$version, doc$parse_data$version)) {
+            member_workspace_view(workspace, doc, positions = TRUE)
+        }
+        positions <- view$positions[intersect(names(view$positions), shared)]
+        if (!is.null(contexts[[root]])) {
+            positions <- view$positions
+            shared <- union(contexts[[root]]$files, shared)
+        }
+        contexts[[root]] <- list(bindings = view$bindings, positions = positions, multiple = TRUE,
+            files = shared, complete = isTRUE(view$positions_complete), extra = names(positions))
     }
     contexts
 }
@@ -950,5 +987,7 @@ reference_source_dependencies <- function(workspace, callers, name, new_name) {
     found <- lapply(callers, function(uri) reference_source_files(index, uri, name, hints, multiple))
     shared <- unique(unlist(lapply(found, `[[`, "added"), use.names = FALSE))
     others <- reference_hint_callers(index, shared, callers)
+    split <- Filter(function(source) isTRUE(source$multiple), found)
+    others <- union(others, reference_source_other_roots(index, unique(unlist(lapply(split, `[[`, "files"), use.names = FALSE))))
     unique(c(unlist(lapply(found, `[[`, "files"), use.names = FALSE), unlist(lapply(others, index$source_closure), use.names = FALSE)))
 }
