@@ -157,6 +157,26 @@ The following editors are supported by installing the corresponding extensions:
 
 - [Nova](https://nova.app): [R-Nova](https://github.com/jonclayden/R-Nova)
 
+### Embedded hosts and webR
+
+A host with an R interpreter can pass complete LSP messages directly to a
+server. Use a dedicated worker, create one server per client, and feed it
+messages in arrival order.
+
+```r
+dispatch <- languageserver::run_embedded()
+replies <- dispatch('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{}}}')
+```
+
+Each returned string is a JSON-RPC reply to forward to the client. Send editor
+text with `didOpen`, incremental edits with `didChange`, and `didClose` when a
+buffer closes. The server parses the latest text before servicing requests.
+Workspace folders isolate unrelated projects. Navigation, references and
+rename use the open documents in each folder. Completion and hover can use
+packages installed in the embedded R library. On request, diagnostics report
+syntax errors and, when lintr is installed, infix-spacing issues without reading
+project lint configuration. Formatting uses styler when installed. See `?run_embedded` for the message and lifecycle contract.
+
 ## Services Implemented
 
 `languageserver` is still under active development, the following services have been implemented:

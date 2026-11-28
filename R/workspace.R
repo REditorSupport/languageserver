@@ -463,15 +463,15 @@ Workspace <- R6::R6Class("Workspace",
         s3_metadata = NULL,
         s3_revision = 0L,
 
-        initialize = function(root) {
+        initialize = function(root, open_documents_only = FALSE) {
             self$root <- root
             self$documents <- collections::dict()
-            self$index <- WorkspaceIndex$new(root)
+            self$index <- if (!open_documents_only) WorkspaceIndex$new(root)
             self$imported_objects <- collections::dict()
             self$imported_packages <- character(0)
             self$global_env <- GlobalEnv$new(self$documents)
             self$namespaces <- collections::dict()
-            self$startup_packages <- workspace_startup_packages()
+            self$startup_packages <- if (open_documents_only) startup_packages else workspace_startup_packages()
             self$startup_member_packages <- character()
             self$loaded_packages <- self$startup_packages
             for (pkgname in self$loaded_packages) {
@@ -498,12 +498,12 @@ Workspace <- R6::R6Class("Workspace",
             private$import_globals_cache <- collections::dict()
             self$type_hierarchy_cache <- collections::dict()
             self$member_metadata <- MemberMetadataCache$new(32 * 1024^2, max_entries = 16L)
-            if (isTRUE(lsp_settings$get("member_completion"))) {
+            if (!open_documents_only && isTRUE(lsp_settings$get("member_completion"))) {
                 self$load_startup_members()
             }
             self$s3_metadata <- S3MetadataCache$new()
             private$s3_package_cache <- ByteLruCache$new(1024^2, max_entries = 64L)
-            if (isTRUE(lsp_settings$get("s3_dispatch"))) {
+            if (!open_documents_only && isTRUE(lsp_settings$get("s3_dispatch"))) {
                 catalogs <- workspace_startup_s3()
                 for (package in names(catalogs)) self$s3_metadata$set(package, catalogs[[package]])
             }
