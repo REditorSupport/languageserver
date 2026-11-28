@@ -863,6 +863,7 @@ parse_document <- function(uri, content, is_rmarkdown = FALSE,
         defer_small_scopes = is_rmarkdown && length(incomplete_lines) > 0L, value_source = value_source,
         verified = verified, type_hints = member_merge_type_hints(if (is_rmarkdown) literate$type_hints else recovery$type_hints, hints))
     env$member_data$hint_comments <- if (is_rmarkdown) literate$hint_comments else recovery$hint_comments
+    env$member_data$damaged_type_blocks <- if (is_rmarkdown) literate$damaged_type_blocks else recovery$damaged_type_blocks
     if (is_rmarkdown && length(literate$member_packages)) {
         env$member_data$packages <- union(env$member_data$packages, literate$member_packages)
         env$member_data$hint_only_packages <- setdiff(env$member_data$hint_only_packages, literate$member_packages)

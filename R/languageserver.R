@@ -1060,7 +1060,7 @@ LanguageServer <- R6::R6Class("LanguageServer",
                     # Source edges can change while closed callers are parsed.
                     # Recompute their closure after each settled batch; queuing
                     # an already-current document is a no-op.
-                    uris <- reference_request_documents(request$workspace, doc, point)
+                    uris <- reference_request_documents(request$workspace, doc, point, request$params$newName)
                     request$held_documents <- uris
                     request$prepared <- TRUE
                     self$index_requests$set(key, request)

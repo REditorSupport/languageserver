@@ -29,20 +29,21 @@ source_owner_rows <- function(reply, doc, rename = TRUE) {
     sort(vapply(sites, function(site) site$range$start$line, integer(1L)))
 }
 
-test_that("ordinary references select the active sourced global owner", {
+test_that("ordinary and documented references select the active sourced global owner", {
     f <- source_owner_workspace(list(
         "a.R" = 'Maker <- R6::R6Class("A", public = list(a = TRUE))',
         "b.R" = 'Maker <- R6::R6Class("B", public = list(b = TRUE))',
-        "main.R" = c('source("a.R")', "Alias <- Maker", 'source("b.R")',
+        "main.R" = c('source("a.R")', "#' @return (`Maker`)", "first <- function() opaque()",
+            "Alias <- Maker", 'source("b.R")', "#' @return (`Maker | Alias`)", "second <- function() opaque()",
             "second_value <- Maker$new()", "Maker <- 5", "third_value <- Maker")))
     for (rename in c(TRUE, FALSE)) {
         first <- source_owner_query(f, "a.R", 0L, 1L, rename)
         second <- source_owner_query(f, "b.R", 0L, 1L, rename)
-        last <- source_owner_query(f, "main.R", 4L, 1L, rename)
-        expect_identical(source_owner_rows(first, f$docs[["main.R"]], rename), 1L)
-        expect_identical(source_owner_rows(second, f$docs[["main.R"]], rename), 3L)
-        expect_identical(source_owner_rows(last, f$docs[["main.R"]], rename), 4:5)
-        read <- source_owner_query(f, "main.R", 3L, 18L, rename)
+        last <- source_owner_query(f, "main.R", 8L, 1L, rename)
+        expect_identical(source_owner_rows(first, f$docs[["main.R"]], rename), c(1L, 3L))
+        expect_identical(source_owner_rows(second, f$docs[["main.R"]], rename), c(5L, 7L))
+        expect_identical(source_owner_rows(last, f$docs[["main.R"]], rename), 8:9)
+        read <- source_owner_query(f, "main.R", 7L, 18L, rename)
         expect_identical(source_owner_rows(read, f$docs[["b.R"]], rename), 0L)
         expect_length(source_owner_rows(read, f$docs[["a.R"]], rename), 0L)
     }
@@ -98,14 +99,19 @@ test_that("a global selected inside glue follows the matching source invocation"
     }
 })
 
-test_that("a reference request includes closed siblings when a caller sources competing declarations", {
-    f <- source_owner_workspace(list("a.R" = "Maker <- 1", "b.R" = "Maker <- 2",
-        "reader.R" = "observed <- Maker", "unrelated.R" = "Maker <- 3",
-        "main.R" = c('source("a.R")', 'source("reader.R")', 'source("b.R")')))
-    for (name in c("b.R", "reader.R")) f$workspace$documents$remove(f$docs[[name]]$uri)
+test_that("a shared annotation is verified in each importing source graph", {
+    f <- source_owner_workspace(list("a.R" = 'Maker <- R6::R6Class("A")', "b.R" = 'Maker <- R6::R6Class("B")',
+            "consumer.R" = c("#' @return (`Maker`)", "read <- function() opaque()"),
+            "left.R" = c('source("a.R")', 'source("consumer.R")'),
+            "right.R" = c('source("b.R")', 'source("consumer.R")')))
+    reply <- source_owner_query(f, "a.R", 0L, 1L)
+    expect_null(reply$result)
+    expect_match(reply$error$message, "documented type|sourced declarations")
+    # The shallow class-name index is enough to request this still-closed
+    # sibling and its other verified importer before attempting R edits.
+    f$workspace$documents$remove(f$docs[["consumer.R"]]$uri)
     required <- reference_request_documents(f$workspace, f$docs[["a.R"]], list(row = 0L, col = 1L))
-    expected <- vapply(f$docs[c("a.R", "b.R", "reader.R", "main.R")], `[[`, "", "uri")
-    expect_setequal(required, unname(expected))
+    expect_true(all(vapply(f$docs, `[[`, "", "uri") %in% required))
 })
 
 test_that("shared reads agree across independently sourced entry scripts", {

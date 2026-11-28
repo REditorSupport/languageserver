@@ -32,6 +32,11 @@ member_project_type_generator <- function(name, index, budget) {
     }
 }
 
+member_is_class_generator <- function(value) {
+    identical(value$r6_role, "generator") || !is.null(value$refclass_instance) ||
+        !is.null(value$s4_generator) || !is.null(value$s7_generator)
+}
+
 # A type name describes an instance. Read generator and class metadata without
 # calling constructors or inspecting the user's session.
 member_hinted_value <- function(types, index, bindings, budget) {
