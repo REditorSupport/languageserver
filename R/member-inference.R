@@ -1026,7 +1026,7 @@ member_infer <- function(
         dots <- match("...", keys)
         ordinary <- if (is.na(dots)) seq_along(actuals) else which(matched != dots)
         # An empty argument still occupies its position but takes its default.
-        supplied <- ordinary[!vapply(actuals[ordinary], function(value) identical(value$type, ".missing"), logical(1L))]
+        supplied <- ordinary[!vapply(actuals[ordinary], function(value) identical(value$reason, "empty_argument"), logical(1L))]
         used <- keys[matched[supplied]]
         env[used] <- actuals[supplied]
         if (!is.na(dots)) env["..."] <- list(member_value(type = "list", elements = actuals[matched == dots]))
@@ -1447,7 +1447,11 @@ member_infer <- function(
     actuals <- vector("list", length(args))
     names(actuals) <- names(args)
     for (i in seq_along(args)) {
-        actuals[[i]] <- if (identical(unname(args[i]), list(quote(expr = )))) member_value(type = ".missing") else infer(args[[i]])
+        actuals[[i]] <- if (identical(unname(args[i]), list(quote(expr = )))) {
+            member_value(type = ".missing", reason = "empty_argument")
+        } else {
+            infer(args[[i]])
+        }
         if (isTRUE(budget$exhausted)) return(member_value(reason = "budget"))
     }
     origins <- if (!is.null(budget$origin_name)) attr(expr, "member_origins", exact = TRUE)

@@ -121,6 +121,9 @@ test_that("documented wrappers match exact names before partial names and use de
     }
     f <- type_hint_fixture(c(definitions, "wrap(1, , extra = 2)$@@default"))
     expect_identical(type_hint_labels(f), "default")
+    f <- type_hint_fixture(c(definitions, "forward <- function(x) wrap(1, application = x)",
+            "forward()$@@default"))
+    expect_false("default" %in% type_hint_labels(f))
     f <- type_hint_fixture(c(definitions, "wrap(app = opaque())$@@collect"))
     expect_false("collect" %in% type_hint_labels(f))
 })
