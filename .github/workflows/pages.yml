@@ -4,11 +4,15 @@ on:
   pull_request:
     paths:
       - 'website/**'
+      - 'R/languageserver.R'
+      - 'NEWS.md'
       - '.github/workflows/pages.yml'
   push:
     branches: [master]
     paths:
       - 'website/**'
+      - 'R/languageserver.R'
+      - 'NEWS.md'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
@@ -39,6 +43,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: website/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
+      - run: python3 scripts/check-providers.py
       - run: pnpm run docs:build
       - run: python3 scripts/check-links.py
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
