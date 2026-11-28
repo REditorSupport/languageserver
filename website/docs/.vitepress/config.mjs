@@ -12,7 +12,7 @@ export default defineConfig({
   themeConfig: {
     nav: [
       { text: 'Get started', link: '/guide/quick-start' },
-      { text: 'Features', link: '/guide/writing-r' },
+      { text: 'Features', link: '/reference/capabilities' },
       { text: 'Reference', link: '/reference/settings' }
     ],
     sidebar: [
@@ -26,9 +26,14 @@ export default defineConfig({
       {
         text: 'Feature guides',
         items: [
+          { text: 'All editor features', link: '/reference/capabilities' },
           { text: 'Write and understand R', link: '/guide/writing-r' },
+          { text: 'Read and navigate a file', link: '/guide/reading-code' },
           { text: 'Navigate and refactor', link: '/guide/navigation' },
+          { text: 'Classes and methods', link: '/guide/classes-and-methods' },
+          { text: 'Data frames and queries', link: '/guide/data-analysis' },
           { text: 'Diagnose and format code', link: '/guide/diagnostics-formatting' },
+          { text: 'Code actions and refactoring', link: '/guide/editing-actions' },
           { text: 'R Markdown and Quarto', link: '/guide/literate' },
           { text: 'Development features', link: '/guide/development' }
         ]
@@ -38,7 +43,7 @@ export default defineConfig({
         items: [
           { text: 'Troubleshooting', link: '/guide/troubleshooting' },
           { text: 'Settings', link: '/reference/settings' },
-          { text: 'Editor capabilities', link: '/reference/capabilities' },
+          { text: 'Release history', link: '/releases/' },
           { text: 'Launch the server', link: '/reference/run' },
           { text: 'Custom backends and styles', link: '/reference/adapters' }
         ]

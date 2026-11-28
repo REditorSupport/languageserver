@@ -29,7 +29,7 @@ Open an R file in VS Code, Neovim, Emacs, or another LSP client. The setup guide
 - Complete package functions and members, read hover help, and see argument suggestions. [Write and understand R](https://reditorsupport.github.io/languageserver/guide/writing-r)
 - Follow a call into another file, find references, and rename a parameter. [Navigate and refactor a project](https://reditorsupport.github.io/languageserver/guide/navigation)
 - Edit and format executable R chunks in a mixed-language document. [R Markdown and Quarto](https://reditorsupport.github.io/languageserver/guide/literate)
-- See which editor features expose call hierarchies, inline hints, code actions, and other server services. [Client capabilities](https://reditorsupport.github.io/languageserver/reference/capabilities)
+- Browse every editor provider, its availability in CRAN or development builds, and an example of using it. [Feature index](https://reditorsupport.github.io/languageserver/reference/capabilities) · [Release history](https://reditorsupport.github.io/languageserver/releases/)
 
 ### S3 method information
 

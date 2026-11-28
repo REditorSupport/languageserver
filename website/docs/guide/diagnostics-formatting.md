@@ -20,12 +20,34 @@ Select the line and invoke **Format Selection** (range formatting). With the def
 
 For a new buffer or a file whose path exists only on the client, lintr checks the text sent by the editor. It looks for project rules near the file if the directory is accessible to the server, then falls back to the workspace or server working directory. Filename-specific exclusions require an accessible path. [Configuring lintr](https://lintr.r-lib.org/articles/lintr.html)
 
+The server publishes diagnostics to the editor as the buffer changes. Lintr marks syntax errors as errors, warnings as warnings, and style findings as information. Put the cursor on a lintr finding and open the code actions menu for any available direct fix or suppression. [Fix a finding or use Fix All](./editing-actions#fix-or-suppress-a-diagnostic)
+
+## Format one or more selections
+
+With styler selected, enter three lines in an R script.
+
+```r
+first<-1
+middle<-2
+last<-3
+```
+
+Select the complete first line and choose **Format Selection** to get `first <- 1`. Undo the edit. If your editor supports formatting multiple ranges, select the first and last lines together, then format the selections. Both become spaced assignments, and the middle line keeps its original spelling. Styler merges overlapping ranges before it applies the edits. **Format Document** formats all three lines.
+
+In an R Markdown or Quarto document, **Format Document** with styler formats the R chunks. For selection formatting, keep each selection within one executable R chunk. [R Markdown and Quarto](./literate)
+
+## Format as you type
+
+Enable your editor's format-on-type setting, then type `if (TRUE)` and press Enter. With styler, the next line is indented using the editor's indentation options. Enter preserves manual line breaks and literal text. Typing a closing `)`, `]`, or `}` can format the surrounding R expression.
+
+With Air selected, the server can indent on Enter locally. Run **Format Document** when you want Air to apply the project's style to the entire R script.
+
 ## Choose a backend
 
 | Backend | Files | What you can do |
 | --- | --- | --- |
 | lintr (default, ≥ 3.3.0-1) | R, R Markdown, Quarto | Lint R code in the current buffer. Configure rules in the project's `.lintr` or `.lintr.R`. |
-| styler (default, ≥ 1.5.1) | R, R Markdown, Quarto | Format the document, a selection, or on typing when the client supports it. In a literate document, select R code within one chunk. |
+| styler (default, ≥ 1.5.1) | R, R Markdown, Quarto | Format the document, one or several selections, or on typing when the client supports it. |
 | Jarl (≥ 0.7.1) | R | Lint the current R script using project rules in `jarl.toml`. |
 | Air (≥ 0.12.0) | R | Format the whole R script using Air's project style. The server can also indent on Enter locally. For selection formatting, choose styler. |
 

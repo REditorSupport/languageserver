@@ -10,7 +10,7 @@ hero:
       link: /guide/editors
     - theme: alt
       text: Explore the features
-      link: /guide/writing-r
+      link: /reference/capabilities
 features:
   - title: Navigate and refactor
     details: Follow a call into another file, find its callers, and extract an expression into a local variable.

@@ -100,3 +100,21 @@
     margin: 0 0 0 36px;
   }
 }
+
+@media (max-width: 640px) {
+  .feature-index .vp-doc table {
+    display: table;
+    width: 100%;
+    table-layout: fixed;
+  }
+
+  .feature-index .vp-doc :is(th, td) {
+    padding: 8px;
+    vertical-align: top;
+    overflow-wrap: anywhere;
+  }
+
+  .feature-index .vp-doc th:first-child {
+    width: 53%;
+  }
+}
