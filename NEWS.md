@@ -5,6 +5,10 @@
   `copy_box(Box$new())$` at the call site both offer `value`. A function that
   sometimes returns `NULL` can use `` @return (`Box | NULL`) ``.
   Renaming a generator updates its references in type annotations.
+  A function can also use `@inheritParams` to share argument hints with a
+  source topic in the same file or package. Renaming a donor function updates
+  references to its default topic name in `@inheritParams`. Explicit local parameter
+  documentation takes precedence.
 
   ```r
   Box <- R6::R6Class("Box", public = list(value = 1L))

@@ -119,39 +119,59 @@ s3_hint_ancestry <- local({
     function(name, package) paths[[if (is.null(package)) name else paste(package, name, sep = "::")]]
 })
 
+s3_inherited_params <- function(hints, context) {
+    force(hints)
+    documented <- attr(hints, "roxygen_documented", exact = TRUE)
+    delayedAssign("params", roxygen_effective_params(hints, context$workspace, context$document, hint_wait = context$hint_wait))
+    function(name) if (name %in% documented) hints$params[[name]] else params[[name]]
+}
+
 # Keep each possible receiver's dispatch order separate. A union of classes
 # is not an S3 inheritance chain.
 s3_type_hint <- function(types, context, at = context$at, scope = NULL, source = NULL) {
     if (!roxygen_type_hints_enabled()) return(s3_unknown("unknown_type_hint"))
     document <- context$document
+    inherited <- if (is.list(types)) types
+    if (!is.null(inherited)) {
+        types <- inherited$types
+        document <- roxygen_hint_document(context$workspace, inherited$uri, document)
+        if (is.null(document)) {
+            if (!is.null(context$hint_wait)) s3_record_hint_wait(context$hint_wait, context$workspace, NULL, types, inherited$uri)
+            return(s3_unknown("unknown_type_hint"))
+        }
+        at <- c(inherited$row, inherited$col)
+    }
     if (!length(types) || length(types) > max_type_hint_alternatives) return(s3_unknown("unknown_type_hint"))
     if (is.null(source)) source <- context$hint_source
-    if (!is.null(source$uri) && !identical(source$uri, document$uri) && !is.null(context$workspace$documents)) {
+    if (is.null(inherited) && !is.null(source$uri) && !identical(source$uri, document$uri) && !is.null(context$workspace$documents)) {
         owner <- context$workspace$documents$get(source$uri, NULL)
         if (!is.null(owner) && identical(owner$version, owner$parse_data$version)) {
             document <- owner
             at <- source$start
         }
     }
-    if (!is.null(context$hint_wait) && s3_hint_worker_waiting(context$workspace, document, context$hint_wait$manager, types)) {
-        context$hint_wait$owners[[document$uri]] <- union(context$hint_wait$owners[[document$uri]], types)
-    }
+    if (is.null(inherited) && !is.null(context$hint_wait)) s3_record_hint_wait(context$hint_wait, context$workspace, document, types)
     index <- member_context_index(context$workspace, document$uri, document, at,
         referenced = member_type_dependencies(types))
     budget <- member_request_budget()
     bindings <- list(.__member_position__ = at)
-    paths <- lapply(types, function(type) {
-        local <- if (is.environment(scope) && !grepl("::", type, fixed = TRUE)) get0(type, scope, inherits = TRUE)
-        if (!is.null(local)) {
-            generator <- member_local_value(local$hint_generator, index, budget)
-            if (!identical(generator$r6_role, "generator")) return(NULL)
-            return(member_hint_dispatch_classes(generator$fields$new$result_shape, index))
-        }
-        value <- member_hinted_value(type, index, bindings, budget)
-        member_hint_dispatch_classes(value, index)
-    })
+    values <- if (!is.null(inherited)) {
+        budget$hint_wait <- context$hint_wait
+        value <- member_inherited_hint_value(inherited, context$workspace, budget, index = index)
+        if (length(types) == 1L) list(value) else value$possible_returns
+    } else {
+        lapply(types, function(type) {
+            local <- if (is.environment(scope) && !grepl("::", type, fixed = TRUE)) get0(type, scope, inherits = TRUE)
+            if (!is.null(local)) {
+                generator <- member_local_value(local$hint_generator, index, budget)
+                if (!identical(generator$r6_role, "generator")) return(NULL)
+                return(generator$fields$new$result_shape)
+            }
+            member_hinted_value(type, index, bindings, budget)
+        })
+    }
     if (isTRUE(budget$exhausted)) context$exhausted <- TRUE
-    paths <- unique(unname(paths))
+    paths <- unique(unname(lapply(values, member_hint_dispatch_classes, index = index)))
     if (!length(paths) || any(!lengths(paths))) return(s3_unknown("unknown_type_hint"))
     if (length(paths) == 1L) return(s3_value(paths[[1L]]))
     value <- s3_unknown("union_type_hint")
@@ -162,10 +182,14 @@ s3_type_hint <- function(types, context, at = context$at, scope = NULL, source =
 # Only an argument whose class is queried needs the member index. Capture
 # its lexical position before another source binding temporarily changes it.
 s3_bind_hinted_formal <- function(name, types, scope, context) {
+    force(name)
     force(types)
     at <- context$at
     enclosing <- parent.env(scope)
-    delayedAssign(name, s3_type_hint(types, context, at, enclosing), assign.env = scope)
+    delayedAssign(name, {
+        hint <- if (is.function(types)) types(name) else types
+        if (length(hint)) s3_type_hint(hint, context, at, enclosing) else s3_unknown("formal")
+    }, assign.env = scope)
 }
 
 # R memoizes the argument promise. Multiple unknown exits can share a
@@ -691,13 +715,15 @@ s3_analyzer <- function(context, env = new.env(parent = emptyenv())) {
             return(s3_unknown("factory_effect"))
         }
         scope <- new.env(parent = if (is.environment(closure)) closure else env)
-        parameter_hint <- if (length(hints$params)) {
+        inherited <- if (isTRUE(attr(hints, "roxygen_inherits", exact = TRUE))) s3_inherited_params(hints, context)
+        parameter_hint <- if (length(hints$params) || !is.null(inherited)) {
             hint_at <- context$at
             hint_source <- source %s3_or% context$hint_source
             function(name, value) {
-                types <- hints$params[[name]]
-                if (!length(types)) return(value)
-                s3_apply_type_hint(value, s3_type_hint(types, context, at = hint_at, scope = closure, source = hint_source))
+                s3_apply_type_hint(value, {
+                    types <- if (is.null(inherited)) hints$params[[name]] else inherited(name)
+                    if (length(types)) s3_type_hint(types, context, at = hint_at, scope = closure, source = hint_source)
+                })
             }
         }
         scope <- s3_match_values(fn[[2]], actuals, scope, function(x, e) infer(x, e, depth + 1L), parameter_hint)

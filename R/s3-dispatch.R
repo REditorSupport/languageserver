@@ -82,7 +82,8 @@ s3_source_view <- function(document, peer = FALSE) {
         }
     }
     view <- list(index = index %s3_or% s3_source_index(items), items = items,
-        uri = document$uri, content_key = data$content_key)
+        uri = document$uri, content_key = data$content_key,
+        hint_inheritance = isTRUE(attr(data$type_hints, "has_inheritance", exact = TRUE)))
     if (partial_peer && is.environment(parsed)) parsed$complete_s3_view <- view
     view
 }
@@ -432,6 +433,8 @@ s3_context <- function(uri, workspace, document, at) {
         context$binding_keys <- new.env(parent = emptyenv())
         context$source_uris <- vapply(context$sources, `[[`, "", "uri")
         context$source_keys <- vapply(context$sources, `[[`, "", "content_key")
+        context$hint_inheritance <- hint_package_inherits(workspace, document) ||
+            any(vapply(context$sources, function(source) isTRUE(source$hint_inheritance), logical(1L)))
         context$registrations <- unlist(lapply(context$sources, function(source) {
             vapply(source$index$registrations, function(i) {
                 item <- source$items[[i]]
@@ -448,7 +451,9 @@ s3_binding_context_key <- function(context, i) {
     uri <- context$source_uris[[i]]
     key <- context$binding_keys[[uri]]
     if (is.null(key)) {
-        peers <- list(sources = context$source_uris[-i], content = context$source_keys[-i],
+        # A donor can follow the call in its own file, beyond the ordinary
+        # binding-prefix fingerprint. Keep the full source key in that case.
+        peers <- list(sources = context$source_uris[-i], content = if (isTRUE(context$hint_inheritance)) context$source_keys else context$source_keys[-i],
             imports = context$binding_imports, registrations = context$registrations,
             startup = startup_packages)
         key <- digest::digest(peers, algo = "xxhash64")
@@ -524,10 +529,11 @@ s3_scoped_call <- function(document, location, context) {
         }
         if (member_head(node, "function")) {
             scope <- new.env(parent = scope)
-            params <- roxygen_inference_hints(node)$params
+            hints <- roxygen_inference_hints(node)
+            inherited <- if (isTRUE(attr(hints, "roxygen_inherits", exact = TRUE))) s3_inherited_params(hints, context)
             for (name in names(node[[2L]])) {
-                hint <- params[[name]]
-                if (length(hint)) s3_bind_hinted_formal(name, hint, scope, context) else assign(name, s3_unknown("formal"), scope)
+                hint <- if (is.null(inherited)) hints$params[[name]] else inherited
+                if (!is.null(hint)) s3_bind_hinted_formal(name, hint, scope, context) else assign(name, s3_unknown("formal"), scope)
             }
         } else if (member_head(node, "{") || is.expression(node)) {
             sequence <- member_cursor_sequence(node, path, ast, recovered$source,
@@ -674,10 +680,16 @@ resolve_s3_call <- function(uri, workspace, document, point, hover = FALSE, call
             default_scope, context$infer)
         get0(descriptor$formal, arguments, inherits = FALSE)
     }
-    declared <- roxygen_inference_hints(callee$fn)$params[[descriptor$formal]]
-    if (length(declared)) {
-        input <- s3_apply_type_hint(input, s3_type_hint(declared, context,
-                scope = callee$closure, source = callee$source$implementation))
+    hints <- roxygen_inference_hints(callee$fn)
+    if (!is.null(hints)) {
+        input <- s3_apply_type_hint(input, {
+            types <- if (isTRUE(attr(hints, "roxygen_inherits", exact = TRUE))) {
+                s3_inherited_params(hints, context)(descriptor$formal)
+            } else {
+                hints$params[[descriptor$formal]]
+            }
+            if (length(types)) s3_type_hint(types, context, scope = callee$closure, source = callee$source$implementation)
+        })
     }
     owner <- if (!is.null(callee$info)) callee$info$owner else "source"
     method <- s3_receiver_method(descriptor$name, input, scoped$scope, context, owner)
@@ -784,7 +796,9 @@ s3_index_summary <- function(content, uri, expressions = NULL, parse_data = NULL
         }
         item
     })
-    list(uri = uri, items = items, index = s3_source_index(items),
+    inherited <- if (is.null(parse_data$member_data)) roxygen_has_inheritance(content) else
+        isTRUE(attr(parse_data$member_data$type_hints, "has_inheritance", exact = TRUE))
+    list(uri = uri, items = items, index = s3_source_index(items), hint_inheritance = inherited,
         content_key = parse_data$member_data$content_key %s3_or% digest::digest(content, algo = "xxhash64"))
 }
 
@@ -809,7 +823,7 @@ s3_recover_call <- function(document, location, recovered) {
     # Both the normal read and the closing-delimiter recovery retain hints on
     # the same function as its original declaration.
     hints <- document$parse_data$member_data$type_hints
-    parse_call <- if (length(hints) || any(grepl("(`", lines, fixed = TRUE))) function(text) {
+    parse_call <- if (length(hints) || any(grepl("(`", lines, fixed = TRUE)) || roxygen_has_inheritance(lines)) function(text) {
         member_parse_recovered(text, NULL, start[[1L]], first_col, type_hints = hints,
             hint_comments = document$parse_data$member_data$hint_comments)
     } else str2expression
@@ -1045,7 +1059,7 @@ s3_member_constructor_ready <- function(workspace, document, location, packages)
 }
 
 s3_hint_worker_waiting <- function(workspace, document, manager, types = NULL) {
-    if (!workspace$s3_hint_workers$has(document$uri) || !manager$has(document$uri)) return(FALSE)
+    if (is.null(workspace$s3_hint_workers) || !workspace$s3_hint_workers$has(document$uri) || !manager$has(document$uri)) return(FALSE)
     data <- document$parse_data$member_data
     packages <- if (is.null(types)) data$type_hint_packages else unique(unlist(data$type_hint_dependencies[types], use.names = FALSE))
     metadata <- workspace$member_metadata
@@ -1055,36 +1069,107 @@ s3_hint_worker_waiting <- function(workspace, document, manager, types = NULL) {
     }, logical(1L)))
 }
 
+# An inherited donor can be known to the shallow package index before its
+# document has been parsed. Promote only the source actually consulted, then
+# use the ordinary class-model worker once its parse has been accepted.
+s3_record_topic_wait <- function(wait, workspace, root) {
+    if (!is.null(wait) && is.function(wait$server$queue_context_reply) &&
+            is.function(workspace$index$package_topics_pending) && workspace$index$package_topics_pending(root)) {
+        wait$topic_roots <- union(wait$topic_roots, root)
+    }
+    invisible(NULL)
+}
+
+s3_record_hint_wait <- function(wait, workspace, document, types, uri = document$uri) {
+    if (is.null(wait) || !length(uri)) return(invisible(NULL))
+    if (is.null(document)) {
+        if (!is.function(wait$server$queue_context_reply) ||
+                !is.function(workspace$index$helpers_pending)) return(invisible(NULL))
+        if (!workspace$documents$has(uri)) {
+            if (!is.function(wait$server$load_index_document)) return(invisible(NULL))
+            wait$server$load_index_document(workspace, uri)
+        }
+        indexed_uri <- index_canonical_uri(uri)
+        if (workspace$index$helpers_pending(indexed_uri)) {
+            wait$parses <- union(wait$parses, indexed_uri)
+            if (is.function(wait$server$parse_task_manager$promote)) wait$server$parse_task_manager$promote(uri)
+        }
+        document <- workspace$documents$get(uri, NULL)
+    }
+    if (!is.null(document) && s3_hint_worker_waiting(workspace, document, wait$manager, types)) {
+        wait$owners[[uri]] <- union(wait$owners[[uri]], types)
+    }
+    invisible(NULL)
+}
+
+hint_request_blocked <- function(wait, self, workspace, uri, document, request_id) {
+    if (length(wait$parses)) self$queue_context_reply(uri, workspace, helpers = wait$parses)
+    for (root in wait$topic_roots) {
+        self$queue_context_reply(uri, workspace, topic_root = root, request_id = request_id, version = document$version)
+    }
+    workers <- workspace$s3_hint_workers
+    caller <- if (identical(document$uri, uri)) document else workspace$documents$get(uri, NULL)
+    for (owner in setdiff(names(wait$owners), uri)) {
+        if (!is.null(request_id)) {
+            waiters <- workers$get(owner)
+            waiters[[request_id_key(request_id)]] <- list(uri = uri, version = document$version, types = wait$owners[[owner]])
+            workers$set(owner, waiters)
+            caller$s3_hint_subscriber <- TRUE
+        }
+        if (is.function(wait$manager$promote)) wait$manager$promote(owner)
+    }
+    length(wait$owners) > 0L || length(wait$parses) > 0L || length(wait$topic_roots) > 0L
+}
+
+hint_package_inherits <- function(workspace, document) {
+    if (!roxygen_type_hints_enabled()) return(FALSE)
+    isTRUE(attr(document$parse_data$member_data$type_hints, "has_inheritance", exact = TRUE)) ||
+        (is.function(workspace$index$package_has_hint_inheritance) && workspace$index$package_has_hint_inheritance(document$uri))
+}
+
+hint_package_cold <- function(self, workspace, document) {
+    index <- workspace$index
+    if (!isTRUE(index$enabled) || !is.function(index$package_root_for_uri)) return(FALSE)
+    root <- index$package_root_for_uri(document$uri)
+    if (is.null(root)) return(FALSE)
+    if (is.function(index$package_topics_pending) && index$package_topics_pending(root)) return(TRUE)
+    if (is.function(self$parse_task_manager$has_work) && self$parse_task_manager$has_work()) return(TRUE)
+    if (!is.function(self$load_index_document) || !is.function(index$package_source_uris)) return(FALSE)
+    revision <- c(index$revision, index$topology_revision, workspace$s3_revision, workspace$documents$size())
+    cache <- analysis_cache(workspace, "cold-hint-sources", revision, max_bytes = 64 * 1024L)
+    found <- analysis_cache_get(cache, root)
+    if (found$hit) return(found$value)
+    missing <- setdiff(index$package_source_uris(root), workspace$documents$keys())
+    cold <- any(vapply(missing, function(uri) isTRUE(index$summaries$get(uri, NULL)$has_type_hints), logical(1L)))
+    analysis_cache_set(cache, root, cold)
+    cold
+}
+
 s3_metadata_waiting <- function(self, uri, document, point = NULL, hover = FALSE, call = NULL, request_id = NULL) {
     if (!isTRUE(lsp_settings$get("s3_dispatch"))) return(FALSE)
     resolve_pending <- is.function(self$resolve_task_manager$has) && self$resolve_task_manager$has(uri)
     manager <- self$member_task_manager %s3_or% self$resolve_task_manager
-    if (!resolve_pending && (!is.function(manager$has) || (is.function(manager$has_work) && !manager$has_work()))) return(FALSE)
+    package_source <- !is.null(document$parse_data$member_data$document_package)
+    if (!resolve_pending && (!is.function(manager$has) || (!package_source && is.function(manager$has_work) && !manager$has_work()))) return(FALSE)
     workspace <- if (is.function(self$get_workspace)) self$get_workspace(uri)
     workers <- workspace$s3_hint_workers
-    if (!is.null(workers) && workers$size() && is.function(manager$has)) {
+    active <- !is.null(workers) && workers$size() && is.function(manager$has) && roxygen_type_hints_enabled()
+    cold <- package_source && !is.null(point) && hint_package_inherits(workspace, document) && hint_package_cold(self, workspace, document)
+    if (active || cold) {
         caller <- if (identical(document$uri, uri)) document else workspace$documents$get(uri, NULL)
         if (!is.null(request_id) && isTRUE(caller$s3_hint_subscriber)) {
             s3_forget_hint_waiters(workspace, uri, request_id, caller)
         }
         if (is.null(point)) {
             if (s3_hint_worker_waiting(workspace, document, manager)) return(TRUE)
-        } else if (workers$has(uri) || any(workers$keys() %in% workspace_document_uris(workspace, uri))) {
+        } else if (cold || workers$has(uri) || any(workers$keys() %in% workspace_document_uris(workspace, uri))) {
             # Resolve in the caller's scope and inspect only the class models
             # actually read. Other queued documents do not enter this search.
             wait <- new.env(parent = emptyenv())
             wait$manager <- manager
+            wait$server <- self
             resolve_s3_call(uri, workspace, document, point, hover, call, hint_wait = wait)
-            for (owner in setdiff(names(wait$owners), uri)) {
-                if (!is.null(request_id)) {
-                    waiters <- workers$get(owner)
-                    waiters[[request_id_key(request_id)]] <- list(uri = uri, version = document$version, types = wait$owners[[owner]])
-                    workers$set(owner, waiters)
-                    caller$s3_hint_subscriber <- TRUE
-                }
-                if (is.function(manager$promote)) manager$promote(owner)
-            }
-            if (length(wait$owners)) return(TRUE)
+            if (hint_request_blocked(wait, self, workspace, uri, document, request_id)) return(TRUE)
         }
     }
     if (!resolve_pending) return(FALSE)

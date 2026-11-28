@@ -386,7 +386,7 @@ recover_partial_content <- function(content, srcfile, error, include_tokens = TR
     # A repaired trailing operator can preserve its function in the token
     # tree even when the structural projection discards the whole statement.
     type_hints <- hint_comments <- damaged_type_blocks <- NULL
-    if (include_tokens && roxygen_has_type_span(content)) {
+    if (include_tokens && (roxygen_has_type_span(content) || roxygen_has_topic_tags(content))) {
         type_hints <- member_roxygen_type_index(content, tokens, row_offset)
         comments <- which(data$token == "COMMENT" & startsWith(data$text, "#'"))
         comments <- comments[trimws(content[data$line1[comments]]) == trimws(data$text[comments])]
