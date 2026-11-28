@@ -199,7 +199,20 @@ test_that("survival constructors require a known event type", {
 
 test_that("conditional opaque effects invalidate visible locals through nested branches", {
     infer <- s3_expression_analyzer()
-    expect_null(infer(quote({ x <- 1L; if (a) if (b) opaque(x); x }))$classes)
-    expect_null(infer(quote({ x <- 1L; if (a) if (b) eval(expr); x }))$classes)
-    expect_identical(infer(quote({ x <- 1L; y <- "ok"; if (a) if (b) opaque(x); y }))$classes, "character")
+    expect_null(infer(quote({
+        x <- 1L
+        if (a) if (b) opaque(x)
+        x
+    }))$classes)
+    expect_null(infer(quote({
+        x <- 1L
+        if (a) if (b) eval(expr)
+        x
+    }))$classes)
+    expect_identical(infer(quote({
+        x <- 1L
+        y <- "ok"
+        if (a) if (b) opaque(x)
+        y
+    }))$classes, "character")
 })

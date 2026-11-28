@@ -333,7 +333,38 @@ reference_source_contexts <- function(workspace, callers, name) {
         contexts[[uri]] <- list(bindings = bindings, positions = view$positions, complete = isTRUE(view$positions_complete),
             files = union(files, c(uri, names(view$positions))))
     }
-    reference_source_shared_contexts(workspace, contexts)
+    shared <- reference_shared_readers(workspace, callers, name)
+    reference_source_shared_contexts(workspace, contexts, c(shared$readers, shared$pending))
+}
+
+# A shared reader may run under two entry scripts which each source only one
+# declaration. Examine just their shared subtrees and only hydrate other entry
+# scripts after the reader's own parse has confirmed a matching use.
+reference_shared_readers <- function(workspace, callers, name) {
+    index <- workspace$index
+    if (!isTRUE(index$shared_source_count > 0L)) return(NULL)
+    callers <- as.character(unlist(callers, use.names = FALSE))
+    roots <- callers[vapply(callers, function(uri) {
+        length(index$source_edges$get(uri, character())) && !length(index$reverse_edges$get(uri, character()))
+    }, logical(1L))]
+    if (!length(roots)) return(NULL)
+    scope <- unique(unlist(lapply(roots, index$source_closure), use.names = FALSE))
+    joins <- scope[vapply(scope, function(uri) length(index$reverse_edges$get(uri, character())) > 1L, logical(1L))]
+    shared <- unique(unlist(lapply(joins, index$source_closure), use.names = FALSE))
+    if (!length(shared)) return(NULL)
+    key <- paste0("global:", name)
+    reads <- vapply(shared, function(uri) {
+        doc <- workspace$documents$get(uri, NULL)
+        data <- doc$parse_data
+        if (is.null(data) || !identical(doc$version, data$version) || !identical(doc$content, doc$parsed_content)) return(NA)
+        indexed <- data$reference_index
+        rows <- reference_indices(indexed, name, key)
+        if (any(!indexed$is_definition[rows]) || isTRUE(data$parse_error) || length(data$partial_incomplete_lines)) return(TRUE)
+        if (!length(data$glue_templates) && !length(attr(data$glue_templates, "unmapped"))) return(FALSE)
+        catalog <- glue_reference_catalog(doc)
+        length(catalog$uncertain) > 0L || !is.null(catalog$by_name[[name]]) || length(attr(data$glue_templates, "unmapped")) > 0L
+    }, logical(1L))
+    list(readers = shared[which(reads)], pending = shared[is.na(reads)])
 }
 
 # A shared script can also run from an entry point which never imports the
@@ -351,9 +382,8 @@ reference_source_other_roots <- function(index, files) {
     }), use.names = FALSE))
 }
 
-reference_source_shared_contexts <- function(workspace, contexts) {
-    if (!length(contexts)) return(contexts)
-    files <- unique(unlist(lapply(contexts, `[[`, "files"), use.names = FALSE))
+reference_source_shared_contexts <- function(workspace, contexts, readers) {
+    files <- unique(c(readers, unlist(lapply(contexts, `[[`, "files"), use.names = FALSE)))
     idx <- workspace$index
     for (root in reference_source_other_roots(idx, files)) {
         shared <- intersect(idx$source_closure(root), files)
@@ -361,6 +391,8 @@ reference_source_shared_contexts <- function(workspace, contexts) {
         view <- if (!is.null(doc$parse_data) && identical(doc$version, doc$parse_data$version)) {
             member_workspace_view(workspace, doc, positions = TRUE)
         }
+        if (isTRUE(view$positions_complete)) shared <- intersect(shared, names(view$positions))
+        if (!length(shared)) next
         positions <- view$positions[intersect(names(view$positions), shared)]
         contexts[[root]] <- list(bindings = view$bindings, positions = positions,
             files = shared, complete = isTRUE(view$positions_complete))
@@ -565,9 +597,10 @@ references_reply <- function(id, uri, workspace, document, point,
             if (global && is.null(s4$binding) && isTRUE(workspace$index$enabled) &&
                     is.function(workspace$index$multiple_definition_files) && workspace$index$multiple_definition_files(token$token)) {
                 contexts <- reference_source_contexts(workspace, doc_uris, token$token)
-                if (length(contexts)) {
+                active <- Filter(function(context) uri %in% context$files, contexts)
+                if (length(active)) {
                     row <- reference_index_at(parse_data$reference_index, token_point, token$token)
-                    owner <- reference_source_owner(contexts, document, row, token$token)
+                    owner <- reference_source_owner(active, document, row, token$token)
                     if (is.null(owner)) return(if (for_rename) reference_source_ambiguous(id) else Response$new(id, result = list()))
                     if (!identical(owner, defn$result$uri)) {
                         defn$result$uri <- owner
@@ -575,6 +608,8 @@ references_reply <- function(id, uri, workspace, document, point,
                         doc_uris <- workspace_reference_document_uris(workspace, owner, uri, scope_key)
                         contexts <- reference_source_contexts(workspace, doc_uris, token$token)
                     }
+                }
+                if (length(contexts)) {
                     if (for_rename && any(!vapply(contexts, `[[`, logical(1L), "complete"))) return(reference_source_ambiguous(id))
                     # A script between two source calls can read the first
                     # binding without declaring it or importing either file.
@@ -915,7 +950,9 @@ reference_source_dependencies <- function(workspace, callers, name) {
     index <- workspace$index
     if (!length(name) || !isTRUE(index$enabled) || !is.function(index$multiple_definition_files) ||
             !index$multiple_definition_files(name)) return(character())
-    files <- unique(unlist(lapply(callers, function(uri) reference_source_files(index, uri, name)), use.names = FALSE))
+    shared <- reference_shared_readers(workspace, callers, name)
+    found <- lapply(callers, function(uri) reference_source_files(index, uri, name))
+    files <- unique(c(shared$readers, unlist(found, use.names = FALSE)))
     others <- reference_source_other_roots(index, files)
-    unique(c(files, unlist(lapply(others, index$source_closure), use.names = FALSE)))
+    unique(c(shared$pending, files, unlist(lapply(others, index$source_closure), use.names = FALSE)))
 }
