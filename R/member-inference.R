@@ -748,11 +748,14 @@ member_cacheable <- function(value, depth = 0L) {
     if (value$known_literal && length(value$literal) > 8L) {
         return(FALSE)
     }
-    all(vapply(
-        c(value$fields, value$slots, value$elements, value[c("r6_private", "r6_super", "r6_self", "s7_storage")],
-            if (!is.null(value$element_shape)) list(value$element_shape)),
-        member_cacheable, logical(1L), depth + 1L
-    ))
+    # Ordinary values have none of these optional receiver shapes. Visit
+    # only present children, including any lexical evidence nested in them.
+    children <- c(value$fields, value$slots, value$elements)
+    for (field in c("r6_private", "r6_super", "r6_self", "s7_storage", "element_shape")) {
+        child <- value[[field]]
+        if (!is.null(child)) children[[length(children) + 1L]] <- child
+    }
+    !length(children) || all(vapply(children, member_cacheable, logical(1L), depth + 1L))
 }
 
 member_assigned_names <- function(node) {
