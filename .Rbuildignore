@@ -10,3 +10,5 @@ man-roxygen
 ^CRAN-SUBMISSION$
 ^\.devcontainer$
 ^\.github$
+^website$
+^\.pnpm-store$

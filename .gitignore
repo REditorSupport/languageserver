@@ -5,3 +5,4 @@
 .Rhistory
 .vscode
 CRAN-RELEASE
+.pnpm-store/
