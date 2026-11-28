@@ -4,10 +4,16 @@
   `@return` descriptions. In this example, `box$` inside the function and
   `copy_box(Box$new())$` at the call site both offer `value`. A function that
   sometimes returns `NULL` can use `` @return (`Box | NULL`) ``.
+  A description can also begin with a Markdown class link such as
+  `` [`Box`] `` or an Rd marker such as `[\code{Box}]`. A hint after
+  grouped parameter names applies to each argument. Markdown links are
+  resolved in the scope of the documented declaration for member completion.
+  S3 dispatch and Rename require explicit type markers. Set
+  `r.lsp.roxygen_type_hints` to `false` to disable documentation-derived inference.
   Renaming a generator updates its references in type annotations.
   A function can also use `@inheritParams` to share argument hints with a
-  source topic in the same file or package. Renaming a donor function updates
-  references to its default topic name in `@inheritParams`. Explicit local parameter
+  source topic in the same file or package. Rename updates verified donor
+  names and declines ambiguous changes. Explicit local parameter
   documentation takes precedence. R6 `@field`, S4 `@slot` and S7 `@prop`
   support the same syntax. In the example below, completion inside
   `stored_value()` follows the `ANY` slot and offers the box's `value` field.
@@ -21,8 +27,8 @@
   stored_value <- function(crate) crate@contents$value
   stored_value(Crate(contents = Box$new()))  # 1L
 
-  #' @param box (`Box`) A box to copy.
-  #' @return (`Box`) A copy of the box.
+  #' @param box [`Box`] A box to copy.
+  #' @return [\code{Box}] A copy of the box.
   copy_box <- function(box) box$clone()
 
   copy_box(Box$new())$value  # 1L

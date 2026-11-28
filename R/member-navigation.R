@@ -1256,7 +1256,7 @@ member_navigation_rename_conflict <- function(workspace, uris, refs, old, new) {
             } else {
                 loc <- member_hover_location(doc, member_navigation_point(s, row))
                 if (is.null(loc)) next
-                receiver <- member_resolve_cursor(uri, workspace, doc, loc$point, loc$cursor)
+                receiver <- member_resolve_cursor(uri, workspace, doc, loc$point, loc$cursor, explicit_hints_only = TRUE)
                 if (!is.null(receiver) && new %in% names(member_members(receiver$value, receiver$index,
                             receiver$bindings, loc$cursor$accessor))) {
                     return("Another member of this object already has the new name")

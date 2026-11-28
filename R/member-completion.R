@@ -994,6 +994,7 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
     # inputs. Locals/actual arguments use their own lazy binding memos instead.
     memo <- !is.null(index$document_cache) && !length(setdiff(names(bindings), ".__member_position__"))
     cache_context <- index$document_context_key
+    if (isTRUE(budget$explicit_hints_only)) cache_context <- paste0("explicit:", cache_context)
     if (isTRUE(budget$track_returns)) cache_context <- paste0("returns:", cache_context)
     memo_key <- paste(index$package, cache_context, id, paste(at, collapse = ":"), sep = ":")
     if (memo && exists(memo_key, index$document_cache, inherits = FALSE)) return(index$document_cache[[memo_key]])
@@ -1009,6 +1010,7 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
         index$document_cache[[memo_key]] <- value
         return(value)
     }
+    before_hint <- budget$advisory_reads
     env <- bindings
     # A top-level declaration uses the document's class names. A caller can
     # have a same-named argument while invoking the documented function.
@@ -1093,6 +1095,7 @@ member_resolve_document <- function(name, index, bindings, budget, depth, trail)
             analysis_cache_set(cache, persistent_key, list(s7_method_types = lapply(value$s7_methods, `[[`, "types")))
         }
     }
+    if (!is.null(budget$advisory_reads)) value <- member_advisory_result(value, before_hint, budget)
     cached <- if (memo) member_receiver_cache_value(value, index, budget) else NULL
     if (!is.null(cached)) {
         index$document_cache[[memo_key]] <- cached
@@ -1569,7 +1572,7 @@ member_recover_scope <- function(document, point, cursor, data, budget = NULL) {
 }
 
 member_resolve_cursor <- function(uri, workspace, document, point, cursor, name = NULL, origins = FALSE, origin_name = name,
-    audit = NULL, hint_wait = NULL) {
+    audit = NULL, hint_wait = NULL, explicit_hints_only = origins) {
     if (!identical(document$version, document$parse_data$version) &&
             !is.null(document$parse_data$version)) {
         return(NULL)
@@ -1582,6 +1585,7 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
         return(NULL)
     }
     budget <- member_request_budget()
+    if (explicit_hints_only) budget$explicit_hints_only <- TRUE
     budget$inherit_workspace <- workspace
     if (!is.null(hint_wait)) budget$hint_wait <- hint_wait
     # Provenance is relevant only to this member definition request. Other
@@ -1611,6 +1615,7 @@ member_resolve_cursor <- function(uri, workspace, document, point, cursor, name 
     if (isTRUE(cursor$s4_new)) key <- paste("constructor", key, sep = ":")
     if (!is.null(cursor$s7_update_list)) key <- paste("property-tag", cursor$s7_update_list, key, sep = ":")
     if (origins) key <- paste("definition", origin_name, name, key, sep = ":")
+    if (explicit_hints_only && !origins) key <- paste0("explicit:", key)
     if (isTRUE(cursor$s7_implementation)) key <- paste0("implementation:", key)
     cached <- if (!is.null(revision)) cache$get(key) else NULL
     if (!is.null(cached)) {

@@ -232,6 +232,8 @@ roxygen_effective_params <- function(hints, workspace, document, hint_wait = NUL
 # Named donors are top-level source topics. Resolve each type at the physical
 # donor declaration, with that document's imports, class definitions and origins.
 member_inherited_hint_value <- function(record, workspace, budget, index = NULL) {
+    links <- attr(record$types, "roxygen_class_links", exact = TRUE)
+    if (length(links) && isTRUE(budget$explicit_hints_only)) return(NULL)
     doc <- roxygen_hint_document(workspace, record$uri)
     if (!is.null(budget$hint_wait)) s3_record_hint_wait(budget$hint_wait, workspace, doc, record$types, uri = record$uri)
     if (is.null(doc)) return(member_value(reason = "unavailable_hint_donor"))
@@ -239,6 +241,7 @@ member_inherited_hint_value <- function(record, workspace, budget, index = NULL)
     # is fixed for this request, including the member whose origin is wanted.
     key <- paste(record$uri, record$row, record$col, paste(record$types, collapse = "|"),
         budget$origin_name %s3_or% "", sep = "\r")
+    if (length(links)) key <- paste(key, paste(links, collapse = "|"), sep = "\r")
     memo <- budget$inherited_values
     if (is.null(memo)) budget$inherited_values <- memo <- new.env(parent = emptyenv())
     if (!is.null(memo[[key]])) return(memo[[key]])

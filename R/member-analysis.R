@@ -193,6 +193,7 @@ member_local_value <- function(value, index, budget, depth = 0L, trail = charact
     if (!is.null(cache) && exists("value", cache, inherits = FALSE) &&
             (!isTRUE(budget$track_returns) || isTRUE(cache$tracked) ||
                     !isTRUE(cache$value$reason %in% c("unknown_branch", "unknown_union_result")))) return(cache$value)
+    before <- budget$advisory_reads
     result <- if (!is.null(value$binding_choices)) {
         limit <- if (is.null(budget$depth_limit)) 64L else budget$depth_limit
         budget$remaining <- budget$remaining - 1L
@@ -220,6 +221,7 @@ member_local_value <- function(value, index, budget, depth = 0L, trail = charact
         hint <- member_parameter_hint_value(value$hint_types, index, value$binding_env, budget)
         if (is.null(hint)) member_value(reason = "formal") else hint
     }
+    if (!is.null(budget$advisory_reads)) result <- member_advisory_result(result, before, budget)
     if (!is.null(cache) && !isTRUE(budget$exhausted) && !isTRUE(budget$transient)) {
         cache$value <- result
         if (isTRUE(budget$track_returns)) cache$tracked <- TRUE

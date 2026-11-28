@@ -105,6 +105,11 @@ The roxygen benchmark times a deep annotated expression, annotation attachment
 in increasingly wide function bodies, and single-label completion on S4
 classes with 100 inherited slots and computed prototypes.
 
+To compare the leading type markers, run
+`Rscript --vanilla inst/benchmarks/roxygen-type-formats.R /path/to/unpacked/packages 5`.
+It times candidate scans on the ranked package sources, indexes representative
+files, and checks first and repeated completion for each spelling.
+
 ### R6 field documentation
 
 Run `Rscript --vanilla inst/benchmarks/roxygen-class-fields.R 7` against each

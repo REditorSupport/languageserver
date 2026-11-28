@@ -1,5 +1,5 @@
-# Topic summaries locate @inheritParams donors across package source files.
-index_cache_version <- 22L
+# Persist donor consumers and distinguish advisory mentions in class references.
+index_cache_version <- 23L
 
 #' Recognize a package without recursively searching a workspace
 #' @noRd
