@@ -115,8 +115,8 @@ static SEXP find_unbalanced_bracket_impl(SEXP content, SEXP _row, SEXP _col,
         k = 0;
         int in_special = 0;
         fsm_initialize(&state);
-        stack_initialize(&pos);
-        stack_initialize(&codept_pos);
+        languageserver_stack_initialize(&pos);
+        languageserver_stack_initialize(&codept_pos);
         ncurrentunbalanced = 0;
         while (j < n && (i < row || k <= col)) {
             cj = c[j];
@@ -143,13 +143,13 @@ static SEXP find_unbalanced_bracket_impl(SEXP content, SEXP _row, SEXP _col,
                     continue;
                 } else if (cj == '(' || cj == '[' || cj == '{') {
                     nbracket += 1;
-                    stack_push(&pos, j);
-                    stack_push(&codept_pos, k);
+                    languageserver_stack_push(&pos, j);
+                    languageserver_stack_push(&codept_pos, k);
                 } else if (cj == ')' || cj == ']' || cj == '}') {
                     if (nbracket > 0) {
                         nbracket -= 1;
-                        stack_pop(&pos);
-                        stack_pop(&codept_pos);
+                        languageserver_stack_pop(&pos);
+                        languageserver_stack_pop(&codept_pos);
                     } else {
                         ncurrentunbalanced += 1;
                     }
@@ -160,16 +160,16 @@ static SEXP find_unbalanced_bracket_impl(SEXP content, SEXP _row, SEXP _col,
             k++;
         }
         while (nunbalanced > 0 && nbracket > 0) {
-            stack_pop(&pos);
-            stack_pop(&codept_pos);
+            languageserver_stack_pop(&pos);
+            languageserver_stack_pop(&codept_pos);
             nunbalanced -= 1;
             nbracket -= 1;
         }
         nunbalanced += ncurrentunbalanced;
-        j = stack_pop(&pos);
-        k = stack_pop(&codept_pos);
-        stack_clear(&pos);
-        stack_clear(&codept_pos);
+        j = languageserver_stack_pop(&pos);
+        k = languageserver_stack_pop(&codept_pos);
+        languageserver_stack_clear(&pos);
+        languageserver_stack_clear(&codept_pos);
         if (nbracket >= 1 && k >= 0) {
             brac[0] = c[j];
             break;
@@ -369,7 +369,7 @@ SEXP missing_closing_delimiters_c(SEXP content) {
     fsm_state state;
     fsm_initialize(&state);
     stack closers;
-    stack_initialize(&closers);
+    languageserver_stack_initialize(&closers);
     int n = 0;
     for (int i = 0; i < ncontent; i++) {
         if (STRING_ELT(content, i) == NA_STRING) continue;
@@ -392,17 +392,17 @@ SEXP missing_closing_delimiters_c(SEXP content) {
                     fsm_feed(&state, cj);
                     continue;
                 } else if (cj == '(') {
-                    stack_push(&closers, ')');
+                    languageserver_stack_push(&closers, ')');
                     n++;
                 } else if (cj == '[') {
-                    stack_push(&closers, ']');
+                    languageserver_stack_push(&closers, ']');
                     n++;
                 } else if (cj == '{') {
-                    stack_push(&closers, '}');
+                    languageserver_stack_push(&closers, '}');
                     n++;
                 } else if (cj == ')' || cj == ']' || cj == '}') {
                     if (n > 0) {
-                        stack_pop(&closers);
+                        languageserver_stack_pop(&closers);
                         n--;
                     }
                 }
@@ -413,9 +413,9 @@ SEXP missing_closing_delimiters_c(SEXP content) {
     }
     char *buf = (char *) R_alloc((size_t) n + 1, sizeof(char));
     for (int i = 0; i < n; i++) {
-        buf[i] = (char) stack_pop(&closers);
+        buf[i] = (char) languageserver_stack_pop(&closers);
     }
     buf[n] = '\0';
-    stack_clear(&closers);
+    languageserver_stack_clear(&closers);
     return Rf_mkString(buf);
 }

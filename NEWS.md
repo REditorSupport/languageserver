@@ -1,5 +1,8 @@
 # languageserver (development)
 
+- Fix a native symbol collision that broke `collections` stack operations
+  when languageserver was loaded first in webR (#902).
+
 - Rename and Find References distinguish lexical variables from column names
   in data.table queries and common dplyr and base R data masks. An explicit
   `.env$name` selects the enclosing binding. Rename declines edits when a
